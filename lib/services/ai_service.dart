@@ -555,10 +555,11 @@ class AiService {
           final image = img.decodeImage(Uint8List.fromList(bytes));
           if (image != null) {
             img.Image resized = image;
-            if (image.width > 1200) {
-              resized = img.copyResize(image, width: 1200);
+            // 并发模式下降低分辨率上限（900px/65%），减少单次请求体积，换取更快的响应时间
+            if (image.width > 900) {
+              resized = img.copyResize(image, width: 900);
             }
-            bytes = img.encodeJpg(resized, quality: 75);
+            bytes = img.encodeJpg(resized, quality: 65);
             debugPrint('多图预处理: 图片 $path 已压缩至 ${bytes.length / 1024} KB');
           }
         } catch (e) {
@@ -587,7 +588,7 @@ class AiService {
             "contents": [{"parts": [{"text": prompt}, ...imageContents]}],
             "generationConfig": {"temperature": temp}
           }),
-        ).timeout(const Duration(minutes: 5));
+        ).timeout(const Duration(minutes: 8));
 
         if (res.statusCode == 200) {
           debugPrint("✅ Gemini Vision 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
@@ -608,7 +609,7 @@ class AiService {
             "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, ...imageContents]}],
             "temperature": temp
           }),
-        ).timeout(const Duration(minutes: 5));
+        ).timeout(const Duration(minutes: 8));
 
         if (res.statusCode == 200) {
           debugPrint("✅ Vision API 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");

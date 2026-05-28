@@ -188,8 +188,20 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                       }
                       await Future.delayed(const Duration(seconds: 3));
                       return; // 当前 Worker 生命周期结束
+                    } else if (errorStr.contains('timeout') || errorStr.contains('timedout') || errorStr.contains('timed out')) {
+                      // 超时：同样将图片插回队首，降频后重试，而非直接崩溃
+                      pendingImages.insert(0, path);
+                      if (maxConcurrency > 1) {
+                        maxConcurrency--;
+                        TaskManager.instance.updateProgress(taskId, '⏱️ 单页超时，自动降频至 $maxConcurrency 线程并重试...', 0.3 + (completedPages / totalPages) * 0.4);
+                      } else {
+                        // 已经是单线程还超时，等待后重试
+                        TaskManager.instance.updateProgress(taskId, '⏱️ 网络超时，等待 10 秒后重试当前页...', 0.3 + (completedPages / totalPages) * 0.4);
+                        await Future.delayed(const Duration(seconds: 10));
+                      }
+                      return; // 当前 Worker 生命周期结束，外层 while 会重新调度
                     } else {
-                      throw e; // 抛出其他致命错误
+                      throw e; // 其他致命错误（如服务器 500）直接抛出
                     }
                   }
                 }
