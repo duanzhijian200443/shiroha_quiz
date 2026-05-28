@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:async';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
 import '../../core/database/database_helper.dart';
 import 'question_edit_screen.dart';
 import '../widgets/markdown_extensions.dart';
@@ -81,16 +79,10 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
   }
 
   Widget _buildMarkdown(String data, {Color? overrideColor}) {
-    return MarkdownBody(
-      data: data,
-      selectable: true,
-      extensionSet: latexExtensionSet,
-      builders: {
-        'latex': RobustLatexElementBuilder(
-          textStyle: TextStyle(color: overrideColor ?? Theme.of(context).textTheme.bodyMedium?.color),
-        ),
-      },
-      imageBuilder: (uri, title, alt) => buildMarkdownImage(uri, title, alt),
+    return buildLatexWidget(
+      context,
+      data,
+      textColor: overrideColor,
     );
   }
 
@@ -151,7 +143,10 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
                     List<dynamic> opts = json.decode(q['options'] ?? '[]');
                     for (int i = 0; i < opts.length; i++) {
                       String label = String.fromCharCode(65 + i);
-                      optionsDisplay += '**$label.** ${opts[i]}\n\n';
+                      String optStr = opts[i].toString().trim();
+                      String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+                      if (stripped.isEmpty) stripped = optStr;
+                      optionsDisplay += '**$label.** $stripped\n\n';
                     }
                   } catch (_) {}
                 }
@@ -195,7 +190,11 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
                         const Divider(height: 24),
                         const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
-                        _buildMarkdown(q['standard_answer']?.toString() ?? '', overrideColor: Colors.green),
+                        _buildMarkdown(
+                          // 取 ||| 分隔符前的答案部分（||| 后面是解析，不该显示在此处）
+                          (q['standard_answer']?.toString() ?? '').split('|||').first.trim(),
+                          overrideColor: Colors.green,
+                        ),
                         const SizedBox(height: 12),
                         const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),

@@ -1,4 +1,4 @@
-﻿
+
 import 'dart:convert';
 
 class Question {
@@ -23,15 +23,25 @@ class Question {
   });
 
   factory Question.fromMap(Map<String, dynamic> map) {
+    final rawAnswer = map['standard_answer']?.toString() ?? '';
+    // standard_answer 字段格式：答案字母 ||| 解析文本（历史数据可能无 |||）
+    final parts = rawAnswer.split('|||');
+    final answer = parts.first.trim();
+    // explanation 字段优先取独立字段，否则取 ||| 后的内容兜底
+    final rawExplanation = map['explanation']?.toString();
+    final explanation = (rawExplanation != null && rawExplanation.isNotEmpty)
+        ? rawExplanation
+        : (parts.length > 1 ? parts.sublist(1).join('|||').trim() : null);
+
     return Question(
       id: map['id']?.toString(),
       type: map['type'] as int? ?? 0,
       content: map['content']?.toString() ?? '无内容',
       options: map['options']?.toString() ?? '[]',
-      answer: map['standard_answer']?.toString() ?? '',
+      answer: answer,
       createdAt: map['created_at'] as int? ?? 0,
       bankName: map['bank_name']?.toString() ?? '默认题库',
-      explanation: map['explanation']?.toString(),
+      explanation: explanation,
     );
   }
 

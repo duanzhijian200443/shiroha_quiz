@@ -222,6 +222,37 @@ class _PlanConfigScreenState extends State<PlanConfigScreen> with SingleTickerPr
                     children: [
                       Expanded(child: Text(bank['bank_name'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 1)),
                       if (isCurrent) Text('当前在学', style: TextStyle(color: theme.primaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('删除题库'),
+                              content: Text('确定要永久删除题库「${bank['bank_name']}」及其中所有题目和复习记录吗？此操作不可逆！'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+                                TextButton(
+                                  onPressed: () async {
+                                    Navigator.pop(ctx);
+                                    await DatabaseHelper.instance.deleteQuestionBank(bank['bank_name']);
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('题库已删除')));
+                                      if (isCurrent) {
+                                        await DatabaseHelper.instance.saveSetting('current_bank', '点击修改选择题库');
+                                      }
+                                      _loadData();
+                                    }
+                                  },
+                                  child: const Text('彻底删除', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),

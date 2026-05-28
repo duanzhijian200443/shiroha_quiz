@@ -1,11 +1,7 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
-import 'package:markdown/markdown.dart' as md;
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/database/database_helper.dart';
@@ -13,6 +9,7 @@ import '../../core/review_engine_service.dart';
 import '../../data/models/question.dart';
 import '../../services/llm_service.dart';
 import '../../services/ai_service.dart';
+import '../widgets/markdown_extensions.dart';
 
 class PracticePage extends StatefulWidget {
   final String? bankName;
@@ -250,30 +247,12 @@ class _PracticePageState extends State<PracticePage> {
     final fontWeight = (isOption && isSelected) ? FontWeight.bold : FontWeight.normal;
     final fontSize = isOption ? 15.0 : 16.0;
 
-    return MarkdownBody(
-      data: _formatLatex(text),
-      selectable: true,
-      builders: {
-        'latex': RobustLatexElementBuilder(
-          textStyle: TextStyle(color: textColor, fontWeight: fontWeight, fontSize: fontSize),
-        ),
-      },
-      extensionSet: md.ExtensionSet(
-        [LatexBlockSyntax()],
-        [...md.ExtensionSet.gitHubFlavored.inlineSyntaxes, LatexInlineSyntax()],
-      ),
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: TextStyle(fontSize: fontSize, color: textColor, fontWeight: fontWeight, height: 1.6),
-        codeblockDecoration: BoxDecoration(
-          color: theme.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F7FA),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        code: TextStyle(
-          backgroundColor: Colors.transparent,
-          fontFamily: 'monospace',
-          color: theme.primaryColor,
-        ),
-      ),
+    return buildLatexWidget(
+      context,
+      text,
+      textColor: textColor,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
     );
   }
 
@@ -476,7 +455,18 @@ class _PracticePageState extends State<PracticePage> {
                     child: Text(letter, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: lFg))),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildMarkdown(options[i], isOption: true, isSelected: sel),
+                  child: Builder(
+                    builder: (context) {
+                      String optStr = options[i].toString().trim();
+                      String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+                      if (stripped.isEmpty) stripped = optStr;
+                      return _buildMarkdown(
+                        stripped,
+                        isOption: true,
+                        isSelected: sel,
+                      );
+                    },
+                  ),
                 ),
               ])),
         );
@@ -890,46 +880,5 @@ class _PracticePageState extends State<PracticePage> {
     }
   }
 
-  // ── LaTeX 语法强力容错清洗器 ─────────────────────────────────────────────────
-  // 消除 $ 公式 $ 边缘的非法空格，防止渲染引擎拒绝解析
-  // 例如将 "$ z = x $" 强制转换为 "$z = x$"
-  String _formatLatex(String text) {
-    if (text.isEmpty) return text;
-    
-    // 1. 魔法替换：将大模型喜欢用的 \( \) 和 \[ \] 强行转换为 $ 和 $$
-    // 这样就能完美避开 Markdown 引擎的转义吞噬！
-    String result = text.replaceAll(r'\(', '\$');
-    result = result.replaceAll(r'\)', '\$');
-    result = result.replaceAll(r'\[', '\$\$');
-    result = result.replaceAll(r'\]', '\$\$');
-    
-    // 2. 清洗 $ 边缘的非法空格，防止解析器罢工
-    result = result.replaceAll(RegExp(r'\$\s+'), '\$');
-    result = result.replaceAll(RegExp(r'\s+\$'), '\$');
-    
-    return result;}
-}
-class RobustLatexElementBuilder extends MarkdownElementBuilder {
-  final TextStyle textStyle;
-  RobustLatexElementBuilder({required this.textStyle});
 
-  @override
-  Widget visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final String mathText = element.textContent.replaceAll('\$', '');
-    
-    // 核心热修复：注入横向滚动视图，防止超长公式撑爆屏幕
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Math.tex(
-        mathText,
-        textStyle: textStyle,
-        mathStyle: MathStyle.text,
-        onErrorFallback: (err) => Text(
-          '\$${mathText}\$',
-          style: textStyle.copyWith(color: Colors.redAccent),
-        ),
-      ),
-    );
-  }
 }

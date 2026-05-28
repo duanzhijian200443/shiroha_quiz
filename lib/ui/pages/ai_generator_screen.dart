@@ -1,15 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:markdown/markdown.dart' as md;
 import 'package:uuid/uuid.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
 import '../../services/ai_service.dart';
 import '../../core/database/database_helper.dart';
-import '../../utils/ai_data_sanitizer.dart';
-import '../widgets/markdown_extensions.dart' show buildMarkdownImage, RobustLatexElementBuilder;
+import '../widgets/markdown_extensions.dart';
 
 /// AI 智能组卷页面
 /// - 用户输入知识点，调用 AiService.generateQuestions，展示题目卡片
@@ -252,27 +247,11 @@ class _AiQuizScreenState extends State<AiQuizScreen>
 
     // ── Markdown 渲染辅助方法 ─────────────────────────────────────────────────
     Widget _buildMarkdown(String text, ThemeData theme) {
-        return MarkdownBody(
-            data: AiDataSanitizer.formatLatex(text),
-            selectable: true,
-            imageBuilder: buildMarkdownImage,
-            builders: {
-                'latex': RobustLatexElementBuilder(
-                    textStyle: TextStyle(color: theme.textTheme.bodyLarge?.color, fontSize: 14),
-                ),
-            },
-            extensionSet: md.ExtensionSet(
-                [LatexBlockSyntax()],
-                [LatexInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
-            ),
-            styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-                p: TextStyle(fontSize: 14, color: theme.textTheme.bodyLarge?.color, height: 1.6),
-                codeblockDecoration: BoxDecoration(
-                    color: theme.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F7FA),
-                    borderRadius: BorderRadius.circular(8),
-                ),
-                code: TextStyle(backgroundColor: Colors.transparent, fontFamily: 'monospace', color: theme.primaryColor),
-            ),
+        return buildLatexWidget(
+            context,
+            text,
+            textColor: theme.textTheme.bodyLarge?.color,
+            fontSize: 14.0,
         );
     }
 

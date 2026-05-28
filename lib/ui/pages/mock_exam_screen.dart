@@ -2,14 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:markdown/markdown.dart' as md;
 import '../../services/ai_service.dart';
 import '../../core/database/database_helper.dart';
-import '../../main.dart'; // 获取 rootScaffoldMessengerKey
-import '../../utils/ai_data_sanitizer.dart';
-import '../widgets/markdown_extensions.dart' show buildMarkdownImage, RobustLatexElementBuilder;
+import '../../main.dart';
+import '../widgets/markdown_extensions.dart';
 
 class MockExamScreen extends StatefulWidget {
   final String paperId; // 核心新增：试卷唯一 ID
@@ -163,26 +159,14 @@ class _MockExamScreenState extends State<MockExamScreen> {
   }
 
   Widget _buildMarkdown(String text, {bool isOption = false, Color? overrideColor, FontWeight? fontWeight}) {
-    final theme = Theme.of(context);
-    final textColor = overrideColor ?? theme.textTheme.bodyLarge?.color;
+    final textColor = overrideColor ?? Theme.of(context).textTheme.bodyLarge?.color;
     final fontSize = isOption ? 15.0 : 16.0;
-
-    return MarkdownBody(
-      data: AiDataSanitizer.formatLatex(text),
-      selectable: true,
-      imageBuilder: buildMarkdownImage,
-      builders: {
-        'latex': RobustLatexElementBuilder(textStyle: TextStyle(color: textColor, fontSize: fontSize, fontWeight: fontWeight)),
-      },
-      extensionSet: md.ExtensionSet(
-        [LatexBlockSyntax()],
-        [LatexInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
-      ),
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: TextStyle(fontSize: fontSize, color: textColor, height: 1.6, fontWeight: fontWeight),
-        codeblockDecoration: BoxDecoration(color: theme.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F7FA), borderRadius: BorderRadius.circular(8)),
-        code: TextStyle(backgroundColor: Colors.transparent, fontFamily: 'monospace', color: theme.primaryColor),
-      ),
+    return buildLatexWidget(
+      context,
+      text,
+      textColor: textColor,
+      fontSize: fontSize,
+      fontWeight: fontWeight ?? FontWeight.normal,
     );
   }
 
@@ -229,7 +213,12 @@ class _MockExamScreenState extends State<MockExamScreen> {
                   border: Border.all(color: isSelected ? Theme.of(context).primaryColor : Colors.grey.withOpacity(0.2), width: isSelected ? 2 : 1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: _buildMarkdown(options[optIndex].toString(), isOption: true, overrideColor: isSelected ? Theme.of(context).primaryColor : null, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+                child: _buildMarkdown(
+                  options[optIndex].toString().replaceFirst(RegExp(r'^([A-D][\.、]?|\([A-D]\))\s*'), '').trim(),
+                  isOption: true,
+                  overrideColor: isSelected ? Theme.of(context).primaryColor : null,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
               ),
             );
           })

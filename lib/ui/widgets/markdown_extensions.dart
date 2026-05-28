@@ -1,9 +1,14 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:path_provider/path_provider.dart';// ================================================================
+import 'package:path_provider/path_provider.dart';
+import '../../utils/ai_data_sanitizer.dart';
+
 //  LaTeX inline syntax: $...$ (produces 'latex' element with MathStyle=text)
 // ================================================================
 
@@ -85,13 +90,13 @@ class LatexBlockSyntax extends md.BlockSyntax {
 
       if (isCloseLine) {
         if (trailing.isNotEmpty) {
-          if (buffer.isNotEmpty) buffer.write(' ');
+          if (buffer.isNotEmpty) buffer.write('\n');
           buffer.write(trailing);
         }
         parser.advance();
         break;
       } else {
-        if (buffer.isNotEmpty) buffer.write(' ');
+        if (buffer.isNotEmpty) buffer.write('\n');
         buffer.write(line);
         parser.advance();
       }
@@ -369,19 +374,113 @@ class RobustLatexElementBuilder extends MarkdownElementBuilder {
         mathStyle = MathStyle.text;
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Math.tex(
-        mathText,
-        textStyle: textStyle,
-        mathStyle: mathStyle,
-        onErrorFallback: (err) => SelectableText(
-          '\$ $mathText \$',
-          style: textStyle.copyWith(color: Colors.redAccent),
+    // flutter_math_fork 在宽度约束为 0时会产生 RenderResetDimension 崩溃。
+    // 用 LayoutBuilder 确保传入布局的宽度永远大于 0。
+    return LayoutBuilder(builder: (context, constraints) {
+      final safeWidth = constraints.maxWidth > 0
+          ? constraints.maxWidth
+          : MediaQuery.of(context).size.width - 32;
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: safeWidth),
+          child: Math.tex(
+            mathText,
+            textStyle: textStyle,
+            mathStyle: mathStyle,
+            onErrorFallback: (err) => SelectableText(
+              '\$ $mathText \$',
+              style: textStyle.copyWith(color: Colors.redAccent),
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
+// ================================================================
+//  统一 LaTeX 渲染入口 — 基于 gpt_markdown
+//  所有题目内容渲染请调用此函数，不要直接使用 MarkdownBody
+//
+//  gpt_markdown 天然支持：
+//    \( \)  行内公式
+//    \[ \]  块级公式
+//    $ $    行内（需 useDollarSignsForLatex: true）
+//    $$ $$  块级（需 useDollarSignsForLatex: true）
+//    \begin{...}...\end{...} 环境
+// ================================================================
+
+/// 渲染含 LaTeX 的 Markdown 文本。
+/// - [text] 原始内容，会先经过 [AiDataSanitizer.formatLatex] 清洗
+/// - [textColor] 覆盖文字颜色（选中/高亮选项使用）
+/// - [fontSize] 字体大小，默认 16
+/// - [fontWeight] 字重，默认 normal
+
+Widget buildLatexWidget(
+  BuildContext context,
+  String text, {
+  Color? textColor,
+  double fontSize = 16.0,
+  FontWeight fontWeight = FontWeight.normal,
+}) {
+  final theme = Theme.of(context);
+  final color = textColor ?? theme.textTheme.bodyLarge?.color ?? Colors.black87;
+  final cleaned = AiDataSanitizer.formatLatex(text);
+
+  return GptMarkdown(
+    cleaned,
+    style: TextStyle(fontSize: fontSize, color: color, fontWeight: fontWeight, height: 1.65),
+    imageBuilder: (context, url, width, height) {
+      return buildMarkdownImage(Uri.parse(url), null, null);
+    },
+    latexBuilder: (context, tex, textStyle, inline) {
+      final mathWidget = Math.tex(
+        tex,
+        textStyle: textStyle.copyWith(color: color, fontSize: fontSize),
+        mathStyle: inline ? MathStyle.text : MathStyle.display,
+        textScaleFactor: 1.0,
+        settings: const TexParserSettings(strict: Strict.ignore),
+        onErrorFallback: (err) => SelectableText(
+          inline ? '\$$tex\$' : '\$\$$tex\$\$',
+          style: textStyle.copyWith(color: Colors.orangeAccent),
+        ),
+      );
+
+      if (inline) {
+        // 内联公式直接放在 WidgetSpan 中，保留最原生的基线对齐
+        // 使用 ConstrainedBox + FittedBox 防止超长公式溢出屏幕，同时保持基线对齐
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.85,
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: mathWidget,
+          ),
+        );
+      } else {
+        // 块级公式可以直接使用 ScrollView 以支持横向滑动
+        return ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {
+              PointerDeviceKind.touch,
+              PointerDeviceKind.mouse,
+              PointerDeviceKind.trackpad,
+            },
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: mathWidget,
+            ),
+          ),
+        );
+      }
+    },
+  );
+}

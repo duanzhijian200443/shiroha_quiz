@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:markdown/markdown.dart' as md;
 import '../../core/database/database_helper.dart';
-import '../../utils/ai_data_sanitizer.dart';
-import '../widgets/markdown_extensions.dart' show buildMarkdownImage, RobustLatexElementBuilder;
+import '../widgets/markdown_extensions.dart';
 
 class PaperReviewScreen extends StatefulWidget {
   final String paperId;
@@ -37,26 +33,13 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
   }
 
   Widget _buildMarkdown(String text, {bool isOption = false, Color? overrideColor}) {
-    final theme = Theme.of(context);
-    final textColor = overrideColor ?? (isOption ? theme.textTheme.bodyLarge?.color : theme.textTheme.bodyLarge?.color);
+    final textColor = overrideColor ?? Theme.of(context).textTheme.bodyLarge?.color;
     final fontSize = isOption ? 14.0 : 15.0;
-
-    return MarkdownBody(
-      data: AiDataSanitizer.formatLatex(text),
-      selectable: true,
-      imageBuilder: buildMarkdownImage,
-      builders: {
-        'latex': RobustLatexElementBuilder(textStyle: TextStyle(color: textColor, fontSize: fontSize)),
-      },
-      extensionSet: md.ExtensionSet(
-        [LatexBlockSyntax()],
-        [LatexInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
-      ),
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: TextStyle(fontSize: fontSize, color: textColor, height: 1.6),
-        codeblockDecoration: BoxDecoration(color: theme.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F7FA), borderRadius: BorderRadius.circular(8)),
-        code: TextStyle(backgroundColor: Colors.transparent, fontFamily: 'monospace', color: theme.primaryColor),
-      ),
+    return buildLatexWidget(
+      context,
+      text,
+      textColor: textColor,
+      fontSize: fontSize,
     );
   }
 
@@ -76,7 +59,9 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                 final type = q['type'] as int? ?? 0;
                 final isCorrect = (q['is_correct'] as int? ?? 0) == 1;
                 final uAns = q['user_answer']?.toString() ?? '';
-                final sAns = q['standard_answer']?.toString() ?? '';
+                // ||| 前是答案字母，后是解析内容
+                final sAnsRaw = q['standard_answer']?.toString() ?? '';
+                final sAns = sAnsRaw.split('|||').first.trim();
 
                 List<dynamic> options = [];
                 if (type == 0 && q['options'] != null) {
@@ -124,10 +109,13 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                               bgColor = theme.scaffoldBackgroundColor; borderColor = Colors.grey.withOpacity(0.2);
                             }
 
+                            String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+                            if (stripped.isEmpty) stripped = optStr;
+
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(color: bgColor, border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(8)),
-                              child: _buildMarkdown(optStr),
+                              child: _buildMarkdown('**$optionLetter.** $stripped'),
                             );
                           }),
                         ] else ...[

@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../core/database/database_helper.dart';
-
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:markdown/markdown.dart' as md;
-import '../../utils/ai_data_sanitizer.dart';
-import '../widgets/markdown_extensions.dart' show buildMarkdownImage, RobustLatexElementBuilder;
+import '../widgets/markdown_extensions.dart';
 
 class QuestionEditScreen extends StatefulWidget {
   final Map<String, dynamic> question;
@@ -86,35 +81,13 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
   }
 
   Widget _buildMarkdown(String text, {bool isOption = false}) {
-    final theme = Theme.of(context);
-    final textColor = theme.textTheme.bodyLarge?.color;
+    final textColor = Theme.of(context).textTheme.bodyLarge?.color;
     final fontSize = isOption ? 15.0 : 16.0;
-
-    return MarkdownBody(
-      data: AiDataSanitizer.formatLatex(text),
-      selectable: true,
-      imageBuilder: buildMarkdownImage,
-      builders: {
-        'latex': RobustLatexElementBuilder(
-          textStyle: TextStyle(color: textColor, fontSize: fontSize),
-        ),
-      },
-      extensionSet: md.ExtensionSet(
-        [LatexBlockSyntax()],
-        [LatexInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
-      ),
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: TextStyle(fontSize: fontSize, color: textColor, height: 1.6),
-        codeblockDecoration: BoxDecoration(
-          color: theme.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F7FA),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        code: TextStyle(
-          backgroundColor: Colors.transparent,
-          fontFamily: 'monospace',
-          color: theme.primaryColor,
-        ),
-      ),
+    return buildLatexWidget(
+      context,
+      text,
+      textColor: textColor,
+      fontSize: fontSize,
     );
   }
 

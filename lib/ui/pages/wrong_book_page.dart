@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
 import 'package:shiroha_quiz/core/review_engine_service.dart';
 import '../widgets/markdown_extensions.dart';
+import '../../utils/ai_data_sanitizer.dart';
 
 class WrongBookPage extends StatefulWidget {
   const WrongBookPage({super.key});
@@ -132,7 +132,8 @@ class _WrongBookPageState extends State<WrongBookPage> {
         final lapses = (q['lapses'] as num?)?.toInt() ?? 0;
         final difficulty = (q['difficulty'] as num?)?.toDouble() ?? 0.0;
         final stability = (q['stability'] as num?)?.toDouble() ?? 0.0;
-        final answer = (q['standard_answer'] as String?) ?? '';
+        // ||| 前是答案，后是解析
+        final answer = ((q['standard_answer'] as String?) ?? '').split('|||').first.trim();
         final options = _parseOptions(q['options'] as String?);
 
         final mdText = StringBuffer();
@@ -143,7 +144,10 @@ class _WrongBookPageState extends State<WrongBookPage> {
         if (options.isNotEmpty) {
           mdText.writeln('#### 选项');
           for (int i = 0; i < options.length; i++) {
-            mdText.writeln('${String.fromCharCode(65 + i)}. ${options[i]}');
+            String optStr = options[i].toString().trim();
+            String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+            if (stripped.isEmpty) stripped = optStr;
+            mdText.writeln('${String.fromCharCode(65 + i)}. $stripped');
           }
           mdText.writeln();
         }
@@ -196,16 +200,9 @@ class _WrongBookPageState extends State<WrongBookPage> {
               ),
             ),
             children: [
-              MarkdownBody(
-                data: mdText.toString(),
-                selectable: true,
-                extensionSet: latexExtensionSet,
-                builders: {
-                  'math': MathElementBuilder(),
-                  'math_block': MathBlockBuilder(),
-                  'code': CodeBlockBuilder(),
-                },
-                styleSheet: markdownSheet(context),
+              buildLatexWidget(
+                context,
+                AiDataSanitizer.formatLatex(mdText.toString()),
               ),
             ],
           ),

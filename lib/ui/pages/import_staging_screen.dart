@@ -1,12 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:markdown/markdown.dart' as md;
 import '../../core/database/database_helper.dart';
-import '../../utils/ai_data_sanitizer.dart';
-import '../widgets/markdown_extensions.dart' show buildMarkdownImage, RobustLatexElementBuilder;
-import '../../main.dart'; // 为了调用 globalBankUpdateNotifier
+import '../widgets/markdown_extensions.dart';
+import '../../main.dart';
 
 class ImportStagingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> parsedQuestions;
@@ -35,33 +31,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Widget _buildMarkdown(String text) {
-    final theme = Theme.of(context);
-    final textColor = theme.textTheme.bodyLarge?.color;
-    return MarkdownBody(
-      data: AiDataSanitizer.formatLatex(text),
-      selectable: true,
-      imageBuilder: buildMarkdownImage,
-      builders: {
-        'latex': RobustLatexElementBuilder(
-          textStyle: TextStyle(color: textColor, fontSize: 14),
-        ),
-      },
-      extensionSet: md.ExtensionSet(
-        [LatexBlockSyntax()],
-        [LatexInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
-      ),
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: TextStyle(fontSize: 14, color: textColor, height: 1.5),
-        codeblockDecoration: BoxDecoration(
-          color: theme.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F7FA),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        code: TextStyle(
-          backgroundColor: Colors.transparent,
-          fontFamily: 'monospace',
-          color: theme.primaryColor,
-        ),
-      ),
+    return buildLatexWidget(
+      context,
+      text,
+      textColor: Theme.of(context).textTheme.bodyLarge?.color,
+      fontSize: 14.0,
     );
   }
 

@@ -129,9 +129,7 @@ class AiDataSanitizer {
     result = result.replaceAll('∠', r'\angle ');
     result = result.replaceAll('△', r'\triangle ');
 
-
-    // 0. 把公式内结尾的连续下划线移出公式，解决填空题下划线破坏 Markdown 加粗渲染的问题
-    // 兼容大模型截断导致的闭合 $ 丢失的情况
+    // 0. 把公式内结尾的连续下划线移出公式
     result = result.replaceAllMapped(RegExp(r'\$([^\$]+?)(_{2,}[^a-zA-Z\u4e00-\u9fa5$]*\$?)'), (match) {
         String mathPart = match.group(1)!;
         String underscorePart = match.group(2)!;
@@ -142,13 +140,7 @@ class AiDataSanitizer {
     });
 
     // 0.1 【核心反转义 — 白名单安全模式】
-    //    问题根源：旧版贪婪正则 \\([a-zA-Z...]) 会把矩阵/方程组换行符 \\ 后面跟着的
-    //    普通字母（如 \\y、\\AB）也一并吃掉，生成 \y、\AB 等 flutter_math_fork 不认识的
-    //    非法命令，导致 ParseException 崩溃并渲染红色错误文本。
-    //    修复方案：只对白名单中已知合法的 LaTeX 命令执行 \\ → \ 的降级，其余一律放行。
     const knownCmdsSet = {'frac', 'sum', 'int', 'oint', 'iint', 'iiint', 'prod', 'coprod', 'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'varpi', 'rho', 'varrho', 'sigma', 'varsigma', 'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega', 'infty', 'limits', 'left', 'right', 'begin', 'end', 'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'max', 'min', 'lim', 'sqrt', 'cdot', 'cdots', 'ldots', 'times', 'div', 'pm', 'mp', 'neq', 'leq', 'geq', 'approx', 'equiv', 'propto', 'in', 'notin', 'subset', 'supset', 'cup', 'cap', 'emptyset', 'forall', 'exists', 'nabla', 'partial', 'mathbf', 'mathrm', 'mathit', 'mathbb', 'mathcal', 'text', 'textbf', 'textit', 'underline', 'overline', 'hat', 'tilde', 'vec', 'dot', 'ddot', 'overbrace', 'underbrace', 'cases', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix', 'array', 'boldsymbol', 'widehat', 'widetilde', 'operatorname', 'DeclareMathOperator', 'mid', 'nmid', 'to', 'gets', 'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow', 'iff', 'implies', 'xrightarrow', 'xleftarrow', 'bigoplus', 'bigotimes', 'bigcup', 'bigcap', 'biguplus', 'bigwedge', 'bigvee', 'lfloor', 'rfloor', 'lceil', 'rceil', 'langle', 'rangle', 'binom', 'dbinom', 'tbinom', 'stackrel', 'overset', 'underset', 'pmod', 'because', 'therefore', 'ell', 'perp', 'parallel', 'angle', 'Im', 'Re', 'not', 'quad', 'qquad', 'sim', 'simeq', 'cong', 'geqslant', 'leqslant', 'ge', 'le', 'd'};
-    // 步骤 A：仅对白名单命令执行 \\cmd → \cmd 降级。
-    // 使用 [a-zA-Z]+ 配合 Set 查找，避免了 \b 遇到下划线（如 \\int_1）时边界匹配失败的问题。
     result = result.replaceAllMapped(RegExp(r'\\\\([a-zA-Z]+)'), (match) {
       final cmd = match.group(1)!;
       if (knownCmdsSet.contains(cmd)) {
@@ -156,102 +148,107 @@ class AiDataSanitizer {
       }
       return match.group(0)!;
     });
-    // 步骤 B：针对特殊括号 \{ \} \[ \] \| 单独降级（这些不是换行符，可以安全处理）
     result = result.replaceAllMapped(RegExp(r'\\\\([{(}\[\]|])'), (match) {
       return r'\' + match.group(1)!;
     });
     
-    // Fix LLM using \( \) or \[ \] outside of $
-    result = result.replaceAllMapped(RegExp(r'\\\((.*?)\\\)'), (match) => '\$${match.group(1)}\$');
-    result = result.replaceAllMapped(RegExp(r'\\\[(.*?)\\\]'), (match) => '\$\$${match.group(1)}\$\$');
-
-    // 0.4 【解救代码块】大模型常常将 LaTeX 公式包在 markdown 代码块里（如 `$...$` 或 ```math ... ```）
-    // 这种情况下，flutter_markdown 会优先把它解析为代码块，并使用红色等宽字体渲染，导致公式失效并截断。
-    // 规则A：剥离单反引号包裹的公式（允许反引号和$之间有空格）：` $...$ ` -> $...$
+    // 解救代码块和图片
     result = result.replaceAllMapped(RegExp(r'`\s*(\$+[^\$`]+?\$+)\s*`'), (match) => match.group(1)!);
-    // 规则B：剥离多行代码块包裹的公式：```math \n ... \n ``` -> $$...$$
+    
+    // 核心修复：修复大模型错误的公式闭合，例如 $\frac$ {5}{8} 变成 $\frac{5}{8}$
+    result = result.replaceAllMapped(RegExp(r'\$(\\[a-zA-Z]+)\$\s*(\{.*?\}(?:\s*\{.*?\})*)'), (match) {
+      return '\$${match.group(1)}${match.group(2)}\$';
+    });
+
     result = result.replaceAllMapped(RegExp(r'```(?:math|latex|tex)?\s*([\s\S]+?)\s*```'), (match) {
         String inner = match.group(1)!.trim();
-        // 如果它自己已经有 $$ 包裹了，就只脱去 ``` 外衣
         if (inner.startsWith(r'$') && inner.endsWith(r'$')) {
             return '\n\n$inner\n\n';
         }
-        // 如果是纯公式，给它套上 $$
         return '\n\n\$\$$inner\$\$\n\n';
     });
-
-    // 0.5 【核心解救图片】如果图片标签被旧版逻辑或大模型误包裹了 $，强行剥离它
-    // 例如：$![](sandbox://...)$ 会被剥离成 ![](sandbox://...)
     result = result.replaceAllMapped(RegExp(r'\$+(!\[.*?\]\(.*?\))\$+'), (match) => match.group(1)!);
 
-    // Auto-wrap unwrapped math segments
-    result = result.replaceAllMapped(RegExp(r'([^\u4e00-\u9fa5，。、！？：；（）\n]+)'), (match) {
-        String segment = match.group(1)!;
-        // 绝对保护：如果片段包含图片 Markdown 标签 ![]()，跳过不处理
-        if (segment.contains('![')) return segment;
-        if (segment.contains(r'$')) return segment;
-        // 排除路径中的下划线（如 sandbox://xxx/_page_1_Figure.jpeg），只计算非路径中的 _
-        String segmentNoUrl = segment.replaceAll(RegExp(r'https?://\S+|sandbox://\S+'), '');
-        bool hasMathUnderscore = segmentNoUrl.replaceAll(RegExp(r'_{2,}'), '').contains('_');
-        
-        // 只要片段内包含任何已知白名单命令，就断定它是漏掉的公式
-        bool hasMathCmd = RegExp(r'\\([a-zA-Z]+)').allMatches(segment).any((m) => knownCmdsSet.contains(m.group(1)));
-
-        if (segment.contains(r'\frac') || segment.contains(r'\partial') || 
-            segment.contains(r'\lim') || segment.contains(r'\int') || 
-            segment.contains(r'\sum') || segment.contains(r'\prod') || 
-            segment.contains(r'^') || hasMathUnderscore || segment.contains(r'\begin') ||
-            hasMathCmd) {
-            if (segment.contains(r'\begin')) {
-                return '\n\n\$\$$segment\$\$\n\n';
-            }
-            return '\$$segment\$';
-        }
-        return segment;
-    });
-
-    // 使用 (?![a-zA-Z]) 避免误将 \neq 等 LaTeX 关键字里的 \n 替换成换行符！
     result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
     result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
 
-    // 强制将不支持的 split 环境替换为 flutter_math_fork 支持的 aligned 环境
     result = result.replaceAll(r'\begin{split}', r'\begin{aligned}');
     result = result.replaceAll(r'\end{split}', r'\end{aligned}');
 
-    // 1. 自动为单 $ 公式两端补充空格，打破中文无边界导致的正则失效（flutter_markdown_latex 强依赖边界）
-    // 2. 强制将包含了 \begin 的单 $ 升级为双 $$ 块级公式
-    // 3. 剥离普通单 $ 公式内部的非法换行符，防止 inline 语法解析跨行失败
-    // 4. 智能闭合缺失的 \right 防止崩溃
-    result = result.replaceAllMapped(RegExp(r'(?<!\$)\$([^\$]+?)\$(?!\$)'), (match) {
-        String inner = match.group(1)!;
-        inner = _autoCloseLeftRight(inner);
-        // 防崩溃：强制把内嵌的中文字符包裹进 \text{}，避免 parser 崩溃报错变红
-        inner = inner.replaceAllMapped(RegExp(r'(?<!\\text\{)([\u4e00-\u9fa5]+)'), (m) {
-             return r'\text{' + m.group(1)! + r'}';
-        });
-        if (inner.contains(r'\begin')) {
-            return '\n\n\$\$$inner\$\$\n\n';
-        }
-        inner = inner.replaceAll('\n', ' ');
-        return ' \$${inner}\$ ';
+    // 替换 AI 常见的转义填空线 \_\_\_ 为正常的 ___
+    result = result.replaceAllMapped(RegExp(r'(\\_){2,}'), (match) {
+      return '_' * (match.group(0)!.length ~/ 2);
     });
+
+    // ==========================================
+    // TOKENIZER: 智能切分，保护现有公式环境
+    // ==========================================
+    final pattern = RegExp(r'(\$\$.*?\$\$)|(\\\[.*?\\\])|(\\\(.*?\\\))|(\$.*?\$)|(\\begin\{[a-zA-Z*]+\}.*?\\end\{[a-zA-Z*]+\})', dotAll: true);
     
-    // 深度清理大模型产生的 $$$...$$$ 或更多 $ 的套娃行为
-    result = result.replaceAllMapped(RegExp(r'\$\$+([^\$]+?)\$\$+'), (match) {
-        String inner = match.group(1)!.trim();
-        inner = _autoCloseLeftRight(inner);
-        // 防崩溃：强制把内嵌的中文字符包裹进 \text{}，避免 parser 崩溃报错变红
-        inner = inner.replaceAllMapped(RegExp(r'(?<!\\text\{)([\u4e00-\u9fa5]+)'), (m) {
-             return r'\text{' + m.group(1)! + r'}';
-        });
-        // 如果是短公式（不包含换行，也没有矩阵/方程组），强转为行内公式
-        if (inner.length < 80 && !inner.contains('\n') && !inner.contains(r'\begin')) {
-            return ' \$${inner}\$ ';
+    List<String> tokens = [];
+    int lastEnd = 0;
+    
+    for (final match in pattern.allMatches(result)) {
+      if (match.start > lastEnd) {
+        tokens.add(result.substring(lastEnd, match.start));
+      }
+      tokens.add(match.group(0)!);
+      lastEnd = match.end;
+    }
+    if (lastEnd < result.length) {
+      tokens.add(result.substring(lastEnd));
+    }
+
+    // 数学符号特征正则 (包含纯数字与变量混合的情况，用于捕获散落公式)
+    final mathFeature = RegExp(r'(?:[xyztXYZTabcABC]\s*=\s*[-0-9\.]+|[xyzt]\s*[-+*/=><]\s*[-0-9\.]+|[-0-9\.]+\s*[<>≤≥]\s*[-0-9\.]+|[xyz]\s*∈|\\[a-zA-Z]+|\^\{?[0-9a-zA-Z]\}?|_[0-9a-zA-Z]|\\[a-zA-Z]+\{[^}]+\})');
+    
+    // ==========================================
+    // RECONSTRUCT
+    // ==========================================
+    StringBuffer sb = new StringBuffer();
+    for (String token in tokens) {
+      if (token.startsWith(r'\begin') || token.startsWith(r'$$') || 
+          token.startsWith(r'\[') || token.startsWith(r'\(') || 
+          token.startsWith(r'$')) {
+        // 已经是公式环境，安全处理内部
+        String inner = token;
+        
+        if (token.startsWith(r'$$')) {
+          inner = token.substring(2, token.length - 2).trim();
+          if (inner.endsWith(r'\')) inner = inner.substring(0, inner.length - 1).trim();
+          inner = _autoCloseLeftRight(inner);
+          sb.write('\n\\[${inner}\\]\n');
+        } else if (token.startsWith(r'$')) {
+          inner = token.substring(1, token.length - 1).trim();
+          if (inner.endsWith(r'\')) inner = inner.substring(0, inner.length - 1).trim();
+          inner = _autoCloseLeftRight(inner);
+          inner = inner.replaceAll('\n', ' ');
+          if (inner.contains(r'\begin')) {
+            sb.write('\n\\[${inner}\\]\n');
+          } else {
+            sb.write('\\(${inner}\\)');
+          }
+        } else if (token.startsWith(r'\begin')) {
+          sb.write('\n\\[\n${token}\n\\]\n');
+        } else {
+          sb.write(token);
         }
-        return '\n\n\$\$$inner\$\$\n\n';
-    });
+      } else {
+        // 普通文本，探测是否需要包裹 \( \)
+        String t = token;
+        // 如果包含数学特征，包裹进 \( \) 
+        // （为避免误伤，使用单词边界和更严格的替换规则）
+        if (mathFeature.hasMatch(t)) {
+            // 对散落的类似 y=... 的表达式进行单次安全包裹
+            t = t.replaceAllMapped(RegExp(r'([xyztXYZTabcABC]\s*=\s*[-0-9\.a-zA-Z]+|[-0-9\.]+\s*[=><≤≥]\s*[-0-9\.a-zA-Z]+)'), (m) => '\\(${m.group(1)}\\)');
+            // 对孤立的带反斜杠 LaTeX 关键字包裹
+            t = t.replaceAllMapped(RegExp(r'(?<!\\|\w)(\\[a-zA-Z]+(?:_[^{}\s]+|\^{?[^{}\s]+}?)?)(?!\w)'), (m) => '\\(${m.group(1)}\\)');
+        }
+        sb.write(t);
+      }
+    }
     
-    return result;
+    return sb.toString();
   }
 
   // 智能括号闭合修补，防止大模型截断导致的渲染器崩溃
@@ -269,3 +266,4 @@ class AiDataSanitizer {
     return mathText;
   }
 }
+
