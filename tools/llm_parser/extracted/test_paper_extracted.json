@@ -1,0 +1,26 @@
+{
+  "name": "test_paper",
+  "description": "由 test_paper 自动抽取",
+  "subject": "未分类科目",
+  "chapter": "综合训练",
+  "questions": [
+    {
+      "type": 0,
+      "subject": "计算机组成原理",
+      "chapter": "内存管理-分页与缺页中断",
+      "content": "内存分页中，所谓的缺页中断，这破概念是发生在哪里呢？？",
+      "options": "[\"A. 寄存器里边\", \"B. TLB里面\", \"C. 以上都不对\"]",
+      "standard_answer": "C",
+      "analysis": "缺页中断发生在内存访问时，若页面不在内存中，则触发缺页中断，由操作系统处理。选项A寄存器、B TLB均不直接发生缺页中断，故C正确。"
+    },
+    {
+      "type": 1,
+      "subject": "高等数学",
+      "chapter": "极限与连续-重要极限",
+      "content": "求极限过程运算，在求 n趋向于无穷大的时候，求 $(1 + 1/n)^n$。给我算出来！它的结果就是著名的自然底数 e。",
+      "options": "[]",
+      "standard_answer": "e",
+      "analysis": "这是重要极限 $\\lim_{n \\to \\infty} (1 + \\frac{1}{n})^n = e$，其中 e 是自然对数的底数，约等于 2.71828。"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+Created At: 2026-05-24T05:35:30Z
+Completed At: 2026-05-24T05:35:30Z
+File Path: `file:///c:/Users/34331/shiroha_quiz/lib/ui/pages/import_settings_screen.dart`
+Total Lines: 219
+Total Bytes: 10343
+Showing lines 40 to 100
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+40:   void _dispatchBackgroundTask(Future<List<Map<String, dynamic>>> Function() parseTask) {
+41:     final bankName = _bankNameController.text.trim();
+42:     final folderName = _folderController.text.trim();
+43: 
+44:     if (bankName.isEmpty) {
+45:       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先输入目标题库名称')));
+46:       return;
+47:     }
+48: 
+49:     // 1. 瞬间退回主页，不阻塞用户
+50:     ScaffoldMessenger.of(context).showSnackBar(
+51:       const SnackBar(content: Text('🚀 已转入后台解析，您可以继续使用 App，完成后将自动提醒！'), backgroundColor: Colors.blueAccent)
+52:     );
+53:     Navigator.pop(context);
+54: 
+55:     // 2. 将耗时任务丢入事件循环独立运行
+56:     Future.microtask(() async {
+57:       try {
+58:         final parsedQuestions = await parseTask();
+59:         
+60:         final db = await DatabaseHelper.instance.database;
+61:         await db.transaction((txn) async {
+62:           for (var q in parsedQuestions) {
+63:             final qId = DateTime.now().millisecondsSinceEpoch.toString() + '_' + q.hashCode.toString();
+64:             await txn.insert('questions', {
+65:               'id': qId, 'bank_name': bankName, 'type': q['type'] ?? 0,
+66:               'content': q['content'], 'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
+67:               'standard_answer': q['standard_answer'], 'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+68:             });
+69:             await txn.insert('review_states', {
+70:               'question_id': qId, 'state': 0, 'difficulty': 5.0, 'stability': 0.0,
+71:               'last_review_time': 0, 'next_review_time': 0, 'reps': 0, 'lapses': 0, 'last_lapse_time': 0,
+72:             });
+73:           }
+74:         });
+75: 
+76:         if (folderName.isNotEmpty) {
+77:           await DatabaseHelper.instance.updateBankFolder(bankName, folderName);
+78:         }
+79: 
+80:         // 3. 任务完成，调用全局钥匙弹窗报喜
+81:         rootScaffoldMessengerKey.currentState?.showSnackBar(
+82:           SnackBar(content: Text('🎉 题库 [$bankName] 导入成功！共解析 ${parsedQuestions.length} 题。'), backgroundColor: Colors.green, duration: const Duration(seconds: 4))
+83:         );
+84:       } catch (e) {
+85:         // 任务失败，全局弹窗报错
+86:         rootScaffoldMessengerKey.currentState?.showSnackBar(
+87:           SnackBar(content: Text('❌ 题库 [$bankName] 导入失败: $e'), backgroundColor: Colors.redAccent, duration: const Duration(seconds: 5))
+88:         );
+89:       }
+90:     });
+91:   }
+92: 
+93:   Future<void> _pickAndParseFile() async {
+94:     if (_bankNameController.text.trim().isEmpty) {
+95:       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先输入目标题库名称')));
+96:       return;
+97:     }
+98: 
+99:     final result = await FilePicker.platform.pickFiles(
+100:       type: FileType.custom,
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
