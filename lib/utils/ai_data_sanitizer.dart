@@ -180,10 +180,18 @@ class AiDataSanitizer {
       return '_' * (match.group(0)!.length ~/ 2);
     });
 
+    // 核心修复：将孤立的填空占位符 $____ 标准化为 ____，防止 $ 被 TOKENIZER 误识别为 LaTeX 定界符
+    // 匹配：$ 后面紧跟2个以上下划线，且前后没有别的公式内容
+    result = result.replaceAllMapped(RegExp(r'(?<![\\\$])\$(_+)(?!\$)'), (match) {
+      return match.group(1)!;
+    });
+
     // ==========================================
     // TOKENIZER: 智能切分，保护现有公式环境
     // ==========================================
-    final pattern = RegExp(r'(\$\$.*?\$\$)|(\\\[.*?\\\])|(\\\(.*?\\\))|(\$.*?\$)|(\\begin\{[a-zA-Z*]+\}.*?\\end\{[a-zA-Z*]+\})', dotAll: true);
+    // TOKENIZER 正则：\$ 行内公式捕获组增加负向前瞻，排除 $_ 形式的填空占位符
+    // (?!_+[^$]) 确保 $ 后面不是纯下划线（即填空线），只有真正的公式才会被捕获
+    final pattern = RegExp(r'(\$\$.*?\$\$)|(\\\[.*?\\\])|(\\\(.*?\\\))|(?<![\\])(\$(?!_+(?:$|[^$]))(?!\$)[^$\n]+?\$)|(\\begin\{[a-zA-Z*]+\}.*?\\end\{[a-zA-Z*]+\})', dotAll: true);
     
     List<String> tokens = [];
     int lastEnd = 0;
