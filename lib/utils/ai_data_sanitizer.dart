@@ -129,6 +129,20 @@ class AiDataSanitizer {
       },
     );
 
+    // 8. 【核心定界符转换】$$ → \[...\]（块级）
+    //    必须在 $ → \( 之前处理，避免 $$ 被误识别为两个 $
+    result = result.replaceAllMapped(
+      RegExp(r'\$\$([\s\S]+?)\$\$', dotAll: true),
+      (m) => '\n\n\\[${m.group(1)!.trim()}\\]\n\n',
+    );
+
+    // 9. 【核心定界符转换】$...$ → \(...\)（行内）
+    //    只转换定界符，LaTeX 内容原封不动，是原 200 行 TOKENIZER 的安全精华
+    result = result.replaceAllMapped(
+      RegExp(r'(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)'),
+      (m) => '\\(${m.group(1)!}\\)',
+    );
+
     return result;
   }
 }
