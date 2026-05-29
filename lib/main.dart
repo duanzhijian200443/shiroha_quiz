@@ -45,8 +45,11 @@ void main() async {
     globalThemeNotifier.value = savedTheme;
   }
 
-  // 初始化 flutter_tex MathJax 渲染服务（非 Web 平台必须）
-  await TeXRenderingServer.start();
+  // 初始化 flutter_tex MathJax 渲染服务
+  // Windows/Linux/macOS 桌面端的 webview_flutter 无完整实现，跳过
+  if (Platform.isAndroid || Platform.isIOS) {
+    await TeXRenderingServer.start();
+  }
 
   runApp(const ShirohaQuizApp());
 }
