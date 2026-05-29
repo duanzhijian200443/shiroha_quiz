@@ -84,194 +84,37 @@ class AiDataSanitizer {
     return finalQuestions;
   }
 
-  // 2. LaTeX 公式防吞噬与防崩溃格式化
+  // 2. 极简 LaTeX 公式格式化（剔除所有复杂脆弱的正则，交还渲染权）
   static String formatLatex(String text) {
     if (text.isEmpty) return text;
     String result = text;
 
-    // 0.0 【核心修复：Unicode 符号转 LaTeX】
-    result = result.replaceAll('∑', r'\sum ');
-    result = result.replaceAll('∏', r'\prod ');
-    result = result.replaceAll('∫', r'\int ');
-    result = result.replaceAll('∮', r'\oint ');
-    result = result.replaceAll('α', r'\alpha ');
-    result = result.replaceAll('β', r'\beta ');
-    result = result.replaceAll('γ', r'\gamma ');
-    result = result.replaceAll('θ', r'\theta ');
-    result = result.replaceAll('λ', r'\lambda ');
-    result = result.replaceAll('μ', r'\mu ');
-    result = result.replaceAll('π', r'\pi ');
-    result = result.replaceAll('σ', r'\sigma ');
-    result = result.replaceAll('ω', r'\omega ');
-    result = result.replaceAll('Δ', r'\Delta ');
-    result = result.replaceAll('Ω', r'\Omega ');
-    result = result.replaceAll('∞', r'\infty ');
-    result = result.replaceAll('≈', r'\approx ');
-    result = result.replaceAll('≠', r'\neq ');
-    result = result.replaceAll('≤', r'\leq ');
-    result = result.replaceAll('≥', r'\geq ');
-    result = result.replaceAll('×', r'\times ');
-    result = result.replaceAll('÷', r'\div ');
-    result = result.replaceAll('±', r'\pm ');
-    result = result.replaceAll('∈', r'\in ');
-    result = result.replaceAll('∉', r'\notin ');
-    result = result.replaceAll('⊂', r'\subset ');
-    result = result.replaceAll('⊆', r'\subseteq ');
-    result = result.replaceAll('∪', r'\cup ');
-    result = result.replaceAll('∩', r'\cap ');
-    result = result.replaceAll('∅', r'\emptyset ');
-    result = result.replaceAll('∀', r'\forall ');
-    result = result.replaceAll('∃', r'\exists ');
-    result = result.replaceAll('∵', r'\because ');
-    result = result.replaceAll('∴', r'\therefore ');
-    result = result.replaceAll('⊥', r'\perp ');
-    result = result.replaceAll('∥', r'\parallel ');
-    result = result.replaceAll('∠', r'\angle ');
-    result = result.replaceAll('△', r'\triangle ');
+    // 1. 彻底剥离 <think>...</think> 思考过程标签（以防万一泄露到正文）
+    result = result.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
 
-    // 0. 把公式内结尾的连续下划线移出公式
-    result = result.replaceAllMapped(RegExp(r'\$([^\$]+?)(_{2,}[^a-zA-Z\u4e00-\u9fa5$]*\$?)'), (match) {
-        String mathPart = match.group(1)!;
-        String underscorePart = match.group(2)!;
-        if (underscorePart.endsWith(r'$')) {
-            underscorePart = underscorePart.substring(0, underscorePart.length - 1);
-        }
-        return '\$$mathPart\$$underscorePart';
-    });
-
-    // 0.1 【核心反转义 — 白名单安全模式】
-    const knownCmdsSet = {'frac', 'sum', 'int', 'oint', 'iint', 'iiint', 'prod', 'coprod', 'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'varpi', 'rho', 'varrho', 'sigma', 'varsigma', 'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega', 'infty', 'limits', 'left', 'right', 'begin', 'end', 'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'max', 'min', 'lim', 'sqrt', 'cdot', 'cdots', 'ldots', 'times', 'div', 'pm', 'mp', 'neq', 'leq', 'geq', 'approx', 'equiv', 'propto', 'in', 'notin', 'subset', 'supset', 'cup', 'cap', 'emptyset', 'forall', 'exists', 'nabla', 'partial', 'mathbf', 'mathrm', 'mathit', 'mathbb', 'mathcal', 'text', 'textbf', 'textit', 'underline', 'overline', 'hat', 'tilde', 'vec', 'dot', 'ddot', 'overbrace', 'underbrace', 'cases', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix', 'array', 'boldsymbol', 'widehat', 'widetilde', 'operatorname', 'DeclareMathOperator', 'mid', 'nmid', 'to', 'gets', 'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow', 'iff', 'implies', 'xrightarrow', 'xleftarrow', 'bigoplus', 'bigotimes', 'bigcup', 'bigcap', 'biguplus', 'bigwedge', 'bigvee', 'lfloor', 'rfloor', 'lceil', 'rceil', 'langle', 'rangle', 'binom', 'dbinom', 'tbinom', 'stackrel', 'overset', 'underset', 'pmod', 'because', 'therefore', 'ell', 'perp', 'parallel', 'angle', 'Im', 'Re', 'not', 'quad', 'qquad', 'sim', 'simeq', 'cong', 'geqslant', 'leqslant', 'ge', 'le', 'd'};
-    result = result.replaceAllMapped(RegExp(r'\\\\([a-zA-Z]+)'), (match) {
-      final cmd = match.group(1)!;
-      if (knownCmdsSet.contains(cmd)) {
-        return r'\' + cmd;
-      }
-      return match.group(0)!;
-    });
-    result = result.replaceAllMapped(RegExp(r'\\\\([{(}\[\]|])'), (match) {
-      return r'\' + match.group(1)!;
-    });
-    
-    // 解救代码块和图片
-    result = result.replaceAllMapped(RegExp(r'`\s*(\$+[^\$`]+?\$+)\s*`'), (match) => match.group(1)!);
-    
-    // 核心修复：修复大模型错误的公式闭合，例如 $\frac$ {5}{8} 变成 $\frac{5}{8}$
-    result = result.replaceAllMapped(RegExp(r'\$(\\[a-zA-Z]+)\$\s*(\{.*?\}(?:\s*\{.*?\})*)'), (match) {
-      return '\$${match.group(1)}${match.group(2)}\$';
-    });
-
-    result = result.replaceAllMapped(RegExp(r'```(?:math|latex|tex)?\s*([\s\S]+?)\s*```'), (match) {
-        String inner = match.group(1)!.trim();
-        if (inner.startsWith(r'$') && inner.endsWith(r'$')) {
-            return '\n\n$inner\n\n';
-        }
-        return '\n\n\$\$$inner\$\$\n\n';
-    });
-    result = result.replaceAllMapped(RegExp(r'\$+(!\[.*?\]\(.*?\))\$+'), (match) => match.group(1)!);
-
-    result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
-    result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
-
+    // 2. 统一将 \begin{split} 替换为 \begin{aligned}，因为 flutter_math_fork 不支持 split
     result = result.replaceAll(r'\begin{split}', r'\begin{aligned}');
     result = result.replaceAll(r'\end{split}', r'\end{aligned}');
 
-    // 替换 AI 常见的转义填空线 \_\_\_ 为正常的 ___
+    // 3. 修复大模型过度转义的下划线填空线，例如 \_\_\_ -> ___
     result = result.replaceAllMapped(RegExp(r'(\\_){2,}'), (match) {
       return '_' * (match.group(0)!.length ~/ 2);
     });
 
-    // 核心修复：将孤立的填空占位符 $____ 标准化为 ____，防止 $ 被 TOKENIZER 误识别为 LaTeX 定界符
-    // 匹配：$ 后面紧跟2个以上下划线，且前后没有别的公式内容
+    // 4. 将孤立的填空占位符 $____ 标准化为 ____，防止 $ 被解析为未闭合的 LaTeX 定界符
     result = result.replaceAllMapped(RegExp(r'(?<![\\\$])\$(_+)(?!\$)'), (match) {
       return match.group(1)!;
     });
-
-    // ==========================================
-    // TOKENIZER: 智能切分，保护现有公式环境
-    // ==========================================
-    // TOKENIZER 正则：\$ 行内公式捕获组增加负向前瞻，排除 $_ 形式的填空占位符
-    // (?!_+[^$]) 确保 $ 后面不是纯下划线（即填空线），只有真正的公式才会被捕获
-    final pattern = RegExp(r'(\$\$.*?\$\$)|(\\\[.*?\\\])|(\\\(.*?\\\))|(?<![\\])(\$(?!_+(?:$|[^$]))(?!\$)[^$\n]+?\$)|(\\begin\{[a-zA-Z*]+\}.*?\\end\{[a-zA-Z*]+\})', dotAll: true);
     
-    List<String> tokens = [];
-    int lastEnd = 0;
-    
-    for (final match in pattern.allMatches(result)) {
-      if (match.start > lastEnd) {
-        tokens.add(result.substring(lastEnd, match.start));
-      }
-      tokens.add(match.group(0)!);
-      lastEnd = match.end;
-    }
-    if (lastEnd < result.length) {
-      tokens.add(result.substring(lastEnd));
-    }
-
-    // 数学符号特征正则 (包含纯数字与变量混合的情况，用于捕获散落公式)
-    final mathFeature = RegExp(r'(?:[xyztXYZTabcABC]\s*=\s*[-0-9\.]+|[xyzt]\s*[-+*/=><]\s*[-0-9\.]+|[-0-9\.]+\s*[<>≤≥]\s*[-0-9\.]+|[xyz]\s*∈|\\[a-zA-Z]+|\^\{?[0-9a-zA-Z]\}?|_[0-9a-zA-Z]|\\[a-zA-Z]+\{[^}]+\})');
-    
-    // ==========================================
-    // RECONSTRUCT
-    // ==========================================
-    StringBuffer sb = new StringBuffer();
-    for (String token in tokens) {
-      if (token.startsWith(r'\begin') || token.startsWith(r'$$') || 
-          token.startsWith(r'\[') || token.startsWith(r'\(') || 
-          token.startsWith(r'$')) {
-        // 已经是公式环境，安全处理内部
-        String inner = token;
-        
-        if (token.startsWith(r'$$')) {
-          inner = token.substring(2, token.length - 2).trim();
-          if (inner.endsWith(r'\')) inner = inner.substring(0, inner.length - 1).trim();
-          inner = _autoCloseLeftRight(inner);
-          sb.write('\n\\[${inner}\\]\n');
-        } else if (token.startsWith(r'$')) {
-          inner = token.substring(1, token.length - 1).trim();
-          if (inner.endsWith(r'\')) inner = inner.substring(0, inner.length - 1).trim();
-          inner = _autoCloseLeftRight(inner);
-          inner = inner.replaceAll('\n', ' ');
-          if (inner.contains(r'\begin')) {
-            sb.write('\n\\[${inner}\\]\n');
-          } else {
-            sb.write('\\(${inner}\\)');
-          }
-        } else if (token.startsWith(r'\begin')) {
-          sb.write('\n\\[\n${token}\n\\]\n');
-        } else {
-          sb.write(token);
-        }
-      } else {
-        // 普通文本，探测是否需要包裹 \( \)
-        String t = token;
-        // 如果包含数学特征，包裹进 \( \) 
-        // （为避免误伤，使用单词边界和更严格的替换规则）
-        if (mathFeature.hasMatch(t)) {
-            // 对散落的类似 y=... 的表达式进行单次安全包裹
-            t = t.replaceAllMapped(RegExp(r'([xyztXYZTabcABC]\s*=\s*[-0-9\.a-zA-Z]+|[-0-9\.]+\s*[=><≤≥]\s*[-0-9\.a-zA-Z]+)'), (m) => '\\(${m.group(1)}\\)');
-            // 对孤立的带反斜杠 LaTeX 关键字包裹
-            t = t.replaceAllMapped(RegExp(r'(?<!\\|\w)(\\[a-zA-Z]+(?:_[^{}\s]+|\^{?[^{}\s]+}?)?)(?!\w)'), (m) => '\\(${m.group(1)}\\)');
-        }
-        sb.write(t);
-      }
-    }
-    
-    return sb.toString();
-  }
-
-  // 智能括号闭合修补，防止大模型截断导致的渲染器崩溃
-  static String _autoCloseLeftRight(String mathText) {
-    // 替换公式中的连续下划线（填空线的两下划线及以上），避免 LaTeX 解析器将其误认为 subscript 导致崩溃
-    mathText = mathText.replaceAllMapped(RegExp(r'_{2,}'), (match) {
-      return r'\_' * match.group(0)!.length;
+    // 5. 如果有 $____$ 这种包裹的，也直接剥离掉 $，变成 ____
+    result = result.replaceAllMapped(RegExp(r'\$(_+)\$'), (match) {
+      return match.group(1)!;
     });
 
-    int leftCount = r'\left'.allMatches(mathText).length;
-    int rightCount = r'\right'.allMatches(mathText).length;
-    if (leftCount > rightCount) {
-      mathText += r'\right.' * (leftCount - rightCount);
-    }
-    return mathText;
+    // 6. 修复多余的文本转义
+    result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
+    result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
+
+    return result;
   }
 }
-

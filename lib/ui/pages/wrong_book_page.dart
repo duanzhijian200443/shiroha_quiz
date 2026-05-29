@@ -202,7 +202,7 @@ class _WrongBookPageState extends State<WrongBookPage> {
             children: [
               buildLatexWidget(
                 context,
-                AiDataSanitizer.formatLatex(mdText.toString()),
+                mdText.toString(),
               ),
             ],
           ),
