@@ -7,6 +7,7 @@ import 'core/database/database_helper.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/pages/main_screen.dart';
+import 'package:flutter_tex/flutter_tex.dart';
 
 final ValueNotifier<String> globalThemeNotifier = ValueNotifier('light');
 // 核心新增：全局消息总线钥匙，用于跨页面/后台任务弹窗
@@ -43,6 +44,9 @@ void main() async {
   if (savedTheme != null && savedTheme.isNotEmpty) {
     globalThemeNotifier.value = savedTheme;
   }
+
+  // 初始化 flutter_tex MathJax 渲染服务（非 Web 平台必须）
+  await TeXRenderingServer.start();
 
   runApp(const ShirohaQuizApp());
 }

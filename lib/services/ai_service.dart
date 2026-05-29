@@ -166,6 +166,13 @@ class AiService {
     ]
     【致命警告：JSON转义】遇到 LaTeX 公式，所有反斜杠必须双重转义！例如 \\pi。
     ''';
+    // LaTeX constraint injected into prompt after base definition
+    prompt += '\n    【LaTeX子集约束-渲染引擎限制必须遵守】\n'
+        '    允许: \\\\frac \\\\sqrt \\\\sum \\\\int \\\\prod \\\\lim 及希腊字母 \\\\alpha~\\\\omega\n'
+        '    允许: \\\\leq \\\\geq \\\\neq \\\\approx \\\\in \\\\subset \\\\cup \\\\cap \\\\vec \\\\sin \\\\cos \\\\tan \\\\log \\\\ln \\\\pm \\\\cdot \\\\times \\\\div\n'
+        '    填空占位符必须用普通文本___绝不加dollar包裹，严禁放在dollar内部\n'
+        '    严禁: \\\\begin{cases} \\\\begin{matrix} \\\\mathbb \\\\mathcal \\\\mathfrak \\\\def \\\\newcommand\n'
+        '    严禁: 超过3层嵌套的\\\\frac或\\\\sqrt\n';
     if (customPrompt != null && customPrompt.isNotEmpty) prompt += "\n\n【特殊要求】\n$customPrompt";
 
     try {
@@ -261,6 +268,13 @@ class AiService {
     【输出格式最高指令】
     你必须且只能输出合法的 JSON 数组，**绝对禁止**在 JSON 外部输出任何多余的闲聊、问候语、警告解释或确认语。
     你的输出必须严格以 "[" 开头，以 "]" 结尾。
+
+    【LaTeX子集约束-渲染引擎限制必须遵守】
+    允许: \\frac \\sqrt \\sum \\int \\prod \\lim 及希腊字母 \\alpha~\\omega
+    允许: \\leq \\geq \\neq \\approx \\in \\subset \\cup \\cap \\vec \\sin \\cos \\tan \\log \\ln \\pm \\cdot \\times \\div
+    填空占位符必须用普通文本___绝不加dollar包裹，严禁放在dollar内部
+    严禁: \\begin{cases} \\begin{matrix} \\mathbb \\mathcal \\mathfrak \\def \\newcommand
+    严禁: 超过3层嵌套的\\frac或\\sqrt
 
     【待解析文本】
     <document>
@@ -675,6 +689,14 @@ class AiService {
     【格式约束】直接输出纯 JSON 数组，绝不要 markdown 包裹。
     [{"type": 0, "content": "题干", "options": ["A.", "B."], "standard_answer": "A", "explanation": "解析"}]
     【致命警告：JSON转义】遇到 LaTeX 公式，所有反斜杠必须双重转义！例如 \\\\pi。
+    【LaTeX子集约束-渲染引擎限制必须遵守】
+    允许: \\\\frac \\\\sqrt \\\\sum \\\\int \\\\prod \\\\lim 及希腊字母 \\\\alpha~\\\\omega
+    允许: \\\\leq \\\\geq \\\\neq \\\\approx \\\\in \\\\subset \\\\cup \\\\cap \\\\vec \\\\sin \\\\cos \\\\tan \\\\log \\\\ln \\\\pm \\\\cdot \\\\times \\\\div
+    允许简单矩阵: \\\\begin{pmatrix}a&b\\\\\\\\c&d\\\\end{pmatrix} 仅2x2或3x3
+    填空占位符必须用普通文本___绝不加任何dollar包裹
+    严禁: 将___放在dollar内部会导致下标解析崩溃
+    严禁: \\\\begin{cases} \\\\begin{matrix} \\\\mathbb \\\\mathcal \\\\mathfrak \\\\def \\\\newcommand
+    严禁: 超过3层嵌套的\\\\frac或\\\\sqrt
     ''';
 
     try {

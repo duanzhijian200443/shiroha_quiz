@@ -54,7 +54,7 @@ class AiDataSanitizer {
       // 如果出现截断或尾部携带无法匹配的非 JSON 字符，尝试自动修复
       int lastBrace = cleanText.lastIndexOf('}');
       if (lastBrace != -1) {
-        String repaired = cleanText.substring(0, lastBrace + 1) + ']';
+        String repaired = '${cleanText.substring(0, lastBrace + 1)}]';
         try {
           decoded = jsonDecode(repaired);
         } catch (e2) {
@@ -111,9 +111,23 @@ class AiDataSanitizer {
       return match.group(1)!;
     });
 
-    // 6. 修复多余的文本转义
+    // 6. 修复多余的文本转义（\n -> newline）
     result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
     result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
+
+    // 7. 【关键恢复】将 ```math/latex/tex 代码块转成 $$ 块级公式
+    //    大模型有时会把公式包在 ```math ... ``` 里，必须在渲染前转换回来
+    result = result.replaceAllMapped(
+      RegExp(r'```(?:math|latex|tex)?\s*([\s\S]+?)\s*```', caseSensitive: false),
+      (match) {
+        final inner = match.group(1)!.trim();
+        // 如果内部已经有 $ 包裹，直接展开
+        if (inner.startsWith(r'$') && inner.endsWith(r'$')) {
+          return '\n\n$inner\n\n';
+        }
+        return '\n\n\$\$$inner\$\$\n\n';
+      },
+    );
 
     return result;
   }
