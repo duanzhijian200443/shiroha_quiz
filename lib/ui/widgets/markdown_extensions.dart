@@ -436,16 +436,24 @@ Widget buildLatexWidget(
       return buildMarkdownImage(Uri.parse(url), null, null);
     },
     latexBuilder: (context, tex, textStyle, inline) {
+      // 针对 flutter_math_fork 的引擎限制，在渲染前做最后的自保清洗
+      String safeTex = tex.replaceAll(r'\boldsymbol', r'\mathbf');
+      // 修复填空题下划线 ___ 导致 LaTeX 引擎解析下标崩溃的问题
+      safeTex = safeTex.replaceAllMapped(RegExp(r'(?<!\\)_{2,}'), (m) => r'\_' * m.group(0)!.length);
+
       final mathWidget = Math.tex(
-        tex,
+        safeTex,
         textStyle: textStyle.copyWith(color: color, fontSize: fontSize),
         mathStyle: inline ? MathStyle.text : MathStyle.display,
         textScaleFactor: 1.0,
         settings: const TexParserSettings(strict: Strict.ignore),
-        onErrorFallback: (err) => SelectableText(
-          inline ? '\$$tex\$' : '\$\$$tex\$\$',
-          style: textStyle.copyWith(color: Colors.orangeAccent),
-        ),
+        onErrorFallback: (err) {
+          // 如果移动端初始化了 flutter_tex，可以考虑在这里返回 TeXView，但目前保持统一橙色提示
+          return SelectableText(
+            inline ? '\$$tex\$' : '\$\$$tex\$\$',
+            style: textStyle.copyWith(color: Colors.orangeAccent),
+          );
+        },
       );
 
       if (inline) {
