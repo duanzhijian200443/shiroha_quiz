@@ -115,6 +115,14 @@ class AiDataSanitizer {
     result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
     result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
 
+    // 6.5 修复历史题目中的过度转义（双反斜杠）
+    // 例如 \\boldsymbol -> \boldsymbol, \\{ -> \{
+    // 只匹配两个及以上的字母，或者大括号，避免破坏矩阵换行符 \\ 后面的单字母
+    result = result.replaceAllMapped(
+      RegExp(r'\\\\([a-zA-Z]{2,}|[{}])'),
+      (m) => r'\' + m.group(1)!,
+    );
+
     // 7. 【关键恢复】将 ```math/latex/tex 代码块转成 $$ 块级公式
     //    大模型有时会把公式包在 ```math ... ``` 里，必须在渲染前转换回来
     result = result.replaceAllMapped(
@@ -142,6 +150,14 @@ class AiDataSanitizer {
       RegExp(r'(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)'),
       (m) => '\\(${m.group(1)!}\\)',
     );
+
+    // 10. 【防呆兜底】如果全文完全没有 LaTeX 定界符，但却存在 \frac, \sqrt 等典型公式指令
+    // 说明大模型（或旧数据）忘了加 $ 包裹，我们强行把它当做行内公式包裹起来
+    if (!result.contains(r'\(') && !result.contains(r'\[') && !result.contains(r'$')) {
+      if (result.contains(r'\frac') || result.contains(r'\sqrt') || result.contains(r'\sum')) {
+        result = '\\($result\\)';
+      }
+    }
 
     return result;
   }

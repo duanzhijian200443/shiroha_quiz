@@ -168,6 +168,7 @@ class AiService {
     ''';
     // LaTeX constraint injected into prompt after base definition
     prompt += '\n    【LaTeX子集约束-渲染引擎限制必须遵守】\n'
+        '    防呆指令：所有数学公式、符号、分数、甚至孤立的字母，必须且只能用 \$...\$ 包裹！绝不能出现裸奔的 \\\\frac 等公式！\n'
         '    允许: \\\\frac \\\\sqrt \\\\sum \\\\int \\\\prod \\\\lim 及希腊字母 \\\\alpha~\\\\omega\n'
         '    允许: \\\\leq \\\\geq \\\\neq \\\\approx \\\\in \\\\subset \\\\cup \\\\cap \\\\vec \\\\sin \\\\cos \\\\tan \\\\log \\\\ln \\\\pm \\\\cdot \\\\times \\\\div\n'
         '    填空占位符必须用普通文本___绝不加dollar包裹，严禁放在dollar内部\n'
@@ -270,6 +271,7 @@ class AiService {
     你的输出必须严格以 "[" 开头，以 "]" 结尾。
 
     【LaTeX子集约束-渲染引擎限制必须遵守】
+    防呆指令：所有数学公式、符号、分数、甚至孤立的字母，必须且只能用 \$...\$ 包裹！绝不能出现裸奔的 \\frac 等公式！
     允许: \\frac \\sqrt \\sum \\int \\prod \\lim 及希腊字母 \\alpha~\\omega
     允许: \\leq \\geq \\neq \\approx \\in \\subset \\cup \\cap \\vec \\sin \\cos \\tan \\log \\ln \\pm \\cdot \\times \\div
     填空占位符必须用普通文本___绝不加dollar包裹，严禁放在dollar内部
@@ -690,6 +692,7 @@ class AiService {
     [{"type": 0, "content": "题干", "options": ["A.", "B."], "standard_answer": "A", "explanation": "解析"}]
     【致命警告：JSON转义】遇到 LaTeX 公式，所有反斜杠必须双重转义！例如 \\\\pi。
     【LaTeX子集约束-渲染引擎限制必须遵守】
+    防呆指令：所有数学公式、符号、分数、甚至孤立的字母，必须且只能用 \$...\$ 包裹！绝不能出现裸奔的 \\\\frac 等公式！
     允许: \\\\frac \\\\sqrt \\\\sum \\\\int \\\\prod \\\\lim 及希腊字母 \\\\alpha~\\\\omega
     允许: \\\\leq \\\\geq \\\\neq \\\\approx \\\\in \\\\subset \\\\cup \\\\cap \\\\vec \\\\sin \\\\cos \\\\tan \\\\log \\\\ln \\\\pm \\\\cdot \\\\times \\\\div
     允许简单矩阵: \\\\begin{pmatrix}a&b\\\\\\\\c&d\\\\end{pmatrix} 仅2x2或3x3
