@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shiroha_quiz/core/review_engine_service.dart';
 import '../widgets/markdown_extensions.dart';
 import '../../utils/ai_data_sanitizer.dart';
+import 'question_edit_screen.dart';
 
 class WrongBookPage extends StatefulWidget {
   const WrongBookPage({super.key});
@@ -133,7 +134,8 @@ class _WrongBookPageState extends State<WrongBookPage> {
         final difficulty = (q['difficulty'] as num?)?.toDouble() ?? 0.0;
         final stability = (q['stability'] as num?)?.toDouble() ?? 0.0;
         // ||| 前是答案，后是解析
-        final answer = ((q['standard_answer'] as String?) ?? '').split('|||').first.trim();
+        final ansParts = ((q['standard_answer'] as String?) ?? '').split('|||');
+        final answer = ansParts.isNotEmpty ? ansParts[0].trim() : '';
         final options = _parseOptions(q['options'] as String?);
 
         final mdText = StringBuffer();
@@ -152,8 +154,18 @@ class _WrongBookPageState extends State<WrongBookPage> {
           mdText.writeln();
         }
 
-        mdText.writeln('**正确答案：** `$answer`');
-        mdText.writeln();
+        final expText = ansParts.length > 1 ? ansParts[1].trim() : '';
+        final hasAnswerOrExp = answer.isNotEmpty || expText.isNotEmpty;
+
+        if (hasAnswerOrExp) {
+          mdText.writeln('**正确答案：** `${answer.isEmpty ? "无" : answer}`');
+          if (expText.isNotEmpty) {
+            mdText.writeln();
+            mdText.writeln('**解析：**');
+            mdText.writeln(expText);
+          }
+          mdText.writeln();
+        }
         mdText.writeln('---');
         mdText.writeln('**复习数据：**');
         mdText.writeln('- **错误次数：** $lapses');
@@ -204,6 +216,39 @@ class _WrongBookPageState extends State<WrongBookPage> {
                 context,
                 mdText.toString(),
               ),
+              if (!hasAnswerOrExp)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionEditScreen(question: q)))
+                          .then((modified) {
+                        if (modified == true) {
+                          setState(() {
+                            _future = ReviewEngineService().getDetailedWrongQuestions();
+                          });
+                        }
+                      });
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Column(
+                        children: [
+                          Icon(Icons.edit_note_rounded, color: Colors.orangeAccent, size: 20),
+                          SizedBox(height: 4),
+                          Text('✍️ 暂无答案，点击手动添加或修改', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );

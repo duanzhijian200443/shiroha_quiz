@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../core/database/database_helper.dart';
+import '../../services/task_manager.dart';
 import '../widgets/markdown_extensions.dart';
 import '../../main.dart';
 
 class ImportStagingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> parsedQuestions;
-  final String bankName;
-  final String folderName;
-
+  final String? taskId;
   const ImportStagingScreen({
     super.key,
     required this.parsedQuestions,
-    required this.bankName,
-    required this.folderName,
+    this.taskId,
   });
 
   @override
@@ -23,11 +21,25 @@ class ImportStagingScreen extends StatefulWidget {
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
   late List<Map<String, dynamic>> _displayQuestions;
   bool _isSaving = false;
+  
+  final TextEditingController _bankNameController = TextEditingController();
+  final TextEditingController _folderController = TextEditingController();
+  List<String> _existingFolders = [];
 
   @override
   void initState() {
     super.initState();
     _displayQuestions = List.from(widget.parsedQuestions);
+    _loadExistingFolders();
+  }
+
+  Future<void> _loadExistingFolders() async {
+    final tree = await DatabaseHelper.instance.getSubjectTree();
+    if (mounted) {
+      setState(() {
+        _existingFolders = tree.keys.where((k) => k != '📁 未分类题库').toList();
+      });
+    }
   }
 
   Widget _buildMarkdown(String text) {
@@ -39,7 +51,74 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
-  Future<void> _confirmAndSave() async {
+  void _showSaveDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('选择保存位置', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(controller: _bankNameController, decoration: InputDecoration(labelText: '目标题库名称', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
+                    const SizedBox(height: 16),
+                    TextField(controller: _folderController, decoration: InputDecoration(labelText: '所属学科分类 (选填)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
+                    if (_existingFolders.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8.0, runSpacing: 8.0,
+                        children: _existingFolders.map((folder) => ActionChip(
+                          label: Text(folder, style: const TextStyle(fontSize: 12, color: Colors.blueAccent)),
+                          backgroundColor: Colors.blue.shade50, side: BorderSide.none,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          onPressed: () {
+                            setDialogState(() {
+                              _folderController.text = folder;
+                            });
+                          },
+                        )).toList(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('取消', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final bankName = _bankNameController.text.trim();
+                    if (bankName.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先输入目标题库名称')));
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    _confirmAndSave(bankName, _folderController.text.trim());
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('确定入库'),
+                ),
+              ],
+            );
+          }
+        );
+      }
+    );
+  }
+
+  Future<void> _confirmAndSave(String bankName, String folderName) async {
     if (_displayQuestions.isEmpty) {
       Navigator.pop(context);
       return;
@@ -52,7 +131,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         for (var q in _displayQuestions) {
           final qId = DateTime.now().millisecondsSinceEpoch.toString() + '_' + q.hashCode.toString();
           await txn.insert('questions', {
-            'id': qId, 'bank_name': widget.bankName, 'type': q['type'] ?? 0,
+            'id': qId, 'bank_name': bankName, 'type': q['type'] ?? 0,
             'content': q['content']?.toString() ?? '无题干',
             'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
             'standard_answer': '${q['standard_answer'] ?? q['answer'] ?? ''}|||${q['explanation'] ?? ''}',
@@ -65,12 +144,17 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         }
       });
 
-      if (widget.folderName.isNotEmpty) {
-        await DatabaseHelper.instance.updateBankFolder(widget.bankName, widget.folderName);
+      if (folderName.isNotEmpty) {
+        await DatabaseHelper.instance.updateBankFolder(bankName, folderName);
       }
 
       // 触发全局题库刷新事件
       globalBankUpdateNotifier.value++;
+
+      // 如果来自后台解析任务，将任务更新为已完成状态
+      if (widget.taskId != null) {
+        TaskManager.instance.completeTask(widget.taskId!, '已成功导入题库: $bankName');
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('🎉 成功入库 ${_displayQuestions.length} 题！'), backgroundColor: Colors.green));
@@ -146,9 +230,49 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           const SizedBox(height: 12),
                           _buildMarkdown(q['content']?.toString() ?? ''),
                           const Divider(height: 24),
-                          const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                          const SizedBox(height: 4),
-                          _buildMarkdown(q['standard_answer']?.toString() ?? ''),
+                          Builder(
+                            builder: (context) {
+                              final sAns = q['standard_answer']?.toString().trim() ?? '';
+                              final exp = q['explanation']?.toString().trim() ?? '';
+                              final hasAnswerOrExp = sAns.isNotEmpty || exp.isNotEmpty;
+
+                              if (!hasAnswerOrExp) {
+                                return Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: Colors.orangeAccent.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16),
+                                    child: Column(
+                                      children: [
+                                        Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+                                        SizedBox(height: 4),
+                                        Text('⚠️ 暂无答案，导入后可进行编辑或AI解答', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                  const SizedBox(height: 4),
+                                  _buildMarkdown(sAns.isEmpty ? '无' : sAns),
+                                  if (exp.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                    const SizedBox(height: 4),
+                                    _buildMarkdown(exp),
+                                  ]
+                                ],
+                              );
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -170,7 +294,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ),
             icon: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.check_circle_outline),
             label: Text(_isSaving ? '正在入库...' : '确认无误，将 ${_displayQuestions.length} 题收入题库', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            onPressed: _isSaving ? null : _confirmAndSave,
+            onPressed: _isSaving ? null : _showSaveDialog,
           ),
         ),
       ),

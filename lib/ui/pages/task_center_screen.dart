@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/task_manager.dart';
+import '../../services/ai_service.dart';
 import 'import_staging_screen.dart';
 
 class TaskCenterScreen extends StatelessWidget {
@@ -68,11 +69,10 @@ class TaskCenterScreen extends StatelessWidget {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => ImportStagingScreen(
-                                parsedQuestions: t.parsedData!,
-                                bankName: t.bankName ?? '默认题库',
-                                folderName: t.folderName ?? '',
-                              ),
+                                builder: (_) => ImportStagingScreen(
+                                  taskId: t.id,
+                                  parsedQuestions: t.parsedData!,
+                                ),
                             ),
                           ).then((_) {
                             // 返回后我们先不强制删掉任务，等待真入库（若用户真入库，可在暂存区调用 completeTask 或此处判断）
@@ -92,15 +92,53 @@ class TaskCenterScreen extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: theme.textTheme.bodyLarge?.color)),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: theme.textTheme.bodyLarge?.color))),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () {
+                                      TaskManager.instance.deleteTask(t.id);
+                                    },
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(4.0),
+                                      child: Icon(Icons.close, size: 18, color: Colors.grey),
+                                    ),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 12),
                               if (t.status == TaskStatus.processing) ...[
                                 ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: t.percent, minHeight: 6, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent))),
                                 const SizedBox(height: 8),
                               ],
-                              Text(
-                                t.status == TaskStatus.error ? (t.errorMsg ?? '未知错误') : t.progressText, 
-                                style: TextStyle(color: t.status == TaskStatus.error ? Colors.redAccent : (t.status == TaskStatus.pendingReview ? Colors.orange : Colors.grey), fontSize: 13, height: 1.4, fontWeight: t.status == TaskStatus.pendingReview ? FontWeight.bold : FontWeight.normal),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      t.status == TaskStatus.error ? (t.errorMsg ?? '未知错误') : t.progressText, 
+                                      style: TextStyle(color: t.status == TaskStatus.error ? Colors.redAccent : (t.status == TaskStatus.pendingReview ? Colors.orange : Colors.grey), fontSize: 13, height: 1.4, fontWeight: t.status == TaskStatus.pendingReview ? FontWeight.bold : FontWeight.normal),
+                                    ),
+                                  ),
+                                  if ((t.status == TaskStatus.error || t.status == TaskStatus.processing) && (t.pendingChunks?.isNotEmpty ?? false))
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8.0),
+                                      child: OutlinedButton(
+                                        onPressed: () {
+                                          AiService.instance.resumeTask(t.id);
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('正在从断点恢复解析...')));
+                                        },
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                                          minimumSize: const Size(0, 28),
+                                        ),
+                                        child: const Text('断点重试', style: TextStyle(fontSize: 12)),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ],
                           ),

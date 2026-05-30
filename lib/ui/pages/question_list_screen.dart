@@ -188,17 +188,56 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
                           _buildMarkdown(optionsDisplay),
                         ],
                         const Divider(height: 24),
-                        const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        _buildMarkdown(
-                          // 取 ||| 分隔符前的答案部分（||| 后面是解析，不该显示在此处）
-                          (q['standard_answer']?.toString() ?? '').split('|||').first.trim(),
-                          overrideColor: Colors.green,
+                        Builder(
+                          builder: (context) {
+                            final ansParts = (q['standard_answer']?.toString() ?? '').split('|||');
+                            final ansText = ansParts.isNotEmpty ? ansParts[0].trim() : '';
+                            final expText = ansParts.length > 1 ? ansParts[1].trim() : '';
+                            final hasAnswerOrExp = ansText.isNotEmpty || expText.isNotEmpty;
+
+                            if (!hasAnswerOrExp) {
+                              return Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.orangeAccent.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () {
+                                    Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionEditScreen(question: q)))
+                                        .then((modified) { if (modified == true) _onSearchChanged(_searchController.text); });
+                                  },
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16),
+                                    child: Column(
+                                      children: [
+                                        Icon(Icons.edit_note_rounded, color: Colors.orangeAccent),
+                                        SizedBox(height: 4),
+                                        Text('✍️ 暂无答案，点击手动添加或修改', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                _buildMarkdown(ansText.isEmpty ? '无' : ansText, overrideColor: Colors.green),
+                                const SizedBox(height: 12),
+                                const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                _buildMarkdown(expText.isEmpty ? '无解析' : expText, overrideColor: Colors.grey),
+                              ],
+                            );
+                          },
                         ),
-                        const SizedBox(height: 12),
-                        const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        _buildMarkdown(q['explanation']?.toString() ?? '无解析', overrideColor: Colors.grey),
                         const Divider(height: 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,

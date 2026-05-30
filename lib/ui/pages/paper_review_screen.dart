@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../core/database/database_helper.dart';
 import '../widgets/markdown_extensions.dart';
+import 'question_edit_screen.dart';
 
 class PaperReviewScreen extends StatefulWidget {
   final String paperId;
@@ -61,7 +62,8 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                 final uAns = q['user_answer']?.toString() ?? '';
                 // ||| 前是答案字母，后是解析内容
                 final sAnsRaw = q['standard_answer']?.toString() ?? '';
-                final sAns = sAnsRaw.split('|||').first.trim();
+                final ansParts = sAnsRaw.split('|||');
+                final sAns = ansParts.isNotEmpty ? ansParts[0].trim() : '';
 
                 List<dynamic> options = [];
                 if (type == 0 && q['options'] != null) {
@@ -134,13 +136,54 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                         ],
                         
                         const Divider(height: 24),
-                        const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        _buildMarkdown(sAns, overrideColor: Colors.green),
-                        const SizedBox(height: 12),
-                        const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        _buildMarkdown(q['explanation']?.toString() ?? '暂无解析', overrideColor: Colors.grey),
+                        Builder(
+                          builder: (context) {
+                            final expText = ansParts.length > 1 ? ansParts[1].trim() : '';
+                            final hasAnswerOrExp = sAns.isNotEmpty || expText.isNotEmpty;
+
+                            if (!hasAnswerOrExp) {
+                              return Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.orangeAccent.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () {
+                                    Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionEditScreen(question: q)))
+                                        .then((modified) { if (modified == true) _loadData(); });
+                                  },
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16),
+                                    child: Column(
+                                      children: [
+                                        Icon(Icons.edit_note_rounded, color: Colors.orangeAccent),
+                                        SizedBox(height: 4),
+                                        Text('✍️ 暂无答案，点击手动添加或修改', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                _buildMarkdown(sAns.isEmpty ? '无' : sAns, overrideColor: Colors.green),
+                                const SizedBox(height: 12),
+                                const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                _buildMarkdown(expText.isEmpty ? '暂无解析' : expText, overrideColor: Colors.grey),
+                              ],
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),

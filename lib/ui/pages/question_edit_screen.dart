@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../core/database/database_helper.dart';
+import '../../services/ai_service.dart';
 import '../widgets/markdown_extensions.dart';
 
 class QuestionEditScreen extends StatefulWidget {
@@ -21,6 +22,8 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
   late FocusNode _optionsFocus;
   late FocusNode _answerFocus;
   late FocusNode _explanationFocus;
+
+  bool _isAiLoading = false;
 
   @override
   void initState() {
@@ -80,6 +83,38 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     }
   }
 
+  Future<void> _askAi() async {
+    FocusScope.of(context).unfocus();
+    setState(() => _isAiLoading = true);
+    try {
+      final updatedQ = Map<String, dynamic>.from(widget.question);
+      updatedQ['content'] = _contentCtrl.text;
+      if (updatedQ['type'] == 0) {
+        final optsList = _optionsCtrl.text.trim().split('\n').where((s) => s.trim().isNotEmpty).toList();
+        updatedQ['options'] = jsonEncode(optsList);
+      }
+      
+      final res = await AiService.instance.answerSingleQuestion(updatedQ);
+      
+      if (mounted) {
+        _answerCtrl.text = res['standard_answer'] ?? '';
+        final currentExp = _explanationCtrl.text.trim();
+        final newExp = res['explanation'] ?? '';
+        _explanationCtrl.text = currentExp.isEmpty 
+            ? "$newExp\n\n> [!WARNING]\n> 以上为 AI 辅助生成内容，请认真核实。"
+            : "$currentExp\n\n---\n\n$newExp\n\n> [!WARNING]\n> 以上为 AI 辅助生成内容，请认真核实。";
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI 解答已填入，请核实')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI 解答失败: $e'), backgroundColor: Colors.redAccent));
+      }
+    } finally {
+      if (mounted) setState(() => _isAiLoading = false);
+    }
+  }
+
   Widget _buildMarkdown(String text, {bool isOption = false}) {
     final textColor = Theme.of(context).textTheme.bodyLarge?.color;
     final fontSize = isOption ? 15.0 : 16.0;
@@ -136,19 +171,26 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
         title: const Text('编辑题目', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           TextButton.icon(
+            icon: const Icon(Icons.auto_awesome, color: Colors.orangeAccent, size: 18),
+            label: const Text('AI解答', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+            onPressed: _isAiLoading ? null : _askAi,
+          ),
+          TextButton.icon(
             icon: const Icon(Icons.save, color: Colors.blueAccent),
             label: const Text('保存', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            onPressed: () {
+            onPressed: _isAiLoading ? null : () {
               FocusScope.of(context).unfocus();
               _save();
             },
           )
         ],
       ),
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        behavior: HitTestBehavior.opaque,
-        child: ListView(
+      body: Stack(
+        children: [
+          GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            behavior: HitTestBehavior.opaque,
+            child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
             _buildField(
@@ -187,6 +229,26 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
           ],
         ),
       ),
+        if (_isAiLoading)
+          Container(
+            color: Colors.black12,
+            child: const Center(
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('AI 正在解答...', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ]),
     );
   }
 

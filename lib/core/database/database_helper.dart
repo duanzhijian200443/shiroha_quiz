@@ -7,7 +7,7 @@ class DatabaseHelper {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 10;
+  static const int _dbVersion = 12;
 
   static DatabaseHelper? _instance;
   static Database? _database;
@@ -135,6 +135,25 @@ class DatabaseHelper {
         is_active INTEGER DEFAULT 0
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS import_tasks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status INTEGER NOT NULL,
+        progress_text TEXT NOT NULL,
+        percent REAL NOT NULL,
+        error_msg TEXT,
+        parsed_data TEXT,
+        bank_name TEXT,
+        folder_name TEXT,
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        source_type TEXT,
+        pending_chunks TEXT,
+        failed_chunks TEXT
+      );
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -187,6 +206,35 @@ class DatabaseHelper {
           FROM ai_profiles
         ''');
       } catch (_) {}
+    }
+    if (oldVersion < 11) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS import_tasks (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          status INTEGER NOT NULL,
+          progress_text TEXT NOT NULL,
+          percent REAL NOT NULL,
+          error_msg TEXT,
+          parsed_data TEXT,
+          bank_name TEXT,
+          folder_name TEXT,
+          created_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          source_type TEXT,
+          pending_chunks TEXT,
+          failed_chunks TEXT
+        )
+      ''');
+    }
+    if (oldVersion < 12) {
+      try {
+        await db.execute('ALTER TABLE import_tasks ADD COLUMN source_type TEXT');
+        await db.execute('ALTER TABLE import_tasks ADD COLUMN pending_chunks TEXT');
+        await db.execute('ALTER TABLE import_tasks ADD COLUMN failed_chunks TEXT');
+      } catch (e) {
+        // Ignore
+      }
     }
   }
   
@@ -778,5 +826,50 @@ class DatabaseHelper {
         WHERE bank_name = ? AND (content LIKE ? OR explanation LIKE ?)
       ''', [bankName, likeQuery, likeQuery]);
     }
+  }
+
+  // --- 解析任务持久化方法 ---
+  Future<void> saveImportTask(Map<String, dynamic> taskData) async {
+    final db = await database;
+    await db.insert(
+      'import_tasks',
+      taskData,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteImportTask(String taskId) async {
+    final db = await database;
+    await db.delete(
+      'import_tasks',
+      where: 'id = ?',
+      whereArgs: [taskId],
+    );
+  }
+
+  Future<void> clearCompletedImportTasks() async {
+    final db = await database;
+    await db.delete(
+      'import_tasks',
+      where: 'status = ? OR status = ?',
+      whereArgs: [2, 3], // TaskStatus.completed=2, TaskStatus.error=3
+    );
+  }
+
+  Future<void> deleteOldImportTasks(int olderThanTimestamp) async {
+    final db = await database;
+    await db.delete(
+      'import_tasks',
+      where: 'completed_at IS NOT NULL AND completed_at < ?',
+      whereArgs: [olderThanTimestamp],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getAllImportTasks() async {
+    final db = await database;
+    return await db.query(
+      'import_tasks',
+      orderBy: 'created_at DESC',
+    );
   }
 }
