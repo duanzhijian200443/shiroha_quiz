@@ -484,7 +484,7 @@ ${contextBuffer.toString()}
 【扫描件题解混排处理法则】
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论。
+- standard_answer 提取解题过程最终得出的答案值或结论。⚠️特例：如果是【证明题】或【解答题】，并且原文给出了完整的证明过程/解答步骤，请务必将完整的证明与解答步骤全部提取到 standard_answer 中！对于证明题，真正的答案就是证明过程本身，绝对不允许只写“证明略”或重复题干！
 - explanation 字段直接输出 null，不需要提取解析内容。
 
 反例（错误）：
@@ -517,7 +517,7 @@ $modeInstruction
 【致命警告：JSON LaTeX 物理隔离法则】
 由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
 你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
-所有的数学公式必须使用标准的 LaTeX 行内 \$...\$ 或块级 \$\$...\$\$ 严谨包裹。
+所有的数学公式（包括独立成行的推导等式，如 BSLASHln L = ...），必须使用标准的 LaTeX 行内 \$...\$ 或块级 \$\$...\$\$ 严密包裹。绝对不能出现裸露在外的数学命令！
 特别注意矩阵和方程组，必须整体包在一个 \$\$...\$\$ 里，绝不拆分！
 正例：\$\$k_1BSLASHbegin{pmatrix}-2BSLASHBSLASH1BSLASHBSLASH0BSLASHend{pmatrix}+k_2BSLASHbegin{pmatrix}-3BSLASHBSLASH0BSLASHBSLASH1BSLASHend{pmatrix}\$\$
 反例：\$k_1BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$\$\$+k_2\$\$\$BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$ （这是断裂拼接，绝对禁止！）
@@ -777,9 +777,10 @@ $rawText
       if (content.isEmpty) return true;
       if (content.length <= 10 && RegExp(r'^[A-Da-d√×正确错误ABCD,，\s]+$').hasMatch(content)) return true;
       if (content.contains('[纯答案') || content.contains('[ANSWER')) return true;
-      if (content.length <= 3 && content == ans) return true;
-      // 防截断假题干识别（当题干极短且高度疑似算式或完全等同于答案片段时）
-      if (content.length < 15 && (content.contains(ans) || ans.contains(content))) return true;
+      // 如果题干和答案完全一致，说明 AI 把纯答案复制了两份，属于纯答案页
+      if (content == ans) return true;
+      // 防截断假题干识别（当题干较短且高度疑似算式或包含于答案片段时）
+      if (content.length < 35 && (content.contains(ans) || ans.contains(content))) return true;
       if (content.length < 15 && (content.startsWith('I=') || content.contains('略'))) return true;
       return false;
     }
@@ -877,7 +878,7 @@ $rawText
 【扫描件题解混排处理法则】
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论。
+- standard_answer 提取解题过程最终得出的答案值或结论。⚠️特例：如果是【证明题】或【解答题】，并且原文给出了完整的证明过程/解答步骤，请务必将完整的证明与解答步骤全部提取到 standard_answer 中！对于证明题，真正的答案就是证明过程本身，绝对不允许只写“证明略”或重复题干！
 - explanation 字段直接输出 null，不需要提取解析内容。
 
 反例（错误）：
@@ -1048,7 +1049,7 @@ explanation: null
     你必须将它作为【一道完整的大题】，把所有小问合并写进 `content` 中，并将所有小问的解答步骤合并写进 `explanation` 中。
     
     【LaTeX子集约束-渲染引擎限制必须遵守】
-    防呆指令：所有数学公式、符号、分数、甚至孤立的字母，必须且只能用 \$ [数学公式] \$ 包裹！绝不能出现没有 \$ 包裹的 BSLASHfrac 等公式！
+    防呆指令：所有数学公式、符号、等式（如 BSLASHln L = ...），即使是独立成行，也必须且只能用 \$ [数学公式] \$ 或 \$\$ [数学公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac）！
     允许: BSLASHfrac BSLASHsqrt BSLASHsum BSLASHint BSLASHprod BSLASHlim 及希腊字母 BSLASHalpha~BSLASHomega
     允许: BSLASHleq BSLASHgeq BSLASHneq BSLASHapprox BSLASHin BSLASHsubset BSLASHcup BSLASHcap BSLASHvec BSLASHsin BSLASHcos BSLASHtan BSLASHlog BSLASHln BSLASHpm BSLASHcdot BSLASHtimes BSLASHdiv
     允许简单矩阵: BSLASHbegin{pmatrix}a&b BSLASHBSLASH c&d BSLASHend{pmatrix} 仅2x2或3x3

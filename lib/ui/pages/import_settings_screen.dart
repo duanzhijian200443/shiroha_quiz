@@ -268,7 +268,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       if (numMatch != null) qNum = numMatch.group(0)!;
 
       final hasContent = q['content'] != null && (q['content'] as String).trim().isNotEmpty;
-      final hasAnswer = q['standard_answer'] != null && (q['standard_answer'] as String).trim().isNotEmpty;
+      final ansStr = (q['standard_answer']?.toString() ?? '').trim();
+      final lowerAns = ansStr.toLowerCase();
+      final hasAnswer = ansStr.isNotEmpty && lowerAns != 'null' && lowerAns != 'none' && ansStr != '无' && ansStr != '未提供' && !ansStr.contains('未见答案') && !ansStr.contains('暂无');
 
       if (qNum.isEmpty) {
         if (hasContent || hasAnswer) noNumQuestions.add(q);
