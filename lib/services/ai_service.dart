@@ -477,14 +477,14 @@ ${contextBuffer.toString()}
 模式B（只有题干）：standard_answer 设为 null。
 模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。
 
-绝对不要生成任何解析(explanation)字段，我们只需要题干和答案！
+除了下述特例允许解答题/证明题（type: 3）提取 explanation 之外，其他题型与模式绝对不要生成任何解析(explanation)字段！
 对于模式A和模式B：绝对禁止在 content 中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干抄录下来！
 对于模式C：请坚决让 content 为 null，绝对不要把答案填进 content 凑数！
 
 【扫描件题解混排处理法则】
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论（如 $x=5$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
+- standard_answer 提取解题过程最终得出的答案值或结论（如 \$x=5\$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
 - explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。
 
 反例（错误）：
@@ -501,9 +501,9 @@ explanation: null
 你是一个严谨的教育数据提取专家。请将以下文本提取为结构化的题库 JSON 数组。如果没有检测到题目，直接返回空数组 []。
 
 【题型与格式】
-1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文(包含选项部分)", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
+1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文(必须把选项剥离出去，题干绝对不包含选项部分)", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
 2. 填空题 (type: 2): {"q_num": "题号", "type": 2, "content": "题干完整原文", "options": [], "standard_answer": "答案内容"}
-3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果"}
+3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果", "explanation": "详细解题推导与证明过程（若无则设为 null 或留空）"}
 
 【综合大题提取法则】
 遇到包含 (1)(2) 或 (I)(II) 等多个小问的综合大题，绝对禁止将其拆分为多道独立的题！
@@ -514,10 +514,18 @@ explanation: null
 
 $modeInstruction
 
+【选择题选项剥离红线规则】
+对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
+
+【LaTeX防呆包裹与子集约束】
+1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！
+2. 允许: BSLASHfrac, BSLASHsqrt, BSLASHsum, BSLASHint, BSLASHprod, BSLASHlim, BSLASHalpha~BSLASHomega, BSLASHleq, BSLASHgeq, BSLASHneq, BSLASHapprox, BSLASHin, BSLASHsubset, BSLASHcup, BSLASHcap, BSLASHvec, BSLASHsin, BSLASHcos, BSLASHtan, BSLASHlog, BSLASHln, BSLASHpm, BSLASHcdot, BSLASHtimes, BSLASHdiv。
+3. 允许并支持 cases 环境 (如 BSLASHbegin{cases}...BSLASHend{cases})。
+4. 填空占位符必须用普通文本 ___，绝不在其外部加任何 dollar 包裹，且严禁将 ___ 放在 dollar 包裹内部。
+
 【致命警告：JSON LaTeX 物理隔离法则】
 由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
 你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
-所有的数学公式（包括独立成行的推导等式，如 BSLASHln L = ...），必须使用标准的 LaTeX 行内 \$...\$ 或块级 \$\$...\$\$ 严密包裹。绝对不能出现裸露在外的数学命令！
 特别注意矩阵和方程组，必须整体包在一个 \$\$...\$\$ 里，绝不拆分！
 正例：\$\$k_1BSLASHbegin{pmatrix}-2BSLASHBSLASH1BSLASHBSLASH0BSLASHend{pmatrix}+k_2BSLASHbegin{pmatrix}-3BSLASHBSLASH0BSLASHBSLASH1BSLASHend{pmatrix}\$\$
 反例：\$k_1BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$\$\$+k_2\$\$\$BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$ （这是断裂拼接，绝对禁止！）
@@ -859,9 +867,9 @@ $rawText
 你是一个教育数据清洗专家。这是试卷扫描件。请严格按照以下格式解析出每道题：
 
 【题型与格式】
-1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
+1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文(必须把选项剥离出去，题干绝对不包含选项部分)", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
 2. 填空题 (type: 2): {"q_num": "题号", "type": 2, "content": "题干完整原文", "options": [], "standard_answer": "答案内容"}
-3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果"}
+3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果", "explanation": "详细解题推导与证明过程（若无则设为 null 或留空）"}
 
 【综合大题提取法则】
 遇到包含 (1)(2) 或 (I)(II) 等多个小问的综合大题，绝对禁止将其拆分为多道独立的题！
@@ -878,7 +886,7 @@ $rawText
 【扫描件题解混排处理法则】
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论（如 $x=5$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
+- standard_answer 提取解题过程最终得出的答案值或结论（如 \$x=5\$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
 - explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。
 
 反例（错误）：
@@ -889,12 +897,21 @@ content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为"
 standard_answer: "k₁(-2,1,0)ᵀ + k₂(-3,0,1)ᵀ，k₁k₂为任意常数"
 explanation: null
 
-【严格限制】
+【选择题选项剥离红线规则】
+对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
+
+【LaTeX防呆包裹与子集约束】
+1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！
+2. 允许: BSLASHfrac, BSLASHsqrt, BSLASHsum, BSLASHint, BSLASHprod, BSLASHlim, BSLASHalpha~BSLASHomega, BSLASHleq, BSLASHgeq, BSLASHneq, BSLASHapprox, BSLASHin, BSLASHsubset, BSLASHcup, BSLASHcap, BSLASHvec, BSLASHsin, BSLASHcos, BSLASHtan, BSLASHlog, BSLASHln, BSLASHpm, BSLASHcdot, BSLASHtimes, BSLASHdiv。
+3. 允许并支持 cases 环境 (如 BSLASHbegin{cases}...BSLASHend{cases})。
+4. 填空占位符必须用普通文本 ___，绝不在其外部加任何 dollar 包裹，且严禁将 ___ 放在 dollar 包裹内部。
+
+【严格限制与警告】
 除了上述特例允许 type:3 提取 explanation 之外，其他题型绝对不要生成解析(explanation)字段！我们只需要题干和答案！
 绝对禁止在 content 字段中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干文字抄录下来！否则将导致系统严重错误！
-系数与矩阵/向量必须合并在同一个 \$\$...\$\$ 内，绝不允许系数在外、矩阵在内的分裂写法（例如 \$\$k_1\\begin{pmatrix}...\$\$ 是正确的）。矩阵、向量、方程组必须整体包在一个 \$\$...\$\$ 里，绝不允许拆分成多个 \$...\$。
-必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
+系数与矩阵/向量必须合并在同一个 \$\$...\$\$ 内，绝允许系数在外、矩阵在内的分裂写法。
 由于 JSON 冲突，所有 LaTeX 反斜杠必须替换为 BSLASH（如 BSLASHpi）。数学公式必须用 \$ 包裹。
+必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
     ''';
 
     try {
@@ -1036,8 +1053,8 @@ explanation: null
 
     【🌀 全并发智能内核：题干与答案异步拼图模式（最高层级指令）】
     你需要支持以下模式来解耦题干与答案：
-    - 模式 A（正常完整题目）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": [], "standard_answer": "答案", "explanation": ""}
-    - 模式 B（只有题干，未见答案）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": [], "standard_answer": null, "explanation": null}
+    - 模式 A（正常完整题目）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx", "C. xx", "D. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": "答案", "explanation": ""}
+    - 模式 B（只有题干，未见答案）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": null, "explanation": null}
     - 模式 C（只有答案页，未见题干）: {"q_num": "题号", "type": null, "content": null, "standard_answer": "答案", "explanation": ""}
     关键：当你看到纯答案文档（如 “1. A  2. B  3. C” 或 “参考答案: 1.B”）时，**必须按模式 C 输出**，提取答案并明确将 `content` 设为 null！绝对不能把解答步骤写进题干里！
     `q_num` 字段必须尽可能识别原文中的题目编号，以供归并。
@@ -1047,15 +1064,18 @@ explanation: null
     判断是否为新题的唯一标准：行首出现独立的阿拉伯数字编号（如 1. 22.）或中文大写编号（如 一、 二、）。
     带有小括号的数字 (1)、小写字母 (a)、罗马数字 (I) 等绝对不允许独立！
     你必须将它作为【一道完整的大题】，把所有小问合并写进 `content` 中，并将所有小问的解答步骤合并写进 `explanation` 中。
+
+    【选择题选项剥离红线规则】
+    对于所有选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
     
     【LaTeX子集约束-渲染引擎限制必须遵守】
-    防呆指令：所有数学公式、符号、等式（如 BSLASHln L = ...），即使是独立成行，也必须且只能用 \$ [数学公式] \$ 或 \$\$ [数学公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac）！
+    防呆指令：所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [数学公式] \$ 或 \$\$ [数学公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac）！
     允许: BSLASHfrac BSLASHsqrt BSLASHsum BSLASHint BSLASHprod BSLASHlim 及希腊字母 BSLASHalpha~BSLASHomega
     允许: BSLASHleq BSLASHgeq BSLASHneq BSLASHapprox BSLASHin BSLASHsubset BSLASHcup BSLASHcap BSLASHvec BSLASHsin BSLASHcos BSLASHtan BSLASHlog BSLASHln BSLASHpm BSLASHcdot BSLASHtimes BSLASHdiv
-    允许简单矩阵: BSLASHbegin{pmatrix}a&b BSLASHBSLASH c&d BSLASHend{pmatrix} 仅2x2或3x3
+    允许简单矩阵与 piecewise 环境: BSLASHbegin{pmatrix}a&b BSLASHBSLASH c&d BSLASHend{pmatrix} 仅2x2或3x3，及 BSLASHbegin{cases}...BSLASHend{cases}
     填空占位符必须用普通文本___绝不加任何dollar包裹
     严禁: 将___放在dollar内部会导致下标解析崩溃
-    严禁: BSLASHbegin{cases} BSLASHbegin{matrix} BSLASHmathbb BSLASHmathcal BSLASHmathfrak BSLASHdef BSLASHnewcommand
+    严禁: BSLASHbegin{matrix} BSLASHmathbb BSLASHmathcal BSLASHmathfrak BSLASHdef BSLASHnewcommand (注: pmatrix/cases 是允许的)
     严禁: 超过3层嵌套的BSLASHfrac或BSLASHsqrt
     ''';
 

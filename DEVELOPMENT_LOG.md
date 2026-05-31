@@ -1,5 +1,14 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-05-31 23:55] - fix(ai): 优化选择题选项剥离与解答题解析提取，强化 LaTeX 公式包裹防呆规范
+- **变更类型**: fix
+- **影响模块**: ai_engine, ai_sanitizer
+- **详细改动明细**:
+  - [x] 修改了 `lib/services/ai_service.dart`，对齐并升级全部解析提示词（Prompt），添加选择题选项强制剥离规则，以及更健全的 LaTeX 行内与环境公式防呆包裹约束。
+  - [x] 在解答题的 JSON Schema 中显式补全了 `explanation` 字段，并修正了文本分块解析提示词中禁止/提取解析的逻辑冲突，从而完美支持简答题/证明题提取解析。
+  - [x] 修改了 `lib/utils/ai_data_sanitizer.dart`，新增了针对题干残留 A/B/C/D 选项的正则剥离与题型纠错兜底提取机制。
+- **验证状态**: 经单元测试与本地静态检查全部通过。
+
 ## [2026-05-31 23:07] - fix(ai_sanitizer): 引入占位符隔离法并修复 JSON 反斜杠转义
 - **变更类型**: fix
 - **影响模块**: ai_sanitizer, ui

@@ -125,20 +125,53 @@ class AiDataSanitizer {
         if (q['explanation'] != null) q['explanation'] = cleanLatexBeforeDB(q['explanation'].toString());
         
         q.remove('sub_questions');
+
+        // 双重防线：自动检测并剥离题干中残留的 A,B,C,D 选项
+        final contentStr = q['content']?.toString() ?? '';
+        final optionRegex = RegExp(
+          r'[\s\n]*(?:\(|（)?\s*A\s*(?:\)|）|\.|、|\s)\s*([\s\S]+?)'
+          r'(?:\(|（)?\s*B\s*(?:\)|）|\.|、|\s)\s*([\s\S]+?)'
+          r'(?:\(|（)?\s*C\s*(?:\)|）|\.|、|\s)\s*([\s\S]+?)'
+          r'(?:\(|（)?\s*D\s*(?:\)|）|\.|、|\s)\s*([\s\S]*)$',
+          caseSensitive: false,
+        );
+        final optionMatch = optionRegex.firstMatch(contentStr);
+        if (optionMatch != null) {
+          final optA = optionMatch.group(1)!.trim();
+          final optB = optionMatch.group(2)!.trim();
+          final optC = optionMatch.group(3)!.trim();
+          final optD = optionMatch.group(4)!.trim();
+          
+          q['content'] = contentStr.substring(0, optionMatch.start).trim();
+          
+          final existingOpts = q['options'] as List?;
+          if (existingOpts == null || existingOpts.isEmpty || existingOpts.every((o) => o.toString().trim().isEmpty)) {
+            q['options'] = [
+              "A. ${cleanLatexBeforeDB(optA)}",
+              "B. ${cleanLatexBeforeDB(optB)}",
+              "C. ${cleanLatexBeforeDB(optC)}",
+              "D. ${cleanLatexBeforeDB(optD)}"
+            ];
+          }
+          if (currentType == 3) {
+            currentType = 0;
+            q['type'] = 0;
+          }
+        }
         
         if (currentType == 2 || currentType == 3) {
-        q['options'] = []; // 填空/简答强行清空选项
-      } else {
-        final opts = q['options'] as List?;
-        if (opts != null && opts.isNotEmpty && opts.any((o) => o.toString().trim().isNotEmpty)) {
-          q['type'] = currentType == 1 ? 1 : 0; // 有选项保持多选或归为单选
+          q['options'] = []; // 填空/简答强行清空选项
         } else {
-          // 被识别成了选择题，但没有提取出选项，则直接强制降级为简答题
-          q['type'] = 3;
-          q['options'] = [];
+          final opts = q['options'] as List?;
+          if (opts != null && opts.isNotEmpty && opts.any((o) => o.toString().trim().isNotEmpty)) {
+            q['type'] = currentType == 1 ? 1 : 0; // 有选项保持多选或归为单选
+          } else {
+            // 被识别成了选择题，但没有提取出选项，则直接强制降级为简答题
+            q['type'] = 3;
+            q['options'] = [];
+          }
         }
-      }
-      finalQuestions.add(q);
+        finalQuestions.add(q);
     }
     return finalQuestions;
   }
@@ -178,99 +211,28 @@ class AiDataSanitizer {
   static String formatLatex(String text) {
     if (text.isEmpty) return text;
     String result = text;
-
+    
     result = result.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
-    result = result.replaceAll(r'\begin{split}', r'\begin{aligned}');
-    result = result.replaceAll(r'\end{split}', r'\end{aligned}');
-
-    // 3. 修复大模型过度转义的下划线填空线，例如 \_\_\_ -> ___
-    result = result.replaceAllMapped(RegExp(r'(\\_){2,}'), (match) {
-      return '_' * (match.group(0)!.length ~/ 2);
-    });
-
-    // 4. 修复填空题产生的包裹占位符 $____$
-    result = result.replaceAllMapped(RegExp(r'\$(_+)\$'), (match) {
-      return match.group(1)!;
-    });
 
     // 只还原明确作为普通文本换行的 \\n，不要误伤合法转义
     result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
     result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
 
+    // 修复大模型过度转义的下划线填空线，例如 \_\_\_ -> ___
+    result = result.replaceAllMapped(RegExp(r'(\\_){2,}'), (match) {
+      return '_' * (match.group(0)!.length ~/ 2);
+    });
+
+    // 终极替换原则：只做一件事，把明确在 $ 内的块级环境升级为 $$
     result = result.replaceAllMapped(
-      RegExp(r'```(?:math|latex|tex)?\s*([\s\S]+?)\s*```', caseSensitive: false),
-      (match) {
-        final inner = match.group(1)!.trim();
-        if (inner.startsWith(r'$') && inner.endsWith(r'$')) {
-          return '\n\n$inner\n\n';
-        }
-        return '\n\n\$\$$inner\$\$\n\n';
-      },
+      RegExp(r'\$(?!\$)([^$]*\\begin\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)'
+             r'[\s\S]*?\\end\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)\}[^$]*)\$(?!\$)'),
+      (m) => '\$\$${m.group(1)}\$\$',
     );
-
-    result = result.replaceAllMapped(
-      RegExp(r'\$\$([\s\S]+?)\$\$', dotAll: true),
-      (m) => '\n\n\\[${m.group(1)!.trim()}\\]\n\n',
-    );
-
-    // 【核心定界符转换】$...$ → \(...\)（行内）
-    // 移除对换行符的限制，允许公式跨行（替换 [^\$\n] 为 [^\$]）
-    result = result.replaceAllMapped(
-      RegExp(r'(?<!\$)\$(?!\$)([^\$]+?)\$(?!\$)'),
-      (m) => '\\(${m.group(1)!}\\)',
-    );
-
-    // 步骤1: 处理裸露的 \begin{...}...\end{...} 环境
-    result = result.replaceAllMapped(
-      RegExp(r'(?<!\$)(?<!\\\()\\begin\{([^}]+)\}([\s\S]*?)\\end\{\1\}(?!\$)(?!\\\))', dotAll: true),
-      (m) => '\$\$${m.group(0)!}\$\$',
-    );
-
-    // ==========================================
-    // 🛡️ 占位符隔离法 (Placeholder Tokenization)
-    // ==========================================
-    final Map<String, String> placeholders = {};
-    int placeholderIndex = 0;
-
-    String replacer(Match m) {
-      final key = '___LATEX_BLOCK_${placeholderIndex++}___';
-      placeholders[key] = m.group(0)!;
-      return key;
-    }
-
-    // 提取块级公式 \[ ... \]
-    result = result.replaceAllMapped(RegExp(r'\\\[[\s\S]*?\\\]'), replacer);
-    // 提取行内公式 \( ... \)
-    result = result.replaceAllMapped(RegExp(r'\\\([\s\S]*?\\\)'), replacer);
-    // 提取 $$ ... $$ (由于步骤1可能产生)
-    result = result.replaceAllMapped(RegExp(r'\$\$[\s\S]*?\$\$'), replacer);
-    // 提取残留的 \begin{...} ... \end{...}
-    result = result.replaceAllMapped(RegExp(r'\\begin\{([^}]+)\}[\s\S]*?\\end\{\1\}'), replacer);
-
-    // ==========================================
-    // 【兜底修复：智能逐表达式包裹】
-    // 在安全隔离合法公式后，可以直接对纯净文本中的裸露数学命令包裹 $
-    // ==========================================
-    result = result.replaceAllMapped(
-      RegExp(
-        r'(\\(?:frac|int|oint|iint|sum|prod|lim|sqrt|mathrm|mathbf|mathit|mathbb|mathcal|operatorname|partial|nabla|infty|hat|vec|dot|ddot|overline|underline|overbrace|underbrace|binom|dbinom|tbinom)'
-        r'(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|_[^\s,\.\u3000-\u9fff]+|\^[^\s,\.\u3000-\u9fff]+)?'
-        r'(?:[_^]\{[^}]+\}|[_^][^\s,\.\{])*)',
-      ),
-      (m) {
-        final expr = m.group(0)!;
-        return '\$$expr\$';
-      },
-    );
-
-    // ==========================================
-    // 🔄 还原占位符
-    // ==========================================
-    final keys = placeholders.keys.toList().reversed;
-    for (var key in keys) {
-      result = result.replaceFirst(key, placeholders[key]!);
-    }
-
+    // 在 $$ 前后加换行，确保 markdown 解析器识别为块级
+    result = result.replaceAll(RegExp(r'(?<!\n)\$\$'), '\n\$\$');
+    result = result.replaceAll(RegExp(r'\$\$(?!\n)'), '\$\$\n');
+    
     return result;
   }
   static dynamic _restoreBslash(dynamic node) {

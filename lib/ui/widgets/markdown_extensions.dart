@@ -442,6 +442,7 @@ Widget buildLatexWidget(
 
   return GptMarkdown(
     cleaned,
+    useDollarSignsForLatex: true,
     style: TextStyle(fontSize: fontSize, color: color, fontWeight: fontWeight, height: 1.65),
     imageBuilder: (context, url, width, height) {
       return buildMarkdownImage(Uri.parse(url), null, null);
