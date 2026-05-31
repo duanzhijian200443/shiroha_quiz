@@ -51,6 +51,48 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  void _validateBeforeSave() {
+    final emptyStems = _displayQuestions.where((q) =>
+      q['content'] == null ||
+      q['content']!.toString().trim().isEmpty ||
+      q['content']!.toString().contains('假设') ||
+      q['content']!.toString().contains('原题干')
+    ).length;
+
+    final emptyRate = _displayQuestions.isEmpty ? 0 : emptyStems / _displayQuestions.length;
+
+    if (emptyRate > 0.4) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('提取质量不佳', style: TextStyle(fontWeight: FontWeight.bold)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Text('有 $emptyStems 道题目未能识别题干，建议检查原文档结构后重新导入。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('取消', style: TextStyle(color: Colors.grey))
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                _showSaveDialog();
+              }, 
+              child: const Text('仍然保存')
+            ),
+          ],
+        ),
+      );
+    } else {
+      _showSaveDialog();
+    }
+  }
+
   void _showSaveDialog() {
     showDialog(
       context: context,
@@ -135,6 +177,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             'content': q['content']?.toString() ?? '无题干',
             'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
             'standard_answer': '${q['standard_answer'] ?? q['answer'] ?? ''}|||${q['explanation'] ?? ''}',
+            'explanation': q['explanation']?.toString() ?? '',
+            'raw_explanation': q['raw_explanation']?.toString(),
             'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
           });
           await txn.insert('review_states', {
@@ -233,7 +277,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           Builder(
                             builder: (context) {
                               final sAns = q['standard_answer']?.toString().trim() ?? '';
-                              final exp = q['explanation']?.toString().trim() ?? '';
+                              final rawExp = q['raw_explanation']?.toString().trim() ?? '';
+                              final exp = rawExp.isNotEmpty ? rawExp : (q['explanation']?.toString().trim() ?? '');
                               final hasAnswerOrExp = sAns.isNotEmpty || exp.isNotEmpty;
 
                               if (!hasAnswerOrExp) {
@@ -294,7 +339,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ),
             icon: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.check_circle_outline),
             label: Text(_isSaving ? '正在入库...' : '确认无误，将 ${_displayQuestions.length} 题收入题库', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            onPressed: _isSaving ? null : _showSaveDialog,
+            onPressed: _isSaving ? null : _validateBeforeSave,
           ),
         ),
       ),

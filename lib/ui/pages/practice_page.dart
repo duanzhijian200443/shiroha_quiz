@@ -487,11 +487,11 @@ class _PracticePageState extends State<PracticePage> {
         ]),
         const SizedBox(height: 8),
         Text('正确答案: ${q.answer}', style: TextStyle(fontSize: 13, color: Colors.grey.shade800, fontWeight: FontWeight.bold)),
-        if (q.explanation != null && q.explanation!.isNotEmpty) ...[
+        if ((q.rawExplanation != null && q.rawExplanation!.isNotEmpty) || (q.explanation != null && q.explanation!.isNotEmpty)) ...[
           const SizedBox(height: 10),
           const Divider(height: 1),
           const SizedBox(height: 10),
-          _buildMarkdown(q.explanation ?? '暂无解析'),
+          _buildMarkdown((q.rawExplanation != null && q.rawExplanation!.isNotEmpty) ? q.rawExplanation! : (q.explanation ?? '暂无解析')),
         ],
       ]),
     );

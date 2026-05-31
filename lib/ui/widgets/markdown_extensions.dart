@@ -129,11 +129,15 @@ class MathElementBuilder extends MarkdownElementBuilder {
       tex,
       mathStyle: MathStyle.text,
       textStyle: preferredStyle ?? const TextStyle(fontSize: 16),
-      onErrorFallback: (e) => Text(
-        tex,
-        style: const TextStyle(
-          color: Colors.red,
-          decoration: TextDecoration.underline,
+      onErrorFallback: (e) => Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.orange.shade300),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          tex,
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
         ),
       ),
     );
@@ -152,12 +156,12 @@ class MathBlockBuilder extends MarkdownElementBuilder {
           mathStyle: MathStyle.display,
           textStyle: const TextStyle(fontSize: 17),
           onErrorFallback: (e) => Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.orange.shade300),
+              borderRadius: BorderRadius.circular(4),
             ),
-            child: Text(tex, style: const TextStyle(color: Colors.red)),
+            child: Text(tex, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
           ),
         ),
       ),
@@ -389,9 +393,16 @@ class RobustLatexElementBuilder extends MarkdownElementBuilder {
             mathText,
             textStyle: textStyle,
             mathStyle: mathStyle,
-            onErrorFallback: (err) => SelectableText(
-              '\$ $mathText \$',
-              style: textStyle.copyWith(color: Colors.redAccent),
+            onErrorFallback: (err) => Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.orange.shade300),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                mathText,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
             ),
           ),
         ),
@@ -448,16 +459,30 @@ Widget buildLatexWidget(
         textScaleFactor: 1.0,
         settings: const TexParserSettings(strict: Strict.ignore),
         onErrorFallback: (err) {
-          // 如果移动端初始化了 flutter_tex，可以考虑在这里返回 TeXView，但目前保持统一橙色提示
-          return SelectableText(
-            inline ? '\$$tex\$' : '\$\$$tex\$\$',
-            style: textStyle.copyWith(color: Colors.orangeAccent),
+          return Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.orange.shade300),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              tex,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            ),
           );
         },
       );
 
       if (inline) {
         // 内联公式直接放在 WidgetSpan 中，保留最原生的基线对齐
+        // 安全防御：如果公式超过 200 个字符，很可能是整段正文被误判为公式（第21题Bug）
+        // 这种情况下用普通文本显示而不是压缩到一行
+        if (tex.length > 200) {
+          return SelectableText(
+            tex,
+            style: textStyle.copyWith(color: color, fontSize: fontSize),
+          );
+        }
         // 使用 ConstrainedBox + FittedBox 防止超长公式溢出屏幕，同时保持基线对齐
         return ConstrainedBox(
           constraints: BoxConstraints(

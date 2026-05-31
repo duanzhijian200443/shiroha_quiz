@@ -124,7 +124,13 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             final pageCount = document.pagesCount;
             for (int i = 1; i <= pageCount; i++) {
               final page = await document.getPage(i);
-              final pageImage = await page.render(width: page.width * 2, height: page.height * 2, format: pdfx.PdfPageImageFormat.jpeg);
+              // 性能优化：直接让底层 C++ 引擎渲染出约 900px 宽度的图片
+              // 避免以 2x 渲染出几千像素的巨图后再用 Dart 纯软件压缩，能提速数倍
+              double scale = 900 / page.width;
+              if (scale > 2.0) scale = 2.0; // 限制最大缩放
+              if (scale < 1.0) scale = 1.0; // 限制最小缩放，防止太模糊
+              
+              final pageImage = await page.render(width: page.width * scale, height: page.height * scale, format: pdfx.PdfPageImageFormat.jpeg);
               if (pageImage != null) {
                 final imgFile = File('${tempDir.path}/file_${fileIdx}_page_$i.jpg');
                 await imgFile.writeAsBytes(pageImage.bytes);
@@ -137,21 +143,32 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             imagePaths.add(filePath);
           }
           
+          // ── 按 pagesPerBatch 张图片打包为一批，大幅减少 API 调用次数 ──
+          const int pagesPerBatch = 4; // 每次请求发几页：4页→调用次数减少4倍
+          List<List<String>> batches = [];
+          for (int i = 0; i < imagePaths.length; i += pagesPerBatch) {
+            int end = i + pagesPerBatch;
+            if (end > imagePaths.length) end = imagePaths.length;
+            batches.add(imagePaths.sublist(i, end));
+          }
+          debugPrint("📦 共 ${imagePaths.length} 页，打包为 ${batches.length} 批次（每批 $pagesPerBatch 页）");
+
           int maxConcurrency = _maxConcurrency.toInt();
-          List<String> pendingImages = List.from(imagePaths);
-          TaskManager.instance.appendPendingChunks(taskId, 'vision', pendingImages);
-          while (pendingImages.isNotEmpty) {
+          List<List<String>> pendingBatches = List.from(batches);
+          TaskManager.instance.appendPendingChunks(taskId, 'vision', pendingBatches.map((b) => b.join(',')).toList());
+          while (pendingBatches.isNotEmpty) {
             List<Future<void>> workers = [];
             int currentWorkers = maxConcurrency;
-            if (currentWorkers > pendingImages.length) currentWorkers = pendingImages.length;
+            if (currentWorkers > pendingBatches.length) currentWorkers = pendingBatches.length;
             for (int i = 0; i < currentWorkers; i++) {
               workers.add(() async {
-                while (pendingImages.isNotEmpty) {
-                  final path = pendingImages.removeAt(0);
+                while (pendingBatches.isNotEmpty) {
+                  final batch = pendingBatches.removeAt(0);
+                  final batchKey = batch.join(',');
                   try {
-                    final res = await AiService.instance.parseImagesWithVision([path]);
+                    final res = await AiService.instance.parseImagesWithVision(batch);
                     singleFileQuestions.addAll(res);
-                    TaskManager.instance.markChunkSuccess(taskId, path, res);
+                    TaskManager.instance.markChunkSuccess(taskId, batchKey, res);
                   } catch (e) {
                     final errorStr = e.toString().toLowerCase();
                     if (errorStr.contains('429') || 
@@ -160,18 +177,18 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                         errorStr.contains('clientexception') ||
                         errorStr.contains('socketexception') ||
                         errorStr.contains('broken pipe')) {
-                      pendingImages.insert(0, path);
+                      pendingBatches.insert(0, batch);
                       if (maxConcurrency > 1) maxConcurrency--;
                       await Future.delayed(const Duration(seconds: 3));
                       return;
                     } else if (errorStr.contains('timeout')) {
-                      pendingImages.insert(0, path);
+                      pendingBatches.insert(0, batch);
                       if (maxConcurrency > 1) maxConcurrency--;
                       else await Future.delayed(const Duration(seconds: 10));
                       return;
                     } else {
-                      TaskManager.instance.markChunkFailed(taskId, path);
-                      throw e;
+                      TaskManager.instance.markChunkFailed(taskId, batchKey);
+                      debugPrint("⚠️ 批次 ${batch.length} 页视觉解析彻底失败: $e，跳过以挽救其他数据");
                     }
                   }
                 }
@@ -263,7 +280,30 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       } else if (!hasContent && hasAnswer) {
         answerByNum[qNum] = q;
       } else if (hasContent) {
-        questionByNum[qNum] = q;
+        if (questionByNum.containsKey(qNum)) {
+          final existing = questionByNum[qNum]!;
+          final existingContent = existing['content']?.toString() ?? '';
+          final newContent = q['content']?.toString() ?? '';
+          
+          // 长度博弈：保留更长、内容更丰富的题干，防止跨页造成的伪题干（短答案）覆盖真题干
+          if (existingContent.length >= newContent.length) {
+            // 保留原有题干，但把新来的答案和解析吃进来（补全拼图）
+            if (hasAnswer) {
+              existing['standard_answer'] = q['standard_answer'];
+              if (q['explanation'] != null) {
+                 existing['explanation'] = q['explanation'];
+              }
+            }
+          } else {
+            // 新题干更长，说明旧题干可能是前一页的残影，用新的覆盖旧的
+            if (existing['standard_answer'] != null && !hasAnswer) {
+              q['standard_answer'] = existing['standard_answer'];
+            }
+            questionByNum[qNum] = q;
+          }
+        } else {
+          questionByNum[qNum] = q;
+        }
       }
     }
 
@@ -284,6 +324,29 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     }
 
     final mergedQuestions = [...questionByNum.values, ...noNumQuestions];
+    
+    // 按题型（选择 -> 填空 -> 解答）和题号进行自动化排序
+    mergedQuestions.sort((a, b) {
+      int typeA = (a['type'] is int) ? a['type'] : int.tryParse(a['type']?.toString() ?? '3') ?? 3;
+      int typeB = (b['type'] is int) ? b['type'] : int.tryParse(b['type']?.toString() ?? '3') ?? 3;
+      
+      // 统一 0 和 1（单选/多选）都在最前
+      int weightA = (typeA == 0 || typeA == 1) ? 0 : typeA;
+      int weightB = (typeB == 0 || typeB == 1) ? 0 : typeB;
+      
+      if (weightA != weightB) {
+        return weightA.compareTo(weightB);
+      }
+      
+      // 类型相同，按题号数字排序
+      String qNumRawA = (a['q_num'] ?? '').toString();
+      String qNumRawB = (b['q_num'] ?? '').toString();
+      int qNumA = int.tryParse(RegExp(r'\d+').firstMatch(qNumRawA)?.group(0) ?? '999') ?? 999;
+      int qNumB = int.tryParse(RegExp(r'\d+').firstMatch(qNumRawB)?.group(0) ?? '999') ?? 999;
+      
+      return qNumA.compareTo(qNumB);
+    });
+
     debugPrint('🧩 拼图归并完成：题干桶=${questionByNum.length}，答案桶=${answerByNum.length}，无编号区=${noNumQuestions.length}，最终结果=${mergedQuestions.length} 题');
     return mergedQuestions;
   }

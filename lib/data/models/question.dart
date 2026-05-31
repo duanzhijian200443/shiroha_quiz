@@ -10,6 +10,7 @@ class Question {
   final int createdAt;
   final String bankName;
   final String? explanation; // Added from another table or context
+  final String? rawExplanation; // Added for new AI chunking architecture
 
   const Question({
     this.id,
@@ -20,6 +21,7 @@ class Question {
     required this.createdAt,
     required this.bankName,
     this.explanation,
+    this.rawExplanation,
   });
 
   factory Question.fromMap(Map<String, dynamic> map) {
@@ -42,6 +44,7 @@ class Question {
       createdAt: map['created_at'] as int? ?? 0,
       bankName: map['bank_name']?.toString() ?? '默认题库',
       explanation: explanation,
+      rawExplanation: map['raw_explanation']?.toString(),
     );
   }
 
@@ -55,6 +58,7 @@ class Question {
       'created_at': createdAt,
       'bank_name': bankName,
       'explanation': explanation,
+      'raw_explanation': rawExplanation,
     };
   }
 
@@ -67,6 +71,7 @@ class Question {
     int? createdAt,
     String? bankName,
     String? explanation,
+    String? rawExplanation,
   }) {
     return Question(
       id: id ?? this.id,
@@ -77,6 +82,7 @@ class Question {
       createdAt: createdAt ?? this.createdAt,
       bankName: bankName ?? this.bankName,
       explanation: explanation ?? this.explanation,
+      rawExplanation: rawExplanation ?? this.rawExplanation,
     );
   }
 }

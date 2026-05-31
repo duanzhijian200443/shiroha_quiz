@@ -7,7 +7,7 @@ class DatabaseHelper {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 12;
+  static const int _dbVersion = 13;
 
   static DatabaseHelper? _instance;
   static Database? _database;
@@ -49,6 +49,8 @@ class DatabaseHelper {
           content TEXT NOT NULL,
           options TEXT,
           standard_answer TEXT NOT NULL,
+          explanation TEXT,
+          raw_explanation TEXT,
           created_at INTEGER NOT NULL,
           bank_name TEXT DEFAULT '默认题库'
       );
@@ -232,6 +234,13 @@ class DatabaseHelper {
         await db.execute('ALTER TABLE import_tasks ADD COLUMN source_type TEXT');
         await db.execute('ALTER TABLE import_tasks ADD COLUMN pending_chunks TEXT');
         await db.execute('ALTER TABLE import_tasks ADD COLUMN failed_chunks TEXT');
+      } catch (e) {
+        // Ignore
+      }
+    }
+    if (oldVersion < 13) {
+      try {
+        await db.execute('ALTER TABLE questions ADD COLUMN raw_explanation TEXT');
       } catch (e) {
         // Ignore
       }
@@ -590,6 +599,7 @@ class DatabaseHelper {
     try {
       // 核心热修复：为旧版题库追加解析字段，完美兼容 AI 生成的题目
       await db.execute('ALTER TABLE questions ADD COLUMN explanation TEXT DEFAULT ""');
+      await db.execute('ALTER TABLE questions ADD COLUMN raw_explanation TEXT');
     } catch (_) {}
 
     // --- 极速检索引擎：FTS5 虚拟表与触发器 ---
@@ -871,5 +881,18 @@ class DatabaseHelper {
       'import_tasks',
       orderBy: 'created_at DESC',
     );
+  }
+
+  // --- 错题重练引擎：获取近期错题 ---
+  Future<List<Map<String, dynamic>>> getRecentWrongQuestions({int limit = 30}) async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT q.*, r.user_answer as last_wrong_answer 
+      FROM questions q
+      JOIN review_states r ON q.id = r.question_id
+      WHERE r.lapses > 0
+      ORDER BY r.last_lapse_time DESC
+      LIMIT ?
+    ''', [limit]);
   }
 }

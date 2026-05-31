@@ -49,8 +49,18 @@ class AiDataSanitizer {
     // 处理非法的物理换行符（将其替换为 JSON 合法的转义换行）
     // 注意：只替换 JSON 字符串值内部的换行符，绝对不能破坏括号、逗号等结构外部的物理换行！
     cleanText = cleanText.replaceAll('\r', '');
-    cleanText = cleanText.replaceAllMapped(RegExp(r'"(?:[^"\\]|\\.)*"'), (match) {
-      return match.group(0)!.replaceAll('\n', '\\n');
+    cleanText = cleanText.replaceAllMapped(RegExp(r'"(?:[^"\\]|\\.)*"', dotAll: true), (match) {
+      String str = match.group(0)!;
+      str = str.replaceAll('\n', '\\n');
+      
+      // 核心防御：修复大模型未转义的 LaTeX 反斜杠（如 \mu, \frac 等引发的 JSON 解析崩溃）
+      // 保留 \", \\, \u, \/，其他一律强制转义为双斜杠
+      str = str.replaceAllMapped(RegExp(r'\\\\|\\([^"u/])'), (m) {
+        if (m.group(0) == '\\\\') return '\\\\';
+        return '\\\\${m.group(1)}';
+      });
+      
+      return str;
     });
 
 
@@ -100,7 +110,7 @@ class AiDataSanitizer {
       final q = item;
       int currentType = q['type'] as int? ?? 0;
       
-      if (q['content'] == null || q['content'].toString().trim().isEmpty) {
+        if (q['content'] == null || q['content'].toString().trim().isEmpty) {
           if (q['standard_answer'] != null && q['standard_answer'].toString().trim().isNotEmpty) {
             q['content'] = "[纯答案提取]\n" + q['standard_answer'].toString();
           } else if (q['explanation'] != null && q['explanation'].toString().trim().isNotEmpty) {
@@ -109,6 +119,10 @@ class AiDataSanitizer {
             q['content'] = "无题干";
           }
         }
+        
+        if (q['content'] != null) q['content'] = cleanLatexBeforeDB(q['content'].toString());
+        if (q['standard_answer'] != null) q['standard_answer'] = cleanLatexBeforeDB(q['standard_answer'].toString());
+        if (q['explanation'] != null) q['explanation'] = cleanLatexBeforeDB(q['explanation'].toString());
         
         q.remove('sub_questions');
         
@@ -127,6 +141,37 @@ class AiDataSanitizer {
       finalQuestions.add(q);
     }
     return finalQuestions;
+  }
+
+  static String cleanLatexBeforeDB(String text) {
+    if (text.isEmpty) return text;
+    String result = text;
+
+    // 规则一（修正版）：允许矩阵前有系数，含 matrix 基础环境。两端加换行符确保 Markdown 块级识别
+    result = result.replaceAllMapped(
+      RegExp(
+        r'\$(?!\$)([^$]*\\begin\{(?:pmatrix|bmatrix|cases|vmatrix|matrix)'
+        r'[^$]*\\end\{(?:pmatrix|bmatrix|cases|vmatrix|matrix)\}[^$]*)\$(?!\$)'
+      ),
+      (m) => '\n\$\$${m.group(1)}\$\$\n',
+    );
+
+    // 规则二（修正版）：只降级矩阵间的短运算符，不做全局 $$$ 替换
+    result = result.replaceAllMapped(
+      RegExp(r'\$\$([+\-=,，\s]{1,6}[\w\d_\^]{0,4})\$\$'),
+      (m) => '\$${m.group(1)}\$',
+    );
+
+    // 规则三：把紧贴在 $$ 前面的系数变量吸收进数学块内
+    result = result.replaceAllMapped(
+      RegExp(
+        r'([a-zA-Z_]\w*)\s*\$\$(\\begin\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)}'
+        r'[\s\S]*?\\end\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)\})\$\$'
+      ),
+      (m) => '\n\$\$${m.group(1)}${m.group(2)}\$\$\n',
+    );
+
+    return result;
   }
 
   // 2. 极简 LaTeX 公式格式化
@@ -175,10 +220,55 @@ class AiDataSanitizer {
       (m) => '\\(${m.group(1)!}\\)',
     );
 
-    if (!result.contains(r'\(') && !result.contains(r'\[') && !result.contains(r'$')) {
-      if (result.contains(r'\frac') || result.contains(r'\sqrt') || result.contains(r'\sum')) {
-        result = '\\($result\\)';
-      }
+    // 步骤1: 处理裸露的 \begin{...}...\end{...} 环境
+    result = result.replaceAllMapped(
+      RegExp(r'(?<!\$)(?<!\\\()\\begin\{([^}]+)\}([\s\S]*?)\\end\{\1\}(?!\$)(?!\\\))', dotAll: true),
+      (m) => '\$\$${m.group(0)!}\$\$',
+    );
+
+    // ==========================================
+    // 🛡️ 占位符隔离法 (Placeholder Tokenization)
+    // ==========================================
+    final Map<String, String> placeholders = {};
+    int placeholderIndex = 0;
+
+    String replacer(Match m) {
+      final key = '___LATEX_BLOCK_${placeholderIndex++}___';
+      placeholders[key] = m.group(0)!;
+      return key;
+    }
+
+    // 提取块级公式 \[ ... \]
+    result = result.replaceAllMapped(RegExp(r'\\\[[\s\S]*?\\\]'), replacer);
+    // 提取行内公式 \( ... \)
+    result = result.replaceAllMapped(RegExp(r'\\\([\s\S]*?\\\)'), replacer);
+    // 提取 $$ ... $$ (由于步骤1可能产生)
+    result = result.replaceAllMapped(RegExp(r'\$\$[\s\S]*?\$\$'), replacer);
+    // 提取残留的 \begin{...} ... \end{...}
+    result = result.replaceAllMapped(RegExp(r'\\begin\{([^}]+)\}[\s\S]*?\\end\{\1\}'), replacer);
+
+    // ==========================================
+    // 【兜底修复：智能逐表达式包裹】
+    // 在安全隔离合法公式后，可以直接对纯净文本中的裸露数学命令包裹 $
+    // ==========================================
+    result = result.replaceAllMapped(
+      RegExp(
+        r'(\\(?:frac|int|oint|iint|sum|prod|lim|sqrt|mathrm|mathbf|mathit|mathbb|mathcal|operatorname|partial|nabla|infty|hat|vec|dot|ddot|overline|underline|overbrace|underbrace|binom|dbinom|tbinom)'
+        r'(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|_[^\s,\.\u3000-\u9fff]+|\^[^\s,\.\u3000-\u9fff]+)?'
+        r'(?:[_^]\{[^}]+\}|[_^][^\s,\.\{])*)',
+      ),
+      (m) {
+        final expr = m.group(0)!;
+        return '\$$expr\$';
+      },
+    );
+
+    // ==========================================
+    // 🔄 还原占位符
+    // ==========================================
+    final keys = placeholders.keys.toList().reversed;
+    for (var key in keys) {
+      result = result.replaceFirst(key, placeholders[key]!);
     }
 
     return result;

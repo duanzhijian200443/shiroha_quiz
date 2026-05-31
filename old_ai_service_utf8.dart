@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
@@ -6,24 +6,6 @@ import 'package:image/image.dart' as img;
 import '../core/database/database_helper.dart';
 import '../utils/ai_data_sanitizer.dart';
 import 'task_manager.dart';
-import 'document_profiler.dart';
-
-// 顶级函数：用于 Isolate 压缩图片
-List<int> _compressImageSync(List<int> bytes) {
-  try {
-    final image = img.decodeImage(Uint8List.fromList(bytes));
-    if (image != null) {
-      img.Image resized = image;
-      if (image.width > 900) {
-        resized = img.copyResize(image, width: 900);
-      }
-      return img.encodeJpg(resized, quality: 65);
-    }
-  } catch (e) {
-    debugPrint('图片压缩失败，回退使用原图: $e');
-  }
-  return bytes;
-}
 
 class AiService {
   static final AiService instance = AiService._();
@@ -79,8 +61,6 @@ class AiService {
       return "";
     }
   }
-
-
 
   Future<String> judgeAnswer(String question, String standardAnswer, String userAnswer) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
@@ -140,12 +120,12 @@ class AiService {
     String typeReq = type == 0 ? "全部为【单选题】，必须提供 4 个选项。" : (type == 2 ? "全部为【填空题】，用 '___' 表示填空处。" : (type == 3 ? "全部为【简答题】。" : "混合生成【单选、填空、简答】。"));
 
     String exampleJson = type == 0 
-        ? '[{"type": 0, "content": "题干", "options": ["A.", "B."], "standard_answer": "A"}]'
+        ? '[{"type": 0, "content": "题干", "options": ["A.", "B."], "standard_answer": "A", "explanation": ""}]'
         : (type == 2 
-            ? '[{"type": 2, "content": "题干(用___表示填空)", "options": [], "standard_answer": "答案"}]'
+            ? '[{"type": 2, "content": "题干(用___表示填空)", "options": [], "standard_answer": "答案", "explanation": ""}]'
             : (type == 3 
-                ? '[{"type": 3, "content": "简答题干", "options": [], "standard_answer": "标准答案"}]'
-                : '[{"type": 0, "content": "单选题干", "options": ["A.", "B."], "standard_answer": "A"}]'));
+                ? '[{"type": 3, "content": "简答题干", "options": [], "standard_answer": "标准答案", "explanation": ""}]'
+                : '[{"type": 0, "content": "单选题干", "options": ["A.", "B."], "standard_answer": "A", "explanation": ""}]'));
 
     final prompt = '''
     你是一个命题专家。请根据知识点：“$topic”，生成 $count 道题。
@@ -225,7 +205,7 @@ $qOptions
     prompt += '''
 【要求】
 1. 你必须且只能输出合法的 JSON 对象，格式必须完全遵守下方示例：
-{"standard_answer": "你的最终答案（尽量简短，如A、B、或者一个词语、公式）"}
+{"standard_answer": "你的最终答案（尽量简短，如A、B、或者一个词语、公式）", "explanation": "你的详细推导过程、解析、考点分析"}
 2. standard_answer 字段中绝对禁止出现多余的解释文字，只保留最终核心答案！
 3. 输出的 JSON 必须严格合法：公式或内容中的换行必须写为 \\n，LaTeX 公式必须转义。绝对禁止在 JSON 字符串值中出现真实的物理回车换行！绝对禁止在字符串内容中直接使用未经转义的双引号(请替换为单引号或转义为 \\\")！
 ''';
@@ -265,7 +245,8 @@ $qOptions
       final parsedList = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
       if (parsedList.isNotEmpty) {
         final ans = parsedList.first['standard_answer']?.toString() ?? '';
-        return {"standard_answer": ans, "explanation": ""};
+        final exp = parsedList.first['explanation']?.toString() ?? '';
+        return {"standard_answer": ans, "explanation": exp};
       }
       throw Exception("AI 返回了空数据");
     } catch (e) {
@@ -292,9 +273,9 @@ $qOptions
     3. 【简答题】$shortCount 道。(type: 3)
     【格式约束】直接输出纯 JSON 数组，绝不要 markdown 包裹。
     [
-      {"type": 0, "content": "单选题干", "options": ["A.", "B."], "standard_answer": "A"},
-      {"type": 2, "content": "填空题干(用___)", "options": [], "standard_answer": "填空答案"},
-      {"type": 3, "content": "简答题干", "options": [], "standard_answer": "简答答案"}
+      {"type": 0, "content": "单选题干", "options": ["A.", "B."], "standard_answer": "A", "explanation": ""},
+      {"type": 2, "content": "填空题干(用___)", "options": [], "standard_answer": "填空答案", "explanation": ""},
+      {"type": 3, "content": "简答题干", "options": [], "standard_answer": "简答答案", "explanation": ""}
     ]
     【致命警告：JSON转义】遇到 LaTeX 公式，所有反斜杠必须双重转义！例如 \\pi。
     ''';
@@ -344,190 +325,87 @@ $qOptions
     }
   }
 
-  // --- 错题重练引擎：根据错题生成新题并存入指定题库 ---
-  Future<List<Map<String, dynamic>>> generateAndSaveQuestionsFromMistakes({String targetBankName = '🔥 弱点突击训练营', int limit = 30, int count = 10}) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
-    if (profile == null) throw Exception("未激活文本引擎");
-
-    final apiKey = profile['api_key'] as String? ?? '';
-    String baseUrl = profile['base_url'] as String? ?? '';
-    final model = profile['model_name'] as String? ?? '';
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
-    final effort = profile['reasoning_effort'] as String? ?? '';
-
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
-
-    // 1. 获取近期错题
-    final wrongQuestions = await DatabaseHelper.instance.getRecentWrongQuestions(limit: limit);
-    if (wrongQuestions.isEmpty) {
-      throw Exception("没有找到近期错题，快去刷题吧！");
-    }
-
-    // 2. 组装精简上下文
-    StringBuffer contextBuffer = StringBuffer();
-    for (int i = 0; i < wrongQuestions.length; i++) {
-      final w = wrongQuestions[i];
-      contextBuffer.writeln("错题 ${i+1}:");
-      contextBuffer.writeln("【题干】${w['content']}");
-      contextBuffer.writeln("【标准答案】${w['standard_answer']}");
-      if (w['last_wrong_answer'] != null && w['last_wrong_answer'].toString().isNotEmpty) {
-        contextBuffer.writeln("【学生的错误回答】${w['last_wrong_answer']}");
-      }
-      contextBuffer.writeln("---");
-    }
-
-    final prompt = '''
-你是一个无所不知的教育专家。以下是学生最近做错的题目及其错误答案：
-<mistakes>
-${contextBuffer.toString()}
-</mistakes>
-
-请深入分析这些错题暴露出的薄弱知识点，并针对这些薄弱点，为学生**生成 $count 道**全新的类似题目（混合单选、填空、解答），帮助他巩固。
-
-【严格格式约束】直接输出纯 JSON 数组，绝不要 markdown 包裹。
-[
-  {"type": 0, "content": "单选题干", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "A"},
-  {"type": 2, "content": "填空题干(用___)", "options": [], "standard_answer": "填空答案"},
-  {"type": 3, "content": "解答题干", "options": [], "standard_answer": "最终结果"}
-]
-
-【核心红线规则】
-1. 绝对禁止生成 explanation(解析) 字段！只需要题干和答案。
-2. 由于 JSON 冲突，所有 LaTeX 反斜杠必须替换为 BSLASH（如 BSLASHpi）。数学公式必须用 \$ 包裹。
-3. 遇到包含小问的大题，必须合并为一道 type:3 题目。
-    ''';
-
-    try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-      final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
-      final isZhipu = baseUrl.contains('bigmodel.cn');
-      String responseText = "";
-
-      if (isGemini) {
-        final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp, "maxOutputTokens": 8192}})).timeout(const Duration(minutes: 5));
-        if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
-        } else {
-          throw Exception("API Error: ${res.statusCode} - ${res.body}");
-        }
-      } else {
-        final url = _buildChatUrl(baseUrl, isZhipu);
-        final Map<String, dynamic> reqBody = {"model": model, "messages": [{"role": "user", "content": prompt}]};
-        if (effort.isNotEmpty) reqBody["reasoning_effort"] = effort;
-        else reqBody["temperature"] = temp;
-        reqBody["max_tokens"] = 8192;
-        
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode(reqBody)).timeout(const Duration(minutes: 5));
-        if (res.statusCode == 200) {
-          responseText = _extractContent(res.body);
-        } else {
-          throw Exception("API Error: ${res.statusCode} - ${res.body}");
-        }
-      }
-      
-      final parsedList = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
-      
-      if (parsedList.isNotEmpty) {
-        // 确保目标题库（文件夹）存在
-        await DatabaseHelper.instance.updateBankFolder(targetBankName, '🎯 智能生成');
-        
-        final db = await DatabaseHelper.instance.database;
-        final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        
-        await db.transaction((txn) async {
-          for (int i = 0; i < parsedList.length; i++) {
-            final q = parsedList[i];
-            String qId = 'ai_mistake_' + DateTime.now().millisecondsSinceEpoch.toString() + '_' + i.toString();
-            await txn.insert('questions', {
-              'id': qId,
-              'bank_name': targetBankName,
-              'type': q['type'] ?? 0,
-              'content': q['content'],
-              'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
-              'standard_answer': q['standard_answer'],
-              'explanation': '', // 统一为空
-              'created_at': nowUnix,
-            });
-          }
-        });
-      }
-      
-      return parsedList;
-    } catch (e) {
-      throw Exception("根据错题生成新题失败: $e");
-    }
-  }
-
   // 核心抽离：单块文本解析（处理小块，防止截断，保证永不超时和截断）
-  Future<List<Map<String, dynamic>>> _parseSingleChunkToQuestions(String rawText, Map<String, dynamic> profile, {bool isMarkdown = false, String parseMode = 'all'}) async {
+  Future<List<Map<String, dynamic>>> _parseSingleChunkToQuestions(String rawText, Map<String, dynamic> profile, {bool isMarkdown = false}) async {
     final apiKey = profile['api_key'] as String? ?? '';
     String baseUrl = profile['base_url'] as String? ?? '';
     final model = profile['model_name'] as String? ?? '';
 
-    String modeInstruction = "";
-    if (parseMode == 'stem_only') {
-      modeInstruction = "【当前为题干区模式】请只提取题干(content)和选项(options)，将 standard_answer 和 explanation 设为 null 或留空！绝对禁止在 content 中使用占位符敷衍！";
-    } else if (parseMode == 'answer_only') {
-      modeInstruction = "【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。绝对不要把答案填进 content 凑数！";
-    } else {
-      modeInstruction = '''
-【输出模式】
-模式A（完整题目）：输出 content 和 standard_answer。
-模式B（只有题干）：standard_answer 设为 null。
-模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。
-
-绝对不要生成任何解析(explanation)字段，我们只需要题干和答案！
-对于模式A和模式B：绝对禁止在 content 中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干抄录下来！
-对于模式C：请坚决让 content 为 null，绝对不要把答案填进 content 凑数！
-
-【扫描件题解混排处理法则】
-如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
-- content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论。
-- explanation 字段直接输出 null，不需要提取解析内容。
-
-反例（错误）：
-content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为 【解】设...化简得..."
-
-正例（正确）：
-content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为"
-standard_answer: "k₁(-2,1,0)ᵀ + k₂(-3,0,1)ᵀ，k₁k₂为任意常数"
-explanation: null
-''';
-    }
-
     final prompt = '''
-你是一个严谨的教育数据提取专家。请将以下文本提取为结构化的题库 JSON 数组。如果没有检测到题目，直接返回空数组 []。
+    你是一个顶级的教育数据清洗专家。请将以下文本解析为结构化的题库 JSON 数组。如果没有检测到任何有效题目，直接返回空数组 []。
 
-【题型与格式】
-1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文(包含选项部分)", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
-2. 填空题 (type: 2): {"q_num": "题号", "type": 2, "content": "题干完整原文", "options": [], "standard_answer": "答案内容"}
-3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果"}
+    【核心题型字典与 JSON 格式】
+    请务必根据题目特征，自动将其分类为以下三种题型之一，并严格使用对应的 JSON 格式：
+    1. 选择题 (type: 0)：只要题目带有 A, B, C, D 等选项，即为选择题。
+       格式: {"type": 0, "content": "题干", "options": ["A. xxx", "B. xxx", "C. xxx", "D. xxx"], "standard_answer": "A", "explanation": ""}
+    2. 填空题 (type: 2)：题干中有下划线、括号留空，或明确要求填空的。
+       格式: {"type": 2, "content": "题干", "options": [], "standard_answer": "填空内容", "explanation": ""}
+    3. 解答/计算/证明题 (type: 3)：没有选项，要求计算、求解或证明的。
+       格式: {"type": 3, "content": "题干", "options": [], "standard_answer": "最终结果或略", "explanation": ""}
 
-【综合大题提取法则】
-遇到包含 (1)(2) 或 (I)(II) 等多个小问的综合大题，绝对禁止将其拆分为多道独立的题！
-必须按以下标准合并为一道 type:3（解答题）：
-1. content（题干）：必须包含大题的前置背景描述，并依次追加 (I)(II) 等所有小问的题目原文。
-2. standard_answer（答案）：必须依次合并包含 (I)(II) 对应的所有解答内容。
-绝对不允许把小问的题干丢进答案里，各归其位！
+    ${isMarkdown ? '''
+    【🛡️ Markdown 专属结构保护指令】
+    这是一份高标准排版的 Markdown 试卷。请充分信赖原文中的 Markdown 标题层级（如 `### `）和序号。
+    如果当前片段中孤立地出现了 `(3)` 这样的小问尾部（因为文本过长被切分），**请绝对不要丢弃**！你必须将这个残缺片段作为独立的题目提取，保留原样序号，后续引擎会自动根据题号修复！
+    绝对不要因为“题干不完整”而报错或忽略它。
+    ''' : '''
+    【⚠️ 大题防撕裂最高法则（通用文本通道）】
+    遇到包含 (I)、(II)、(III) 或 (1)、(2) 或 步骤1、步骤2 等多个小问的综合性大题时，**绝对禁止将其拆分为多道独立的顶级题**！
+    判断是否为新题的唯一标准：行首出现独立的阿拉伯数字编号（如 1. 22.）或中文大写编号（如 一、 二、）。
+    带有小括号的数字 (1)、小写字母 (a)、罗马数字 (I) 等绝对不允许独立！
+    你必须将它作为【一道完整的大题(type: 3)】，把所有小问合并写进 `content` 中，并将所有小问的解答步骤合并写进 `explanation` 中。
+    '''}
 
-$modeInstruction
+    【✂️ 题干与解析精准剥离法则（核心指令）】
+    在扫描图片或文本时，务必将“题目本身（题干）”与附带的“题目答案/解析/分析/解”严格分离开来！
+    - `content` (题干)：**只能**包含题目本身的问题描述、背景资料和提问。**绝对禁止**将“分析”、“解”、“证明过程”、“答案是”等答题过程混入题干！
+    - `explanation` (解析)：如果原文中有“分析”、“详解”、“解题思路”，请提取到此字段。如果没有，请设为 null 或空字符串。**绝对不要自己推导或补全解析！首要任务是原样提取题目和答案。**
+    你必须具备“剪刀手”能力，绝不能把题目和答案无脑连在一起输出！
 
-【致命警告：JSON LaTeX 物理隔离法则】
-由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
-你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
-所有的数学公式必须使用标准的 LaTeX 行内 \$...\$ 或块级 \$\$...\$\$ 严谨包裹。
-特别注意矩阵和方程组，必须整体包在一个 \$\$...\$\$ 里，绝不拆分！
-正例：\$\$k_1BSLASHbegin{pmatrix}-2BSLASHBSLASH1BSLASHBSLASH0BSLASHend{pmatrix}+k_2BSLASHbegin{pmatrix}-3BSLASHBSLASH0BSLASHBSLASH1BSLASHend{pmatrix}\$\$
-反例：\$k_1BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$\$\$+k_2\$\$\$BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$ （这是断裂拼接，绝对禁止！）
-必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
+    【致命格式警告 - JSON LaTeX 物理隔离法则】
+    由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生灾难性冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
+    你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符。系统会在安全层自动替换回反斜杠。
+    ❌ 错误写法: "content": "\$\\\\frac{1}{2}\$" 
+    ✅ 正确写法: "content": "\$ BSLASHfrac{1}{2} \$"
+    这适用于所有 LaTeX 指令：BSLASHsum, BSLASHfrac, BSLASHlim, BSLASHboldsymbol, BSLASHalpha 等。
 
-【待解析文本】
-<document>
-$rawText
-</document>
-''';
+    【🚨 填空题公式崩溃警告（极其重要）】
+    如果是填空题，**绝对禁止**将连续的下划线 `___` 放在 LaTeX 公式符号 `\$` 内部！
+    因为 `_` 在 LaTeX 中是下标语法，`\$a = ___\$` 会引发严重的语法崩溃（导致公式变红报错）。
+    ❌ 崩溃写法: "则 \$ a = _____ \$" (下划线在 \$ 内部，必报错！)
+    ✅ 正确写法: "则 \$ a = \$ _____" (必须把下划线放在 \$ 外部的普通文本区！)
+
+    【🏞️ 绝对保留图片标签警告（生死红线）】
+    原文本中如果存在类似 `![alt](sandbox://...)` 的 Markdown 图片标签，它们代表着极其重要的配图！
+    你在提取题干（content）或解析（explanation）时，**必须原封不动地保留所有图片标签，绝对不允许删除、修改或弄丢任何一个图片链接！**
+    必须把图片标签准确放置在题目描述对应的原始位置。
+
+    【🌀 全并发智能内核：题干与答案异步拼图模式（最高层级指令）】
+    认定这个事实：当 PDF 分块并发处理时，一个批次可能只包含题干而没有答案，另一批次可能只有答案而没有题干。
+    你必须支持两种输出模式：
+    - 模式 A（正常完整题目）: {"q_num": "题号，如 1、2、或空字符串", "type": 0/2/3, "content": "题干", "options": [], "standard_answer": "答案", "explanation": ""}
+    - 模式 B（只有题干，未见答案）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": [], "standard_answer": null, "explanation": null}
+    - 模式 C（只有答案页，未见题干）: {"q_num": "题号", "type": null, "content": null, "standard_answer": "答案", "explanation": ""}
+    关键：当你看到纯答案页（如 “1. A  2. B  3. C” 或 “参考答案: 1.B”）时，**绝对不允许丢弃**！必须按模式 C 输出，将每道题的答案逆向提取出来！
+    `q_num` 字段必须尽可能识别原文中的题目编号（如 "1"、"2"、"3"），它将用于全局归并算法对题干和答案进行拼图配对。
+
+    【输出格式最高指令】
+    你必须且只能输出合法的 JSON 对象，它必须包含一个名为 "questions" 的数组，格式如：`{"questions": [ {"q_num": "1", "type": 0, "content": "真实的题干内容", "options": ["A", "B"], "standard_answer": "完整的答案", "explanation": "完整的解析"} ]}`。绝对禁止先输出 JSON 模板骨架然后再用普通文本解释！你生成的整个回复必须是唯一一个完整的、包含所有数据的巨大 JSON 字符串！
+    **绝对禁止**在 JSON 外部输出任何多余的闲聊、问候语、警告解释或确认语。千万不能直接输出 省略号，必须输出真实的题目数据！
+
+    【LaTeX子集约束-渲染引擎限制必须遵守】
+    防呆指令：所有数学公式、符号、分数、甚至孤立的字母，必须且只能用 \$ [数学公式] \$ 包裹！绝不能出现没有 \$ 包裹的 BSLASHfrac 等公式！
+    允许: BSLASHfrac BSLASHsqrt BSLASHsum BSLASHint BSLASHprod BSLASHlim 及希腊字母 BSLASHalpha~BSLASHomega
+    允许: BSLASHleq BSLASHgeq BSLASHneq BSLASHapprox BSLASHin BSLASHsubset BSLASHcup BSLASHcap BSLASHvec BSLASHsin BSLASHcos BSLASHtan BSLASHlog BSLASHln BSLASHpm BSLASHcdot BSLASHtimes BSLASHdiv
+    填空占位符必须用普通文本___绝不加dollar包裹，严禁放在dollar内部
+    严禁: BSLASHbegin{cases} BSLASHbegin{matrix} BSLASHmathbb BSLASHmathcal BSLASHmathfrak BSLASHdef BSLASHnewcommand
+    严禁: 超过3层嵌套的BSLASHfrac或BSLASHsqrt
+
+    【待解析文本】
+    <document>
+    $rawText
+    </document>
+    ''';
 
     try {
       if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -554,8 +432,7 @@ $rawText
           throw Exception("API Error: ${res.statusCode} | Body: ${res.body}");
         }
       }
-      final parsedList = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
-      return parsedList;
+      return await compute(AiDataSanitizer.cleanAndParseJson, responseText);
     } catch (e) {
       throw Exception("块级解析失败: $e");
     }
@@ -625,62 +502,14 @@ $rawText
   }
 
   Future<List<Map<String, dynamic>>> parseTextToQuestions(String rawText, {String? taskId, bool isMarkdown = false}) async {
-    final docProfile = scanDocumentStructure(rawText);
-    debugPrint("📊 [文档结构探针] \$docProfile");
-
-    String processedText = rawText;
-    
-    // 路径 A：行内有答案 + 尾部也有答案 -> 裁掉尾部冗余，转化成路径 C
-    if (docProfile.hasInlineAnswers && docProfile.hasTailAnswerBlock && docProfile.tailAnswerOffset > 0) {
-      debugPrint("✂️ [路径 A] 检测到尾部冗余答案块，执行安全物理裁剪 (Offset: \${docProfile.tailAnswerOffset})...");
-      try {
-        processedText = rawText.substring(0, docProfile.tailAnswerOffset);
-      } catch (e) {
-        debugPrint("⚠️ 尾部裁剪异常: \$e，回退使用全文");
-        processedText = rawText;
-      }
-    } else if (!docProfile.hasInlineAnswers && docProfile.hasTailAnswerBlock) {
-      debugPrint("🧭 [路径 B] 检测到首尾分离结构，实施物理剪切提取...");
-      final stemText = rawText.substring(0, docProfile.tailAnswerOffset);
-      final ansText = rawText.substring(docProfile.tailAnswerOffset);
-      
-      final stemBatches = isMarkdown ? splitMarkdownIntoMicroBatches(stemText) : splitTextIntoMicroBatches(stemText);
-      final ansBatches = isMarkdown ? splitMarkdownIntoMicroBatches(ansText) : splitTextIntoMicroBatches(ansText);
-      
-      if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', stemBatches);
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', ansBatches);
-      }
-      
-      final stemQuestions = await parseMicroBatches(stemBatches, taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
-      final ansQuestions = await parseMicroBatches(ansBatches, taskId: taskId, isMarkdown: isMarkdown, parseMode: 'answer_only');
-      
-      return [...stemQuestions, ...ansQuestions];
-    } else if (!docProfile.hasInlineAnswers && !docProfile.hasTailAnswerBlock) {
-      debugPrint("🧭 [路径 D] 全文无答案，将生成残缺题干等待用户补填...");
-      final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(processedText) : splitTextIntoMicroBatches(processedText);
-      if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', microBatches);
-      }
-      return await parseMicroBatches(microBatches, taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
-    } else {
-      debugPrint("🧭 [路径 C] 标准行内解析结构，直接提取...");
-      final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(processedText) : splitTextIntoMicroBatches(processedText);
-      if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', microBatches);
-      }
-      return await parseMicroBatches(microBatches, taskId: taskId, isMarkdown: isMarkdown);
-    }
-    
-    // Fallback for Path A and any other unknown paths
-    final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(processedText) : splitTextIntoMicroBatches(processedText);
+    final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(rawText) : splitTextIntoMicroBatches(rawText);
     if (taskId != null) {
       TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', microBatches);
     }
     return await parseMicroBatches(microBatches, taskId: taskId, isMarkdown: isMarkdown);
   }
 
-  Future<List<Map<String, dynamic>>> parseMicroBatches(List<String> microBatches, {String? taskId, bool isMarkdown = false, String parseMode = 'all'}) async {
+  Future<List<Map<String, dynamic>>> parseMicroBatches(List<String> microBatches, {String? taskId, bool isMarkdown = false}) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) throw Exception("未激活文本引擎");
 
@@ -709,7 +538,7 @@ $rawText
         
         while (retry < 3 && !success) {
           try {
-            final chunkQuestions = await _parseSingleChunkToQuestions(microBatches[i], profile, isMarkdown: isMarkdown, parseMode: parseMode);
+            final chunkQuestions = await _parseSingleChunkToQuestions(microBatches[i], profile, isMarkdown: isMarkdown);
             results[i] = chunkQuestions;
             if (taskId != null) {
               TaskManager.instance.markChunkSuccess(taskId, microBatches[i], chunkQuestions);
@@ -778,9 +607,6 @@ $rawText
       if (content.length <= 10 && RegExp(r'^[A-Da-d√×正确错误ABCD,，\s]+$').hasMatch(content)) return true;
       if (content.contains('[纯答案') || content.contains('[ANSWER')) return true;
       if (content.length <= 3 && content == ans) return true;
-      // 防截断假题干识别（当题干极短且高度疑似算式或完全等同于答案片段时）
-      if (content.length < 15 && (content.contains(ans) || ans.contains(content))) return true;
-      if (content.length < 15 && (content.startsWith('I=') || content.contains('略'))) return true;
       return false;
     }
 
@@ -830,7 +656,6 @@ $rawText
       allQuestions = mergedQuestions;
     }
 
-
     if (failCount > 0) {
       debugPrint("⚠️ 警告：有 $failCount 个分块最终解析失败，部分题目可能丢失！");
     } else {
@@ -855,45 +680,41 @@ $rawText
     final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
 
     final prompt = '''
-你是一个教育数据清洗专家。这是试卷扫描件。请严格按照以下格式解析出每道题：
+    你是一个严谨的教育数据清洗专家。这是试卷/习题的高清扫描件图片。
+    【最高指令：绝对防漏题】解析出其中的**每一道题**，绝对不允许遗漏！遇到代码或公式，必须用 Markdown 原样保留。数学公式请使用 \$ [公式] \$ 包裹行内公式，\$\$ 包裹段落公式。
+    
+    【⚠️ 大题防撕裂最高法则（绝对红线）】
+    遇到包含 (I)、(II)、(III) 或 (1)、(2) 或 步骤1、步骤2 等多个小问的综合性大题、材料阅读题时，**绝对禁止将其拆分为多道独立的顶级题**！
+    判断是否为新题的唯一标准：行首出现独立的阿拉伯数字编号（如 1. 22.）或中文大写编号（如 一、 二、）。
+    带有小括号的数字 (1)、小写字母 (a)、罗马数字 (I) 等绝对不允许独立！
+    你必须将它作为【一道完整的大题】，把所有小问及其前面的**共用大背景题干**合并写进 `content` 中，并将所有小问的解答步骤合并写进 `explanation` 中。绝不允许丢掉任何前置背景描述！
+    
+    【✂️ 题干与解析精准剥离法则（核心指令）】
+    在扫描图片或文本时，务必将“题目本身（题干）”与附带的“题目答案/解析/分析/解”严格分离开来！
+    - `content` (题干)：**只能**包含题目本身的问题描述、背景资料和提问。**绝对禁止**将“分析”、“解”、“证明过程”、“答案是”等答题过程混入题干！
+    - `explanation` (解析)：如果原文中有“分析”、“详解”、“解题思路”，请提取到此字段。如果没有，请设为 null 或空字符串。**绝对不要自己推导或补全解析！首要任务是原样提取题目和答案。**
+    你必须具备“剪刀手”能力，绝不能把题目和答案无脑连在一起输出！
 
-【题型与格式】
-1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
-2. 填空题 (type: 2): {"q_num": "题号", "type": 2, "content": "题干完整原文", "options": [], "standard_answer": "答案内容"}
-3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果"}
+    【🌀 全并发智能内核：题干与答案异步拼图模式（最高层级指令）】
+    认定这个事实：当 PDF 分块并发处理时，一个批次可能只包含题干而没有答案，另一批次可能只有答案而没有题干。
+    你必须支持两种输出模式：
+    - 模式 A（正常完整题目）: {"q_num": "题号，如 1、2、或空字符串", "type": 0/2/3, "content": "题干", "options": [], "standard_answer": "答案", "explanation": ""}
+    - 模式 B（只有题干，未见答案）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": [], "standard_answer": null, "explanation": null}
+    - 模式 C（只有答案页，未见题干）: {"q_num": "题号", "type": null, "content": null, "standard_answer": "答案", "explanation": ""}
+    关键：当你看到纯答案页（如 “1. A  2. B  3. C” 或 “参考答案: 1.B”）时，**绝对不允许丢弃**！必须按模式 C 输出，将每道题的答案逆向提取出来！
+    `q_num` 字段必须尽可能识别原文中的题目编号（如 "1"、"2"、"3"），它将用于全局归并算法对题干和答案进行拼图配对。
 
-【综合大题提取法则】
-遇到包含 (1)(2) 或 (I)(II) 等多个小问的综合大题，绝对禁止将其拆分为多道独立的题！
-必须按以下标准合并为一道 type:3（解答题）：
-1. content（题干）：必须包含大题的前置背景描述，并依次追加 (I)(II) 等所有小问的题目原文。
-2. standard_answer（答案）：必须依次合并包含 (I)(II) 对应的所有解答内容。
-绝对不允许把小问的题干丢进答案里，各归其位！
-
-【输出模式】
-模式A（完整题目）：输出 content 和 standard_answer。
-模式B（只有题干，没有答案）：standard_answer 设为 null。
-模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。
-
-【扫描件题解混排处理法则】
-如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
-- content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论。
-- explanation 字段直接输出 null，不需要提取解析内容。
-
-反例（错误）：
-content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为 【解】设...化简得..."
-
-正例（正确）：
-content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为"
-standard_answer: "k₁(-2,1,0)ᵀ + k₂(-3,0,1)ᵀ，k₁k₂为任意常数"
-explanation: null
-
-【严格限制】
-绝对不要生成任何解析(explanation)字段，我们只需要题干和答案！
-绝对禁止在 content 字段中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干文字抄录下来！否则将导致系统严重错误！
-系数与矩阵/向量必须合并在同一个 \$\$...\$\$ 内，绝不允许系数在外、矩阵在内的分裂写法（例如 \$\$k_1\\begin{pmatrix}...\$\$ 是正确的）。矩阵、向量、方程组必须整体包在一个 \$\$...\$\$ 里，绝不允许拆分成多个 \$...\$。
-必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
-由于 JSON 冲突，所有 LaTeX 反斜杠必须替换为 BSLASH（如 BSLASHpi）。数学公式必须用 \$ 包裹。
+    【严格格式约束】直接输出纯 JSON 对象，格式如下：
+    {"questions": [
+      {"type": 0, "content": "选择题干", "options": ["A.", "B."], "standard_answer": "A", "explanation": ""},
+      {"type": 2, "content": "填空题干，空格用 ___", "options": [], "standard_answer": "答案", "explanation": ""},
+      {"type": 3, "content": "完整的大题或简答题干(含所有小问)", "options": [], "standard_answer": "略", "explanation": "所有小问的解析合并"}
+    ]}
+    
+    【致命警告：JSON LaTeX 物理隔离法则】
+    由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
+    你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
+    所有数学公式、符号必须使用 \$ [数学公式] \$ 包裹，例如 \$ BSLASHfrac{1}{2} \$！
     ''';
 
     try {
@@ -902,10 +723,19 @@ explanation: null
       for (var path in imagePaths) {
         List<int> bytes = await File(path).readAsBytes();
         
-        // 性能优化：只有图片大于 500KB 时才进行重度 Dart 压缩，且放入 Isolate 避免阻塞 UI
-        if (bytes.length > 500 * 1024) {
-          bytes = await compute(_compressImageSync, bytes);
-          debugPrint('多图预处理: 图片 $path 已压缩至 ${bytes.length ~/ 1024} KB');
+        try {
+          final image = img.decodeImage(Uint8List.fromList(bytes));
+          if (image != null) {
+            img.Image resized = image;
+            // 并发模式下降低分辨率上限（900px/65%），减少单次请求体积，换取更快的响应时间
+            if (image.width > 900) {
+              resized = img.copyResize(image, width: 900);
+            }
+            bytes = img.encodeJpg(resized, quality: 65);
+            debugPrint('多图预处理: 图片 $path 已压缩至 ${bytes.length / 1024} KB');
+          }
+        } catch (e) {
+          debugPrint('图片压缩失败，回退使用原图: $e');
         }
 
         final base64Img = base64Encode(bytes);
@@ -936,12 +766,7 @@ explanation: null
           debugPrint("✅ Gemini Vision 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
           final data = jsonDecode(res.body);
           if (data['candidates'] == null || (data['candidates'] as List).isEmpty) throw Exception("Gemini 返回为空");
-          List<Map<String, dynamic>> finalQuestions = await compute(AiDataSanitizer.cleanAndParseJson, data['candidates'][0]['content']['parts'][0]['text']?.toString() ?? "");
-          final emptyStems = finalQuestions.where((q) => q['content'] == null || q['content'].toString().isEmpty || q['content'].toString().contains('假设')).length;
-          if (finalQuestions.isNotEmpty && (emptyStems / finalQuestions.length > 0.5)) {
-            throw Exception('题干提取率过低，疑似文档结构识别失败或AI未严格抄录题干！请更换大模型或检查文档图片结构。');
-          }
-          return finalQuestions;
+          return await compute(AiDataSanitizer.cleanAndParseJson, data['candidates'][0]['content']['parts'][0]['text']?.toString() ?? "");
         } else {
           throw Exception("Gemini 错误: ${res.statusCode}");
         }
@@ -962,12 +787,7 @@ explanation: null
           debugPrint("✅ Vision API 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
           final data = jsonDecode(res.body);
           if (data['choices'] == null || (data['choices'] as List).isEmpty) throw Exception("API 返回为空");
-          List<Map<String, dynamic>> finalQuestions = await compute(AiDataSanitizer.cleanAndParseJson, data['choices'][0]['message']['content']?.toString() ?? "");
-          final emptyStems = finalQuestions.where((q) => q['content'] == null || q['content'].toString().isEmpty || q['content'].toString().contains('假设')).length;
-          if (finalQuestions.isNotEmpty && (emptyStems / finalQuestions.length > 0.5)) {
-            throw Exception('题干提取率过低，疑似文档结构识别失败或AI未严格抄录题干！请更换大模型或检查文档图片结构。');
-          }
-          return finalQuestions;
+          return await compute(AiDataSanitizer.cleanAndParseJson, data['choices'][0]['message']['content']?.toString() ?? "");
         } else {
           throw Exception("Vision API 错误: ${res.statusCode} - ${res.body}");
         }
