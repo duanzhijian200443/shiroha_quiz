@@ -446,7 +446,7 @@ ${contextBuffer.toString()}
               'content': q['content'],
               'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
               'standard_answer': q['standard_answer'],
-              'explanation': '', // 统一为空
+              'explanation': q['explanation']?.toString() ?? '',
               'created_at': nowUnix,
             });
           }
@@ -469,13 +469,13 @@ ${contextBuffer.toString()}
     if (parseMode == 'stem_only') {
       modeInstruction = "【当前为题干区模式】请只提取题干(content)和选项(options)，将 standard_answer 和 explanation 设为 null 或留空！绝对禁止在 content 中使用占位符敷衍！";
     } else if (parseMode == 'answer_only') {
-      modeInstruction = "【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。绝对不要把答案填进 content 凑数！";
+      modeInstruction = "【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。【特例】：如果是解答题/证明题（type: 3），必须同时提取 explanation（解析/证明过程）。绝对不要把答案填进 content 凑数！";
     } else {
       modeInstruction = '''
 【输出模式】
-模式A（完整题目）：输出 content 和 standard_answer。
+模式A（完整题目）：输出 content 和 standard_answer。特例：若是解答题/证明题（type: 3），必须同时输出 explanation。
 模式B（只有题干）：standard_answer 设为 null。
-模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。
+模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。特例：若是解答题/证明题（type: 3），必须同时输出 explanation。
 
 除了下述特例允许解答题/证明题（type: 3）提取 explanation 之外，其他题型与模式绝对不要生成任何解析(explanation)字段！
 对于模式A和模式B：绝对禁止在 content 中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干抄录下来！
@@ -518,7 +518,7 @@ $modeInstruction
 对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
 
 【LaTeX防呆包裹与子集约束】
-1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！
+1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！并且【绝对红线警告】：绝对禁止使用 BSLASH( BSLASH) 或 BSLASH[ BSLASH] 作为公式包裹占位符，只能使用 \$ 和 \$\$！
 2. 允许: BSLASHfrac, BSLASHsqrt, BSLASHsum, BSLASHint, BSLASHprod, BSLASHlim, BSLASHalpha~BSLASHomega, BSLASHleq, BSLASHgeq, BSLASHneq, BSLASHapprox, BSLASHin, BSLASHsubset, BSLASHcup, BSLASHcap, BSLASHvec, BSLASHsin, BSLASHcos, BSLASHtan, BSLASHlog, BSLASHln, BSLASHpm, BSLASHcdot, BSLASHtimes, BSLASHdiv。
 3. 允许并支持 cases 环境 (如 BSLASHbegin{cases}...BSLASHend{cases})。
 4. 填空占位符必须用普通文本 ___，绝不在其外部加任何 dollar 包裹，且严禁将 ___ 放在 dollar 包裹内部。
@@ -901,7 +901,7 @@ explanation: null
 对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
 
 【LaTeX防呆包裹与子集约束】
-1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！
+1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！并且【绝对红线警告】：绝对禁止使用 BSLASH( BSLASH) 或 BSLASH[ BSLASH] 作为公式包裹占位符，只能使用 \$ 和 \$\$！
 2. 允许: BSLASHfrac, BSLASHsqrt, BSLASHsum, BSLASHint, BSLASHprod, BSLASHlim, BSLASHalpha~BSLASHomega, BSLASHleq, BSLASHgeq, BSLASHneq, BSLASHapprox, BSLASHin, BSLASHsubset, BSLASHcup, BSLASHcap, BSLASHvec, BSLASHsin, BSLASHcos, BSLASHtan, BSLASHlog, BSLASHln, BSLASHpm, BSLASHcdot, BSLASHtimes, BSLASHdiv。
 3. 允许并支持 cases 环境 (如 BSLASHbegin{cases}...BSLASHend{cases})。
 4. 填空占位符必须用普通文本 ___，绝不在其外部加任何 dollar 包裹，且严禁将 ___ 放在 dollar 包裹内部。
@@ -1053,9 +1053,9 @@ explanation: null
 
     【🌀 全并发智能内核：题干与答案异步拼图模式（最高层级指令）】
     你需要支持以下模式来解耦题干与答案：
-    - 模式 A（正常完整题目）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx", "C. xx", "D. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": "答案", "explanation": ""}
+    - 模式 A（正常完整题目）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx", "C. xx", "D. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": "答案", "explanation": "特例：如果是解答题/证明题(type: 3)必须提取解析，其他题型必须为空"}
     - 模式 B（只有题干，未见答案）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": null, "explanation": null}
-    - 模式 C（只有答案页，未见题干）: {"q_num": "题号", "type": null, "content": null, "standard_answer": "答案", "explanation": ""}
+    - 模式 C（只有答案页，未见题干）: {"q_num": "题号", "type": null, "content": null, "standard_answer": "答案", "explanation": "特例：如果是解答题/证明题(type: 3)必须提取解析，其他题型必须为空"}
     关键：当你看到纯答案文档（如 “1. A  2. B  3. C” 或 “参考答案: 1.B”）时，**必须按模式 C 输出**，提取答案并明确将 `content` 设为 null！绝对不能把解答步骤写进题干里！
     `q_num` 字段必须尽可能识别原文中的题目编号，以供归并。
 
@@ -1069,7 +1069,7 @@ explanation: null
     对于所有选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
     
     【LaTeX子集约束-渲染引擎限制必须遵守】
-    防呆指令：所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [数学公式] \$ 或 \$\$ [数学公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac）！
+    防呆指令：所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [数学公式] \$ 或 \$\$ [数学公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac）！并且【绝对红线警告】：绝对禁止使用 BSLASH( BSLASH) 或 BSLASH[ BSLASH] 作为公式包裹占位符，只能使用 \$ 和 \$\$！
     允许: BSLASHfrac BSLASHsqrt BSLASHsum BSLASHint BSLASHprod BSLASHlim 及希腊字母 BSLASHalpha~BSLASHomega
     允许: BSLASHleq BSLASHgeq BSLASHneq BSLASHapprox BSLASHin BSLASHsubset BSLASHcup BSLASHcap BSLASHvec BSLASHsin BSLASHcos BSLASHtan BSLASHlog BSLASHln BSLASHpm BSLASHcdot BSLASHtimes BSLASHdiv
     允许简单矩阵与 piecewise 环境: BSLASHbegin{pmatrix}a&b BSLASHBSLASH c&d BSLASHend{pmatrix} 仅2x2或3x3，及 BSLASHbegin{cases}...BSLASHend{cases}

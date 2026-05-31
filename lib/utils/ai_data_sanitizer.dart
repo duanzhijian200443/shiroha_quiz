@@ -176,9 +176,24 @@ class AiDataSanitizer {
     return finalQuestions;
   }
 
+  static String normalizeDelimiters(String text) {
+    if (text.isEmpty) return text;
+    // \(...\) → $...$
+    String result = text.replaceAllMapped(
+      RegExp(r'\\\((.+?)\\\)', dotAll: true),
+      (m) => '\$${m.group(1)}\$',
+    );
+    // \[...\] → $$...$$
+    result = result.replaceAllMapped(
+      RegExp(r'\\\[(.+?)\\\]', dotAll: true),
+      (m) => '\$\$${m.group(1)}\$\$',
+    );
+    return result;
+  }
+
   static String cleanLatexBeforeDB(String text) {
     if (text.isEmpty) return text;
-    String result = text;
+    String result = normalizeDelimiters(text);
 
     // 规则一（修正版）：允许矩阵前有系数，含 matrix 基础环境。两端加换行符确保 Markdown 块级识别
     result = result.replaceAllMapped(
@@ -210,7 +225,7 @@ class AiDataSanitizer {
   // 2. 极简 LaTeX 公式格式化
   static String formatLatex(String text) {
     if (text.isEmpty) return text;
-    String result = text;
+    String result = normalizeDelimiters(text);
     
     result = result.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
 
@@ -232,7 +247,7 @@ class AiDataSanitizer {
     // 在 $$ 前后加换行，确保 markdown 解析器识别为块级
     result = result.replaceAll(RegExp(r'(?<!\n)\$\$'), '\n\$\$');
     result = result.replaceAll(RegExp(r'\$\$(?!\n)'), '\$\$\n');
-    
+
     return result;
   }
   static dynamic _restoreBslash(dynamic node) {
