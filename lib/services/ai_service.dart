@@ -26,6 +26,15 @@ List<int> _compressImageSync(List<int> bytes) {
 }
 
 class AiService {
+  static const String LATEX_FORMAT_RULES = r'''
+    【LaTeX 公式格式铁律（最优先级）】
+    1. 必须使用 $...$ (内联) 或 $$...$$ (块级) 包裹所有公式、符号、变量。绝不允许裸命令！
+    2. 绝对禁止使用 Unicode 数学字符(如 ∑、π)，必须用标准命令并以大写 BSLASH 占位 (如 BSLASHsum, BSLASHpi)。
+    3. 填空处的下划线 ___ 绝不能被 $ 包裹。
+    4. 由于 JSON 限制，必须用大写 BSLASH 代替所有 LaTeX 反斜杠 (例如 BSLASHfrac, BSLASHbegin{pmatrix})。
+    错误示范：BSLASHfrac{1}{2} 或 $BSLASHsum$ (错误原因: 前者未包裹，后者含有Unicode符号)。
+    正确示范：$BSLASHfrac{1}{2}$ 和 $BSLASHsum$。
+''';
   static final AiService instance = AiService._();
   AiService._();
 
@@ -152,9 +161,8 @@ class AiService {
     题型要求：$typeReq
     【格式约束】直接输出纯 JSON 数组，绝不要 markdown 包裹。
     $exampleJson
-    【致命警告：JSON LaTeX 物理隔离法则】
-    由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
-    你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
+    $LATEX_FORMAT_RULES
+
     ''';
 
     try {
@@ -227,7 +235,7 @@ $qOptions
 1. 你必须且只能输出合法的 JSON 对象，格式必须完全遵守下方示例：
 {"standard_answer": "你的最终答案（尽量简短，如A、B、或者一个词语、公式）"}
 2. standard_answer 字段中绝对禁止出现多余的解释文字，只保留最终核心答案！
-3. 输出的 JSON 必须严格合法：公式或内容中的换行必须写为 \\n，LaTeX 公式必须转义。绝对禁止在 JSON 字符串值中出现真实的物理回车换行！绝对禁止在字符串内容中直接使用未经转义的双引号(请替换为单引号或转义为 \\\")！
+3. 输出的 JSON 必须严格合法：公式或内容中的换行必须写为 \\n，LaTeX 公式必须转义。绝对禁止在 JSON 字符串值中出现真实的物理回车换行！绝对禁止在字符串内容中直接使用未经转义的双引号(请替换为单引号或转义为 \\")！
 ''';
 
     try {
@@ -296,16 +304,9 @@ $qOptions
       {"type": 2, "content": "填空题干(用___)", "options": [], "standard_answer": "填空答案"},
       {"type": 3, "content": "简答题干", "options": [], "standard_answer": "简答答案"}
     ]
-    【致命警告：JSON转义】遇到 LaTeX 公式，所有反斜杠必须双重转义！例如 \\pi。
+    $LATEX_FORMAT_RULES
+
     ''';
-    // LaTeX constraint injected into prompt after base definition
-    prompt += '\n    【LaTeX子集约束-渲染引擎限制必须遵守】\n'
-        '    防呆指令：所有数学公式、符号、分数、甚至孤立的字母，必须且只能用 \$ [数学公式] \$ 包裹！绝不能出现裸奔的 \\\\frac 等公式！\n'
-        '    允许: \\\\frac \\\\sqrt \\\\sum \\\\int \\\\prod \\\\lim 及希腊字母 \\\\alpha~\\\\omega\n'
-        '    允许: \\\\leq \\\\geq \\\\neq \\\\approx \\\\in \\\\subset \\\\cup \\\\cap \\\\vec \\\\sin \\\\cos \\\\tan \\\\log \\\\ln \\\\pm \\\\cdot \\\\times \\\\div\n'
-        '    填空占位符必须用普通文本___绝不加dollar包裹，严禁放在dollar内部\n'
-        '    严禁: \\\\begin{cases} \\\\begin{matrix} \\\\mathbb \\\\mathcal \\\\mathfrak \\\\def \\\\newcommand\n'
-        '    严禁: 超过3层嵌套的\\\\frac或\\\\sqrt\n';
     if (customPrompt != null && customPrompt.isNotEmpty) prompt += "\n\n【特殊要求】\n$customPrompt";
 
     try {
@@ -388,13 +389,13 @@ ${contextBuffer.toString()}
 [
   {"type": 0, "content": "单选题干", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "A"},
   {"type": 2, "content": "填空题干(用___)", "options": [], "standard_answer": "填空答案"},
-  {"type": 3, "content": "解答题干", "options": [], "standard_answer": "最终结果"}
+  {"type": 3, "content": "解答题干", "options": [], "standard_answer": "最终结果", "explanation": "解答过程或解析"}
 ]
 
 【核心红线规则】
-1. 绝对禁止生成 explanation(解析) 字段！只需要题干和答案。
-2. 由于 JSON 冲突，所有 LaTeX 反斜杠必须替换为 BSLASH（如 BSLASHpi）。数学公式必须用 \$ 包裹。
-3. 遇到包含小问的大题，必须合并为一道 type:3 题目。
+1. 除了 type:3 允许生成 explanation(解析) 之外，其他题型绝对禁止生成 explanation 字段！
+$LATEX_FORMAT_RULES
+    3. 遇到包含小问的大题，必须合并为一道 type:3 题目。
     ''';
 
     try {
@@ -485,7 +486,7 @@ ${contextBuffer.toString()}
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
 - standard_answer 提取解题过程最终得出的答案值或结论（如 \$x=5\$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
-- explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。
+- explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
 
 反例（错误）：
 content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为 【解】设...化简得..."
@@ -517,13 +518,8 @@ $modeInstruction
 【选择题选项剥离红线规则】
 对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
 
-【LaTeX防呆包裹与子集约束】
-1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！并且【绝对红线警告】：绝对禁止使用 BSLASH( BSLASH) 或 BSLASH[ BSLASH] 作为公式包裹占位符，只能使用 \$ 和 \$\$！
-2. 允许: BSLASHfrac, BSLASHsqrt, BSLASHsum, BSLASHint, BSLASHprod, BSLASHlim, BSLASHalpha~BSLASHomega, BSLASHleq, BSLASHgeq, BSLASHneq, BSLASHapprox, BSLASHin, BSLASHsubset, BSLASHcup, BSLASHcap, BSLASHvec, BSLASHsin, BSLASHcos, BSLASHtan, BSLASHlog, BSLASHln, BSLASHpm, BSLASHcdot, BSLASHtimes, BSLASHdiv。
-3. 允许并支持 cases 环境 (如 BSLASHbegin{cases}...BSLASHend{cases})。
-4. 填空占位符必须用普通文本 ___，绝不在其外部加任何 dollar 包裹，且严禁将 ___ 放在 dollar 包裹内部。
-
-【致命警告：JSON LaTeX 物理隔离法则】
+$LATEX_FORMAT_RULES
+    【致命警告：JSON LaTeX 物理隔离法则】
 由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
 你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
 特别注意矩阵和方程组，必须整体包在一个 \$\$...\$\$ 里，绝不拆分！
@@ -887,7 +883,7 @@ $rawText
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
 - standard_answer 提取解题过程最终得出的答案值或结论（如 \$x=5\$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
-- explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。
+- explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
 
 反例（错误）：
 content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为 【解】设...化简得..."
@@ -900,13 +896,8 @@ explanation: null
 【选择题选项剥离红线规则】
 对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
 
-【LaTeX防呆包裹与子集约束】
-1. 所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [公式] \$ 或 \$\$ [公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac 或 BSLASHtheta）！并且【绝对红线警告】：绝对禁止使用 BSLASH( BSLASH) 或 BSLASH[ BSLASH] 作为公式包裹占位符，只能使用 \$ 和 \$\$！
-2. 允许: BSLASHfrac, BSLASHsqrt, BSLASHsum, BSLASHint, BSLASHprod, BSLASHlim, BSLASHalpha~BSLASHomega, BSLASHleq, BSLASHgeq, BSLASHneq, BSLASHapprox, BSLASHin, BSLASHsubset, BSLASHcup, BSLASHcap, BSLASHvec, BSLASHsin, BSLASHcos, BSLASHtan, BSLASHlog, BSLASHln, BSLASHpm, BSLASHcdot, BSLASHtimes, BSLASHdiv。
-3. 允许并支持 cases 环境 (如 BSLASHbegin{cases}...BSLASHend{cases})。
-4. 填空占位符必须用普通文本 ___，绝不在其外部加任何 dollar 包裹，且严禁将 ___ 放在 dollar 包裹内部。
-
-【严格限制与警告】
+$LATEX_FORMAT_RULES
+    【严格限制与警告】
 除了上述特例允许 type:3 提取 explanation 之外，其他题型绝对不要生成解析(explanation)字段！我们只需要题干和答案！
 绝对禁止在 content 字段中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干文字抄录下来！否则将导致系统严重错误！
 系数与矩阵/向量必须合并在同一个 \$\$...\$\$ 内，绝允许系数在外、矩阵在内的分裂写法。
@@ -1050,6 +1041,7 @@ explanation: null
     在扫描图片或文本时，务必将“题目本身（题干）”与附带的“题目答案/解析/分析/解”严格分离开来！
     - `content` (题干)：**只能**包含题目本身的问题描述、背景资料和提问。**绝对禁止**将“分析”、“解”、“证明过程”、“答案是”等答题过程混入题干！
     - `explanation` (解析)：如果原文中有“分析”、“详解”、“解题思路”，请提取到此字段。如果没有，请设为 null 或空字符串。**绝对不要自己推导或补全解析！首要任务是原样提取题目和答案。**
+    【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
 
     【🌀 全并发智能内核：题干与答案异步拼图模式（最高层级指令）】
     你需要支持以下模式来解耦题干与答案：
@@ -1068,15 +1060,8 @@ explanation: null
     【选择题选项剥离红线规则】
     对于所有选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
     
-    【LaTeX子集约束-渲染引擎限制必须遵守】
-    防呆指令：所有数学公式、符号、希腊字母（如 BSLASHtheta）、等式（如 BSLASHln L = ...）、甚至单个数学变量（如 x_{i}、Y_{j}），即使是在文本段落中，也必须且只能用 \$ [数学公式] \$ 或 \$\$ [数学公式] \$\$ 严密包裹！绝不能出现没有 \$ 包裹的裸露公式（如裸露的 BSLASHfrac）！并且【绝对红线警告】：绝对禁止使用 BSLASH( BSLASH) 或 BSLASH[ BSLASH] 作为公式包裹占位符，只能使用 \$ 和 \$\$！
-    允许: BSLASHfrac BSLASHsqrt BSLASHsum BSLASHint BSLASHprod BSLASHlim 及希腊字母 BSLASHalpha~BSLASHomega
-    允许: BSLASHleq BSLASHgeq BSLASHneq BSLASHapprox BSLASHin BSLASHsubset BSLASHcup BSLASHcap BSLASHvec BSLASHsin BSLASHcos BSLASHtan BSLASHlog BSLASHln BSLASHpm BSLASHcdot BSLASHtimes BSLASHdiv
-    允许简单矩阵与 piecewise 环境: BSLASHbegin{pmatrix}a&b BSLASHBSLASH c&d BSLASHend{pmatrix} 仅2x2或3x3，及 BSLASHbegin{cases}...BSLASHend{cases}
-    填空占位符必须用普通文本___绝不加任何dollar包裹
-    严禁: 将___放在dollar内部会导致下标解析崩溃
-    严禁: BSLASHbegin{matrix} BSLASHmathbb BSLASHmathcal BSLASHmathfrak BSLASHdef BSLASHnewcommand (注: pmatrix/cases 是允许的)
-    严禁: 超过3层嵌套的BSLASHfrac或BSLASHsqrt
+    $LATEX_FORMAT_RULES
+
     ''';
 
     try {
@@ -1166,8 +1151,8 @@ explanation: null
 ```
     绝对禁止输出 缩写或骨架模板！必须输出真实的完整数据数组！
     2. 绝对不允许在 JSON 外部输出任何多余的废话、问候语或解释！
-    3. 合并后的题目必须包含：type, content, options(若是选择题), standard_answer。至于 explanation（解析），如果碎片中原本就没有解析，绝对不要自行推导补全！
-    4. 【致命警告：JSON LaTeX 物理隔离法则】由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！** 你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。所有数学公式必须使用 \$ [数学公式] \$ 包裹！
+    3. 合并后的题目必须包含：type, content, options(若是选择题), standard_answer。对于解答题(type: 3)，务必将跨页的解题步骤、推导过程（如 q_num 为 "unknown" 的计算片段）完整拼接后放入 explanation 字段。严禁在合并时弄丢解答题的计算步骤！如果碎片中原本就完全没有解析，才不自行推导补全。
+    4. 【致命警告：JSON LaTeX 物理隔离法则】由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！** 你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。所有数学公式必须使用 \$ [数学公式] \$ 包裹！并且绝对禁止使用 ∑、∫、∞、π、√、≤、≥、≠ 等 Unicode 数学符号，必须用标准 LaTeX 命令及占位符 BSLASH 代替！
     5. 【致命警告：严禁省略】无论合并后的输出有多长，必须完整输出每一个题目对象的所有内容字符！绝对不允许使用 省略号或 "省略" 等任何缩写形式来中断或偷懒！
 
     【待合并的碎片数据】

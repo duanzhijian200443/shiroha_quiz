@@ -146,10 +146,15 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           // ── 按 pagesPerBatch 张图片打包为一批，大幅减少 API 调用次数 ──
           const int pagesPerBatch = 4; // 每次请求发几页：4页→调用次数减少4倍
           List<List<String>> batches = [];
-          for (int i = 0; i < imagePaths.length; i += pagesPerBatch) {
+          for (int i = 0; i < imagePaths.length; i += pagesPerBatch - 1) {
             int end = i + pagesPerBatch;
-            if (end > imagePaths.length) end = imagePaths.length;
-            batches.add(imagePaths.sublist(i, end));
+            if (end > imagePaths.length) {
+              end = imagePaths.length;
+            }
+            if (end > i) {
+              batches.add(imagePaths.sublist(i, end));
+            }
+            if (end == imagePaths.length) break;
           }
           debugPrint("📦 共 ${imagePaths.length} 页，打包为 ${batches.length} 批次（每批 $pagesPerBatch 页）");
 
@@ -278,7 +283,24 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       }
 
       if (hasContent && !hasAnswer) {
-        questionByNum[qNum] = q;
+        if (questionByNum.containsKey(qNum)) {
+          // 进行题干长度博弈，保留长且丰富的题干，防止短的残缺片段覆盖已有题干
+          // 但必须把已有题干中可能包含的答案和解析吃进来
+          final existing = questionByNum[qNum]!;
+          final existingContent = existing['content']?.toString() ?? '';
+          final newContent = q['content']?.toString() ?? '';
+          if (newContent.length > existingContent.length) {
+            if (existing['standard_answer'] != null) {
+              q['standard_answer'] = existing['standard_answer'];
+            }
+            if (existing['explanation'] != null) {
+              q['explanation'] = existing['explanation'];
+            }
+            questionByNum[qNum] = q;
+          }
+        } else {
+          questionByNum[qNum] = q;
+        }
       } else if (!hasContent && hasAnswer) {
         answerByNum[qNum] = q;
       } else if (hasContent) {

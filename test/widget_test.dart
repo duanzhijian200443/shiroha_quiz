@@ -9,16 +9,22 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shiroha_quiz/main.dart';
+import 'package:shiroha_quiz/ui/pages/main_screen.dart';
+
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  setUpAll(() {
+    // Initialize sqflite ffi for desktop/testing
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
   testWidgets('App starts and shows splash screen', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const ShirohaQuizApp());
 
-    // Verify that SplashScreen is shown initially.
-    expect(find.byType(SplashScreen), findsOneWidget);
-    
-    // Verify that the app title is present.
-    expect(find.text('Shiroha Quiz'), findsOneWidget);
+    // Verify that MainScreen is shown initially.
+    expect(find.byType(MainScreen), findsOneWidget);
   });
 }

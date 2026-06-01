@@ -54,10 +54,13 @@ class AiDataSanitizer {
       str = str.replaceAll('\n', '\\n');
       
       // 核心防御：修复大模型未转义的 LaTeX 反斜杠（如 \mu, \frac 等引发的 JSON 解析崩溃）
-      // 保留 \", \\, \u, \/，其他一律强制转义为双斜杠
-      str = str.replaceAllMapped(RegExp(r'\\\\|\\([^"u/])'), (m) {
-        if (m.group(0) == '\\\\') return '\\\\';
-        return '\\\\${m.group(1)}';
+      // 保留 \", \\, \uXXXX (合法 unicode 转义), \/
+      // 注意：\u 后面必须是4位十六进制才是合法 JSON unicode 转义，否则(如 \underline, \upsilon)会崩溃
+      str = str.replaceAllMapped(RegExp(r'\\(["/\\]|u[0-9a-fA-F]{4})|\\'), (m) {
+        // group(1) 存在 → 这是合法转义序列，原样保留
+        if (m.group(1) != null) return m.group(0)!;
+        // 无 group(1) → 孤立反斜杠（如 \frac, \underline），双重转义
+        return '\\\\';
       });
       
       return str;
@@ -112,9 +115,9 @@ class AiDataSanitizer {
       
         if (q['content'] == null || q['content'].toString().trim().isEmpty) {
           if (q['standard_answer'] != null && q['standard_answer'].toString().trim().isNotEmpty) {
-            q['content'] = "[纯答案提取]\n" + q['standard_answer'].toString();
+            q['content'] = "[纯答案提取]\n${q['standard_answer']}";
           } else if (q['explanation'] != null && q['explanation'].toString().trim().isNotEmpty) {
-            q['content'] = "[解析提取]\n" + q['explanation'].toString();
+            q['content'] = "[解析提取]\n${q['explanation']}";
           } else {
             q['content'] = "无题干";
           }
@@ -176,22 +179,7 @@ class AiDataSanitizer {
     return finalQuestions;
   }
 
-  static String normalizeDelimiters(String text) {
-    if (text.isEmpty) return text;
-    // \(...\) → $...$
-    String result = text.replaceAllMapped(
-      RegExp(r'\\\((.+?)\\\)', dotAll: true),
-      (m) => '\$${m.group(1)}\$',
-    );
-    // \[...\] → $$...$$
-    result = result.replaceAllMapped(
-      RegExp(r'\\\[(.+?)\\\]', dotAll: true),
-      (m) => '\$\$${m.group(1)}\$\$',
-    );
-    return result;
-  }
-
-  static String cleanLatexBeforeDB(String text) {
+static String cleanLatexBeforeDB(String text) {
     if (text.isEmpty) return text;
     String result = normalizeDelimiters(text);
 
@@ -225,11 +213,11 @@ class AiDataSanitizer {
   // 2. 极简 LaTeX 公式格式化
   static String formatLatex(String text) {
     if (text.isEmpty) return text;
-    String result = normalizeDelimiters(text);
+    String result = text;
     
     result = result.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
 
-    // 只还原明确作为普通文本换行的 \\n，不要误伤合法转义
+    // 只还原明确作为普通文本换行的 \n，不要误伤合法转义
     result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
     result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
 
@@ -238,18 +226,135 @@ class AiDataSanitizer {
       return '_' * (match.group(0)!.length ~/ 2);
     });
 
-    // 终极替换原则：只做一件事，把明确在 $ 内的块级环境升级为 $$
-    result = result.replaceAllMapped(
-      RegExp(r'\$(?!\$)([^$]*\\begin\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)'
-             r'[\s\S]*?\\end\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)\}[^$]*)\$(?!\$)'),
-      (m) => '\$\$${m.group(1)}\$\$',
-    );
-    // 在 $$ 前后加换行，确保 markdown 解析器识别为块级
-    result = result.replaceAll(RegExp(r'(?<!\n)\$\$'), '\n\$\$');
-    result = result.replaceAll(RegExp(r'\$\$(?!\n)'), '\$\$\n');
+    // 🛡️ 白名单模式兜底包裹：把高置信度裸露指令自动包裹进 $...$
+    result = _autoWrapBareLatex(result);
+
+    // 新增：清理冲突产生的三连美元符，以 r'$$' 规范化，规避 Dart 字符替换 Bug
+    result = result.replaceAll(RegExp(r'\$\$\$'), r'$$');
 
     return result;
   }
+
+  /// 🔧 将裸 LaTeX 命令（未被 \$..\$ 或 \$\$..\$\$ 包裹的 \cmd{} 形式）自动包裹进 \$..\$。
+  /// 安全机制：
+  ///   - 已包裹的 \$..\$、\$\$..\$\$、\(...\)、\[...\] 先被占位替换，不会被重复处理
+  ///   - \{ \} 等转义符号不触发包裹（不是真正的数学命令）
+  ///   - 纯中文段落不会被吸入
+  static String _autoWrapBareLatex(String text) {
+    if (text.isEmpty || !text.contains(r'\')) return text;
+
+    final List<String> saved = [];
+    String s = text;
+
+    // Phase 1: 保护已经包裹好的块，防止被二次处理
+    s = s.replaceAllMapped(RegExp(r'\$\$[\s\S]*?\$\$'), (m) {
+      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
+    });
+    s = s.replaceAllMapped(RegExp(r'\$(?!\$)[\s\S]*?\$'), (m) {
+      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
+    });
+    s = s.replaceAllMapped(RegExp(r'\\\([\s\S]*?\\\)'), (m) {
+      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
+    });
+    s = s.replaceAllMapped(RegExp(r'\\\[[\s\S]*?\\\]'), (m) {
+      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
+    });
+
+    // Phase 2: 白名单模式包裹高置信度裸露指令
+    // 仅针对: \frac, \sqrt, \sum, \int, \lim, \prod, \oint
+    final RegExp whitelistRegExp = RegExp(r'\\(frac|sqrt|sum|int|lim|prod|oint)');
+    int offset = 0;
+    while (true) {
+      final match = whitelistRegExp.firstMatch(s.substring(offset));
+      if (match == null) break;
+
+      int start = offset + match.start;
+      int end = offset + match.end;
+      
+      // 向前扫描平衡大括号
+      int bracesCount = 0;
+      bool hasOpened = false;
+      int i = end;
+      for (; i < s.length; i++) {
+        if (s[i] == '{') {
+          bracesCount++;
+          hasOpened = true;
+        } else if (s[i] == '}') {
+          bracesCount--;
+        } else if (s[i] == '\\') {
+          // 跳过转义字符
+          i++;
+        } else if (!hasOpened && RegExp(r'[a-zA-Z0-9]').hasMatch(s[i])) {
+           // 如果还没有遇到左括号，且遇到了字母数字，可能类似于 \frac12，我们保守处理不贪婪
+           if (i - end >= 2) break;
+        } else if (!hasOpened && RegExp(r'[\s\^_]').hasMatch(s[i])) {
+           // 允许空格或上下标
+        } else if (!hasOpened) {
+           break;
+        }
+        
+        if (hasOpened && bracesCount == 0) {
+          // 如果这之后紧接着又是括号，说明可能有多个参数，比如 \frac{}{}
+          if (i + 1 < s.length && s[i+1] == '{') {
+            continue;
+          }
+          i++; // include the closing brace
+          break;
+        }
+      }
+
+      if (hasOpened && bracesCount != 0) {
+        // 不平衡，放弃处理
+        offset = start + 1;
+        continue;
+      }
+
+      String wrappedTarget = s.substring(start, i);
+      
+      // 避免重复保护
+      if (wrappedTarget.contains('⁕')) {
+        offset = i;
+        continue;
+      }
+
+      saved.add('\$' + wrappedTarget + '\$');
+      String placeholder = '⁕${saved.length - 1}⁕';
+      
+      s = s.substring(0, start) + placeholder + s.substring(i);
+      offset = start + placeholder.length;
+    }
+
+    // Phase 3: 恢复占位符
+    for (int i = saved.length - 1; i >= 0; i--) {
+      s = s.replaceFirst('⁕$i⁕', saved[i]);
+    }
+    
+    return s;
+  }
+
+  /// 🔧 判断给定的字符串是否看起来是一个合法的 LaTeX 数学公式。
+  static bool isLikelyMathFormula(String tex) {
+    final cleanTex = tex.trim();
+    if (!cleanTex.contains(r'\')) return false;
+
+    // 常见数学公式特征关键字
+    const mathKeywords = [
+      r'\frac', r'\sum', r'\int', r'\lim', r'\sqrt', r'\partial', r'\infty',
+      r'\oint', r'\iint', r'\iiint', r'\left', r'\right', r'\begin', r'\end',
+      r'\cdot', r'\mathrm', r'\mathbf', r'\text', r'\xlongequal', r'\hat',
+      r'\alpha', r'\beta', r'\gamma', r'\delta', r'\theta', r'\lambda', r'\pi',
+      r'\sigma', r'\omega', r'\mu', r'\phi', r'\psi', r'\xi', r'\eta',
+      r'\Sigma', r'\Delta', r'\Omega', r'\Gamma', r'\Phi', r'\Psi', r'\Theta',
+    ];
+
+    for (final keyword in mathKeywords) {
+      if (cleanTex.contains(keyword)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static dynamic _restoreBslash(dynamic node) {
     if (node is String) {
       return node.replaceAll('BSLASH', '\\');

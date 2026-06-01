@@ -1,249 +1,10 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
-import 'package:markdown/markdown.dart' as md;
 import 'package:path_provider/path_provider.dart';
 import '../../utils/ai_data_sanitizer.dart';
-
-//  LaTeX inline syntax: $...$ (produces 'latex' element with MathStyle=text)
-// ================================================================
-
-class LatexInlineSyntax extends md.InlineSyntax {
-  // 匹配 $...$ 但不匹配 $$...$$
-  // 也匹配 \(...\) 和历史遗留的脏数据 \\( ... \\)，不允许跨行
-  LatexInlineSyntax() : super(r'(?:\$(?!\$)([^$\n]+?)\$(?!\$))|(?:\\{1,2}\((.+?)\\{1,2}\))');
-
-  @override
-  bool onMatch(md.InlineParser parser, Match match) {
-    final tex = match.group(1) ?? match.group(2);
-    if (tex == null) return false;
-    final element = md.Element.text('latex', tex);
-    element.attributes['MathStyle'] = 'text'; // 行内模式
-    parser.addNode(element);
-    return true;
-  }
-}
-
-// ================================================================
-//  LaTeX block syntax: $$...$$ (single-line AND multi-line)
-//  产生 'latex' 元素配平 flutter_markdown_latex 的 LatexElementBuilder
-// ================================================================
-
-class LatexBlockSyntax extends md.BlockSyntax {
-  // 匹配以 $$ 或 \[ 或 \\[ 开头的行
-  static final RegExp _pattern = RegExp(r'^(\$\$|\\{1,2}\[)');
-  // 匹配单行完整的 $$...$$ 或 \[...\] 或 \\[...\\] 块
-  static final RegExp _singleLine = RegExp(r'^(\$\$|\\{1,2}\[)(.+?)(\$\$|\\{1,2}\])\s*$');
-
-  @override
-  RegExp get pattern => _pattern;
-
-  @override
-  bool canEndBlock(md.BlockParser parser) => false;
-
-  @override
-  bool canParse(md.BlockParser parser) {
-    return _pattern.hasMatch(parser.current.content);
-  }
-
-  @override
-  md.Node parse(md.BlockParser parser) {
-    final firstLine = parser.current.content;
-    final isBracket = firstLine.contains(r'\[');
-
-    // 情况1：单行 $$...$$ 格式（e.g., $$\frac{1}{2}$$）
-    final singleMatch = _singleLine.firstMatch(firstLine);
-    if (singleMatch != null) {
-      parser.advance();
-      final el = md.Element.text('latex', singleMatch[2]!);
-      el.attributes['MathStyle'] = 'display';
-      return md.Element('p', [el]);
-    }
-
-    // 情况2：多行块
-    final StringBuffer buffer = StringBuffer();
-    int openEnd = 2; // for $$ or \[
-    if (firstLine.startsWith(r'\\[')) openEnd = 3;
-    final openContent = firstLine.substring(openEnd).trim(); 
-    if (openContent.isNotEmpty) buffer.write(openContent);
-    parser.advance();
-
-    while (!parser.isDone) {
-      final line = parser.current.content;
-      bool isCloseLine = false;
-      String trailing = '';
-
-      if (!isBracket && (line.trim() == r'$$' || line.trim().endsWith(r'$$'))) {
-        isCloseLine = true;
-        trailing = line.substring(0, line.lastIndexOf(r'$$')).trim();
-      } else if (isBracket && (line.trim() == r'\]' || line.trim().endsWith(r'\]'))) {
-        isCloseLine = true;
-        trailing = line.substring(0, line.lastIndexOf(r'\]')).trim();
-      } else if (isBracket && (line.trim() == r'\\]' || line.trim().endsWith(r'\\]'))) {
-        isCloseLine = true;
-        trailing = line.substring(0, line.lastIndexOf(r'\\]')).trim();
-      }
-
-      if (isCloseLine) {
-        if (trailing.isNotEmpty) {
-          if (buffer.isNotEmpty) buffer.write('\n');
-          buffer.write(trailing);
-        }
-        parser.advance();
-        break;
-      } else {
-        if (buffer.isNotEmpty) buffer.write('\n');
-        buffer.write(line);
-        parser.advance();
-      }
-    }
-
-    final el = md.Element.text('latex', buffer.toString());
-    el.attributes['MathStyle'] = 'display';
-    return md.Element('p', [el]);
-  }
-}
-
-// ================================================================
-//  Combined ExtensionSet (LaTeX first, then GFM)
-// ================================================================
-
-md.ExtensionSet latexExtensionSet = md.ExtensionSet(
-  [LatexBlockSyntax(), ...md.ExtensionSet.gitHubFlavored.blockSyntaxes],
-  [LatexInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
-);
-
-// ================================================================
-//  Markdown → Widget builders
-// ================================================================
-
-class MathElementBuilder extends MarkdownElementBuilder {
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final tex = element.textContent;
-    return Math.tex(
-      tex,
-      mathStyle: MathStyle.text,
-      textStyle: preferredStyle ?? const TextStyle(fontSize: 16),
-      onErrorFallback: (e) => Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.orange.shade300),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          tex,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-        ),
-      ),
-    );
-  }
-}
-
-class MathBlockBuilder extends MarkdownElementBuilder {
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final tex = element.textContent;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Center(
-        child: Math.tex(
-          tex,
-          mathStyle: MathStyle.display,
-          textStyle: const TextStyle(fontSize: 17),
-          onErrorFallback: (e) => Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.orange.shade300),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(tex, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class CodeBlockBuilder extends MarkdownElementBuilder {
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final code = element.textContent;
-    final lang = element.attributes['class'] ?? 'plaintext';
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(10)),
-            ),
-            child: Text(
-              lang,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade400,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: SelectableText(
-              code,
-              style: const TextStyle(
-                fontSize: 13,
-                fontFamily: 'Courier',
-                color: Color(0xFFD4D4D4),
-                height: 1.55,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ================================================================
-//  Shared style sheet
-// ================================================================
-
-MarkdownStyleSheet markdownSheet(BuildContext context) => MarkdownStyleSheet(
-  p: TextStyle(
-    fontSize: 16,
-    height: 1.65,
-    color:
-        Theme.of(context).textTheme.bodyLarge?.color ?? Colors.grey.shade900,
-  ),
-  code: const TextStyle(
-    fontSize: 13,
-    fontFamily: 'Courier',
-    backgroundColor: Color(0xFFF0F0F0),
-    color: Color(0xFFC7254E),
-  ),
-  codeblockDecoration: BoxDecoration(
-    color: const Color(0xFF1E1E1E),
-    borderRadius: BorderRadius.circular(10),
-  ),
-  blockquoteDecoration: BoxDecoration(
-    color: const Color(0xFFEDF1FD),
-    border:
-        const Border(left: BorderSide(color: Color(0xFF4C6ED7), width: 3)),
-  ),
-);
 
 // ================================================================
 //  Sandbox Image Support for ZIP Imports
@@ -253,7 +14,7 @@ class SandboxImageWidget extends StatelessWidget {
   final Uri uri;
   final String? alt;
 
-  const SandboxImageWidget({Key? key, required this.uri, this.alt}) : super(key: key);
+  const SandboxImageWidget({super.key, required this.uri, this.alt});
 
   @override
   Widget build(BuildContext context) {
@@ -326,90 +87,7 @@ Widget buildMarkdownImage(Uri uri, String? title, String? alt) {
   return Text('Unsupported image: ${uri.toString()}');
 }
 
-class RobustLatexElementBuilder extends MarkdownElementBuilder {
-  final TextStyle textStyle;
-  RobustLatexElementBuilder({required this.textStyle});
 
-  @override
-  Widget visitElementAfterWithContext(
-    BuildContext context,
-    md.Element element,
-    TextStyle? preferredStyle,
-    TextStyle? parentStyle,
-  ) {
-    String mathText = element.textContent;
-    if (mathText.isEmpty) return const SizedBox();
-
-    // ==========================================
-    // 🧬 终极 LaTeX 免疫抗体 (repairLatex)
-    // ==========================================
-    // 1. 强制剥离残留的 $ 符号
-    mathText = mathText.replaceAll(r'$', '').trim();
-    // 2. 修复双杠污染（白名单机制）：大模型可能过度转义 \alpha 为 \\alpha。
-    // 使用 Set 匹配以避免正则表达式中 \b 遇到下划线（如 \\int_）时失效的问题。
-    const knownCmdsSet = {'frac', 'sum', 'int', 'oint', 'iint', 'iiint', 'prod', 'coprod', 'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'varpi', 'rho', 'varrho', 'sigma', 'varsigma', 'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega', 'infty', 'limits', 'left', 'right', 'begin', 'end', 'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'max', 'min', 'lim', 'sqrt', 'cdot', 'cdots', 'ldots', 'times', 'div', 'pm', 'mp', 'neq', 'leq', 'geq', 'approx', 'equiv', 'propto', 'in', 'notin', 'subset', 'supset', 'cup', 'cap', 'emptyset', 'forall', 'exists', 'nabla', 'partial', 'mathbf', 'mathrm', 'mathit', 'mathbb', 'mathcal', 'text', 'textbf', 'textit', 'underline', 'overline', 'hat', 'tilde', 'vec', 'dot', 'ddot', 'overbrace', 'underbrace', 'cases', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix', 'array', 'boldsymbol', 'widehat', 'widetilde', 'operatorname', 'DeclareMathOperator', 'mid', 'nmid', 'to', 'gets', 'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow', 'iff', 'implies', 'xrightarrow', 'xleftarrow', 'bigoplus', 'bigotimes', 'bigcup', 'bigcap', 'biguplus', 'bigwedge', 'bigvee', 'lfloor', 'rfloor', 'lceil', 'rceil', 'langle', 'rangle', 'binom', 'dbinom', 'tbinom', 'stackrel', 'overset', 'underset', 'pmod', 'because', 'therefore', 'ell', 'perp', 'parallel', 'angle', 'Im', 'Re', 'not', 'quad', 'qquad', 'sim', 'simeq', 'cong', 'geqslant', 'leqslant', 'ge', 'le', 'd'};
-    mathText = mathText.replaceAllMapped(RegExp(r'\\\\([a-zA-Z]+)'), (match) {
-      final cmd = match.group(1)!;
-      if (knownCmdsSet.contains(cmd)) {
-        return r'\' + cmd;
-      }
-      return match.group(0)!;
-    });
-    // 另外还需要补充针对特殊括号 \{ \} \[ \] \| 的降级
-    mathText = mathText.replaceAllMapped(RegExp(r'\\\\([{(}\[\]|])'), (match) {
-      return r'\' + match.group(1)!;
-    });
-    // 3. 修复矩阵换行符：Markdown 解析器经常把矩阵里的 \\ 吞成 \，如果遇到单杠结尾或单杠空格，强制恢复为 \\
-    mathText = mathText.replaceAllMapped(RegExp(r'(?<!\\)\\(\s|$)'), (m) => r'\\' + m.group(1)!);
-    // 4. 防崩溃：强制把内嵌的中文字符包裹进 \text{}，避免 parser 崩溃报错变红（尤其针对历史遗留数据）
-    mathText = mathText.replaceAllMapped(RegExp(r'(?<!\\text\{)([\u4e00-\u9fa5]+)'), (m) {
-      return r'\text{' + m.group(1)! + r'}';
-    });
-    
-    // flutter_math_fork 严格模式下，公式外部的非法字符（如末尾的 y）会导致崩溃。
-    // 这超出了正则可控范围，因此保留 onErrorFallback 作为最后一道防线。
-
-    MathStyle mathStyle;
-    switch (element.attributes['MathStyle']) {
-      case 'display':
-        mathStyle = MathStyle.display;
-        break;
-      default:
-        mathStyle = MathStyle.text;
-    }
-
-    // flutter_math_fork 在宽度约束为 0时会产生 RenderResetDimension 崩溃。
-    // 用 LayoutBuilder 确保传入布局的宽度永远大于 0。
-    return LayoutBuilder(builder: (context, constraints) {
-      final safeWidth = constraints.maxWidth > 0
-          ? constraints.maxWidth
-          : MediaQuery.of(context).size.width - 32;
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minWidth: safeWidth),
-          child: Math.tex(
-            mathText,
-            textStyle: textStyle,
-            mathStyle: mathStyle,
-            onErrorFallback: (err) => Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.orange.shade300),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                mathText,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              ),
-            ),
-          ),
-        ),
-      );
-    });
-  }
-}
 
 // ================================================================
 //  统一 LaTeX 渲染入口 — 基于 gpt_markdown
@@ -449,9 +127,62 @@ Widget buildLatexWidget(
     },
     latexBuilder: (context, tex, textStyle, inline) {
       // 针对 flutter_math_fork 的引擎限制，在渲染前做最后的自保清洗
+      const knownCmdsSet = {'frac', 'sum', 'int', 'oint', 'iint', 'iiint', 'prod', 'coprod', 'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'varpi', 'rho', 'varrho', 'sigma', 'varsigma', 'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega', 'infty', 'limits', 'left', 'right', 'begin', 'end', 'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'max', 'min', 'lim', 'sqrt', 'cdot', 'cdots', 'ldots', 'times', 'div', 'pm', 'mp', 'neq', 'leq', 'geq', 'approx', 'equiv', 'propto', 'in', 'notin', 'subset', 'supset', 'cup', 'cap', 'emptyset', 'forall', 'exists', 'nabla', 'partial', 'mathbf', 'mathrm', 'mathit', 'mathbb', 'mathcal', 'text', 'textbf', 'textit', 'underline', 'overline', 'hat', 'tilde', 'vec', 'dot', 'ddot', 'overbrace', 'underbrace', 'cases', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix', 'array', 'boldsymbol', 'widehat', 'widetilde', 'operatorname', 'DeclareMathOperator', 'mid', 'nmid', 'to', 'gets', 'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow', 'iff', 'implies', 'xrightarrow', 'xleftarrow', 'bigoplus', 'bigotimes', 'bigcup', 'bigcap', 'biguplus', 'bigwedge', 'bigvee', 'lfloor', 'rfloor', 'lceil', 'rceil', 'langle', 'rangle', 'binom', 'dbinom', 'tbinom', 'stackrel', 'overset', 'underset', 'pmod', 'because', 'therefore', 'ell', 'perp', 'parallel', 'angle', 'Im', 'Re', 'not', 'quad', 'qquad', 'sim', 'simeq', 'cong', 'geqslant', 'leqslant', 'ge', 'le', 'd'};
       String safeTex = tex.replaceAll(r'\boldsymbol', r'\mathbf');
+      
+      // 自动修复矩阵/cases中被 JSON 转义丢失的行分隔符（\\ 变成 \）
+      safeTex = safeTex.replaceAllMapped(
+        RegExp(r'\\begin\{(pmatrix|bmatrix|matrix|cases|vmatrix|array)\}([\s\S]*?)\\end\{\1\}'),
+        (match) {
+          final env = match.group(1)!;
+          String body = match.group(2)!;
+          
+          // 将可能由于 JSON 转义丢失的 row break（双反斜杠 \\ 变成了单反斜杠 \）修复回来
+          // 规则：如果反斜杠后面的内容既不是特殊转义字符（如 \{, \}, \[, \], \| 等），
+          // 也不属于已知命令（如 \frac, \xi, \text 等）及 \begin/\end，
+          // 则应该将其恢复为 \\。
+          body = body.replaceAllMapped(RegExp(r'\\\\|\\([a-zA-Z0-9]+|.)'), (m) {
+            final matchedStr = m.group(0)!;
+            if (matchedStr == r'\\') {
+              return r'\\'; // 已有双反斜杠，原样保留
+            }
+            final content = m.group(1)!;
+            if (RegExp(r'^[{}|\[\]]$').hasMatch(content)) return matchedStr;
+            
+            final cmdMatch = RegExp(r'^[a-zA-Z]+').firstMatch(content);
+            if (cmdMatch != null) {
+              final cmd = cmdMatch.group(0)!;
+              if (cmd == 'begin' || cmd == 'end' || knownCmdsSet.contains(cmd)) {
+                return matchedStr;
+              }
+            }
+            return '\\\\$content';
+          });
+          
+          return '\\begin{$env}$body\\end{$env}';
+        }
+      );
+
       // 修复填空题下划线 ___ 导致 LaTeX 引擎解析下标崩溃的问题
       safeTex = safeTex.replaceAllMapped(RegExp(r'(?<!\\)_{2,}'), (m) => r'\_' * m.group(0)!.length);
+
+      // 修复双杠污染（白名单机制）：大模型可能过度转义 \alpha 为 \\alpha。
+      safeTex = safeTex.replaceAllMapped(RegExp(r'\\\\([a-zA-Z]+)'), (match) {
+        final cmd = match.group(1)!;
+        if (knownCmdsSet.contains(cmd)) {
+          return r'\' + cmd;
+        }
+        return match.group(0)!;
+      });
+      // 补充针对特殊括号 \{ \} \[ \] \| 的降级
+      safeTex = safeTex.replaceAllMapped(RegExp(r'\\\\([{(}\[\]|])'), (match) {
+        return r'\' + match.group(1)!;
+      });
+      
+      // 防崩溃：强制把内嵌的中文字符包裹进 \text{}，避免 parser 崩溃报错变红（尤其针对历史遗留数据）
+      safeTex = safeTex.replaceAllMapped(RegExp(r'(?<!\\text\{)([\u4e00-\u9fa5]+)'), (m) {
+        return r'\text{' + m.group(1)! + r'}';
+      });
 
       final mathWidget = Math.tex(
         safeTex,
@@ -460,15 +191,32 @@ Widget buildLatexWidget(
         textScaleFactor: 1.0,
         settings: const TexParserSettings(strict: Strict.ignore),
         onErrorFallback: (err) {
+          debugPrint('LaTeX ParseException: [Hash: ${tex.hashCode}] err: $err\nFormula: $tex');
           return Container(
             padding: const EdgeInsets.all(4),
+            margin: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.orange.shade300),
+              color: Colors.orange.shade50.withOpacity(0.5),
+              border: Border.all(color: Colors.orange.shade300, width: 1.0),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Text(
-              tex,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SelectableText(
+                    tex,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.black87),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  '[LaTeX fallback]',
+                  style: TextStyle(fontSize: 9, color: Colors.grey),
+                ),
+              ],
             ),
           );
         },
@@ -476,9 +224,10 @@ Widget buildLatexWidget(
 
       if (inline) {
         // 内联公式直接放在 WidgetSpan 中，保留最原生的基线对齐
-        // 安全防御：如果公式超过 200 个字符，很可能是整段正文被误判为公式（第21题Bug）
+        // 安全防御：如果公式超过 200 个字符，且没有包含常见的数学公式命令特征，
+        // 则很可能是整段正文被误判为公式（第21题Bug）
         // 这种情况下用普通文本显示而不是压缩到一行
-        if (tex.length > 200) {
+        if (tex.length > 200 && !AiDataSanitizer.isLikelyMathFormula(tex)) {
           return SelectableText(
             tex,
             style: textStyle.copyWith(color: color, fontSize: fontSize),
