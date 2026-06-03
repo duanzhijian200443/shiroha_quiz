@@ -1,5 +1,17 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 07:45] - refactor(arch): 将胖服务解耦并重构数据存储为 Repository 模式
+- **变更类型**: refactor
+- **影响模块**: services, data, ui, utils
+- **详细改动明细**:
+  - [x] 新建了 `lib/data/repositories/question_repository.dart`，负责统一管理题库持久化、树状结构读取、考试试卷创建和题目删除，彻底消除 UI 对底层 SQL 的直接依赖。
+  - [x] 新建了 `lib/services/ai_prompts.dart`，将原先混杂在 AI 服务中的 LaTeX 定界符规则和视觉解析长篇 Prompt 提示词抽离至专用类管理。
+  - [x] 新建了 `lib/services/llm_api_client.dart`，集中封装底层 HTTP 请求的参数组合、认证和流式回复接口。
+  - [x] 新建了 `lib/utils/image_utils.dart`，将 CPU 消耗高的 Isolates 图片异步压缩逻辑独立为纯净工具函数。
+  - [x] 重构了 `lib/services/ai_service.dart`，移除千行以上的 Prompt 定义和底层请求细节，精简为纯粹的高层接口业务编排者。
+  - [x] 改造了 `lib/ui/pages/import_staging_screen.dart` 与 `lib/ui/pages/ai_generator_screen.dart`，用 `QuestionRepository` 取代了直接的 SQL `db.transaction` 存盘和读取，实现了视图与持久化数据的高度解耦。
+- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 14 tests passed!)。
+
 ## [2026-06-04 00:36] - fix(latex): 修复 LaTeX 嵌套定界符解析与公式双重包裹问题
 - **变更类型**: fix
 - **影响模块**: utils, test

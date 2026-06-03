@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import '../../core/database/database_helper.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
-import '../../utils/ai_data_sanitizer.dart';
 import '../widgets/markdown_extensions.dart';
 import '../../main.dart';
 
@@ -25,6 +23,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
+  final QuestionRepository _questionRepository = QuestionRepository.instance;
   List<String> _existingFolders = [];
 
   @override
@@ -35,21 +34,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _loadExistingFolders() async {
-    final tree = await DatabaseHelper.instance.getSubjectTree();
+    final folders = await _questionRepository.getAvailableFolders();
     if (mounted) {
       setState(() {
-        _existingFolders = tree.keys.where((k) => k != '📁 未分类题库').toList();
+        _existingFolders = folders;
       });
     }
-  }
-
-  Widget _buildMarkdown(String text) {
-    return buildLatexWidget(
-      context,
-      text,
-      textColor: Theme.of(context).textTheme.bodyLarge?.color,
-      fontSize: 14.0,
-    );
   }
 
   void _validateBeforeSave() {
@@ -191,50 +181,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
     setState(() => _isSaving = true);
     try {
-      final db = await DatabaseHelper.instance.database;
-      await db.transaction((txn) async {
-        for (var q in _displayQuestions) {
-          final qId = '${DateTime.now().millisecondsSinceEpoch}_${q.hashCode}';
-          final rawOptions = q['options'];
-          final sanitizedOptions = rawOptions is List
-              ? rawOptions
-                  .map((option) =>
-                      AiDataSanitizer.cleanLatexBeforeDB(option.toString()))
-                  .toList()
-              : const <String>[];
-          final answer = AiDataSanitizer.cleanLatexBeforeDB(
-              '${q['standard_answer'] ?? q['answer'] ?? ''}');
-          final explanation = AiDataSanitizer.cleanLatexBeforeDB(
-              q['explanation']?.toString() ?? '');
-          await txn.insert('questions', {
-            'id': qId,
-            'bank_name': bankName,
-            'type': q['type'] ?? 0,
-            'content': AiDataSanitizer.cleanLatexBeforeDB(
-                q['content']?.toString() ?? '无题干'),
-            'options': jsonEncode(sanitizedOptions),
-            'standard_answer': '$answer|||$explanation',
-            'explanation': explanation,
-            'raw_explanation': q['raw_explanation']?.toString(),
-            'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          });
-          await txn.insert('review_states', {
-            'question_id': qId,
-            'state': 0,
-            'difficulty': 5.0,
-            'stability': 0.0,
-            'last_review_time': 0,
-            'next_review_time': 0,
-            'reps': 0,
-            'lapses': 0,
-            'last_lapse_time': 0,
-          });
-        }
-      });
-
-      if (folderName.isNotEmpty) {
-        await DatabaseHelper.instance.updateBankFolder(bankName, folderName);
-      }
+      await _questionRepository.saveQuestionsToBank(
+        bankName: bankName,
+        folderName: folderName,
+        questions: _displayQuestions,
+      );
 
       // 触发全局题库刷新事件
       globalBankUpdateNotifier.value++;
@@ -304,106 +255,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   onDismissed: (direction) {
                     setState(() => _displayQuestions.removeAt(index));
                   },
-                  child: Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                            color: Colors.grey.withValues(alpha: 0.2))),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                    color: theme.primaryColor
-                                        .withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(4)),
-                                child: Text(
-                                    q['type'] == 0
-                                        ? '选择题'
-                                        : (q['type'] == 2 ? '填空题' : '简答题'),
-                                    style: TextStyle(
-                                        color: theme.primaryColor,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 8),
-                              Text('第 ${index + 1} 题',
-                                  style: const TextStyle(
-                                      fontSize: 12, color: Colors.grey)),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildMarkdown(q['content']?.toString() ?? ''),
-                          const Divider(height: 24),
-                          Builder(
-                            builder: (context) {
-                              final sAns =
-                                  q['standard_answer']?.toString().trim() ?? '';
-                              final exp =
-                                  q['explanation']?.toString().trim() ?? '';
-                              final hasAnswerOrExp =
-                                  sAns.isNotEmpty || exp.isNotEmpty;
-
-                              if (!hasAnswerOrExp) {
-                                return Container(
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: Colors.orangeAccent
-                                        .withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                        color: Colors.orangeAccent
-                                            .withValues(alpha: 0.3)),
-                                  ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 16),
-                                    child: Column(
-                                      children: [
-                                        Icon(Icons.warning_amber_rounded,
-                                            color: Colors.orangeAccent),
-                                        SizedBox(height: 4),
-                                        Text('⚠️ 暂无答案，导入后可进行编辑或AI解答',
-                                            style: TextStyle(
-                                                color: Colors.orangeAccent,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('标准答案：',
-                                      style: TextStyle(
-                                          fontSize: 12, color: Colors.grey)),
-                                  const SizedBox(height: 4),
-                                  _buildMarkdown(sAns.isEmpty ? '无' : sAns),
-                                  if (exp.isNotEmpty) ...[
-                                    const SizedBox(height: 12),
-                                    const Text('解析：',
-                                        style: TextStyle(
-                                            fontSize: 12, color: Colors.grey)),
-                                    const SizedBox(height: 4),
-                                    _buildMarkdown(exp),
-                                  ]
-                                ],
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: _QuestionCard(
+                    question: q,
+                    index: index,
                   ),
                 );
               },
@@ -439,6 +293,160 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _QuestionCard extends StatelessWidget {
+  const _QuestionCard({
+    required this.question,
+    required this.index,
+  });
+
+  final Map<String, dynamic> question;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final standardAnswer = question['standard_answer']?.toString().trim() ?? '';
+    final explanation = question['explanation']?.toString().trim() ?? '';
+    final hasAnswerOrExplanation =
+        standardAnswer.isNotEmpty || explanation.isNotEmpty;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.withValues(alpha: 0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: theme.primaryColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _typeLabel(question['type']),
+                    style: TextStyle(
+                      color: theme.primaryColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '第 ${index + 1} 题',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildMarkdown(context, question['content']?.toString() ?? ''),
+            const Divider(height: 24),
+            if (!hasAnswerOrExplanation)
+              _MissingAnswerNotice()
+            else
+              _AnswerBlock(
+                standardAnswer: standardAnswer,
+                explanation: explanation,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _typeLabel(dynamic type) {
+    if (type == 0) return '选择题';
+    if (type == 2) return '填空题';
+    return '简答题';
+  }
+
+  static Widget _buildMarkdown(BuildContext context, String text) {
+    return buildLatexWidget(
+      context,
+      text,
+      textColor: Theme.of(context).textTheme.bodyLarge?.color,
+      fontSize: 14.0,
+    );
+  }
+}
+
+class _MissingAnswerNotice extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.orangeAccent.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+            SizedBox(height: 4),
+            Text(
+              '暂无答案，导入后可编辑或使用 AI 解答',
+              style: TextStyle(
+                color: Colors.orangeAccent,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnswerBlock extends StatelessWidget {
+  const _AnswerBlock({
+    required this.standardAnswer,
+    required this.explanation,
+  });
+
+  final String standardAnswer;
+  final String explanation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '标准答案：',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 4),
+        _QuestionCard._buildMarkdown(
+          context,
+          standardAnswer.isEmpty ? '无' : standardAnswer,
+        ),
+        if (explanation.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            '解析：',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 4),
+          _QuestionCard._buildMarkdown(context, explanation),
+        ],
+      ],
     );
   }
 }
