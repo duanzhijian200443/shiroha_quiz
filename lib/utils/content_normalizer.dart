@@ -97,6 +97,7 @@ class ContentNormalizer {
     }
     result = _normalizeEscapedDelimiters(result);
     result = _convertDollarDelimiters(result);
+    result = _stripDoubleDelimiters(result);
     result = _extractBlanksFromMath(result);
     return result;
   }
@@ -179,9 +180,14 @@ class ContentNormalizer {
           i += 2;
           continue;
         }
-        buffer.write(r'\[');
-        buffer.write(input.substring(i + 2, close));
-        buffer.write(r'\]');
+        final content = input.substring(i + 2, close);
+        if (_isFullyWrapped(content)) {
+          buffer.write(content.trim());
+        } else {
+          buffer.write(r'\[');
+          buffer.write(content);
+          buffer.write(r'\]');
+        }
         i = close + 2;
         continue;
       }
@@ -193,9 +199,14 @@ class ContentNormalizer {
           i++;
           continue;
         }
-        buffer.write(r'\(');
-        buffer.write(input.substring(i + 1, close));
-        buffer.write(r'\)');
+        final content = input.substring(i + 1, close);
+        if (_isFullyWrapped(content)) {
+          buffer.write(content.trim());
+        } else {
+          buffer.write(r'\(');
+          buffer.write(content);
+          buffer.write(r'\)');
+        }
         i = close + 1;
         continue;
       }
@@ -309,14 +320,61 @@ class ContentNormalizer {
   }
 
   static int _findClosingDelimiter(String input, int start, String close) {
+    final String? open;
+    if (close == r'\)') {
+      open = r'\(';
+    } else if (close == r'\]') {
+      open = r'\[';
+    } else {
+      open = null;
+    }
+
+    var depth = 0;
     var i = start;
     while (i <= input.length - close.length) {
       if (_startsWith(input, i, close)) {
-        return i;
+        if (depth == 0) return i;
+        depth--;
+        i += close.length;
+        continue;
       }
+
+      if (open != null && _startsWith(input, i, open)) {
+        depth++;
+        i += open.length;
+        continue;
+      }
+
       i++;
     }
     return -1;
+  }
+
+  static String _stripDoubleDelimiters(String input) {
+    var result = input;
+    while (true) {
+      final old = result;
+      result = result
+          .replaceAll(r'\(\(', r'\(')
+          .replaceAll(r'\)\)', r'\)')
+          .replaceAll(r'\[\[', r'\[')
+          .replaceAll(r'\]\]', r'\]');
+      if (result == old) break;
+    }
+    return result;
+  }
+
+  static bool _isFullyWrapped(String text) {
+    final trimmed = text.trim();
+    if (trimmed.startsWith(r'\(') && trimmed.endsWith(r'\)')) {
+      final end = _findClosingDelimiter(trimmed, 2, r'\)');
+      return end != -1 && end + 2 == trimmed.length;
+    }
+    if (trimmed.startsWith(r'\[') && trimmed.endsWith(r'\]')) {
+      final end = _findClosingDelimiter(trimmed, 2, r'\]');
+      return end != -1 && end + 2 == trimmed.length;
+    }
+    return false;
   }
 
   static bool _startsWith(String input, int index, String needle) {

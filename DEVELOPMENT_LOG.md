@@ -1,5 +1,16 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 00:36] - fix(latex): 修复 LaTeX 嵌套定界符解析与公式双重包裹问题
+- **变更类型**: fix
+- **影响模块**: utils, test
+- **详细改动明细**:
+  - [x] 修改了 `lib/utils/content_tokenizer.dart` 中的 `_findClosingDelimiter` 方法，引入深度感知（depth-aware）扫描机制，完美处理了 LaTeX 内嵌套定界符（如在 `\right)` 内嵌套 parentheses）导致的早期截断 Bug。
+  - [x] 修改了 `lib/utils/content_normalizer.dart`，同步更新其 `_findClosingDelimiter` 方法至深度感知版本，统一了解析行为。
+  - [x] 修改了 `lib/utils/content_normalizer.dart`，在 `_normalize` 管道中新增 `_stripDoubleDelimiters` 步骤，能够自动对数据中已有的双重公式包裹定界符（如 `\(\(...\)\)`、`\[\[...\]\]`）进行解包折叠。
+  - [x] 优化了 `lib/utils/content_normalizer.dart` 中的 `_convertDollarDelimiters` 方法，引入 `_isFullyWrapped` 检测机制，避免在进行美式刀币符（`$` / `$$`）转换时，对本就已包裹了 `\(` 或 `\[` 定界符的 LaTeX 公式重复追加外层包装，从源头上杜绝了双重包裹的产生。
+  - [x] 扩展了 `test/render_matrix_test.dart` 测试套件，补充了针对双重定界符折叠、刀币符防双重包裹处理等多项深度用例，且整体单元/Widget测试全部无错通过。
+- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 14 tests passed!)。
+
 ## [2026-06-04 00:13] - refactor(render): 基于Tokenizer重构分词与数学公式渲染管线
 - **变更类型**: refactor
 - **影响模块**: render, ui, utils

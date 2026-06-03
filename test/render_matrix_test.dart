@@ -17,6 +17,28 @@ void main() {
     expect(output, contains(r'price is $5.'));
   });
 
+  test('normalizer folds double delimiters to single', () {
+    const input1 = r'\(\(\frac{1}{2},0,0\)\)';
+    expect(ContentNormalizer.normalizeForStorage(input1), r'\(\frac{1}{2},0,0\)');
+
+    const input2 = r'\(\(a\) + \(b\)\)';
+    expect(ContentNormalizer.normalizeForStorage(input2), r'\(a\) + \(b\)');
+
+    const input3 = r'\[\[A\]\]';
+    expect(ContentNormalizer.normalizeForStorage(input3), r'\[A\]');
+  });
+
+  test('normalizer avoids double-wrapping already wrapped formulas in dollar conversion', () {
+    const input1 = r'$\(x\)$';
+    expect(ContentNormalizer.normalizeForStorage(input1), r'\(x\)');
+
+    const input2 = r'$$\[y\]$$';
+    expect(ContentNormalizer.normalizeForStorage(input2), r'\[y\]');
+
+    const input3 = r'$\(a\) + \(b\)$';
+    expect(ContentNormalizer.normalizeForStorage(input3), r'\(a\) + \(b\)');
+  });
+
   test('normalizer extracts blanks from explicit math', () {
     const input = r'Find \(a=___\), then answer ____.';
     final output = ContentNormalizer.normalizeForStorage(input);

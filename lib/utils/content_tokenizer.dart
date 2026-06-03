@@ -175,10 +175,37 @@ class ContentTokenizer {
     );
   }
 
+  /// Finds the position of [close] in [input] starting at [start], accounting
+  /// for nested opening delimiters so that `\(\( … \)\)` is handled correctly.
+  ///
+  /// For `\)` the matching opener is `\(`; for `\]` the matching opener is
+  /// `\[`. Any other [close] string uses a simple linear scan (no depth).
   static int _findClosingDelimiter(String input, int start, String close) {
+    final String? open;
+    if (close == r'\)') {
+      open = r'\(';
+    } else if (close == r'\]') {
+      open = r'\[';
+    } else {
+      open = null;
+    }
+
+    var depth = 0;
     var i = start;
     while (i <= input.length - close.length) {
-      if (_startsWith(input, i, close)) return i;
+      if (_startsWith(input, i, close)) {
+        if (depth == 0) return i;
+        depth--;
+        i += close.length;
+        continue;
+      }
+
+      if (open != null && _startsWith(input, i, open)) {
+        depth++;
+        i += open.length;
+        continue;
+      }
+
       i++;
     }
     return -1;
