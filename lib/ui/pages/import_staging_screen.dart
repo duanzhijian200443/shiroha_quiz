@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../core/database/database_helper.dart';
 import '../../services/task_manager.dart';
+import '../../utils/ai_data_sanitizer.dart';
 import '../widgets/markdown_extensions.dart';
 import '../../main.dart';
 
@@ -21,7 +22,7 @@ class ImportStagingScreen extends StatefulWidget {
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
   late List<Map<String, dynamic>> _displayQuestions;
   bool _isSaving = false;
-  
+
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
   List<String> _existingFolders = [];
@@ -52,39 +53,42 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _validateBeforeSave() {
-    final emptyStems = _displayQuestions.where((q) =>
-      q['content'] == null ||
-      q['content']!.toString().trim().isEmpty ||
-      q['content']!.toString().contains('假设') ||
-      q['content']!.toString().contains('原题干')
-    ).length;
+    final emptyStems = _displayQuestions
+        .where((q) =>
+            q['content'] == null ||
+            q['content']!.toString().trim().isEmpty ||
+            q['content']!.toString().contains('假设') ||
+            q['content']!.toString().contains('原题干'))
+        .length;
 
-    final emptyRate = _displayQuestions.isEmpty ? 0 : emptyStems / _displayQuestions.length;
+    final emptyRate =
+        _displayQuestions.isEmpty ? 0 : emptyStems / _displayQuestions.length;
 
     if (emptyRate > 0.4) {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('提取质量不佳', style: TextStyle(fontWeight: FontWeight.bold)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('提取质量不佳',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: Text('有 $emptyStems 道题目未能识别题干，建议检查原文档结构后重新导入。'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context), 
-              child: const Text('取消', style: TextStyle(color: Colors.grey))
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消', style: TextStyle(color: Colors.grey))),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-                _showSaveDialog();
-              }, 
-              child: const Text('仍然保存')
-            ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _showSaveDialog();
+                },
+                child: const Text('仍然保存')),
           ],
         ),
       );
@@ -95,36 +99,55 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   void _showSaveDialog() {
     showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return StatefulBuilder(builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('选择保存位置', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('选择保存位置',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextField(controller: _bankNameController, decoration: InputDecoration(labelText: '目标题库名称', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
+                    TextField(
+                        controller: _bankNameController,
+                        decoration: InputDecoration(
+                            labelText: '目标题库名称',
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8)))),
                     const SizedBox(height: 16),
-                    TextField(controller: _folderController, decoration: InputDecoration(labelText: '所属学科分类 (选填)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
+                    TextField(
+                        controller: _folderController,
+                        decoration: InputDecoration(
+                            labelText: '所属学科分类 (选填)',
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8)))),
                     if (_existingFolders.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Wrap(
-                        spacing: 8.0, runSpacing: 8.0,
-                        children: _existingFolders.map((folder) => ActionChip(
-                          label: Text(folder, style: const TextStyle(fontSize: 12, color: Colors.blueAccent)),
-                          backgroundColor: Colors.blue.shade50, side: BorderSide.none,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          onPressed: () {
-                            setDialogState(() {
-                              _folderController.text = folder;
-                            });
-                          },
-                        )).toList(),
+                        spacing: 8.0,
+                        runSpacing: 8.0,
+                        children: _existingFolders
+                            .map((folder) => ActionChip(
+                                  label: Text(folder,
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blueAccent)),
+                                  backgroundColor: Colors.blue.shade50,
+                                  side: BorderSide.none,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16)),
+                                  onPressed: () {
+                                    setDialogState(() {
+                                      _folderController.text = folder;
+                                    });
+                                  },
+                                ))
+                            .toList(),
                       ),
                     ],
                   ],
@@ -139,7 +162,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   onPressed: () {
                     final bankName = _bankNameController.text.trim();
                     if (bankName.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先输入目标题库名称')));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('请先输入目标题库名称')));
                       return;
                     }
                     Navigator.pop(ctx);
@@ -148,16 +172,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                   child: const Text('确定入库'),
                 ),
               ],
             );
-          }
-        );
-      }
-    );
+          });
+        });
   }
 
   Future<void> _confirmAndSave(String bankName, String folderName) async {
@@ -171,19 +194,40 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       final db = await DatabaseHelper.instance.database;
       await db.transaction((txn) async {
         for (var q in _displayQuestions) {
-          final qId = DateTime.now().millisecondsSinceEpoch.toString() + '_' + q.hashCode.toString();
+          final qId = '${DateTime.now().millisecondsSinceEpoch}_${q.hashCode}';
+          final rawOptions = q['options'];
+          final sanitizedOptions = rawOptions is List
+              ? rawOptions
+                  .map((option) =>
+                      AiDataSanitizer.cleanLatexBeforeDB(option.toString()))
+                  .toList()
+              : const <String>[];
+          final answer = AiDataSanitizer.cleanLatexBeforeDB(
+              '${q['standard_answer'] ?? q['answer'] ?? ''}');
+          final explanation = AiDataSanitizer.cleanLatexBeforeDB(
+              q['explanation']?.toString() ?? '');
           await txn.insert('questions', {
-            'id': qId, 'bank_name': bankName, 'type': q['type'] ?? 0,
-            'content': q['content']?.toString() ?? '无题干',
-            'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
-            'standard_answer': '${q['standard_answer'] ?? q['answer'] ?? ''}|||${q['explanation'] ?? ''}',
-            'explanation': q['explanation']?.toString() ?? '',
+            'id': qId,
+            'bank_name': bankName,
+            'type': q['type'] ?? 0,
+            'content': AiDataSanitizer.cleanLatexBeforeDB(
+                q['content']?.toString() ?? '无题干'),
+            'options': jsonEncode(sanitizedOptions),
+            'standard_answer': '$answer|||$explanation',
+            'explanation': explanation,
             'raw_explanation': q['raw_explanation']?.toString(),
             'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
           });
           await txn.insert('review_states', {
-            'question_id': qId, 'state': 0, 'difficulty': 5.0, 'stability': 0.0,
-            'last_review_time': 0, 'next_review_time': 0, 'reps': 0, 'lapses': 0, 'last_lapse_time': 0,
+            'question_id': qId,
+            'state': 0,
+            'difficulty': 5.0,
+            'stability': 0.0,
+            'last_review_time': 0,
+            'next_review_time': 0,
+            'reps': 0,
+            'lapses': 0,
+            'last_lapse_time': 0,
           });
         }
       });
@@ -201,11 +245,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('🎉 成功入库 ${_displayQuestions.length} 题！'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('🎉 成功入库 ${_displayQuestions.length} 题！'),
+            backgroundColor: Colors.green));
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('入库失败: $e'), backgroundColor: Colors.redAccent));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('入库失败: $e'), backgroundColor: Colors.redAccent));
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -217,7 +266,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('解析结果校对', style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+            const Text('解析结果校对', style: TextStyle(fontWeight: FontWeight.bold)),
         elevation: 0,
       ),
       body: Column(
@@ -229,7 +279,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               children: [
                 Icon(Icons.info_outline, color: Colors.orangeAccent, size: 20),
                 SizedBox(width: 8),
-                Expanded(child: Text('请核对 AI 解析结果。向左滑动卡片可删除识别错误的废题。', style: TextStyle(color: Colors.orangeAccent, fontSize: 13))),
+                Expanded(
+                    child: Text('请核对 AI 解析结果。向左滑动卡片可删除识别错误的废题。',
+                        style: TextStyle(
+                            color: Colors.orangeAccent, fontSize: 13))),
               ],
             ),
           ),
@@ -254,7 +307,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   child: Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                            color: Colors.grey.withValues(alpha: 0.2))),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -263,12 +319,25 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           Row(
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: theme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-                                child: Text(q['type'] == 0 ? '选择题' : (q['type'] == 2 ? '填空题' : '简答题'), style: TextStyle(color: theme.primaryColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                    color: theme.primaryColor
+                                        .withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(4)),
+                                child: Text(
+                                    q['type'] == 0
+                                        ? '选择题'
+                                        : (q['type'] == 2 ? '填空题' : '简答题'),
+                                    style: TextStyle(
+                                        color: theme.primaryColor,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
                               ),
                               const SizedBox(width: 8),
-                              Text('第 ${index + 1} 题', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                              Text('第 ${index + 1} 题',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: Colors.grey)),
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -276,26 +345,36 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           const Divider(height: 24),
                           Builder(
                             builder: (context) {
-                              final sAns = q['standard_answer']?.toString().trim() ?? '';
-                              final rawExp = q['raw_explanation']?.toString().trim() ?? '';
-                              final exp = rawExp.isNotEmpty ? rawExp : (q['explanation']?.toString().trim() ?? '');
-                              final hasAnswerOrExp = sAns.isNotEmpty || exp.isNotEmpty;
+                              final sAns =
+                                  q['standard_answer']?.toString().trim() ?? '';
+                              final exp =
+                                  q['explanation']?.toString().trim() ?? '';
+                              final hasAnswerOrExp =
+                                  sAns.isNotEmpty || exp.isNotEmpty;
 
                               if (!hasAnswerOrExp) {
                                 return Container(
                                   width: double.infinity,
                                   decoration: BoxDecoration(
-                                    color: Colors.orangeAccent.withOpacity(0.05),
+                                    color: Colors.orangeAccent
+                                        .withValues(alpha: 0.05),
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                                    border: Border.all(
+                                        color: Colors.orangeAccent
+                                            .withValues(alpha: 0.3)),
                                   ),
                                   child: const Padding(
                                     padding: EdgeInsets.symmetric(vertical: 16),
                                     child: Column(
                                       children: [
-                                        Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+                                        Icon(Icons.warning_amber_rounded,
+                                            color: Colors.orangeAccent),
                                         SizedBox(height: 4),
-                                        Text('⚠️ 暂无答案，导入后可进行编辑或AI解答', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                                        Text('⚠️ 暂无答案，导入后可进行编辑或AI解答',
+                                            style: TextStyle(
+                                                color: Colors.orangeAccent,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold)),
                                       ],
                                     ),
                                   ),
@@ -305,12 +384,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                  const Text('标准答案：',
+                                      style: TextStyle(
+                                          fontSize: 12, color: Colors.grey)),
                                   const SizedBox(height: 4),
                                   _buildMarkdown(sAns.isEmpty ? '无' : sAns),
                                   if (exp.isNotEmpty) ...[
                                     const SizedBox(height: 12),
-                                    const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                    const Text('解析：',
+                                        style: TextStyle(
+                                            fontSize: 12, color: Colors.grey)),
                                     const SizedBox(height: 4),
                                     _buildMarkdown(exp),
                                   ]
@@ -334,11 +417,24 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           child: ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: theme.primaryColor, foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              backgroundColor: theme.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
-            icon: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.check_circle_outline),
-            label: Text(_isSaving ? '正在入库...' : '确认无误，将 ${_displayQuestions.length} 题收入题库', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 2))
+                : const Icon(Icons.check_circle_outline),
+            label: Text(
+                _isSaving
+                    ? '正在入库...'
+                    : '确认无误，将 ${_displayQuestions.length} 题收入题库',
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             onPressed: _isSaving ? null : _validateBeforeSave,
           ),
         ),

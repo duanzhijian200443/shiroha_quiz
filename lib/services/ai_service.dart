@@ -27,14 +27,92 @@ List<int> _compressImageSync(List<int> bytes) {
 
 class AiService {
   static const String LATEX_FORMAT_RULES = r'''
-    【LaTeX 公式格式铁律（最优先级）】
-    1. 必须使用 $...$ (内联) 或 $$...$$ (块级) 包裹所有公式、符号、变量。绝不允许裸命令！
-    2. 绝对禁止使用 Unicode 数学字符(如 ∑、π)，必须用标准命令并以大写 BSLASH 占位 (如 BSLASHsum, BSLASHpi)。
-    3. 填空处的下划线 ___ 绝不能被 $ 包裹。
-    4. 由于 JSON 限制，必须用大写 BSLASH 代替所有 LaTeX 反斜杠 (例如 BSLASHfrac, BSLASHbegin{pmatrix})。
-    错误示范：BSLASHfrac{1}{2} 或 $BSLASHsum$ (错误原因: 前者未包裹，后者含有Unicode符号)。
-    正确示范：$BSLASHfrac{1}{2}$ 和 $BSLASHsum$。
+    [STRICT LATEX CONTRACT - MUST FOLLOW]
+    1. Inline math MUST use \( ... \). Block math MUST use \[ ... \].
+    2. Never use $...$ or $$...$$ as math delimiters.
+    3. Never output bare LaTeX commands outside explicit math delimiters.
+       Wrong: \frac{1}{2}, x_i, \alpha
+       Right: \(\frac{1}{2}\), \(x_i\), \(\alpha\)
+    4. Fill-in blanks MUST be plain ___ outside math delimiters.
+       Wrong: \(a=___\)
+       Right: \(a=\)___
+    5. In JSON strings, every LaTeX backslash MUST be escaped.
+       Write \\(x\\), \\frac{1}{2}, \\[...\\], and matrix row breaks as \\\\.
+
+    【LaTeX 公式格式铁律（最高优先级）】
+    1. 行内公式：所有行内公式、变量、数学符号必须用 \( 和 \) 包裹。
+       ✅ \(\frac{1}{2}\)    ✅ \(x\)    ✅ \(\alpha + \beta\)
+       ❌ \frac{1}{2}（裸命令，致命错误）
+    2. 块级公式：独立成行的公式与矩阵必须用 \[ 和 \] 包裹。
+       ✅ \[\sum_{i=1}^{n} x_i = 0\]
+       ✅ \[\begin{pmatrix}1 & 2\\3 & 4\end{pmatrix}\]
+    3. JSON 双重转义（最易出错，务必遵守）：
+       输出 JSON 时，每一个 LaTeX 反斜杠 \ 必须写成 \\，否则 JSON 解析将直接崩溃。
+       对应关系：
+         \(  →  \\(          \)  →  \\)
+         \[  →  \\[          \]  →  \\]
+         \frac  →  \\frac    \\  →  \\\\（矩阵换行）
+    4. 禁止事项：
+       - 禁止使用 $...$ 或 $$...$$ 作为公式定界符
+       - 禁止输出任何未被 \( \) 或 \[ \] 包裹的裸 LaTeX 命令
+       - 题目中的填空下划线 ___ 禁止被定界符包裹，原样保留
+       - 绝对不要在矩阵、公式内部对纯数字、普通的列分隔符 & 进行画蛇添足的转义！
+    5. 【最重要】content、standard_answer、explanation 三个字段的 LaTeX 规则完全一致！
+       explanation（解析推导）里的每一个公式同样必须用 \\( \\) 包裹，绝对不允许裸写！
+
+    【JSON 各字段完整示例（explanation 和 standard_answer 里同样必须有 \\( \\) 包裹）】
+    {
+      "type": 3,
+      "content": "已知微分方程 \\(y' + \\frac{1}{2\\sqrt{x}}y = \\frac{2+\\sqrt{x}}{2\\sqrt{x}}\\)，且 \\(y(1)=3\\)，求 \\(y(x)\\) 并求渐近线。",
+      "standard_answer": "\\(y(x) = 2x + e^{1-\\sqrt{x}}\\)，斜渐近线为 \\(y = 2x\\)。",
+      "explanation": "由通解公式 \\(y = e^{-\\int P(x)dx}\\left[\\int Q(x)e^{\\int P(x)dx}dx + C\\right]\\)，令 \\(u=\\sqrt{x}\\)，则 \\(x=u^2,\\, dx=2u\\,du\\)。计算得 \\(y(x)=2x+Ce^{-\\sqrt{x}}\\)。代入 \\(y(1)=3\\) 得 \\(C=e\\)，故 \\(y(x)=2x+e^{1-\\sqrt{x}}\\)。又 \\(\\lim_{x\\to+\\infty}\\frac{y(x)}{x}=2\\)，\\(\\lim_{x\\to+\\infty}[y(x)-2x]=0\\)，故斜渐近线为 \\(y=2x\\)。"
+    }
 ''';
+
+  static String get _VISION_PARSE_PROMPT => '''
+    你是一个教育数据清洗专家。这是试卷的原始扫描件/截图。请严格按照以下格式解析出其中的每一道题，绝对不允许遗漏！
+
+    $LATEX_FORMAT_RULES
+
+    【题型与格式】
+    1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文(必须把选项剥离出去，题干绝对不包含选项部分)", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
+    2. 填空题 (type: 2): {"q_num": "题号", "type": 2, "content": "题干完整原文", "options": [], "standard_answer": "答案内容"}
+    3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果", "explanation": "详细解题推导与证明过程（若无则设为 null 或留空）"}
+
+    【综合大题提取法则（绝对红线）】
+    遇到包含 (I)、(II) 或 (1)、(2) 等多个小问的综合性大题，绝对禁止将其拆分为多道独立的题！
+    带有小括号的数字 (1)、小写字母 (a)、罗马数字 (I) 等绝对不允许独立！
+    必须按以下标准合并为一道 type:3（解答题）：
+    1. content（题干）：必须包含大题的前置背景描述，并依次追加 (I)(II) 等所有小问的题目原文。
+    2. standard_answer（答案）：必须依次合并包含 (I)(II) 对应的所有解答内容。
+    3. explanation（解析）：必须依次合并所有小问的推导证明过程。
+    绝对不允许把小问的题干丢进答案里，各归其位！
+
+    【输出模式】
+    模式A（完整题目）：输出 content 和 standard_answer。
+    模式B（只有题干，没有答案）：standard_answer 设为 null。
+    模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。
+
+    【扫描件题解混排处理法则】
+    如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
+    - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
+    - standard_answer 提取解题过程最终得出的答案值或结论（如 \\(x=5\\) 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
+    - explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
+
+    反例（错误）：
+    content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为 【解】设...化简得..."
+
+    正例（正确）：
+    content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为"
+    standard_answer: "k₁(-2,1,0)ᵀ + k₂(-3,0,1)ᵀ，k₁k₂为任意常数"
+    explanation: null
+
+    【选择题选项剥离红线规则】
+    对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
+
+    必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
+''';
+
   static final AiService instance = AiService._();
   AiService._();
 
@@ -47,8 +125,14 @@ class AiService {
       final pending = List<String>.from(task.pendingChunks ?? []);
       try {
         await parseMicroBatches(pending, taskId: taskId);
-        final updatedTask = TaskManager.instance.tasks.firstWhere((t) => t.id == taskId);
-        TaskManager.instance.requireReview(taskId, '恢复解析成功，请校对入库', updatedTask.parsedData ?? [], updatedTask.bankName ?? '', updatedTask.folderName ?? '');
+        final updatedTask =
+            TaskManager.instance.tasks.firstWhere((t) => t.id == taskId);
+        TaskManager.instance.requireReview(
+            taskId,
+            '恢复解析成功，请校对入库',
+            updatedTask.parsedData ?? [],
+            updatedTask.bankName ?? '',
+            updatedTask.folderName ?? '');
       } catch (e) {
         TaskManager.instance.failTask(taskId, e.toString());
       }
@@ -59,8 +143,14 @@ class AiService {
           final res = await parseImagesWithVision([path]);
           TaskManager.instance.markChunkSuccess(taskId, path, res);
         }
-        final updatedTask = TaskManager.instance.tasks.firstWhere((t) => t.id == taskId);
-        TaskManager.instance.requireReview(taskId, '恢复解析成功，请校对入库', updatedTask.parsedData ?? [], updatedTask.bankName ?? '', updatedTask.folderName ?? '');
+        final updatedTask =
+            TaskManager.instance.tasks.firstWhere((t) => t.id == taskId);
+        TaskManager.instance.requireReview(
+            taskId,
+            '恢复解析成功，请校对入库',
+            updatedTask.parsedData ?? [],
+            updatedTask.bankName ?? '',
+            updatedTask.folderName ?? '');
       } catch (e) {
         TaskManager.instance.failTask(taskId, e.toString());
       }
@@ -70,9 +160,13 @@ class AiService {
   // 核心修复：智能 URL 路由构建器，完美兼容 v1 和 v4 协议
   String _buildChatUrl(String baseUrl, bool isZhipu) {
     if (isZhipu) {
-      return baseUrl.endsWith('/v4') ? "$baseUrl/chat/completions" : "$baseUrl/v4/chat/completions";
+      return baseUrl.endsWith('/v4')
+          ? "$baseUrl/chat/completions"
+          : "$baseUrl/v4/chat/completions";
     }
-    return baseUrl.endsWith('/v1') ? "$baseUrl/chat/completions" : "$baseUrl/v1/chat/completions";
+    return baseUrl.endsWith('/v1')
+        ? "$baseUrl/chat/completions"
+        : "$baseUrl/v1/chat/completions";
   }
 
   // 核心容错：提取内容，自动兼容含有 reasoning_content 的深度思考模型（如老版 DeepSeek R1）
@@ -89,16 +183,16 @@ class AiService {
     }
   }
 
-
-
-  Future<String> judgeAnswer(String question, String standardAnswer, String userAnswer) async {
+  Future<String> judgeAnswer(
+      String question, String standardAnswer, String userAnswer) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) return "【系统提示】未激活文本 AI 引擎";
 
     final apiKey = profile['api_key'] as String? ?? '';
     String baseUrl = profile['base_url'] as String? ?? '';
     final model = profile['model_name'] as String? ?? '';
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) return "【系统提示】引擎配置不完整";
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      return "【系统提示】引擎配置不完整";
 
     final prompt = '''
     你是一个严谨的考研助教。
@@ -109,20 +203,48 @@ class AiService {
     ''';
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}]})).timeout(const Duration(seconds: 15));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ]
+                }))
+            .timeout(const Duration(seconds: 15));
         if (res.statusCode == 200) {
-          return jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "解析失败";
+          return jsonDecode(res.body)['candidates'][0]['content']['parts'][0]
+                  ['text'] ??
+              "解析失败";
         }
         return "【请求失败】Gemini 错误: ${res.statusCode}";
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode({"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3})).timeout(const Duration(seconds: 15));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode({
+                  "model": model,
+                  "messages": [
+                    {"role": "user", "content": prompt}
+                  ],
+                  "temperature": 0.3
+                }))
+            .timeout(const Duration(seconds: 15));
         if (res.statusCode == 200) {
           final extracted = _extractContent(res.body);
           return extracted.isNotEmpty ? extracted : "解析失败";
@@ -134,7 +256,8 @@ class AiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> generateQuestions(String topic, {int count = 1, int type = 0}) async {
+  Future<List<Map<String, dynamic>>> generateQuestions(String topic,
+      {int count = 1, int type = 0}) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) throw Exception("未激活文本引擎");
 
@@ -144,15 +267,20 @@ class AiService {
     final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
     final effort = profile['reasoning_effort'] as String? ?? '';
 
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("引擎配置不完整");
 
-    String typeReq = type == 0 ? "全部为【单选题】，必须提供 4 个选项。" : (type == 2 ? "全部为【填空题】，用 '___' 表示填空处。" : (type == 3 ? "全部为【简答题】。" : "混合生成【单选、填空、简答】。"));
+    String typeReq = type == 0
+        ? "全部为【单选题】，必须提供 4 个选项。"
+        : (type == 2
+            ? "全部为【填空题】，用 '___' 表示填空处。"
+            : (type == 3 ? "全部为【简答题】。" : "混合生成【单选、填空、简答】。"));
 
-    String exampleJson = type == 0 
+    String exampleJson = type == 0
         ? '[{"type": 0, "content": "题干", "options": ["A.", "B."], "standard_answer": "A"}]'
-        : (type == 2 
+        : (type == 2
             ? '[{"type": 2, "content": "题干(用___表示填空)", "options": [], "standard_answer": "答案"}]'
-            : (type == 3 
+            : (type == 3
                 ? '[{"type": 3, "content": "简答题干", "options": [], "standard_answer": "标准答案"}]'
                 : '[{"type": 0, "content": "单选题干", "options": ["A.", "B."], "standard_answer": "A"}]'));
 
@@ -166,29 +294,60 @@ class AiService {
     ''';
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
       String responseText = "";
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp, "maxOutputTokens": 8192}})).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": temp,
+                    "maxOutputTokens": 8192
+                  }
+                }))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
+          responseText = jsonDecode(res.body)['candidates'][0]['content']
+                  ['parts'][0]['text'] ??
+              "";
         } else {
           throw Exception("API Error: ${res.statusCode} - ${res.body}");
         }
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final Map<String, dynamic> reqBody = {"model": model, "messages": [{"role": "user", "content": prompt}]};
+        final Map<String, dynamic> reqBody = {
+          "model": model,
+          "messages": [
+            {"role": "user", "content": prompt}
+          ]
+        };
         if (effort.isNotEmpty) {
           reqBody["reasoning_effort"] = effort;
         } else {
           reqBody["temperature"] = temp;
         }
         reqBody["max_tokens"] = 8192;
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode(reqBody)).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode(reqBody))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
           responseText = _extractContent(res.body);
         } else {
@@ -201,7 +360,8 @@ class AiService {
     }
   }
 
-  Future<Map<String, String>> answerSingleQuestion(Map<String, dynamic> question) async {
+  Future<Map<String, String>> answerSingleQuestion(
+      Map<String, dynamic> question) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) throw Exception("未激活文本引擎");
 
@@ -211,7 +371,8 @@ class AiService {
     final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
     final effort = profile['reasoning_effort'] as String? ?? '';
 
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("引擎配置不完整");
 
     final qType = question['type'] as int? ?? 3;
     final qContent = question['content']?.toString() ?? '';
@@ -231,6 +392,9 @@ $qOptions
     }
 
     prompt += '''
+【LaTeX 格式要求】所有公式必须用 \\( \\) 行内或 \\[ \\] 块级包裹，
+JSON 中反斜杠须双写。禁止裸 LaTeX，禁止 \$...\$。
+
 【要求】
 1. 你必须且只能输出合法的 JSON 对象，格式必须完全遵守下方示例：
 {"standard_answer": "你的最终答案（尽量简短，如A、B、或者一个词语、公式）"}
@@ -239,22 +403,46 @@ $qOptions
 ''';
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
       String responseText = "";
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp, "maxOutputTokens": 8192}})).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": temp,
+                    "maxOutputTokens": 8192
+                  }
+                }))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
+          responseText = jsonDecode(res.body)['candidates'][0]['content']
+                  ['parts'][0]['text'] ??
+              "";
         } else {
           throw Exception("API Error: ${res.statusCode} - ${res.body}");
         }
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final Map<String, dynamic> reqBody = {"model": model, "messages": [{"role": "user", "content": prompt}]};
+        final Map<String, dynamic> reqBody = {
+          "model": model,
+          "messages": [
+            {"role": "user", "content": prompt}
+          ]
+        };
         if (effort.isNotEmpty) {
           reqBody["reasoning_effort"] = effort;
         } else {
@@ -262,7 +450,14 @@ $qOptions
         }
         reqBody["max_tokens"] = 8192;
         reqBody["response_format"] = {"type": "json_object"};
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode(reqBody)).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode(reqBody))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
           responseText = _extractContent(res.body);
         } else {
@@ -270,7 +465,8 @@ $qOptions
         }
       }
 
-      final parsedList = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
+      final parsedList =
+          await compute(AiDataSanitizer.cleanAndParseJson, responseText);
       if (parsedList.isNotEmpty) {
         final ans = parsedList.first['standard_answer']?.toString() ?? '';
         return {"standard_answer": ans, "explanation": ""};
@@ -281,7 +477,12 @@ $qOptions
     }
   }
 
-  Future<List<Map<String, dynamic>>> generateExamPaper({required String topic, required int singleCount, required int fillCount, required int shortCount, String? customPrompt}) async {
+  Future<List<Map<String, dynamic>>> generateExamPaper(
+      {required String topic,
+      required int singleCount,
+      required int fillCount,
+      required int shortCount,
+      String? customPrompt}) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) throw Exception("未激活文本引擎");
 
@@ -291,7 +492,8 @@ $qOptions
     final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
     final effort = profile['reasoning_effort'] as String? ?? '';
 
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("引擎配置不完整");
 
     String prompt = '''
     你是一个命题专家。请根据知识点：“$topic”，生成 ${singleCount + fillCount + shortCount} 道题的测试卷。
@@ -307,32 +509,64 @@ $qOptions
     $LATEX_FORMAT_RULES
 
     ''';
-    if (customPrompt != null && customPrompt.isNotEmpty) prompt += "\n\n【特殊要求】\n$customPrompt";
+    if (customPrompt != null && customPrompt.isNotEmpty)
+      prompt += "\n\n【特殊要求】\n$customPrompt";
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
       String responseText = "";
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp, "maxOutputTokens": 8192}})).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": temp,
+                    "maxOutputTokens": 8192
+                  }
+                }))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
+          responseText = jsonDecode(res.body)['candidates'][0]['content']
+                  ['parts'][0]['text'] ??
+              "";
         } else {
           throw Exception("API Error: ${res.statusCode} - ${res.body}");
         }
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final Map<String, dynamic> reqBody = {"model": model, "messages": [{"role": "user", "content": prompt}]};
+        final Map<String, dynamic> reqBody = {
+          "model": model,
+          "messages": [
+            {"role": "user", "content": prompt}
+          ]
+        };
         if (effort.isNotEmpty) {
           reqBody["reasoning_effort"] = effort;
         } else {
           reqBody["temperature"] = temp;
         }
         reqBody["max_tokens"] = 8192;
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode(reqBody)).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode(reqBody))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
           responseText = _extractContent(res.body);
         } else {
@@ -346,7 +580,10 @@ $qOptions
   }
 
   // --- 错题重练引擎：根据错题生成新题并存入指定题库 ---
-  Future<List<Map<String, dynamic>>> generateAndSaveQuestionsFromMistakes({String targetBankName = '🔥 弱点突击训练营', int limit = 30, int count = 10}) async {
+  Future<List<Map<String, dynamic>>> generateAndSaveQuestionsFromMistakes(
+      {String targetBankName = '🔥 弱点突击训练营',
+      int limit = 30,
+      int count = 10}) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) throw Exception("未激活文本引擎");
 
@@ -356,10 +593,12 @@ $qOptions
     final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
     final effort = profile['reasoning_effort'] as String? ?? '';
 
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("引擎配置不完整");
 
     // 1. 获取近期错题
-    final wrongQuestions = await DatabaseHelper.instance.getRecentWrongQuestions(limit: limit);
+    final wrongQuestions =
+        await DatabaseHelper.instance.getRecentWrongQuestions(limit: limit);
     if (wrongQuestions.isEmpty) {
       throw Exception("没有找到近期错题，快去刷题吧！");
     }
@@ -368,10 +607,11 @@ $qOptions
     StringBuffer contextBuffer = StringBuffer();
     for (int i = 0; i < wrongQuestions.length; i++) {
       final w = wrongQuestions[i];
-      contextBuffer.writeln("错题 ${i+1}:");
+      contextBuffer.writeln("错题 ${i + 1}:");
       contextBuffer.writeln("【题干】${w['content']}");
       contextBuffer.writeln("【标准答案】${w['standard_answer']}");
-      if (w['last_wrong_answer'] != null && w['last_wrong_answer'].toString().isNotEmpty) {
+      if (w['last_wrong_answer'] != null &&
+          w['last_wrong_answer'].toString().isNotEmpty) {
         contextBuffer.writeln("【学生的错误回答】${w['last_wrong_answer']}");
       }
       contextBuffer.writeln("---");
@@ -392,54 +632,92 @@ ${contextBuffer.toString()}
   {"type": 3, "content": "解答题干", "options": [], "standard_answer": "最终结果", "explanation": "解答过程或解析"}
 ]
 
-【核心红线规则】
-1. 除了 type:3 允许生成 explanation(解析) 之外，其他题型绝对禁止生成 explanation 字段！
+【核心规则】
+1. 除了 type:3 允许生成 explanation(解析) 之外，其他题型不要生成 explanation 字段。
+2. 遇到包含小问的大题，必须合并为一道 type:3 题目。
 $LATEX_FORMAT_RULES
-    3. 遇到包含小问的大题，必须合并为一道 type:3 题目。
     ''';
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
       String responseText = "";
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp, "maxOutputTokens": 8192}})).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": temp,
+                    "maxOutputTokens": 8192
+                  }
+                }))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
+          responseText = jsonDecode(res.body)['candidates'][0]['content']
+                  ['parts'][0]['text'] ??
+              "";
         } else {
           throw Exception("API Error: ${res.statusCode} - ${res.body}");
         }
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final Map<String, dynamic> reqBody = {"model": model, "messages": [{"role": "user", "content": prompt}]};
-        if (effort.isNotEmpty) reqBody["reasoning_effort"] = effort;
-        else reqBody["temperature"] = temp;
+        final Map<String, dynamic> reqBody = {
+          "model": model,
+          "messages": [
+            {"role": "user", "content": prompt}
+          ]
+        };
+        if (effort.isNotEmpty)
+          reqBody["reasoning_effort"] = effort;
+        else
+          reqBody["temperature"] = temp;
         reqBody["max_tokens"] = 8192;
-        
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode(reqBody)).timeout(const Duration(minutes: 5));
+
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode(reqBody))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
           responseText = _extractContent(res.body);
         } else {
           throw Exception("API Error: ${res.statusCode} - ${res.body}");
         }
       }
-      
-      final parsedList = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
-      
+
+      final parsedList =
+          await compute(AiDataSanitizer.cleanAndParseJson, responseText);
+
       if (parsedList.isNotEmpty) {
         // 确保目标题库（文件夹）存在
-        await DatabaseHelper.instance.updateBankFolder(targetBankName, '🎯 智能生成');
-        
+        await DatabaseHelper.instance
+            .updateBankFolder(targetBankName, '🎯 智能生成');
+
         final db = await DatabaseHelper.instance.database;
         final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        
+
         await db.transaction((txn) async {
           for (int i = 0; i < parsedList.length; i++) {
             final q = parsedList[i];
-            String qId = 'ai_mistake_' + DateTime.now().millisecondsSinceEpoch.toString() + '_' + i.toString();
+            String qId = 'ai_mistake_' +
+                DateTime.now().millisecondsSinceEpoch.toString() +
+                '_' +
+                i.toString();
             await txn.insert('questions', {
               'id': qId,
               'bank_name': targetBankName,
@@ -453,7 +731,7 @@ $LATEX_FORMAT_RULES
           }
         });
       }
-      
+
       return parsedList;
     } catch (e) {
       throw Exception("根据错题生成新题失败: $e");
@@ -461,16 +739,20 @@ $LATEX_FORMAT_RULES
   }
 
   // 核心抽离：单块文本解析（处理小块，防止截断，保证永不超时和截断）
-  Future<List<Map<String, dynamic>>> _parseSingleChunkToQuestions(String rawText, Map<String, dynamic> profile, {bool isMarkdown = false, String parseMode = 'all'}) async {
+  Future<List<Map<String, dynamic>>> _parseSingleChunkToQuestions(
+      String rawText, Map<String, dynamic> profile,
+      {bool isMarkdown = false, String parseMode = 'all'}) async {
     final apiKey = profile['api_key'] as String? ?? '';
     String baseUrl = profile['base_url'] as String? ?? '';
     final model = profile['model_name'] as String? ?? '';
 
     String modeInstruction = "";
     if (parseMode == 'stem_only') {
-      modeInstruction = "【当前为题干区模式】请只提取题干(content)和选项(options)，将 standard_answer 和 explanation 设为 null 或留空！绝对禁止在 content 中使用占位符敷衍！";
+      modeInstruction =
+          "【当前为题干区模式】请只提取题干(content)和选项(options)，将 standard_answer 和 explanation 设为 null 或留空！绝对禁止在 content 中使用占位符敷衍！";
     } else if (parseMode == 'answer_only') {
-      modeInstruction = "【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。【特例】：如果是解答题/证明题（type: 3），必须同时提取 explanation（解析/证明过程）。绝对不要把答案填进 content 凑数！";
+      modeInstruction =
+          "【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。【特例】：如果是解答题/证明题（type: 3），必须同时提取 explanation（解析/证明过程）。绝对不要把答案填进 content 凑数！";
     } else {
       modeInstruction = '''
 【输出模式】
@@ -485,7 +767,7 @@ $LATEX_FORMAT_RULES
 【扫描件题解混排处理法则】
 如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
 - content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论（如 \$x=5\$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
+- standard_answer 提取解题过程最终得出的答案值或结论（如 \\(x=5\\) 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
 - explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
 
 反例（错误）：
@@ -519,12 +801,6 @@ $modeInstruction
 对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
 
 $LATEX_FORMAT_RULES
-    【致命警告：JSON LaTeX 物理隔离法则】
-由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
-你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
-特别注意矩阵和方程组，必须整体包在一个 \$\$...\$\$ 里，绝不拆分！
-正例：\$\$k_1BSLASHbegin{pmatrix}-2BSLASHBSLASH1BSLASHBSLASH0BSLASHend{pmatrix}+k_2BSLASHbegin{pmatrix}-3BSLASHBSLASH0BSLASHBSLASH1BSLASHend{pmatrix}\$\$
-反例：\$k_1BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$\$\$+k_2\$\$\$BSLASHbegin{pmatrix}...BSLASHend{pmatrix}\$ （这是断裂拼接，绝对禁止！）
 必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
 
 【待解析文本】
@@ -534,23 +810,56 @@ $rawText
 ''';
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
       String responseText = "";
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192, "responseMimeType": "application/json"}}))
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 8192,
+                    "responseMimeType": "application/json"
+                  }
+                }))
             .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
+          responseText = jsonDecode(res.body)['candidates'][0]['content']
+                  ['parts'][0]['text'] ??
+              "";
         } else {
           throw Exception("API Error: ${res.statusCode} | Body: ${res.body}");
         }
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode({"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 8192, "response_format": {"type": "json_object"}}))
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode({
+                  "model": model,
+                  "messages": [
+                    {"role": "user", "content": prompt}
+                  ],
+                  "temperature": 0.1,
+                  "max_tokens": 8192,
+                  "response_format": {"type": "json_object"}
+                }))
             .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
           responseText = _extractContent(res.body);
@@ -558,7 +867,8 @@ $rawText
           throw Exception("API Error: ${res.statusCode} | Body: ${res.body}");
         }
       }
-      final parsedList = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
+      final parsedList =
+          await compute(AiDataSanitizer.cleanAndParseJson, responseText);
       return parsedList;
     } catch (e) {
       throw Exception("块级解析失败: $e");
@@ -589,15 +899,16 @@ $rawText
     List<String> microBatches = [];
     StringBuffer currentBatch = StringBuffer();
     for (String block in questionBlocks) {
-       if (currentBatch.length + block.length > 1500 && currentBatch.isNotEmpty) {
-           microBatches.add(currentBatch.toString());
-           currentBatch.clear();
-       }
-       currentBatch.writeln(block);
-       currentBatch.writeln();
+      if (currentBatch.length + block.length > 1500 &&
+          currentBatch.isNotEmpty) {
+        microBatches.add(currentBatch.toString());
+        currentBatch.clear();
+      }
+      currentBatch.writeln(block);
+      currentBatch.writeln();
     }
     if (currentBatch.isNotEmpty) {
-       microBatches.add(currentBatch.toString());
+      microBatches.add(currentBatch.toString());
     }
     return microBatches;
   }
@@ -607,12 +918,13 @@ $rawText
     List<String> microBatches = [];
     StringBuffer currentBatch = StringBuffer();
     // 剔除空行切割，严格依赖标题 (###) 和 序号 (1. 或 一、)
-    final parts = rawText.split(RegExp(r'\n(?=(?:#{1,6}\s|\d+\.|[一二三四五六七八九十]+、))'));
-    
+    final parts =
+        rawText.split(RegExp(r'\n(?=(?:#{1,6}\s|\d+\.|[一二三四五六七八九十]+、))'));
+
     for (var part in parts) {
       final text = part.trim();
       if (text.isEmpty) continue;
-      
+
       if (currentBatch.length + text.length > 2000) {
         if (currentBatch.isNotEmpty) {
           microBatches.add(currentBatch.toString());
@@ -628,15 +940,19 @@ $rawText
     return microBatches;
   }
 
-  Future<List<Map<String, dynamic>>> parseTextToQuestions(String rawText, {String? taskId, bool isMarkdown = false}) async {
+  Future<List<Map<String, dynamic>>> parseTextToQuestions(String rawText,
+      {String? taskId, bool isMarkdown = false}) async {
     final docProfile = scanDocumentStructure(rawText);
     debugPrint("📊 [文档结构探针] \$docProfile");
 
     String processedText = rawText;
-    
+
     // 路径 A：行内有答案 + 尾部也有答案 -> 裁掉尾部冗余，转化成路径 C
-    if (docProfile.hasInlineAnswers && docProfile.hasTailAnswerBlock && docProfile.tailAnswerOffset > 0) {
-      debugPrint("✂️ [路径 A] 检测到尾部冗余答案块，执行安全物理裁剪 (Offset: \${docProfile.tailAnswerOffset})...");
+    if (docProfile.hasInlineAnswers &&
+        docProfile.hasTailAnswerBlock &&
+        docProfile.tailAnswerOffset > 0) {
+      debugPrint(
+          "✂️ [路径 A] 检测到尾部冗余答案块，执行安全物理裁剪 (Offset: \${docProfile.tailAnswerOffset})...");
       try {
         processedText = rawText.substring(0, docProfile.tailAnswerOffset);
       } catch (e) {
@@ -647,76 +963,106 @@ $rawText
       debugPrint("🧭 [路径 B] 检测到首尾分离结构，实施物理剪切提取...");
       final stemText = rawText.substring(0, docProfile.tailAnswerOffset);
       final ansText = rawText.substring(docProfile.tailAnswerOffset);
-      
-      final stemBatches = isMarkdown ? splitMarkdownIntoMicroBatches(stemText) : splitTextIntoMicroBatches(stemText);
-      final ansBatches = isMarkdown ? splitMarkdownIntoMicroBatches(ansText) : splitTextIntoMicroBatches(ansText);
-      
+
+      final stemBatches = isMarkdown
+          ? splitMarkdownIntoMicroBatches(stemText)
+          : splitTextIntoMicroBatches(stemText);
+      final ansBatches = isMarkdown
+          ? splitMarkdownIntoMicroBatches(ansText)
+          : splitTextIntoMicroBatches(ansText);
+
       if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', stemBatches);
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', ansBatches);
+        TaskManager.instance.appendPendingChunks(
+            taskId, isMarkdown ? 'markdown' : 'text', stemBatches);
+        TaskManager.instance.appendPendingChunks(
+            taskId, isMarkdown ? 'markdown' : 'text', ansBatches);
       }
-      
-      final stemQuestions = await parseMicroBatches(stemBatches, taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
-      final ansQuestions = await parseMicroBatches(ansBatches, taskId: taskId, isMarkdown: isMarkdown, parseMode: 'answer_only');
-      
+
+      final stemQuestions = await parseMicroBatches(stemBatches,
+          taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
+      final ansQuestions = await parseMicroBatches(ansBatches,
+          taskId: taskId, isMarkdown: isMarkdown, parseMode: 'answer_only');
+
       return [...stemQuestions, ...ansQuestions];
     } else if (!docProfile.hasInlineAnswers && !docProfile.hasTailAnswerBlock) {
       debugPrint("🧭 [路径 D] 全文无答案，将生成残缺题干等待用户补填...");
-      final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(processedText) : splitTextIntoMicroBatches(processedText);
+      final microBatches = isMarkdown
+          ? splitMarkdownIntoMicroBatches(processedText)
+          : splitTextIntoMicroBatches(processedText);
       if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', microBatches);
+        TaskManager.instance.appendPendingChunks(
+            taskId, isMarkdown ? 'markdown' : 'text', microBatches);
       }
-      return await parseMicroBatches(microBatches, taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
+      return await parseMicroBatches(microBatches,
+          taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
     } else {
       debugPrint("🧭 [路径 C] 标准行内解析结构，直接提取...");
-      final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(processedText) : splitTextIntoMicroBatches(processedText);
+      final microBatches = isMarkdown
+          ? splitMarkdownIntoMicroBatches(processedText)
+          : splitTextIntoMicroBatches(processedText);
       if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', microBatches);
+        TaskManager.instance.appendPendingChunks(
+            taskId, isMarkdown ? 'markdown' : 'text', microBatches);
       }
-      return await parseMicroBatches(microBatches, taskId: taskId, isMarkdown: isMarkdown);
+      return await parseMicroBatches(microBatches,
+          taskId: taskId, isMarkdown: isMarkdown);
     }
-    
+
     // Fallback for Path A and any other unknown paths
-    final microBatches = isMarkdown ? splitMarkdownIntoMicroBatches(processedText) : splitTextIntoMicroBatches(processedText);
+    final microBatches = isMarkdown
+        ? splitMarkdownIntoMicroBatches(processedText)
+        : splitTextIntoMicroBatches(processedText);
     if (taskId != null) {
-      TaskManager.instance.appendPendingChunks(taskId, isMarkdown ? 'markdown' : 'text', microBatches);
+      TaskManager.instance.appendPendingChunks(
+          taskId, isMarkdown ? 'markdown' : 'text', microBatches);
     }
-    return await parseMicroBatches(microBatches, taskId: taskId, isMarkdown: isMarkdown);
+    return await parseMicroBatches(microBatches,
+        taskId: taskId, isMarkdown: isMarkdown);
   }
 
-  Future<List<Map<String, dynamic>>> parseMicroBatches(List<String> microBatches, {String? taskId, bool isMarkdown = false, String parseMode = 'all'}) async {
+  Future<List<Map<String, dynamic>>> parseMicroBatches(
+      List<String> microBatches,
+      {String? taskId,
+      bool isMarkdown = false,
+      String parseMode = 'all'}) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
     if (profile == null) throw Exception("未激活文本引擎");
 
     final apiKey = profile['api_key'] as String? ?? '';
     String baseUrl = profile['base_url'] as String? ?? '';
     final model = profile['model_name'] as String? ?? '';
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("引擎配置不完整");
 
     // 调度引擎 (多线程高并发版本)
     List<Map<String, dynamic>> allQuestions = [];
     int failCount = 0;
     debugPrint("🚀 [智能分块] 将启动 ${microBatches.length} 次微批次精洗格式化...");
-    
-    List<List<Map<String, dynamic>>?> results = List.filled(microBatches.length, null);
+
+    List<List<Map<String, dynamic>>?> results =
+        List.filled(microBatches.length, null);
     int currentIndex = 0;
-    
+
     Future<void> worker(int workerId) async {
       while (true) {
         int i;
         if (currentIndex >= microBatches.length) break;
         i = currentIndex++;
-        
-        debugPrint("🚀 [并发线程 ${workerId + 1}] 正在解析第 ${i + 1}/${microBatches.length} 块...");
+
+        debugPrint(
+            "🚀 [并发线程 ${workerId + 1}] 正在解析第 ${i + 1}/${microBatches.length} 块...");
         bool success = false;
         int retry = 0;
-        
+
         while (retry < 3 && !success) {
           try {
-            final chunkQuestions = await _parseSingleChunkToQuestions(microBatches[i], profile, isMarkdown: isMarkdown, parseMode: parseMode);
+            final chunkQuestions = await _parseSingleChunkToQuestions(
+                microBatches[i], profile,
+                isMarkdown: isMarkdown, parseMode: parseMode);
             results[i] = chunkQuestions;
             if (taskId != null) {
-              TaskManager.instance.markChunkSuccess(taskId, microBatches[i], chunkQuestions);
+              TaskManager.instance
+                  .markChunkSuccess(taskId, microBatches[i], chunkQuestions);
             }
             success = true;
             await Future.delayed(const Duration(milliseconds: 500));
@@ -724,39 +1070,46 @@ $rawText
             retry++;
             debugPrint("⚠️ 第 ${i + 1} 块解析失败 (重试 $retry/3): $e");
             if (retry >= 3) {
-               failCount++;
-               if (taskId != null) {
-                 TaskManager.instance.markChunkFailed(taskId, microBatches[i]);
-               }
+              failCount++;
+              if (taskId != null) {
+                TaskManager.instance.markChunkFailed(taskId, microBatches[i]);
+              }
             } else {
-               int delaySeconds = e.toString().contains('429') || e.toString().toLowerCase().contains('timeout') || e.toString().toLowerCase().contains('socketexception') || e.toString().toLowerCase().contains('clientexception') ? (5 * retry) : 2;
-               debugPrint("⚠️ 触发频率限制/错误，冷却 $delaySeconds 秒后重试...");
-               await Future.delayed(Duration(seconds: delaySeconds));
+              int delaySeconds = e.toString().contains('429') ||
+                      e.toString().toLowerCase().contains('timeout') ||
+                      e.toString().toLowerCase().contains('socketexception') ||
+                      e.toString().toLowerCase().contains('clientexception')
+                  ? (5 * retry)
+                  : 2;
+              debugPrint("⚠️ 触发频率限制/错误，冷却 $delaySeconds 秒后重试...");
+              await Future.delayed(Duration(seconds: delaySeconds));
             }
           }
         }
       }
     }
-    
+
     int maxConcurrent = 3;
     List<Future<void>> workers = [];
     for (int w = 0; w < maxConcurrent; w++) {
-       workers.add(worker(w));
+      workers.add(worker(w));
     }
     await Future.wait(workers);
 
     for (int i = 0; i < results.length; i++) {
-       final r = results[i];
-       if (r != null) {
-          allQuestions.addAll(r);
-       }
+      final r = results[i];
+      if (r != null) {
+        allQuestions.addAll(r);
+      }
     }
 
     if (allQuestions.isEmpty) {
       if (failCount > 0) {
-        throw Exception("全部 ${microBatches.length} 个分块解析失败！请检查您的 API Key、余额或网络连通性。");
+        throw Exception(
+            "全部 ${microBatches.length} 个分块解析失败！请检查您的 API Key、余额或网络连通性。");
       } else {
-        throw Exception("文本已成功送达并被大模型处理，但大模型未能从中提取出任何符合规范的考题数据。这可能是因为文档主要是概念解析而缺乏试题结构。");
+        throw Exception(
+            "文本已成功送达并被大模型处理，但大模型未能从中提取出任何符合规范的考题数据。这可能是因为文档主要是概念解析而缺乏试题结构。");
       }
     }
 
@@ -767,8 +1120,18 @@ $rawText
       s = s.replaceAll(RegExp(r'[.。、）\)：:]+$'), '');
       s = s.replaceAll(RegExp(r'^(?:第)?\s*'), '');
       s = s.replaceAll(RegExp(r'\s*(?:题)$'), '');
-      const map = {'一':'1','二':'2','三':'3','四':'4','五':'5',
-                   '六':'6','七':'7','八':'8','九':'9','十':'10'};
+      const map = {
+        '一': '1',
+        '二': '2',
+        '三': '3',
+        '四': '4',
+        '五': '5',
+        '六': '6',
+        '七': '7',
+        '八': '8',
+        '九': '9',
+        '十': '10'
+      };
       map.forEach((k, v) => s = s.replaceAll(k, v));
       return s.trim().toLowerCase();
     }
@@ -779,13 +1142,16 @@ $rawText
       final ans = q['standard_answer']?.toString().trim() ?? '';
       if (ans.isEmpty) return false;
       if (content.isEmpty) return true;
-      if (content.length <= 10 && RegExp(r'^[A-Da-d√×正确错误ABCD,，\s]+$').hasMatch(content)) return true;
+      if (content.length <= 10 &&
+          RegExp(r'^[A-Da-d√×正确错误ABCD,，\s]+$').hasMatch(content)) return true;
       if (content.contains('[纯答案') || content.contains('[ANSWER')) return true;
       // 如果题干和答案完全一致，说明 AI 把纯答案复制了两份，属于纯答案页
       if (content == ans) return true;
       // 防截断假题干识别（当题干较短且高度疑似算式或包含于答案片段时）
-      if (content.length < 35 && (content.contains(ans) || ans.contains(content))) return true;
-      if (content.length < 15 && (content.startsWith('I=') || content.contains('略'))) return true;
+      if (content.length < 35 &&
+          (content.contains(ans) || ans.contains(content))) return true;
+      if (content.length < 15 &&
+          (content.startsWith('I=') || content.contains('略'))) return true;
       return false;
     }
 
@@ -808,44 +1174,47 @@ $rawText
       for (var ans in answerPool) {
         String rawAnsNum = ans['q_num']?.toString().trim() ?? '';
         String ansNum = normalizeQNum(rawAnsNum);
-        
+
         if (ansNum.isEmpty) {
-           mergedQuestions.add(ans);
-           continue;
+          mergedQuestions.add(ans);
+          continue;
         }
-        
+
         // 寻找题干池中缺少答案且题号匹配的题目
         int targetIdx = mergedQuestions.indexWhere((q) {
-           String qNum = normalizeQNum(q['q_num']?.toString());
-           return qNum == ansNum;
+          String qNum = normalizeQNum(q['q_num']?.toString());
+          return qNum == ansNum;
         });
-        
+
         if (targetIdx != -1) {
-           mergedQuestions[targetIdx]['standard_answer'] = ans['standard_answer'];
-           if (ans['explanation'] != null && ans['explanation'].toString().trim().isNotEmpty) {
-               mergedQuestions[targetIdx]['explanation'] = ans['explanation'];
-           }
-           debugPrint("🔗 题号 $rawAnsNum (标准号:$ansNum) 的题干与答案拼图成功！");
+          mergedQuestions[targetIdx]['standard_answer'] =
+              ans['standard_answer'];
+          if (ans['explanation'] != null &&
+              ans['explanation'].toString().trim().isNotEmpty) {
+            mergedQuestions[targetIdx]['explanation'] = ans['explanation'];
+          }
+          debugPrint("🔗 题号 $rawAnsNum (标准号:$ansNum) 的题干与答案拼图成功！");
         } else {
-           // 如果找不到匹配的题干，依然保留该答案项，防止数据丢失
-           mergedQuestions.add(ans);
-           debugPrint("⚠️ 题号 $rawAnsNum (标准号:$ansNum) 的答案未能找到题干配对，已独立保留。");
+          // 如果找不到匹配的题干，依然保留该答案项，防止数据丢失
+          mergedQuestions.add(ans);
+          debugPrint("⚠️ 题号 $rawAnsNum (标准号:$ansNum) 的答案未能找到题干配对，已独立保留。");
         }
       }
       allQuestions = mergedQuestions;
     }
 
-
     if (failCount > 0) {
       debugPrint("⚠️ 警告：有 $failCount 个分块最终解析失败，部分题目可能丢失！");
     } else {
-      debugPrint("✅ ${microBatches.length} 个分块全部顺利解析合并完毕！共组装出 ${allQuestions.length} 道高纯度题目。");
+      debugPrint(
+          "✅ ${microBatches.length} 个分块全部顺利解析合并完毕！共组装出 ${allQuestions.length} 道高纯度题目。");
     }
 
     return allQuestions;
   }
 
-  Future<List<Map<String, dynamic>>> parseImagesWithVision(List<String> imagePaths) async {
+  Future<List<Map<String, dynamic>>> parseImagesWithVision(
+      List<String> imagePaths) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('vision');
     if (profile == null) throw Exception("未激活视觉 AI 引擎");
 
@@ -854,63 +1223,26 @@ $rawText
     final model = profile['model_name'] as String? ?? '';
     final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.1;
 
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("视觉引擎配置不完整");
-    if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-    
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("视觉引擎配置不完整");
+    if (baseUrl.endsWith('/'))
+      baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+
     final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
 
     final prompt = '''
-你是一个教育数据清洗专家。这是试卷扫描件。请严格按照以下格式解析出每道题：
-
-【题型与格式】
-1. 选择题 (type: 0): {"q_num": "题号", "type": 0, "content": "题干完整原文(必须把选项剥离出去，题干绝对不包含选项部分)", "options": ["A. xx", "B. xx", "C. xx", "D. xx"], "standard_answer": "正确选项"}
-2. 填空题 (type: 2): {"q_num": "题号", "type": 2, "content": "题干完整原文", "options": [], "standard_answer": "答案内容"}
-3. 解答题 (type: 3): {"q_num": "题号", "type": 3, "content": "题干完整原文", "options": [], "standard_answer": "最终结果", "explanation": "详细解题推导与证明过程（若无则设为 null 或留空）"}
-
-【综合大题提取法则】
-遇到包含 (1)(2) 或 (I)(II) 等多个小问的综合大题，绝对禁止将其拆分为多道独立的题！
-必须按以下标准合并为一道 type:3（解答题）：
-1. content（题干）：必须包含大题的前置背景描述，并依次追加 (I)(II) 等所有小问的题目原文。
-2. standard_answer（答案）：必须依次合并包含 (I)(II) 对应的所有解答内容。
-绝对不允许把小问的题干丢进答案里，各归其位！
-
-【输出模式】
-模式A（完整题目）：输出 content 和 standard_answer。
-模式B（只有题干，没有答案）：standard_answer 设为 null。
-模式C（纯答案区）：type 设为 null, content 设为 null, 仅输出 q_num 和 standard_answer。
-
-【扫描件题解混排处理法则】
-如果扫描件中包含【分析】、【解】、【证明】等解题过程标记：
-- content（题干）必须在第一个此类标记出现前截止，绝不包含解题过程！
-- standard_answer 提取解题过程最终得出的答案值或结论（如 \$x=5\$ 或 "原命题得证"）。绝对不要把长篇大论的推导证明过程混入其中！
-- explanation (解析)：【特例指令】仅允许为解答题/证明题（type: 3）提取解题推导与证明过程放入此字段！如果是选择题（type: 0）或填空题（type: 2），即使原文有解析也必须丢弃，强制设为 null。【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
-
-反例（错误）：
-content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为 【解】设...化简得..."
-
-正例（正确）：
-content: "设二次型...（III）f(x₁,x₂,x₃)=0的解为"
-standard_answer: "k₁(-2,1,0)ᵀ + k₂(-3,0,1)ᵀ，k₁k₂为任意常数"
-explanation: null
-
-【选择题选项剥离红线规则】
-对于选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
-
-$LATEX_FORMAT_RULES
-    【严格限制与警告】
-除了上述特例允许 type:3 提取 explanation 之外，其他题型绝对不要生成解析(explanation)字段！我们只需要题干和答案！
-绝对禁止在 content 字段中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整的题干文字抄录下来！否则将导致系统严重错误！
-系数与矩阵/向量必须合并在同一个 \$\$...\$\$ 内，绝允许系数在外、矩阵在内的分裂写法。
-由于 JSON 冲突，所有 LaTeX 反斜杠必须替换为 BSLASH（如 BSLASHpi）。数学公式必须用 \$ 包裹。
-必须且只能输出纯 JSON 对象，包含 "questions" 数组。不要用 markdown 包裹。
-    ''';
+$_VISION_PARSE_PROMPT
+    【解析约束】
+除了上述特例允许 type:3 提取 explanation 之外，其他题型不要生成解析(explanation)字段。
+请原样保留题干文字，不要使用“原题干”、“同上”、“略”等占位符。
+''';
 
     try {
       // 将所有图片转为 Base64 并进行极速压缩
       List<Map<String, dynamic>> imageContents = [];
       for (var path in imagePaths) {
         List<int> bytes = await File(path).readAsBytes();
-        
+
         // 性能优化：只有图片大于 500KB 时才进行重度 Dart 压缩，且放入 Isolate 避免阻塞 UI
         if (bytes.length > 500 * 1024) {
           bytes = await compute(_compressImageSync, bytes);
@@ -919,35 +1251,63 @@ $LATEX_FORMAT_RULES
 
         final base64Img = base64Encode(bytes);
         final mimeType = "image/jpeg";
-        
+
         if (isGemini) {
-          imageContents.add({"inline_data": {"mime_type": mimeType, "data": base64Img}});
+          imageContents.add({
+            "inline_data": {"mime_type": mimeType, "data": base64Img}
+          });
         } else {
-          imageContents.add({"type": "image_url", "image_url": {"url": "data:$mimeType;base64,$base64Img"}});
+          imageContents.add({
+            "type": "image_url",
+            "image_url": {"url": "data:$mimeType;base64,$base64Img"}
+          });
         }
       }
 
-      debugPrint("🚀 正在组装 ${imagePaths.length} 张图片并向视觉大模型发起请求，请耐心等待 (约需几十秒到一分钟)...");
+      debugPrint(
+          "🚀 正在组装 ${imagePaths.length} 张图片并向视觉大模型发起请求，请耐心等待 (约需几十秒到一分钟)...");
       final startTime = DateTime.now();
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(
-          Uri.parse(url),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            "contents": [{"parts": [{"text": prompt}, ...imageContents]}],
-            "generationConfig": {"temperature": temp}
-          }),
-        ).timeout(const Duration(minutes: 8));
+        final res = await http
+            .post(
+              Uri.parse(url),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                "contents": [
+                  {
+                    "parts": [
+                      {"text": prompt},
+                      ...imageContents
+                    ]
+                  }
+                ],
+                "generationConfig": {"temperature": temp}
+              }),
+            )
+            .timeout(const Duration(minutes: 8));
 
         if (res.statusCode == 200) {
-          debugPrint("✅ Gemini Vision 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
+          debugPrint(
+              "✅ Gemini Vision 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
           final data = jsonDecode(res.body);
-          if (data['candidates'] == null || (data['candidates'] as List).isEmpty) throw Exception("Gemini 返回为空");
-          List<Map<String, dynamic>> finalQuestions = await compute(AiDataSanitizer.cleanAndParseJson, data['candidates'][0]['content']['parts'][0]['text']?.toString() ?? "");
-          final emptyStems = finalQuestions.where((q) => q['content'] == null || q['content'].toString().isEmpty || q['content'].toString().contains('假设')).length;
-          if (finalQuestions.isNotEmpty && (emptyStems / finalQuestions.length > 0.5)) {
+          if (data['candidates'] == null ||
+              (data['candidates'] as List).isEmpty)
+            throw Exception("Gemini 返回为空");
+          List<Map<String, dynamic>> finalQuestions = await compute(
+              AiDataSanitizer.cleanAndParseJson,
+              data['candidates'][0]['content']['parts'][0]['text']
+                      ?.toString() ??
+                  "");
+          final emptyStems = finalQuestions
+              .where((q) =>
+                  q['content'] == null ||
+                  q['content'].toString().isEmpty ||
+                  q['content'].toString().contains('假设'))
+              .length;
+          if (finalQuestions.isNotEmpty &&
+              (emptyStems / finalQuestions.length > 0.5)) {
             throw Exception('题干提取率过低，疑似文档结构识别失败或AI未严格抄录题干！请更换大模型或检查文档图片结构。');
           }
           return finalQuestions;
@@ -957,23 +1317,46 @@ $LATEX_FORMAT_RULES
       } else {
         final isZhipu = baseUrl.contains('bigmodel.cn');
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final res = await http.post(
-          Uri.parse(url),
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
-          body: jsonEncode({
-            "model": model,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, ...imageContents]}],
-            "temperature": temp
-          }),
-        ).timeout(const Duration(minutes: 8));
+        final res = await http
+            .post(
+              Uri.parse(url),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $apiKey'
+              },
+              body: jsonEncode({
+                "model": model,
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {"type": "text", "text": prompt},
+                      ...imageContents
+                    ]
+                  }
+                ],
+                "temperature": temp
+              }),
+            )
+            .timeout(const Duration(minutes: 8));
 
         if (res.statusCode == 200) {
-          debugPrint("✅ Vision API 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
+          debugPrint(
+              "✅ Vision API 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
           final data = jsonDecode(res.body);
-          if (data['choices'] == null || (data['choices'] as List).isEmpty) throw Exception("API 返回为空");
-          List<Map<String, dynamic>> finalQuestions = await compute(AiDataSanitizer.cleanAndParseJson, data['choices'][0]['message']['content']?.toString() ?? "");
-          final emptyStems = finalQuestions.where((q) => q['content'] == null || q['content'].toString().isEmpty || q['content'].toString().contains('假设')).length;
-          if (finalQuestions.isNotEmpty && (emptyStems / finalQuestions.length > 0.5)) {
+          if (data['choices'] == null || (data['choices'] as List).isEmpty)
+            throw Exception("API 返回为空");
+          List<Map<String, dynamic>> finalQuestions = await compute(
+              AiDataSanitizer.cleanAndParseJson,
+              data['choices'][0]['message']['content']?.toString() ?? "");
+          final emptyStems = finalQuestions
+              .where((q) =>
+                  q['content'] == null ||
+                  q['content'].toString().isEmpty ||
+                  q['content'].toString().contains('假设'))
+              .length;
+          if (finalQuestions.isNotEmpty &&
+              (emptyStems / finalQuestions.length > 0.5)) {
             throw Exception('题干提取率过低，疑似文档结构识别失败或AI未严格抄录题干！请更换大模型或检查文档图片结构。');
           }
           return finalQuestions;
@@ -986,7 +1369,8 @@ $LATEX_FORMAT_RULES
     }
   }
 
-  Future<List<Map<String, dynamic>>> parseFileWithVision(String filePath) async {
+  Future<List<Map<String, dynamic>>> parseFileWithVision(
+      String filePath) async {
     final profile = await DatabaseHelper.instance.getActiveAiEngine('vision');
     if (profile == null) throw Exception("未激活视觉引擎");
 
@@ -995,9 +1379,11 @@ $LATEX_FORMAT_RULES
     final model = profile['model_name'] as String? ?? '';
     final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.1;
 
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("视觉引擎配置不完整");
-    if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-    
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("视觉引擎配置不完整");
+    if (baseUrl.endsWith('/'))
+      baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+
     final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
     final isZhipu = baseUrl.contains('bigmodel.cn');
     final lowerPath = filePath.toLowerCase();
@@ -1005,10 +1391,11 @@ $LATEX_FORMAT_RULES
     final isDocx = lowerPath.endsWith('.docx');
 
     if (isDocx) throw Exception("视觉模型无法直接看懂 Word，请先另存为 PDF 或截图！");
-    if (isPdf && !isGemini && !isZhipu) throw Exception("标准 OpenAI 协议不支持直传 PDF，请切换回 Gemini 或 智谱！");
+    if (isPdf && !isGemini && !isZhipu)
+      throw Exception("标准 OpenAI 协议不支持直传 PDF，请切换回 Gemini 或 智谱！");
 
     List<int> bytes = await File(filePath).readAsBytes();
-    
+
     // 核心提速优化：如果传入的是图片，进行极速压缩与降采样
     if (!isPdf) {
       try {
@@ -1031,38 +1418,8 @@ $LATEX_FORMAT_RULES
     final base64File = base64Encode(bytes);
 
     final prompt = '''
-    你是一个数据清洗专家。这是一份试卷的原始扫描件/截图。
-    【最高指令】解析出其中的**每一道题**，绝对不允许遗漏！
-    【致命警告：JSON LaTeX 物理隔离法则】
-    由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！**
-    你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。
-    
-    【✂️ 题干与解析精准剥离法则（核心指令）】
-    在扫描图片或文本时，务必将“题目本身（题干）”与附带的“题目答案/解析/分析/解”严格分离开来！
-    - `content` (题干)：**只能**包含题目本身的问题描述、背景资料和提问。**绝对禁止**将“分析”、“解”、“证明过程”、“答案是”等答题过程混入题干！
-    - `explanation` (解析)：如果原文中有“分析”、“详解”、“解题思路”，请提取到此字段。如果没有，请设为 null 或空字符串。**绝对不要自己推导或补全解析！首要任务是原样提取题目和答案。**
-    【重要跨页规则】：如果本页内容疑似是某道解答题的延续计算步骤（大量公式推导、无题号、无新题目引导词），直接将其作为解答题(type: 3)的 explanation 片段提取，q_num 可标注为 "unknown" 留待合并阶段确认。
-
-    【🌀 全并发智能内核：题干与答案异步拼图模式（最高层级指令）】
-    你需要支持以下模式来解耦题干与答案：
-    - 模式 A（正常完整题目）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx", "C. xx", "D. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": "答案", "explanation": "特例：如果是解答题/证明题(type: 3)必须提取解析，其他题型必须为空"}
-    - 模式 B（只有题干，未见答案）: {"q_num": "题号", "type": 0/2/3, "content": "题干", "options": ["A. xx", "B. xx"] (仅选择题有选项，且选择题必须将选项从题干中剥离，题干中绝对不能有任何选项内容), "standard_answer": null, "explanation": null}
-    - 模式 C（只有答案页，未见题干）: {"q_num": "题号", "type": null, "content": null, "standard_answer": "答案", "explanation": "特例：如果是解答题/证明题(type: 3)必须提取解析，其他题型必须为空"}
-    关键：当你看到纯答案文档（如 “1. A  2. B  3. C” 或 “参考答案: 1.B”）时，**必须按模式 C 输出**，提取答案并明确将 `content` 设为 null！绝对不能把解答步骤写进题干里！
-    `q_num` 字段必须尽可能识别原文中的题目编号，以供归并。
-
-    【⚠️ 大题防撕裂最高法则（绝对红线）】
-    遇到包含 (I)、(II)、(III) 或 (1)、(2) 或 步骤1、步骤2 等多个小问的综合性大题、材料阅读题时，**绝对禁止将其拆分为多道独立的顶级题**！
-    判断是否为新题的唯一标准：行首出现独立的阿拉伯数字编号（如 1. 22.）或中文大写编号（如 一、 二、）。
-    带有小括号的数字 (1)、小写字母 (a)、罗马数字 (I) 等绝对不允许独立！
-    你必须将它作为【一道完整的大题】，把所有小问合并写进 `content` 中，并将所有小问的解答步骤合并写进 `explanation` 中。
-
-    【选择题选项剥离红线规则】
-    对于所有选择题（type: 0），必须且只能将选项放置在 options 数组中（格式为 ["A. xxx", "B. xxx", ...]）。绝对禁止在 content (题干) 字段中包含选项标签和具体内容（如 A. xx, (B) xx, C、xx 等）！如果输入文本中的选项混在题干末尾，你必须将它们彻底剪切剥离出来，保持 content 的纯净，只留下题目本身的问题描述！
-    
-    $LATEX_FORMAT_RULES
-
-    ''';
+$_VISION_PARSE_PROMPT
+''';
 
     try {
       debugPrint("🚀 正在向视觉大模型发起文件/单图解析请求，请耐心等待...");
@@ -1072,29 +1429,78 @@ $LATEX_FORMAT_RULES
         if (isDocx) throw Exception("Gemini 不支持 Word 直传");
         final mimeType = isPdf ? "application/pdf" : "image/jpeg";
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mimeType, "data": base64File}}]}], "generationConfig": {"temperature": temp}})).timeout(const Duration(minutes: 3));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt},
+                        {
+                          "inline_data": {
+                            "mime_type": mimeType,
+                            "data": base64File
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "generationConfig": {"temperature": temp}
+                }))
+            .timeout(const Duration(minutes: 3));
         if (res.statusCode == 200) {
-          debugPrint("✅ Gemini Vision 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
-          final String parsedText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text']?.toString() ?? "";
+          debugPrint(
+              "✅ Gemini Vision 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
+          final String parsedText = jsonDecode(res.body)['candidates'][0]
+                      ['content']['parts'][0]['text']
+                  ?.toString() ??
+              "";
           return await compute(AiDataSanitizer.cleanAndParseJson, parsedText);
         }
         throw Exception("Gemini 错误: ${res.statusCode}");
       } else if (isZhipu && isPdf) {
-        final uploadUrl = baseUrl.endsWith('/v4') ? "$baseUrl/files" : "$baseUrl/v4/files";
+        final uploadUrl =
+            baseUrl.endsWith('/v4') ? "$baseUrl/files" : "$baseUrl/v4/files";
         var request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
         request.headers['Authorization'] = 'Bearer $apiKey';
         request.fields['purpose'] = 'file-extract';
         request.files.add(await http.MultipartFile.fromPath('file', filePath));
         debugPrint("⏳ 正在上传文件至智谱服务器...");
-        var uploadRes = await request.send().timeout(const Duration(seconds: 60));
+        var uploadRes =
+            await request.send().timeout(const Duration(seconds: 60));
         var uploadResBody = await uploadRes.stream.bytesToString();
-        if (uploadRes.statusCode != 200) throw Exception("智谱上传失败: ${uploadRes.statusCode}");
-        
+        if (uploadRes.statusCode != 200)
+          throw Exception("智谱上传失败: ${uploadRes.statusCode}");
+
         final fileId = jsonDecode(uploadResBody)['id'];
         final chatUrl = _buildChatUrl(baseUrl, true);
-        final res = await http.post(Uri.parse(chatUrl), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode({"model": model, "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "file", "file_url": {"url": fileId}}]}], "temperature": temp})).timeout(const Duration(minutes: 5));
+        final res = await http
+            .post(Uri.parse(chatUrl),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode({
+                  "model": model,
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                          "type": "file",
+                          "file_url": {"url": fileId}
+                        }
+                      ]
+                    }
+                  ],
+                  "temperature": temp
+                }))
+            .timeout(const Duration(minutes: 5));
         if (res.statusCode == 200) {
-          debugPrint("✅ 智谱 Vision 解析成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
+          debugPrint(
+              "✅ 智谱 Vision 解析成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
           final String parsedText = _extractContent(res.body);
           return await compute(AiDataSanitizer.cleanAndParseJson, parsedText);
         }
@@ -1102,22 +1508,49 @@ $LATEX_FORMAT_RULES
       } else {
         final mimeType = "image/jpeg";
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode({"model": model, "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:$mimeType;base64,$base64File"}}]}], "temperature": temp})).timeout(const Duration(seconds: 90));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode({
+                  "model": model,
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                          "type": "image_url",
+                          "image_url": {
+                            "url": "data:$mimeType;base64,$base64File"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "temperature": temp
+                }))
+            .timeout(const Duration(seconds: 90));
         if (res.statusCode == 200) {
-          debugPrint("✅ Vision API 解析成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
+          debugPrint(
+              "✅ Vision API 解析成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
           final String parsedText = _extractContent(res.body);
           return await compute(AiDataSanitizer.cleanAndParseJson, parsedText);
         }
         throw Exception("Vision 错误: ${res.statusCode}");
       }
     } catch (e) {
-      if (e.toString().contains('SocketException')) throw Exception("连接中断。请检查网络代理，或尝试体积较小的文件。");
+      if (e.toString().contains('SocketException'))
+        throw Exception("连接中断。请检查网络代理，或尝试体积较小的文件。");
       throw Exception("解析异常: $e");
     }
   }
 
   // 轻量级 AI 结构化二次配对 (用于跨文件合并，如题干文件 + 答案文件)
-  Future<List<Map<String, dynamic>>> mergeStructuredQuestions(List<List<Map<String, dynamic>>> fileResults) async {
+  Future<List<Map<String, dynamic>>> mergeStructuredQuestions(
+      List<List<Map<String, dynamic>>> fileResults) async {
     if (fileResults.isEmpty) return [];
     if (fileResults.length == 1) return fileResults.first; // 单文件无需合并
 
@@ -1127,13 +1560,17 @@ $LATEX_FORMAT_RULES
     final apiKey = profile['api_key'] as String? ?? '';
     String baseUrl = profile['base_url'] as String? ?? '';
     final model = profile['model_name'] as String? ?? '';
-    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) throw Exception("引擎配置不完整");
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty)
+      throw Exception("引擎配置不完整");
 
     // 将结构化数据序列化，以极简 JSON 传给 AI
     String combinedJsonStr = jsonEncode(fileResults);
 
     final prompt = '''
     你是一个逻辑严密的教育数据归并专家。
+
+    $LATEX_FORMAT_RULES
+
     我将向你提供一个包含多个数组的列表，这些数组是通过分别解析多个独立文档（如一份是【题目卷】，一份是【答案卷】）得到的结构化碎片。
     
     【核心任务】
@@ -1152,37 +1589,71 @@ $LATEX_FORMAT_RULES
     绝对禁止输出 缩写或骨架模板！必须输出真实的完整数据数组！
     2. 绝对不允许在 JSON 外部输出任何多余的废话、问候语或解释！
     3. 合并后的题目必须包含：type, content, options(若是选择题), standard_answer。对于解答题(type: 3)，务必将跨页的解题步骤、推导过程（如 q_num 为 "unknown" 的计算片段）完整拼接后放入 explanation 字段。严禁在合并时弄丢解答题的计算步骤！如果碎片中原本就完全没有解析，才不自行推导补全。
-    4. 【致命警告：JSON LaTeX 物理隔离法则】由于 JSON 解析器极易与 LaTeX 的反斜杠 `\\` 发生冲突，**你输出的 JSON 字符串中绝对不能出现真实的 `\\` 符号！** 你必须使用大写的 `BSLASH` 作为所有 LaTeX 反斜杠的占位符（例如 BSLASHpi, BSLASHfrac）。系统会在安全层自动替换回反斜杠。所有数学公式必须使用 \$ [数学公式] \$ 包裹！并且绝对禁止使用 ∑、∫、∞、π、√、≤、≥、≠ 等 Unicode 数学符号，必须用标准 LaTeX 命令及占位符 BSLASH 代替！
-    5. 【致命警告：严禁省略】无论合并后的输出有多长，必须完整输出每一个题目对象的所有内容字符！绝对不允许使用 省略号或 "省略" 等任何缩写形式来中断或偷懒！
+    4. 必须完整输出题目对象的所有内容，禁止使用省略号或缩写。
 
     【待合并的碎片数据】
     $combinedJsonStr
     ''';
 
     try {
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
       final isZhipu = baseUrl.contains('bigmodel.cn');
       String responseText = "";
 
       if (isGemini) {
         final url = "$baseUrl/models/$model:generateContent?key=$apiKey";
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: jsonEncode({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192, "responseMimeType": "application/json"}})).timeout(const Duration(minutes: 3));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "contents": [
+                    {
+                      "parts": [
+                        {"text": prompt}
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 8192,
+                    "responseMimeType": "application/json"
+                  }
+                }))
+            .timeout(const Duration(minutes: 3));
         if (res.statusCode == 200) {
-          responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] ?? "";
+          responseText = jsonDecode(res.body)['candidates'][0]['content']
+                  ['parts'][0]['text'] ??
+              "";
         } else {
           throw Exception("API Error: ${res.statusCode}");
         }
       } else {
         final url = _buildChatUrl(baseUrl, isZhipu);
-        final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'}, body: jsonEncode({"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 8192, "response_format": {"type": "json_object"}})).timeout(const Duration(minutes: 3));
+        final res = await http
+            .post(Uri.parse(url),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey'
+                },
+                body: jsonEncode({
+                  "model": model,
+                  "messages": [
+                    {"role": "user", "content": prompt}
+                  ],
+                  "temperature": 0.1,
+                  "max_tokens": 8192,
+                  "response_format": {"type": "json_object"}
+                }))
+            .timeout(const Duration(minutes: 3));
         if (res.statusCode == 200) {
           responseText = _extractContent(res.body);
         } else {
           throw Exception("API Error: ${res.statusCode}");
         }
       }
-      
+
       return await compute(AiDataSanitizer.cleanAndParseJson, responseText);
     } catch (e) {
       throw Exception("AI 多文件交叉配对合并失败: $e");

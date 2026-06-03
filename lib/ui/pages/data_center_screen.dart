@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/database/database_helper.dart';
+import '../../services/latex_migration_service.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
+
 
 class DataCenterScreen extends StatefulWidget {
   const DataCenterScreen({Key? key}) : super(key: key);
@@ -14,8 +16,10 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
   Map<String, List<Map<String, dynamic>>> _subjectFolders = {};
   bool _isLoading = true;
   bool _isSearching = false;
+  bool _isMigrating = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+
 
   Map<String, List<Map<String, dynamic>>> get _filteredFolders {
     if (_searchQuery.isEmpty) return _subjectFolders;
@@ -85,6 +89,85 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     }
   }
 
+  Future<void> _runLatexMigration() async {
+    // 确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('修复历史 LaTeX 数据', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+          '此操作将扫描所有题目，对含有裸露 LaTeX 命令的字段调用 AI 引擎添加正确的定界符。\n\n'
+          '• 仅修改未被正确包裹的公式\n'
+          '• 不会修改公式内容本身\n'
+          '• 需要消耗少量 AI Token\n\n'
+          '确认开始？',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('开始修复')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // 进度日志弹窗
+    final logLines = <String>[];
+    late StateSetter setDialogState;
+
+    setState(() => _isMigrating = true);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState2) {
+          setDialogState = setState2;
+          return AlertDialog(
+            title: Row(
+              children: [
+                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 12),
+                const Text('正在修复...', style: TextStyle(fontSize: 16)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 280,
+              child: ListView.builder(
+                itemCount: logLines.length,
+                itemBuilder: (_, i) => Text(
+                  logLines[i],
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    final result = await LatexMigrationService.instance.runMigration(
+      onProgress: (processed, total, status) {
+        setDialogState(() => logLines.add(status));
+      },
+    );
+
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop(); // 关闭进度弹窗
+      setState(() => _isMigrating = false);
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(result.success ? '✅ 修复完成' : '⚠️ 部分失败',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          content: Text(result.message),
+          actions: [ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('确定'))],
+        ),
+      );
+    }
+  }
+
+
   Future<void> _showMoveFolderDialog(String bankName) async {
     final controller = TextEditingController();
     final existingFolders = _subjectFolders.keys.where((k) => k != '📁 未分类题库').toList();
@@ -149,10 +232,10 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     // 核心热修复：极致防晕影的透明灰阶体系
-    final textLevel1 = isDark ? Colors.white.withOpacity(0.87) : Colors.black87;
-    final textLevel2 = isDark ? Colors.white.withOpacity(0.60) : Colors.black54;
+    final textLevel1 = isDark ? Colors.white.withValues(alpha: 0.87) : Colors.black87;
+    final textLevel2 = isDark ? Colors.white.withValues(alpha: 0.60) : Colors.black54;
     final iconLevel3 = isDark ? Colors.white38 : Colors.black38;
-    final cardBorder = isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
+    final cardBorder = isDark ? Colors.white.withValues(alpha: 0.1) : Colors.grey.shade200;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -177,6 +260,14 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
               icon: Icon(Icons.create_new_folder_outlined, color: textLevel1),
               tooltip: '新建学科',
               onPressed: _createNewFolder,
+            ),
+          if (!_isSearching)
+            IconButton(
+              icon: _isMigrating
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Icon(Icons.auto_fix_high_outlined, color: textLevel1),
+              tooltip: '一键修复历史 LaTeX',
+              onPressed: _isMigrating ? null : _runLatexMigration,
             ),
           IconButton(
             icon: Icon(_isSearching ? Icons.close : Icons.search, color: textLevel1),

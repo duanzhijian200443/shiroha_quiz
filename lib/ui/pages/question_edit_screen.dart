@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../core/database/database_helper.dart';
 import '../../services/ai_service.dart';
+import '../../utils/ai_data_sanitizer.dart';
 import '../widgets/markdown_extensions.dart';
 
 class QuestionEditScreen extends StatefulWidget {
@@ -33,10 +34,13 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     _answerFocus = FocusNode()..addListener(() => setState(() {}));
     _explanationFocus = FocusNode()..addListener(() => setState(() {}));
 
-    _contentCtrl = TextEditingController(text: widget.question['content']?.toString() ?? '');
-    _answerCtrl = TextEditingController(text: widget.question['standard_answer']?.toString() ?? '');
-    _explanationCtrl = TextEditingController(text: widget.question['explanation']?.toString() ?? '');
-    
+    _contentCtrl = TextEditingController(
+        text: widget.question['content']?.toString() ?? '');
+    _answerCtrl = TextEditingController(
+        text: widget.question['standard_answer']?.toString() ?? '');
+    _explanationCtrl = TextEditingController(
+        text: widget.question['explanation']?.toString() ?? '');
+
     String optsStr = '';
     if (widget.question['type'] == 0) {
       try {
@@ -63,23 +67,35 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
 
   Future<void> _save() async {
     final updated = Map<String, dynamic>.from(widget.question);
-    updated['content'] = _contentCtrl.text.trim();
-    updated['standard_answer'] = _answerCtrl.text.trim();
-    updated['explanation'] = _explanationCtrl.text.trim();
-    
+    updated['content'] =
+        AiDataSanitizer.cleanLatexBeforeDB(_contentCtrl.text.trim());
+    updated['standard_answer'] =
+        AiDataSanitizer.cleanLatexBeforeDB(_answerCtrl.text.trim());
+    updated['explanation'] =
+        AiDataSanitizer.cleanLatexBeforeDB(_explanationCtrl.text.trim());
+
     if (updated['type'] == 0) {
-      final optsList = _optionsCtrl.text.trim().split('\n').where((s) => s.trim().isNotEmpty).toList();
-      updated['options'] = jsonEncode(optsList);
+      final optsList = _optionsCtrl.text
+          .trim()
+          .split('\n')
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
+      updated['options'] = jsonEncode(optsList
+          .map((option) => AiDataSanitizer.cleanLatexBeforeDB(option.trim()))
+          .toList());
     }
 
     try {
       await DatabaseHelper.instance.updateQuestion(updated);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('题目修改成功')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('题目修改成功')));
         Navigator.pop(context, true); // 返回 true 标识已修改
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.redAccent));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('保存失败: $e'), backgroundColor: Colors.redAccent));
     }
   }
 
@@ -90,25 +106,31 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
       final updatedQ = Map<String, dynamic>.from(widget.question);
       updatedQ['content'] = _contentCtrl.text;
       if (updatedQ['type'] == 0) {
-        final optsList = _optionsCtrl.text.trim().split('\n').where((s) => s.trim().isNotEmpty).toList();
+        final optsList = _optionsCtrl.text
+            .trim()
+            .split('\n')
+            .where((s) => s.trim().isNotEmpty)
+            .toList();
         updatedQ['options'] = jsonEncode(optsList);
       }
-      
+
       final res = await AiService.instance.answerSingleQuestion(updatedQ);
-      
+
       if (mounted) {
         _answerCtrl.text = res['standard_answer'] ?? '';
         final currentExp = _explanationCtrl.text.trim();
         final newExp = res['explanation'] ?? '';
-        _explanationCtrl.text = currentExp.isEmpty 
+        _explanationCtrl.text = currentExp.isEmpty
             ? "$newExp\n\n> [!WARNING]\n> 以上为 AI 辅助生成内容，请认真核实。"
             : "$currentExp\n\n---\n\n$newExp\n\n> [!WARNING]\n> 以上为 AI 辅助生成内容，请认真核实。";
         setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI 解答已填入，请核实')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('AI 解答已填入，请核实')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI 解答失败: $e'), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('AI 解答失败: $e'), backgroundColor: Colors.redAccent));
       }
     } finally {
       if (mounted) setState(() => _isAiLoading = false);
@@ -131,7 +153,7 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     if (opts.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -145,14 +167,20 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
 
         return Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: border, width: 1)),
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: border, width: 1)),
             child: Row(children: [
               Container(
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(shape: BoxShape.circle, color: lBg),
                   alignment: Alignment.center,
-                  child: Text(letter, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: lFg))),
+                  child: Text(letter,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: lFg))),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildMarkdown(opts[i], isOption: true),
@@ -168,67 +196,74 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('编辑题目', style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+            const Text('编辑题目', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           TextButton.icon(
-            icon: const Icon(Icons.auto_awesome, color: Colors.orangeAccent, size: 18),
-            label: const Text('AI解答', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+            icon: const Icon(Icons.auto_awesome,
+                color: Colors.orangeAccent, size: 18),
+            label: const Text('AI解答',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
             onPressed: _isAiLoading ? null : _askAi,
           ),
           TextButton.icon(
             icon: const Icon(Icons.save, color: Colors.blueAccent),
-            label: const Text('保存', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            onPressed: _isAiLoading ? null : () {
-              FocusScope.of(context).unfocus();
-              _save();
-            },
+            label: const Text('保存',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            onPressed: _isAiLoading
+                ? null
+                : () {
+                    FocusScope.of(context).unfocus();
+                    _save();
+                  },
           )
         ],
       ),
-      body: Stack(
-        children: [
-          GestureDetector(
-            onTap: () => FocusScope.of(context).unfocus(),
-            behavior: HitTestBehavior.opaque,
-            child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            _buildField(
-              label: '题干 (支持 LaTeX & Markdown)', 
-              controller: _contentCtrl, 
-              focusNode: _contentFocus,
-              maxLines: 5,
-              renderMarkdown: (text) => _buildMarkdown(text),
-            ),
-            if (isSelection) ...[
+      body: Stack(children: [
+        GestureDetector(
+          onTap: () => FocusScope.of(context).unfocus(),
+          behavior: HitTestBehavior.opaque,
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              _buildField(
+                label: '题干 (支持 LaTeX & Markdown)',
+                controller: _contentCtrl,
+                focusNode: _contentFocus,
+                maxLines: 5,
+                renderMarkdown: (text) => _buildMarkdown(text),
+              ),
+              if (isSelection) ...[
+                const SizedBox(height: 16),
+                _buildField(
+                  label: '选项 (每行一个选项)',
+                  controller: _optionsCtrl,
+                  focusNode: _optionsFocus,
+                  maxLines: 4,
+                  renderMarkdown: (text) => _buildOptionsPreview(text),
+                ),
+              ],
               const SizedBox(height: 16),
               _buildField(
-                label: '选项 (每行一个选项)', 
-                controller: _optionsCtrl, 
-                focusNode: _optionsFocus,
-                maxLines: 4,
-                renderMarkdown: (text) => _buildOptionsPreview(text),
+                label: '标准答案',
+                controller: _answerCtrl,
+                focusNode: _answerFocus,
+                maxLines: 2,
+                renderMarkdown: (text) => _buildMarkdown('**正确答案:** \n$text'),
+              ),
+              const SizedBox(height: 16),
+              _buildField(
+                label: '详细解析',
+                controller: _explanationCtrl,
+                focusNode: _explanationFocus,
+                maxLines: 6,
+                renderMarkdown: (text) => _buildMarkdown(text),
               ),
             ],
-            const SizedBox(height: 16),
-            _buildField(
-              label: '标准答案', 
-              controller: _answerCtrl, 
-              focusNode: _answerFocus,
-              maxLines: 2,
-              renderMarkdown: (text) => _buildMarkdown('**正确答案:** \n$text'),
-            ),
-            const SizedBox(height: 16),
-            _buildField(
-              label: '详细解析', 
-              controller: _explanationCtrl, 
-              focusNode: _explanationFocus,
-              maxLines: 6,
-              renderMarkdown: (text) => _buildMarkdown(text),
-            ),
-          ],
+          ),
         ),
-      ),
         if (_isAiLoading)
           Container(
             color: Colors.black12,
@@ -241,7 +276,8 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
                     children: [
                       CircularProgressIndicator(),
                       SizedBox(height: 16),
-                      Text('AI 正在解答...', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text('AI 正在解答...',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -253,8 +289,8 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
   }
 
   Widget _buildField({
-    required String label, 
-    required TextEditingController controller, 
+    required String label,
+    required TextEditingController controller,
     required FocusNode focusNode,
     int maxLines = 1,
     required Widget Function(String) renderMarkdown,
@@ -270,19 +306,25 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.2 : 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 2)
-              )
+                  color: Colors.black.withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.2
+                          : 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2))
             ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              Text(label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
               const SizedBox(height: 12),
               if (controller.text.trim().isEmpty)
-                Text('点击添加内容...', style: TextStyle(color: Colors.grey.shade400, fontStyle: FontStyle.italic))
+                Text('点击添加内容...',
+                    style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontStyle: FontStyle.italic))
               else
                 renderMarkdown(controller.text),
             ],
@@ -300,8 +342,13 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
         alignLabelWithHint: true,
         filled: true,
         fillColor: Theme.of(context).cardTheme.color,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Theme.of(context).primaryColor)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2)),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Theme.of(context).primaryColor)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide:
+                BorderSide(color: Theme.of(context).primaryColor, width: 2)),
       ),
     );
   }

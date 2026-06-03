@@ -1,30 +1,75 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiroha_quiz/utils/ai_data_sanitizer.dart';
 import 'package:shiroha_quiz/ui/widgets/markdown_extensions.dart';
+import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
+import 'package:shiroha_quiz/utils/ai_data_sanitizer.dart';
+import 'package:shiroha_quiz/utils/content_normalizer.dart';
+import 'package:shiroha_quiz/utils/content_tokenizer.dart';
 
 void main() {
-  test('isLikelyMathFormula detects genuine LaTeX correctly', () {
-    const validMath1 = r'D(\hat{\theta}) = D\left[\frac{2\sum_{i=1}^{n}X_i + \sum_{j=1}^{m}Y_j}{2(m+n)}\right]';
-    const validMath2 = r'I = \oint_{\Sigma + \Sigma_1 + \Sigma_2 + \Sigma_3} (-2xz)\mathrm{d}y\mathrm{d}z + z^2\mathrm{d}x\mathrm{d}y';
-    const plainText = r'This is a long sentence with a path C:\Users\Test\Documents and no math.';
-    
-    expect(AiDataSanitizer.isLikelyMathFormula(validMath1), isTrue);
-    expect(AiDataSanitizer.isLikelyMathFormula(validMath2), isTrue);
-    expect(AiDataSanitizer.isLikelyMathFormula(plainText), isFalse);
+  test('normalizer converts paired dollar delimiters only', () {
+    const input = r'Let $x_i$ and $$\sum_{i=1}^{n}x_i$$, price is $5.';
+    final output = ContentNormalizer.normalizeForStorage(input);
+
+    expect(output, contains(r'\(x_i\)'));
+    expect(output, contains(r'\[\sum_{i=1}^{n}x_i\]'));
+    expect(output, contains(r'price is $5.'));
   });
 
-  test('formatLatex upgrades long math inline to block', () {
-    const input = r'设公式为 $D(\hat{\theta}) = D\left[\frac{2\sum_{i=1}^{n}X_i + \sum_{j=1}^{m}Y_j}{2(m+n)}\right] = \frac{\theta^2}{m+n}$。';
-    final output = AiDataSanitizer.formatLatex(input);
-    
-    // It should have upgraded the long math formula to block ($$)
-    expect(output.contains(r'$$'), isTrue);
+  test('normalizer extracts blanks from explicit math', () {
+    const input = r'Find \(a=___\), then answer ____.';
+    final output = ContentNormalizer.normalizeForStorage(input);
+
+    expect(output, r'Find \(a=\)___, then answer ____.');
   });
 
-  testWidgets('buildLatexWidget repairs matrix and renders 2D correctly', (WidgetTester tester) async {
-    const text = '矩阵为\$\$ \\begin{pmatrix} 1 & 2 & 3 \\ 2 & 4 & 6 \\ 3 & 6 & 9 \\end{pmatrix} \$\$；';
-    
+  test('sanitizer does not auto-wrap bare LaTeX commands', () {
+    const input = r'A. \frac{1}{4} and x_i';
+    final output = AiDataSanitizer.cleanLatexBeforeDB(input);
+
+    expect(output, input);
+    expect(AiDataSanitizer.findBareLatexCommands(output), contains('frac'));
+  });
+
+  test('tokenizer emits structured tokens without guessing bare LaTeX', () {
+    const input =
+        r'When \(x_i\) then ___ and \[\begin{pmatrix}1&2\\3&4\end{pmatrix}\] but \frac{1}{2}.';
+    final tokens = ContentTokenizer.tokenize(input);
+
+    expect(tokens.whereType<InlineMathToken>(), hasLength(1));
+    expect(tokens.whereType<BlankToken>(), hasLength(1));
+    expect(tokens.whereType<BlockMathToken>(), hasLength(1));
+    expect(tokens.whereType<TextToken>().last.text, contains(r'\frac{1}{2}'));
+  });
+
+  test('tokenizer isolates unclosed delimiters as parse errors', () {
+    const input = r'Before \(x_i and after text';
+    final tokens = ContentTokenizer.tokenize(input);
+
+    expect(tokens.whereType<ParseErrorToken>(), hasLength(1));
+    expect(tokens.whereType<ParseErrorToken>().single.raw,
+        r'\(x_i and after text');
+  });
+
+  test(
+      'cleanAndParseJson repairs JSON LaTeX escapes without wrapping bare math',
+      () {
+    const raw = r'''
+    {"questions":[{"type":0,"content":"Stem with \(x_i\)","options":["A. \frac{1}{4}","B. \(\\frac{1}{2}\)"],"standard_answer":"B"}]}
+    ''';
+    final parsed = AiDataSanitizer.cleanAndParseJson(raw);
+    final options = parsed.first['options'] as List;
+
+    expect(parsed.first['content'], r'Stem with \(x_i\)');
+    expect(options[0], r'A. \frac{1}{4}');
+    expect(options[1], r'B. \(\frac{1}{2}\)');
+  });
+
+  testWidgets('buildLatexWidget renders explicit inline math and blanks',
+      (tester) async {
+    const text = r'When \(x_i\geq 0\), fill ___ here.';
+
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -35,42 +80,76 @@ void main() {
       ),
     );
 
-    // Verify it contains a Math widget representing the rendered LaTeX
-    final mathFinder = find.byWidgetPredicate((widget) => widget.runtimeType.toString() == 'Math');
-    expect(mathFinder, findsOneWidget);
-    
-    // Check elements inside the widget tree to ensure it rendered row layout
-    final widgetTree = tester.allWidgets;
-    bool foundPar = false;
-    for (var widget in widgetTree) {
-      if (widget is RichText) {
-        final plainText = widget.text.toPlainText();
-        if (plainText.contains('⎛') || plainText.contains('⎝')) {
-          foundPar = true;
-        }
-      }
-    }
-    expect(foundPar, isTrue);
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.byType(BlankTokenWidget), findsOneWidget);
   });
 
-  testWidgets('buildLatexWidget bypasses 200-char check for long formulas', (WidgetTester tester) async {
-    const longMath = r'公式为 $I = \oint_{\Sigma + \Sigma_1 + \Sigma_2 + \Sigma_3} (-2xz)\mathrm{d}y\mathrm{d}z + z^2\mathrm{d}x\mathrm{d}y - \iint_{\Sigma_1 + \Sigma_2 + \Sigma_3} (-2xz)\mathrm{d}y\mathrm{d}z + z^2\mathrm{d}x\mathrm{d}y = 0 - 0 = 0$。';
-    
+  testWidgets('buildLatexWidget leaves old bare LaTeX as text', (tester) async {
+    const text = r'A. \frac{1}{4}';
+
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Builder(
-            builder: (context) => buildLatexWidget(context, longMath),
+            builder: (context) => buildLatexWidget(context, text),
           ),
         ),
       ),
     );
 
-    // This long formula should render as block or math widget, not as plain raw text SelectableText
-    final selectableTextFinder = find.byType(SelectableText);
-    expect(selectableTextFinder, findsNothing);
-    
-    final mathFinder = find.byWidgetPredicate((widget) => widget.runtimeType.toString() == 'Math');
-    expect(mathFinder, findsAtLeast(1));
+    expect(find.byType(Math), findsNothing);
+    expect(find.textContaining(r'\frac{1}{4}', findRichText: true),
+        findsOneWidget);
+  });
+
+  testWidgets('buildLatexWidget handles xlongequal defensively',
+      (tester) async {
+    const text = r'Formula \(a \xlongequal{\text{ok}} b\).';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining('[LaTeX fallback]'), findsNothing);
+  });
+
+  testWidgets('buildLatexWidget normalizes unicode math symbols in math only',
+      (tester) async {
+    const text = 'Formula \\(∬_Σ_1 (−2xz)dydz\\).';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+  });
+
+  testWidgets('buildLatexWidget renders explicit block matrix', (tester) async {
+    const text = r'\[\begin{pmatrix}1&2\\3&4\end{pmatrix}\]';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
   });
 }

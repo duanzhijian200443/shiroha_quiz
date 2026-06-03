@@ -1,372 +1,350 @@
 import 'dart:convert';
 
+import 'content_normalizer.dart';
+
 class AiDataSanitizer {
-  // 1. 强力 JSON 净化与防幻觉解析
+  const AiDataSanitizer._();
+
   static List<Map<String, dynamic>> cleanAndParseJson(String rawText) {
     if (rawText.trim().isEmpty) {
-      throw Exception("大模型返回了空内容。可能是触发了风控拦截，或使用了不兼容的 API 格式。");
+      throw Exception('AI returned an empty response.');
     }
 
-    String cleanText = rawText;
-    
-    // 1. 优先提取 ```json ... ``` 代码块中的纯净内容
-    final codeBlockMatch = RegExp(r'```(?:json)?\s*([\s\S]*?)```', caseSensitive: false).firstMatch(cleanText);
-    
-    if (codeBlockMatch != null) {
-      cleanText = codeBlockMatch.group(1)!.trim();
-    } else {
-      // 2. 如果模型没有加代码块，采用降级策略：精确匹配 JSON 结构特征，绝不盲猜首个花括号
-      // 寻找 {" 或 [{ 或 [ { 的起始位置
-      int objStart = cleanText.indexOf(RegExp(r'\{\s*"'));
-      int arrStart = cleanText.indexOf(RegExp(r'\[\s*\{'));
-      
-      int startIdx = -1;
-      if (objStart != -1 && arrStart != -1) {
-        startIdx = objStart < arrStart ? objStart : arrStart;
-      } else if (objStart != -1) {
-        startIdx = objStart;
-      } else if (arrStart != -1) {
-        startIdx = arrStart;
-      }
+    final candidate = _extractJsonCandidate(rawText);
+    final repaired = _repairJsonStringEscapes(candidate);
+    final decoded = _decodeJsonWithTailRepair(repaired);
+    final questions = _extractQuestionList(decoded);
 
-      if (startIdx != -1) {
-        cleanText = cleanText.substring(startIdx);
-        // 寻找最后一个闭合符号
-        int lastBrace = cleanText.lastIndexOf('}');
-        int lastBracket = cleanText.lastIndexOf(']');
-        int endIdx = lastBrace > lastBracket ? lastBrace : lastBracket;
-        
-        if (endIdx != -1) {
-          cleanText = cleanText.substring(0, endIdx + 1);
-        } else {
-          throw Exception("JSON 括号未闭合。");
-        }
-      } else {
-        throw Exception("未能从 AI 回复中提取到有效的 JSON 代码块或对象结构。");
-      }
+    final finalQuestions = <Map<String, dynamic>>[];
+    for (final item in questions) {
+      if (item is! Map) continue;
+
+      final q = Map<String, dynamic>.from(item);
+      var currentType = _readInt(q['type']) ?? 0;
+
+      _ensureFallbackContent(q);
+      _normalizeQuestionFields(q);
+      q.remove('sub_questions');
+
+      currentType = _extractOptionsFromContentIfNeeded(q, currentType);
+      _normalizeQuestionType(q, currentType);
+      finalQuestions.add(q);
     }
 
-    // 处理非法的物理换行符（将其替换为 JSON 合法的转义换行）
-    // 注意：只替换 JSON 字符串值内部的换行符，绝对不能破坏括号、逗号等结构外部的物理换行！
-    cleanText = cleanText.replaceAll('\r', '');
-    cleanText = cleanText.replaceAllMapped(RegExp(r'"(?:[^"\\]|\\.)*"', dotAll: true), (match) {
-      String str = match.group(0)!;
-      str = str.replaceAll('\n', '\\n');
-      
-      // 核心防御：修复大模型未转义的 LaTeX 反斜杠（如 \mu, \frac 等引发的 JSON 解析崩溃）
-      // 保留 \", \\, \uXXXX (合法 unicode 转义), \/
-      // 注意：\u 后面必须是4位十六进制才是合法 JSON unicode 转义，否则(如 \underline, \upsilon)会崩溃
-      str = str.replaceAllMapped(RegExp(r'\\(["/\\]|u[0-9a-fA-F]{4})|\\'), (m) {
-        // group(1) 存在 → 这是合法转义序列，原样保留
-        if (m.group(1) != null) return m.group(0)!;
-        // 无 group(1) → 孤立反斜杠（如 \frac, \underline），双重转义
-        return '\\\\';
-      });
-      
-      return str;
-    });
-
-
-
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(cleanText);
-    } catch (e) {
-      // 修复由于强制替换 \n 导致的括号外非法字符，尝试通过截断修复
-      try {
-        int lastBracket = cleanText.lastIndexOf(']');
-        int lastBrace = cleanText.lastIndexOf('}');
-        int lastValid = lastBracket > lastBrace ? lastBracket : lastBrace;
-        if (lastValid != -1) {
-          String repaired = cleanText.substring(0, lastValid + 1);
-          decoded = jsonDecode(repaired);
-        } else {
-          rethrow;
-        }
-      } catch (e2) {
-        throw Exception("JSON解析失败且无法修复: $e (自动修复也失败: $e2)\n内容片段: ${cleanText.length > 100 ? cleanText.substring(0, 100) : cleanText}...");
-      }
-    }
-
-    decoded = _restoreBslash(decoded);
-
-    List<dynamic> questionsList = [];
-    
-    if (decoded is Map<String, dynamic>) {
-      // 优先提取 questions 数组
-      if (decoded.containsKey('questions') && decoded['questions'] is List) {
-        questionsList = decoded['questions'];
-      } else if (decoded.containsKey('anchors') && decoded['anchors'] is List) {
-        questionsList = decoded['anchors'];
-      } else {
-        // 如果是单个对象也装入数组
-        questionsList = [decoded];
-      }
-    } else if (decoded is List) {
-      questionsList = decoded;
-    }
-
-    final List<Map<String, dynamic>> finalQuestions = [];
-    
-    for (var item in questionsList) {
-      if (item is! Map<String, dynamic>) continue;
-      final q = item;
-      int currentType = q['type'] as int? ?? 0;
-      
-        if (q['content'] == null || q['content'].toString().trim().isEmpty) {
-          if (q['standard_answer'] != null && q['standard_answer'].toString().trim().isNotEmpty) {
-            q['content'] = "[纯答案提取]\n${q['standard_answer']}";
-          } else if (q['explanation'] != null && q['explanation'].toString().trim().isNotEmpty) {
-            q['content'] = "[解析提取]\n${q['explanation']}";
-          } else {
-            q['content'] = "无题干";
-          }
-        }
-        
-        if (q['content'] != null) q['content'] = cleanLatexBeforeDB(q['content'].toString());
-        if (q['standard_answer'] != null) q['standard_answer'] = cleanLatexBeforeDB(q['standard_answer'].toString());
-        if (q['explanation'] != null) q['explanation'] = cleanLatexBeforeDB(q['explanation'].toString());
-        
-        q.remove('sub_questions');
-
-        // 双重防线：自动检测并剥离题干中残留的 A,B,C,D 选项
-        final contentStr = q['content']?.toString() ?? '';
-        final optionRegex = RegExp(
-          r'[\s\n]*(?:\(|（)?\s*A\s*(?:\)|）|\.|、|\s)\s*([\s\S]+?)'
-          r'(?:\(|（)?\s*B\s*(?:\)|）|\.|、|\s)\s*([\s\S]+?)'
-          r'(?:\(|（)?\s*C\s*(?:\)|）|\.|、|\s)\s*([\s\S]+?)'
-          r'(?:\(|（)?\s*D\s*(?:\)|）|\.|、|\s)\s*([\s\S]*)$',
-          caseSensitive: false,
-        );
-        final optionMatch = optionRegex.firstMatch(contentStr);
-        if (optionMatch != null) {
-          final optA = optionMatch.group(1)!.trim();
-          final optB = optionMatch.group(2)!.trim();
-          final optC = optionMatch.group(3)!.trim();
-          final optD = optionMatch.group(4)!.trim();
-          
-          q['content'] = contentStr.substring(0, optionMatch.start).trim();
-          
-          final existingOpts = q['options'] as List?;
-          if (existingOpts == null || existingOpts.isEmpty || existingOpts.every((o) => o.toString().trim().isEmpty)) {
-            q['options'] = [
-              "A. ${cleanLatexBeforeDB(optA)}",
-              "B. ${cleanLatexBeforeDB(optB)}",
-              "C. ${cleanLatexBeforeDB(optC)}",
-              "D. ${cleanLatexBeforeDB(optD)}"
-            ];
-          }
-          if (currentType == 3) {
-            currentType = 0;
-            q['type'] = 0;
-          }
-        }
-        
-        if (currentType == 2 || currentType == 3) {
-          q['options'] = []; // 填空/简答强行清空选项
-        } else {
-          final opts = q['options'] as List?;
-          if (opts != null && opts.isNotEmpty && opts.any((o) => o.toString().trim().isNotEmpty)) {
-            q['type'] = currentType == 1 ? 1 : 0; // 有选项保持多选或归为单选
-          } else {
-            // 被识别成了选择题，但没有提取出选项，则直接强制降级为简答题
-            q['type'] = 3;
-            q['options'] = [];
-          }
-        }
-        finalQuestions.add(q);
-    }
     return finalQuestions;
   }
 
-static String cleanLatexBeforeDB(String text) {
+  static String cleanLatexBeforeDB(String text) {
     if (text.isEmpty) return text;
-    String result = normalizeDelimiters(text);
-
-    // 规则一（修正版）：允许矩阵前有系数，含 matrix 基础环境。两端加换行符确保 Markdown 块级识别
-    result = result.replaceAllMapped(
-      RegExp(
-        r'\$(?!\$)([^$]*\\begin\{(?:pmatrix|bmatrix|cases|vmatrix|matrix)'
-        r'[^$]*\\end\{(?:pmatrix|bmatrix|cases|vmatrix|matrix)\}[^$]*)\$(?!\$)'
-      ),
-      (m) => '\n\$\$${m.group(1)}\$\$\n',
-    );
-
-    // 规则二（修正版）：只降级矩阵间的短运算符，不做全局 $$$ 替换
-    result = result.replaceAllMapped(
-      RegExp(r'\$\$([+\-=,，\s]{1,6}[\w\d_\^]{0,4})\$\$'),
-      (m) => '\$${m.group(1)}\$',
-    );
-
-    // 规则三：把紧贴在 $$ 前面的系数变量吸收进数学块内
-    result = result.replaceAllMapped(
-      RegExp(
-        r'([a-zA-Z_]\w*)\s*\$\$(\\begin\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)}'
-        r'[\s\S]*?\\end\{(?:pmatrix|bmatrix|matrix|cases|vmatrix)\})\$\$'
-      ),
-      (m) => '\n\$\$${m.group(1)}${m.group(2)}\$\$\n',
-    );
-
-    return result;
+    return ContentNormalizer.normalizeForStorage(_decodeLiteralControls(text));
   }
 
-  // 2. 极简 LaTeX 公式格式化
   static String formatLatex(String text) {
     if (text.isEmpty) return text;
-    String result = text;
-    
-    result = result.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
-
-    // 只还原明确作为普通文本换行的 \n，不要误伤合法转义
-    result = result.replaceAllMapped(RegExp(r'\\n(?![a-zA-Z])'), (m) => '\n');
-    result = result.replaceAllMapped(RegExp(r'\\t(?![a-zA-Z])'), (m) => '\t');
-
-    // 修复大模型过度转义的下划线填空线，例如 \_\_\_ -> ___
-    result = result.replaceAllMapped(RegExp(r'(\\_){2,}'), (match) {
-      return '_' * (match.group(0)!.length ~/ 2);
-    });
-
-    // 🛡️ 白名单模式兜底包裹：把高置信度裸露指令自动包裹进 $...$
-    result = _autoWrapBareLatex(result);
-
-    // 新增：清理冲突产生的三连美元符，以 r'$$' 规范化，规避 Dart 字符替换 Bug
-    result = result.replaceAll(RegExp(r'\$\$\$'), r'$$');
-
-    return result;
+    return ContentNormalizer.normalizeForRender(_decodeLiteralControls(text));
   }
 
-  /// 🔧 将裸 LaTeX 命令（未被 \$..\$ 或 \$\$..\$\$ 包裹的 \cmd{} 形式）自动包裹进 \$..\$。
-  /// 安全机制：
-  ///   - 已包裹的 \$..\$、\$\$..\$\$、\(...\)、\[...\] 先被占位替换，不会被重复处理
-  ///   - \{ \} 等转义符号不触发包裹（不是真正的数学命令）
-  ///   - 纯中文段落不会被吸入
-  static String _autoWrapBareLatex(String text) {
-    if (text.isEmpty || !text.contains(r'\')) return text;
-
-    final List<String> saved = [];
-    String s = text;
-
-    // Phase 1: 保护已经包裹好的块，防止被二次处理
-    s = s.replaceAllMapped(RegExp(r'\$\$[\s\S]*?\$\$'), (m) {
-      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
-    });
-    s = s.replaceAllMapped(RegExp(r'\$(?!\$)[\s\S]*?\$'), (m) {
-      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
-    });
-    s = s.replaceAllMapped(RegExp(r'\\\([\s\S]*?\\\)'), (m) {
-      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
-    });
-    s = s.replaceAllMapped(RegExp(r'\\\[[\s\S]*?\\\]'), (m) {
-      saved.add(m.group(0)!); return '⁕${saved.length - 1}⁕';
-    });
-
-    // Phase 2: 白名单模式包裹高置信度裸露指令
-    // 仅针对: \frac, \sqrt, \sum, \int, \lim, \prod, \oint
-    final RegExp whitelistRegExp = RegExp(r'\\(frac|sqrt|sum|int|lim|prod|oint)');
-    int offset = 0;
-    while (true) {
-      final match = whitelistRegExp.firstMatch(s.substring(offset));
-      if (match == null) break;
-
-      int start = offset + match.start;
-      int end = offset + match.end;
-      
-      // 向前扫描平衡大括号
-      int bracesCount = 0;
-      bool hasOpened = false;
-      int i = end;
-      for (; i < s.length; i++) {
-        if (s[i] == '{') {
-          bracesCount++;
-          hasOpened = true;
-        } else if (s[i] == '}') {
-          bracesCount--;
-        } else if (s[i] == '\\') {
-          // 跳过转义字符
-          i++;
-        } else if (!hasOpened && RegExp(r'[a-zA-Z0-9]').hasMatch(s[i])) {
-           // 如果还没有遇到左括号，且遇到了字母数字，可能类似于 \frac12，我们保守处理不贪婪
-           if (i - end >= 2) break;
-        } else if (!hasOpened && RegExp(r'[\s\^_]').hasMatch(s[i])) {
-           // 允许空格或上下标
-        } else if (!hasOpened) {
-           break;
-        }
-        
-        if (hasOpened && bracesCount == 0) {
-          // 如果这之后紧接着又是括号，说明可能有多个参数，比如 \frac{}{}
-          if (i + 1 < s.length && s[i+1] == '{') {
-            continue;
-          }
-          i++; // include the closing brace
-          break;
-        }
-      }
-
-      if (hasOpened && bracesCount != 0) {
-        // 不平衡，放弃处理
-        offset = start + 1;
-        continue;
-      }
-
-      String wrappedTarget = s.substring(start, i);
-      
-      // 避免重复保护
-      if (wrappedTarget.contains('⁕')) {
-        offset = i;
-        continue;
-      }
-
-      saved.add('\$' + wrappedTarget + '\$');
-      String placeholder = '⁕${saved.length - 1}⁕';
-      
-      s = s.substring(0, start) + placeholder + s.substring(i);
-      offset = start + placeholder.length;
-    }
-
-    // Phase 3: 恢复占位符
-    for (int i = saved.length - 1; i >= 0; i--) {
-      s = s.replaceFirst('⁕$i⁕', saved[i]);
-    }
-    
-    return s;
+  static String normalizeDelimiters(String text) {
+    if (text.isEmpty) return text;
+    return ContentNormalizer.normalizeForStorage(_decodeLiteralControls(text));
   }
 
-  /// 🔧 判断给定的字符串是否看起来是一个合法的 LaTeX 数学公式。
+  static List<String> findBareLatexCommands(String text) {
+    return ContentNormalizer.findBareLatexCommands(text);
+  }
+
+  // Kept as a compatibility shim for older callers. It is diagnostic only and
+  // must not be used to auto-wrap formulas at runtime.
   static bool isLikelyMathFormula(String tex) {
-    final cleanTex = tex.trim();
-    if (!cleanTex.contains(r'\')) return false;
+    return ContentNormalizer.findBareLatexCommands(tex).isNotEmpty;
+  }
 
-    // 常见数学公式特征关键字
-    const mathKeywords = [
-      r'\frac', r'\sum', r'\int', r'\lim', r'\sqrt', r'\partial', r'\infty',
-      r'\oint', r'\iint', r'\iiint', r'\left', r'\right', r'\begin', r'\end',
-      r'\cdot', r'\mathrm', r'\mathbf', r'\text', r'\xlongequal', r'\hat',
-      r'\alpha', r'\beta', r'\gamma', r'\delta', r'\theta', r'\lambda', r'\pi',
-      r'\sigma', r'\omega', r'\mu', r'\phi', r'\psi', r'\xi', r'\eta',
-      r'\Sigma', r'\Delta', r'\Omega', r'\Gamma', r'\Phi', r'\Psi', r'\Theta',
+  static String _extractJsonCandidate(String rawText) {
+    final codeBlock = RegExp(
+      r'```(?:json)?\s*([\s\S]*?)```',
+      caseSensitive: false,
+    ).firstMatch(rawText);
+    final source = (codeBlock?.group(1) ?? rawText).trim();
+
+    final start = _findJsonStart(source);
+    if (start == -1) {
+      throw Exception('No JSON object or array found in AI response.');
+    }
+
+    final end = _findJsonEnd(source, start);
+    if (end == -1) {
+      throw Exception('JSON brackets are not balanced.');
+    }
+
+    return source.substring(start, end + 1);
+  }
+
+  static int _findJsonStart(String source) {
+    for (var i = 0; i < source.length; i++) {
+      final char = source[i];
+      if (char == '{') return i;
+      if (char == '[') {
+        var j = i + 1;
+        while (j < source.length && source[j].trim().isEmpty) {
+          j++;
+        }
+        if (j < source.length && source[j] == '{') return i;
+      }
+    }
+    return -1;
+  }
+
+  static int _findJsonEnd(String source, int start) {
+    final stack = <String>[];
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < source.length; i++) {
+      final char = source[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char == '\\') {
+          escaped = true;
+        } else if (char == '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char == '"') {
+        inString = true;
+      } else if (char == '{') {
+        stack.add('}');
+      } else if (char == '[') {
+        stack.add(']');
+      } else if (char == '}' || char == ']') {
+        if (stack.isEmpty || stack.last != char) return -1;
+        stack.removeLast();
+        if (stack.isEmpty) return i;
+      }
+    }
+    return -1;
+  }
+
+  static String _repairJsonStringEscapes(String input) {
+    final buffer = StringBuffer();
+    var inString = false;
+    var i = 0;
+
+    while (i < input.length) {
+      final char = input[i];
+
+      if (!inString) {
+        buffer.write(char);
+        if (char == '"') inString = true;
+        i++;
+        continue;
+      }
+
+      if (char == '"') {
+        buffer.write(char);
+        inString = false;
+        i++;
+        continue;
+      }
+
+      if (char == '\n') {
+        buffer.write(r'\n');
+        i++;
+        continue;
+      }
+      if (char == '\t') {
+        buffer.write(r'\t');
+        i++;
+        continue;
+      }
+
+      if (char == '\\') {
+        if (i + 1 >= input.length) {
+          buffer.write(r'\\');
+          i++;
+          continue;
+        }
+
+        final next = input[i + 1];
+        if (next == '"' || next == '\\' || next == '/') {
+          buffer.write(char);
+          buffer.write(next);
+          i += 2;
+          continue;
+        }
+
+        if (next == 'u' && _hasValidUnicodeEscape(input, i + 2)) {
+          buffer.write(input.substring(i, i + 6));
+          i += 6;
+          continue;
+        }
+
+        buffer.write(r'\\');
+        i++;
+        continue;
+      }
+
+      buffer.write(char);
+      i++;
+    }
+
+    return buffer.toString();
+  }
+
+  static bool _hasValidUnicodeEscape(String input, int start) {
+    if (start + 4 > input.length) return false;
+    for (var i = start; i < start + 4; i++) {
+      final code = input.codeUnitAt(i);
+      final isHex = (code >= 48 && code <= 57) ||
+          (code >= 65 && code <= 70) ||
+          (code >= 97 && code <= 102);
+      if (!isHex) return false;
+    }
+    return true;
+  }
+
+  static dynamic _decodeJsonWithTailRepair(String text) {
+    try {
+      return jsonDecode(text);
+    } catch (error) {
+      final lastObject = text.lastIndexOf('}');
+      final lastArray = text.lastIndexOf(']');
+      final lastValid = lastObject > lastArray ? lastObject : lastArray;
+      if (lastValid == -1) rethrow;
+      try {
+        return jsonDecode(text.substring(0, lastValid + 1));
+      } catch (repairError) {
+        throw Exception(
+          'JSON parse failed: $error; tail repair failed: $repairError',
+        );
+      }
+    }
+  }
+
+  static List<dynamic> _extractQuestionList(dynamic decoded) {
+    if (decoded is List) return decoded;
+    if (decoded is Map<String, dynamic>) {
+      final questions = decoded['questions'];
+      if (questions is List) return questions;
+      final anchors = decoded['anchors'];
+      if (anchors is List) return anchors;
+      return [decoded];
+    }
+    return const <dynamic>[];
+  }
+
+  static void _ensureFallbackContent(Map<String, dynamic> q) {
+    final content = q['content']?.toString().trim() ?? '';
+    if (content.isNotEmpty) return;
+
+    final answer = q['standard_answer']?.toString().trim();
+    final explanation = q['explanation']?.toString().trim();
+    if (answer != null && answer.isNotEmpty) {
+      q['content'] = '[Answer extracted]\n$answer';
+    } else if (explanation != null && explanation.isNotEmpty) {
+      q['content'] = '[Explanation extracted]\n$explanation';
+    } else {
+      q['content'] = 'No question content';
+    }
+  }
+
+  static void _normalizeQuestionFields(Map<String, dynamic> q) {
+    final content = q['content'];
+    if (content != null) {
+      q['content'] = cleanLatexBeforeDB(content.toString());
+    }
+
+    final standardAnswer = q['standard_answer'];
+    if (standardAnswer != null) {
+      q['standard_answer'] = cleanLatexBeforeDB(standardAnswer.toString());
+    }
+
+    final answer = q['answer'];
+    if (answer != null) {
+      q['answer'] = cleanLatexBeforeDB(answer.toString());
+    }
+
+    final explanation = q['explanation'];
+    if (explanation != null) {
+      q['explanation'] = cleanLatexBeforeDB(explanation.toString());
+    }
+
+    final rawExplanation = q['raw_explanation'];
+    if (rawExplanation != null) {
+      q['raw_explanation'] = cleanLatexBeforeDB(rawExplanation.toString());
+    }
+
+    final options = q['options'];
+    if (options is List) {
+      q['options'] = options
+          .map((option) => cleanLatexBeforeDB(option.toString()))
+          .toList(growable: false);
+    }
+  }
+
+  static int _extractOptionsFromContentIfNeeded(
+    Map<String, dynamic> q,
+    int currentType,
+  ) {
+    final content = q['content']?.toString() ?? '';
+    final optionMatch = RegExp(
+      r'(?:^|\s)(?:\(?A\)?|A)[\.、．]\s*(.*?)'
+      r'(?:\s)(?:\(?B\)?|B)[\.、．]\s*(.*?)'
+      r'(?:\s)(?:\(?C\)?|C)[\.、．]\s*(.*?)'
+      r'(?:\s)(?:\(?D\)?|D)[\.、．]\s*(.*)$',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(content);
+
+    if (optionMatch == null) return currentType;
+
+    final existingOptions = q['options'];
+    final hasExistingOptions = existingOptions is List &&
+        existingOptions.any((option) => option.toString().trim().isNotEmpty);
+    if (hasExistingOptions) return currentType;
+
+    q['content'] = content.substring(0, optionMatch.start).trim();
+    q['options'] = [
+      'A. ${cleanLatexBeforeDB(optionMatch.group(1)!.trim())}',
+      'B. ${cleanLatexBeforeDB(optionMatch.group(2)!.trim())}',
+      'C. ${cleanLatexBeforeDB(optionMatch.group(3)!.trim())}',
+      'D. ${cleanLatexBeforeDB(optionMatch.group(4)!.trim())}',
     ];
 
-    for (final keyword in mathKeywords) {
-      if (cleanTex.contains(keyword)) {
-        return true;
-      }
-    }
-    return false;
+    if (currentType == 3) return 0;
+    return currentType;
   }
 
-  static dynamic _restoreBslash(dynamic node) {
-    if (node is String) {
-      return node.replaceAll('BSLASH', '\\');
-    } else if (node is List) {
-      return node.map((e) => _restoreBslash(e)).toList();
-    } else if (node is Map<String, dynamic>) {
-      final Map<String, dynamic> newMap = {};
-      node.forEach((key, value) {
-        newMap[key] = _restoreBslash(value);
-      });
-      return newMap;
+  static void _normalizeQuestionType(Map<String, dynamic> q, int currentType) {
+    if (currentType == 2 || currentType == 3) {
+      q['type'] = currentType;
+      q['options'] = const <String>[];
+      return;
     }
-    return node;
+
+    final options = q['options'];
+    final hasOptions = options is List &&
+        options.any((option) => option.toString().trim().isNotEmpty);
+    if (hasOptions) {
+      q['type'] = currentType == 1 ? 1 : 0;
+    } else {
+      q['type'] = 3;
+      q['options'] = const <String>[];
+    }
+  }
+
+  static int? _readInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  static String _decodeLiteralControls(String text) {
+    return text
+        .replaceAllMapped(RegExp(r'\\n(?![A-Za-z])'), (_) => '\n')
+        .replaceAllMapped(RegExp(r'\\t(?![A-Za-z])'), (_) => '\t');
   }
 }

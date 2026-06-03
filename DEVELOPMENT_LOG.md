@@ -1,5 +1,17 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 00:13] - refactor(render): 基于Tokenizer重构分词与数学公式渲染管线
+- **变更类型**: refactor
+- **影响模块**: render, ui, utils
+- **详细改动明细**:
+  - [x] 新建了 `lib/utils/content_tokenizer.dart`，实现基于状态机顺序扫描的文本、数学公式、图片及空白占位分词器，取代混乱的正则表达式扫描。
+  - [x] 新建了 `lib/utils/content_normalizer.dart`，用于标准化公式定界符（如把 `$$` 和 `$` 统一为 `\[` 和 `\(`），自动剥离 LaTeX 内部的连续下划线 `___` 并过滤 `<think>` 标签。
+  - [x] 新建了 `lib/ui/widgets/structured_content_renderer.dart`，基于 Token 序列利用 `RichText` 与 `WidgetSpan` 结构化组合行内元素，并增加了针对行内公式的自适应缩放、块级公式的横向滚动、特殊指令替换与 Unicode 字符自动纠错等防御性机制。
+  - [x] 修改了 `lib/ui/widgets/markdown_extensions.dart`，将 `buildLatexWidget` 统一指向新的 `StructuredContentRenderer`，实现全局无缝升级。
+  - [x] 修改了 `lib/utils/ai_data_sanitizer.dart`，配合新归一化引擎简化数据入库与清洗管道。
+  - [x] 重构了 `test/render_matrix_test.dart` 测试套件，补充覆盖了 Tokenizer、Normalizer 及 Widget 渲染的各项边界条件，验证全部通过。
+- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 12 tests passed!)。
+
 ## [2026-06-01 07:34] - fix(ai): 移除裸命令包裹逻辑，统一将 \(\) 和 \[\] 转换为 \$，强化 AI 占位符包裹红线
 - **变更类型**: fix
 - **影响模块**: ai_engine, ai_sanitizer

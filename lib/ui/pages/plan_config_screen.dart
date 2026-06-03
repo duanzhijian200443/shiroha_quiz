@@ -140,6 +140,10 @@ class _PlanConfigScreenState extends State<PlanConfigScreen> with SingleTickerPr
       }
 
       // 2. 渲染带有 ExpansionTile 的树状嵌套列表
+      if (groupedBanks.isEmpty) {
+        return const Center(child: Text('暂无题库，请先导入', style: TextStyle(color: Colors.grey)));
+      }
+
       return ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: groupedBanks.length,
