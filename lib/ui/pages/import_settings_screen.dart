@@ -31,7 +31,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 
   // 核心重构：对接全局 TaskManager 的后台任务派发器
-  void _dispatchBackgroundTask(String sourceDesc, Future<List<Map<String, dynamic>>> Function(String taskId) parseTask) {
+  void _dispatchBackgroundTask(String sourceDesc,
+      Future<List<Map<String, dynamic>>> Function(String taskId) parseTask) {
     // 1. 生成工单并抛入全局管家
     final taskId = 'task_' + DateTime.now().millisecondsSinceEpoch.toString();
     TaskManager.instance.addTask(ImportTask(
@@ -42,18 +43,19 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     ));
 
     // 2. 瞬间退回上一页，解脱 UI 阻塞
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🚀 任务已派发！请在首页左上角“传输中心”查看实时进度。'), backgroundColor: Colors.blueAccent)
-    );
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('🚀 任务已派发！请在首页左上角“传输中心”查看实时进度。'),
+        backgroundColor: Colors.blueAccent));
     Navigator.pop(context);
 
     // 3. 在独立微任务队列中执行耗时大模型解析
     Future.microtask(() async {
       try {
-        TaskManager.instance.updateProgress(taskId, '正在呼叫 AI 引擎进行多模态解析...', 0.4);
-        
+        TaskManager.instance
+            .updateProgress(taskId, '正在呼叫 AI 引擎进行多模态解析...', 0.4);
+
         final parsedQuestions = await parseTask(taskId);
-        
+
         if (parsedQuestions.isEmpty) {
           TaskManager.instance.failTask(taskId, '解析完毕，但未提取到任何题目');
           return;
@@ -61,16 +63,11 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
 
         // 核心热修复：不再强行入库！转交管家进行状态挂起
         TaskManager.instance.requireReview(
-          taskId, 
-          '解析成功！请点击此处进行人工校对并入库', 
-          parsedQuestions, 
-          '', 
-          ''
-        );
+            taskId, '解析成功！请点击此处进行人工校对并入库', parsedQuestions, '', '');
 
-        rootScaffoldMessengerKey.currentState?.showSnackBar(
-          SnackBar(content: Text('🔔 $sourceDesc 解析完成，请前往左上角【传输中心】校对入库！'), backgroundColor: Colors.orange)
-        );
+        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
+            content: Text('🔔 $sourceDesc 解析完成，请前往左上角【传输中心】校对入库！'),
+            backgroundColor: Colors.orange));
       } catch (e) {
         TaskManager.instance.failTask(taskId, e.toString());
       }
@@ -79,28 +76,40 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
 
   Future<void> _pickImage(ImageSource source) async {
     try {
-      final XFile? image = await _picker.pickImage(source: source, imageQuality: 85);
+      final XFile? image =
+          await _picker.pickImage(source: source, imageQuality: 85);
       if (image == null) return;
       _dispatchBackgroundTask('图片识别', (taskId) async {
         return await AiService.instance.parseFileWithVision(image.path);
       });
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('获取图片失败: $e'), backgroundColor: Colors.redAccent));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('获取图片失败: $e'), backgroundColor: Colors.redAccent));
     }
   }
 
   Future<void> _pickAndParseFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['pdf', 'txt', 'png', 'jpg', 'jpeg', 'docx', 'md', 'zip'],
+      allowedExtensions: [
+        'pdf',
+        'txt',
+        'png',
+        'jpg',
+        'jpeg',
+        'docx',
+        'md',
+        'zip'
+      ],
       allowMultiple: true,
     );
 
     if (result == null || result.files.isEmpty) return;
-    
+
     // 如果是单文件，显示其名称；多文件则显示“多文件合并导入”
-    final String sourceDesc = result.files.length == 1 
-        ? result.files.first.name 
+    final String sourceDesc = result.files.length == 1
+        ? result.files.first.name
         : '多文件自动拼合 (${result.files.length}个)';
 
     _dispatchBackgroundTask(sourceDesc, (taskId) async {
@@ -113,8 +122,11 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         final filePath = result.files[fileIdx].path!;
         final lowerPath = filePath.toLowerCase();
         List<Map<String, dynamic>> singleFileQuestions = [];
-        
-        TaskManager.instance.updateProgress(taskId, '正在解析第 ${fileIdx + 1}/${result.files.length} 个文件...', 0.1 + (fileIdx / result.files.length) * 0.7);
+
+        TaskManager.instance.updateProgress(
+            taskId,
+            '正在解析第 ${fileIdx + 1}/${result.files.length} 个文件...',
+            0.1 + (fileIdx / result.files.length) * 0.7);
 
         if (_useVisionEngine) {
           List<String> imagePaths = [];
@@ -129,10 +141,14 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               double scale = 900 / page.width;
               if (scale > 2.0) scale = 2.0; // 限制最大缩放
               if (scale < 1.0) scale = 1.0; // 限制最小缩放，防止太模糊
-              
-              final pageImage = await page.render(width: page.width * scale, height: page.height * scale, format: pdfx.PdfPageImageFormat.jpeg);
+
+              final pageImage = await page.render(
+                  width: page.width * scale,
+                  height: page.height * scale,
+                  format: pdfx.PdfPageImageFormat.jpeg);
               if (pageImage != null) {
-                final imgFile = File('${tempDir.path}/file_${fileIdx}_page_$i.jpg');
+                final imgFile =
+                    File('${tempDir.path}/file_${fileIdx}_page_$i.jpg');
                 await imgFile.writeAsBytes(pageImage.bytes);
                 imagePaths.add(imgFile.path);
               }
@@ -142,7 +158,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           } else {
             imagePaths.add(filePath);
           }
-          
+
           // ── 按 pagesPerBatch 张图片打包为一批，大幅减少 API 调用次数 ──
           const int pagesPerBatch = 4; // 每次请求发几页：4页→调用次数减少4倍
           List<List<String>> batches = [];
@@ -156,27 +172,32 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             }
             if (end == imagePaths.length) break;
           }
-          debugPrint("📦 共 ${imagePaths.length} 页，打包为 ${batches.length} 批次（每批 $pagesPerBatch 页）");
+          debugPrint(
+              "📦 共 ${imagePaths.length} 页，打包为 ${batches.length} 批次（每批 $pagesPerBatch 页）");
 
           int maxConcurrency = _maxConcurrency.toInt();
           List<List<String>> pendingBatches = List.from(batches);
-          TaskManager.instance.appendPendingChunks(taskId, 'vision', pendingBatches.map((b) => b.join(',')).toList());
+          TaskManager.instance.appendPendingChunks(taskId, 'vision',
+              pendingBatches.map((b) => b.join(',')).toList());
           while (pendingBatches.isNotEmpty) {
             List<Future<void>> workers = [];
             int currentWorkers = maxConcurrency;
-            if (currentWorkers > pendingBatches.length) currentWorkers = pendingBatches.length;
+            if (currentWorkers > pendingBatches.length)
+              currentWorkers = pendingBatches.length;
             for (int i = 0; i < currentWorkers; i++) {
               workers.add(() async {
                 while (pendingBatches.isNotEmpty) {
                   final batch = pendingBatches.removeAt(0);
                   final batchKey = batch.join(',');
                   try {
-                    final res = await AiService.instance.parseImagesWithVision(batch);
+                    final res =
+                        await AiService.instance.parseImagesWithVision(batch);
                     singleFileQuestions.addAll(res);
-                    TaskManager.instance.markChunkSuccess(taskId, batchKey, res);
+                    TaskManager.instance
+                        .markChunkSuccess(taskId, batchKey, res);
                   } catch (e) {
                     final errorStr = e.toString().toLowerCase();
-                    if (errorStr.contains('429') || 
+                    if (errorStr.contains('429') ||
                         errorStr.contains('too many requests') ||
                         errorStr.contains('connection closed') ||
                         errorStr.contains('clientexception') ||
@@ -188,12 +209,15 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                       return;
                     } else if (errorStr.contains('timeout')) {
                       pendingBatches.insert(0, batch);
-                      if (maxConcurrency > 1) maxConcurrency--;
-                      else await Future.delayed(const Duration(seconds: 10));
+                      if (maxConcurrency > 1)
+                        maxConcurrency--;
+                      else
+                        await Future.delayed(const Duration(seconds: 10));
                       return;
                     } else {
                       TaskManager.instance.markChunkFailed(taskId, batchKey);
-                      debugPrint("⚠️ 批次 ${batch.length} 页视觉解析彻底失败: $e，跳过以挽救其他数据");
+                      debugPrint(
+                          "⚠️ 批次 ${batch.length} 页视觉解析彻底失败: $e，跳过以挽救其他数据");
                     }
                   }
                 }
@@ -201,7 +225,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             }
             await Future.wait(workers);
           }
-          
+
           // 对单文件内图片分页导致的数据碎片，运行一次本地拉链合并作为防抖
           singleFileQuestions = _runJigsawMerge(singleFileQuestions);
         } else {
@@ -216,12 +240,15 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           } else if (lowerPath.endsWith('.docx')) {
             final bytes = await file.readAsBytes();
             rawText = docxToText(bytes);
-            rawText = rawText.replaceAll(RegExp(r'<[^>]+>'), ' ').replaceAll(RegExp(r'\s{2,}'), ' ');
+            rawText = rawText
+                .replaceAll(RegExp(r'<[^>]+>'), ' ')
+                .replaceAll(RegExp(r'\s{2,}'), ' ');
           } else if (lowerPath.endsWith('.zip')) {
             final bytes = await file.readAsBytes();
             final archive = ZipDecoder().decodeBytes(bytes);
             for (final archiveFile in archive) {
-              if (archiveFile.isFile && archiveFile.name.toLowerCase().endsWith('.md')) {
+              if (archiveFile.isFile &&
+                  archiveFile.name.toLowerCase().endsWith('.md')) {
                 final data = archiveFile.content as List<int>;
                 rawText = utf8.decode(data, allowMalformed: true);
                 isMarkdownFile = true;
@@ -234,7 +261,10 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           }
 
           if (rawText.trim().length > 10) {
-            singleFileQuestions = await AiService.instance.parseTextToQuestions(rawText, taskId: taskId, isMarkdown: isMarkdownFile);
+            singleFileQuestions = await AiService.instance.parseTextToQuestions(
+                rawText,
+                taskId: taskId,
+                isMarkdown: isMarkdownFile);
           }
         }
 
@@ -245,12 +275,12 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
 
       // 如果有多个文件，交给大模型做轻量级结构化交叉配对
       if (fileResults.length > 1) {
-         TaskManager.instance.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
-         return await AiService.instance.mergeStructuredQuestions(fileResults);
+        TaskManager.instance.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
+        return await AiService.instance.mergeStructuredQuestions(fileResults);
       } else if (fileResults.length == 1) {
-         return fileResults.first;
+        return fileResults.first;
       } else {
-         return [];
+        return [];
       }
     });
   }
@@ -259,12 +289,13 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   // 🧩 本地智能拼图归并算法 (Local Jigsaw Merge Algorithm)
   // 功能：将纯答案页（模式 C）与孤立题干（模式 B）按题号配对，完成闭环拼图
   // ============================================================
-  List<Map<String, dynamic>> _runJigsawMerge(List<Map<String, dynamic>> allParsedQuestions) {
+  List<Map<String, dynamic>> _runJigsawMerge(
+      List<Map<String, dynamic>> allParsedQuestions) {
     if (allParsedQuestions.isEmpty) return [];
 
-    final Map<String, Map<String, dynamic>> questionByNum = {};    // 题干桶：key=q_num
-    final Map<String, Map<String, dynamic>> answerByNum = {};      // 答案桶：key=q_num
-    final List<Map<String, dynamic>> noNumQuestions = [];          // 无编号题目暂存区
+    final Map<String, Map<String, dynamic>> questionByNum = {}; // 题干桶：key=q_num
+    final Map<String, Map<String, dynamic>> answerByNum = {}; // 答案桶：key=q_num
+    final List<Map<String, dynamic>> noNumQuestions = []; // 无编号题目暂存区
 
     for (final q in allParsedQuestions) {
       String qNumRaw = (q['q_num'] ?? '').toString().trim();
@@ -272,10 +303,17 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       final numMatch = RegExp(r'\d+').firstMatch(qNumRaw);
       if (numMatch != null) qNum = numMatch.group(0)!;
 
-      final hasContent = q['content'] != null && (q['content'] as String).trim().isNotEmpty;
+      final hasContent =
+          q['content'] != null && (q['content'] as String).trim().isNotEmpty;
       final ansStr = (q['standard_answer']?.toString() ?? '').trim();
       final lowerAns = ansStr.toLowerCase();
-      final hasAnswer = ansStr.isNotEmpty && lowerAns != 'null' && lowerAns != 'none' && ansStr != '无' && ansStr != '未提供' && !ansStr.contains('未见答案') && !ansStr.contains('暂无');
+      final hasAnswer = ansStr.isNotEmpty &&
+          lowerAns != 'null' &&
+          lowerAns != 'none' &&
+          ansStr != '无' &&
+          ansStr != '未提供' &&
+          !ansStr.contains('未见答案') &&
+          !ansStr.contains('暂无');
 
       if (qNum.isEmpty) {
         if (hasContent || hasAnswer) noNumQuestions.add(q);
@@ -308,14 +346,14 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           final existing = questionByNum[qNum]!;
           final existingContent = existing['content']?.toString() ?? '';
           final newContent = q['content']?.toString() ?? '';
-          
+
           // 长度博弈：保留更长、内容更丰富的题干，防止跨页造成的伪题干（短答案）覆盖真题干
           if (existingContent.length >= newContent.length) {
             // 保留原有题干，但把新来的答案和解析吃进来（补全拼图）
             if (hasAnswer) {
               existing['standard_answer'] = q['standard_answer'];
               if (q['explanation'] != null) {
-                 existing['explanation'] = q['explanation'];
+                existing['explanation'] = q['explanation'];
               }
             }
           } else {
@@ -336,7 +374,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       final answerSlot = entry.value;
       if (questionByNum.containsKey(num)) {
         final q = questionByNum[num]!;
-        if (q['standard_answer'] == null || q['standard_answer'].toString().trim().isEmpty) {
+        if (q['standard_answer'] == null ||
+            q['standard_answer'].toString().trim().isEmpty) {
           q['standard_answer'] = answerSlot['standard_answer'];
         }
         if (q['explanation'] == null && answerSlot['explanation'] != null) {
@@ -348,35 +387,45 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     }
 
     final mergedQuestions = [...questionByNum.values, ...noNumQuestions];
-    
+
     // 按题型（选择 -> 填空 -> 解答）和题号进行自动化排序
     mergedQuestions.sort((a, b) {
-      int typeA = (a['type'] is int) ? a['type'] : int.tryParse(a['type']?.toString() ?? '3') ?? 3;
-      int typeB = (b['type'] is int) ? b['type'] : int.tryParse(b['type']?.toString() ?? '3') ?? 3;
-      
+      int typeA = (a['type'] is int)
+          ? a['type']
+          : int.tryParse(a['type']?.toString() ?? '3') ?? 3;
+      int typeB = (b['type'] is int)
+          ? b['type']
+          : int.tryParse(b['type']?.toString() ?? '3') ?? 3;
+
       // 统一 0 和 1（单选/多选）都在最前
       int weightA = (typeA == 0 || typeA == 1) ? 0 : typeA;
       int weightB = (typeB == 0 || typeB == 1) ? 0 : typeB;
-      
+
       if (weightA != weightB) {
         return weightA.compareTo(weightB);
       }
-      
+
       // 类型相同，按题号数字排序
       String qNumRawA = (a['q_num'] ?? '').toString();
       String qNumRawB = (b['q_num'] ?? '').toString();
-      int qNumA = int.tryParse(RegExp(r'\d+').firstMatch(qNumRawA)?.group(0) ?? '999') ?? 999;
-      int qNumB = int.tryParse(RegExp(r'\d+').firstMatch(qNumRawB)?.group(0) ?? '999') ?? 999;
-      
+      int qNumA = int.tryParse(
+              RegExp(r'\d+').firstMatch(qNumRawA)?.group(0) ?? '999') ??
+          999;
+      int qNumB = int.tryParse(
+              RegExp(r'\d+').firstMatch(qNumRawB)?.group(0) ?? '999') ??
+          999;
+
       return qNumA.compareTo(qNumB);
     });
 
-    debugPrint('🧩 拼图归并完成：题干桶=${questionByNum.length}，答案桶=${answerByNum.length}，无编号区=${noNumQuestions.length}，最终结果=${mergedQuestions.length} 题');
+    debugPrint(
+        '🧩 拼图归并完成：题干桶=${questionByNum.length}，答案桶=${answerByNum.length}，无编号区=${noNumQuestions.length}，最终结果=${mergedQuestions.length} 题');
     return mergedQuestions;
   }
 
   Future<void> _pasteAndParse() async {
-    final pastedText = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const PasteTextScreen()));
+    final pastedText = await Navigator.push<String>(context,
+        MaterialPageRoute(builder: (context) => const PasteTextScreen()));
     if (pastedText != null && pastedText.trim().length >= 10) {
       _dispatchBackgroundTask('剪贴板注入', (taskId) async {
         return await AiService.instance.parseTextToQuestions(pastedText);
@@ -389,42 +438,70 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('导入题目', style: TextStyle(fontWeight: FontWeight.bold))),
+      appBar: AppBar(
+          title: const Text('导入题目',
+              style: TextStyle(fontWeight: FontWeight.bold))),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ExpansionTile(
-              title: const Text('查看标准 JSON 导入格式', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              collapsedBackgroundColor: theme.primaryColor.withOpacity(0.05), backgroundColor: theme.primaryColor.withOpacity(0.05),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: const Text('查看标准 JSON 导入格式',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              collapsedBackgroundColor: theme.primaryColor.withOpacity(0.05),
+              backgroundColor: theme.primaryColor.withOpacity(0.05),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              collapsedShape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               childrenPadding: const EdgeInsets.all(16),
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: theme.brightness == Brightness.dark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(8)),
-                  child: const Text('[\n  {\n    "type": 0,\n    "content": "题干",\n    "options": ["A.", "B."],\n    "standard_answer": "A",\n    "explanation": "解析"\n  }\n]', style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.blueGrey)),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: theme.brightness == Brightness.dark
+                          ? Colors.black45
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(8)),
+                  child: const Text(
+                      '[\n  {\n    "type": 0,\n    "content": "题干",\n    "options": ["A.", "B."],\n    "standard_answer": "A",\n    "explanation": "解析"\n  }\n]',
+                      style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: Colors.blueGrey)),
                 ),
               ],
             ),
             const SizedBox(height: 24),
             SwitchListTile(
-              title: const Text('深度视觉解析 (慢速/极高精度)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              subtitle: const Text('包含代码截图或复杂公式的 PDF/图片 请开启。', style: TextStyle(fontSize: 12)),
-              value: _useVisionEngine, activeColor: Colors.purpleAccent, contentPadding: EdgeInsets.zero,
+              title: const Text('深度视觉解析 (慢速/极高精度)',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              subtitle: const Text('包含代码截图或复杂公式的 PDF/图片 请开启。',
+                  style: TextStyle(fontSize: 12)),
+              value: _useVisionEngine,
+              activeColor: Colors.purpleAccent,
+              contentPadding: EdgeInsets.zero,
               onChanged: (val) => setState(() => _useVisionEngine = val),
             ),
             if (_useVisionEngine)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('多图并发线程上限', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        Text('${_maxConcurrency.toInt()} 线程', style: const TextStyle(fontSize: 13, color: Colors.purpleAccent, fontWeight: FontWeight.bold)),
+                        const Text('多图并发线程上限',
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.bold)),
+                        Text('${_maxConcurrency.toInt()} 线程',
+                            style: const TextStyle(
+                                fontSize: 13,
+                                color: Colors.purpleAccent,
+                                fontWeight: FontWeight.bold)),
                       ],
                     ),
                     Slider(
@@ -435,28 +512,69 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                       activeColor: Colors.purpleAccent,
                       onChanged: (val) => setState(() => _maxConcurrency = val),
                     ),
-                    const Text('⚠️ 提示: 并发越高速度越快，若触发大模型 429 频率限制，引擎会自动为您降频。', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const Text('⚠️ 提示: 并发越高速度越快，若触发大模型 429 频率限制，引擎会自动为您降频。',
+                        style: TextStyle(fontSize: 11, color: Colors.grey)),
                   ],
                 ),
               ),
             const SizedBox(height: 24),
             Row(
               children: [
-                Expanded(child: ElevatedButton.icon(style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: theme.primaryColor, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0), icon: const Icon(Icons.camera_alt_rounded), label: const Text('拍照识别', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)), onPressed: () => _pickImage(ImageSource.camera))),
+                Expanded(
+                    child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: theme.primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0),
+                        icon: const Icon(Icons.camera_alt_rounded),
+                        label: const Text('拍照识别',
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold)),
+                        onPressed: () => _pickImage(ImageSource.camera))),
                 const SizedBox(width: 12),
-                Expanded(child: ElevatedButton.icon(style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: theme.primaryColor, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0), icon: const Icon(Icons.photo_library_rounded), label: const Text('相册选图', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)), onPressed: () => _pickImage(ImageSource.gallery))),
+                Expanded(
+                    child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: theme.primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0),
+                        icon: const Icon(Icons.photo_library_rounded),
+                        label: const Text('相册选图',
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold)),
+                        onPressed: () => _pickImage(ImageSource.gallery))),
               ],
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), foregroundColor: theme.primaryColor, side: BorderSide(color: theme.primaryColor.withOpacity(0.3)), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              icon: const Icon(Icons.folder_open_rounded), label: const Text('从文件管理器选择 (PDF/ZIP)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  foregroundColor: theme.primaryColor,
+                  side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12))),
+              icon: const Icon(Icons.folder_open_rounded),
+              label: const Text('从文件管理器选择 (PDF/ZIP)',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
               onPressed: _pickAndParseFile,
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), foregroundColor: theme.primaryColor, side: BorderSide(color: theme.primaryColor.withOpacity(0.3)), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              icon: const Icon(Icons.content_paste), label: const Text('从剪贴板粘贴文本解析', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  foregroundColor: theme.primaryColor,
+                  side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12))),
+              icon: const Icon(Icons.content_paste),
+              label: const Text('从剪贴板粘贴文本解析',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
               onPressed: _pasteAndParse,
             ),
           ],

@@ -26,17 +26,21 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('粘贴文本解析', style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+            const Text('粘贴文本解析', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           TextButton(
             onPressed: () {
               if (_textController.text.trim().length < 10) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('有效文本长度不能少于 10 个字符')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('有效文本长度不能少于 10 个字符')));
                 return;
               }
               Navigator.pop(context, _textController.text);
             },
-            child: const Text('确认提取', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            child: const Text('确认提取',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.blueAccent)),
           )
         ],
       ),
@@ -48,7 +52,9 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('请将题目标准文本粘贴至下方：', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const Text('请将题目标准文本粘贴至下方：',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.grey)),
                   TextButton.icon(
                     onPressed: _pasteFromClipboard,
                     icon: const Icon(Icons.paste_rounded, size: 16),
@@ -65,7 +71,8 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                   textAlignVertical: TextAlignVertical.top,
                   decoration: InputDecoration(
                     hintText: '例如:\n1. 中国的首都是哪里？\nA. 北京\nB. 上海\n答案：A',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
                     filled: true,
                     fillColor: theme.cardTheme.color,
                   ),

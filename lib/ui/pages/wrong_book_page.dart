@@ -147,7 +147,9 @@ class _WrongBookPageState extends State<WrongBookPage> {
           mdText.writeln('#### 选项');
           for (int i = 0; i < options.length; i++) {
             String optStr = options[i].toString().trim();
-            String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+            String stripped = optStr
+                .replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '')
+                .trim();
             if (stripped.isEmpty) stripped = optStr;
             mdText.writeln('${String.fromCharCode(65 + i)}. $stripped');
           }
@@ -174,11 +176,13 @@ class _WrongBookPageState extends State<WrongBookPage> {
 
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           elevation: 0,
           color: Colors.white,
           child: ExpansionTile(
-            tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            tilePadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             title: Text(
               bankName,
@@ -223,16 +227,22 @@ class _WrongBookPageState extends State<WrongBookPage> {
                   decoration: BoxDecoration(
                     color: Colors.orangeAccent.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                    border:
+                        Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
                     onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionEditScreen(question: q)))
+                      Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      QuestionEditScreen(question: q)))
                           .then((modified) {
                         if (modified == true) {
                           setState(() {
-                            _future = ReviewEngineService().getDetailedWrongQuestions();
+                            _future = ReviewEngineService()
+                                .getDetailedWrongQuestions();
                           });
                         }
                       });
@@ -241,9 +251,14 @@ class _WrongBookPageState extends State<WrongBookPage> {
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Column(
                         children: [
-                          Icon(Icons.edit_note_rounded, color: Colors.orangeAccent, size: 20),
+                          Icon(Icons.edit_note_rounded,
+                              color: Colors.orangeAccent, size: 20),
                           SizedBox(height: 4),
-                          Text('✍️ 暂无答案，点击手动添加或修改', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                          Text('✍️ 暂无答案，点击手动添加或修改',
+                              style: TextStyle(
+                                  color: Colors.orangeAccent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),

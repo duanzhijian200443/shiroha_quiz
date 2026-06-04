@@ -18,10 +18,10 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _pages = [
-      const HomePage(),         // Tab 0
+      const HomePage(), // Tab 0
       const DataCenterScreen(), // Tab 1
       const MockCenterScreen(), // Tab 2 — 模考中心
-      const ProfileScreen(),    // Tab 3
+      const ProfileScreen(), // Tab 3
     ];
   }
 
@@ -36,10 +36,14 @@ class _MainScreenState extends State<MainScreen> {
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: '今日面板'),
-          BottomNavigationBarItem(icon: Icon(Icons.library_books_rounded), label: '学科库'),
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_long_rounded), label: '模考中心'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: '我的'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard_rounded), label: '今日面板'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.library_books_rounded), label: '学科库'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.receipt_long_rounded), label: '模考中心'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline), label: '我的'),
         ],
       ),
     );

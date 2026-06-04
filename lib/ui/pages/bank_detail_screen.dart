@@ -27,13 +27,15 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
     );
   }
 
-  Widget _buildPracticeCard(BuildContext context, String icon, String title, String subtitle, int? type) {
+  Widget _buildPracticeCard(BuildContext context, String icon, String title,
+      String subtitle, int? type) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textLevel1 = isDark ? Colors.white.withOpacity(0.87) : Colors.black87;
     final textLevel2 = isDark ? Colors.white.withOpacity(0.60) : Colors.black54;
     final iconLevel3 = isDark ? Colors.white38 : Colors.black38;
-    final cardBorder = isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
+    final cardBorder =
+        isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
 
     return Card(
       elevation: 0,
@@ -42,12 +44,16 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
         side: BorderSide(color: cardBorder),
         borderRadius: BorderRadius.circular(16),
       ),
-      color: theme.cardTheme.color ?? (isDark ? const Color(0xFF1E1E1E) : Colors.white),
+      color: theme.cardTheme.color ??
+          (isDark ? const Color(0xFF1E1E1E) : Colors.white),
       child: ListTile(
         leading: Text(icon, style: const TextStyle(fontSize: 24)),
-        title: Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: textLevel1)),
-        subtitle: Text(subtitle, style: TextStyle(color: textLevel2, fontSize: 12)),
-        trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: iconLevel3),
+        title: Text(title,
+            style: TextStyle(fontWeight: FontWeight.w600, color: textLevel1)),
+        subtitle:
+            Text(subtitle, style: TextStyle(color: textLevel2, fontSize: 12)),
+        trailing:
+            Icon(Icons.arrow_forward_ios_rounded, size: 16, color: iconLevel3),
         onTap: () => _startPractice(context, type),
       ),
     );
@@ -59,12 +65,14 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final textLevel1 = isDark ? Colors.white.withOpacity(0.87) : Colors.black87;
     final textLevel2 = isDark ? Colors.white.withOpacity(0.60) : Colors.black54;
-    final cardBorder = isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
+    final cardBorder =
+        isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(widget.bankName, style: const TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(widget.bankName,
+            style: const TextStyle(fontWeight: FontWeight.w800)),
         backgroundColor: theme.scaffoldBackgroundColor,
         foregroundColor: textLevel1,
         elevation: 0,
@@ -75,31 +83,40 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
         children: [
           Text(
             '选择专项练习',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textLevel1),
+            style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.bold, color: textLevel1),
           ),
           const SizedBox(height: 16),
           Card(
-             elevation: 0,
-             margin: const EdgeInsets.only(bottom: 24.0),
-             color: theme.primaryColor.withOpacity(0.05),
-             shape: RoundedRectangleBorder(
-               borderRadius: BorderRadius.circular(16), 
-               side: BorderSide(color: theme.primaryColor.withOpacity(0.2))
-             ),
-             child: ListTile(
-               leading: Container(
-                 padding: const EdgeInsets.all(8), 
-                 decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(8)), 
-                 child: const Icon(Icons.menu_book_rounded, color: Colors.white)
-               ),
-               title: const Text('浏览题库内容', style: TextStyle(fontWeight: FontWeight.bold)),
-               subtitle: const Text('上帝视角查看所有题目与解析', style: TextStyle(fontSize: 12, color: Colors.grey)),
-               trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-               onTap: () {
-                 Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionListScreen(bankName: widget.bankName)));
-               },
-             ),
-           ),
+            elevation: 0,
+            margin: const EdgeInsets.only(bottom: 24.0),
+            color: theme.primaryColor.withOpacity(0.05),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: theme.primaryColor.withOpacity(0.2))),
+            child: ListTile(
+              leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                      color: Colors.blueAccent,
+                      borderRadius: BorderRadius.circular(8)),
+                  child:
+                      const Icon(Icons.menu_book_rounded, color: Colors.white)),
+              title: const Text('浏览题库内容',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('上帝视角查看所有题目与解析',
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+              trailing: const Icon(Icons.arrow_forward_ios,
+                  size: 16, color: Colors.grey),
+              onTap: () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            QuestionListScreen(bankName: widget.bankName)));
+              },
+            ),
+          ),
           _buildPracticeCard(context, '🎯', '全类型自适应复习', '智能混排，全面提升', null),
           _buildPracticeCard(context, '📝', '选择题专项', '单选多选集中突破', 0),
           _buildPracticeCard(context, '✏️', '填空题专项', '精准记忆，不留死角', 2),
@@ -107,8 +124,11 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
           const SizedBox(height: 32),
           Divider(color: isDark ? Colors.white24 : Colors.grey.shade200),
           SwitchListTile(
-            title: Text('🍅 开启番茄钟模式 (25分钟)', style: TextStyle(fontWeight: FontWeight.w600, color: textLevel1)),
-            subtitle: Text('沉浸式专注，结束自动结算数据', style: TextStyle(color: textLevel2)),
+            title: Text('🍅 开启番茄钟模式 (25分钟)',
+                style:
+                    TextStyle(fontWeight: FontWeight.w600, color: textLevel1)),
+            subtitle:
+                Text('沉浸式专注，结束自动结算数据', style: TextStyle(color: textLevel2)),
             value: _isPomodoroActive,
             activeColor: Colors.deepOrange,
             contentPadding: EdgeInsets.zero,

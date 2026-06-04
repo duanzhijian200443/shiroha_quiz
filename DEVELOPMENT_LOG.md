@@ -1,5 +1,13 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 22:20] - refactor(service): 隔离核心服务层的数据库直接操作，达成完全体架构 (Phase 5)
+- **变更类型**: refactor
+- **影响模块**: core, data, services
+- **详细改动明细**:
+  - [x] 重构了 FSRS 核心算法服务 `review_engine_service.dart`，抽取所有 SQLite 直连逻辑至新建的 `ReviewRepository`，让引擎变成纯粹的数学计算与调度编排器。
+  - [x] 重构了任务管理器 `task_manager.dart`，提取状态持久化逻辑至新建的 `ImportTaskRepository`。
+  - [x] 修剪了 `ai_service.dart` 里的越权行为，将读取错题转发至 `QuestionRepository`。
+- **验证状态**: 经 `dart format` 与 `dart analyze` 验证通过，修复了几处局部 API 更名带来的联动错误。自动化单元测试 `flutter test` 在最高危的事务剥离操作下依旧保持 100% 绿灯。项目架构彻底实现了 UI -> Service -> Repository -> Database 的解耦。
 ## [2026-06-04 22:05] - refactor(exam): 将模考链路的 UI 层直连全面迁移至 ExamRepository
 - **变更类型**: refactor
 - **影响模块**: data, ui

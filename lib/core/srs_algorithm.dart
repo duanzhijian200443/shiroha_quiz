@@ -1,4 +1,4 @@
-﻿class SRSAlgorithm {
+class SRSAlgorithm {
   // grade: 0(遗忘), 1(困难), 2(顺利), 3(极易)
   static Map<String, dynamic> calculateNextState(
     int grade,
@@ -7,10 +7,8 @@
     int reps = (currentState['reps'] as num?)?.toInt() ?? 0;
     double easeFactor =
         (currentState['ease_factor'] as num?)?.toDouble() ?? 2.5;
-    int intervalMs =
-        (currentState['interval_ms'] as num?)?.toInt() ?? 0;
-    int lapseCount =
-        (currentState['lapse_count'] as num?)?.toInt() ?? 0;
+    int intervalMs = (currentState['interval_ms'] as num?)?.toInt() ?? 0;
+    int lapseCount = (currentState['lapse_count'] as num?)?.toInt() ?? 0;
 
     final int nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -25,15 +23,13 @@
       } else if (reps == 1) {
         intervalMs = 518400000; // 第二次记住，6天后
       } else {
-        double gradeMultiplier =
-            grade == 1 ? 0.8 : (grade == 3 ? 1.3 : 1.0);
-        intervalMs =
-            (intervalMs * easeFactor * gradeMultiplier).round();
+        double gradeMultiplier = grade == 1 ? 0.8 : (grade == 3 ? 1.3 : 1.0);
+        intervalMs = (intervalMs * easeFactor * gradeMultiplier).round();
       }
       reps += 1;
-      easeFactor = (easeFactor +
-              (0.1 - (3 - grade) * (0.08 + (3 - grade) * 0.02)))
-          .clamp(1.3, 3.5);
+      easeFactor =
+          (easeFactor + (0.1 - (3 - grade) * (0.08 + (3 - grade) * 0.02)))
+              .clamp(1.3, 3.5);
     }
 
     return {

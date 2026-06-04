@@ -3,12 +3,13 @@ import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:sqflite/sqflite.dart';
+
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
-import 'database/database_helper.dart';
+import 'package:shiroha_quiz/data/repositories/review_repository.dart';
+import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
 
 const _uuid = Uuid();
 
@@ -112,7 +113,8 @@ class _PendingWrite {
   final int durationMs;
   final String? userAnswer;
   final String? aiEvaluation;
-  _PendingWrite(this.questionId, this.grade, this.durationMs, this.userAnswer, this.aiEvaluation);
+  _PendingWrite(this.questionId, this.grade, this.durationMs, this.userAnswer,
+      this.aiEvaluation);
 }
 
 // ================================================================
@@ -136,8 +138,6 @@ class ReviewEngineService with WidgetsBindingObserver {
   static const int _batchSize = 5;
   static const Duration _debounceWindow = Duration(milliseconds: 800);
 
-  Future<Database> get _db async => await DatabaseHelper.instance.database;
-
   // ---- 生命周期：App 切后台时自动刷盘 ----
 
   @override
@@ -148,77 +148,23 @@ class ReviewEngineService with WidgetsBindingObserver {
     }
   }
 
-
-
   // ================================================================
   //  公开 API
   // ================================================================
 
-
-    Future<List<Map<String, dynamic>>> fetchDueQuestions({
-      String? bankName,
-      int? type,
-      int limit = 50,
-    }) async {
-      final db = await DatabaseHelper.instance.database;
-      final nowUnixSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      
-      // 1. 构建基础过滤条件
-      String baseWhere = '1=1';
-      List<dynamic> baseArgs = [];
-      if (bankName != null && bankName.isNotEmpty) {
-        baseWhere += ' AND q.bank_name = ?';
-        baseArgs.add(bankName);
-      }
-      if (type != null) {
-        if (type == 0) {
-          // 0 代表选择题大类，同时兼容单选(0)和多选(1)
-          baseWhere += ' AND q.type IN (0, 1)';
-        } else {
-          baseWhere += ' AND q.type = ?';
-          baseArgs.add(type);
-        }
-      }
-
-      // 2. 优先拉取到期题目
-      String dueQuery = '''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time, r.last_lapse_time
-        FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE $baseWhere AND r.next_review_time <= ?
-        ORDER BY r.next_review_time ASC
-        LIMIT ?
-      ''';
-      List<dynamic> dueArgs = [...baseArgs, nowUnixSeconds, limit];
-      List<Map<String, dynamic>> results = List<Map<String, dynamic>>.from(await db.rawQuery(dueQuery, dueArgs));
-
-      // 3. 降级兜底：如果到期题目不足 limit，拉取未到期题或新题补足队列
-      if (results.length < limit) {
-        int remain = limit - results.length;
-        List<String> existingIds = results.map((e) => e['id'] as String).toList();
-        String excludeClause = existingIds.isNotEmpty 
-            ? 'AND q.id NOT IN (${List.filled(existingIds.length, '?').join(',')})' 
-            : '';
-            
-        String fallbackQuery = '''
-          SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time, r.last_lapse_time
-          FROM questions q
-          JOIN review_states r ON q.id = r.question_id
-          WHERE $baseWhere $excludeClause
-          ORDER BY r.next_review_time ASC
-          LIMIT ?
-        ''';
-        List<dynamic> fallbackArgs = [...baseArgs];
-        if (existingIds.isNotEmpty) fallbackArgs.addAll(existingIds);
-        fallbackArgs.add(remain);
-        
-        List<Map<String, dynamic>> fallbackResults = await db.rawQuery(fallbackQuery, fallbackArgs);
-        results.addAll(fallbackResults);
-      }
-      
-      return results;
-    }
-
+  Future<List<Map<String, dynamic>>> fetchDueQuestions({
+    String? bankName,
+    int? type,
+    int limit = 50,
+  }) async {
+    final nowUnixSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return ReviewRepository.instance.fetchDueQuestions(
+      bankName: bankName,
+      type: type,
+      limit: limit,
+      nowUnixSeconds: nowUnixSeconds,
+    );
+  }
 
   Future<void> submitReviewResult(
     String questionId,
@@ -227,7 +173,8 @@ class ReviewEngineService with WidgetsBindingObserver {
     String? userAnswer,
     String? aiEvaluation,
   }) async {
-    _queue.add(_PendingWrite(questionId, grade, durationMs, userAnswer, aiEvaluation));
+    _queue.add(
+        _PendingWrite(questionId, grade, durationMs, userAnswer, aiEvaluation));
 
     if (_queue.length >= _batchSize) {
       _debounceTimer?.cancel();
@@ -247,148 +194,43 @@ class ReviewEngineService with WidgetsBindingObserver {
   }
 
   Future<Map<String, int>> getDashboardData() async {
-    final db = await _db;
     final int now = DateTime.now().millisecondsSinceEpoch;
-
     final int todayStart = DateTime(
       DateTime.now().year,
       DateTime.now().month,
       DateTime.now().day,
     ).millisecondsSinceEpoch;
 
-    final rows = await db.rawQuery('''
-      SELECT
-        (SELECT COUNT(*) FROM questions) AS question_count,
-        (SELECT COUNT(*) FROM review_states WHERE state = 3) AS mastered_count,
-        (SELECT COUNT(*) FROM review_states WHERE next_review_time <= ?) AS review_due,
-        (SELECT COUNT(*) FROM review_logs WHERE review_time >= ?) AS today_practice,
-        (SELECT COUNT(*) FROM review_states WHERE lapses > 0) AS wrong_count
-    ''', [now, todayStart]);
-
-    final row = rows.first;
-
-    return <String, int>{
-      'questionCount': row['question_count'] as int? ?? 0,
-      'masteredCount': row['mastered_count'] as int? ?? 0,
-      'reviewDue': row['review_due'] as int? ?? 0,
-      'todayPractice': row['today_practice'] as int? ?? 0,
-      'wrongCount': row['wrong_count'] as int? ?? 0,
-    };
+    return ReviewRepository.instance.getDashboardData(now, todayStart);
   }
 
-  Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() async {
-    final db = await _db;
-    return db.rawQuery('''
-      SELECT 
-        q.id, 
-        q.type, 
-        q.content, 
-        q.options, 
-        q.standard_answer, 
-        q.bank_name,
-        rs.lapses, 
-        rs.difficulty, 
-        rs.stability,
-        rs.last_lapse_time
-      FROM questions q
-      INNER JOIN review_states rs ON q.id = rs.question_id
-      WHERE rs.lapses > 0
-      ORDER BY rs.last_lapse_time DESC;
-    ''');
+  Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() {
+    return ReviewRepository.instance.getDetailedWrongQuestions();
   }
 
-  Future<void> clearAllData() async {
-    final db = await _db;
-    await db.delete('review_states');
-    await db.delete('review_logs');
-    await db.delete('questions');
+  Future<void> clearAllData() {
+    return ReviewRepository.instance.clearAllData();
   }
 
-  Future<void> deleteQuestionAndRelatedData(String questionId) async {
-    final db = await _db;
-    await db.delete('questions', where: 'id = ?', whereArgs: [questionId]);
+  Future<void> deleteQuestionAndRelatedData(String questionId) {
+    return ReviewRepository.instance.deleteQuestionAndRelatedData(questionId);
   }
 
-  Future<List<Map<String, dynamic>>> getQuestionBankStats() async {
-    final db = await _db;
+  Future<List<Map<String, dynamic>>> getQuestionBankStats() {
     final int now = TimeUtil.getRealUTCTimestamp();
-    return db.rawQuery('''
-      SELECT
-        q.bank_name,
-        COUNT(*) AS total_count,
-        SUM(CASE WHEN rs.next_review_time <= ? THEN 1 ELSE 0 END) AS due_count
-      FROM questions q
-      LEFT JOIN review_states rs ON q.id = rs.question_id
-      GROUP BY q.bank_name
-      ORDER BY q.bank_name
-    ''', [now]);
+    return ReviewRepository.instance.getQuestionBankStats(now);
   }
 
-  Future<Map<String, int>> getBankStats(String bankName) async {
-    final db = await DatabaseHelper.instance.database;
+  Future<Map<String, dynamic>> getBankStats(String bankName) {
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-    // 核心拦截：虚空错题本大盘计算
-    if (bankName == '🔥 全局错题本') {
-      final res = await db.rawQuery('''
-        SELECT COUNT(q.id) as total,
-               SUM(CASE WHEN r.next_review_time <= ? THEN 1 ELSE 0 END) as review_count
-        FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE r.lapses > 0
-      ''', [nowUnix]);
-      
-      final total = (res.first['total'] as int?) ?? 0;
-      final reviewCount = (res.first['review_count'] as int?) ?? 0;
-      
-      return {
-        'total': total,
-        'new_count': 0, // 错题本没有新题
-        'review_count': reviewCount,
-        'mastered_count': total - reviewCount,
-      };
-    }
-
-    // 1. 统计该题库总题数
-    final totalRes = await db.rawQuery('SELECT COUNT(id) as count FROM questions WHERE bank_name = ?', [bankName]);
-    final total = (totalRes.first['count'] as int?) ?? 0;
-
-    // 2. 统计新题数量 (state = 0: New)
-    final newRes = await db.rawQuery('''
-      SELECT COUNT(q.id) as count 
-      FROM questions q
-      JOIN review_states r ON q.id = r.question_id
-      WHERE q.bank_name = ? AND r.state = 0
-    ''', [bankName]);
-    final newCount = (newRes.first['count'] as int?) ?? 0;
-
-    // 3. 统计待复习数量 (state > 0 且 next_review_time <= 当前时间)
-    final reviewRes = await db.rawQuery('''
-      SELECT COUNT(q.id) as count 
-      FROM questions q
-      JOIN review_states r ON q.id = r.question_id
-      WHERE q.bank_name = ? AND r.state > 0 AND r.next_review_time <= ?
-    ''', [bankName, nowUnix]);
-    final reviewCount = (reviewRes.first['count'] as int?) ?? 0;
-
-    // 4. 统计已掌握数量 (非新题，且未到期的题)
-    final masteredCount = total - newCount - reviewCount;
-
-    return {
-      'total': total,
-      'new_count': newCount,
-      'review_count': reviewCount,
-      'mastered_count': masteredCount > 0 ? masteredCount : 0,
-    };
+    return ReviewRepository.instance.getBankStats(bankName, nowUnix);
   }
 
   Future<List<Map<String, dynamic>>> getAllBankStats() async {
-    final db = await DatabaseHelper.instance.database;
     List<Map<String, dynamic>> allStats = [];
 
     // 核心注入：动态生成虚拟错题本卡片
-    final lapseRes = await db.rawQuery('SELECT COUNT(question_id) as count FROM review_states WHERE lapses > 0');
-    final lapseCount = (lapseRes.first['count'] as int?) ?? 0;
+    final lapseCount = await ReviewRepository.instance.getGlobalLapseCount();
     if (lapseCount > 0) {
       final stats = await getBankStats('🔥 全局错题本');
       allStats.add({
@@ -401,21 +243,15 @@ class ReviewEngineService with WidgetsBindingObserver {
       });
     }
 
-    final res = await db.rawQuery('SELECT DISTINCT bank_name FROM questions');
-    
-    // 一次性获取所有题库的文件夹映射关系
-    final List<Map<String, dynamic>> mappings = await db.query('bank_folders');
-    final Map<String, String> folderMap = {
-      for (var item in mappings) item['bank_name'] as String: item['folder_name'] as String
-    };
+    final bankNames = await ReviewRepository.instance.getAllDistinctBankNames();
+    final folderMap = await ReviewRepository.instance.getAllBankFolders();
 
-    for (var row in res) {
-      String bName = row['bank_name'] as String;
+    for (var bName in bankNames) {
       final stats = await getBankStats(bName);
-      
-      final quotaStr = await DatabaseHelper.instance.getSetting('${bName}_daily_quota');
-      final quota = int.tryParse(quotaStr ?? '40') ?? 40;
-      
+
+      final quota = await SettingsRepository.instance
+          .getDailyQuota(bName, defaultQuota: 40);
+
       final unmastered = (stats['total'] ?? 0) - (stats['mastered_count'] ?? 0);
       final daysLeft = (unmastered / quota).ceil();
 
@@ -431,9 +267,8 @@ class ReviewEngineService with WidgetsBindingObserver {
     return allStats;
   }
 
-  Future<void> deleteQuestionBank(String bankName) async {
-    final db = await _db;
-    await db.delete('questions', where: 'bank_name = ?', whereArgs: [bankName]);
+  Future<void> deleteQuestionBank(String bankName) {
+    return ReviewRepository.instance.deleteQuestionBank(bankName);
   }
 
   // ================================================================
@@ -441,7 +276,8 @@ class ReviewEngineService with WidgetsBindingObserver {
   // ================================================================
 
   // Grade: 1=重来(Again), 2=困难(Hard), 3=顺利(Good), 4=极易(Easy)
-  Map<String, dynamic> _calculateFSRS(Map<String, dynamic> currentState, int grade) {
+  Map<String, dynamic> _calculateFSRS(
+      Map<String, dynamic> currentState, int grade) {
     double d = (currentState['difficulty'] as num?)?.toDouble() ?? 5.0;
     double s = (currentState['stability'] as num?)?.toDouble() ?? 0.0;
     int reps = (currentState['reps'] as int?) ?? 0;
@@ -449,7 +285,8 @@ class ReviewEngineService with WidgetsBindingObserver {
     int lastReview = (currentState['last_review_time'] as int?) ?? 0;
 
     final int nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final int actualElapsed = lastReview == 0 ? 0 : (nowUnix - lastReview) ~/ 86400;
+    final int actualElapsed =
+        lastReview == 0 ? 0 : (nowUnix - lastReview) ~/ 86400;
 
     // 1. 难度 D 的动态演进 (界于 1.0 - 10.0)
     double dNew = d - (grade - 3) * 0.8;
@@ -493,83 +330,40 @@ class ReviewEngineService with WidgetsBindingObserver {
   // ================================================================
 
   Future<void> submitReview(String questionId, int grade) async {
-    final db = await DatabaseHelper.instance.database;
+    final states =
+        await ReviewRepository.instance.fetchReviewStates([questionId]);
+    if (!states.containsKey(questionId)) return;
 
-    await db.transaction((txn) async {
-      final stateRes = await txn.query(
-        'review_states',
-        where: 'question_id = ?',
-        whereArgs: [questionId],
-        limit: 1,
-      );
-      if (stateRes.isEmpty) return;
+    final currentState = states[questionId]!;
+    final newState = _calculateFSRS(currentState, grade);
 
-      final currentState = Map<String, dynamic>.from(stateRes.first);
-      final newState = _calculateFSRS(currentState, grade);
+    final safeLen = math.min(8, questionId.length);
+    final newLog = {
+      'id':
+          '${DateTime.now().millisecondsSinceEpoch}_${questionId.substring(0, safeLen)}',
+      'question_id': questionId,
+      'grade': grade,
+      'llm_score': 0.0,
+      'review_time': newState['last_review_time'],
+      'duration_ms': 0,
+    };
 
-      await txn.update(
-        'review_states',
-        newState,
-        where: 'question_id = ?',
-        whereArgs: [questionId],
-      );
-
-      final safeLen = math.min(8, questionId.length);
-      await txn.insert('review_logs', {
-        'id': '${DateTime.now().millisecondsSinceEpoch}_${questionId.substring(0, safeLen)}',
-        'question_id': questionId,
-        'grade': grade,
-        'llm_score': 0.0,
-        'review_time': newState['last_review_time'],
-        'duration_ms': 0,
-      });
-    });
+    await ReviewRepository.instance.updateReviewStatesAndLogs(
+      [], // no inserts
+      [newState], // updates
+      [newLog], // log insert
+    );
   }
 
   // ================================================================
   //  双端队列会话调度器
   // ================================================================
 
-  Future<void> initStudySession(String bankName, {int? type, int limit = 40}) async {
-    final db = await DatabaseHelper.instance.database;
+  Future<void> initStudySession(String bankName,
+      {int? type, int limit = 40}) async {
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    
-    String typeCondition = "";
-    List<dynamic> args = [];
-    
-    if (type != null) {
-      if (type == 0) typeCondition = " AND q.type IN (0, 1)";
-      else { typeCondition = " AND q.type = ?"; args.add(type); }
-    }
-
-    List<Map<String, dynamic>> rawQuestions;
-
-    // 核心拦截：错题本专属 O(1) 提取队列
-    if (bankName == '🔥 全局错题本') {
-      args.insert(0, nowUnix); // 错题仅复习到期部分
-      args.add(limit);
-      rawQuestions = await db.rawQuery('''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time 
-        FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE r.lapses > 0 AND r.next_review_time <= ? $typeCondition
-        ORDER BY r.next_review_time ASC
-        LIMIT ?
-      ''', args);
-    } else {
-      args.insert(0, bankName);
-      args.insert(1, nowUnix);
-      args.add(limit);
-      rawQuestions = await db.rawQuery('''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time 
-        FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE q.bank_name = ? AND (r.state = 0 OR r.next_review_time <= ?) $typeCondition
-        ORDER BY r.state DESC, r.next_review_time ASC
-        LIMIT ?
-      ''', args);
-    }
-    
+    final rawQuestions = await ReviewRepository.instance
+        .getStudySessionQuestions(bankName, nowUnix, type: type, limit: limit);
     _sessionQueue = Queue<Map<String, dynamic>>.from(rawQuestions);
   }
 
@@ -596,93 +390,83 @@ class ReviewEngineService with WidgetsBindingObserver {
     _queue.clear();
 
     try {
-      final db = await _db;
       final int now = TimeUtil.getRealUTCTimestamp();
 
-      await db.transaction((txn) async {
-        final ids = batch.map((e) => e.questionId).toList();
-        final placeholders = List.filled(ids.length, '?').join(',');
-        
-        // Fetch both review states and full question objects
-        final reviewStateRows = await txn.rawQuery(
-          'SELECT * FROM review_states WHERE question_id IN ($placeholders)',
-          ids,
-        );
-        final questionRows = await txn.rawQuery(
-          'SELECT * FROM questions WHERE id IN ($placeholders)',
-          ids,
-        );
+      final ids = batch.map((e) => e.questionId).toList();
+      final stateMap = await ReviewRepository.instance.fetchReviewStates(ids);
+      final questionMapData =
+          await ReviewRepository.instance.fetchQuestions(ids);
 
-        final stateMap = <String, Map<String, dynamic>>{};
-        for (final r in reviewStateRows) {
-          stateMap[r['question_id'].toString()] = r;
+      final questionMap = <String, Question>{};
+      for (final r in questionMapData.values) {
+        questionMap[r['id'].toString()] = Question.fromMap(r);
+      }
+
+      final statesToInsert = <Map<String, dynamic>>[];
+      final statesToUpdate = <Map<String, dynamic>>[];
+      final logsToInsert = <Map<String, dynamic>>[];
+
+      for (final item in batch) {
+        final prev = stateMap[item.questionId];
+        final FsrsState fsrs = prev != null
+            ? FsrsState(
+                difficulty: (prev['difficulty'] as num?)?.toDouble() ?? 5.0,
+                stability: (prev['stability'] as num?)?.toDouble() ?? 0.0,
+                state: (prev['state'] as int?) ?? 0,
+                reps: (prev['reps'] as int?) ?? 0,
+                lapses: (prev['lapses'] as int?) ?? 0,
+              )
+            : FsrsState.defaults;
+
+        // --- 错题变异触发器 ---
+        final originalQuestion = questionMap[item.questionId];
+        // isLapse(答错了) == false && grade(评分) >= 3 && currentLapses(之前错过) > 0
+        if (item.grade >= 3 && fsrs.lapses > 0 && originalQuestion != null) {
+          // Fire and Forget
+          LLMService().generateVariantQuestion(originalQuestion);
+          print("Variant generation triggered for question ${item.questionId}");
+        }
+        // --- 触发器结束 ---
+
+        final result = calculateNextState(item.grade, fsrs);
+        final int nextReviewTime = now + result.intervalDays * 86400;
+
+        final Map<String, dynamic> stateValues = {
+          'question_id': item.questionId,
+          'state': result.nextState,
+          'difficulty': result.nextD,
+          'stability': result.nextS,
+          'last_review_time': now,
+          'next_review_time': nextReviewTime,
+          'reps': fsrs.reps + 1,
+          'lapses': item.grade < 2 ? fsrs.lapses + 1 : fsrs.lapses,
+          'last_lapse_time':
+              item.grade < 2 ? now : (prev?['last_lapse_time'] ?? 0),
+        };
+
+        if (prev == null) {
+          statesToInsert.add(stateValues);
+        } else {
+          statesToUpdate.add(stateValues);
         }
 
-        final questionMap = <String, Question>{};
-        for (final r in questionRows) {
-          questionMap[r['id'].toString()] = Question.fromMap(r);
-        }
+        logsToInsert.add({
+          'id': _uuid.v4(),
+          'question_id': item.questionId,
+          'grade': item.grade,
+          'llm_score': null,
+          'review_time': now,
+          'duration_ms': item.durationMs,
+          'user_answer': item.userAnswer,
+          'ai_evaluation': item.aiEvaluation,
+        });
+      }
 
-        for (final item in batch) {
-          final prev = stateMap[item.questionId];
-          final FsrsState fsrs = prev != null
-              ? FsrsState(
-                  difficulty: (prev['difficulty'] as num?)?.toDouble() ?? 5.0,
-                  stability: (prev['stability'] as num?)?.toDouble() ?? 0.0,
-                  state: (prev['state'] as int?) ?? 0,
-                  reps: (prev['reps'] as int?) ?? 0,
-                  lapses: (prev['lapses'] as int?) ?? 0,
-                )
-              : FsrsState.defaults;
-
-          // --- 错题变异触发器 ---
-          final originalQuestion = questionMap[item.questionId];
-          // isLapse(答错了) == false && grade(评分) >= 3 && currentLapses(之前错过) > 0
-          if (item.grade >= 3 && fsrs.lapses > 0 && originalQuestion != null) {
-            // Fire and Forget
-            LLMService().generateVariantQuestion(originalQuestion);
-            print("Variant generation triggered for question ${item.questionId}");
-          }
-          // --- 触发器结束 ---
-
-          final result = calculateNextState(item.grade, fsrs);
-          final int nextReviewTime = now + result.intervalDays * 86400;
-
-          final Map<String, dynamic> stateValues = {
-            'question_id': item.questionId,
-            'state': result.nextState,
-            'difficulty': result.nextD,
-            'stability': result.nextS,
-            'last_review_time': now,
-            'next_review_time': nextReviewTime,
-            'reps': fsrs.reps + 1,
-            'lapses': item.grade < 2 ? fsrs.lapses + 1 : fsrs.lapses,
-            'last_lapse_time': item.grade < 2 ? now : (prev?['last_lapse_time'] ?? 0),
-          };
-
-          if (prev == null) {
-            await txn.insert('review_states', stateValues);
-          } else {
-            await txn.update(
-              'review_states',
-              stateValues,
-              where: 'question_id = ?',
-              whereArgs: [item.questionId],
-            );
-          }
-
-          await txn.insert('review_logs', {
-            'id': _uuid.v4(),
-            'question_id': item.questionId,
-            'grade': item.grade,
-            'llm_score': null,
-            'review_time': now,
-            'duration_ms': item.durationMs,
-            'user_answer': item.userAnswer,
-            'ai_evaluation': item.aiEvaluation,
-          });
-        }
-      });
+      await ReviewRepository.instance.updateReviewStatesAndLogs(
+        statesToInsert,
+        statesToUpdate,
+        logsToInsert,
+      );
     } catch (_) {
       _queue.insertAll(0, batch);
       rethrow;

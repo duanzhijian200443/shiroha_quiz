@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../data/models/question.dart';
 import 'review_engine_service.dart';
@@ -157,7 +157,6 @@ class QuizSessionController extends ChangeNotifier {
       notifyListeners();
     }
   }
-
 
   // ================================================================
   //  静默补水（后台异步，绝不阻塞当前答题）

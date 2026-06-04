@@ -162,7 +162,8 @@ class DatabaseHelper {
     if (oldVersion < 8) {
       try {
         await db.execute('ALTER TABLE review_logs ADD COLUMN user_answer TEXT');
-        await db.execute('ALTER TABLE review_logs ADD COLUMN ai_evaluation TEXT');
+        await db
+            .execute('ALTER TABLE review_logs ADD COLUMN ai_evaluation TEXT');
       } catch (e) {
         // Ignore
       }
@@ -231,22 +232,26 @@ class DatabaseHelper {
     }
     if (oldVersion < 12) {
       try {
-        await db.execute('ALTER TABLE import_tasks ADD COLUMN source_type TEXT');
-        await db.execute('ALTER TABLE import_tasks ADD COLUMN pending_chunks TEXT');
-        await db.execute('ALTER TABLE import_tasks ADD COLUMN failed_chunks TEXT');
+        await db
+            .execute('ALTER TABLE import_tasks ADD COLUMN source_type TEXT');
+        await db
+            .execute('ALTER TABLE import_tasks ADD COLUMN pending_chunks TEXT');
+        await db
+            .execute('ALTER TABLE import_tasks ADD COLUMN failed_chunks TEXT');
       } catch (e) {
         // Ignore
       }
     }
     if (oldVersion < 13) {
       try {
-        await db.execute('ALTER TABLE questions ADD COLUMN raw_explanation TEXT');
+        await db
+            .execute('ALTER TABLE questions ADD COLUMN raw_explanation TEXT');
       } catch (e) {
         // Ignore
       }
     }
   }
-  
+
   static Future<void> deleteDatabaseFile() async {
     final String dbPath = await getDatabasesPath();
     final String path = join(dbPath, _dbName);
@@ -256,23 +261,31 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getQuestionBanksSummary() async {
     final db = await instance.database;
-    return await db.rawQuery('SELECT bank_name, COUNT(id) as total_count FROM questions GROUP BY bank_name;');
+    return await db.rawQuery(
+        'SELECT bank_name, COUNT(id) as total_count FROM questions GROUP BY bank_name;');
   }
 
   Future<void> deleteQuestionBank(String bankName) async {
     final db = await instance.database;
     await db.transaction((txn) async {
-      await txn.rawDelete('DELETE FROM review_logs WHERE question_id IN (SELECT id FROM questions WHERE bank_name = ?)', [bankName]);
-      await txn.rawDelete('DELETE FROM review_states WHERE question_id IN (SELECT id FROM questions WHERE bank_name = ?)', [bankName]);
-      await txn.rawDelete('DELETE FROM questions WHERE bank_name = ?', [bankName]);
+      await txn.rawDelete(
+          'DELETE FROM review_logs WHERE question_id IN (SELECT id FROM questions WHERE bank_name = ?)',
+          [bankName]);
+      await txn.rawDelete(
+          'DELETE FROM review_states WHERE question_id IN (SELECT id FROM questions WHERE bank_name = ?)',
+          [bankName]);
+      await txn
+          .rawDelete('DELETE FROM questions WHERE bank_name = ?', [bankName]);
     });
   }
 
   Future<void> deleteSingleQuestion(String questionId) async {
     final db = await instance.database;
     await db.transaction((txn) async {
-      await txn.rawDelete('DELETE FROM review_logs WHERE question_id = ?', [questionId]);
-      await txn.rawDelete('DELETE FROM review_states WHERE question_id = ?', [questionId]);
+      await txn.rawDelete(
+          'DELETE FROM review_logs WHERE question_id = ?', [questionId]);
+      await txn.rawDelete(
+          'DELETE FROM review_states WHERE question_id = ?', [questionId]);
       await txn.rawDelete('DELETE FROM questions WHERE id = ?', [questionId]);
     });
   }
@@ -294,17 +307,21 @@ class DatabaseHelper {
   Future<void> saveAiProfile(Map<String, dynamic> profile) async {
     final db = await database;
     try {
-      await db.execute('ALTER TABLE ai_profiles ADD COLUMN temperature REAL DEFAULT 0.7');
-      await db.execute('ALTER TABLE ai_profiles ADD COLUMN reasoning_effort TEXT DEFAULT ""');
+      await db.execute(
+          'ALTER TABLE ai_profiles ADD COLUMN temperature REAL DEFAULT 0.7');
+      await db.execute(
+          'ALTER TABLE ai_profiles ADD COLUMN reasoning_effort TEXT DEFAULT ""');
     } catch (_) {}
-    await db.insert('ai_profiles', profile, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('ai_profiles', profile,
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> setActiveAiProfile(String id) async {
     final db = await database;
     await db.transaction((txn) async {
       await txn.update('ai_profiles', {'is_active': 0});
-      await txn.update('ai_profiles', {'is_active': 1}, where: 'id = ?', whereArgs: [id]);
+      await txn.update('ai_profiles', {'is_active': 1},
+          where: 'id = ?', whereArgs: [id]);
     });
   }
 
@@ -323,9 +340,12 @@ class DatabaseHelper {
         folder_name TEXT NOT NULL DEFAULT '默认学科'
       )
     ''');
-    await db.execute('CREATE TABLE IF NOT EXISTS custom_folders (name TEXT PRIMARY KEY)');
-    await db.execute('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_questions_bank_name ON questions(bank_name)');
+    await db.execute(
+        'CREATE TABLE IF NOT EXISTS custom_folders (name TEXT PRIMARY KEY)');
+    await db.execute(
+        'CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_questions_bank_name ON questions(bank_name)');
 
     // 绝对自愈防御：自动修复由于历史 AI 幻觉导致的题型分类错误
     await db.execute('''
@@ -353,14 +373,15 @@ class DatabaseHelper {
 
     final List<Map<String, dynamic>> mappings = await db.query('bank_folders');
     final Map<String, String> folderMap = {
-      for (var item in mappings) item['bank_name'] as String: item['folder_name'] as String
+      for (var item in mappings)
+        item['bank_name'] as String: item['folder_name'] as String
     };
 
     Map<String, List<Map<String, dynamic>>> tree = {};
     for (var stat in bankStats) {
       String bName = stat['bank_name'] as String;
       int count = stat['count'] as int;
-      String folder = folderMap[bName] ?? '📁 未分类题库'; 
+      String folder = folderMap[bName] ?? '📁 未分类题库';
 
       if (!tree.containsKey(folder)) {
         tree[folder] = [];
@@ -368,7 +389,8 @@ class DatabaseHelper {
       tree[folder]!.add({'name': bName, 'count': count});
     }
 
-    final List<Map<String, dynamic>> emptyFolders = await db.query('custom_folders');
+    final List<Map<String, dynamic>> emptyFolders =
+        await db.query('custom_folders');
     for (var f in emptyFolders) {
       String fName = f['name'] as String;
       if (!tree.containsKey(fName)) {
@@ -399,18 +421,18 @@ class DatabaseHelper {
 
   Future<void> saveSetting(String key, String value) async {
     final db = await database;
-    await db.execute('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
-    await db.insert(
-      'app_settings', 
-      {'key': key, 'value': value}, 
-      conflictAlgorithm: ConflictAlgorithm.replace
-    );
+    await db.execute(
+        'CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
+    await db.insert('app_settings', {'key': key, 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<String?> getSetting(String key) async {
     final db = await database;
-    await db.execute('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
-    final result = await db.query('app_settings', where: 'key = ?', whereArgs: [key]);
+    await db.execute(
+        'CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
+    final result =
+        await db.query('app_settings', where: 'key = ?', whereArgs: [key]);
     if (result.isNotEmpty) {
       return result.first['value'] as String?;
     }
@@ -420,10 +442,13 @@ class DatabaseHelper {
   Future<Map<String, dynamic>?> getActiveAiProfile() async {
     final db = await database;
     try {
-      await db.execute('ALTER TABLE ai_profiles ADD COLUMN temperature REAL DEFAULT 0.7');
-      await db.execute('ALTER TABLE ai_profiles ADD COLUMN reasoning_effort TEXT DEFAULT ""');
+      await db.execute(
+          'ALTER TABLE ai_profiles ADD COLUMN temperature REAL DEFAULT 0.7');
+      await db.execute(
+          'ALTER TABLE ai_profiles ADD COLUMN reasoning_effort TEXT DEFAULT ""');
     } catch (_) {}
-    final result = await db.query('ai_profiles', where: 'is_active = 1', limit: 1);
+    final result =
+        await db.query('ai_profiles', where: 'is_active = 1', limit: 1);
     if (result.isNotEmpty) {
       return result.first;
     }
@@ -432,25 +457,32 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getAiEngines(String type) async {
     final db = await database;
-    return await db.query('ai_engines', where: 'engine_type = ?', whereArgs: [type], orderBy: 'name ASC');
+    return await db.query('ai_engines',
+        where: 'engine_type = ?', whereArgs: [type], orderBy: 'name ASC');
   }
 
   Future<Map<String, dynamic>?> getActiveAiEngine(String type) async {
     final db = await database;
-    final res = await db.query('ai_engines', where: 'engine_type = ? AND is_active = 1', whereArgs: [type], limit: 1);
+    final res = await db.query('ai_engines',
+        where: 'engine_type = ? AND is_active = 1',
+        whereArgs: [type],
+        limit: 1);
     return res.isNotEmpty ? res.first : null;
   }
 
   Future<void> saveAiEngine(Map<String, dynamic> engine) async {
     final db = await database;
-    await db.insert('ai_engines', engine, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('ai_engines', engine,
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> setActiveAiEngine(String id, String type) async {
     final db = await database;
     await db.transaction((txn) async {
-      await txn.update('ai_engines', {'is_active': 0}, where: 'engine_type = ?', whereArgs: [type]);
-      await txn.update('ai_engines', {'is_active': 1}, where: 'id = ?', whereArgs: [id]);
+      await txn.update('ai_engines', {'is_active': 0},
+          where: 'engine_type = ?', whereArgs: [type]);
+      await txn.update('ai_engines', {'is_active': 1},
+          where: 'id = ?', whereArgs: [id]);
     });
   }
 
@@ -461,13 +493,11 @@ class DatabaseHelper {
 
   Future<String> getFolderForBank(String bankName) async {
     final db = await database;
-    final result = await db.query(
-      'bank_folders',
-      columns: ['folder_name'],
-      where: 'bank_name = ?',
-      whereArgs: [bankName],
-      limit: 1
-    );
+    final result = await db.query('bank_folders',
+        columns: ['folder_name'],
+        where: 'bank_name = ?',
+        whereArgs: [bankName],
+        limit: 1);
     if (result.isNotEmpty) {
       return result.first['folder_name'] as String;
     }
@@ -476,7 +506,7 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getQuestionsByBank(String bankName) async {
     final db = await database;
-    
+
     // 核心拦截：虚空错题本映射
     if (bankName == '🔥 全局错题本') {
       return await db.rawQuery('''
@@ -488,27 +518,31 @@ class DatabaseHelper {
       ''');
     }
 
-    return await db.query(
-      'questions', 
-      where: 'bank_name = ?', 
-      whereArgs: [bankName],
-      orderBy: 'created_at DESC'
-    );
+    return await db.query('questions',
+        where: 'bank_name = ?',
+        whereArgs: [bankName],
+        orderBy: 'created_at DESC');
   }
 
   // --- 高级数据结构: 挂载 FTS5 倒排索引检索引擎 ---
-  Future<List<Map<String, dynamic>>> searchQuestionsByBank(String bankName, String keyword) async {
+  Future<List<Map<String, dynamic>>> searchQuestionsByBank(
+      String bankName, String keyword) async {
     final db = await database;
-    
+
     // 1. 初始化/热挂载 FTS 虚拟表引擎与自动化触发器
     try {
-      await db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(id UNINDEXED, content, options, explanation)');
+      await db.execute(
+          'CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(id UNINDEXED, content, options, explanation)');
       // 植入自动化监控挂钩
-      await db.execute('CREATE TRIGGER IF NOT EXISTS q_ai AFTER INSERT ON questions BEGIN INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
-      await db.execute('CREATE TRIGGER IF NOT EXISTS q_ad AFTER DELETE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; END;');
-      await db.execute('CREATE TRIGGER IF NOT EXISTS q_au AFTER UPDATE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
+      await db.execute(
+          'CREATE TRIGGER IF NOT EXISTS q_ai AFTER INSERT ON questions BEGIN INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
+      await db.execute(
+          'CREATE TRIGGER IF NOT EXISTS q_ad AFTER DELETE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; END;');
+      await db.execute(
+          'CREATE TRIGGER IF NOT EXISTS q_au AFTER UPDATE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
       // 热注入清洗：扫描旧有无索引数据填补至虚拟表
-      await db.execute('INSERT INTO questions_fts(id, content, options, explanation) SELECT id, content, options, explanation FROM questions WHERE id NOT IN (SELECT id FROM questions_fts)');
+      await db.execute(
+          'INSERT INTO questions_fts(id, content, options, explanation) SELECT id, content, options, explanation FROM questions WHERE id NOT IN (SELECT id FROM questions_fts)');
     } catch (e) {
       debugPrint('FTS5 引擎热启动挂载报警 (继续降级执行): $e');
     }
@@ -544,14 +578,15 @@ class DatabaseHelper {
       FROM review_logs
       GROUP BY date_str
     ''');
-    
+
     Map<DateTime, int> heatmap = {};
     for (var map in maps) {
       if (map['date_str'] != null) {
         final parts = map['date_str'].toString().split('-');
         if (parts.length == 3) {
           // 归一化为午夜零点的 DateTime 作为 Key
-          final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+          final date = DateTime(
+              int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
           heatmap[date] = map['count'] as int;
         }
       }
@@ -570,9 +605,10 @@ class DatabaseHelper {
   }
 
   // --- 全真模拟考场：极速随机抽题引擎 ---
-  Future<List<Map<String, dynamic>>> generateMockExamPaper(String bankName, int singleCount, int subjectiveCount) async {
+  Future<List<Map<String, dynamic>>> generateMockExamPaper(
+      String bankName, int singleCount, int subjectiveCount) async {
     final db = await database;
-    
+
     // 1. 抽取单选题 (type = 0)
     final List<Map<String, dynamic>> singles = await db.rawQuery('''
       SELECT * FROM questions 
@@ -594,24 +630,30 @@ class DatabaseHelper {
   }
 
   // --- 模考中心：底层数据流 ---
-    
+
   Future<void> _ensureExamTablesExist(dynamic db) async {
     try {
       // 核心热修复：为旧版题库追加解析字段，完美兼容 AI 生成的题目
-      await db.execute('ALTER TABLE questions ADD COLUMN explanation TEXT DEFAULT ""');
+      await db.execute(
+          'ALTER TABLE questions ADD COLUMN explanation TEXT DEFAULT ""');
       await db.execute('ALTER TABLE questions ADD COLUMN raw_explanation TEXT');
     } catch (_) {}
 
     // --- 极速检索引擎：FTS5 虚拟表与触发器 ---
-    await db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(id UNINDEXED, content, options, explanation)');
-    
+    await db.execute(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(id UNINDEXED, content, options, explanation)');
+
     // 注入自动化监控挂钩 (增删改自动同步倒排索引)
-    await db.execute('CREATE TRIGGER IF NOT EXISTS q_ai AFTER INSERT ON questions BEGIN INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
-    await db.execute('CREATE TRIGGER IF NOT EXISTS q_ad AFTER DELETE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; END;');
-    await db.execute('CREATE TRIGGER IF NOT EXISTS q_au AFTER UPDATE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
-    
+    await db.execute(
+        'CREATE TRIGGER IF NOT EXISTS q_ai AFTER INSERT ON questions BEGIN INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
+    await db.execute(
+        'CREATE TRIGGER IF NOT EXISTS q_ad AFTER DELETE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; END;');
+    await db.execute(
+        'CREATE TRIGGER IF NOT EXISTS q_au AFTER UPDATE ON questions BEGIN DELETE FROM questions_fts WHERE id = old.id; INSERT INTO questions_fts(id, content, options, explanation) VALUES (new.id, new.content, new.options, new.explanation); END;');
+
     // 热注入清洗：扫描旧有无索引数据填补至虚拟表
-    await db.execute('INSERT INTO questions_fts(id, content, options, explanation) SELECT id, content, options, explanation FROM questions WHERE id NOT IN (SELECT id FROM questions_fts)');
+    await db.execute(
+        'INSERT INTO questions_fts(id, content, options, explanation) SELECT id, content, options, explanation FROM questions WHERE id NOT IN (SELECT id FROM questions_fts)');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS exam_papers (
@@ -637,13 +679,14 @@ class DatabaseHelper {
   }
 
   // 创建新试卷 (支持 AI 生成的新题或题库抽取的旧题)
-  Future<String> createExamPaper(String title, int sourceType, List<Map<String, dynamic>> questions) async {
+  Future<String> createExamPaper(String title, int sourceType,
+      List<Map<String, dynamic>> questions) async {
     final db = await database;
     await _ensureExamTablesExist(db);
-    
+
     final paperId = 'paper_' + DateTime.now().millisecondsSinceEpoch.toString();
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    
+
     await db.transaction((txn) async {
       // 1. 创建试卷主记录
       await txn.insert('exam_papers', {
@@ -660,10 +703,13 @@ class DatabaseHelper {
       for (int i = 0; i < questions.length; i++) {
         final q = questions[i];
         String qId = q['id']?.toString() ?? '';
-        
+
         // 如果是 AI 刚生成的题，没有 ID，需要先强制落盘到 questions 表
         if (qId.isEmpty) {
-          qId = 'ai_q_' + DateTime.now().millisecondsSinceEpoch.toString() + '_' + i.toString();
+          qId = 'ai_q_' +
+              DateTime.now().millisecondsSinceEpoch.toString() +
+              '_' +
+              i.toString();
           await txn.insert('questions', {
             'id': qId,
             'bank_name': '📦 模考专属题库', // 隐藏题库，不污染日常刷题
@@ -686,7 +732,7 @@ class DatabaseHelper {
         });
       }
     });
-    
+
     return paperId;
   }
 
@@ -698,7 +744,8 @@ class DatabaseHelper {
   }
 
   // 获取某张试卷的所有题目详情
-  Future<List<Map<String, dynamic>>> getPaperQuestionsDetail(String paperId) async {
+  Future<List<Map<String, dynamic>>> getPaperQuestionsDetail(
+      String paperId) async {
     final db = await database;
     return await db.rawQuery('''
       SELECT q.*, pq.user_answer, pq.is_correct, pq.order_index 
@@ -713,13 +760,17 @@ class DatabaseHelper {
   Future<void> deleteExamPaper(String paperId) async {
     final db = await database;
     await db.transaction((txn) async {
-      await txn.delete('paper_questions', where: 'paper_id = ?', whereArgs: [paperId]);
+      await txn.delete('paper_questions',
+          where: 'paper_id = ?', whereArgs: [paperId]);
       await txn.delete('exam_papers', where: 'id = ?', whereArgs: [paperId]);
     });
   }
 
   // --- 阅卷引擎：提交试卷并批改客观题 ---
-  Future<List<Map<String, dynamic>>> submitExamPaper(String paperId, Map<int, dynamic> userAnswers, List<Map<String, dynamic>> questions) async {
+  Future<List<Map<String, dynamic>>> submitExamPaper(
+      String paperId,
+      Map<int, dynamic> userAnswers,
+      List<Map<String, dynamic>> questions) async {
     final db = await database;
     double earnedScore = 0.0;
     bool hasSubjective = false;
@@ -737,13 +788,18 @@ class DatabaseHelper {
           // 客观题：极速比对 ABCD
           if (uAns != null && uAns is int) {
             List opts = [];
-            try { opts = jsonDecode(q['options'].toString()); } catch (_) {}
+            try {
+              opts = jsonDecode(q['options'].toString());
+            } catch (_) {}
             if (uAns >= 0 && uAns < opts.length) {
               uAnsStr = opts[uAns].toString();
-              String sAns = q['standard_answer'].toString().trim().toUpperCase();
-              String optionLetter = String.fromCharCode(65 + uAns); // 0->A, 1->B
+              String sAns =
+                  q['standard_answer'].toString().trim().toUpperCase();
+              String optionLetter =
+                  String.fromCharCode(65 + uAns); // 0->A, 1->B
               // 容错比对：匹配字母或全文本
-              if (sAns.startsWith(optionLetter) || uAnsStr == q['standard_answer'].toString().trim()) {
+              if (sAns.startsWith(optionLetter) ||
+                  uAnsStr == q['standard_answer'].toString().trim()) {
                 isCorrect = 1;
                 earnedScore += 1.0; // 暂定每题 1 分
               }
@@ -754,53 +810,78 @@ class DatabaseHelper {
           hasSubjective = true;
           uAnsStr = uAns?.toString() ?? '';
           if (uAnsStr.isNotEmpty) {
-            subjectiveTasks.add({'qId': q['id'], 'question': q['content'], 'sAns': q['standard_answer'], 'uAns': uAnsStr});
+            subjectiveTasks.add({
+              'qId': q['id'],
+              'question': q['content'],
+              'sAns': q['standard_answer'],
+              'uAns': uAnsStr
+            });
           }
         }
 
-        await txn.update('paper_questions', {
-          'user_answer': uAnsStr,
-          'is_correct': isCorrect,
-        }, where: 'paper_id = ? AND question_id = ?', whereArgs: [paperId, q['id']]);
+        await txn.update(
+            'paper_questions',
+            {
+              'user_answer': uAnsStr,
+              'is_correct': isCorrect,
+            },
+            where: 'paper_id = ? AND question_id = ?',
+            whereArgs: [paperId, q['id']]);
       }
 
       // 更新试卷状态：如果有主观题则进入批改中(1)，否则直接出分(2)
-      await txn.update('exam_papers', {
-        'status': hasSubjective ? 1 : 2,
-        'score': earnedScore,
-      }, where: 'id = ?', whereArgs: [paperId]);
+      await txn.update(
+          'exam_papers',
+          {
+            'status': hasSubjective ? 1 : 2,
+            'score': earnedScore,
+          },
+          where: 'id = ?',
+          whereArgs: [paperId]);
     });
 
     return subjectiveTasks;
   }
 
   // --- 阅卷引擎：AI 批改单题落盘 ---
-  Future<void> updateExamAiScore(String paperId, String questionId, String feedback, double scoreRatio) async {
+  Future<void> updateExamAiScore(String paperId, String questionId,
+      String feedback, double scoreRatio) async {
     final db = await database;
     await db.transaction((txn) async {
-      final res = await txn.query('paper_questions', columns: ['user_answer'], where: 'paper_id = ? AND question_id = ?', whereArgs: [paperId, questionId]);
+      final res = await txn.query('paper_questions',
+          columns: ['user_answer'],
+          where: 'paper_id = ? AND question_id = ?',
+          whereArgs: [paperId, questionId]);
       String oldAns = res.isNotEmpty ? res.first['user_answer'] as String : '';
-      
+
       // 将 AI 的评价追加到用户答案下方，供后续查阅
       String newAns = "【我的回答】\n$oldAns\n\n【AI 阅卷官】\n$feedback";
-      
-      await txn.update('paper_questions', {
-        'user_answer': newAns,
-        'is_correct': scoreRatio >= 0.6 ? 1 : 0, // 及格即算对
-      }, where: 'paper_id = ? AND question_id = ?', whereArgs: [paperId, questionId]);
-      
+
+      await txn.update(
+          'paper_questions',
+          {
+            'user_answer': newAns,
+            'is_correct': scoreRatio >= 0.6 ? 1 : 0, // 及格即算对
+          },
+          where: 'paper_id = ? AND question_id = ?',
+          whereArgs: [paperId, questionId]);
+
       // 累加试卷总分
-      await txn.rawUpdate('UPDATE exam_papers SET score = score + ? WHERE id = ?', [scoreRatio, paperId]);
+      await txn.rawUpdate(
+          'UPDATE exam_papers SET score = score + ? WHERE id = ?',
+          [scoreRatio, paperId]);
     });
   }
 
   // --- 阅卷引擎：完卷封板 ---
   Future<void> finishExamGrading(String paperId) async {
     final db = await database;
-    await db.update('exam_papers', {'status': 2}, where: 'id = ?', whereArgs: [paperId]);
+    await db.update('exam_papers', {'status': 2},
+        where: 'id = ?', whereArgs: [paperId]);
   }
 
-  Future<List<Map<String, dynamic>>> searchQuestions(String bankName, String keyword) async {
+  Future<List<Map<String, dynamic>>> searchQuestions(
+      String bankName, String keyword) async {
     final db = await database;
     if (keyword.trim().isEmpty) return getQuestionsByBank(bankName);
 
@@ -884,7 +965,8 @@ class DatabaseHelper {
   }
 
   // --- 错题重练引擎：获取近期错题 ---
-  Future<List<Map<String, dynamic>>> getRecentWrongQuestions({int limit = 30}) async {
+  Future<List<Map<String, dynamic>>> getRecentWrongQuestions(
+      {int limit = 30}) async {
     final db = await database;
     return await db.rawQuery('''
       SELECT q.*, r.user_answer as last_wrong_answer 

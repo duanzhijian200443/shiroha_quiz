@@ -19,7 +19,8 @@ void main() {
 
   test('normalizer folds double delimiters to single', () {
     const input1 = r'\(\(\frac{1}{2},0,0\)\)';
-    expect(ContentNormalizer.normalizeForStorage(input1), r'\(\frac{1}{2},0,0\)');
+    expect(
+        ContentNormalizer.normalizeForStorage(input1), r'\(\frac{1}{2},0,0\)');
 
     const input2 = r'\(\(a\) + \(b\)\)';
     expect(ContentNormalizer.normalizeForStorage(input2), r'\(a\) + \(b\)');
@@ -28,7 +29,9 @@ void main() {
     expect(ContentNormalizer.normalizeForStorage(input3), r'\[A\]');
   });
 
-  test('normalizer avoids double-wrapping already wrapped formulas in dollar conversion', () {
+  test(
+      'normalizer avoids double-wrapping already wrapped formulas in dollar conversion',
+      () {
     const input1 = r'$\(x\)$';
     expect(ContentNormalizer.normalizeForStorage(input1), r'\(x\)');
 

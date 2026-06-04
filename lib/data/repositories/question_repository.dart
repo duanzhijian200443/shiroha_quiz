@@ -271,6 +271,11 @@ class QuestionRepository {
     );
     return bankFolders.isNotEmpty;
   }
+
+  // Get recent wrong questions for AI engine
+  Future<List<Map<String, dynamic>>> getRecentWrongQuestions({int limit = 30}) {
+    return _databaseHelper.getRecentWrongQuestions(limit: limit);
+  }
 }
 
 class _BankFolderIndex {

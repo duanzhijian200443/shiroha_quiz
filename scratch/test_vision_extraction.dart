@@ -11,7 +11,8 @@ void main() {
     databaseFactory = databaseFactoryFfi;
 
     final tempDir = Directory.systemTemp.path;
-    final activeEngine = await DatabaseHelper.instance.getActiveAiEngine('vision');
+    final activeEngine =
+        await DatabaseHelper.instance.getActiveAiEngine('vision');
     print('Active Vision Engine: $activeEngine');
 
     if (activeEngine == null) {
@@ -27,7 +28,8 @@ void main() {
         continue;
       }
       try {
-        final result = await AiService.instance.parseImagesWithVision([pagePath]);
+        final result =
+            await AiService.instance.parseImagesWithVision([pagePath]);
         print('Page $pageNum Parsed Questions Count: ${result.length}');
         for (var q in result) {
           print('  q_num: ${q['q_num']} | type: ${q['type']}');

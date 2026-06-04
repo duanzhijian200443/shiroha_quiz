@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import '../core/database/database_helper.dart';
 import '../data/models/ai_engine_profile.dart';
 import '../data/models/question_draft.dart';
 import '../data/repositories/ai_engine_repository.dart';
@@ -220,7 +219,7 @@ class AiService {
 
     // 1. 获取近期错题
     final wrongQuestions =
-        await DatabaseHelper.instance.getRecentWrongQuestions(limit: limit);
+        await QuestionRepository.instance.getRecentWrongQuestions(limit: limit);
     if (wrongQuestions.isEmpty) {
       throw Exception("没有找到近期错题，快去刷题吧！");
     }

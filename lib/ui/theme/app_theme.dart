@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 class AppTheme {
   static ThemeData getTheme(String themeName) {
@@ -7,7 +7,7 @@ class AppTheme {
         return darkTheme;
       case 'morandi':
         // 预留莫兰迪主题，暂返回 lightTheme
-        return lightTheme; 
+        return lightTheme;
       case 'light':
       default:
         return lightTheme;
@@ -29,7 +29,8 @@ class AppTheme {
         elevation: 0,
         centerTitle: true,
         iconTheme: IconThemeData(color: Colors.black87),
-        titleTextStyle: TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold),
+        titleTextStyle: TextStyle(
+            color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: Colors.white,
@@ -46,7 +47,7 @@ class AppTheme {
     const Color midnightBlack = Color(0xFF121214);
     const Color deepSeaBlue = Color(0xFF1E2030);
     const Color cyberBlue = Color(0xFF00E5FF);
-    
+
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: midnightBlack,
@@ -61,7 +62,8 @@ class AppTheme {
         elevation: 0,
         centerTitle: true,
         iconTheme: IconThemeData(color: Colors.white),
-        titleTextStyle: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+        titleTextStyle: TextStyle(
+            color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
       ),
       cardTheme: CardThemeData(
         color: deepSeaBlue,

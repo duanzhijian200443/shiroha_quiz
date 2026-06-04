@@ -1,8 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../core/database/database_helper.dart';
+import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 
 enum TaskStatus { processing, pendingReview, completed, error }
+
+extension TaskStatusX on TaskStatus {
+  bool get isFinalState =>
+      this == TaskStatus.completed || this == TaskStatus.error;
+}
 
 class ImportTask {
   final String id;
@@ -11,7 +16,7 @@ class ImportTask {
   String progressText;
   double percent;
   String? errorMsg;
-  
+
   // 核心新增：暂存大模型解析出的脏数据和目标题库信息
   List<Map<String, dynamic>>? parsedData;
   String? bankName;
@@ -56,7 +61,8 @@ class ImportTask {
       'created_at': createdAt,
       'completed_at': completedAt,
       'source_type': sourceType,
-      'pending_chunks': pendingChunks != null ? jsonEncode(pendingChunks) : null,
+      'pending_chunks':
+          pendingChunks != null ? jsonEncode(pendingChunks) : null,
       'failed_chunks': failedChunks != null ? jsonEncode(failedChunks) : null,
     };
   }
@@ -67,7 +73,8 @@ class ImportTask {
       try {
         final decoded = jsonDecode(map['parsed_data'] as String);
         if (decoded is List) {
-          parsed = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          parsed =
+              decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         }
       } catch (e) {
         debugPrint('Failed to decode parsed_data: $e');
@@ -75,13 +82,15 @@ class ImportTask {
     }
 
     final statusIndex = map['status'] as int? ?? 0;
-    final status = TaskStatus.values[statusIndex.clamp(0, TaskStatus.values.length - 1)];
+    final status =
+        TaskStatus.values[statusIndex.clamp(0, TaskStatus.values.length - 1)];
 
     List<String>? pending;
     if (map['pending_chunks'] != null) {
       try {
         final decoded = jsonDecode(map['pending_chunks'] as String);
-        if (decoded is List) pending = decoded.map((e) => e.toString()).toList();
+        if (decoded is List)
+          pending = decoded.map((e) => e.toString()).toList();
       } catch (_) {}
     }
 
@@ -119,17 +128,20 @@ class TaskManager extends ChangeNotifier {
   }
 
   final List<ImportTask> tasks = [];
-  int get processingCount => tasks.where((t) => t.status == TaskStatus.processing).length;
-  int get pendingCount => tasks.where((t) => t.status == TaskStatus.pendingReview).length;
+  int get processingCount =>
+      tasks.where((t) => t.status == TaskStatus.processing).length;
+  int get pendingCount =>
+      tasks.where((t) => t.status == TaskStatus.pendingReview).length;
 
   Future<void> _loadTasksFromDb() async {
     try {
-      // 1. 运行3天前的过期清理 (解析完成或出错后的3天自动清除)
-      final threeDaysAgo = (DateTime.now().millisecondsSinceEpoch ~/ 1000) - (3 * 24 * 3600);
-      await DatabaseHelper.instance.deleteOldImportTasks(threeDaysAgo);
+      final threeDaysAgo = DateTime.now()
+              .subtract(const Duration(days: 3))
+              .millisecondsSinceEpoch ~/
+          1000;
+      await ImportTaskRepository.instance.deleteOldImportTasks(threeDaysAgo);
 
-      // 2. 从数据库加载所有任务
-      final maps = await DatabaseHelper.instance.getAllImportTasks();
+      final maps = await ImportTaskRepository.instance.getAllImportTasks();
       tasks.clear();
       for (var map in maps) {
         tasks.add(ImportTask.fromMap(map));
@@ -142,7 +154,9 @@ class TaskManager extends ChangeNotifier {
 
   Future<void> _saveTask(ImportTask task) async {
     try {
-      await DatabaseHelper.instance.saveImportTask(task.toMap());
+      if (!task.status.isFinalState) {
+        await ImportTaskRepository.instance.saveImportTask(task.toMap());
+      }
     } catch (e) {
       debugPrint('Error saving task to SQLite: $e');
     }
@@ -164,13 +178,12 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  // 核心新增：将任务挂起为“待校对”
-  void requireReview(String id, String text, List<Map<String, dynamic>> data, String bank, String folder) {
+  void requireReview(String id, String text, List<Map<String, dynamic>> data,
+      String bank, String folder) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].status = TaskStatus.pendingReview;
       tasks[idx].progressText = text;
-      // 去重：按题干哈希或题号去重，防止多次重试导致重复数据
       tasks[idx].parsedData = _deduplicateQuestions(data);
       tasks[idx].bankName = bank;
       tasks[idx].folderName = folder;
@@ -180,7 +193,8 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  List<Map<String, dynamic>> _deduplicateQuestions(List<Map<String, dynamic>> questions) {
+  List<Map<String, dynamic>> _deduplicateQuestions(
+      List<Map<String, dynamic>> questions) {
     final seen = <String>{};
     final List<Map<String, dynamic>> result = [];
     for (var q in questions) {
@@ -193,8 +207,6 @@ class TaskManager extends ChangeNotifier {
     return result;
   }
 
-  // --- 断点续传核心逻辑 ---
-
   void appendPendingChunks(String id, String sourceType, List<String> chunks) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
@@ -205,7 +217,8 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  void markChunkSuccess(String id, String chunk, List<Map<String, dynamic>> results) {
+  void markChunkSuccess(
+      String id, String chunk, List<Map<String, dynamic>> results) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].pendingChunks?.remove(chunk);
@@ -231,8 +244,7 @@ class TaskManager extends ChangeNotifier {
       tasks[idx].status = TaskStatus.completed;
       tasks[idx].progressText = text;
       tasks[idx].completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      // 清理内存及数据库中的 parsedData 以节省体积
-      tasks[idx].parsedData = null; 
+      tasks[idx].parsedData = null;
       _saveTask(tasks[idx]);
       notifyListeners();
     }
@@ -252,18 +264,21 @@ class TaskManager extends ChangeNotifier {
   void deleteTask(String id) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
+      final task = tasks[idx];
       tasks.removeAt(idx);
-      DatabaseHelper.instance.deleteImportTask(id).catchError((e) {
-        debugPrint('Error deleting task from SQLite: $e');
-      });
+      if (task.status.isFinalState) {
+        ImportTaskRepository.instance.deleteImportTask(id).catchError((e) {
+          debugPrint('Background task deletion failed: $e');
+        });
+      }
       notifyListeners();
     }
   }
 
-  void clearCompleted() {
-    tasks.removeWhere((t) => t.status == TaskStatus.completed || t.status == TaskStatus.error);
-    DatabaseHelper.instance.clearCompletedImportTasks().catchError((e) {
-      debugPrint('Error clearing completed tasks from SQLite: $e');
+  void clearCompletedTasks() {
+    tasks.removeWhere((t) => t.status.isFinalState);
+    ImportTaskRepository.instance.clearCompletedImportTasks().catchError((e) {
+      debugPrint('Clear completed tasks failed: $e');
     });
     notifyListeners();
   }

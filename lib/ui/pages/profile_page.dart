@@ -171,7 +171,8 @@ class ProfilePage extends StatelessWidget {
         subtitle,
         style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
       ),
-      trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 20),
+      trailing:
+          Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 20),
       onTap: onTap,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     );
