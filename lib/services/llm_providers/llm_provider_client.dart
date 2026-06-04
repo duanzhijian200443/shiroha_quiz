@@ -13,6 +13,7 @@ class LlmTextRequest {
     required this.apiKey,
     required this.baseUrl,
     required this.model,
+    required this.systemPrompt,
     required this.prompt,
     required this.temperature,
     required this.reasoningEffort,
@@ -24,6 +25,7 @@ class LlmTextRequest {
   final String apiKey;
   final String baseUrl;
   final String model;
+  final String systemPrompt;
   final String prompt;
   final double temperature;
   final String reasoningEffort;
@@ -34,6 +36,7 @@ class LlmTextRequest {
   factory LlmTextRequest.fromProfile({
     required AiEngineProfile profile,
     required String prompt,
+    String? systemPrompt,
     double? temperature,
     String? reasoningEffort,
     int maxTokens = 8192,
@@ -44,6 +47,7 @@ class LlmTextRequest {
       apiKey: profile.apiKey,
       baseUrl: profile.baseUrl,
       model: profile.modelName,
+      systemPrompt: systemPrompt?.trim() ?? '',
       prompt: prompt,
       temperature: temperature ?? profile.temperature,
       reasoningEffort: reasoningEffort ?? profile.reasoningEffort,
@@ -55,6 +59,18 @@ class LlmTextRequest {
 
   bool get isComplete =>
       apiKey.isNotEmpty && baseUrl.isNotEmpty && model.isNotEmpty;
+
+  List<Map<String, String>> get chatMessages {
+    return [
+      if (systemPrompt.isNotEmpty) {'role': 'system', 'content': systemPrompt},
+      {'role': 'user', 'content': prompt},
+    ];
+  }
+
+  String get combinedPrompt {
+    if (systemPrompt.isEmpty) return prompt;
+    return '$systemPrompt\n\n$prompt';
+  }
 
   List<String> get missingProfileFields {
     return [

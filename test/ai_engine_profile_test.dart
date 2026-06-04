@@ -76,5 +76,27 @@ void main() {
       expect(request.reasoningEffort, 'medium');
       expect(request.isComplete, isTrue);
     });
+
+    test('preserves system and user prompts as provider-ready messages', () {
+      final profile = AiEngineProfile.fromMap({
+        'id': 'engine-4',
+        'engine_type': 'text',
+        'api_key': 'key',
+        'base_url': 'https://api.example.com',
+        'model_name': 'model-a',
+      });
+
+      final request = LlmTextRequest.fromProfile(
+        profile: profile,
+        systemPrompt: 'system rules',
+        prompt: 'user task',
+      );
+
+      expect(request.chatMessages, [
+        {'role': 'system', 'content': 'system rules'},
+        {'role': 'user', 'content': 'user task'},
+      ]);
+      expect(request.combinedPrompt, 'system rules\n\nuser task');
+    });
   });
 }

@@ -1,5 +1,16 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 20:28] - refactor(ai): 迁移遗留 LLMService 至统一 Provider 边界
+- **变更类型**: refactor
+- **影响模块**: ai, services, provider, test
+- **详细改动明细**:
+  - [x] 修改 `lib/services/llm_service.dart`，移除 `SharedPreferences` 旧文本/视觉引擎配置读取与手写 `http.post` 调用，统一改为 `AiEngineRepository` + `LlmApiClient`。
+  - [x] 修改 `_fetchCompletion`，保留旧 `systemPrompt` / `userPrompt` 调用契约，但通过 active text engine 发起统一 provider 文本请求。
+  - [x] 修改 `parsePdfToJSON`，通过 active vision engine 调用 `LlmApiClient.callVision`，并显式限制 Base64 PDF 路径当前仅支持 Gemini 视觉引擎，避免 OpenAI-compatible 分支误收不可靠 PDF data URL。
+  - [x] 修改 `LlmTextRequest`，新增 `systemPrompt`、`chatMessages` 与 `combinedPrompt` 派生结构；OpenAI-compatible provider 使用 system/user messages，Gemini provider 使用合并 prompt。
+  - [x] 修改 `test/ai_engine_profile_test.dart`，新增 system prompt 请求结构测试，防止 Provider 请求退化为单 user prompt。
+- **验证状态**: 已完成 `dart format`、`dart analyze` 受影响文件集合、`dart analyze lib/services lib/data`、`flutter test test/ai_engine_profile_test.dart`、旧配置残留 `rg` 搜索与 `git diff --check`；完整 `flutter test` 仍按约定交由 Gemini/反重力执行。
+
 ## [2026-06-04 19:35] - refactor(ai): 引入强类型 AI 引擎配置模型
 - **变更类型**: refactor
 - **影响模块**: ai, services, data, test

@@ -69,9 +69,7 @@ class OpenAiCompatibleProviderClient extends LlmProviderClient {
   Map<String, dynamic> _requestBody(LlmTextRequest request) {
     final reqBody = <String, dynamic>{
       'model': request.model,
-      'messages': [
-        {'role': 'user', 'content': request.prompt},
-      ],
+      'messages': request.chatMessages,
       'max_tokens': request.maxTokens,
     };
     if (request.reasoningEffort.isNotEmpty) {

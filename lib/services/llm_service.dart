@@ -1,53 +1,38 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/services/llm_api_client.dart';
+import 'package:shiroha_quiz/services/llm_providers/llm_provider_client.dart';
+import 'package:shiroha_quiz/services/llm_providers/llm_provider_registry.dart';
 
 class LLMService {
   static final LLMService _instance = LLMService._internal();
   factory LLMService() => _instance;
   LLMService._internal();
 
+  final AiEngineRepository _engineRepository = AiEngineRepository.instance;
+  final LlmApiClient _apiClient = const LlmApiClient();
+
   Future<String> _fetchCompletion(
       String systemPrompt, String userPrompt) async {
-    final prefs = await SharedPreferences.getInstance();
-    final apiKey = prefs.getString('text_llm_api_key');
-    final baseUrl =
-        prefs.getString('text_llm_base_url') ?? 'https://api.deepseek.com/v1';
-    final modelName = prefs.getString('text_llm_model_name') ?? 'deepseek-chat';
+    final profile = await _engineRepository.getActiveTextEngine();
 
-    if (apiKey == null || apiKey.isEmpty) {
+    if (profile == null) {
       throw Exception('请先前往“我的”页面配置文本逻辑引擎');
     }
 
-    final url = Uri.parse('$baseUrl/chat/completions');
-    final headers = {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $apiKey',
-    };
-    final body = jsonEncode({
-      'model': modelName,
-      'messages': [
-        {'role': 'system', 'content': systemPrompt},
-        {'role': 'user', 'content': userPrompt},
-      ],
-      'response_format': {'type': 'json_object'},
-      'temperature': 0.5,
-    });
-
     try {
-      final response = await http.post(url, headers: headers, body: body);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        if (data['choices'] != null && data['choices'].isNotEmpty) {
-          return data['choices'][0]['message']['content'];
-        }
-      } else {
-        final errMsg =
-            'Text LLM API Error: ${response.statusCode} - ${response.body}';
-        debugPrint(errMsg);
-        throw Exception('AI 接口返回错误 (${response.statusCode}): ${response.body}');
+      final responseText = await _apiClient.callText(
+        profile: profile,
+        systemPrompt: systemPrompt,
+        prompt: userPrompt,
+        temperature: 0.5,
+        reasoningEffort: '',
+        jsonResponse: true,
+      );
+      if (responseText.trim().isNotEmpty) {
+        return responseText;
       }
     } catch (e) {
       debugPrint('Error calling Text LLM API: $e');
@@ -177,20 +162,16 @@ $userAnswer
   }
 
   Future<String> parsePdfToJSON(String base64Pdf) async {
-    final prefs = await SharedPreferences.getInstance();
-    final apiKey = prefs.getString('vision_llm_api_key');
-    final baseUrl = prefs.getString('vision_llm_base_url') ??
-        'https://generativelanguage.googleapis.com/v1beta';
-    final modelName =
-        prefs.getString('vision_llm_model_name') ?? 'gemini-1.5-flash';
+    final profile = await _engineRepository.getActiveVisionEngine();
 
-    if (apiKey == null || apiKey.isEmpty) {
+    if (profile == null) {
       throw Exception('请先前往“我的”页面配置多模态视觉引擎');
     }
 
-    final url =
-        Uri.parse('$baseUrl/models/$modelName:generateContent?key=$apiKey');
-    final headers = {'Content-Type': 'application/json'};
+    final providerKind = LlmProviderRegistry.kindForBaseUrl(profile.baseUrl);
+    if (providerKind != LlmProviderKind.gemini) {
+      throw Exception('PDF Base64 解析目前仅支持 Gemini 视觉引擎，请切换视觉引擎后重试。');
+    }
     final body = jsonEncode({
       'contents': [
         {
@@ -234,17 +215,27 @@ $userAnswer
     });
 
     try {
-      final response = await http.post(url, headers: headers, body: body);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        // Gemini API response structure is different
-        final content = data['candidates'][0]['content']['parts'][0]['text'];
-        return _sanitizeLatexJson(content);
-      } else {
-        debugPrint(
-            'Vision LLM API Error: ${response.statusCode} - ${response.body}');
-        throw Exception('AI 服务未能正确解析 PDF: ${response.body}');
+      final payload = jsonDecode(body) as Map<String, dynamic>;
+      final contents = payload['contents'] as List<dynamic>;
+      final parts =
+          (contents.first as Map<String, dynamic>)['parts'] as List<dynamic>;
+      final prompt = (parts.first as Map<String, dynamic>)['text'].toString();
+      final responseText = await _apiClient.callVision(
+        profile: profile,
+        prompt: prompt,
+        assets: [
+          LlmVisionAsset.inline(
+            mimeType: 'application/pdf',
+            base64Data: base64Pdf,
+          ),
+        ],
+        temperature: 0.1,
+        timeout: const Duration(minutes: 3),
+      );
+      if (responseText.trim().isNotEmpty) {
+        return _sanitizeLatexJson(responseText);
       }
+      throw Exception('AI 服务未返回有效 PDF 解析响应');
     } catch (e) {
       debugPrint('Error calling Vision LLM API: $e');
       throw Exception('调用 AI 服务时发生网络错误');

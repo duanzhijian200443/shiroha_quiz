@@ -27,7 +27,7 @@ class GeminiProviderClient extends LlmProviderClient {
             'contents': [
               {
                 'parts': [
-                  {'text': request.prompt},
+                  {'text': request.combinedPrompt},
                 ],
               },
             ],

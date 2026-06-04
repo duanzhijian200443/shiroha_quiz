@@ -21,6 +21,7 @@ class LlmApiClient {
   Future<String> callText({
     required AiEngineProfile profile,
     required String prompt,
+    String? systemPrompt,
     double? temperature,
     String? reasoningEffort,
     int maxTokens = 8192,
@@ -30,6 +31,7 @@ class LlmApiClient {
     final request = LlmTextRequest.fromProfile(
       profile: profile,
       prompt: prompt,
+      systemPrompt: systemPrompt,
       temperature: temperature,
       reasoningEffort: reasoningEffort,
       maxTokens: maxTokens,
