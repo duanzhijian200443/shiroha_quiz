@@ -1,5 +1,78 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 14:36] - refactor(ai): 抽离文档分块器 DocumentChunker
+- **变更类型**: refactor
+- **影响模块**: ai, services, test
+- **详细改动明细**:
+  - [x] 新建 `lib/services/document_chunker.dart`，集中承载普通文本与 Markdown 的微批次分块算法。
+  - [x] 保留原普通文本 1500 字符阈值、Markdown 2000 字符阈值，以及 Markdown 标题/序号分割规则，避免改变解析外部行为。
+  - [x] 修改 `lib/services/ai_service.dart`，移除 `splitTextIntoMicroBatches` 与 `splitMarkdownIntoMicroBatches` 内联实现，统一通过 `_chunker.split(...)` 获取分块。
+  - [x] 新增 `test/document_chunker_test.dart`，覆盖普通文本段落分块和 Markdown 标题/序号分块两条路径。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/document_chunker.dart test/document_chunker_test.dart`、`flutter test test/document_chunker_test.dart`、`flutter test test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+
+## [2026-06-04 14:27] - refactor(ai): 抽离微批次解析调度 Runner
+- **变更类型**: refactor
+- **影响模块**: ai, services, test
+- **详细改动明细**:
+  - [x] 新建 `lib/services/parse_batch_runner.dart`，集中承载微批次解析的并发 worker、重试次数、冷却策略、成功暂停和失败计数逻辑。
+  - [x] 将 `AiService.parseMicroBatches` 中的调度循环迁移到 `ParseBatchRunner.run`，使 `AiService` 只负责提供单块解析函数和 TaskManager 成功/失败回调。
+  - [x] 通过 `ParseBatchRunResult` 返回按原 chunk 顺序展开的题目列表和失败数量，避免 UI/任务层直接接触调度内部状态。
+  - [x] 保留原有 3 并发、3 次重试、成功后 500ms 暂停、频率限制/网络错误退避冷却策略，降低行为回归风险。
+  - [x] 新增 `test/parse_batch_runner_test.dart`，覆盖并发完成顺序不影响输出顺序，以及永久失败时会完成重试并报告失败 chunk。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/parse_batch_runner.dart test/parse_batch_runner_test.dart`、`flutter test test/parse_batch_runner_test.dart`、`flutter test test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+
+## [2026-06-04 14:19] - refactor(ai): 抽离题目解析后处理 Pipeline
+- **变更类型**: refactor
+- **影响模块**: ai, services, test
+- **详细改动明细**:
+  - [x] 新建 `lib/services/question_parse_pipeline.dart`，集中承载 AI 解析后的题目结构后处理逻辑。
+  - [x] 将 `parseMicroBatches` 中的题号标准化、纯答案页识别与答案池拼图归并算法迁移到 `QuestionParsePipeline.mergeAnswerOnlyQuestions`。
+  - [x] 将视觉解析返回文本的 JSON 清洗与题干质量闸门迁移到 `QuestionParsePipeline.parseVisionQuestions`。
+  - [x] 修改 `lib/services/ai_service.dart`，通过 `_parsePipeline` 调用后处理能力，使 `AiService` 更专注于 LLM 调用、分块调度和任务状态编排。
+  - [x] 新增 `test/question_parse_pipeline_test.dart`，覆盖答案页按题号回填和未匹配答案保留两条防御路径。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/question_parse_pipeline.dart test/question_parse_pipeline_test.dart`、`flutter test test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+
+## [2026-06-04 13:57] - refactor(ai): 将视觉 LLM 请求迁移至 Provider Strategy
+- **变更类型**: refactor
+- **影响模块**: ai, services
+- **详细改动明细**:
+  - [x] 在 `lib/services/llm_providers/llm_provider_client.dart` 中新增 `LlmVisionAsset` 与 `LlmVisionRequest`，支持内联 base64 资产与上传文件资产两种视觉输入形态。
+  - [x] 为 `GeminiProviderClient`、`OpenAiCompatibleProviderClient` 与 `ZhipuProviderClient` 增加 `callVision` 实现，分别封装 Gemini `inline_data`、OpenAI-compatible `image_url` 与智谱 PDF 上传解析路径。
+  - [x] 在 `LlmApiClient` 中新增 `callVision` 门面方法，使文本与视觉请求都经过统一 provider strategy 分发和配置完整性检查。
+  - [x] 重构 `AiService.parseImagesWithVision` 与 `parseFileWithVision`，移除页面服务层中的底层 HTTP 请求拼装，仅保留文件读取、图片压缩、provider 选择约束与题目质量闸门。
+  - [x] 新增 `_parseVisionQuestions` 与 `_readFileAsVisionBase64` 边界 helper，将视觉返回文本解析和文件预处理集中管理。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart`、`dart analyze lib/services/llm_api_client.dart lib/services/llm_providers`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+
+## [2026-06-04 13:33] - refactor(ai): 防御式收束文本 LLM 请求边界
+- **变更类型**: refactor
+- **影响模块**: ai, services
+- **详细改动明细**:
+  - [x] 在 `lib/services/llm_providers/llm_provider_client.dart` 中新增 `LlmProviderProfile` 值对象，统一清洗 `api_key`、`base_url`、`model_name`、`temperature` 与 `reasoning_effort`。
+  - [x] 将 `LlmTextRequest` 的配置读取改为通过 `LlmProviderProfile.fromMap` 构造，并在 `LlmApiClient` 中输出缺失字段列表，提升配置错误可诊断性。
+  - [x] 将 `AiService.judgeAnswer` 与 `mergeStructuredQuestions` 从手写 Gemini/OpenAI HTTP 分支迁移到 `_apiClient.callText`，让文本请求统一经过 provider strategy。
+  - [x] 清理文本生成、单题作答、组卷、错题生成与分块解析中的重复引擎三件套校验，由请求边界统一防御。
+  - [x] 使用 Dart fixer 补齐 `ai_service.dart` 中 12 处单行 `if` 大括号，降低后续编辑误挂分支的风险。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart`、`dart analyze lib/services/llm_api_client.dart lib/services/llm_providers`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+
+## [2026-06-04 13:18] - refactor(ai): 拆分文本 LLM Provider Strategy
+- **变更类型**: refactor
+- **影响模块**: ai, services
+- **详细改动明细**:
+  - [x] 新建了 `lib/services/llm_providers/` 策略目录，定义 `LlmProviderClient` 与 `LlmTextRequest`，将文本模型请求参数从门面客户端中抽离为明确的数据结构。
+  - [x] 新增了 `GeminiProviderClient`、`OpenAiCompatibleProviderClient` 与 `ZhipuProviderClient`，分别封装 Gemini、OpenAI-compatible 和智谱文本补全请求路径。
+  - [x] 新增了 `LlmProviderRegistry`，按 `baseUrl` 自动选择对应 provider，使 `LlmApiClient` 从底层请求实现收缩为轻量门面。
+  - [x] 保留了 `LlmApiClient.buildChatUrl` 与 `extractContent` 兼容入口，避免影响当前视觉解析分支。
+- **验证状态**: 已完成 `dart format`、定向 `dart analyze` 与 provider 关键路径搜索；完整回归测试交由 Gemini/反重力验证。
+
+## [2026-06-04 13:08] - refactor(ai): 将 AI 生成题目接口改为返回 QuestionDraft
+- **变更类型**: refactor
+- **影响模块**: ai, ui, models
+- **详细改动明细**:
+  - [x] 修改了 `lib/services/ai_service.dart`，将 `generateQuestions`、`generateExamPaper` 与 `generateAndSaveQuestionsFromMistakes` 的公开返回类型从 `List<Map<String, dynamic>>` 收束为 `List<QuestionDraft>`。
+  - [x] 在 AI 服务内部完成 JSON Map 到 `QuestionDraft` 的边界转换，让弱类型数据停留在 AI JSON 解析边界内。
+  - [x] 修改了 `lib/ui/pages/ai_generator_screen.dart`，移除生成题目和 AI 组卷后的重复 `QuestionDraft.listFromMaps` 转换，直接消费强类型返回值。
+- **验证状态**: 已完成 `dart format`、定向 `dart analyze` 与残留调用搜索；完整回归测试交由 Gemini/反重力验证。
+
 ## [2026-06-04 12:56] - refactor(arch): 引入强类型 QuestionDraft 统一 UI 与持久化层数据模型
 - **变更类型**: refactor
 - **影响模块**: models, repositories, ui, test

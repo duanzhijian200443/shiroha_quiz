@@ -126,12 +126,11 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     _beginLoading();
 
     try {
-      final result = await AiService.instance.generateQuestions(
+      final drafts = await AiService.instance.generateQuestions(
         _topicController.text.trim(),
         count: _selectedCount,
         type: _selectedType,
       );
-      final drafts = QuestionDraft.listFromMaps(result);
       if (!mounted) return;
       setState(() {
         _questions = drafts;
@@ -899,7 +898,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
       await _questionRepository.createExamPaperFromDrafts(
         paperTitle,
         1,
-        QuestionDraft.listFromMaps(result),
+        result,
       );
 
       if (mounted) {
