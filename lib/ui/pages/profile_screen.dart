@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/database/database_helper.dart';
 import '../../data/repositories/ai_engine_repository.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
 import 'ai_engine_management_screen.dart';
@@ -32,7 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           await AiEngineRepository.instance.getActiveTextEngine();
       final visionEngine =
           await AiEngineRepository.instance.getActiveVisionEngine();
-      final heatmap = await DatabaseHelper.instance.getHeatmapData();
+      final heatmap = await QuestionRepository.instance.getHeatmapData();
 
       int total = 0;
       heatmap.forEach((k, v) => total += v);

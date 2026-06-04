@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/database/database_helper.dart';
 import '../models/question_draft.dart';
 import '../../utils/ai_data_sanitizer.dart';
+import '../../data/repositories/settings_repository.dart';
 
 class QuestionRepository {
   QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
@@ -76,6 +77,120 @@ class QuestionRepository {
 
   Future<void> deleteQuestion(String id) {
     return _databaseHelper.deleteSingleQuestion(id);
+  }
+
+  /// Delete an entire question bank and clear the current-bank cache if needed.
+  Future<void> deleteQuestionBank(String bankName) async {
+    await _databaseHelper.deleteQuestionBank(bankName);
+    // If the deleted bank was the active one, reset the cached value.
+    final current = await SettingsRepository.instance.getCurrentBank();
+    if (current == bankName) {
+      await SettingsRepository.instance.setCurrentBank('点击修改选择题库');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subject-tree & folder management
+  // Advanced data structure: the tree is modelled as
+  //   Map<folderName, List<bankRow>>  — O(1) folder lookup, O(n) bank scan.
+  // ---------------------------------------------------------------------------
+
+  Future<Map<String, List<Map<String, dynamic>>>> getSubjectTree() {
+    return _databaseHelper.getSubjectTree();
+  }
+
+  Future<void> addCustomFolder(String folderName) {
+    return _databaseHelper.addCustomFolder(folderName);
+  }
+
+  Future<void> updateBankFolder(String bankName, String folderName) {
+    return _databaseHelper.updateBankFolder(bankName, folderName);
+  }
+
+  Future<String> getFolderForBank(String bankName) {
+    return _databaseHelper.getFolderForBank(bankName);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Question read / edit
+  // ---------------------------------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> getQuestionsByBank(String bankName) {
+    return _databaseHelper.getQuestionsByBank(bankName);
+  }
+
+  Future<List<Map<String, dynamic>>> searchQuestions(
+    String bankName,
+    String query,
+  ) {
+    return _databaseHelper.searchQuestions(bankName, query);
+  }
+
+  Future<void> updateQuestion(Map<String, dynamic> question) {
+    return _databaseHelper.updateQuestion(question);
+  }
+
+  Future<List<Map<String, dynamic>>> getQuestionBanksSummary() {
+    return _databaseHelper.getQuestionBanksSummary();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pomodoro session
+  // ---------------------------------------------------------------------------
+
+  Future<void> insertPomodoroSession(Map<String, dynamic> session) {
+    return _databaseHelper.insertPomodoroSession(session);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Heatmap
+  // ---------------------------------------------------------------------------
+
+  /// Returns a date → review-count map for the activity heatmap.
+  Future<Map<DateTime, int>> getHeatmapData() {
+    return _databaseHelper.getHeatmapData();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preview-question persistence
+  // Replaces the inline DatabaseHelper.instance.database usage in practice_page.
+  // ---------------------------------------------------------------------------
+
+  Future<void> savePreviewQuestion(Map<String, dynamic> question) async {
+    final db = await _databaseHelper.database;
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+
+    final cleanId = (question['id'] as String).replaceAll('preview_', '');
+    final row = <String, dynamic>{
+      'id': cleanId,
+      'type': question['type'],
+      'content': question['content'],
+      'options': question['options'],
+      'standard_answer': question['standard_answer'],
+      'created_at': now,
+      'bank_name': question['bank_name'],
+    };
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        'questions',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'review_states',
+        {
+          'question_id': cleanId,
+          'state': 0,
+          'difficulty': 5.0,
+          'stability': 0.0,
+          'next_review_time': now,
+          'reps': 0,
+          'lapses': 0,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    });
   }
 
   Future<String> createExamPaper(

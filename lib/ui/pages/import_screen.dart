@@ -1,6 +1,5 @@
-
 import 'package:flutter/material.dart';
-import 'package:shiroha_quiz/core/database/database_helper.dart';
+import '../../data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 import '../../main.dart';
@@ -30,7 +29,7 @@ class _ImportScreenState extends State<ImportScreen> {
 
   void _loadBanks() {
     setState(() {
-      _banksFuture = DatabaseHelper.instance.getQuestionBanksSummary();
+      _banksFuture = QuestionRepository.instance.getQuestionBanksSummary();
     });
   }
 
@@ -55,7 +54,7 @@ class _ImportScreenState extends State<ImportScreen> {
 
     if (confirmed == true) {
       try {
-        await DatabaseHelper.instance.deleteQuestionBank(bankName);
+        await QuestionRepository.instance.deleteQuestionBank(bankName);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('题库 "$bankName" 已删除')),
         );
@@ -79,7 +78,8 @@ class _ImportScreenState extends State<ImportScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const ImportSettingsScreen()),
+                MaterialPageRoute(
+                    builder: (context) => const ImportSettingsScreen()),
               ).then((_) => _loadBanks());
             },
           ),
@@ -113,7 +113,8 @@ class _ImportScreenState extends State<ImportScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => BankDetailScreen(bankName: bankName),
+                      builder: (context) =>
+                          BankDetailScreen(bankName: bankName),
                     ),
                   ).then((_) => _loadBanks());
                 },

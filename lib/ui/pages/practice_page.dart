@@ -2,11 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:sqflite/sqflite.dart';
 
-import '../../core/database/database_helper.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/models/question.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../services/llm_service.dart';
 import '../../services/ai_service.dart';
 import '../widgets/markdown_extensions.dart';
@@ -60,7 +59,11 @@ class _PracticePageState extends State<PracticePage> {
   bool get isSubjective {
     if (_currentQuestion == null) return false;
     final q = Question.fromMap(_currentQuestion!);
-    return q.type == 3 || q.type == 2 || q.options == null || q.options!.isEmpty || q.options == '[]';
+    return q.type == 3 ||
+        q.type == 2 ||
+        q.options == null ||
+        q.options!.isEmpty ||
+        q.options == '[]';
   }
 
   @override
@@ -85,7 +88,8 @@ class _PracticePageState extends State<PracticePage> {
   Future<void> _initSession() async {
     setState(() => _isLoading = true);
     try {
-      if (widget.initialQuestions != null && widget.initialQuestions!.isNotEmpty) {
+      if (widget.initialQuestions != null &&
+          widget.initialQuestions!.isNotEmpty) {
         _previewQuestions = List.from(widget.initialQuestions!);
         _previewIndex = widget.initialIndex ?? 0;
       } else {
@@ -124,7 +128,7 @@ class _PracticePageState extends State<PracticePage> {
       _handleSessionComplete();
       return;
     }
-    
+
     setState(() {
       _currentQuestion = nextQ;
       _isAnswerRevealed = false;
@@ -139,7 +143,7 @@ class _PracticePageState extends State<PracticePage> {
   void _handleSessionComplete() {
     if (widget.isPomodoroActive) {
       // 如果番茄钟开启，调用番茄钟的结束逻辑
-      _handlePomodoroEnd(true); 
+      _handlePomodoroEnd(true);
     } else {
       // 正常结束提示
       showDialog(
@@ -164,11 +168,11 @@ class _PracticePageState extends State<PracticePage> {
 
   Future<void> _handlePomodoroEnd(bool isCompleted) async {
     _pomodoroTimer?.cancel();
-    
+
     final actualDuration = 1500 - _pomodoroSeconds;
-    
+
     // 1. 强制数值安全落盘
-    await DatabaseHelper.instance.insertPomodoroSession({
+    await QuestionRepository.instance.insertPomodoroSession({
       'id': DateTime.now().millisecondsSinceEpoch.toString(),
       'bank_name': widget.bankName ?? '默认题库',
       'start_time': _pomodoroStartTime,
@@ -178,21 +182,23 @@ class _PracticePageState extends State<PracticePage> {
       'status': isCompleted ? 1 : 0,
       'questions_solved': _solvedInPomodoro,
     });
-    
+
     if (!mounted) return;
-    
+
     // 3. UI 阻断与退出
     if (isCompleted) {
       await showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => AlertDialog(
-          title: const Text('🍅 专注结束', style: TextStyle(fontWeight: FontWeight.bold)),
+          title: const Text('🍅 专注结束',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           content: Text('完成 25 分钟沉浸！\n共消灭 $_solvedInPomodoro 道题。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('收下数据', style: TextStyle(color: Colors.deepOrange)),
+              child: const Text('收下数据',
+                  style: TextStyle(color: Colors.deepOrange)),
             ),
           ],
         ),
@@ -204,10 +210,10 @@ class _PracticePageState extends State<PracticePage> {
 
   Future<void> _submitGrade(int grade) async {
     if (_currentQuestion == null) return;
-    
+
     final qId = _currentQuestion!['id'] as String;
     final isPreview = qId.startsWith('preview_');
-    
+
     if (!isPreview) {
       // 1. 异步触发底层 SQLite 事务落盘 FSRS 数据
       // 不使用 await 阻塞 UI，保障极速切换体验
@@ -239,12 +245,14 @@ class _PracticePageState extends State<PracticePage> {
   //  Markdown Rendering Helper
   // ==============================
 
-  Widget _buildMarkdown(String text, {bool isOption = false, bool isSelected = false}) {
+  Widget _buildMarkdown(String text,
+      {bool isOption = false, bool isSelected = false}) {
     final theme = Theme.of(context);
     final textColor = isOption
         ? (isSelected ? theme.primaryColor : theme.textTheme.bodyLarge?.color)
         : theme.textTheme.bodyLarge?.color;
-    final fontWeight = (isOption && isSelected) ? FontWeight.bold : FontWeight.normal;
+    final fontWeight =
+        (isOption && isSelected) ? FontWeight.bold : FontWeight.normal;
     final fontSize = isOption ? 15.0 : 16.0;
 
     return buildLatexWidget(
@@ -263,7 +271,10 @@ class _PracticePageState extends State<PracticePage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(backgroundColor: _bgColor, appBar: _buildAppBar(), body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(
+          backgroundColor: _bgColor,
+          appBar: _buildAppBar(),
+          body: const Center(child: CircularProgressIndicator()));
     }
     if (_error != null) {
       return Scaffold(
@@ -273,7 +284,8 @@ class _PracticePageState extends State<PracticePage> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
             const SizedBox(height: 12),
-            Text(_error!, style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+            Text(_error!,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
             const SizedBox(height: 16),
             ElevatedButton(onPressed: _initSession, child: const Text('重试')),
           ])));
@@ -286,7 +298,8 @@ class _PracticePageState extends State<PracticePage> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.inbox_rounded, size: 56, color: Colors.grey.shade300),
             const SizedBox(height: 16),
-            Text('还没有题目，先去导入题库吧', style: TextStyle(fontSize: 15, color: Colors.grey.shade500)),
+            Text('还没有题目，先去导入题库吧',
+                style: TextStyle(fontSize: 15, color: Colors.grey.shade500)),
           ])));
     }
 
@@ -295,7 +308,9 @@ class _PracticePageState extends State<PracticePage> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
 
-        if (widget.isPomodoroActive && _pomodoroTimer != null && _pomodoroTimer!.isActive) {
+        if (widget.isPomodoroActive &&
+            _pomodoroTimer != null &&
+            _pomodoroTimer!.isActive) {
           await _handlePomodoroEnd(false);
           return;
         }
@@ -317,8 +332,12 @@ class _PracticePageState extends State<PracticePage> {
     return AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      leading: IconButton(icon: const Icon(Icons.close, color: Colors.grey), onPressed: () => Navigator.of(context).pop(), tooltip: '退出练习'),
-      title: Text('刷题中', style: TextStyle(fontSize: 15, color: Colors.grey.shade600)),
+      leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.grey),
+          onPressed: () => Navigator.of(context).pop(),
+          tooltip: '退出练习'),
+      title: Text('刷题中',
+          style: TextStyle(fontSize: 15, color: Colors.grey.shade600)),
       centerTitle: true,
       actions: [
         if (widget.isPomodoroActive)
@@ -328,10 +347,9 @@ class _PracticePageState extends State<PracticePage> {
               child: Text(
                 '🍅 ${(_pomodoroSeconds ~/ 60).toString().padLeft(2, '0')}:${(_pomodoroSeconds % 60).toString().padLeft(2, '0')}',
                 style: const TextStyle(
-                  fontSize: 16, 
-                  fontWeight: FontWeight.bold, 
-                  color: Colors.deepOrange
-                ),
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepOrange),
               ),
             ),
           ),
@@ -343,7 +361,8 @@ class _PracticePageState extends State<PracticePage> {
                   child: SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.amber),
                   ),
                 ),
               )
@@ -370,8 +389,14 @@ class _PracticePageState extends State<PracticePage> {
       children: [
         _buildQuestionCard(q),
         const SizedBox(height: 16),
-        if (isSubjective) _buildSubjectiveSection(q) else _buildOptionsList(opts),
-        if (_isAnswerRevealed && !isSubjective) ...[const SizedBox(height: 16), _buildAnalysis(q)],
+        if (isSubjective)
+          _buildSubjectiveSection(q)
+        else
+          _buildOptionsList(opts),
+        if (_isAnswerRevealed && !isSubjective) ...[
+          const SizedBox(height: 16),
+          _buildAnalysis(q)
+        ],
         const SizedBox(height: 16),
       ],
     );
@@ -381,7 +406,15 @@ class _PracticePageState extends State<PracticePage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3))]),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 3))
+          ]),
       child: _buildMarkdown(q.content),
     );
   }
@@ -416,7 +449,7 @@ class _PracticePageState extends State<PracticePage> {
         final sel = _selectedOptionIndex == i;
         Color bg = Colors.white, border = Colors.grey.shade200;
         Color lBg = Colors.grey.shade100, lFg = Colors.grey.shade600;
-        
+
         if (sel) {
           bg = const Color(0xFFEDF1FD);
           border = _primaryColor;
@@ -425,40 +458,55 @@ class _PracticePageState extends State<PracticePage> {
         }
 
         if (_isAnswerRevealed && _currentQuestion != null) {
-            final q = Question.fromMap(_currentQuestion!);
-            final correctAns = q.answer.trim().toUpperCase();
-            if (correctAns == letter) {
-                bg = const Color(0xFFE8F8ED);
-                border = const Color(0xFF34C759);
-                lBg = const Color(0xFF34C759);
-                lFg = Colors.white;
-            } else if (sel && correctAns != letter) {
-                bg = const Color(0xFFFFEDEC);
-                border = const Color(0xFFFF3B30);
-                lBg = const Color(0xFFFF3B30);
-                lFg = Colors.white;
-            }
+          final q = Question.fromMap(_currentQuestion!);
+          final correctAns = q.answer.trim().toUpperCase();
+          if (correctAns == letter) {
+            bg = const Color(0xFFE8F8ED);
+            border = const Color(0xFF34C759);
+            lBg = const Color(0xFF34C759);
+            lFg = Colors.white;
+          } else if (sel && correctAns != letter) {
+            bg = const Color(0xFFFFEDEC);
+            border = const Color(0xFFFF3B30);
+            lBg = const Color(0xFFFF3B30);
+            lFg = Colors.white;
+          }
         }
 
         return GestureDetector(
-          onTap: _isAnswerRevealed ? null : () => setState(() => _selectedOptionIndex = i),
+          onTap: _isAnswerRevealed
+              ? null
+              : () => setState(() => _selectedOptionIndex = i),
           child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: border, width: sel || _isAnswerRevealed ? 1.5 : 1)),
+              decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: border,
+                      width: sel || _isAnswerRevealed ? 1.5 : 1)),
               child: Row(children: [
                 Container(
                     width: 30,
                     height: 30,
-                    decoration: BoxDecoration(shape: BoxShape.circle, color: lBg),
+                    decoration:
+                        BoxDecoration(shape: BoxShape.circle, color: lBg),
                     alignment: Alignment.center,
-                    child: Text(letter, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: lFg))),
+                    child: Text(letter,
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: lFg))),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Builder(
                     builder: (context) {
                       String optStr = options[i].toString().trim();
-                      String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+                      String stripped = optStr
+                          .replaceFirst(
+                              RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '')
+                          .trim();
                       if (stripped.isEmpty) stripped = optStr;
                       return _buildMarkdown(
                         stripped,
@@ -478,20 +526,35 @@ class _PracticePageState extends State<PracticePage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: _primaryColor.withValues(alpha: 0.3))),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _primaryColor.withValues(alpha: 0.3))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(Icons.info_outline, size: 22, color: _primaryColor),
           const SizedBox(width: 8),
-          Text('答案与解析', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _primaryColor)),
+          Text('答案与解析',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: _primaryColor)),
         ]),
         const SizedBox(height: 8),
-        Text('正确答案: ${q.answer}', style: TextStyle(fontSize: 13, color: Colors.grey.shade800, fontWeight: FontWeight.bold)),
-        if ((q.rawExplanation != null && q.rawExplanation!.isNotEmpty) || (q.explanation != null && q.explanation!.isNotEmpty)) ...[
+        Text('正确答案: ${q.answer}',
+            style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.bold)),
+        if ((q.rawExplanation != null && q.rawExplanation!.isNotEmpty) ||
+            (q.explanation != null && q.explanation!.isNotEmpty)) ...[
           const SizedBox(height: 10),
           const Divider(height: 1),
           const SizedBox(height: 10),
-          _buildMarkdown((q.rawExplanation != null && q.rawExplanation!.isNotEmpty) ? q.rawExplanation! : (q.explanation ?? '暂无解析')),
+          _buildMarkdown(
+              (q.rawExplanation != null && q.rawExplanation!.isNotEmpty)
+                  ? q.rawExplanation!
+                  : (q.explanation ?? '暂无解析')),
         ],
       ]),
     );
@@ -499,37 +562,40 @@ class _PracticePageState extends State<PracticePage> {
 
   Widget _buildSubjectiveSection(Question q) {
     if (_isAnswerRevealed || _showStandardAnswerDirectly) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_aiFeedback != null)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withValues(alpha: 0.05),
-                border: Border.all(color: Theme.of(context).primaryColor.withValues(alpha: 0.3)),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.auto_awesome, color: Theme.of(context).primaryColor, size: 18),
-                      const SizedBox(width: 8),
-                      Text('AI 助教判卷结果', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(_aiFeedback!, style: const TextStyle(fontSize: 14, height: 1.6)),
-                ],
-              ),
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (_aiFeedback != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).primaryColor.withValues(alpha: 0.05),
+              border: Border.all(
+                  color: Theme.of(context).primaryColor.withValues(alpha: 0.3)),
+              borderRadius: BorderRadius.circular(12),
             ),
-          _buildAnalysis(q)
-        ]
-      );
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.auto_awesome,
+                        color: Theme.of(context).primaryColor, size: 18),
+                    const SizedBox(width: 8),
+                    Text('AI 助教判卷结果',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).primaryColor)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(_aiFeedback!,
+                    style: const TextStyle(fontSize: 14, height: 1.6)),
+              ],
+            ),
+          ),
+        _buildAnalysis(q)
+      ]);
     }
 
     final bool isFillInBlank = q.content.contains('___');
@@ -557,33 +623,37 @@ class _PracticePageState extends State<PracticePage> {
               height: 52,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.auto_awesome),
-                label: const Text('呼叫 AI 助教判卷', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                onPressed: _isAiJudging ? null : () async {
-                  final uAnswer = _subjectiveController.text.trim();
-                  if (uAnswer.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先输入你的解答')));
-                    return;
-                  }
-                  setState(() => _isAiJudging = true);
-                  
-                  final feedback = await AiService.instance.judgeAnswer(
-                    q.content, 
-                    q.answer, 
-                    uAnswer
-                  );
-                  
-                  if (mounted) {
-                    setState(() {
-                      _aiFeedback = feedback;
-                      _isAiJudging = false;
-                      _isAnswerRevealed = true; // Auto reveal answer and grade buttons
-                    });
-                  }
-                },
+                label: const Text('呼叫 AI 助教判卷',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                onPressed: _isAiJudging
+                    ? null
+                    : () async {
+                        final uAnswer = _subjectiveController.text.trim();
+                        if (uAnswer.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请先输入你的解答')));
+                          return;
+                        }
+                        setState(() => _isAiJudging = true);
+
+                        final feedback = await AiService.instance
+                            .judgeAnswer(q.content, q.answer, uAnswer);
+
+                        if (mounted) {
+                          setState(() {
+                            _aiFeedback = feedback;
+                            _isAiJudging = false;
+                            _isAnswerRevealed =
+                                true; // Auto reveal answer and grade buttons
+                          });
+                        }
+                      },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _primaryColor,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                 ),
               ),
             ),
@@ -617,7 +687,8 @@ class _PracticePageState extends State<PracticePage> {
     final isPreview = qId.startsWith('preview_');
 
     if (!_isAnswerRevealed) {
-      if (isSubjective) return const SizedBox.shrink(); // Subjective has its own buttons
+      if (isSubjective)
+        return const SizedBox.shrink(); // Subjective has its own buttons
 
       return SafeArea(
         child: Padding(
@@ -628,17 +699,23 @@ class _PracticePageState extends State<PracticePage> {
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
                 elevation: 0,
               ),
               onPressed: () {
                 if (!isSubjective && _selectedOptionIndex == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先选择一个答案')));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('请先选择一个答案')));
                   return;
                 }
                 setState(() => _isAnswerRevealed = true);
               },
-              child: const Text('查看答案', style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+              child: const Text('查看答案',
+                  style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold)),
             ),
           ),
         ),
@@ -655,7 +732,12 @@ class _PracticePageState extends State<PracticePage> {
         padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
         decoration: BoxDecoration(
           color: Theme.of(context).cardTheme.color ?? Colors.white,
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, -4))
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -680,10 +762,12 @@ class _PracticePageState extends State<PracticePage> {
             foregroundColor: color,
             elevation: 0,
             padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: () => _submitGrade(grade),
-          child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+          child:
+              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
         ),
       ),
     );
@@ -696,45 +780,13 @@ class _PracticePageState extends State<PracticePage> {
   Future<void> _savePreviewQuestion() async {
     if (_currentQuestion == null) return;
     final previewQuestion = Question.fromMap(_currentQuestion!);
-    if (previewQuestion.id == null || !previewQuestion.id!.startsWith('preview_')) {
-      return; 
+    if (previewQuestion.id == null ||
+        !previewQuestion.id!.startsWith('preview_')) {
+      return;
     }
 
     try {
-      final db = await DatabaseHelper.instance.database;
-      final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-
-      final String cleanId = previewQuestion.id!.replaceAll('preview_', '');
-
-      final Map<String, dynamic> cleanQuestionMap = {
-        'id': cleanId,
-        'type': previewQuestion.type,
-        'content': previewQuestion.content,
-        'options': previewQuestion.options,
-        'standard_answer': previewQuestion.answer,
-        'created_at': now,
-        'bank_name': previewQuestion.bankName,
-      };
-
-      await db.insert(
-        'questions',
-        cleanQuestionMap,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-
-      await db.insert(
-        'review_states',
-        {
-          'question_id': cleanId,
-          'state': 0,
-          'difficulty': 5.0,
-          'stability': 0.0,
-          'next_review_time': now,
-          'reps': 0,
-          'lapses': 0,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await QuestionRepository.instance.savePreviewQuestion(_currentQuestion!);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -753,7 +805,12 @@ class _PracticePageState extends State<PracticePage> {
   Widget _buildPreviewBottomBar(Question question) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, -2))]),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+        BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, -2))
+      ]),
       child: SafeArea(
         top: false,
         child: Row(
@@ -763,12 +820,15 @@ class _PracticePageState extends State<PracticePage> {
                 height: 52,
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.delete_sweep_rounded),
-                  label: const Text('丢弃', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  label: const Text('丢弃',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   onPressed: _discardPreviewQuestion,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red.shade50,
                     foregroundColor: Colors.red.shade700,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
                   ),
                 ),
@@ -780,12 +840,15 @@ class _PracticePageState extends State<PracticePage> {
                 height: 52,
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.archive_rounded),
-                  label: const Text('收入题库', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  label: const Text('收入题库',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   onPressed: _savePreviewQuestion,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade50,
                     foregroundColor: Colors.green.shade800,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
                   ),
                 ),
@@ -806,13 +869,14 @@ class _PracticePageState extends State<PracticePage> {
     });
 
     try {
-      final newQuestion = await LLMService().generateVariantQuestion(currentQuestion);
+      final newQuestion =
+          await LLMService().generateVariantQuestion(currentQuestion);
       if (!mounted) return;
 
       if (newQuestion != null) {
         // Enqueue the new variant to be shown immediately next!
         ReviewEngineService().requeueQuestion(newQuestion.toMap());
-        
+
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('✨ 变种题生成成功！已加入队列。')),
@@ -864,7 +928,7 @@ class _PracticePageState extends State<PracticePage> {
     if (confirm != true) return;
 
     try {
-      await DatabaseHelper.instance.deleteSingleQuestion(qId);
+      await QuestionRepository.instance.deleteQuestion(qId);
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -879,6 +943,4 @@ class _PracticePageState extends State<PracticePage> {
       );
     }
   }
-
-
 }

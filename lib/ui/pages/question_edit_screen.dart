@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import '../../core/database/database_helper.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../services/ai_service.dart';
 import '../../utils/ai_data_sanitizer.dart';
 import '../widgets/markdown_extensions.dart';
@@ -86,7 +86,7 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     }
 
     try {
-      await DatabaseHelper.instance.updateQuestion(updated);
+      await QuestionRepository.instance.updateQuestion(updated);
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('题目修改成功')));

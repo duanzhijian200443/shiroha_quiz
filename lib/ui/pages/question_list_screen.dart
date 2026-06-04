@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:async';
-import '../../core/database/database_helper.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../utils/ai_data_sanitizer.dart';
 import 'question_edit_screen.dart';
 import '../widgets/markdown_extensions.dart';
@@ -36,7 +36,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     setState(() => _isLoading = true);
     try {
       final data =
-          await DatabaseHelper.instance.getQuestionsByBank(widget.bankName);
+          await QuestionRepository.instance.getQuestionsByBank(widget.bankName);
       if (mounted)
         setState(() {
           _questions = data;
@@ -53,7 +53,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     _debounce = Timer(const Duration(milliseconds: 400), () async {
       setState(() => _isLoading = true);
       try {
-        final data = await DatabaseHelper.instance
+        final data = await QuestionRepository.instance
             .searchQuestions(widget.bankName, query);
         if (mounted)
           setState(() {
@@ -87,7 +87,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
               ],
             ));
     if (confirm == true) {
-      await DatabaseHelper.instance.deleteSingleQuestion(id);
+      await QuestionRepository.instance.deleteQuestion(id);
       _onSearchChanged(_searchController.text);
     }
   }

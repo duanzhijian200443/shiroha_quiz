@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
 import 'plan_config_screen.dart';
 import 'task_center_screen.dart';
-import '../../core/database/database_helper.dart';
 import '../../core/review_engine_service.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../services/task_manager.dart';
 
@@ -42,7 +42,7 @@ class _HomePageState extends State<HomePage> {
       if (targetBank != '点击修改选择题库') {
         // 2. 实时去底层数据库寻址该题库的最新文件夹映射
         targetFolder =
-            await DatabaseHelper.instance.getFolderForBank(targetBank);
+            await QuestionRepository.instance.getFolderForBank(targetBank);
 
         // 3. 拉取 FSRS 统计数据
         final stats = await ReviewEngineService().getBankStats(targetBank);

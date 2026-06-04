@@ -1,5 +1,15 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 21:55] - refactor(questions): 将题库与题目管理的 UI 层直连迁移至 QuestionRepository
+- **变更类型**: refactor
+- **影响模块**: data, ui
+- **详细改动明细**:
+  - [x] 扩展 `QuestionRepository`，代理包括 `getSubjectTree`、`updateQuestion`、`insertPomodoroSession`、`getHeatmapData` 在内的近 15 个底层方法。
+  - [x] 封装 `savePreviewQuestion` 事务，彻底消灭了 `practice_page` 里的 `db.insert` 等硬编码。
+  - [x] 在 `deleteQuestionBank` 中实现联动，一旦删除的题库是当前被选中的题库，自动刷新 `SettingsRepository` 缓存为默认态。
+  - [x] 净化了 `data_center_screen`, `import_screen`, `question_list_screen`, `question_edit_screen`, `practice_page` 的 `DatabaseHelper` 依赖。
+  - [x] 顺带清除了 `home_page`, `plan_config_screen`, `profile_screen` 的零星遗留调用。
+- **验证状态**: 经本地代码格式化、静态分析与全量 `flutter test` 验证，28 个测试完美回归。UI 层对于题库模块的数据隔离目标全面达成。
 ## [2026-06-04 21:35] - refactor(settings): 引入 SettingsRepository 与内存级缓存，隔离 UI 层配置读写
 - **变更类型**: refactor
 - **影响模块**: data, ui

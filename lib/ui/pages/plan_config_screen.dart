@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/database/database_helper.dart';
 import '../../core/review_engine_service.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 
 class PlanConfigScreen extends StatefulWidget {
@@ -316,7 +316,7 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                               TextButton(
                                 onPressed: () async {
                                   Navigator.pop(ctx);
-                                  await DatabaseHelper.instance
+                                  await QuestionRepository.instance
                                       .deleteQuestionBank(bank['bank_name']);
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
