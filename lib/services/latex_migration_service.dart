@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import '../core/database/database_helper.dart';
+import '../data/models/ai_engine_profile.dart';
+import '../data/repositories/ai_engine_repository.dart';
+import 'llm_api_client.dart';
 
 /// LaTeX 历史数据迁移服务（一次性使用）
 /// 扫描题库中的裸 LaTeX 字段，通过 AI 引擎统一添加 \( \) 或 \[ \] 定界符。
@@ -9,14 +11,34 @@ class LatexMigrationService {
   LatexMigrationService._();
   static final instance = LatexMigrationService._();
 
+  final AiEngineRepository _engineRepository = AiEngineRepository.instance;
+  final LlmApiClient _apiClient = const LlmApiClient();
+
   /// 检测字段是否含有裸 LaTeX
   static bool _hasBareLatex(String? text) {
     if (text == null || text.isEmpty) return false;
     const patterns = [
-      r'\frac', r'\sqrt', r'\sum', r'\int', r'\lim', r'\prod',
-      r'\oint', r'\iint', r'\iiint', r'\begin', r'\partial',
-      r'\infty', r'\alpha', r'\beta', r'\gamma', r'\theta',
-      r'\pi', r'\sigma', r'\lambda', r'\Delta', r'\Sigma',
+      r'\frac',
+      r'\sqrt',
+      r'\sum',
+      r'\int',
+      r'\lim',
+      r'\prod',
+      r'\oint',
+      r'\iint',
+      r'\iiint',
+      r'\begin',
+      r'\partial',
+      r'\infty',
+      r'\alpha',
+      r'\beta',
+      r'\gamma',
+      r'\theta',
+      r'\pi',
+      r'\sigma',
+      r'\lambda',
+      r'\Delta',
+      r'\Sigma',
     ];
     return patterns.any((p) => text.contains(p));
   }
@@ -46,18 +68,17 @@ class LatexMigrationService {
 
   /// 调用 AI 引擎，为单道题的三个字段统一添加定界符
   Future<Map<String, String>?> _fixQuestionLatex(
-    Map<String, dynamic> profile,
+    AiEngineProfile profile,
     String content,
     String stdAns,
     String expl,
   ) async {
-    final apiKey = profile['api_key'] as String? ?? '';
-    String baseUrl = profile['base_url'] as String? ?? '';
-    final model = profile['model_name'] as String? ?? '';
-    if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-
-    final isGemini = baseUrl.contains('generativelanguage.googleapis.com');
-    final isZhipu = baseUrl.contains('bigmodel.cn');
+    if (!profile.isComplete) {
+      debugPrint(
+        '[Migration] AI engine profile is incomplete: ${profile.missingFields.join(', ')}',
+      );
+      return null;
+    }
 
     final userMsg = jsonEncode({
       'content': content,
@@ -66,62 +87,15 @@ class LatexMigrationService {
     });
 
     try {
-      String responseText;
-
-      if (isGemini) {
-        final url = '$baseUrl/models/$model:generateContent?key=$apiKey';
-        final res = await http.post(
-          Uri.parse(url),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'contents': [
-              {
-                'parts': [
-                  {'text': '$_migrationSystemPrompt\n\n$userMsg'}
-                ]
-              }
-            ],
-            'generationConfig': {
-              'temperature': 0.0,
-              'maxOutputTokens': 8192,
-              'responseMimeType': 'application/json',
-            }
-          }),
-        ).timeout(const Duration(minutes: 2));
-
-        if (res.statusCode != 200) {
-          debugPrint('[Migration] Gemini error ${res.statusCode}: ${res.body.substring(0, 200)}');
-          return null;
-        }
-        responseText = jsonDecode(res.body)['candidates'][0]['content']['parts'][0]['text'] as String;
-      } else {
-        final path = isZhipu ? '/v4/chat/completions' : '/v1/chat/completions';
-        final url = '$baseUrl$path';
-        final res = await http.post(
-          Uri.parse(url),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-          body: jsonEncode({
-            'model': model,
-            'messages': [
-              {'role': 'system', 'content': _migrationSystemPrompt},
-              {'role': 'user', 'content': userMsg},
-            ],
-            'temperature': 0.0,
-            'max_tokens': 8192,
-            'response_format': {'type': 'json_object'},
-          }),
-        ).timeout(const Duration(minutes: 2));
-
-        if (res.statusCode != 200) {
-          debugPrint('[Migration] API error ${res.statusCode}: ${res.body.substring(0, 200)}');
-          return null;
-        }
-        final msg = jsonDecode(res.body)['choices'][0]['message'];
-        responseText = (msg['content'] ?? '').toString();
-      }
+      final responseText = await _apiClient.callText(
+        profile: profile,
+        prompt: '$_migrationSystemPrompt\n\n$userMsg',
+        temperature: 0.0,
+        reasoningEffort: '',
+        maxTokens: 8192,
+        jsonResponse: true,
+        timeout: const Duration(minutes: 2),
+      );
 
       final result = jsonDecode(responseText) as Map<String, dynamic>;
       return {
@@ -139,7 +113,7 @@ class LatexMigrationService {
   Future<MigrationResult> runMigration({
     required void Function(int processed, int total, String status) onProgress,
   }) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) {
       return MigrationResult(
         success: false,
@@ -170,13 +144,17 @@ class LatexMigrationService {
 
       processed++;
 
-      if (!_hasBareLatex(content) && !_hasBareLatex(stdAns) && !_hasBareLatex(expl)) {
+      if (!_hasBareLatex(content) &&
+          !_hasBareLatex(stdAns) &&
+          !_hasBareLatex(expl)) {
         skipped++;
-        onProgress(processed, total, '[$processed/$total] 跳过（无裸 LaTeX）: ${qId.substring(0, qId.length.clamp(0, 20))}...');
+        onProgress(processed, total,
+            '[$processed/$total] 跳过（无裸 LaTeX）: ${qId.substring(0, qId.length.clamp(0, 20))}...');
         continue;
       }
 
-      onProgress(processed, total, '[$processed/$total] AI 修复中: ${qId.substring(0, qId.length.clamp(0, 20))}...');
+      onProgress(processed, total,
+          '[$processed/$total] AI 修复中: ${qId.substring(0, qId.length.clamp(0, 20))}...');
 
       final result = await _fixQuestionLatex(profile, content, stdAns, expl);
 

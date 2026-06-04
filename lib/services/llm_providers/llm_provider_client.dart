@@ -1,53 +1,11 @@
+import '../../data/models/ai_engine_profile.dart';
+
 abstract class LlmProviderClient {
   const LlmProviderClient();
 
   Future<String> callText(LlmTextRequest request);
 
   Future<String> callVision(LlmVisionRequest request);
-}
-
-class LlmProviderProfile {
-  const LlmProviderProfile({
-    required this.apiKey,
-    required this.baseUrl,
-    required this.model,
-    required this.temperature,
-    required this.reasoningEffort,
-  });
-
-  final String apiKey;
-  final String baseUrl;
-  final String model;
-  final double temperature;
-  final String reasoningEffort;
-
-  factory LlmProviderProfile.fromMap(Map<String, dynamic> profile) {
-    return LlmProviderProfile(
-      apiKey: (profile['api_key'] as String? ?? '').trim(),
-      baseUrl: _normalizeBaseUrl(profile['base_url'] as String? ?? ''),
-      model: (profile['model_name'] as String? ?? '').trim(),
-      temperature: (profile['temperature'] as num?)?.toDouble() ?? 0.7,
-      reasoningEffort: (profile['reasoning_effort'] as String? ?? '').trim(),
-    );
-  }
-
-  bool get isComplete => missingFields.isEmpty;
-
-  List<String> get missingFields {
-    return [
-      if (apiKey.isEmpty) 'api_key',
-      if (baseUrl.isEmpty) 'base_url',
-      if (model.isEmpty) 'model_name',
-    ];
-  }
-
-  static String _normalizeBaseUrl(String baseUrl) {
-    final trimmed = baseUrl.trim();
-    if (trimmed.endsWith('/')) {
-      return trimmed.substring(0, trimmed.length - 1);
-    }
-    return trimmed;
-  }
 }
 
 class LlmTextRequest {
@@ -74,7 +32,7 @@ class LlmTextRequest {
   final Duration timeout;
 
   factory LlmTextRequest.fromProfile({
-    required Map<String, dynamic> profile,
+    required AiEngineProfile profile,
     required String prompt,
     double? temperature,
     String? reasoningEffort,
@@ -82,14 +40,13 @@ class LlmTextRequest {
     bool jsonResponse = false,
     Duration timeout = const Duration(minutes: 5),
   }) {
-    final providerProfile = LlmProviderProfile.fromMap(profile);
     return LlmTextRequest(
-      apiKey: providerProfile.apiKey,
-      baseUrl: providerProfile.baseUrl,
-      model: providerProfile.model,
+      apiKey: profile.apiKey,
+      baseUrl: profile.baseUrl,
+      model: profile.modelName,
       prompt: prompt,
-      temperature: temperature ?? providerProfile.temperature,
-      reasoningEffort: reasoningEffort ?? providerProfile.reasoningEffort,
+      temperature: temperature ?? profile.temperature,
+      reasoningEffort: reasoningEffort ?? profile.reasoningEffort,
       maxTokens: maxTokens,
       jsonResponse: jsonResponse,
       timeout: timeout,
@@ -166,19 +123,18 @@ class LlmVisionRequest {
   final Duration timeout;
 
   factory LlmVisionRequest.fromProfile({
-    required Map<String, dynamic> profile,
+    required AiEngineProfile profile,
     required String prompt,
     required List<LlmVisionAsset> assets,
     double? temperature,
     Duration timeout = const Duration(minutes: 5),
   }) {
-    final providerProfile = LlmProviderProfile.fromMap(profile);
     return LlmVisionRequest(
-      apiKey: providerProfile.apiKey,
-      baseUrl: providerProfile.baseUrl,
-      model: providerProfile.model,
+      apiKey: profile.apiKey,
+      baseUrl: profile.baseUrl,
+      model: profile.modelName,
       prompt: prompt,
-      temperature: temperature ?? providerProfile.temperature,
+      temperature: temperature ?? profile.temperature,
       assets: List.unmodifiable(assets),
       timeout: timeout,
     );

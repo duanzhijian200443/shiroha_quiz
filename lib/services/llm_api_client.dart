@@ -1,3 +1,4 @@
+import '../data/models/ai_engine_profile.dart';
 import 'llm_providers/llm_provider_client.dart';
 import 'llm_providers/llm_provider_registry.dart';
 import 'llm_providers/openai_compatible_provider_client.dart';
@@ -18,7 +19,7 @@ class LlmApiClient {
   }
 
   Future<String> callText({
-    required Map<String, dynamic> profile,
+    required AiEngineProfile profile,
     required String prompt,
     double? temperature,
     String? reasoningEffort,
@@ -46,7 +47,7 @@ class LlmApiClient {
   }
 
   Future<String> callVision({
-    required Map<String, dynamic> profile,
+    required AiEngineProfile profile,
     required String prompt,
     required List<LlmVisionAsset> assets,
     double? temperature,

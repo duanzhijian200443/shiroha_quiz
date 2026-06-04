@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
@@ -8,10 +9,12 @@ class LLMService {
   factory LLMService() => _instance;
   LLMService._internal();
 
-  Future<String> _fetchCompletion(String systemPrompt, String userPrompt) async {
+  Future<String> _fetchCompletion(
+      String systemPrompt, String userPrompt) async {
     final prefs = await SharedPreferences.getInstance();
     final apiKey = prefs.getString('text_llm_api_key');
-    final baseUrl = prefs.getString('text_llm_base_url') ?? 'https://api.deepseek.com/v1';
+    final baseUrl =
+        prefs.getString('text_llm_base_url') ?? 'https://api.deepseek.com/v1';
     final modelName = prefs.getString('text_llm_model_name') ?? 'deepseek-chat';
 
     if (apiKey == null || apiKey.isEmpty) {
@@ -41,12 +44,13 @@ class LLMService {
           return data['choices'][0]['message']['content'];
         }
       } else {
-        final errMsg = 'Text LLM API Error: ${response.statusCode} - ${response.body}';
-        print(errMsg);
+        final errMsg =
+            'Text LLM API Error: ${response.statusCode} - ${response.body}';
+        debugPrint(errMsg);
         throw Exception('AI 接口返回错误 (${response.statusCode}): ${response.body}');
       }
     } catch (e) {
-      print('Error calling Text LLM API: $e');
+      debugPrint('Error calling Text LLM API: $e');
       throw Exception('调用 AI 服务失败: $e');
     }
     throw Exception('AI 服务未返回有效响应');
@@ -63,7 +67,8 @@ class LLMService {
         '【重要】：如果题目中包含 LaTeX 数学公式，请务必将公式中的反斜杠双写转义（例如使用 \\\\frac 代替 \\frac），以确保 JSON 解析器不会报错。';
 
     List<dynamic> originalOptions = [];
-    if (originalQuestion.options != null && originalQuestion.options!.isNotEmpty) {
+    if (originalQuestion.options != null &&
+        originalQuestion.options!.isNotEmpty) {
       try {
         originalOptions = jsonDecode(originalQuestion.options!);
       } catch (e) {
@@ -83,14 +88,16 @@ class LLMService {
       final String sanitized = _sanitizeLatexJson(completion);
       final Map<String, dynamic> variantJson = jsonDecode(sanitized);
       final int now = DateTime.now().millisecondsSinceEpoch;
-      final String previewId = 'preview_${now}_${(1000 + (DateTime.now().microsecond % 9000))}';
+      final String previewId =
+          'preview_${now}_${(1000 + (DateTime.now().microsecond % 9000))}';
 
-            return Question(
+      return Question(
         id: previewId,
         type: 0, // Variant questions are always single-choice for now.
         content: variantJson['content'],
         options: jsonEncode(variantJson['options']),
-        answer: variantJson['standard_answer'], // 'answer' in model, 'standard_answer' in JSON
+        answer: variantJson[
+            'standard_answer'], // 'answer' in model, 'standard_answer' in JSON
         createdAt: now,
         bankName: originalQuestion.bankName,
         // This explanation is a temporary UI message, not from the LLM.
@@ -98,14 +105,14 @@ class LLMService {
         explanation: '这是由 AI 生成的变种题，基于原题。\n请注意：本题尚未最终存入题库，您可选择【丢弃】或【收入题库】。',
       );
     } catch (e) {
-      print("Error parsing LLM response: $e");
+      debugPrint("Error parsing LLM response: $e");
       throw Exception('AI 生成变种题解析失败: $e');
     }
   }
 
-  Future<String> evaluateSubjectiveAnswer(String questionContent, String standardAnswer, String userAnswer) async {
-    const systemPrompt =
-        '你是一个严格的 408 计算机考研阅卷专家。请对比标准答案与用户的回答。\n'
+  Future<String> evaluateSubjectiveAnswer(
+      String questionContent, String standardAnswer, String userAnswer) async {
+    const systemPrompt = '你是一个严格的 408 计算机考研阅卷专家。请对比标准答案与用户的回答。\n'
         '你必须提取标准答案中的 3-5 个核心采分点，并逐一指出用户的回答中是否包含了这些点。\n'
         '你必须且只能输出一个合法的 JSON 对象，不要包含任何多余的解释或 Markdown 标记。格式必须严格如下：\n'
         '''
@@ -133,7 +140,6 @@ $userAnswer
     final String completion = await _fetchCompletion(systemPrompt, userPrompt);
     return _sanitizeLatexJson(completion);
   }
-
 
   Future<String> parseTextToJSON(String rawText) async {
     const systemPrompt =
@@ -173,27 +179,31 @@ $userAnswer
   Future<String> parsePdfToJSON(String base64Pdf) async {
     final prefs = await SharedPreferences.getInstance();
     final apiKey = prefs.getString('vision_llm_api_key');
-    final baseUrl = prefs.getString('vision_llm_base_url') ?? 'https://generativelanguage.googleapis.com/v1beta';
-    final modelName = prefs.getString('vision_llm_model_name') ?? 'gemini-1.5-flash';
+    final baseUrl = prefs.getString('vision_llm_base_url') ??
+        'https://generativelanguage.googleapis.com/v1beta';
+    final modelName =
+        prefs.getString('vision_llm_model_name') ?? 'gemini-1.5-flash';
 
     if (apiKey == null || apiKey.isEmpty) {
       throw Exception('请先前往“我的”页面配置多模态视觉引擎');
     }
 
-    final url = Uri.parse('$baseUrl/models/$modelName:generateContent?key=$apiKey');
+    final url =
+        Uri.parse('$baseUrl/models/$modelName:generateContent?key=$apiKey');
     final headers = {'Content-Type': 'application/json'};
     final body = jsonEncode({
       'contents': [
         {
           'parts': [
-                         {'text': '你是一个 408 统考出题专家。请阅读这份 PDF 文件，提取出里面的所有题目，并以 JSON 格式输出。\n'
-                                  '【题型分类核心规则】：\n'
-                                  '1. 如果题目本身含有显式的 A, B, C, D 选项，则 type 必须为 0（单选题），且 options 数组必须包含这四个选项。\n'
-                                  '2. 如果题目是计算题、证明题、简答题、填空题等主观大题，则 type 必须为 3（简答题），且 options 数组必须为空 []，标准答案和推导步骤全部放入 standard_answer 字段中！\n'
-                                  '【严格约束】：\n'
-                                  '1. 绝对不允许在 JSON 中生成 explanation、subject 等任何多余字段！只能包含 type, content, options, standard_answer, tags！\n'
-                                  '2. 必须且只能输出一个合法的 JSON 数组，不要包含任何多余的解释、问候语或 Markdown 标记。格式必须严格如下：\n'
-                                  '''
+            {
+              'text': '你是一个 408 统考出题专家。请阅读这份 PDF 文件，提取出里面的所有题目，并以 JSON 格式输出。\n'
+                  '【题型分类核心规则】：\n'
+                  '1. 如果题目本身含有显式的 A, B, C, D 选项，则 type 必须为 0（单选题），且 options 数组必须包含这四个选项。\n'
+                  '2. 如果题目是计算题、证明题、简答题、填空题等主观大题，则 type 必须为 3（简答题），且 options 数组必须为空 []，标准答案和推导步骤全部放入 standard_answer 字段中！\n'
+                  '【严格约束】：\n'
+                  '1. 绝对不允许在 JSON 中生成 explanation、subject 等任何多余字段！只能包含 type, content, options, standard_answer, tags！\n'
+                  '2. 必须且只能输出一个合法的 JSON 数组，不要包含任何多余的解释、问候语或 Markdown 标记。格式必须严格如下：\n'
+                  '''
                                   {
                                     "questions": [
                                       {
@@ -213,12 +223,10 @@ $userAnswer
                                     ]
                                   }
                                   '''
-                                  '\n【重要】：如果题目中包含 LaTeX 数学公式，请务必将公式中的反斜杠双写转义（例如使用 \\\\frac 代替 \\frac），以确保 JSON 解析器不会报错。'},
+                  '\n【重要】：如果题目中包含 LaTeX 数学公式，请务必将公式中的反斜杠双写转义（例如使用 \\\\frac 代替 \\frac），以确保 JSON 解析器不会报错。'
+            },
             {
-              'inline_data': {
-                'mime_type': 'application/pdf',
-                'data': base64Pdf
-              }
+              'inline_data': {'mime_type': 'application/pdf', 'data': base64Pdf}
             }
           ]
         }
@@ -233,11 +241,12 @@ $userAnswer
         final content = data['candidates'][0]['content']['parts'][0]['text'];
         return _sanitizeLatexJson(content);
       } else {
-        print('Vision LLM API Error: ${response.statusCode} - ${response.body}');
+        debugPrint(
+            'Vision LLM API Error: ${response.statusCode} - ${response.body}');
         throw Exception('AI 服务未能正确解析 PDF: ${response.body}');
       }
     } catch (e) {
-      print('Error calling Vision LLM API: $e');
+      debugPrint('Error calling Vision LLM API: $e');
       throw Exception('调用 AI 服务时发生网络错误');
     }
   }
@@ -245,13 +254,14 @@ $userAnswer
   String _sanitizeLatexJson(String rawJson) {
     // 1. 清理 Markdown 代码块包裹
     String clean = rawJson.replaceAll(RegExp(r'```(?:json)?|```'), '').trim();
-    
+
     // 2. 【核心修复】：使用断言正则，只匹配“单反斜杠”
     // - (?<!\\) 确保前面没有反斜杠，防止匹配双反斜杠的第二位
     // - \\ 匹配反斜杠本身
     // - (?![\\\"nrtbf/]) 确保后面不是 JSON 的合法转义字符（如 \n, \t, \", \\）
     // 这样可以完美避开大模型已经转义好的双反斜杠，仅对未转义的单反斜杠进行修复！
-    return clean.replaceAllMapped(RegExp(r'(?<!\\)\\(?![\\\"nrtbf/])'), (match) {
+    return clean.replaceAllMapped(RegExp(r'(?<!\\)\\(?![\\\"nrtbf/])'),
+        (match) {
       return '\\\\';
     });
   }

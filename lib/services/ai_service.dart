@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../core/database/database_helper.dart';
+import '../data/models/ai_engine_profile.dart';
 import '../data/models/question_draft.dart';
+import '../data/repositories/ai_engine_repository.dart';
 import '../data/repositories/question_repository.dart';
 import '../utils/ai_data_sanitizer.dart';
 import '../utils/image_utils.dart';
@@ -27,6 +29,7 @@ List<int> _compressImageSync(List<int> bytes) {
 
 class AiService {
   final LlmApiClient _apiClient = const LlmApiClient();
+  final AiEngineRepository _engineRepository = AiEngineRepository.instance;
   final ParseBatchRunner _batchRunner = const ParseBatchRunner();
   final DocumentParseRouter _parseRouter = const DocumentParseRouter();
   final QuestionParsePipeline _parsePipeline = const QuestionParsePipeline();
@@ -40,7 +43,7 @@ class AiService {
       return jsonEncode({'questions': questions});
     }
 
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
     return _apiClient.callText(profile: profile, prompt: prompt);
   }
@@ -88,7 +91,7 @@ class AiService {
 
   Future<String> judgeAnswer(
       String question, String standardAnswer, String userAnswer) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) return "【系统提示】未激活文本 AI 引擎";
 
     final prompt = AiPrompts.judgeAnswer(
@@ -112,11 +115,11 @@ class AiService {
 
   Future<List<QuestionDraft>> generateQuestions(String topic,
       {int count = 1, int type = 0}) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
 
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
-    final effort = profile['reasoning_effort'] as String? ?? '';
+    final temp = profile.temperature;
+    final effort = profile.reasoningEffort;
 
     final prompt = AiPrompts.generateQuestions(
       topic: topic,
@@ -141,11 +144,11 @@ class AiService {
 
   Future<Map<String, String>> answerSingleQuestion(
       Map<String, dynamic> question) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
 
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
-    final effort = profile['reasoning_effort'] as String? ?? '';
+    final temp = profile.temperature;
+    final effort = profile.reasoningEffort;
 
     final prompt = AiPrompts.answerSingleQuestion(question);
 
@@ -175,11 +178,11 @@ class AiService {
       required int fillCount,
       required int shortCount,
       String? customPrompt}) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
 
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
-    final effort = profile['reasoning_effort'] as String? ?? '';
+    final temp = profile.temperature;
+    final effort = profile.reasoningEffort;
 
     final prompt = AiPrompts.generateExamPaper(
       topic: topic,
@@ -209,11 +212,11 @@ class AiService {
       {String targetBankName = '🔥 弱点突击训练营',
       int limit = 30,
       int count = 10}) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
 
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.7;
-    final effort = profile['reasoning_effort'] as String? ?? '';
+    final temp = profile.temperature;
+    final effort = profile.reasoningEffort;
 
     // 1. 获取近期错题
     final wrongQuestions =
@@ -268,7 +271,7 @@ class AiService {
 
   // 核心抽离：单块文本解析（处理小块，防止截断，保证永不超时和截断）
   Future<List<Map<String, dynamic>>> _parseSingleChunkToQuestions(
-      String rawText, Map<String, dynamic> profile,
+      String rawText, AiEngineProfile profile,
       {bool isMarkdown = false, String parseMode = 'all'}) async {
     final prompt = AiPrompts.parseChunk(
       rawText: rawText,
@@ -325,7 +328,7 @@ class AiService {
       {String? taskId,
       bool isMarkdown = false,
       String parseMode = 'all'}) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
 
     debugPrint("🚀 [智能分块] 将启动 ${microBatches.length} 次微批次精洗格式化...");
@@ -389,10 +392,10 @@ class AiService {
 
   Future<List<Map<String, dynamic>>> parseImagesWithVision(
       List<String> imagePaths) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('vision');
+    final profile = await _engineRepository.getActiveVisionEngine();
     if (profile == null) throw Exception("未激活视觉 AI 引擎");
 
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.1;
+    final temp = profile.temperature;
 
     final prompt = AiPrompts.visionParseWithConstraints();
 
@@ -452,17 +455,15 @@ class AiService {
 
   Future<List<Map<String, dynamic>>> parseFileWithVision(
       String filePath) async {
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('vision');
+    final profile = await _engineRepository.getActiveVisionEngine();
     if (profile == null) throw Exception("未激活视觉引擎");
 
-    final providerProfile = LlmProviderProfile.fromMap(profile);
-    if (!providerProfile.isComplete) {
-      throw Exception("视觉引擎配置不完整: ${providerProfile.missingFields.join(', ')}");
+    if (!profile.isComplete) {
+      throw Exception("视觉引擎配置不完整: ${profile.missingFields.join(', ')}");
     }
-    final temp = (profile['temperature'] as num?)?.toDouble() ?? 0.1;
+    final temp = profile.temperature;
 
-    final providerKind =
-        LlmProviderRegistry.kindForBaseUrl(providerProfile.baseUrl);
+    final providerKind = LlmProviderRegistry.kindForBaseUrl(profile.baseUrl);
     final isGemini = providerKind == LlmProviderKind.gemini;
     final isZhipu = providerKind == LlmProviderKind.zhipu;
     final lowerPath = filePath.toLowerCase();
@@ -530,7 +531,7 @@ class AiService {
     if (fileResults.isEmpty) return [];
     if (fileResults.length == 1) return fileResults.first;
 
-    final profile = await DatabaseHelper.instance.getActiveAiEngine('text');
+    final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) {
       throw Exception('未激活文本 AI 引擎，无法执行多文件合并');
     }

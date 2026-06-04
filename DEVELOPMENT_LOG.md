@@ -1,5 +1,18 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 19:35] - refactor(ai): 引入强类型 AI 引擎配置模型
+- **变更类型**: refactor
+- **影响模块**: ai, services, data, test
+- **详细改动明细**:
+  - [x] 新增 `lib/data/models/ai_engine_profile.dart`，定义 `AiEngineType` 与 `AiEngineProfile`，集中处理 DB 行字段归一化、温度默认值、激活状态转换、baseUrl 尾斜杠清洗与缺字段诊断。
+  - [x] 新增 `lib/data/repositories/ai_engine_repository.dart`，把业务层读取 active text/vision engine 的入口收束到 Repository，避免服务层直接消费 `Map<String, dynamic>`。
+  - [x] 修改 `lib/services/llm_api_client.dart` 与 `lib/services/llm_providers/llm_provider_client.dart`，将 `callText` / `callVision` 的 profile 入参改为 `AiEngineProfile`，移除旧的 `LlmProviderProfile.fromMap` 适配器。
+  - [x] 修改 `lib/services/ai_service.dart`，文本生成、答题、组卷、错题生成、文本解析、视觉解析和多文件合并统一通过 `AiEngineRepository` 获取强类型引擎配置。
+  - [x] 修改 `lib/services/latex_migration_service.dart`，历史 LaTeX 迁移逻辑复用 `LlmApiClient.callText`，删除服务内手写 Gemini/OpenAI/Zhipu HTTP 分支。
+  - [x] 新增 `test/ai_engine_profile_test.dart`，覆盖 DB 脏数据归一化、缺字段诊断与 `LlmTextRequest` 从强类型 profile 构造请求。
+  - [x] 清理 `lib/data/models/question.dart` 的未用 import，并将 `lib/services/llm_service.dart` 中的 `print` 替换为 `debugPrint`，使 `lib/services lib/data` 宽范围静态检查保持干净。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services lib/data`、`dart analyze` 受影响文件集合、`flutter test test/ai_engine_profile_test.dart`；完整 `flutter test` 仍按约定交由 Gemini/反重力执行。
+
 ## [2026-06-04 19:02] - refactor(ai): 抽离文档解析路由 Router
 - **变更类型**: refactor
 - **影响模块**: ai, services, test
