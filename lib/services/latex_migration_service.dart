@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import '../core/database/database_helper.dart';
+import '../data/repositories/latex_migration_repository.dart';
 import '../data/models/ai_engine_profile.dart';
 import '../data/repositories/ai_engine_repository.dart';
 import 'llm_api_client.dart';
@@ -121,8 +121,8 @@ class LatexMigrationService {
       );
     }
 
-    final db = await DatabaseHelper.instance.database;
-    final allQuestions = await db.query('questions');
+    final allQuestions =
+        await LatexMigrationRepository.instance.getAllQuestions();
     final total = allQuestions.length;
 
     if (total == 0) {
@@ -167,15 +167,13 @@ class LatexMigrationService {
       if (result['content'] != content ||
           result['standard_answer'] != stdAns ||
           result['explanation'] != expl) {
-        await db.update(
-          'questions',
+        await LatexMigrationRepository.instance.updateQuestionFields(
+          qId,
           {
             'content': result['content'],
             'standard_answer': result['standard_answer'],
             'explanation': result['explanation'],
           },
-          where: 'id = ?',
-          whereArgs: [qId],
         );
         updated++;
       } else {

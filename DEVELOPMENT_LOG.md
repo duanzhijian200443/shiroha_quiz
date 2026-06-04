@@ -1,5 +1,12 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 22:30] - refactor(architecture): 架构冻结与尾巴清理，抽取 LatexMigrationRepository 并确立规范 (Phase 5.1)
+- **变更类型**: refactor, docs
+- **影响模块**: data, services, docs
+- **详细改动明细**:
+  - [x] 清除了项目里最后一个边缘脚本 `latex_migration_service.dart` 对 Database 的直连，抽取至 `LatexMigrationRepository`。
+  - [x] 撰写了项目首份官方架构文档 `ARCHITECTURE.md`，从制度上明文规定 UI层 / Service层 禁止直接引用 `sqflite` 和 `DatabaseHelper`。
+- **验证状态**: `dart analyze` 全绿，所有集成测试稳定通过。这标志着历时五轮的大型架构重构彻底冻结验收。
 ## [2026-06-04 22:20] - refactor(service): 隔离核心服务层的数据库直接操作，达成完全体架构 (Phase 5)
 - **变更类型**: refactor
 - **影响模块**: core, data, services
