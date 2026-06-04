@@ -1,5 +1,17 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 21:35] - refactor(settings): 引入 SettingsRepository 与内存级缓存，隔离 UI 层配置读写
+- **变更类型**: refactor
+- **影响模块**: data, ui
+- **详细改动明细**:
+  - [x] 新增 `lib/data/repositories/settings_repository.dart`，作为配置项管理的强类型入口。
+  - [x] 在 `SettingsRepository` 内部实现了针对高频读取设置的**高级内存缓存数据结构** (`Map<String, String> _cache`)，有效减少 SQLite 的异步 I/O 查询。
+  - [x] 将弱类型的 `DatabaseHelper.instance.getSetting / saveSetting` 替换为强类型的专属方法，如 `getAppTheme()`、`getCurrentBank()`、`getDailyQuota(bankName)`。
+  - [x] 重构了 `lib/main.dart` 中的应用启动主题初始化。
+  - [x] 重构了 `lib/ui/pages/ai_settings_screen.dart` 与 `lib/ui/pages/profile_screen.dart` 的主题偏好设置。
+  - [x] 重构了 `lib/ui/pages/plan_config_screen.dart` 的每日任务配额读写与题库切换落盘逻辑，并解耦了恶心的字符串拼接（如 `${bankName}_daily_quota`）。
+  - [x] 重构了 `lib/ui/pages/home_page.dart` 和 `lib/ui/pages/mock_center_screen.dart` 页面顶部的当前题库缓存读取逻辑。
+- **验证状态**: 经本地代码格式化、静态分析与全量 `flutter test` 回归验证，全部测试通过。遵循架构纪律，本次重构范围严控在 UI 层。
 ## [2026-06-04 21:18] - refactor(ai_ui): UI 层 AI 引擎配置入口迁移至 Repository
 - **变更类型**: refactor
 - **影响模块**: ui, data, ai

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/database/database_helper.dart';
 import '../../data/repositories/ai_engine_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
 import 'ai_engine_management_screen.dart';
 import 'knowledge_base_screen.dart';
@@ -312,8 +313,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           onChanged: (value) async {
                             if (value != null) {
                               globalThemeNotifier.value = value;
-                              await DatabaseHelper.instance
-                                  .saveSetting('app_theme', value);
+                              await SettingsRepository.instance
+                                  .setAppTheme(value);
                             }
                           },
                         ),
