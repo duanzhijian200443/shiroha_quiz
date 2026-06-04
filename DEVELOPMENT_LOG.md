@@ -1,5 +1,16 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 19:02] - refactor(ai): 抽离文档解析路由 Router
+- **变更类型**: refactor
+- **影响模块**: ai, services, test
+- **详细改动明细**:
+  - [x] 新建 `lib/services/document_parse_router.dart`，集中承载文档结构探针后的 A/B/C/D 路径判定。
+  - [x] 新增 `DocumentParseRoute`、`DocumentParseSegment` 与 `DocumentParsePlan`，将每条文档路径转换为带 `parseMode` 的批次解析计划。
+  - [x] 将 `AiService.parseTextToQuestions` 中的尾部答案裁剪、首尾分离、全文无答案和标准行内解析分支迁移到 `DocumentParseRouter.buildPlan`。
+  - [x] 修改 `AiService.parseTextToQuestions`，按 plan 统一追加 pending chunks 并逐段调用 `parseMicroBatches`，使服务层只保留执行编排。
+  - [x] 新增 `test/document_parse_router_test.dart`，覆盖路径 A 尾部答案裁剪和路径 B 题干/答案分离两条高风险路由。
+- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/document_parse_router.dart test/document_parse_router_test.dart`、`flutter test test/document_parse_router_test.dart`、`flutter test test/document_chunker_test.dart`、`flutter test test/document_parse_router_test.dart test/document_chunker_test.dart test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；并行运行 Flutter 测试时曾触发 Windows native assets 工具层拷贝冲突，已改为顺序重跑且全部通过。
+
 ## [2026-06-04 14:36] - refactor(ai): 抽离文档分块器 DocumentChunker
 - **变更类型**: refactor
 - **影响模块**: ai, services, test

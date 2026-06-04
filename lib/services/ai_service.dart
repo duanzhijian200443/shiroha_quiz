@@ -7,14 +7,13 @@ import '../data/repositories/question_repository.dart';
 import '../utils/ai_data_sanitizer.dart';
 import '../utils/image_utils.dart';
 import 'ai_prompts.dart';
-import 'document_chunker.dart';
+import 'document_parse_router.dart';
 import 'llm_api_client.dart';
 import 'llm_providers/llm_provider_client.dart';
 import 'llm_providers/llm_provider_registry.dart';
 import 'parse_batch_runner.dart';
 import 'question_parse_pipeline.dart';
 import 'task_manager.dart';
-import 'document_profiler.dart';
 
 // 顶级函数：用于 Isolate 压缩图片
 List<int> _compressImageSync(List<int> bytes) {
@@ -29,7 +28,7 @@ List<int> _compressImageSync(List<int> bytes) {
 class AiService {
   final LlmApiClient _apiClient = const LlmApiClient();
   final ParseBatchRunner _batchRunner = const ParseBatchRunner();
-  final DocumentChunker _chunker = const DocumentChunker();
+  final DocumentParseRouter _parseRouter = const DocumentParseRouter();
   final QuestionParsePipeline _parsePipeline = const QuestionParsePipeline();
 
   static final AiService instance = AiService._();
@@ -293,74 +292,32 @@ class AiService {
 
   Future<List<Map<String, dynamic>>> parseTextToQuestions(String rawText,
       {String? taskId, bool isMarkdown = false}) async {
-    final docProfile = scanDocumentStructure(rawText);
-    debugPrint("📊 [文档结构探针] \$docProfile");
+    final plan = _parseRouter.buildPlan(rawText, isMarkdown: isMarkdown);
+    debugPrint("📊 [文档结构探针] ${plan.profile}");
+    debugPrint(plan.logMessage);
 
-    String processedText = rawText;
-
-    // 路径 A：行内有答案 + 尾部也有答案 -> 裁掉尾部冗余，转化成路径 C
-    if (docProfile.hasInlineAnswers &&
-        docProfile.hasTailAnswerBlock &&
-        docProfile.tailAnswerOffset > 0) {
-      debugPrint(
-          "✂️ [路径 A] 检测到尾部冗余答案块，执行安全物理裁剪 (Offset: \${docProfile.tailAnswerOffset})...");
-      try {
-        processedText = rawText.substring(0, docProfile.tailAnswerOffset);
-      } catch (e) {
-        debugPrint("⚠️ 尾部裁剪异常: \$e，回退使用全文");
-        processedText = rawText;
-      }
-    } else if (!docProfile.hasInlineAnswers && docProfile.hasTailAnswerBlock) {
-      debugPrint("🧭 [路径 B] 检测到首尾分离结构，实施物理剪切提取...");
-      final stemText = rawText.substring(0, docProfile.tailAnswerOffset);
-      final ansText = rawText.substring(docProfile.tailAnswerOffset);
-
-      final stemBatches = _chunker.split(stemText, isMarkdown: isMarkdown);
-      final ansBatches = _chunker.split(ansText, isMarkdown: isMarkdown);
-
-      if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(
-            taskId, isMarkdown ? 'markdown' : 'text', stemBatches);
-        TaskManager.instance.appendPendingChunks(
-            taskId, isMarkdown ? 'markdown' : 'text', ansBatches);
-      }
-
-      final stemQuestions = await parseMicroBatches(stemBatches,
-          taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
-      final ansQuestions = await parseMicroBatches(ansBatches,
-          taskId: taskId, isMarkdown: isMarkdown, parseMode: 'answer_only');
-
-      return [...stemQuestions, ...ansQuestions];
-    } else if (!docProfile.hasInlineAnswers && !docProfile.hasTailAnswerBlock) {
-      debugPrint("🧭 [路径 D] 全文无答案，将生成残缺题干等待用户补填...");
-      final microBatches =
-          _chunker.split(processedText, isMarkdown: isMarkdown);
-      if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(
-            taskId, isMarkdown ? 'markdown' : 'text', microBatches);
-      }
-      return await parseMicroBatches(microBatches,
-          taskId: taskId, isMarkdown: isMarkdown, parseMode: 'stem_only');
-    } else {
-      debugPrint("🧭 [路径 C] 标准行内解析结构，直接提取...");
-      final microBatches =
-          _chunker.split(processedText, isMarkdown: isMarkdown);
-      if (taskId != null) {
-        TaskManager.instance.appendPendingChunks(
-            taskId, isMarkdown ? 'markdown' : 'text', microBatches);
-      }
-      return await parseMicroBatches(microBatches,
-          taskId: taskId, isMarkdown: isMarkdown);
-    }
-
-    // Fallback for Path A and any other unknown paths
-    final microBatches = _chunker.split(processedText, isMarkdown: isMarkdown);
     if (taskId != null) {
-      TaskManager.instance.appendPendingChunks(
-          taskId, isMarkdown ? 'markdown' : 'text', microBatches);
+      for (final segment in plan.segments) {
+        TaskManager.instance.appendPendingChunks(
+          taskId,
+          isMarkdown ? 'markdown' : 'text',
+          segment.batches,
+        );
+      }
     }
-    return await parseMicroBatches(microBatches,
-        taskId: taskId, isMarkdown: isMarkdown);
+
+    final questions = <Map<String, dynamic>>[];
+    for (final segment in plan.segments) {
+      questions.addAll(
+        await parseMicroBatches(
+          segment.batches,
+          taskId: taskId,
+          isMarkdown: isMarkdown,
+          parseMode: segment.parseMode,
+        ),
+      );
+    }
+    return questions;
   }
 
   Future<List<Map<String, dynamic>>> parseMicroBatches(
