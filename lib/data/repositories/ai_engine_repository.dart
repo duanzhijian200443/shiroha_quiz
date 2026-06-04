@@ -29,4 +29,29 @@ class AiEngineRepository {
   Future<AiEngineProfile?> getActiveVisionEngine() {
     return getActiveEngine(AiEngineType.vision);
   }
+
+  Future<void> saveEngine(AiEngineProfile profile) async {
+    await _databaseHelper.saveAiEngine(profile.toMap());
+  }
+
+  Future<void> setActiveEngine(String id, AiEngineType type) async {
+    await _databaseHelper.setActiveAiEngine(id, type.dbValue);
+  }
+
+  Future<void> deleteEngine(String id) async {
+    await _databaseHelper.deleteAiEngine(id);
+  }
+
+  Future<void> renameEngine(
+      String id, String newName, AiEngineType type) async {
+    final engines = await getEngines(type);
+    final target = engines.where((e) => e.id == id).firstOrNull;
+    if (target != null) {
+      final updatedMap = target.toMap();
+      updatedMap['name'] = newName;
+      final updatedProfile =
+          AiEngineProfile.fromMap(updatedMap, fallbackType: type);
+      await saveEngine(updatedProfile);
+    }
+  }
 }

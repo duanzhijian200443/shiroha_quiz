@@ -1,5 +1,14 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 21:18] - refactor(ai_ui): UI 层 AI 引擎配置入口迁移至 Repository
+- **变更类型**: refactor
+- **影响模块**: ui, data, ai
+- **详细改动明细**:
+  - [x] 扩展 `lib/data/repositories/ai_engine_repository.dart`，增加 `saveEngine`、`setActiveEngine`、`deleteEngine` 与 `renameEngine` 方法，完善完整 CRUD 链路。
+  - [x] 重构 `lib/ui/pages/ai_engine_management_screen.dart`，移除 `DatabaseHelper` 直接调用，全面拥抱 `AiEngineRepository` 和强类型 `AiEngineProfile`，保持 UI 交互/渲染层纯净。
+  - [x] 修改 `lib/ui/pages/ai_settings_screen.dart`，通过 `AiEngineRepository` 读取活跃文本与视觉引擎配置，阻断直接读取 DB。
+  - [x] 修改 `lib/ui/pages/profile_screen.dart`，使用 `AiEngineRepository` 替代底层 `DatabaseHelper` 方法呈现当前活跃配置名称。
+- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All tests passed)，成功隔离 AI Engine 管理操作，避免 UI 层与底层 DB 耦合。
 ## [2026-06-04 20:28] - refactor(ai): 迁移遗留 LLMService 至统一 Provider 边界
 - **变更类型**: refactor
 - **影响模块**: ai, services, provider, test
