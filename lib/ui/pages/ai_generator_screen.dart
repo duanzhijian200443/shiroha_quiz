@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../data/models/question_draft.dart';
+import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/ai_service.dart';
 import '../widgets/markdown_extensions.dart';
@@ -895,7 +896,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
 
       // 2. 核心合流：将 AI 生成的全新题目直接落盘为试卷 (source_type: 1)
       final paperTitle = '${_topicController.text.trim()} AI模拟卷';
-      await _questionRepository.createExamPaperFromDrafts(
+      await ExamRepository.instance.createExamPaperFromDrafts(
         paperTitle,
         1,
         result,

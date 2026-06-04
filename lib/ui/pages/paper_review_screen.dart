@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import '../../core/database/database_helper.dart';
+import '../../data/repositories/exam_repository.dart';
 import '../widgets/markdown_extensions.dart';
 import 'question_edit_screen.dart';
 
 class PaperReviewScreen extends StatefulWidget {
   final String paperId;
   final String title;
-  const PaperReviewScreen({Key? key, required this.paperId, required this.title}) : super(key: key);
+  const PaperReviewScreen(
+      {Key? key, required this.paperId, required this.title})
+      : super(key: key);
 
   @override
   State<PaperReviewScreen> createState() => _PaperReviewScreenState();
@@ -24,7 +26,8 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
   }
 
   Future<void> _loadData() async {
-    final data = await DatabaseHelper.instance.getPaperQuestionsDetail(widget.paperId);
+    final data =
+        await ExamRepository.instance.getPaperQuestionsDetail(widget.paperId);
     if (mounted) {
       setState(() {
         _questions = data;
@@ -33,8 +36,10 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
     }
   }
 
-  Widget _buildMarkdown(String text, {bool isOption = false, Color? overrideColor}) {
-    final textColor = overrideColor ?? Theme.of(context).textTheme.bodyLarge?.color;
+  Widget _buildMarkdown(String text,
+      {bool isOption = false, Color? overrideColor}) {
+    final textColor =
+        overrideColor ?? Theme.of(context).textTheme.bodyLarge?.color;
     final fontSize = isOption ? 14.0 : 15.0;
     return buildLatexWidget(
       context,
@@ -49,7 +54,11 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(title: Text(widget.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), elevation: 0),
+      appBar: AppBar(
+          title: Text(widget.title,
+              style:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          elevation: 0),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
@@ -67,13 +76,21 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
 
                 List<dynamic> options = [];
                 if (type == 0 && q['options'] != null) {
-                  try { options = jsonDecode(q['options'].toString()); } catch (_) {}
+                  try {
+                    options = jsonDecode(q['options'].toString());
+                  } catch (_) {}
                 }
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 16),
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: isCorrect ? Colors.green.withOpacity(0.3) : Colors.redAccent.withOpacity(0.3), width: 1.5)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(
+                          color: isCorrect
+                              ? Colors.green.withOpacity(0.3)
+                              : Colors.redAccent.withOpacity(0.3),
+                          width: 1.5)),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -82,64 +99,101 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: isCorrect ? Colors.green.withOpacity(0.1) : Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                              child: Text(isCorrect ? '得分' : '失分', style: TextStyle(color: isCorrect ? Colors.green : Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                  color: isCorrect
+                                      ? Colors.green.withOpacity(0.1)
+                                      : Colors.redAccent.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4)),
+                              child: Text(isCorrect ? '得分' : '失分',
+                                  style: TextStyle(
+                                      color: isCorrect
+                                          ? Colors.green
+                                          : Colors.redAccent,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold)),
                             ),
                             const SizedBox(width: 8),
-                            Text('第 ${index + 1} 题', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                            Text('第 ${index + 1} 题',
+                                style: const TextStyle(
+                                    color: Colors.grey, fontSize: 12)),
                           ],
                         ),
                         const SizedBox(height: 12),
                         _buildMarkdown(q['content'] as String),
                         const SizedBox(height: 16),
-                        
                         if (type == 0) ...[
                           ...List.generate(options.length, (optIdx) {
                             final optStr = options[optIdx].toString();
-                            final optionLetter = String.fromCharCode(65 + optIdx);
-                            bool isThisCorrect = sAns.startsWith(optionLetter) || optStr == sAns;
+                            final optionLetter =
+                                String.fromCharCode(65 + optIdx);
+                            bool isThisCorrect =
+                                sAns.startsWith(optionLetter) || optStr == sAns;
                             bool isThisUser = uAns == optStr;
-                            
+
                             Color? bgColor;
                             Color? borderColor;
                             if (isThisCorrect) {
-                              bgColor = Colors.green.withOpacity(0.1); borderColor = Colors.green;
+                              bgColor = Colors.green.withOpacity(0.1);
+                              borderColor = Colors.green;
                             } else if (isThisUser && !isThisCorrect) {
-                              bgColor = Colors.redAccent.withOpacity(0.1); borderColor = Colors.redAccent;
+                              bgColor = Colors.redAccent.withOpacity(0.1);
+                              borderColor = Colors.redAccent;
                             } else {
-                              bgColor = theme.scaffoldBackgroundColor; borderColor = Colors.grey.withOpacity(0.2);
+                              bgColor = theme.scaffoldBackgroundColor;
+                              borderColor = Colors.grey.withOpacity(0.2);
                             }
 
-                            String stripped = optStr.replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '').trim();
+                            String stripped = optStr
+                                .replaceFirst(
+                                    RegExp(
+                                        r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'),
+                                    '')
+                                .trim();
                             if (stripped.isEmpty) stripped = optStr;
 
                             return Container(
-                              margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(color: bgColor, border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(8)),
-                              child: _buildMarkdown('**$optionLetter.** $stripped'),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                  color: bgColor,
+                                  border: Border.all(color: borderColor),
+                                  borderRadius: BorderRadius.circular(8)),
+                              child: _buildMarkdown(
+                                  '**$optionLetter.** $stripped'),
                             );
                           }),
                         ] else ...[
                           Container(
-                            width: double.infinity, padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(color: theme.scaffoldBackgroundColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withOpacity(0.2))),
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                                color: theme.scaffoldBackgroundColor,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: Colors.grey.withOpacity(0.2))),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('你的作答与 AI 批阅：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const Text('你的作答与 AI 批阅：',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 8),
                                 _buildMarkdown(uAns.isEmpty ? '未作答' : uAns),
                               ],
                             ),
                           ),
                         ],
-                        
                         const Divider(height: 24),
                         Builder(
                           builder: (context) {
-                            final expText = ansParts.length > 1 ? ansParts[1].trim() : '';
-                            final hasAnswerOrExp = sAns.isNotEmpty || expText.isNotEmpty;
+                            final expText =
+                                ansParts.length > 1 ? ansParts[1].trim() : '';
+                            final hasAnswerOrExp =
+                                sAns.isNotEmpty || expText.isNotEmpty;
 
                             if (!hasAnswerOrExp) {
                               return Container(
@@ -148,21 +202,33 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                                 decoration: BoxDecoration(
                                   color: Colors.orangeAccent.withOpacity(0.05),
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                                  border: Border.all(
+                                      color:
+                                          Colors.orangeAccent.withOpacity(0.3)),
                                 ),
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(12),
                                   onTap: () {
-                                    Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionEditScreen(question: q)))
-                                        .then((modified) { if (modified == true) _loadData(); });
+                                    Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) => QuestionEditScreen(
+                                                question: q))).then((modified) {
+                                      if (modified == true) _loadData();
+                                    });
                                   },
                                   child: const Padding(
                                     padding: EdgeInsets.symmetric(vertical: 16),
                                     child: Column(
                                       children: [
-                                        Icon(Icons.edit_note_rounded, color: Colors.orangeAccent),
+                                        Icon(Icons.edit_note_rounded,
+                                            color: Colors.orangeAccent),
                                         SizedBox(height: 4),
-                                        Text('✍️ 暂无答案，点击手动添加或修改', style: TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                                        Text('✍️ 暂无答案，点击手动添加或修改',
+                                            style: TextStyle(
+                                                color: Colors.orangeAccent,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold)),
                                       ],
                                     ),
                                   ),
@@ -173,13 +239,24 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('标准答案：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const Text('标准答案：',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 4),
-                                _buildMarkdown(sAns.isEmpty ? '无' : sAns, overrideColor: Colors.green),
+                                _buildMarkdown(sAns.isEmpty ? '无' : sAns,
+                                    overrideColor: Colors.green),
                                 const SizedBox(height: 12),
-                                const Text('解析：', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const Text('解析：',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 4),
-                                _buildMarkdown(expText.isEmpty ? '暂无解析' : expText, overrideColor: Colors.grey),
+                                _buildMarkdown(
+                                    expText.isEmpty ? '暂无解析' : expText,
+                                    overrideColor: Colors.grey),
                               ],
                             );
                           },

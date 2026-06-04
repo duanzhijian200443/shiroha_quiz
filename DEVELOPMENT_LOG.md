@@ -1,5 +1,14 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 22:05] - refactor(exam): 将模考链路的 UI 层直连全面迁移至 ExamRepository
+- **变更类型**: refactor
+- **影响模块**: data, ui
+- **详细改动明细**:
+  - [x] 新建 `ExamRepository` 代理所有试卷相关的底层方法 (如 `getAllExamPapers`, `generateMockExamPaper`, `submitExamPaper` 等)。
+  - [x] 将原本放置在 `QuestionRepository` 中的越界方法 (`createExamPaper`, `createExamPaperFromDrafts`) 平移到 `ExamRepository` 中，维持职责单一。
+  - [x] 重构洗刷了 `mock_center_screen`, `mock_exam_config_screen`, `mock_exam_screen`, `paper_review_screen`。
+  - [x] 修正了 `ai_generator_screen` 生成试卷时的 Repository 调用。
+- **验证状态**: 经 `dart format` 与 `dart analyze` 验证通过，修复了由于强类型不匹配引发的函数参数冲突，`flutter test` 继续 100% 通过。至此 UI 层的 `DatabaseHelper` 彻底清零。
 ## [2026-06-04 21:55] - refactor(questions): 将题库与题目管理的 UI 层直连迁移至 QuestionRepository
 - **变更类型**: refactor
 - **影响模块**: data, ui

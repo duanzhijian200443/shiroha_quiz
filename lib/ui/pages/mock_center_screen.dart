@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../core/database/database_helper.dart';
+import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import 'ai_generator_screen.dart';
 import 'mock_exam_config_screen.dart';
@@ -34,7 +34,7 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
   Future<void> _loadPapers({bool isPolling = false}) async {
     if (!isPolling) setState(() => _isLoading = true);
     try {
-      final data = await DatabaseHelper.instance.getAllExamPapers();
+      final data = await ExamRepository.instance.getAllExamPapers();
       if (mounted) {
         setState(() {
           _papers = data;
@@ -55,7 +55,7 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
   }
 
   Future<void> _deletePaper(String id) async {
-    await DatabaseHelper.instance.deleteExamPaper(id);
+    await ExamRepository.instance.deleteExamPaper(id);
     _loadPapers();
   }
 
@@ -260,7 +260,7 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                               backgroundColor: Colors.orange),
                                           onPressed: () async {
                                             Navigator.pop(ctx);
-                                            await DatabaseHelper.instance
+                                            await ExamRepository.instance
                                                 .finishExamGrading(paper['id']);
                                             _loadPapers();
                                           },
@@ -282,7 +282,7 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                   builder: (_) => const Center(
                                       child: CircularProgressIndicator()));
                               try {
-                                final questions = await DatabaseHelper.instance
+                                final questions = await ExamRepository.instance
                                     .getPaperQuestionsDetail(paper['id']);
                                 if (!mounted) return;
                                 Navigator.pop(context);

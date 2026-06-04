@@ -193,26 +193,6 @@ class QuestionRepository {
     });
   }
 
-  Future<String> createExamPaper(
-    String title,
-    int sourceType,
-    List<Map<String, dynamic>> questions,
-  ) {
-    return _databaseHelper.createExamPaper(title, sourceType, questions);
-  }
-
-  Future<String> createExamPaperFromDrafts(
-    String title,
-    int sourceType,
-    List<QuestionDraft> questions,
-  ) {
-    return _databaseHelper.createExamPaper(
-      title,
-      sourceType,
-      questions.map((question) => question.toMap()).toList(growable: false),
-    );
-  }
-
   Map<String, dynamic> _questionToRow(
     QuestionDraft question, {
     required String bankName,

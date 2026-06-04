@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../../data/repositories/exam_repository.dart';
 import '../../services/ai_service.dart';
-import '../../core/database/database_helper.dart';
 import '../../main.dart';
 import '../widgets/markdown_extensions.dart';
 
@@ -12,12 +12,12 @@ class MockExamScreen extends StatefulWidget {
   final List<Map<String, dynamic>> questions;
   final int durationMinutes;
 
-  const MockExamScreen({
-    Key? key, 
-    required this.paperId, 
-    required this.questions, 
-    required this.durationMinutes
-  }) : super(key: key);
+  const MockExamScreen(
+      {Key? key,
+      required this.paperId,
+      required this.questions,
+      required this.durationMinutes})
+      : super(key: key);
 
   @override
   State<MockExamScreen> createState() => _MockExamScreenState();
@@ -26,7 +26,7 @@ class MockExamScreen extends StatefulWidget {
 class _MockExamScreenState extends State<MockExamScreen> {
   late PageController _pageController;
   int _currentIndex = 0;
-  
+
   // 倒计时引擎
   late Timer _timer;
   late int _remainingSeconds;
@@ -41,10 +41,10 @@ class _MockExamScreenState extends State<MockExamScreen> {
     super.initState();
     _pageController = PageController();
     _remainingSeconds = widget.durationMinutes * 60;
-    
+
     // 开启防息屏
     WakelockPlus.enable();
-    
+
     // 启动倒计时
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
@@ -72,12 +72,16 @@ class _MockExamScreenState extends State<MockExamScreen> {
 
   void _processSubmission() async {
     _timer.cancel();
-    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
-    
+    showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()));
+
     try {
       // 1. 提交答案并获取需要 AI 批改的主观题任务
-      final tasks = await DatabaseHelper.instance.submitExamPaper(widget.paperId, _userAnswers, widget.questions);
-      
+      final tasks = await ExamRepository.instance
+          .submitExamPaper(widget.paperId, _userAnswers, widget.questions);
+
       if (mounted) {
         Navigator.pop(context); // 关闭 Loading
         Navigator.pop(context); // 退出考场，返回模考中心
@@ -85,16 +89,21 @@ class _MockExamScreenState extends State<MockExamScreen> {
 
       // 2. 路由分发与后台静默处理
       if (tasks.isEmpty) {
-        rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(content: Text('🎉 交卷成功！客观题已自动批改出分。'), backgroundColor: Colors.green));
+        rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(
+            content: Text('🎉 交卷成功！客观题已自动批改出分。'),
+            backgroundColor: Colors.green));
       } else {
-        rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(content: Text('🚀 客观题已批改！主观题已转入后台 AI 阅卷...'), backgroundColor: Colors.blueAccent));
-        
+        rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(
+            content: Text('🚀 客观题已批改！主观题已转入后台 AI 阅卷...'),
+            backgroundColor: Colors.blueAccent));
+
         // 派发至后台事件循环，不阻塞 UI
         Future.microtask(() async {
           for (var task in tasks) {
             try {
-              final feedback = await AiService.instance.judgeAnswer(task['question'], task['sAns'], task['uAns']);
-              
+              final feedback = await AiService.instance
+                  .judgeAnswer(task['question'], task['sAns'], task['uAns']);
+
               // 智能提取 AI 打分 (0-100)，折算为 1 分满分
               final match = RegExp(r'\d+').firstMatch(feedback);
               double scoreRatio = 0.0;
@@ -103,29 +112,38 @@ class _MockExamScreenState extends State<MockExamScreen> {
                 scoreRatio = (parsed / 100.0).clamp(0.0, 1.0);
               } else {
                 // 容错：如果 AI 没给数字，按语义判断
-                scoreRatio = (feedback.contains('对') || feedback.contains('正确') || feedback.contains('得分')) ? 1.0 : 0.0;
+                scoreRatio = (feedback.contains('对') ||
+                        feedback.contains('正确') ||
+                        feedback.contains('得分'))
+                    ? 1.0
+                    : 0.0;
               }
-              
-              await DatabaseHelper.instance.updateExamAiScore(widget.paperId, task['qId'], feedback, scoreRatio);
+
+              await ExamRepository.instance.updateExamAiScore(
+                  widget.paperId, task['qId'], feedback, scoreRatio);
             } catch (e) {
               debugPrint('AI 判卷单题异常: $e');
             }
           }
           // 所有主观题批改完毕，封板出分
-          await DatabaseHelper.instance.finishExamGrading(widget.paperId);
-          rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(content: Text('🎉 试卷 AI 批改完成！请下拉刷新模考中心查看成绩。'), backgroundColor: Colors.green));
+          await ExamRepository.instance.finishExamGrading(widget.paperId);
+          rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(
+              content: Text('🎉 试卷 AI 批改完成！请下拉刷新模考中心查看成绩。'),
+              backgroundColor: Colors.green));
         });
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('交卷失败: $e'), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('交卷失败: $e'), backgroundColor: Colors.redAccent));
       }
     }
   }
 
   void _forceSubmit() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('考试时间到！正在强制交卷...')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('考试时间到！正在强制交卷...')));
     _processSubmission();
   }
 
@@ -134,9 +152,12 @@ class _MockExamScreenState extends State<MockExamScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('确认交卷？'),
-        content: Text('你已作答 ${_userAnswers.length} / ${widget.questions.length} 道题。交卷后将由 AI 阅卷官进行批改。'),
+        content: Text(
+            '你已作答 ${_userAnswers.length} / ${widget.questions.length} 道题。交卷后将由 AI 阅卷官进行批改。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('继续检查')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('继续检查')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
@@ -154,12 +175,15 @@ class _MockExamScreenState extends State<MockExamScreen> {
     int h = seconds ~/ 3600;
     int m = (seconds % 3600) ~/ 60;
     int s = seconds % 60;
-    if (h > 0) return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    if (h > 0)
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
-  Widget _buildMarkdown(String text, {bool isOption = false, Color? overrideColor, FontWeight? fontWeight}) {
-    final textColor = overrideColor ?? Theme.of(context).textTheme.bodyLarge?.color;
+  Widget _buildMarkdown(String text,
+      {bool isOption = false, Color? overrideColor, FontWeight? fontWeight}) {
+    final textColor =
+        overrideColor ?? Theme.of(context).textTheme.bodyLarge?.color;
     final fontSize = isOption ? 15.0 : 16.0;
     return buildLatexWidget(
       context,
@@ -189,17 +213,23 @@ class _MockExamScreenState extends State<MockExamScreen> {
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-              child: Text(isObjective ? '单选题' : (type == 2 ? '填空题' : '简答题'), style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+              decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4)),
+              child: Text(isObjective ? '单选题' : (type == 2 ? '填空题' : '简答题'),
+                  style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
             ),
             const SizedBox(width: 8),
-            Text('第 ${index + 1} / ${widget.questions.length} 题', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            Text('第 ${index + 1} / ${widget.questions.length} 题',
+                style: const TextStyle(color: Colors.grey, fontSize: 13)),
           ],
         ),
         const SizedBox(height: 16),
         _buildMarkdown(q['content'] as String),
         const SizedBox(height: 24),
-        
         if (isObjective)
           ...List.generate(options.length, (optIndex) {
             final isSelected = _userAnswers[index] == optIndex;
@@ -209,14 +239,24 @@ class _MockExamScreenState extends State<MockExamScreen> {
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isSelected ? Theme.of(context).primaryColor.withOpacity(0.1) : Theme.of(context).cardTheme.color,
-                  border: Border.all(color: isSelected ? Theme.of(context).primaryColor : Colors.grey.withOpacity(0.2), width: isSelected ? 2 : 1),
+                  color: isSelected
+                      ? Theme.of(context).primaryColor.withOpacity(0.1)
+                      : Theme.of(context).cardTheme.color,
+                  border: Border.all(
+                      color: isSelected
+                          ? Theme.of(context).primaryColor
+                          : Colors.grey.withOpacity(0.2),
+                      width: isSelected ? 2 : 1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: _buildMarkdown(
-                  options[optIndex].toString().replaceFirst(RegExp(r'^([A-D][\.、]?|\([A-D]\))\s*'), '').trim(),
+                  options[optIndex]
+                      .toString()
+                      .replaceFirst(RegExp(r'^([A-D][\.、]?|\([A-D]\))\s*'), '')
+                      .trim(),
                   isOption: true,
-                  overrideColor: isSelected ? Theme.of(context).primaryColor : null,
+                  overrideColor:
+                      isSelected ? Theme.of(context).primaryColor : null,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -224,13 +264,19 @@ class _MockExamScreenState extends State<MockExamScreen> {
           })
         else
           TextField(
-            controller: _textControllers.putIfAbsent(index, () => TextEditingController(text: _userAnswers[index]?.toString() ?? '')),
+            controller: _textControllers.putIfAbsent(
+                index,
+                () => TextEditingController(
+                    text: _userAnswers[index]?.toString() ?? '')),
             maxLines: type == 2 ? 2 : 8,
             onChanged: (val) => _userAnswers[index] = val,
             decoration: InputDecoration(
               hintText: type == 2 ? '请输入填空答案...' : '请输入简答题解答步骤...',
-              filled: true, fillColor: Theme.of(context).cardTheme.color,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.withOpacity(0.2))),
+              filled: true,
+              fillColor: Theme.of(context).cardTheme.color,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.withOpacity(0.2))),
             ),
           ),
       ],
@@ -246,27 +292,43 @@ class _MockExamScreenState extends State<MockExamScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('考试中禁止退出！请点击右上角交卷。')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('考试中禁止退出！请点击右上角交卷。')));
         }
       },
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
           automaticallyImplyLeading: false,
-          backgroundColor: isDanger ? Colors.redAccent.withOpacity(0.1) : theme.scaffoldBackgroundColor,
+          backgroundColor: isDanger
+              ? Colors.redAccent.withOpacity(0.1)
+              : theme.scaffoldBackgroundColor,
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.timer_outlined, color: isDanger ? Colors.redAccent : theme.textTheme.bodyLarge?.color),
+              Icon(Icons.timer_outlined,
+                  color: isDanger
+                      ? Colors.redAccent
+                      : theme.textTheme.bodyLarge?.color),
               const SizedBox(width: 8),
-              Text(_formatTime(_remainingSeconds), style: TextStyle(fontWeight: FontWeight.bold, color: isDanger ? Colors.redAccent : theme.textTheme.bodyLarge?.color, fontFamily: 'monospace')),
+              Text(_formatTime(_remainingSeconds),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isDanger
+                          ? Colors.redAccent
+                          : theme.textTheme.bodyLarge?.color,
+                      fontFamily: 'monospace')),
             ],
           ),
           centerTitle: true,
           actions: [
             TextButton(
               onPressed: _manualSubmit,
-              child: const Text('交卷', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+              child: const Text('交卷',
+                  style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
             )
           ],
         ),
@@ -279,18 +341,37 @@ class _MockExamScreenState extends State<MockExamScreen> {
         bottomNavigationBar: SafeArea(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(color: theme.cardTheme.color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -4))]),
+            decoration: BoxDecoration(color: theme.cardTheme.color, boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -4))
+            ]),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 TextButton.icon(
-                  icon: const Icon(Icons.arrow_back_ios, size: 14), label: const Text('上一题'),
-                  onPressed: _currentIndex > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
+                  icon: const Icon(Icons.arrow_back_ios, size: 14),
+                  label: const Text('上一题'),
+                  onPressed: _currentIndex > 0
+                      ? () => _pageController.previousPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut)
+                      : null,
                 ),
-                Text('${_currentIndex + 1} / ${widget.questions.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('${_currentIndex + 1} / ${widget.questions.length}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
                 TextButton(
-                  onPressed: _currentIndex < widget.questions.length - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut) : null,
-                  child: const Row(children: [Text('下一题'), SizedBox(width: 4), Icon(Icons.arrow_forward_ios, size: 14)]),
+                  onPressed: _currentIndex < widget.questions.length - 1
+                      ? () => _pageController.nextPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut)
+                      : null,
+                  child: const Row(children: [
+                    Text('下一题'),
+                    SizedBox(width: 4),
+                    Icon(Icons.arrow_forward_ios, size: 14)
+                  ]),
                 ),
               ],
             ),
