@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/database/database_helper.dart';
+import '../models/question_draft.dart';
 import '../../utils/ai_data_sanitizer.dart';
 
 class QuestionRepository {
@@ -20,6 +21,18 @@ class QuestionRepository {
     required String bankName,
     required String? folderName,
     required List<Map<String, dynamic>> questions,
+  }) async {
+    return saveQuestionDraftsToBank(
+      bankName: bankName,
+      folderName: folderName,
+      questions: QuestionDraft.listFromMaps(questions),
+    );
+  }
+
+  Future<void> saveQuestionDraftsToBank({
+    required String bankName,
+    required String? folderName,
+    required List<QuestionDraft> questions,
   }) async {
     final trimmedBankName = bankName.trim();
     if (trimmedBankName.isEmpty) {
@@ -50,28 +63,15 @@ class QuestionRepository {
   }
 
   Future<List<String>> getAvailableBanksAndFolders() async {
-    final tree = await _databaseHelper.getSubjectTree();
-    final names = <String>{};
-
-    for (final entry in tree.entries) {
-      names.add(entry.key);
-      for (final bank in entry.value) {
-        final name = bank['name']?.toString().trim();
-        if (name != null && name.isNotEmpty) names.add(name);
-      }
-    }
-
-    names
-      ..remove('默认学科')
-      ..remove('📁 未分类题库');
-    return (names.toList()..sort());
+    final index =
+        _BankFolderIndex.fromTree(await _databaseHelper.getSubjectTree());
+    return index.availableBanksAndFolders;
   }
 
   Future<List<String>> getAvailableFolders() async {
-    final tree = await _databaseHelper.getSubjectTree();
-    final folders = tree.keys.where((name) => name != '📁 未分类题库').toList()
-      ..sort();
-    return folders;
+    final index =
+        _BankFolderIndex.fromTree(await _databaseHelper.getSubjectTree());
+    return index.availableFolders;
   }
 
   Future<void> deleteQuestion(String id) {
@@ -86,32 +86,47 @@ class QuestionRepository {
     return _databaseHelper.createExamPaper(title, sourceType, questions);
   }
 
+  Future<String> createExamPaperFromDrafts(
+    String title,
+    int sourceType,
+    List<QuestionDraft> questions,
+  ) {
+    return _databaseHelper.createExamPaper(
+      title,
+      sourceType,
+      questions.map((question) => question.toMap()).toList(growable: false),
+    );
+  }
+
   Map<String, dynamic> _questionToRow(
-    Map<String, dynamic> question, {
+    QuestionDraft question, {
     required String bankName,
     required int createdAt,
   }) {
     final explanation = AiDataSanitizer.cleanLatexBeforeDB(
-      _readString(question['explanation']),
+      question.explanation,
     );
     final answer = AiDataSanitizer.cleanLatexBeforeDB(
-      _readString(question['standard_answer'], fallback: question['answer']),
+      question.standardAnswer,
     );
-    final rawExplanation = question['raw_explanation'];
 
     return {
       'id': _uuid.v4(),
       'bank_name': bankName,
-      'type': _readInt(question['type']) ?? 0,
+      'type': question.type.code,
       'content': AiDataSanitizer.cleanLatexBeforeDB(
-        _readString(question['content'], fallbackText: '无题干'),
+        question.content.trim().isEmpty ? '无题干' : question.content,
       ),
-      'options': jsonEncode(_readOptions(question['options'])),
+      'options': jsonEncode(
+        question.options
+            .map(AiDataSanitizer.cleanLatexBeforeDB)
+            .toList(growable: false),
+      ),
       'standard_answer': '$answer|||$explanation',
       'explanation': explanation,
-      'raw_explanation': rawExplanation == null
+      'raw_explanation': question.rawExplanation == null
           ? null
-          : AiDataSanitizer.cleanLatexBeforeDB(rawExplanation.toString()),
+          : AiDataSanitizer.cleanLatexBeforeDB(question.rawExplanation!),
       'created_at': createdAt,
     };
   }
@@ -161,48 +176,58 @@ class QuestionRepository {
     );
     return bankFolders.isNotEmpty;
   }
+}
 
-  List<String> _readOptions(dynamic value) {
-    if (value is List) {
-      return value
-          .map(
-            (option) => AiDataSanitizer.cleanLatexBeforeDB(option.toString()),
-          )
-          .toList(growable: false);
-    }
+class _BankFolderIndex {
+  _BankFolderIndex({
+    required Set<String> banksAndFolders,
+    required Set<String> folders,
+  })  : _banksAndFolders = banksAndFolders,
+        _folders = folders;
 
-    if (value is String && value.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(value);
-        if (decoded is List) return _readOptions(decoded);
-      } catch (_) {
-        return [AiDataSanitizer.cleanLatexBeforeDB(value)];
+  static const _defaultSubject = '默认学科';
+  static const _uncategorizedFolder = '📁 未分类题库';
+
+  final Set<String> _banksAndFolders;
+  final Set<String> _folders;
+
+  factory _BankFolderIndex.fromTree(
+    Map<String, List<Map<String, dynamic>>> tree,
+  ) {
+    final banksAndFolders = <String>{};
+    final folders = <String>{};
+
+    for (final entry in tree.entries) {
+      final folderName = entry.key.trim();
+      if (folderName.isNotEmpty) {
+        banksAndFolders.add(folderName);
+        folders.add(folderName);
+      }
+
+      for (final bank in entry.value) {
+        final bankName = bank['name']?.toString().trim();
+        if (bankName != null && bankName.isNotEmpty) {
+          banksAndFolders.add(bankName);
+        }
       }
     }
 
-    return const <String>[];
+    banksAndFolders
+      ..remove(_defaultSubject)
+      ..remove(_uncategorizedFolder);
+    folders.remove(_uncategorizedFolder);
+
+    return _BankFolderIndex(
+      banksAndFolders: banksAndFolders,
+      folders: folders,
+    );
   }
 
-  String _readString(
-    dynamic value, {
-    dynamic fallback,
-    String fallbackText = '',
-  }) {
-    final primary = value?.toString().trim();
-    if (primary != null && primary.isNotEmpty) return primary;
+  List<String> get availableBanksAndFolders => _sorted(_banksAndFolders);
 
-    final fallbackValue = fallback?.toString().trim();
-    if (fallbackValue != null && fallbackValue.isNotEmpty) {
-      return fallbackValue;
-    }
+  List<String> get availableFolders => _sorted(_folders);
 
-    return fallbackText;
-  }
-
-  int? _readInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value);
-    return null;
+  static List<String> _sorted(Set<String> values) {
+    return values.toList()..sort();
   }
 }

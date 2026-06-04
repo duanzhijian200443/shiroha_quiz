@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../data/models/question_draft.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/ai_service.dart';
 import '../widgets/markdown_extensions.dart';
@@ -23,7 +24,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   // ── 状态 ──────────────────────────────────────────────────────────────────
   bool _isLoading = false;
   String? _errorMessage;
-  List<Map<String, dynamic>> _questions = [];
+  List<QuestionDraft> _questions = [];
   List<String> _availableBanks = [];
   VoidCallback? _syncController;
 
@@ -130,10 +131,11 @@ class _AiQuizScreenState extends State<AiQuizScreen>
         count: _selectedCount,
         type: _selectedType,
       );
+      final drafts = QuestionDraft.listFromMaps(result);
       if (!mounted) return;
       setState(() {
-        _questions = result;
-        _selected.addAll(List.filled(result.length, true)); // 默认全选
+        _questions = drafts;
+        _selected.addAll(List.filled(drafts.length, true)); // 默认全选
       });
       _fadeCtrl.forward();
     } catch (e) {
@@ -154,7 +156,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
       return;
     }
 
-    final List<Map<String, dynamic>> toSave = [];
+    final List<QuestionDraft> toSave = [];
     for (int i = 0; i < _questions.length; i++) {
       if (_selected[i]) toSave.add(_questions[i]);
     }
@@ -165,7 +167,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     }
 
     try {
-      await _questionRepository.saveQuestionsToBank(
+      await _questionRepository.saveQuestionDraftsToBank(
         bankName: bankName,
         folderName: null,
         questions: toSave,
@@ -625,10 +627,9 @@ class _AiQuizScreenState extends State<AiQuizScreen>
       Color cardColor, Color accentColor) {
     final q = _questions[index];
     final isSelected = _selected[index];
-    final options =
-        (q['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
-    final answer = q['standard_answer']?.toString() ?? '';
-    final explanation = q['explanation']?.toString() ?? '';
+    final options = q.options;
+    final answer = q.standardAnswer;
+    final explanation = q.explanation;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
@@ -669,8 +670,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
                 ),
               ),
             ),
-            title: _buildMarkdown(
-                q['content']?.toString() ?? '', Theme.of(context)),
+            title: _buildMarkdown(q.content, Theme.of(context)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -896,7 +896,11 @@ class _AiQuizScreenState extends State<AiQuizScreen>
 
       // 2. 核心合流：将 AI 生成的全新题目直接落盘为试卷 (source_type: 1)
       final paperTitle = '${_topicController.text.trim()} AI模拟卷';
-      await _questionRepository.createExamPaper(paperTitle, 1, result);
+      await _questionRepository.createExamPaperFromDrafts(
+        paperTitle,
+        1,
+        QuestionDraft.listFromMaps(result),
+      );
 
       if (mounted) {
         // 3. 成功后直接退回模考中心，并弹窗提示
@@ -910,9 +914,10 @@ class _AiQuizScreenState extends State<AiQuizScreen>
       setState(() {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
       });
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(e.toString()), backgroundColor: Colors.redAccent));
+      }
     } finally {
       _endLoading();
     }

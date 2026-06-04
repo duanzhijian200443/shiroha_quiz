@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../data/models/question_draft.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
 import '../widgets/markdown_extensions.dart';
@@ -18,7 +19,7 @@ class ImportStagingScreen extends StatefulWidget {
 }
 
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
-  late List<Map<String, dynamic>> _displayQuestions;
+  late List<QuestionDraft> _displayQuestions;
   bool _isSaving = false;
 
   final TextEditingController _bankNameController = TextEditingController();
@@ -29,7 +30,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
-    _displayQuestions = List.from(widget.parsedQuestions);
+    _displayQuestions = QuestionDraft.listFromMaps(widget.parsedQuestions);
     _loadExistingFolders();
   }
 
@@ -45,10 +46,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   void _validateBeforeSave() {
     final emptyStems = _displayQuestions
         .where((q) =>
-            q['content'] == null ||
-            q['content']!.toString().trim().isEmpty ||
-            q['content']!.toString().contains('假设') ||
-            q['content']!.toString().contains('原题干'))
+            q.content.trim().isEmpty ||
+            q.content.contains('假设') ||
+            q.content.contains('原题干'))
         .length;
 
     final emptyRate =
@@ -181,7 +181,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
     setState(() => _isSaving = true);
     try {
-      await _questionRepository.saveQuestionsToBank(
+      await _questionRepository.saveQuestionDraftsToBank(
         bankName: bankName,
         folderName: folderName,
         questions: _displayQuestions,
@@ -244,7 +244,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               itemBuilder: (context, index) {
                 final q = _displayQuestions[index];
                 return Dismissible(
-                  key: ValueKey(q.hashCode.toString() + index.toString()),
+                  key: ValueKey(
+                    '$index-${q.content.hashCode}-${q.standardAnswer.hashCode}',
+                  ),
                   direction: DismissDirection.endToStart,
                   background: Container(
                     alignment: Alignment.centerRight,
@@ -303,16 +305,14 @@ class _QuestionCard extends StatelessWidget {
     required this.index,
   });
 
-  final Map<String, dynamic> question;
+  final QuestionDraft question;
   final int index;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final standardAnswer = question['standard_answer']?.toString().trim() ?? '';
-    final explanation = question['explanation']?.toString().trim() ?? '';
-    final hasAnswerOrExplanation =
-        standardAnswer.isNotEmpty || explanation.isNotEmpty;
+    final standardAnswer = question.standardAnswer.trim();
+    final explanation = question.explanation.trim();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -336,7 +336,7 @@ class _QuestionCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    _typeLabel(question['type']),
+                    question.type.displayName,
                     style: TextStyle(
                       color: theme.primaryColor,
                       fontSize: 10,
@@ -352,10 +352,10 @@ class _QuestionCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            _buildMarkdown(context, question['content']?.toString() ?? ''),
+            _buildMarkdown(context, question.content),
             const Divider(height: 24),
-            if (!hasAnswerOrExplanation)
-              _MissingAnswerNotice()
+            if (!question.hasAnswerOrExplanation)
+              const _MissingAnswerNotice()
             else
               _AnswerBlock(
                 standardAnswer: standardAnswer,
@@ -365,12 +365,6 @@ class _QuestionCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _typeLabel(dynamic type) {
-    if (type == 0) return '选择题';
-    if (type == 2) return '填空题';
-    return '简答题';
   }
 
   static Widget _buildMarkdown(BuildContext context, String text) {
@@ -384,6 +378,8 @@ class _QuestionCard extends StatelessWidget {
 }
 
 class _MissingAnswerNotice extends StatelessWidget {
+  const _MissingAnswerNotice();
+
   @override
   Widget build(BuildContext context) {
     return Container(

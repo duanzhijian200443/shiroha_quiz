@@ -1,5 +1,15 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-04 12:56] - refactor(arch): 引入强类型 QuestionDraft 统一 UI 与持久化层数据模型
+- **变更类型**: refactor
+- **影响模块**: models, repositories, ui, test
+- **详细改动明细**:
+  - [x] 新建了 `lib/data/models/question_draft.dart`，定义了强类型的 `QuestionDraft` 和 `QuestionType` 枚举，取代了原本传递 `Map<String, dynamic>` 的弱类型方式。
+  - [x] 改造了 `lib/ui/pages/ai_generator_screen.dart` 与 `lib/ui/pages/import_staging_screen.dart`，将其内部的 `_questions` 和 `_displayQuestions` 状态更改为 `List<QuestionDraft>`，所有题目属性通过点运算符（如 `q.content`、`q.options`）进行强类型访问。
+  - [x] 优化了 `lib/data/repositories/question_repository.dart`，重载并暴露 `saveQuestionDraftsToBank` 接口，使保存链路直接接收 `List<QuestionDraft>`，不再在存盘时临时执行 Map 到 Model 的脆弱转型。
+  - [x] 新增了 `test/question_draft_test.dart` 测试套件，完整覆盖了 AI JSON Map 到强类型 `QuestionDraft` 的容错清洗和防御转换测试。
+- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 16 tests passed!)。
+
 ## [2026-06-04 07:45] - refactor(arch): 将胖服务解耦并重构数据存储为 Repository 模式
 - **变更类型**: refactor
 - **影响模块**: services, data, ui, utils

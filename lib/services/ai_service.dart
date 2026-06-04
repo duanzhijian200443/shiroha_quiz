@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import '../core/database/database_helper.dart';
+import '../data/models/question_draft.dart';
 import '../data/repositories/question_repository.dart';
 import '../utils/ai_data_sanitizer.dart';
 import '../utils/image_utils.dart';
@@ -322,10 +323,10 @@ class AiService {
           await compute(AiDataSanitizer.cleanAndParseJson, responseText);
 
       if (parsedList.isNotEmpty) {
-        await QuestionRepository.instance.saveQuestionsToBank(
+        await QuestionRepository.instance.saveQuestionDraftsToBank(
           bankName: targetBankName,
           folderName: '🎆 智能生成',
-          questions: parsedList,
+          questions: QuestionDraft.listFromMaps(parsedList),
         );
       }
 
