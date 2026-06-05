@@ -113,8 +113,6 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         : '多文件自动拼合 (${result.files.length}个)';
 
     _dispatchBackgroundTask(sourceDesc, (taskId) async {
-      List<Map<String, dynamic>> allParsedQuestions = [];
-
       List<List<Map<String, dynamic>>> fileResults = [];
 
       // 遍历所有文件，分别独立解析以获取结构化数据

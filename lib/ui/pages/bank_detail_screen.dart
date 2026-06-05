@@ -65,8 +65,6 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final textLevel1 = isDark ? Colors.white.withOpacity(0.87) : Colors.black87;
     final textLevel2 = isDark ? Colors.white.withOpacity(0.60) : Colors.black54;
-    final cardBorder =
-        isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,

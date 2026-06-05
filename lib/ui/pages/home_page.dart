@@ -6,6 +6,7 @@ import '../../core/review_engine_service.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../services/task_manager.dart';
+import '../widgets/review_dashboard.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -319,6 +320,13 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ],
                   ),
+
+                  const SizedBox(height: 40),
+
+                  // 4. 复习仪表盘增强 (Review Dashboard)
+                  ReviewDashboard(bankName: _currentBank),
+
+                  const SizedBox(height: 40),
                 ],
               ),
             ),

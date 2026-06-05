@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
-import 'package:uuid/uuid.dart';
 import '../../core/database/database_helper.dart';
+
+const _globalWrongBookBankName = '🔥 全局错题本';
 
 class ReviewRepository {
   ReviewRepository({DatabaseHelper? databaseHelper})
@@ -9,7 +10,6 @@ class ReviewRepository {
   static final ReviewRepository instance = ReviewRepository();
 
   final DatabaseHelper _databaseHelper;
-  final Uuid _uuid = const Uuid();
 
   Future<Database> get _db async => await _databaseHelper.database;
 
@@ -104,15 +104,15 @@ class ReviewRepository {
   Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() async {
     final db = await _db;
     return db.rawQuery('''
-      SELECT 
-        q.id, 
-        q.type, 
-        q.content, 
-        q.options, 
-        q.standard_answer, 
+      SELECT
+        q.id,
+        q.type,
+        q.content,
+        q.options,
+        q.standard_answer,
         q.bank_name,
-        rs.lapses, 
-        rs.difficulty, 
+        rs.lapses,
+        rs.difficulty,
         rs.stability,
         rs.last_lapse_time
       FROM questions q
@@ -152,10 +152,11 @@ class ReviewRepository {
       String bankName, int nowUnix) async {
     final db = await _db;
 
-    if (bankName == '🔥 全局错题本') {
+    if (bankName == _globalWrongBookBankName) {
       final res = await db.rawQuery('''
         SELECT COUNT(q.id) as total,
-               SUM(CASE WHEN r.next_review_time <= ? THEN 1 ELSE 0 END) as review_count
+               SUM(CASE WHEN r.next_review_time <= ? THEN 1 ELSE 0 END) as review_count,
+               SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END) as mastered_count
         FROM questions q
         JOIN review_states r ON q.id = r.question_id
         WHERE r.lapses > 0
@@ -163,12 +164,15 @@ class ReviewRepository {
 
       final total = (res.first['total'] as int?) ?? 0;
       final reviewCount = (res.first['review_count'] as int?) ?? 0;
+      final masteredCount = (res.first['mastered_count'] as int?) ?? 0;
+      final scheduledCount = total - reviewCount - masteredCount;
 
       return {
         'total': total,
         'new_count': 0,
         'review_count': reviewCount,
-        'mastered_count': total - reviewCount,
+        'mastered_count': masteredCount,
+        'scheduled_count': scheduledCount > 0 ? scheduledCount : 0,
       };
     }
 
@@ -178,7 +182,7 @@ class ReviewRepository {
     final total = (totalRes.first['count'] as int?) ?? 0;
 
     final newRes = await db.rawQuery('''
-      SELECT COUNT(q.id) as count 
+      SELECT COUNT(q.id) as count
       FROM questions q
       JOIN review_states r ON q.id = r.question_id
       WHERE q.bank_name = ? AND r.state = 0
@@ -186,21 +190,63 @@ class ReviewRepository {
     final newCount = (newRes.first['count'] as int?) ?? 0;
 
     final reviewRes = await db.rawQuery('''
-      SELECT COUNT(q.id) as count 
+      SELECT COUNT(q.id) as count
       FROM questions q
       JOIN review_states r ON q.id = r.question_id
       WHERE q.bank_name = ? AND r.state > 0 AND r.next_review_time <= ?
     ''', [bankName, nowUnix]);
-    final reviewCount = (reviewRes.first['count'] as int?) ?? 0;
+    final dueReviewCount = (reviewRes.first['count'] as int?) ?? 0;
 
-    final masteredCount = total - newCount - reviewCount;
+    final masteredRes = await db.rawQuery('''
+      SELECT COUNT(q.id) as count
+      FROM questions q
+      JOIN review_states r ON q.id = r.question_id
+      WHERE q.bank_name = ? AND r.state = 3
+    ''', [bankName]);
+    final masteredCount = (masteredRes.first['count'] as int?) ?? 0;
+
+    final scheduledCount = total - newCount - dueReviewCount - masteredCount;
 
     return {
       'total': total,
       'new_count': newCount,
-      'review_count': reviewCount,
-      'mastered_count': masteredCount > 0 ? masteredCount : 0,
+      'review_count': dueReviewCount,
+      'mastered_count': masteredCount,
+      'scheduled_count': scheduledCount > 0 ? scheduledCount : 0,
     };
+  }
+
+  Future<List<int>> getFutureReviewTimestamps({
+    required String bankName,
+    required int startUnixSeconds,
+    required int endUnixSeconds,
+  }) async {
+    final db = await _db;
+
+    if (bankName == _globalWrongBookBankName) {
+      final res = await db.rawQuery('''
+        SELECT r.next_review_time
+        FROM review_states r
+        JOIN questions q ON q.id = r.question_id
+        WHERE r.lapses > 0
+          AND r.state > 0
+          AND r.next_review_time >= ?
+          AND r.next_review_time < ?
+      ''', [startUnixSeconds, endUnixSeconds]);
+      return res.map((e) => (e['next_review_time'] as int?) ?? 0).toList();
+    }
+
+    final res = await db.rawQuery('''
+      SELECT r.next_review_time
+      FROM review_states r
+      JOIN questions q ON q.id = r.question_id
+      WHERE q.bank_name = ?
+        AND r.state > 0
+        AND r.next_review_time >= ?
+        AND r.next_review_time < ?
+    ''', [bankName, startUnixSeconds, endUnixSeconds]);
+
+    return res.map((e) => (e['next_review_time'] as int?) ?? 0).toList();
   }
 
   Future<int> getGlobalLapseCount() async {
@@ -238,19 +284,19 @@ class ReviewRepository {
     List<dynamic> args = [];
 
     if (type != null) {
-      if (type == 0)
+      if (type == 0) {
         typeCondition = " AND q.type IN (0, 1)";
-      else {
+      } else {
         typeCondition = " AND q.type = ?";
         args.add(type);
       }
     }
 
-    if (bankName == '🔥 全局错题本') {
+    if (bankName == _globalWrongBookBankName) {
       args.insert(0, nowUnix);
       args.add(limit);
       return db.rawQuery('''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time 
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time
         FROM questions q
         JOIN review_states r ON q.id = r.question_id
         WHERE r.lapses > 0 AND r.next_review_time <= ? $typeCondition
@@ -262,7 +308,7 @@ class ReviewRepository {
       args.insert(1, nowUnix);
       args.add(limit);
       return db.rawQuery('''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time 
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time
         FROM questions q
         JOIN review_states r ON q.id = r.question_id
         WHERE q.bank_name = ? AND (r.state = 0 OR r.next_review_time <= ?) $typeCondition
@@ -285,11 +331,6 @@ class ReviewRepository {
       'SELECT * FROM review_states WHERE question_id IN ($placeholders)',
       questionIds,
     );
-    final questionRows = await txn.rawQuery(
-      'SELECT * FROM questions WHERE id IN ($placeholders)',
-      questionIds,
-    );
-
     final existingStateMap = <String, Map<String, dynamic>>{};
     for (final r in reviewStateRows) {
       existingStateMap[r['question_id'].toString()] = r;

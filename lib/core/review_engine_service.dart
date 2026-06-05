@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'package:shiroha_quiz/data/models/question.dart';
+import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
 import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -222,8 +223,60 @@ class ReviewEngineService with WidgetsBindingObserver {
   }
 
   Future<Map<String, dynamic>> getBankStats(String bankName) {
-    final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final int nowUnix = TimeUtil.getRealUTCTimestamp();
     return ReviewRepository.instance.getBankStats(bankName, nowUnix);
+  }
+
+  Future<ReviewDashboardData> getReviewDashboardData(String bankName,
+      {int days = 7, bool includeToday = true}) async {
+    final stats = await getBankStats(bankName);
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final startWindow =
+        includeToday ? todayStart : todayStart.add(const Duration(days: 1));
+    final endWindow = startWindow.add(Duration(days: days));
+
+    final startUnix = startWindow.millisecondsSinceEpoch ~/ 1000;
+    final endUnix = endWindow.millisecondsSinceEpoch ~/ 1000;
+
+    final timestamps =
+        await ReviewRepository.instance.getFutureReviewTimestamps(
+      bankName: bankName,
+      startUnixSeconds: startUnix,
+      endUnixSeconds: endUnix,
+    );
+
+    // Group by day (using local timezone boundaries)
+    final Map<int, int> dayCounts = {};
+    for (int i = 0; i < days; i++) {
+      dayCounts[i] = 0;
+    }
+
+    for (final ts in timestamps) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+      final diff = dt.difference(startWindow).inDays;
+      if (diff >= 0 && diff < days) {
+        dayCounts[diff] = (dayCounts[diff] ?? 0) + 1;
+      }
+    }
+
+    final forecast = <DailyReviewForecast>[];
+    for (int i = 0; i < days; i++) {
+      forecast.add(DailyReviewForecast(
+        date: startWindow.add(Duration(days: i)),
+        count: dayCounts[i] ?? 0,
+      ));
+    }
+
+    return ReviewDashboardData(
+      total: stats['total'] ?? 0,
+      newCount: stats['new_count'] ?? 0,
+      dueReviewCount: stats['review_count'] ?? 0,
+      masteredCount: stats['mastered_count'] ?? 0,
+      scheduledCount: stats['scheduled_count'] ?? 0,
+      forecast: forecast,
+    );
   }
 
   Future<List<Map<String, dynamic>>> getAllBankStats() async {
@@ -424,7 +477,8 @@ class ReviewEngineService with WidgetsBindingObserver {
         if (item.grade >= 3 && fsrs.lapses > 0 && originalQuestion != null) {
           // Fire and Forget
           LLMService().generateVariantQuestion(originalQuestion);
-          print("Variant generation triggered for question ${item.questionId}");
+          debugPrint(
+              "Variant generation triggered for question ${item.questionId}");
         }
         // --- 触发器结束 ---
 

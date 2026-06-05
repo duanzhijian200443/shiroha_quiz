@@ -89,8 +89,9 @@ class ImportTask {
     if (map['pending_chunks'] != null) {
       try {
         final decoded = jsonDecode(map['pending_chunks'] as String);
-        if (decoded is List)
+        if (decoded is List) {
           pending = decoded.map((e) => e.toString()).toList();
+        }
       } catch (_) {}
     }
 
@@ -98,7 +99,9 @@ class ImportTask {
     if (map['failed_chunks'] != null) {
       try {
         final decoded = jsonDecode(map['failed_chunks'] as String);
-        if (decoded is List) failed = decoded.map((e) => e.toString()).toList();
+        if (decoded is List) {
+          failed = decoded.map((e) => e.toString()).toList();
+        }
       } catch (_) {}
     }
 

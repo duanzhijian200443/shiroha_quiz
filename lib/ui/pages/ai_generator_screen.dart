@@ -23,7 +23,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   final QuestionRepository _questionRepository = QuestionRepository.instance;
 
   // ── 状态 ──────────────────────────────────────────────────────────────────
-  bool _isLoading = false;
+  late final _AiFeedbackController _feedbackCtrl;
   String? _errorMessage;
   List<QuestionDraft> _questions = [];
   List<String> _availableBanks = [];
@@ -32,43 +32,27 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   int _selectedCount = 1; // 默认生成 1 道题，降低超时概率
   int _selectedType = 0; // 默认单选(0=单选, 2=填空, 3=简答, -1=智能混合)
 
-  // ── 动态加载心流提示 ────────────────────────────────────────────────────
-  Timer? _loadingTimer;
-  int _currentTipIndex = 0;
-  final List<String> _loadingTips = [
-    '正在唤醒 AI 命题引擎...',
-    '正在查阅相关知识点考纲...',
-    '正在构思极具迷惑性的选项...',
-    '正在撰写详细的题目解析...',
-    '正在进行格式校验与 JSON 打包...',
-    'AI 正在全力输出，请稍等...',
-  ];
-
   /// 每道题是否被选中（用于批量入库）
   final List<bool> _selected = [];
-
-  // ── 动画控制器（卡片淡入）────────────────────────────────────────────────
-  late final AnimationController _fadeCtrl;
-  late final Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
     _bankNameController.text = 'AI 生成题库';
     _loadBanks();
-    _fadeCtrl = AnimationController(
+    _feedbackCtrl = _AiFeedbackController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      onStateChanged: () {
+        if (mounted) setState(() {});
+      },
     );
-    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
   }
 
   @override
   void dispose() {
-    _loadingTimer?.cancel(); // 防止内存泄漏
     _topicController.dispose();
     _bankNameController.dispose();
-    _fadeCtrl.dispose();
+    _feedbackCtrl.dispose();
     super.dispose();
   }
 
@@ -84,36 +68,17 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     }
   }
 
-  void _startLoadingTips() {
-    _currentTipIndex = 0;
-    _loadingTimer?.cancel();
-    _loadingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        if (_currentTipIndex < _loadingTips.length - 1) {
-          _currentTipIndex++;
-        }
-      });
-    });
-  }
-
   void _beginLoading() {
-    _startLoadingTips();
+    _feedbackCtrl.beginLoading();
     setState(() {
-      _isLoading = true;
       _errorMessage = null;
       _questions = [];
       _selected.clear();
-      _fadeCtrl.reset();
     });
   }
 
   void _endLoading() {
-    _loadingTimer?.cancel();
-    if (mounted) setState(() => _isLoading = false);
+    _feedbackCtrl.endLoading();
   }
 
   // ── 核心：调用 AI 生成题目 ────────────────────────────────────────────────
@@ -137,7 +102,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
         _questions = drafts;
         _selected.addAll(List.filled(drafts.length, true)); // 默认全选
       });
-      _fadeCtrl.forward();
+      _feedbackCtrl.fadeCtrl.forward();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -357,8 +322,9 @@ class _AiQuizScreenState extends State<AiQuizScreen>
               SizedBox(
                 height: 50,
                 child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _generateQuestions,
-                  icon: _isLoading
+                  onPressed:
+                      _feedbackCtrl.isLoading ? null : _generateQuestions,
+                  icon: _feedbackCtrl.isLoading
                       ? const SizedBox(
                           width: 16,
                           height: 16,
@@ -368,7 +334,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
                           ),
                         )
                       : const Icon(Icons.auto_awesome, size: 18),
-                  label: Text(_isLoading ? '生成中...' : '生成题目'),
+                  label: Text(_feedbackCtrl.isLoading ? '生成中...' : '生成题目'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: accentColor,
                     foregroundColor: Colors.white,
@@ -467,7 +433,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   Widget _buildResultArea(
       Color textColor, Color subTextColor, Color cardColor, Color accentColor) {
     // 加载中：动态心流提示
-    if (_isLoading) {
+    if (_feedbackCtrl.isLoading) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 40.0),
@@ -489,8 +455,8 @@ class _AiQuizScreenState extends State<AiQuizScreen>
                   ),
                 ),
                 child: Text(
-                  _loadingTips[_currentTipIndex],
-                  key: ValueKey<int>(_currentTipIndex),
+                  _feedbackCtrl.tips[_feedbackCtrl.currentTipIndex],
+                  key: ValueKey<int>(_feedbackCtrl.currentTipIndex),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: accentColor,
@@ -562,7 +528,7 @@ class _AiQuizScreenState extends State<AiQuizScreen>
 
     // 题目列表
     return FadeTransition(
-      opacity: _fadeAnim,
+      opacity: _feedbackCtrl.fadeAnim,
       child: Column(
         children: [
           // 操作栏
@@ -921,5 +887,60 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     } finally {
       _endLoading();
     }
+  }
+}
+
+class _AiFeedbackController {
+  final TickerProvider vsync;
+  final VoidCallback onStateChanged;
+
+  bool isLoading = false;
+  int currentTipIndex = 0;
+  Timer? _loadingTimer;
+
+  late final AnimationController fadeCtrl;
+  late final Animation<double> fadeAnim;
+
+  final List<String> tips = [
+    '正在唤醒 AI 命题引擎...',
+    '正在查阅相关知识点考纲...',
+    '正在构思极具迷惑性的选项...',
+    '正在撰写详细的题目解析...',
+    '正在进行格式校验与 JSON 打包...',
+    'AI 正在全力输出，请稍等...',
+  ];
+
+  _AiFeedbackController({required this.vsync, required this.onStateChanged}) {
+    fadeCtrl = AnimationController(
+      vsync: vsync,
+      duration: const Duration(milliseconds: 400),
+    );
+    fadeAnim = CurvedAnimation(parent: fadeCtrl, curve: Curves.easeOut);
+  }
+
+  void dispose() {
+    _loadingTimer?.cancel();
+    fadeCtrl.dispose();
+  }
+
+  void beginLoading() {
+    isLoading = true;
+    currentTipIndex = 0;
+    fadeCtrl.reset();
+    onStateChanged();
+
+    _loadingTimer?.cancel();
+    _loadingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (currentTipIndex < tips.length - 1) {
+        currentTipIndex++;
+        onStateChanged();
+      }
+    });
+  }
+
+  void endLoading() {
+    _loadingTimer?.cancel();
+    isLoading = false;
+    onStateChanged();
   }
 }

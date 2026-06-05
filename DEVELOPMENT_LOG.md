@@ -1,237 +1,255 @@
-# 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
+﻿# 馃殌 鑷姩鍖?Git 鎻愪氦涓庡紑鍙戞棩蹇楀紩鎿?(Git & Changelog Engine)
 
-## [2026-06-04 22:30] - refactor(architecture): 架构冻结与尾巴清理，抽取 LatexMigrationRepository 并确立规范 (Phase 5.1)
-- **变更类型**: refactor, docs
-- **影响模块**: data, services, docs
-- **详细改动明细**:
-  - [x] 清除了项目里最后一个边缘脚本 `latex_migration_service.dart` 对 Database 的直连，抽取至 `LatexMigrationRepository`。
-  - [x] 撰写了项目首份官方架构文档 `ARCHITECTURE.md`，从制度上明文规定 UI层 / Service层 禁止直接引用 `sqflite` 和 `DatabaseHelper`。
-- **验证状态**: `dart analyze` 全绿，所有集成测试稳定通过。这标志着历时五轮的大型架构重构彻底冻结验收。
-## [2026-06-04 22:20] - refactor(service): 隔离核心服务层的数据库直接操作，达成完全体架构 (Phase 5)
-- **变更类型**: refactor
-- **影响模块**: core, data, services
-- **详细改动明细**:
-  - [x] 重构了 FSRS 核心算法服务 `review_engine_service.dart`，抽取所有 SQLite 直连逻辑至新建的 `ReviewRepository`，让引擎变成纯粹的数学计算与调度编排器。
-  - [x] 重构了任务管理器 `task_manager.dart`，提取状态持久化逻辑至新建的 `ImportTaskRepository`。
-  - [x] 修剪了 `ai_service.dart` 里的越权行为，将读取错题转发至 `QuestionRepository`。
-- **验证状态**: 经 `dart format` 与 `dart analyze` 验证通过，修复了几处局部 API 更名带来的联动错误。自动化单元测试 `flutter test` 在最高危的事务剥离操作下依旧保持 100% 绿灯。项目架构彻底实现了 UI -> Service -> Repository -> Database 的解耦。
-## [2026-06-04 22:05] - refactor(exam): 将模考链路的 UI 层直连全面迁移至 ExamRepository
-- **变更类型**: refactor
-- **影响模块**: data, ui
-- **详细改动明细**:
-  - [x] 新建 `ExamRepository` 代理所有试卷相关的底层方法 (如 `getAllExamPapers`, `generateMockExamPaper`, `submitExamPaper` 等)。
-  - [x] 将原本放置在 `QuestionRepository` 中的越界方法 (`createExamPaper`, `createExamPaperFromDrafts`) 平移到 `ExamRepository` 中，维持职责单一。
-  - [x] 重构洗刷了 `mock_center_screen`, `mock_exam_config_screen`, `mock_exam_screen`, `paper_review_screen`。
-  - [x] 修正了 `ai_generator_screen` 生成试卷时的 Repository 调用。
-- **验证状态**: 经 `dart format` 与 `dart analyze` 验证通过，修复了由于强类型不匹配引发的函数参数冲突，`flutter test` 继续 100% 通过。至此 UI 层的 `DatabaseHelper` 彻底清零。
-## [2026-06-04 21:55] - refactor(questions): 将题库与题目管理的 UI 层直连迁移至 QuestionRepository
-- **变更类型**: refactor
-- **影响模块**: data, ui
-- **详细改动明细**:
-  - [x] 扩展 `QuestionRepository`，代理包括 `getSubjectTree`、`updateQuestion`、`insertPomodoroSession`、`getHeatmapData` 在内的近 15 个底层方法。
-  - [x] 封装 `savePreviewQuestion` 事务，彻底消灭了 `practice_page` 里的 `db.insert` 等硬编码。
-  - [x] 在 `deleteQuestionBank` 中实现联动，一旦删除的题库是当前被选中的题库，自动刷新 `SettingsRepository` 缓存为默认态。
-  - [x] 净化了 `data_center_screen`, `import_screen`, `question_list_screen`, `question_edit_screen`, `practice_page` 的 `DatabaseHelper` 依赖。
-  - [x] 顺带清除了 `home_page`, `plan_config_screen`, `profile_screen` 的零星遗留调用。
-- **验证状态**: 经本地代码格式化、静态分析与全量 `flutter test` 验证，28 个测试完美回归。UI 层对于题库模块的数据隔离目标全面达成。
-## [2026-06-04 21:35] - refactor(settings): 引入 SettingsRepository 与内存级缓存，隔离 UI 层配置读写
-- **变更类型**: refactor
-- **影响模块**: data, ui
-- **详细改动明细**:
-  - [x] 新增 `lib/data/repositories/settings_repository.dart`，作为配置项管理的强类型入口。
-  - [x] 在 `SettingsRepository` 内部实现了针对高频读取设置的**高级内存缓存数据结构** (`Map<String, String> _cache`)，有效减少 SQLite 的异步 I/O 查询。
-  - [x] 将弱类型的 `DatabaseHelper.instance.getSetting / saveSetting` 替换为强类型的专属方法，如 `getAppTheme()`、`getCurrentBank()`、`getDailyQuota(bankName)`。
-  - [x] 重构了 `lib/main.dart` 中的应用启动主题初始化。
-  - [x] 重构了 `lib/ui/pages/ai_settings_screen.dart` 与 `lib/ui/pages/profile_screen.dart` 的主题偏好设置。
-  - [x] 重构了 `lib/ui/pages/plan_config_screen.dart` 的每日任务配额读写与题库切换落盘逻辑，并解耦了恶心的字符串拼接（如 `${bankName}_daily_quota`）。
-  - [x] 重构了 `lib/ui/pages/home_page.dart` 和 `lib/ui/pages/mock_center_screen.dart` 页面顶部的当前题库缓存读取逻辑。
-- **验证状态**: 经本地代码格式化、静态分析与全量 `flutter test` 回归验证，全部测试通过。遵循架构纪律，本次重构范围严控在 UI 层。
-## [2026-06-04 21:18] - refactor(ai_ui): UI 层 AI 引擎配置入口迁移至 Repository
-- **变更类型**: refactor
-- **影响模块**: ui, data, ai
-- **详细改动明细**:
-  - [x] 扩展 `lib/data/repositories/ai_engine_repository.dart`，增加 `saveEngine`、`setActiveEngine`、`deleteEngine` 与 `renameEngine` 方法，完善完整 CRUD 链路。
-  - [x] 重构 `lib/ui/pages/ai_engine_management_screen.dart`，移除 `DatabaseHelper` 直接调用，全面拥抱 `AiEngineRepository` 和强类型 `AiEngineProfile`，保持 UI 交互/渲染层纯净。
-  - [x] 修改 `lib/ui/pages/ai_settings_screen.dart`，通过 `AiEngineRepository` 读取活跃文本与视觉引擎配置，阻断直接读取 DB。
-  - [x] 修改 `lib/ui/pages/profile_screen.dart`，使用 `AiEngineRepository` 替代底层 `DatabaseHelper` 方法呈现当前活跃配置名称。
-- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All tests passed)，成功隔离 AI Engine 管理操作，避免 UI 层与底层 DB 耦合。
-## [2026-06-04 20:28] - refactor(ai): 迁移遗留 LLMService 至统一 Provider 边界
-- **变更类型**: refactor
-- **影响模块**: ai, services, provider, test
-- **详细改动明细**:
-  - [x] 修改 `lib/services/llm_service.dart`，移除 `SharedPreferences` 旧文本/视觉引擎配置读取与手写 `http.post` 调用，统一改为 `AiEngineRepository` + `LlmApiClient`。
-  - [x] 修改 `_fetchCompletion`，保留旧 `systemPrompt` / `userPrompt` 调用契约，但通过 active text engine 发起统一 provider 文本请求。
-  - [x] 修改 `parsePdfToJSON`，通过 active vision engine 调用 `LlmApiClient.callVision`，并显式限制 Base64 PDF 路径当前仅支持 Gemini 视觉引擎，避免 OpenAI-compatible 分支误收不可靠 PDF data URL。
-  - [x] 修改 `LlmTextRequest`，新增 `systemPrompt`、`chatMessages` 与 `combinedPrompt` 派生结构；OpenAI-compatible provider 使用 system/user messages，Gemini provider 使用合并 prompt。
-  - [x] 修改 `test/ai_engine_profile_test.dart`，新增 system prompt 请求结构测试，防止 Provider 请求退化为单 user prompt。
-- **验证状态**: 已完成 `dart format`、`dart analyze` 受影响文件集合、`dart analyze lib/services lib/data`、`flutter test test/ai_engine_profile_test.dart`、旧配置残留 `rg` 搜索与 `git diff --check`；完整 `flutter test` 仍按约定交由 Gemini/反重力执行。
+## [2026-06-04 22:30] - refactor(architecture): 鏋舵瀯鍐荤粨涓庡熬宸存竻鐞嗭紝鎶藉彇 LatexMigrationRepository 骞剁‘绔嬭鑼?(Phase 5.1)
+- **鍙樻洿绫诲瀷**: refactor, docs
+- **褰卞搷妯″潡**: data, services, docs
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 娓呴櫎浜嗛」鐩噷鏈€鍚庝竴涓竟缂樿剼鏈?`latex_migration_service.dart` 瀵?Database 鐨勭洿杩烇紝鎶藉彇鑷?`LatexMigrationRepository`銆?  - [x] 鎾板啓浜嗛」鐩浠藉畼鏂规灦鏋勬枃妗?`ARCHITECTURE.md`锛屼粠鍒跺害涓婃槑鏂囪瀹?UI灞?/ Service灞?绂佹鐩存帴寮曠敤 `sqflite` 鍜?`DatabaseHelper`銆?- **楠岃瘉鐘舵€?*: `dart analyze` 鍏ㄧ豢锛屾墍鏈夐泦鎴愭祴璇曠ǔ瀹氶€氳繃銆傝繖鏍囧織鐫€鍘嗘椂浜旇疆鐨勫ぇ鍨嬫灦鏋勯噸鏋勫交搴曞喕缁撻獙鏀躲€?## [2026-06-04 22:20] - refactor(service): 闅旂鏍稿績鏈嶅姟灞傜殑鏁版嵁搴撶洿鎺ユ搷浣滐紝杈炬垚瀹屽叏浣撴灦鏋?(Phase 5)
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: core, data, services
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 閲嶆瀯浜?FSRS 鏍稿績绠楁硶鏈嶅姟 `review_engine_service.dart`锛屾娊鍙栨墍鏈?SQLite 鐩磋繛閫昏緫鑷虫柊寤虹殑 `ReviewRepository`锛岃寮曟搸鍙樻垚绾补鐨勬暟瀛﹁绠椾笌璋冨害缂栨帓鍣ㄣ€?  - [x] 閲嶆瀯浜嗕换鍔＄鐞嗗櫒 `task_manager.dart`锛屾彁鍙栫姸鎬佹寔涔呭寲閫昏緫鑷虫柊寤虹殑 `ImportTaskRepository`銆?  - [x] 淇壀浜?`ai_service.dart` 閲岀殑瓒婃潈琛屼负锛屽皢璇诲彇閿欓杞彂鑷?`QuestionRepository`銆?- **楠岃瘉鐘舵€?*: 缁?`dart format` 涓?`dart analyze` 楠岃瘉閫氳繃锛屼慨澶嶄簡鍑犲灞€閮?API 鏇村悕甯︽潵鐨勮仈鍔ㄩ敊璇€傝嚜鍔ㄥ寲鍗曞厓娴嬭瘯 `flutter test` 鍦ㄦ渶楂樺嵄鐨勪簨鍔″墺绂绘搷浣滀笅渚濇棫淇濇寔 100% 缁跨伅銆傞」鐩灦鏋勫交搴曞疄鐜颁簡 UI -> Service -> Repository -> Database 鐨勮В鑰︺€?## [2026-06-04 22:05] - refactor(exam): 灏嗘ā鑰冮摼璺殑 UI 灞傜洿杩炲叏闈㈣縼绉昏嚦 ExamRepository
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: data, ui
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓 `ExamRepository` 浠ｇ悊鎵€鏈夎瘯鍗风浉鍏崇殑搴曞眰鏂规硶 (濡?`getAllExamPapers`, `generateMockExamPaper`, `submitExamPaper` 绛?銆?  - [x] 灏嗗師鏈斁缃湪 `QuestionRepository` 涓殑瓒婄晫鏂规硶 (`createExamPaper`, `createExamPaperFromDrafts`) 骞崇Щ鍒?`ExamRepository` 涓紝缁存寔鑱岃矗鍗曚竴銆?  - [x] 閲嶆瀯娲楀埛浜?`mock_center_screen`, `mock_exam_config_screen`, `mock_exam_screen`, `paper_review_screen`銆?  - [x] 淇浜?`ai_generator_screen` 鐢熸垚璇曞嵎鏃剁殑 Repository 璋冪敤銆?- **楠岃瘉鐘舵€?*: 缁?`dart format` 涓?`dart analyze` 楠岃瘉閫氳繃锛屼慨澶嶄簡鐢变簬寮虹被鍨嬩笉鍖归厤寮曞彂鐨勫嚱鏁板弬鏁板啿绐侊紝`flutter test` 缁х画 100% 閫氳繃銆傝嚦姝?UI 灞傜殑 `DatabaseHelper` 褰诲簳娓呴浂銆?## [2026-06-04 21:55] - refactor(questions): 灏嗛搴撲笌棰樼洰绠＄悊鐨?UI 灞傜洿杩炶縼绉昏嚦 QuestionRepository
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: data, ui
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鎵╁睍 `QuestionRepository`锛屼唬鐞嗗寘鎷?`getSubjectTree`銆乣updateQuestion`銆乣insertPomodoroSession`銆乣getHeatmapData` 鍦ㄥ唴鐨勮繎 15 涓簳灞傛柟娉曘€?  - [x] 灏佽 `savePreviewQuestion` 浜嬪姟锛屽交搴曟秷鐏簡 `practice_page` 閲岀殑 `db.insert` 绛夌‖缂栫爜銆?  - [x] 鍦?`deleteQuestionBank` 涓疄鐜拌仈鍔紝涓€鏃﹀垹闄ょ殑棰樺簱鏄綋鍓嶈閫変腑鐨勯搴擄紝鑷姩鍒锋柊 `SettingsRepository` 缂撳瓨涓洪粯璁ゆ€併€?  - [x] 鍑€鍖栦簡 `data_center_screen`, `import_screen`, `question_list_screen`, `question_edit_screen`, `practice_page` 鐨?`DatabaseHelper` 渚濊禆銆?  - [x] 椤哄甫娓呴櫎浜?`home_page`, `plan_config_screen`, `profile_screen` 鐨勯浂鏄熼仐鐣欒皟鐢ㄣ€?- **楠岃瘉鐘舵€?*: 缁忔湰鍦颁唬鐮佹牸寮忓寲銆侀潤鎬佸垎鏋愪笌鍏ㄩ噺 `flutter test` 楠岃瘉锛?8 涓祴璇曞畬缇庡洖褰掋€俇I 灞傚浜庨搴撴ā鍧楃殑鏁版嵁闅旂鐩爣鍏ㄩ潰杈炬垚銆?## [2026-06-04 21:35] - refactor(settings): 寮曞叆 SettingsRepository 涓庡唴瀛樼骇缂撳瓨锛岄殧绂?UI 灞傞厤缃鍐?- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: data, ui
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板 `lib/data/repositories/settings_repository.dart`锛屼綔涓洪厤缃」绠＄悊鐨勫己绫诲瀷鍏ュ彛銆?  - [x] 鍦?`SettingsRepository` 鍐呴儴瀹炵幇浜嗛拡瀵归珮棰戣鍙栬缃殑**楂樼骇鍐呭瓨缂撳瓨鏁版嵁缁撴瀯** (`Map<String, String> _cache`)锛屾湁鏁堝噺灏?SQLite 鐨勫紓姝?I/O 鏌ヨ銆?  - [x] 灏嗗急绫诲瀷鐨?`DatabaseHelper.instance.getSetting / saveSetting` 鏇挎崲涓哄己绫诲瀷鐨勪笓灞炴柟娉曪紝濡?`getAppTheme()`銆乣getCurrentBank()`銆乣getDailyQuota(bankName)`銆?  - [x] 閲嶆瀯浜?`lib/main.dart` 涓殑搴旂敤鍚姩涓婚鍒濆鍖栥€?  - [x] 閲嶆瀯浜?`lib/ui/pages/ai_settings_screen.dart` 涓?`lib/ui/pages/profile_screen.dart` 鐨勪富棰樺亸濂借缃€?  - [x] 閲嶆瀯浜?`lib/ui/pages/plan_config_screen.dart` 鐨勬瘡鏃ヤ换鍔￠厤棰濊鍐欎笌棰樺簱鍒囨崲钀界洏閫昏緫锛屽苟瑙ｈ€︿簡鎭跺績鐨勫瓧绗︿覆鎷兼帴锛堝 `${bankName}_daily_quota`锛夈€?  - [x] 閲嶆瀯浜?`lib/ui/pages/home_page.dart` 鍜?`lib/ui/pages/mock_center_screen.dart` 椤甸潰椤堕儴鐨勫綋鍓嶉搴撶紦瀛樿鍙栭€昏緫銆?- **楠岃瘉鐘舵€?*: 缁忔湰鍦颁唬鐮佹牸寮忓寲銆侀潤鎬佸垎鏋愪笌鍏ㄩ噺 `flutter test` 鍥炲綊楠岃瘉锛屽叏閮ㄦ祴璇曢€氳繃銆傞伒寰灦鏋勭邯寰嬶紝鏈閲嶆瀯鑼冨洿涓ユ帶鍦?UI 灞傘€?## [2026-06-04 21:18] - refactor(ai_ui): UI 灞?AI 寮曟搸閰嶇疆鍏ュ彛杩佺Щ鑷?Repository
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ui, data, ai
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鎵╁睍 `lib/data/repositories/ai_engine_repository.dart`锛屽鍔?`saveEngine`銆乣setActiveEngine`銆乣deleteEngine` 涓?`renameEngine` 鏂规硶锛屽畬鍠勫畬鏁?CRUD 閾捐矾銆?  - [x] 閲嶆瀯 `lib/ui/pages/ai_engine_management_screen.dart`锛岀Щ闄?`DatabaseHelper` 鐩存帴璋冪敤锛屽叏闈㈡嫢鎶?`AiEngineRepository` 鍜屽己绫诲瀷 `AiEngineProfile`锛屼繚鎸?UI 浜や簰/娓叉煋灞傜函鍑€銆?  - [x] 淇敼 `lib/ui/pages/ai_settings_screen.dart`锛岄€氳繃 `AiEngineRepository` 璇诲彇娲昏穬鏂囨湰涓庤瑙夊紩鎿庨厤缃紝闃绘柇鐩存帴璇诲彇 DB銆?  - [x] 淇敼 `lib/ui/pages/profile_screen.dart`锛屼娇鐢?`AiEngineRepository` 鏇夸唬搴曞眰 `DatabaseHelper` 鏂规硶鍛堢幇褰撳墠娲昏穬閰嶇疆鍚嶇О銆?- **楠岃瘉鐘舵€?*: 缁忔湰鍦板崟鍏冩祴璇曞拰 widget 娴嬭瘯楠岃瘉閫氳繃 (All tests passed)锛屾垚鍔熼殧绂?AI Engine 绠＄悊鎿嶄綔锛岄伩鍏?UI 灞備笌搴曞眰 DB 鑰﹀悎銆?## [2026-06-04 20:28] - refactor(ai): 杩佺Щ閬楃暀 LLMService 鑷崇粺涓€ Provider 杈圭晫
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services, provider, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 淇敼 `lib/services/llm_service.dart`锛岀Щ闄?`SharedPreferences` 鏃ф枃鏈?瑙嗚寮曟搸閰嶇疆璇诲彇涓庢墜鍐?`http.post` 璋冪敤锛岀粺涓€鏀逛负 `AiEngineRepository` + `LlmApiClient`銆?  - [x] 淇敼 `_fetchCompletion`锛屼繚鐣欐棫 `systemPrompt` / `userPrompt` 璋冪敤濂戠害锛屼絾閫氳繃 active text engine 鍙戣捣缁熶竴 provider 鏂囨湰璇锋眰銆?  - [x] 淇敼 `parsePdfToJSON`锛岄€氳繃 active vision engine 璋冪敤 `LlmApiClient.callVision`锛屽苟鏄惧紡闄愬埗 Base64 PDF 璺緞褰撳墠浠呮敮鎸?Gemini 瑙嗚寮曟搸锛岄伩鍏?OpenAI-compatible 鍒嗘敮璇敹涓嶅彲闈?PDF data URL銆?  - [x] 淇敼 `LlmTextRequest`锛屾柊澧?`systemPrompt`銆乣chatMessages` 涓?`combinedPrompt` 娲剧敓缁撴瀯锛汷penAI-compatible provider 浣跨敤 system/user messages锛孏emini provider 浣跨敤鍚堝苟 prompt銆?  - [x] 淇敼 `test/ai_engine_profile_test.dart`锛屾柊澧?system prompt 璇锋眰缁撴瀯娴嬭瘯锛岄槻姝?Provider 璇锋眰閫€鍖栦负鍗?user prompt銆?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze` 鍙楀奖鍝嶆枃浠堕泦鍚堛€乣dart analyze lib/services lib/data`銆乣flutter test test/ai_engine_profile_test.dart`銆佹棫閰嶇疆娈嬬暀 `rg` 鎼滅储涓?`git diff --check`锛涘畬鏁?`flutter test` 浠嶆寜绾﹀畾浜ょ敱 Gemini/鍙嶉噸鍔涙墽琛屻€?
+## [2026-06-04 19:35] - refactor(ai): 寮曞叆寮虹被鍨?AI 寮曟搸閰嶇疆妯″瀷
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services, data, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板 `lib/data/models/ai_engine_profile.dart`锛屽畾涔?`AiEngineType` 涓?`AiEngineProfile`锛岄泦涓鐞?DB 琛屽瓧娈靛綊涓€鍖栥€佹俯搴﹂粯璁ゅ€笺€佹縺娲荤姸鎬佽浆鎹€乥aseUrl 灏炬枩鏉犳竻娲椾笌缂哄瓧娈佃瘖鏂€?  - [x] 鏂板 `lib/data/repositories/ai_engine_repository.dart`锛屾妸涓氬姟灞傝鍙?active text/vision engine 鐨勫叆鍙ｆ敹鏉熷埌 Repository锛岄伩鍏嶆湇鍔″眰鐩存帴娑堣垂 `Map<String, dynamic>`銆?  - [x] 淇敼 `lib/services/llm_api_client.dart` 涓?`lib/services/llm_providers/llm_provider_client.dart`锛屽皢 `callText` / `callVision` 鐨?profile 鍏ュ弬鏀逛负 `AiEngineProfile`锛岀Щ闄ゆ棫鐨?`LlmProviderProfile.fromMap` 閫傞厤鍣ㄣ€?  - [x] 淇敼 `lib/services/ai_service.dart`锛屾枃鏈敓鎴愩€佺瓟棰樸€佺粍鍗枫€侀敊棰樼敓鎴愩€佹枃鏈В鏋愩€佽瑙夎В鏋愬拰澶氭枃浠跺悎骞剁粺涓€閫氳繃 `AiEngineRepository` 鑾峰彇寮虹被鍨嬪紩鎿庨厤缃€?  - [x] 淇敼 `lib/services/latex_migration_service.dart`锛屽巻鍙?LaTeX 杩佺Щ閫昏緫澶嶇敤 `LlmApiClient.callText`锛屽垹闄ゆ湇鍔″唴鎵嬪啓 Gemini/OpenAI/Zhipu HTTP 鍒嗘敮銆?  - [x] 鏂板 `test/ai_engine_profile_test.dart`锛岃鐩?DB 鑴忔暟鎹綊涓€鍖栥€佺己瀛楁璇婃柇涓?`LlmTextRequest` 浠庡己绫诲瀷 profile 鏋勯€犺姹傘€?  - [x] 娓呯悊 `lib/data/models/question.dart` 鐨勬湭鐢?import锛屽苟灏?`lib/services/llm_service.dart` 涓殑 `print` 鏇挎崲涓?`debugPrint`锛屼娇 `lib/services lib/data` 瀹借寖鍥撮潤鎬佹鏌ヤ繚鎸佸共鍑€銆?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services lib/data`銆乣dart analyze` 鍙楀奖鍝嶆枃浠堕泦鍚堛€乣flutter test test/ai_engine_profile_test.dart`锛涘畬鏁?`flutter test` 浠嶆寜绾﹀畾浜ょ敱 Gemini/鍙嶉噸鍔涙墽琛屻€?
+## [2026-06-04 19:02] - refactor(ai): 鎶界鏂囨。瑙ｆ瀽璺敱 Router
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓 `lib/services/document_parse_router.dart`锛岄泦涓壙杞芥枃妗ｇ粨鏋勬帰閽堝悗鐨?A/B/C/D 璺緞鍒ゅ畾銆?  - [x] 鏂板 `DocumentParseRoute`銆乣DocumentParseSegment` 涓?`DocumentParsePlan`锛屽皢姣忔潯鏂囨。璺緞杞崲涓哄甫 `parseMode` 鐨勬壒娆¤В鏋愯鍒掋€?  - [x] 灏?`AiService.parseTextToQuestions` 涓殑灏鹃儴绛旀瑁佸壀銆侀灏惧垎绂汇€佸叏鏂囨棤绛旀鍜屾爣鍑嗚鍐呰В鏋愬垎鏀縼绉诲埌 `DocumentParseRouter.buildPlan`銆?  - [x] 淇敼 `AiService.parseTextToQuestions`锛屾寜 plan 缁熶竴杩藉姞 pending chunks 骞堕€愭璋冪敤 `parseMicroBatches`锛屼娇鏈嶅姟灞傚彧淇濈暀鎵ц缂栨帓銆?  - [x] 鏂板 `test/document_parse_router_test.dart`锛岃鐩栬矾寰?A 灏鹃儴绛旀瑁佸壀鍜岃矾寰?B 棰樺共/绛旀鍒嗙涓ゆ潯楂橀闄╄矾鐢便€?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services/ai_service.dart lib/services/document_parse_router.dart test/document_parse_router_test.dart`銆乣flutter test test/document_parse_router_test.dart`銆乣flutter test test/document_chunker_test.dart`銆乣flutter test test/document_parse_router_test.dart test/document_chunker_test.dart test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`銆佸叧閿矾寰?`rg` 鎼滅储涓?`git diff --check`锛涘苟琛岃繍琛?Flutter 娴嬭瘯鏃舵浘瑙﹀彂 Windows native assets 宸ュ叿灞傛嫹璐濆啿绐侊紝宸叉敼涓洪『搴忛噸璺戜笖鍏ㄩ儴閫氳繃銆?
+## [2026-06-04 14:36] - refactor(ai): 鎶界鏂囨。鍒嗗潡鍣?DocumentChunker
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓 `lib/services/document_chunker.dart`锛岄泦涓壙杞芥櫘閫氭枃鏈笌 Markdown 鐨勫井鎵规鍒嗗潡绠楁硶銆?  - [x] 淇濈暀鍘熸櫘閫氭枃鏈?1500 瀛楃闃堝€笺€丮arkdown 2000 瀛楃闃堝€硷紝浠ュ強 Markdown 鏍囬/搴忓彿鍒嗗壊瑙勫垯锛岄伩鍏嶆敼鍙樿В鏋愬閮ㄨ涓恒€?  - [x] 淇敼 `lib/services/ai_service.dart`锛岀Щ闄?`splitTextIntoMicroBatches` 涓?`splitMarkdownIntoMicroBatches` 鍐呰仈瀹炵幇锛岀粺涓€閫氳繃 `_chunker.split(...)` 鑾峰彇鍒嗗潡銆?  - [x] 鏂板 `test/document_chunker_test.dart`锛岃鐩栨櫘閫氭枃鏈钀藉垎鍧楀拰 Markdown 鏍囬/搴忓彿鍒嗗潡涓ゆ潯璺緞銆?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services/ai_service.dart lib/services/document_chunker.dart test/document_chunker_test.dart`銆乣flutter test test/document_chunker_test.dart`銆乣flutter test test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`銆佸叧閿矾寰?`rg` 鎼滅储涓?`git diff --check`锛涘畬鏁村洖褰掓祴璇曚氦鐢?Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 14:27] - refactor(ai): 鎶界寰壒娆¤В鏋愯皟搴?Runner
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓 `lib/services/parse_batch_runner.dart`锛岄泦涓壙杞藉井鎵规瑙ｆ瀽鐨勫苟鍙?worker銆侀噸璇曟鏁般€佸喎鍗寸瓥鐣ャ€佹垚鍔熸殏鍋滃拰澶辫触璁℃暟閫昏緫銆?  - [x] 灏?`AiService.parseMicroBatches` 涓殑璋冨害寰幆杩佺Щ鍒?`ParseBatchRunner.run`锛屼娇 `AiService` 鍙礋璐ｆ彁渚涘崟鍧楄В鏋愬嚱鏁板拰 TaskManager 鎴愬姛/澶辫触鍥炶皟銆?  - [x] 閫氳繃 `ParseBatchRunResult` 杩斿洖鎸夊師 chunk 椤哄簭灞曞紑鐨勯鐩垪琛ㄥ拰澶辫触鏁伴噺锛岄伩鍏?UI/浠诲姟灞傜洿鎺ユ帴瑙﹁皟搴﹀唴閮ㄧ姸鎬併€?  - [x] 淇濈暀鍘熸湁 3 骞跺彂銆? 娆￠噸璇曘€佹垚鍔熷悗 500ms 鏆傚仠銆侀鐜囬檺鍒?缃戠粶閿欒閫€閬垮喎鍗寸瓥鐣ワ紝闄嶄綆琛屼负鍥炲綊椋庨櫓銆?  - [x] 鏂板 `test/parse_batch_runner_test.dart`锛岃鐩栧苟鍙戝畬鎴愰『搴忎笉褰卞搷杈撳嚭椤哄簭锛屼互鍙婃案涔呭け璐ユ椂浼氬畬鎴愰噸璇曞苟鎶ュ憡澶辫触 chunk銆?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services/ai_service.dart lib/services/parse_batch_runner.dart test/parse_batch_runner_test.dart`銆乣flutter test test/parse_batch_runner_test.dart`銆乣flutter test test/question_parse_pipeline_test.dart`銆佸叧閿矾寰?`rg` 鎼滅储涓?`git diff --check`锛涘畬鏁村洖褰掓祴璇曚氦鐢?Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 14:19] - refactor(ai): 鎶界棰樼洰瑙ｆ瀽鍚庡鐞?Pipeline
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓 `lib/services/question_parse_pipeline.dart`锛岄泦涓壙杞?AI 瑙ｆ瀽鍚庣殑棰樼洰缁撴瀯鍚庡鐞嗛€昏緫銆?  - [x] 灏?`parseMicroBatches` 涓殑棰樺彿鏍囧噯鍖栥€佺函绛旀椤佃瘑鍒笌绛旀姹犳嫾鍥惧綊骞剁畻娉曡縼绉诲埌 `QuestionParsePipeline.mergeAnswerOnlyQuestions`銆?  - [x] 灏嗚瑙夎В鏋愯繑鍥炴枃鏈殑 JSON 娓呮礂涓庨骞茶川閲忛椄闂ㄨ縼绉诲埌 `QuestionParsePipeline.parseVisionQuestions`銆?  - [x] 淇敼 `lib/services/ai_service.dart`锛岄€氳繃 `_parsePipeline` 璋冪敤鍚庡鐞嗚兘鍔涳紝浣?`AiService` 鏇翠笓娉ㄤ簬 LLM 璋冪敤銆佸垎鍧楄皟搴﹀拰浠诲姟鐘舵€佺紪鎺掋€?  - [x] 鏂板 `test/question_parse_pipeline_test.dart`锛岃鐩栫瓟妗堥〉鎸夐鍙峰洖濉拰鏈尮閰嶇瓟妗堜繚鐣欎袱鏉￠槻寰¤矾寰勩€?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services/ai_service.dart lib/services/question_parse_pipeline.dart test/question_parse_pipeline_test.dart`銆乣flutter test test/question_parse_pipeline_test.dart`銆佸叧閿矾寰?`rg` 鎼滅储涓?`git diff --check`锛涘畬鏁村洖褰掓祴璇曚氦鐢?Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 13:57] - refactor(ai): 灏嗚瑙?LLM 璇锋眰杩佺Щ鑷?Provider Strategy
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鍦?`lib/services/llm_providers/llm_provider_client.dart` 涓柊澧?`LlmVisionAsset` 涓?`LlmVisionRequest`锛屾敮鎸佸唴鑱?base64 璧勪骇涓庝笂浼犳枃浠惰祫浜т袱绉嶈瑙夎緭鍏ュ舰鎬併€?  - [x] 涓?`GeminiProviderClient`銆乣OpenAiCompatibleProviderClient` 涓?`ZhipuProviderClient` 澧炲姞 `callVision` 瀹炵幇锛屽垎鍒皝瑁?Gemini `inline_data`銆丱penAI-compatible `image_url` 涓庢櫤璋?PDF 涓婁紶瑙ｆ瀽璺緞銆?  - [x] 鍦?`LlmApiClient` 涓柊澧?`callVision` 闂ㄩ潰鏂规硶锛屼娇鏂囨湰涓庤瑙夎姹傞兘缁忚繃缁熶竴 provider strategy 鍒嗗彂鍜岄厤缃畬鏁存€ф鏌ャ€?  - [x] 閲嶆瀯 `AiService.parseImagesWithVision` 涓?`parseFileWithVision`锛岀Щ闄ら〉闈㈡湇鍔″眰涓殑搴曞眰 HTTP 璇锋眰鎷艰锛屼粎淇濈暀鏂囦欢璇诲彇銆佸浘鐗囧帇缂┿€乸rovider 閫夋嫨绾︽潫涓庨鐩川閲忛椄闂ㄣ€?  - [x] 鏂板 `_parseVisionQuestions` 涓?`_readFileAsVisionBase64` 杈圭晫 helper锛屽皢瑙嗚杩斿洖鏂囨湰瑙ｆ瀽鍜屾枃浠堕澶勭悊闆嗕腑绠＄悊銆?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services/ai_service.dart`銆乣dart analyze lib/services/llm_api_client.dart lib/services/llm_providers`銆佸叧閿矾寰?`rg` 鎼滅储涓?`git diff --check`锛涘畬鏁村洖褰掓祴璇曚氦鐢?Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 13:33] - refactor(ai): 闃插尽寮忔敹鏉熸枃鏈?LLM 璇锋眰杈圭晫
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鍦?`lib/services/llm_providers/llm_provider_client.dart` 涓柊澧?`LlmProviderProfile` 鍊煎璞★紝缁熶竴娓呮礂 `api_key`銆乣base_url`銆乣model_name`銆乣temperature` 涓?`reasoning_effort`銆?  - [x] 灏?`LlmTextRequest` 鐨勯厤缃鍙栨敼涓洪€氳繃 `LlmProviderProfile.fromMap` 鏋勯€狅紝骞跺湪 `LlmApiClient` 涓緭鍑虹己澶卞瓧娈靛垪琛紝鎻愬崌閰嶇疆閿欒鍙瘖鏂€с€?  - [x] 灏?`AiService.judgeAnswer` 涓?`mergeStructuredQuestions` 浠庢墜鍐?Gemini/OpenAI HTTP 鍒嗘敮杩佺Щ鍒?`_apiClient.callText`锛岃鏂囨湰璇锋眰缁熶竴缁忚繃 provider strategy銆?  - [x] 娓呯悊鏂囨湰鐢熸垚銆佸崟棰樹綔绛斻€佺粍鍗枫€侀敊棰樼敓鎴愪笌鍒嗗潡瑙ｆ瀽涓殑閲嶅寮曟搸涓変欢濂楁牎楠岋紝鐢辫姹傝竟鐣岀粺涓€闃插尽銆?  - [x] 浣跨敤 Dart fixer 琛ラ綈 `ai_service.dart` 涓?12 澶勫崟琛?`if` 澶ф嫭鍙凤紝闄嶄綆鍚庣画缂栬緫璇寕鍒嗘敮鐨勯闄┿€?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆乣dart analyze lib/services/ai_service.dart`銆乣dart analyze lib/services/llm_api_client.dart lib/services/llm_providers`銆佸叧閿矾寰?`rg` 鎼滅储涓?`git diff --check`锛涘畬鏁村洖褰掓祴璇曚氦鐢?Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 13:18] - refactor(ai): 鎷嗗垎鏂囨湰 LLM Provider Strategy
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, services
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓浜?`lib/services/llm_providers/` 绛栫暐鐩綍锛屽畾涔?`LlmProviderClient` 涓?`LlmTextRequest`锛屽皢鏂囨湰妯″瀷璇锋眰鍙傛暟浠庨棬闈㈠鎴风涓娊绂讳负鏄庣‘鐨勬暟鎹粨鏋勩€?  - [x] 鏂板浜?`GeminiProviderClient`銆乣OpenAiCompatibleProviderClient` 涓?`ZhipuProviderClient`锛屽垎鍒皝瑁?Gemini銆丱penAI-compatible 鍜屾櫤璋辨枃鏈ˉ鍏ㄨ姹傝矾寰勩€?  - [x] 鏂板浜?`LlmProviderRegistry`锛屾寜 `baseUrl` 鑷姩閫夋嫨瀵瑰簲 provider锛屼娇 `LlmApiClient` 浠庡簳灞傝姹傚疄鐜版敹缂╀负杞婚噺闂ㄩ潰銆?  - [x] 淇濈暀浜?`LlmApiClient.buildChatUrl` 涓?`extractContent` 鍏煎鍏ュ彛锛岄伩鍏嶅奖鍝嶅綋鍓嶈瑙夎В鏋愬垎鏀€?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆佸畾鍚?`dart analyze` 涓?provider 鍏抽敭璺緞鎼滅储锛涘畬鏁村洖褰掓祴璇曚氦鐢?Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 13:08] - refactor(ai): 灏?AI 鐢熸垚棰樼洰鎺ュ彛鏀逛负杩斿洖 QuestionDraft
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: ai, ui, models
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 淇敼浜?`lib/services/ai_service.dart`锛屽皢 `generateQuestions`銆乣generateExamPaper` 涓?`generateAndSaveQuestionsFromMistakes` 鐨勫叕寮€杩斿洖绫诲瀷浠?`List<Map<String, dynamic>>` 鏀舵潫涓?`List<QuestionDraft>`銆?  - [x] 鍦?AI 鏈嶅姟鍐呴儴瀹屾垚 JSON Map 鍒?`QuestionDraft` 鐨勮竟鐣岃浆鎹紝璁╁急绫诲瀷鏁版嵁鍋滅暀鍦?AI JSON 瑙ｆ瀽杈圭晫鍐呫€?  - [x] 淇敼浜?`lib/ui/pages/ai_generator_screen.dart`锛岀Щ闄ょ敓鎴愰鐩拰 AI 缁勫嵎鍚庣殑閲嶅 `QuestionDraft.listFromMaps` 杞崲锛岀洿鎺ユ秷璐瑰己绫诲瀷杩斿洖鍊笺€?- **楠岃瘉鐘舵€?*: 宸插畬鎴?`dart format`銆佸畾鍚?`dart analyze` 涓庢畫鐣欒皟鐢ㄦ悳绱紱瀹屾暣鍥炲綊娴嬭瘯浜ょ敱 Gemini/鍙嶉噸鍔涢獙璇併€?
+## [2026-06-04 12:56] - refactor(arch): 寮曞叆寮虹被鍨?QuestionDraft 缁熶竴 UI 涓庢寔涔呭寲灞傛暟鎹ā鍨?- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: models, repositories, ui, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓浜?`lib/data/models/question_draft.dart`锛屽畾涔変簡寮虹被鍨嬬殑 `QuestionDraft` 鍜?`QuestionType` 鏋氫妇锛屽彇浠ｄ簡鍘熸湰浼犻€?`Map<String, dynamic>` 鐨勫急绫诲瀷鏂瑰紡銆?
+  - [x] 鏀归€犱簡 `lib/ui/pages/ai_generator_screen.dart` 涓?`lib/ui/pages/import_staging_screen.dart`锛屽皢鍏跺唴閮ㄧ殑 `_questions` 鍜?`_displayQuestions` 鐘舵€佹洿鏀逛负 `List<QuestionDraft>`锛屾墍鏈夐鐩睘鎬ч€氳繃鐐硅繍绠楃锛堝 `q.content`銆乣q.options`锛夎繘琛屽己绫诲瀷璁块棶銆?
+  - [x] 浼樺寲浜?`lib/data/repositories/question_repository.dart`锛岄噸杞藉苟鏆撮湶 `saveQuestionDraftsToBank` 鎺ュ彛锛屼娇淇濆瓨閾捐矾鐩存帴鎺ユ敹 `List<QuestionDraft>`锛屼笉鍐嶅湪瀛樼洏鏃朵复鏃舵墽琛?Map 鍒?Model 鐨勮剢寮辫浆鍨嬨€?
+  - [x] 鏂板浜?`test/question_draft_test.dart` 娴嬭瘯濂椾欢锛屽畬鏁磋鐩栦簡 AI JSON Map 鍒板己绫诲瀷 `QuestionDraft` 鐨勫閿欐竻娲楀拰闃插尽杞崲娴嬭瘯銆?
+- **楠岃瘉鐘舵€?*: 缁忔湰鍦板崟鍏冩祴璇曞拰 widget 娴嬭瘯楠岃瘉閫氳繃 (All 16 tests passed!)銆?
 
-## [2026-06-04 19:35] - refactor(ai): 引入强类型 AI 引擎配置模型
+## [2026-06-04 07:45] - refactor(arch): 灏嗚儢鏈嶅姟瑙ｈ€﹀苟閲嶆瀯鏁版嵁瀛樺偍涓?Repository 妯″紡
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: services, data, ui, utils
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓浜?`lib/data/repositories/question_repository.dart`锛岃礋璐ｇ粺涓€绠＄悊棰樺簱鎸佷箙鍖栥€佹爲鐘剁粨鏋勮鍙栥€佽€冭瘯璇曞嵎鍒涘缓鍜岄鐩垹闄わ紝褰诲簳娑堥櫎 UI 瀵瑰簳灞?SQL 鐨勭洿鎺ヤ緷璧栥€?
+  - [x] 鏂板缓浜?`lib/services/ai_prompts.dart`锛屽皢鍘熷厛娣锋潅鍦?AI 鏈嶅姟涓殑 LaTeX 瀹氱晫绗﹁鍒欏拰瑙嗚瑙ｆ瀽闀跨瘒 Prompt 鎻愮ず璇嶆娊绂昏嚦涓撶敤绫荤鐞嗐€?
+  - [x] 鏂板缓浜?`lib/services/llm_api_client.dart`锛岄泦涓皝瑁呭簳灞?HTTP 璇锋眰鐨勫弬鏁扮粍鍚堛€佽璇佸拰娴佸紡鍥炲鎺ュ彛銆?
+  - [x] 鏂板缓浜?`lib/utils/image_utils.dart`锛屽皢 CPU 娑堣€楅珮鐨?Isolates 鍥剧墖寮傛鍘嬬缉閫昏緫鐙珛涓虹函鍑€宸ュ叿鍑芥暟銆?
+  - [x] 閲嶆瀯浜?`lib/services/ai_service.dart`锛岀Щ闄ゅ崈琛屼互涓婄殑 Prompt 瀹氫箟鍜屽簳灞傝姹傜粏鑺傦紝绮剧畝涓虹函绮圭殑楂樺眰鎺ュ彛涓氬姟缂栨帓鑰呫€?
+  - [x] 鏀归€犱簡 `lib/ui/pages/import_staging_screen.dart` 涓?`lib/ui/pages/ai_generator_screen.dart`锛岀敤 `QuestionRepository` 鍙栦唬浜嗙洿鎺ョ殑 SQL `db.transaction` 瀛樼洏鍜岃鍙栵紝瀹炵幇浜嗚鍥句笌鎸佷箙鍖栨暟鎹殑楂樺害瑙ｈ€︺€?
+- **楠岃瘉鐘舵€?*: 缁忔湰鍦板崟鍏冩祴璇曞拰 widget 娴嬭瘯楠岃瘉閫氳繃 (All 14 tests passed!)銆?
+
+## [2026-06-04 00:36] - fix(latex): 淇 LaTeX 宓屽瀹氱晫绗﹁В鏋愪笌鍏紡鍙岄噸鍖呰９闂
+- **鍙樻洿绫诲瀷**: fix
+- **褰卞搷妯″潡**: utils, test
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 淇敼浜?`lib/utils/content_tokenizer.dart` 涓殑 `_findClosingDelimiter` 鏂规硶锛屽紩鍏ユ繁搴︽劅鐭ワ紙depth-aware锛夋壂鎻忔満鍒讹紝瀹岀編澶勭悊浜?LaTeX 鍐呭祵濂楀畾鐣岀锛堝鍦?`\right)` 鍐呭祵濂?parentheses锛夊鑷寸殑鏃╂湡鎴柇 Bug銆?
+  - [x] 淇敼浜?`lib/utils/content_normalizer.dart`锛屽悓姝ユ洿鏂板叾 `_findClosingDelimiter` 鏂规硶鑷虫繁搴︽劅鐭ョ増鏈紝缁熶竴浜嗚В鏋愯涓恒€?
+  - [x] 淇敼浜?`lib/utils/content_normalizer.dart`锛屽湪 `_normalize` 绠￠亾涓柊澧?`_stripDoubleDelimiters` 姝ラ锛岃兘澶熻嚜鍔ㄥ鏁版嵁涓凡鏈夌殑鍙岄噸鍏紡鍖呰９瀹氱晫绗︼紙濡?`\(\(...\)\)`銆乣\[\[...\]\]`锛夎繘琛岃В鍖呮姌鍙犮€?
+  - [x] 浼樺寲浜?`lib/utils/content_normalizer.dart` 涓殑 `_convertDollarDelimiters` 鏂规硶锛屽紩鍏?`_isFullyWrapped` 妫€娴嬫満鍒讹紝閬垮厤鍦ㄨ繘琛岀編寮忓垁甯佺锛坄$` / `$$`锛夎浆鎹㈡椂锛屽鏈氨宸插寘瑁逛簡 `\(` 鎴?`\[` 瀹氱晫绗︾殑 LaTeX 鍏紡閲嶅杩藉姞澶栧眰鍖呰锛屼粠婧愬ご涓婃潨缁濅簡鍙岄噸鍖呰９鐨勪骇鐢熴€?
+  - [x] 鎵╁睍浜?`test/render_matrix_test.dart` 娴嬭瘯濂椾欢锛岃ˉ鍏呬簡閽堝鍙岄噸瀹氱晫绗︽姌鍙犮€佸垁甯佺闃插弻閲嶅寘瑁瑰鐞嗙瓑澶氶」娣卞害鐢ㄤ緥锛屼笖鏁翠綋鍗曞厓/Widget娴嬭瘯鍏ㄩ儴鏃犻敊閫氳繃銆?
+- **楠岃瘉鐘舵€?*: 缁忔湰鍦板崟鍏冩祴璇曞拰 widget 娴嬭瘯楠岃瘉閫氳繃 (All 14 tests passed!)銆?
+
+## [2026-06-04 00:13] - refactor(render): 鍩轰簬Tokenizer閲嶆瀯鍒嗚瘝涓庢暟瀛﹀叕寮忔覆鏌撶绾?
+- **鍙樻洿绫诲瀷**: refactor
+- **褰卞搷妯″潡**: render, ui, utils
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 鏂板缓浜?`lib/utils/content_tokenizer.dart`锛屽疄鐜板熀浜庣姸鎬佹満椤哄簭鎵弿鐨勬枃鏈€佹暟瀛﹀叕寮忋€佸浘鐗囧強绌虹櫧鍗犱綅鍒嗚瘝鍣紝鍙栦唬娣蜂贡鐨勬鍒欒〃杈惧紡鎵弿銆?
+  - [x] 鏂板缓浜?`lib/utils/content_normalizer.dart`锛岀敤浜庢爣鍑嗗寲鍏紡瀹氱晫绗︼紙濡傛妸 `$$` 鍜?`$` 缁熶竴涓?`\[` 鍜?`\(`锛夛紝鑷姩鍓ョ LaTeX 鍐呴儴鐨勮繛缁笅鍒掔嚎 `___` 骞惰繃婊?`<think>` 鏍囩銆?
+  - [x] 鏂板缓浜?`lib/ui/widgets/structured_content_renderer.dart`锛屽熀浜?Token 搴忓垪鍒╃敤 `RichText` 涓?`WidgetSpan` 缁撴瀯鍖栫粍鍚堣鍐呭厓绱狅紝骞跺鍔犱簡閽堝琛屽唴鍏紡鐨勮嚜閫傚簲缂╂斁銆佸潡绾у叕寮忕殑妯悜婊氬姩銆佺壒娈婃寚浠ゆ浛鎹笌 Unicode 瀛楃鑷姩绾犻敊绛夐槻寰℃€ф満鍒躲€?
+  - [x] 淇敼浜?`lib/ui/widgets/markdown_extensions.dart`锛屽皢 `buildLatexWidget` 缁熶竴鎸囧悜鏂扮殑 `StructuredContentRenderer`锛屽疄鐜板叏灞€鏃犵紳鍗囩骇銆?
+  - [x] 淇敼浜?`lib/utils/ai_data_sanitizer.dart`锛岄厤鍚堟柊褰掍竴鍖栧紩鎿庣畝鍖栨暟鎹叆搴撲笌娓呮礂绠￠亾銆?
+  - [x] 閲嶆瀯浜?`test/render_matrix_test.dart` 娴嬭瘯濂椾欢锛岃ˉ鍏呰鐩栦簡 Tokenizer銆丯ormalizer 鍙?Widget 娓叉煋鐨勫悇椤硅竟鐣屾潯浠讹紝楠岃瘉鍏ㄩ儴閫氳繃銆?
+- **楠岃瘉鐘舵€?*: 缁忔湰鍦板崟鍏冩祴璇曞拰 widget 娴嬭瘯楠岃瘉閫氳繃 (All 12 tests passed!)銆?
+
+## [2026-06-01 07:34] - fix(ai): 绉婚櫎瑁稿懡浠ゅ寘瑁归€昏緫锛岀粺涓€灏?\(\) 鍜?\[\] 杞崲涓?\$锛屽己鍖?AI 鍗犱綅绗﹀寘瑁圭孩绾?
+- **鍙樻洿绫诲瀷**: fix
+- **褰卞搷妯″潡**: ai_engine, ai_sanitizer
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 淇敼浜?`lib/utils/ai_data_sanitizer.dart`锛岀Щ闄?`formatLatex` 涓笉绋冲畾鐨勮８ LaTeX 鍛戒护鎵弿鍖呰９鏈哄埗锛岄伩鍏嶈浼ら泦鍚堟弿杩扮瓑澶嶆潅鏂囨湰銆?
+  - [x] 鏂板 `normalizeDelimiters` 杞崲娓呮礂灞傦紝鑷姩涓斿畨鍏ㄥ湴灏嗗ぇ妯″瀷鍊惧悜杈撳嚭鐨?`\(` `\)` 鍜?`\[` `\]` 鏇挎崲涓烘爣鍑?`$` 鍜?`$$` 鍖呰９锛屽悓鏃跺皢鍏跺湪鍏ュ簱鍓嶅拰娓叉煋鍓嶇疆鎷︽埅璺緞涓墽琛岋紝瀹岀編鍏煎鍘嗗彶閿欒鏁版嵁涓庢柊浠诲姟鏁版嵁銆?
+  - [x] 淇敼浜?`lib/services/ai_service.dart`锛屽湪涓変釜鏍稿績澶фā鍨?Prompt 涓鍔犱弗鏍肩殑鈥滅粷瀵圭姝娇鐢?`\(` `\)` 鎴?`\[` `\]` 鍏紡鍗犱綅绗︹€濈孩绾跨害鏉熴€?
+- **楠岃瘉鐘舵€?*: 缁忔湰鍦伴潤鎬佹鏌ュ強娌欑洅鍖归厤楠岃瘉鍏ㄩ儴閫氳繃銆?
+
+## [2026-05-31 23:55] - fix(ai): 浼樺寲閫夋嫨棰橀€夐」鍓ョ涓庤В绛旈瑙ｆ瀽鎻愬彇锛屽己鍖?LaTeX 鍏紡鍖呰９闃插憜瑙勮寖
+- **鍙樻洿绫诲瀷**: fix
+- **褰卞搷妯″潡**: ai_engine, ai_sanitizer
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 淇敼浜?`lib/services/ai_service.dart`锛屽榻愬苟鍗囩骇鍏ㄩ儴瑙ｆ瀽鎻愮ず璇嶏紙Prompt锛夛紝娣诲姞閫夋嫨棰橀€夐」寮哄埗鍓ョ瑙勫垯锛屼互鍙婃洿鍋ュ叏鐨?LaTeX 琛屽唴涓庣幆澧冨叕寮忛槻鍛嗗寘瑁圭害鏉熴€?
+  - [x] 鍦ㄨВ绛旈鐨?JSON Schema 涓樉寮忚ˉ鍏ㄤ簡 `explanation` 瀛楁锛屽苟淇浜嗘枃鏈垎鍧楄В鏋愭彁绀鸿瘝涓姝?鎻愬彇瑙ｆ瀽鐨勯€昏緫鍐茬獊锛屼粠鑰屽畬缇庢敮鎸佺畝绛旈/璇佹槑棰樻彁鍙栬В鏋愩€?
+  - [x] 淇敼浜?`lib/utils/ai_data_sanitizer.dart`锛屾柊澧炰簡閽堝棰樺共娈嬬暀 A/B/C/D 閫夐」鐨勬鍒欏墺绂讳笌棰樺瀷绾犻敊鍏滃簳鎻愬彇鏈哄埗銆?
+- **楠岃瘉鐘舵€?*: 缁忓崟鍏冩祴璇曚笌鏈湴闈欐€佹鏌ュ叏閮ㄩ€氳繃銆?
+
+## [2026-05-31 23:07] - fix(ai_sanitizer): 寮曞叆鍗犱綅绗﹂殧绂绘硶骞朵慨澶?JSON 鍙嶆枩鏉犺浆涔?
+- **鍙樻洿绫诲瀷**: fix
+- **褰卞搷妯″潡**: ai_sanitizer, ui
+- **璇︾粏鏀瑰姩鏄庣粏**:
+  - [x] 淇敼浜?`lib/utils/ai_data_sanitizer.dart`锛岄噸鏋?`formatLatex` 鏂规硶锛屽紩鍏ュ熀浜庡崰浣嶇鐨?`___LATEX_BLOCK_x___` 闅旂鏈哄埗锛岃瘯鍥捐В鍐冲閲嶅畾鐣岀鍐茬獊闂銆?
+  - [x] 鍦?`cleanAndParseJson` 涓慨澶嶄簡鐢变簬鐗╃悊鎹㈣鏇挎崲寮曞彂鐨勫ぇ妯″瀷鏈浆涔?LaTeX 鍙嶆枩鏉狅紙濡?`\mu`, `\frac`锛夐€犳垚鐨?JSON 瑙ｆ瀽宕╂簝銆?
+  - [x] 浼樺寲 `cleanLatexBeforeDB` 浠ュ鐞嗙煩闃靛墠鐨勭郴鏁板苟鍔犲己 Markdown 鍧楃骇璇嗗埆銆?
+  - [x] 淇敼浜?`lib/ui/widgets/markdown_extensions.dart`锛屽湪鍐呰仈鍏紡 `Math.tex` 鐨勬姤閿?Fallback 涓幓闄や簡鏄惧紡鐨勬鑹插瓧浣擄紝骞跺鍔犱簡瀛楁暟瓒?200 闄嶇骇绾枃鏈殑瀹夊叏闃插尽銆?
+- **楠岃瘉鐘舵€?*: 缁忔湰鍦版鏌ヨ褰曟湰娆″彉鍔ㄣ€?
+
+## [2026-06-05 09:22] - refactor(ai): 抽离 AI 导入任务恢复编排器
 - **变更类型**: refactor
-- **影响模块**: ai, services, data, test
+- **影响模块**: ai, task_manager, import-resume
 - **详细改动明细**:
-  - [x] 新增 `lib/data/models/ai_engine_profile.dart`，定义 `AiEngineType` 与 `AiEngineProfile`，集中处理 DB 行字段归一化、温度默认值、激活状态转换、baseUrl 尾斜杠清洗与缺字段诊断。
-  - [x] 新增 `lib/data/repositories/ai_engine_repository.dart`，把业务层读取 active text/vision engine 的入口收束到 Repository，避免服务层直接消费 `Map<String, dynamic>`。
-  - [x] 修改 `lib/services/llm_api_client.dart` 与 `lib/services/llm_providers/llm_provider_client.dart`，将 `callText` / `callVision` 的 profile 入参改为 `AiEngineProfile`，移除旧的 `LlmProviderProfile.fromMap` 适配器。
-  - [x] 修改 `lib/services/ai_service.dart`，文本生成、答题、组卷、错题生成、文本解析、视觉解析和多文件合并统一通过 `AiEngineRepository` 获取强类型引擎配置。
-  - [x] 修改 `lib/services/latex_migration_service.dart`，历史 LaTeX 迁移逻辑复用 `LlmApiClient.callText`，删除服务内手写 Gemini/OpenAI/Zhipu HTTP 分支。
-  - [x] 新增 `test/ai_engine_profile_test.dart`，覆盖 DB 脏数据归一化、缺字段诊断与 `LlmTextRequest` 从强类型 profile 构造请求。
-  - [x] 清理 `lib/data/models/question.dart` 的未用 import，并将 `lib/services/llm_service.dart` 中的 `print` 替换为 `debugPrint`，使 `lib/services lib/data` 宽范围静态检查保持干净。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services lib/data`、`dart analyze` 受影响文件集合、`flutter test test/ai_engine_profile_test.dart`；完整 `flutter test` 仍按约定交由 Gemini/反重力执行。
+  - [x] 新增 `lib/services/ai_task_resume_coordinator.dart`，集中管理文本分块任务与视觉图片任务的断点恢复流程。
+  - [x] 将 `AiService.resumeTask` 改为轻量委托，继续保留原有对外 API，避免影响 `task_center_screen` 的调用链。
+  - [x] 通过函数注入方式向 `AiTaskResumeCoordinator` 提供 `parseMicroBatches` 与 `parseImagesWithVision` 能力，避免 coordinator 反向依赖 `AiService`。
+  - [x] 清理 `TaskManager.fromMap` 中 pending/failed chunk 反序列化的单行 `if`，降低后续编辑分支误挂风险。
+- **验证状态**: 已执行 `dart analyze lib\services\ai_service.dart lib\services\ai_task_resume_coordinator.dart lib\services\task_manager.dart`，结果 `No issues found`；并执行 `flutter test test\architecture_boundary_test.dart`，通过。全量回归测试交由 Gemini/反重力执行。
 
-## [2026-06-04 19:02] - refactor(ai): 抽离文档解析路由 Router
+## [2026-06-05 09:05] - refactor(ai): 抽离视觉资产构建器，继续收束 AiService 职责
 - **变更类型**: refactor
-- **影响模块**: ai, services, test
+- **影响模块**: ai, vision, services
 - **详细改动明细**:
-  - [x] 新建 `lib/services/document_parse_router.dart`，集中承载文档结构探针后的 A/B/C/D 路径判定。
-  - [x] 新增 `DocumentParseRoute`、`DocumentParseSegment` 与 `DocumentParsePlan`，将每条文档路径转换为带 `parseMode` 的批次解析计划。
-  - [x] 将 `AiService.parseTextToQuestions` 中的尾部答案裁剪、首尾分离、全文无答案和标准行内解析分支迁移到 `DocumentParseRouter.buildPlan`。
-  - [x] 修改 `AiService.parseTextToQuestions`，按 plan 统一追加 pending chunks 并逐段调用 `parseMicroBatches`，使服务层只保留执行编排。
-  - [x] 新增 `test/document_parse_router_test.dart`，覆盖路径 A 尾部答案裁剪和路径 B 题干/答案分离两条高风险路由。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/document_parse_router.dart test/document_parse_router_test.dart`、`flutter test test/document_parse_router_test.dart`、`flutter test test/document_chunker_test.dart`、`flutter test test/document_parse_router_test.dart test/document_chunker_test.dart test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；并行运行 Flutter 测试时曾触发 Windows native assets 工具层拷贝冲突，已改为顺序重跑且全部通过。
+  - [x] 新增 `lib/services/vision_asset_builder.dart`，集中处理视觉输入文件读取、图片压缩、Base64 编码与 `LlmVisionAsset` 构建。
+  - [x] 将多图视觉解析中的大图压缩与 inline asset 组装从 `AiService.parseImagesWithVision` 迁移到 `VisionAssetBuilder.buildInlineImageAssets`。
+  - [x] 将单文件视觉解析中的图片/PDF inline asset 构建从 `AiService.parseFileWithVision` 迁移到 `VisionAssetBuilder.buildInlineFileAsset`。
+  - [x] 删除 `AiService` 内部遗留的 `_compressImageSync` 与 `_readFileAsVisionBase64` 辅助逻辑，使 `AiService` 更专注于引擎配置、provider 选择、LLM 调用和结果解析。
+- **验证状态**: 已执行 `dart analyze lib\services\ai_service.dart lib\services\vision_asset_builder.dart`，结果 `No issues found`；并执行 `flutter test test\ai_engine_profile_test.dart`，全部通过。全量回归测试交由 Gemini/反重力执行。
 
-## [2026-06-04 14:36] - refactor(ai): 抽离文档分块器 DocumentChunker
+## [2026-06-05 08:45] - fix(quality): 修复 ReviewRepository 编码损坏并清理复习模块 lint 噪声
+- **变更类型**: fix, quality
+- **影响模块**: review, dashboard, static-analysis
+- **详细改动明细**:
+  - [x] 将 `lib/data/repositories/review_repository.dart` 从“基本 UTF-8 但含损坏字节”的状态恢复为合法 UTF-8，修复 Dart analyzer 无法通过 package URI 解析 `ReviewRepository` 的硬错误。
+  - [x] 抽出 `_globalWrongBookBankName` 常量，修复三处“全局错题本”比较字符串缺失 closing quote 的语法风险，并降低后续重复硬编码概率。
+  - [x] 清理 `ReviewRepository.getStudySessionQuestions` 中的单行 `if`，降低后续编辑时误挂 `else` 分支的风险。
+  - [x] 将 `ReviewDashboard` 中的 `withOpacity` 替换为 `withValues(alpha: ...)`，并把“明天”判断改为跨月安全的 `DateTime(...).add(Duration(days: 1))`。
+  - [x] 将 `ReviewEngineService` 与 `lib/test_math2.dart` 中的 `print` 替换为 `debugPrint`，减少 analyzer 噪声。
+- **验证状态**: 已执行 `dart analyze lib\ui\widgets\review_dashboard.dart lib\data\repositories\review_repository.dart lib\core\review_engine_service.dart lib\test_math2.dart`，结果 `No issues found`。全量 `dart analyze lib test` 与 `flutter test` 交由 Gemini/反重力执行。
+
+## [2026-06-05 08:28] - test(architecture): 新增分层架构边界守卫测试
+- **变更类型**: test, architecture
+- **影响模块**: architecture, test
+- **详细改动明细**:
+  - [x] 新增 `test/architecture_boundary_test.dart`，扫描 `lib/**/*.dart` 并按规则表校验数据库边界。
+  - [x] 明确允许 `DatabaseHelper` / `sqflite` 只出现在 `lib/core/database/`、`lib/data/repositories/` 与启动引导 `lib/main.dart` 的必要范围内。
+  - [x] 将 `rawQuery` 与 `.transaction(` 限定在 DatabaseHelper/Repository 层，防止 UI、Service 或领域逻辑重新出现裸 SQL。
+  - [x] 测试失败时输出文件、行号、命中的规则名与原因，便于后续开发即时定位越界调用。
+- **验证状态**: 已执行 `dart analyze test/architecture_boundary_test.dart` 与 `flutter test test/architecture_boundary_test.dart`，均通过。全量回归测试交由 Gemini/反重力执行。
+
+## [2026-06-05 08:12] - test(review): 接手复习仪表盘回归测试并稳定 Widget 用例
+- **变更类型**: test, fix
+- **影响模块**: review_dashboard, review_repository, ui tests
+- **详细改动明细**:
+  - [x] 修复 `dart analyze lib test` 中会阻断退出码的 warning，清理未使用的 `Uuid` 字段、未使用查询结果、未使用 import 与局部变量。
+  - [x] 为 `ReviewDashboard` 增加可选 `ReviewDashboardLoader` 注入点，生产路径仍默认调用 `ReviewEngineService.getReviewDashboardData`，Widget 测试可使用 fake loader 隔离真实 SQLite 异步 I/O。
+  - [x] 修复 `test/review_dashboard_test.dart` 中 bankName 切换测试的异步不稳定问题，使 UI 状态切换测试与数据聚合测试各自独立。
+- **验证状态**: `dart analyze lib test` 命令正常退出，无 error/warning；仍保留 93 条历史 info 级 lint/弃用提示。`flutter test test/review_dashboard_test.dart` 4 项通过，`flutter test` 全量 32 项全部通过。
+
+## [2026-06-05 08:58] - refactor(ai): 抽离结构化题目合并服务并修复 AiService 编码污染
+- **变更类型**: refactor, fix
+- **影响模块**: services, ai
+- **详细改动明细**:
+  - [x] 新增 `lib/services/structured_question_merge_service.dart`，集中承载多文件结构化题目结果的 LLM 合并、JSON 解析与错误边界。
+  - [x] 将 `AiService.mergeStructuredQuestions` 收缩为兼容门面，外部调用契约保持不变，导入设置页无需调整。
+  - [x] 重新恢复 `ai_service.dart` 的正确 UTF-8 语义后，重新套回断点恢复协调器、视觉资源构建器与结构化合并服务委托，消除一次错误编码写回造成的字符串解析风险。
+- **验证状态**: 已完成 `dart format lib/services/ai_service.dart lib/services/structured_question_merge_service.dart`、`dart analyze lib/services/ai_service.dart lib/services/structured_question_merge_service.dart`、`flutter test test/architecture_boundary_test.dart`，均通过。完整回归继续交由 Gemini/反重力执行。
+
+## [2026-06-05 12:31] - refactor(ai): 抽离文本生成用例服务，继续瘦身 AiService
 - **变更类型**: refactor
-- **影响模块**: ai, services, test
+- **影响模块**: services, ai
 - **详细改动明细**:
-  - [x] 新建 `lib/services/document_chunker.dart`，集中承载普通文本与 Markdown 的微批次分块算法。
-  - [x] 保留原普通文本 1500 字符阈值、Markdown 2000 字符阈值，以及 Markdown 标题/序号分割规则，避免改变解析外部行为。
-  - [x] 修改 `lib/services/ai_service.dart`，移除 `splitTextIntoMicroBatches` 与 `splitMarkdownIntoMicroBatches` 内联实现，统一通过 `_chunker.split(...)` 获取分块。
-  - [x] 新增 `test/document_chunker_test.dart`，覆盖普通文本段落分块和 Markdown 标题/序号分块两条路径。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/document_chunker.dart test/document_chunker_test.dart`、`flutter test test/document_chunker_test.dart`、`flutter test test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+  - [x] 新增 `lib/services/ai_text_generation_service.dart`，集中承载判分、AI 生成题目、单题作答、AI 组卷与错题重练生成五条文本模型用例。
+  - [x] 将 `AiService.judgeAnswer`、`generateQuestions`、`answerSingleQuestion`、`generateExamPaper`、`generateAndSaveQuestionsFromMistakes` 收缩为兼容门面，UI 调用契约保持不变。
+  - [x] 将错题重练的错题上下文组装、文本引擎读取、生成结果解析与题库保存移动到用例服务内，`AiService` 不再直接依赖 `QuestionRepository`。
+  - [x] 保留原有异常语义、Prompt 入口与 `QuestionDraft` 返回契约，避免影响现有页面和 Repository 层。
+- **验证状态**: 已完成 `dart format lib/services/ai_service.dart lib/services/ai_text_generation_service.dart`、`dart analyze lib/services/ai_service.dart lib/services/ai_text_generation_service.dart`、`dart analyze lib/services`、`flutter test test/architecture_boundary_test.dart`、`flutter test test/ai_engine_profile_test.dart`、`git diff --check`。除 Windows 行尾提示外均通过，完整回归继续交由 Gemini/反重力执行。
 
-## [2026-06-04 14:27] - refactor(ai): 抽离微批次解析调度 Runner
+## [2026-06-05 18:46] - refactor(ai): 抽离视觉解析用例服务，继续收缩 AiService 门面
 - **变更类型**: refactor
-- **影响模块**: ai, services, test
+- **影响模块**: services, ai, vision
 - **详细改动明细**:
-  - [x] 新建 `lib/services/parse_batch_runner.dart`，集中承载微批次解析的并发 worker、重试次数、冷却策略、成功暂停和失败计数逻辑。
-  - [x] 将 `AiService.parseMicroBatches` 中的调度循环迁移到 `ParseBatchRunner.run`，使 `AiService` 只负责提供单块解析函数和 TaskManager 成功/失败回调。
-  - [x] 通过 `ParseBatchRunResult` 返回按原 chunk 顺序展开的题目列表和失败数量，避免 UI/任务层直接接触调度内部状态。
-  - [x] 保留原有 3 并发、3 次重试、成功后 500ms 暂停、频率限制/网络错误退避冷却策略，降低行为回归风险。
-  - [x] 新增 `test/parse_batch_runner_test.dart`，覆盖并发完成顺序不影响输出顺序，以及永久失败时会完成重试并报告失败 chunk。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/parse_batch_runner.dart test/parse_batch_runner_test.dart`、`flutter test test/parse_batch_runner_test.dart`、`flutter test test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+  - [x] 新增 `lib/services/ai_vision_parse_service.dart`，集中承载图片批量解析、单文件/PDF 视觉解析、provider 类型约束、视觉模型调用与返回题目解析。
+  - [x] 将 `AiService.parseImagesWithVision` 与 `parseFileWithVision` 收缩为兼容门面，UI 导入页和断点恢复调用链保持不变。
+  - [x] 将 `VisionAssetBuilder`、`LlmProviderRegistry`、`LlmVisionAsset` 与 `callVision` 细节移出 `AiService`，使 `AiService` 不再直接关心视觉资源和 provider 分支。
+  - [x] 保留原有 DOCX/PDF provider 限制、SocketException 兜底、Zhipu/Gemini/OpenAI-compatible 超时策略和视觉返回解析门槛。
+- **验证状态**: 已完成 `dart format lib/services/ai_service.dart lib/services/ai_vision_parse_service.dart`、`dart analyze lib/services/ai_service.dart lib/services/ai_vision_parse_service.dart`、`dart analyze lib/services`、`flutter test test/architecture_boundary_test.dart`、`git diff --check`。除 Windows 行尾提示外均通过，完整回归继续交由 Gemini/反重力执行。
 
-## [2026-06-04 14:19] - refactor(ai): 抽离题目解析后处理 Pipeline
+## [2026-06-05 18:51] - refactor(ai): 抽离文本解析编排服务，AiService 收缩为薄门面
 - **变更类型**: refactor
-- **影响模块**: ai, services, test
+- **影响模块**: services, ai, import
 - **详细改动明细**:
-  - [x] 新建 `lib/services/question_parse_pipeline.dart`，集中承载 AI 解析后的题目结构后处理逻辑。
-  - [x] 将 `parseMicroBatches` 中的题号标准化、纯答案页识别与答案池拼图归并算法迁移到 `QuestionParsePipeline.mergeAnswerOnlyQuestions`。
-  - [x] 将视觉解析返回文本的 JSON 清洗与题干质量闸门迁移到 `QuestionParsePipeline.parseVisionQuestions`。
-  - [x] 修改 `lib/services/ai_service.dart`，通过 `_parsePipeline` 调用后处理能力，使 `AiService` 更专注于 LLM 调用、分块调度和任务状态编排。
-  - [x] 新增 `test/question_parse_pipeline_test.dart`，覆盖答案页按题号回填和未匹配答案保留两条防御路径。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart lib/services/question_parse_pipeline.dart test/question_parse_pipeline_test.dart`、`flutter test test/question_parse_pipeline_test.dart`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+  - [x] 新增 `lib/services/ai_text_parse_service.dart`，集中承载文档结构路由、pending chunks 记录、微批次并发解析、失败重试回调、答案页拼图归并和解析失败兜底。
+  - [x] 将 `AiService.parseTextToQuestions` 与 `parseMicroBatches` 收缩为兼容门面，断点恢复、导入页和测试调用入口保持不变。
+  - [x] 将 `_parseSingleChunkToQuestions` 从 `AiService` 内移出，文本解析 LLM 调用现在由 `AiTextParseService` 管理。
+  - [x] `AiService` 不再直接依赖 `DocumentParseRouter`、`ParseBatchRunner`、`QuestionParsePipeline`、`TaskManager` 或文本解析 JSON 清洗细节，文件规模收缩到 129 行。
+- **验证状态**: 已完成 `dart format lib/services/ai_service.dart lib/services/ai_text_parse_service.dart`、`dart analyze lib/services/ai_service.dart lib/services/ai_text_parse_service.dart`、`dart analyze lib/services`、`flutter test test/document_parse_router_test.dart test/parse_batch_runner_test.dart test/question_parse_pipeline_test.dart`、`flutter test test/architecture_boundary_test.dart`、`git diff --check`。除 Windows 行尾提示外均通过，完整回归继续交由 Gemini/反重力执行。
 
-## [2026-06-04 13:57] - refactor(ai): 将视觉 LLM 请求迁移至 Provider Strategy
+## [2026-06-05 18:59] - refactor(ai): 抽离直接 LLM 调用兼容网关，AiService 完成薄门面化
 - **变更类型**: refactor
-- **影响模块**: ai, services
+- **影响模块**: services, ai
 - **详细改动明细**:
-  - [x] 在 `lib/services/llm_providers/llm_provider_client.dart` 中新增 `LlmVisionAsset` 与 `LlmVisionRequest`，支持内联 base64 资产与上传文件资产两种视觉输入形态。
-  - [x] 为 `GeminiProviderClient`、`OpenAiCompatibleProviderClient` 与 `ZhipuProviderClient` 增加 `callVision` 实现，分别封装 Gemini `inline_data`、OpenAI-compatible `image_url` 与智谱 PDF 上传解析路径。
-  - [x] 在 `LlmApiClient` 中新增 `callVision` 门面方法，使文本与视觉请求都经过统一 provider strategy 分发和配置完整性检查。
-  - [x] 重构 `AiService.parseImagesWithVision` 与 `parseFileWithVision`，移除页面服务层中的底层 HTTP 请求拼装，仅保留文件读取、图片压缩、provider 选择约束与题目质量闸门。
-  - [x] 新增 `_parseVisionQuestions` 与 `_readFileAsVisionBase64` 边界 helper，将视觉返回文本解析和文件预处理集中管理。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart`、`dart analyze lib/services/llm_api_client.dart lib/services/llm_providers`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
+  - [x] 新增 `lib/services/ai_direct_call_service.dart`，承载旧兼容入口 `callLlmApi` 的文本模型直连与图片输入 JSON 包装逻辑。
+  - [x] 将 `AiService.callLlmApi` 收缩为单行委托，保留旧 API 签名不变。
+  - [x] `AiService` 不再直接依赖 `dart:convert`、`AiEngineRepository` 或 `LlmApiClient`，所有 AI 具体能力都转交给专门服务。
+  - [x] `AiService` 文件规模进一步收缩到 119 行，定位完成转变为稳定 API 兼容门面。
+- **验证状态**: 已完成 `dart format lib/services/ai_service.dart lib/services/ai_direct_call_service.dart`、`dart analyze lib/services/ai_service.dart lib/services/ai_direct_call_service.dart`、`dart analyze lib/services`、`flutter test test/architecture_boundary_test.dart`、`git diff --check`。除 Windows 行尾提示外均通过，完整回归继续交由 Gemini/反重力执行。
 
-## [2026-06-04 13:33] - refactor(ai): 防御式收束文本 LLM 请求边界
+## [2026-06-05 19:05] - refactor(architecture): 架构审计通过并整理服务分层提交
 - **变更类型**: refactor
-- **影响模块**: ai, services
+- **影响模块**: architecture, ai, review, test
 - **详细改动明细**:
-  - [x] 在 `lib/services/llm_providers/llm_provider_client.dart` 中新增 `LlmProviderProfile` 值对象，统一清洗 `api_key`、`base_url`、`model_name`、`temperature` 与 `reasoning_effort`。
-  - [x] 将 `LlmTextRequest` 的配置读取改为通过 `LlmProviderProfile.fromMap` 构造，并在 `LlmApiClient` 中输出缺失字段列表，提升配置错误可诊断性。
-  - [x] 将 `AiService.judgeAnswer` 与 `mergeStructuredQuestions` 从手写 Gemini/OpenAI HTTP 分支迁移到 `_apiClient.callText`，让文本请求统一经过 provider strategy。
-  - [x] 清理文本生成、单题作答、组卷、错题生成与分块解析中的重复引擎三件套校验，由请求边界统一防御。
-  - [x] 使用 Dart fixer 补齐 `ai_service.dart` 中 12 处单行 `if` 大括号，降低后续编辑误挂分支的风险。
-- **验证状态**: 已完成 `dart format`、`dart analyze lib/services/ai_service.dart`、`dart analyze lib/services/llm_api_client.dart lib/services/llm_providers`、关键路径 `rg` 搜索与 `git diff --check`；完整回归测试交由 Gemini/反重力验证。
-
-## [2026-06-04 13:18] - refactor(ai): 拆分文本 LLM Provider Strategy
-- **变更类型**: refactor
-- **影响模块**: ai, services
-- **详细改动明细**:
-  - [x] 新建了 `lib/services/llm_providers/` 策略目录，定义 `LlmProviderClient` 与 `LlmTextRequest`，将文本模型请求参数从门面客户端中抽离为明确的数据结构。
-  - [x] 新增了 `GeminiProviderClient`、`OpenAiCompatibleProviderClient` 与 `ZhipuProviderClient`，分别封装 Gemini、OpenAI-compatible 和智谱文本补全请求路径。
-  - [x] 新增了 `LlmProviderRegistry`，按 `baseUrl` 自动选择对应 provider，使 `LlmApiClient` 从底层请求实现收缩为轻量门面。
-  - [x] 保留了 `LlmApiClient.buildChatUrl` 与 `extractContent` 兼容入口，避免影响当前视觉解析分支。
-- **验证状态**: 已完成 `dart format`、定向 `dart analyze` 与 provider 关键路径搜索；完整回归测试交由 Gemini/反重力验证。
-
-## [2026-06-04 13:08] - refactor(ai): 将 AI 生成题目接口改为返回 QuestionDraft
-- **变更类型**: refactor
-- **影响模块**: ai, ui, models
-- **详细改动明细**:
-  - [x] 修改了 `lib/services/ai_service.dart`，将 `generateQuestions`、`generateExamPaper` 与 `generateAndSaveQuestionsFromMistakes` 的公开返回类型从 `List<Map<String, dynamic>>` 收束为 `List<QuestionDraft>`。
-  - [x] 在 AI 服务内部完成 JSON Map 到 `QuestionDraft` 的边界转换，让弱类型数据停留在 AI JSON 解析边界内。
-  - [x] 修改了 `lib/ui/pages/ai_generator_screen.dart`，移除生成题目和 AI 组卷后的重复 `QuestionDraft.listFromMaps` 转换，直接消费强类型返回值。
-- **验证状态**: 已完成 `dart format`、定向 `dart analyze` 与残留调用搜索；完整回归测试交由 Gemini/反重力验证。
-
-## [2026-06-04 12:56] - refactor(arch): 引入强类型 QuestionDraft 统一 UI 与持久化层数据模型
-- **变更类型**: refactor
-- **影响模块**: models, repositories, ui, test
-- **详细改动明细**:
-  - [x] 新建了 `lib/data/models/question_draft.dart`，定义了强类型的 `QuestionDraft` 和 `QuestionType` 枚举，取代了原本传递 `Map<String, dynamic>` 的弱类型方式。
-  - [x] 改造了 `lib/ui/pages/ai_generator_screen.dart` 与 `lib/ui/pages/import_staging_screen.dart`，将其内部的 `_questions` 和 `_displayQuestions` 状态更改为 `List<QuestionDraft>`，所有题目属性通过点运算符（如 `q.content`、`q.options`）进行强类型访问。
-  - [x] 优化了 `lib/data/repositories/question_repository.dart`，重载并暴露 `saveQuestionDraftsToBank` 接口，使保存链路直接接收 `List<QuestionDraft>`，不再在存盘时临时执行 Map 到 Model 的脆弱转型。
-  - [x] 新增了 `test/question_draft_test.dart` 测试套件，完整覆盖了 AI JSON Map 到强类型 `QuestionDraft` 的容错清洗和防御转换测试。
-- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 16 tests passed!)。
-
-## [2026-06-04 07:45] - refactor(arch): 将胖服务解耦并重构数据存储为 Repository 模式
-- **变更类型**: refactor
-- **影响模块**: services, data, ui, utils
-- **详细改动明细**:
-  - [x] 新建了 `lib/data/repositories/question_repository.dart`，负责统一管理题库持久化、树状结构读取、考试试卷创建和题目删除，彻底消除 UI 对底层 SQL 的直接依赖。
-  - [x] 新建了 `lib/services/ai_prompts.dart`，将原先混杂在 AI 服务中的 LaTeX 定界符规则和视觉解析长篇 Prompt 提示词抽离至专用类管理。
-  - [x] 新建了 `lib/services/llm_api_client.dart`，集中封装底层 HTTP 请求的参数组合、认证和流式回复接口。
-  - [x] 新建了 `lib/utils/image_utils.dart`，将 CPU 消耗高的 Isolates 图片异步压缩逻辑独立为纯净工具函数。
-  - [x] 重构了 `lib/services/ai_service.dart`，移除千行以上的 Prompt 定义和底层请求细节，精简为纯粹的高层接口业务编排者。
-  - [x] 改造了 `lib/ui/pages/import_staging_screen.dart` 与 `lib/ui/pages/ai_generator_screen.dart`，用 `QuestionRepository` 取代了直接的 SQL `db.transaction` 存盘和读取，实现了视图与持久化数据的高度解耦。
-- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 14 tests passed!)。
-
-## [2026-06-04 00:36] - fix(latex): 修复 LaTeX 嵌套定界符解析与公式双重包裹问题
-- **变更类型**: fix
-- **影响模块**: utils, test
-- **详细改动明细**:
-  - [x] 修改了 `lib/utils/content_tokenizer.dart` 中的 `_findClosingDelimiter` 方法，引入深度感知（depth-aware）扫描机制，完美处理了 LaTeX 内嵌套定界符（如在 `\right)` 内嵌套 parentheses）导致的早期截断 Bug。
-  - [x] 修改了 `lib/utils/content_normalizer.dart`，同步更新其 `_findClosingDelimiter` 方法至深度感知版本，统一了解析行为。
-  - [x] 修改了 `lib/utils/content_normalizer.dart`，在 `_normalize` 管道中新增 `_stripDoubleDelimiters` 步骤，能够自动对数据中已有的双重公式包裹定界符（如 `\(\(...\)\)`、`\[\[...\]\]`）进行解包折叠。
-  - [x] 优化了 `lib/utils/content_normalizer.dart` 中的 `_convertDollarDelimiters` 方法，引入 `_isFullyWrapped` 检测机制，避免在进行美式刀币符（`$` / `$$`）转换时，对本就已包裹了 `\(` 或 `\[` 定界符的 LaTeX 公式重复追加外层包装，从源头上杜绝了双重包裹的产生。
-  - [x] 扩展了 `test/render_matrix_test.dart` 测试套件，补充了针对双重定界符折叠、刀币符防双重包裹处理等多项深度用例，且整体单元/Widget测试全部无错通过。
-- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 14 tests passed!)。
-
-## [2026-06-04 00:13] - refactor(render): 基于Tokenizer重构分词与数学公式渲染管线
-- **变更类型**: refactor
-- **影响模块**: render, ui, utils
-- **详细改动明细**:
-  - [x] 新建了 `lib/utils/content_tokenizer.dart`，实现基于状态机顺序扫描的文本、数学公式、图片及空白占位分词器，取代混乱的正则表达式扫描。
-  - [x] 新建了 `lib/utils/content_normalizer.dart`，用于标准化公式定界符（如把 `$$` 和 `$` 统一为 `\[` 和 `\(`），自动剥离 LaTeX 内部的连续下划线 `___` 并过滤 `<think>` 标签。
-  - [x] 新建了 `lib/ui/widgets/structured_content_renderer.dart`，基于 Token 序列利用 `RichText` 与 `WidgetSpan` 结构化组合行内元素，并增加了针对行内公式的自适应缩放、块级公式的横向滚动、特殊指令替换与 Unicode 字符自动纠错等防御性机制。
-  - [x] 修改了 `lib/ui/widgets/markdown_extensions.dart`，将 `buildLatexWidget` 统一指向新的 `StructuredContentRenderer`，实现全局无缝升级。
-  - [x] 修改了 `lib/utils/ai_data_sanitizer.dart`，配合新归一化引擎简化数据入库与清洗管道。
-  - [x] 重构了 `test/render_matrix_test.dart` 测试套件，补充覆盖了 Tokenizer、Normalizer 及 Widget 渲染的各项边界条件，验证全部通过。
-- **验证状态**: 经本地单元测试和 widget 测试验证通过 (All 12 tests passed!)。
-
-## [2026-06-01 07:34] - fix(ai): 移除裸命令包裹逻辑，统一将 \(\) 和 \[\] 转换为 \$，强化 AI 占位符包裹红线
-- **变更类型**: fix
-- **影响模块**: ai_engine, ai_sanitizer
-- **详细改动明细**:
-  - [x] 修改了 `lib/utils/ai_data_sanitizer.dart`，移除 `formatLatex` 中不稳定的裸 LaTeX 命令扫描包裹机制，避免误伤集合描述等复杂文本。
-  - [x] 新增 `normalizeDelimiters` 转换清洗层，自动且安全地将大模型倾向输出的 `\(` `\)` 和 `\[` `\]` 替换为标准 `$` 和 `$$` 包裹，同时将其在入库前和渲染前置拦截路径中执行，完美兼容历史错误数据与新任务数据。
-  - [x] 修改了 `lib/services/ai_service.dart`，在三个核心大模型 Prompt 中增加严格的“绝对禁止使用 `\(` `\)` 或 `\[` `\]` 公式占位符”红线约束。
-- **验证状态**: 经本地静态检查及沙盒匹配验证全部通过。
-
-## [2026-05-31 23:55] - fix(ai): 优化选择题选项剥离与解答题解析提取，强化 LaTeX 公式包裹防呆规范
-- **变更类型**: fix
-- **影响模块**: ai_engine, ai_sanitizer
-- **详细改动明细**:
-  - [x] 修改了 `lib/services/ai_service.dart`，对齐并升级全部解析提示词（Prompt），添加选择题选项强制剥离规则，以及更健全的 LaTeX 行内与环境公式防呆包裹约束。
-  - [x] 在解答题的 JSON Schema 中显式补全了 `explanation` 字段，并修正了文本分块解析提示词中禁止/提取解析的逻辑冲突，从而完美支持简答题/证明题提取解析。
-  - [x] 修改了 `lib/utils/ai_data_sanitizer.dart`，新增了针对题干残留 A/B/C/D 选项的正则剥离与题型纠错兜底提取机制。
-- **验证状态**: 经单元测试与本地静态检查全部通过。
-
-## [2026-05-31 23:07] - fix(ai_sanitizer): 引入占位符隔离法并修复 JSON 反斜杠转义
-- **变更类型**: fix
-- **影响模块**: ai_sanitizer, ui
-- **详细改动明细**:
-  - [x] 修改了 `lib/utils/ai_data_sanitizer.dart`，重构 `formatLatex` 方法，引入基于占位符的 `___LATEX_BLOCK_x___` 隔离机制，试图解决多重定界符冲突问题。
-  - [x] 在 `cleanAndParseJson` 中修复了由于物理换行替换引发的大模型未转义 LaTeX 反斜杠（如 `\mu`, `\frac`）造成的 JSON 解析崩溃。
-  - [x] 优化 `cleanLatexBeforeDB` 以处理矩阵前的系数并加强 Markdown 块级识别。
-  - [x] 修改了 `lib/ui/widgets/markdown_extensions.dart`，在内联公式 `Math.tex` 的报错 Fallback 中去除了显式的橙色字体，并增加了字数超 200 降级纯文本的安全防御。
-- **验证状态**: 经本地检查记录本次变动。
+  - [x] 完成 `AiService` 门面化审计，确认其不再直接依赖 `AiEngineRepository`、`LlmApiClient`、`DatabaseHelper` 或底层视觉/文本解析实现细节。
+  - [x] 审计 `lib/ui` 与 `lib/services`，确认无 `DatabaseHelper`、`rawQuery`、`transaction(` 等底层数据库边界泄漏。
+  - [x] 整理本轮新增服务、Repository、复习仪表盘模型/Widget 与架构边界测试，排除临时上下文导出 `project_context.txt`。
+  - [x] 复核 Gemini/反重力全量回归结果：`dart analyze lib test` 为 0 Error / 0 Warning，`flutter test` 33 项全部通过，`git diff --check` 仅有 Windows 行尾提示。
+- **验证状态**: 已完成架构边界搜索、变更范围审计与提交前 diff 检查，准备执行原子化提交与远程同步。

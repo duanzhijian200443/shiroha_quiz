@@ -160,15 +160,23 @@ class QuestionRepository {
     final db = await _databaseHelper.database;
     final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
 
-    final cleanId = (question['id'] as String).replaceAll('preview_', '');
+    final rawId = (question['id'] as String?) ?? _uuid.v4();
+    final cleanId = rawId.replaceAll('preview_', '');
+    final type = (question['type'] as int?) ?? 0;
+
+    final content = (question['content'] as String?)?.trim() ?? '';
+    final options = question['options'] as String? ?? '[]';
+    final answer = (question['standard_answer'] as String?)?.trim() ?? '';
+    final bankName = (question['bank_name'] as String?)?.trim() ?? '默认题库';
+
     final row = <String, dynamic>{
       'id': cleanId,
-      'type': question['type'],
-      'content': question['content'],
-      'options': question['options'],
-      'standard_answer': question['standard_answer'],
+      'type': type,
+      'content': content.isEmpty ? '无题干' : content,
+      'options': options,
+      'standard_answer': answer.isEmpty ? '暂无答案' : answer,
       'created_at': now,
-      'bank_name': question['bank_name'],
+      'bank_name': bankName.isEmpty ? '默认题库' : bankName,
     };
 
     await db.transaction((txn) async {
