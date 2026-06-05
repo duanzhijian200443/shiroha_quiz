@@ -24,6 +24,15 @@ class SubjectFolderNode {
   final List<QuestionBankNode> banks;
   final bool isUncategorized;
   final bool isDefaultSubject;
+
+  SubjectFolderNode copyWithBanks(List<QuestionBankNode> banks) {
+    return SubjectFolderNode(
+      name: name,
+      banks: UnmodifiableListView(banks),
+      isUncategorized: isUncategorized,
+      isDefaultSubject: isDefaultSubject,
+    );
+  }
 }
 
 class SubjectTreeIndex {

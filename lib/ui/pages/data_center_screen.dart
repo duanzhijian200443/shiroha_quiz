@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../data/models/subject_tree_index.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/latex_migration_service.dart';
 import 'bank_detail_screen.dart';
@@ -12,34 +13,44 @@ class DataCenterScreen extends StatefulWidget {
 }
 
 class _DataCenterScreenState extends State<DataCenterScreen> {
-  Map<String, List<Map<String, dynamic>>> _subjectFolders = {};
+  SubjectTreeIndex? _subjectTreeIndex;
   bool _isLoading = true;
   bool _isSearching = false;
   bool _isMigrating = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
-  Map<String, List<Map<String, dynamic>>> get _filteredFolders {
-    if (_searchQuery.isEmpty) return _subjectFolders;
+  List<SubjectFolderNode> get _visibleFolders {
+    final index = _subjectTreeIndex;
+    if (index == null) return const [];
 
-    final q = _searchQuery.toLowerCase();
-    final Map<String, List<Map<String, dynamic>>> filtered = {};
-    for (var entry in _subjectFolders.entries) {
-      if (entry.key.toLowerCase().contains(q)) {
-        filtered[entry.key] = entry.value;
-      } else {
-        final matches = entry.value.where((bank) {
-          final bankName =
-              (bank['name'] ?? bank['bank_name'])?.toString().toLowerCase() ??
-                  '';
-          return bankName.contains(q);
-        }).toList();
-        if (matches.isNotEmpty) {
-          filtered[entry.key] = matches;
-        }
-      }
-    }
-    return filtered;
+    final folders = index.foldersByName.values.toList();
+    if (_searchQuery.trim().isEmpty) return folders;
+
+    final query = _searchQuery.trim().toLowerCase();
+
+    return folders
+        .map((folder) {
+          if (folder.name.toLowerCase().contains(query)) {
+            return folder;
+          }
+
+          final matchedBanks = folder.banks
+              .where((bank) => bank.name.toLowerCase().contains(query))
+              .toList();
+
+          if (matchedBanks.isEmpty) return null;
+
+          return folder.copyWithBanks(matchedBanks);
+        })
+        .whereType<SubjectFolderNode>()
+        .toList();
+  }
+
+  String? get _firstFolderName {
+    final index = _subjectTreeIndex;
+    if (index == null || index.foldersByName.isEmpty) return null;
+    return index.foldersByName.keys.first;
   }
 
   @override
@@ -51,10 +62,10 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
   Future<void> _loadRealData() async {
     setState(() => _isLoading = true);
     try {
-      final data = await QuestionRepository.instance.getSubjectTree();
+      final data = await QuestionRepository.instance.getSubjectTreeIndex();
       if (mounted) {
         setState(() {
-          _subjectFolders = data;
+          _subjectTreeIndex = data;
           _isLoading = false;
         });
       }
@@ -189,7 +200,7 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
   Future<void> _showMoveFolderDialog(String bankName) async {
     final controller = TextEditingController();
     final existingFolders =
-        _subjectFolders.keys.where((k) => k != '📁 未分类题库').toList();
+        _subjectTreeIndex?.availableFolders.toList() ?? const <String>[];
 
     final newFolder = await showDialog<String>(
       context: context,
@@ -335,16 +346,14 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
           : ListView(
               padding: const EdgeInsets.all(16.0),
               children: [
-                if (_filteredFolders.isEmpty)
+                if (_visibleFolders.isEmpty)
                   const Padding(
                       padding: EdgeInsets.only(top: 32.0),
                       child: Center(
                           child: Text('暂无题库',
                               style: TextStyle(color: Colors.grey))))
                 else
-                  ..._filteredFolders.keys.map((folderName) {
-                    List<Map<String, dynamic>> banks =
-                        _filteredFolders[folderName]!;
+                  ..._visibleFolders.map((folder) {
                     return Card(
                       elevation: 0,
                       margin: const EdgeInsets.only(bottom: 12),
@@ -355,40 +364,39 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
                       child: Theme(
                         data: theme.copyWith(dividerColor: Colors.transparent),
                         child: ExpansionTile(
-                          initiallyExpanded:
-                              folderName == _subjectFolders.keys.first,
+                          initiallyExpanded: folder.name == _firstFolderName,
                           iconColor: theme.primaryColor,
                           collapsedIconColor: textLevel1,
                           textColor: theme.primaryColor,
                           collapsedTextColor: textLevel1,
                           // 注意此处不在 Text 内写死 color，交由 ExpansionTile 根据展开状态自动接管颜色变化
-                          title: Text(folderName,
+                          title: Text(folder.name,
                               style: const TextStyle(
                                   fontWeight: FontWeight.bold, fontSize: 16)),
-                          children: banks.map((bank) {
+                          children: folder.banks.map((bank) {
                             return ListTile(
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 24, vertical: 4),
-                              title: Text(bank['name'] as String,
+                              title: Text(bank.name,
                                   style: TextStyle(
                                       fontWeight: FontWeight.w500,
                                       color: textLevel1)),
-                              subtitle: Text('共 ${bank['count']} 题 · 长按移动',
+                              subtitle: Text('共 ${bank.count} 题 · 长按移动',
                                   style: TextStyle(
                                       fontSize: 12, color: textLevel2)),
                               trailing: Icon(Icons.arrow_forward_ios_rounded,
                                   size: 14, color: iconLevel3),
                               onTap: () {
                                 Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (context) => BankDetailScreen(
-                                            bankName:
-                                                bank['name'] as String))).then(
-                                    (_) => _loadRealData()); // 退出时刷新题库概览
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (context) =>
+                                                BankDetailScreen(
+                                                    bankName: bank.name)))
+                                    .then((_) => _loadRealData()); // 退出时刷新题库概览
                               },
                               onLongPress: () =>
-                                  _showMoveFolderDialog(bank['name'] as String),
+                                  _showMoveFolderDialog(bank.name),
                             );
                           }).toList(),
                         ),

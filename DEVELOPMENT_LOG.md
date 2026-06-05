@@ -1,5 +1,20 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-05 20:21] - refactor(ui): DataCenterScreen 接入 SubjectTreeIndex 强类型题库树
+- **变更类型**: refactor
+- **影响模块**: ui, models, tests
+- **详细改动明细**:
+  - [x] 移除 `DataCenterScreen` 的弱类型 `Map<String, List<Map<String, dynamic>>>` 题库树状态。
+  - [x] 页面改为调用 `QuestionRepository.instance.getSubjectTreeIndex()`。
+  - [x] 搜索、移动文件夹、渲染逻辑全部改为使用 `SubjectFolderNode` / `QuestionBankNode` 强类型模型。
+  - [x] 在 `SubjectFolderNode` 模型中新增并覆盖测试了 `copyWithBanks` 方法以支持不变性过滤。
+- **验证状态**:
+  - `dart format lib\data\models\subject_tree_index.dart lib\ui\pages\data_center_screen.dart test\subject_tree_index_test.dart`：已完成
+  - `dart analyze lib test`：成功 (0 Error, 0 Warning, 84 Info)
+  - `flutter test test\subject_tree_index_test.dart test\architecture_boundary_test.dart`：全部通过
+  - `flutter test`：全部通过
+  - `git diff --check`：通过 (仅有 Windows LF/CRLF 提示)
+
 ## [2026-06-05 20:02] - refactor(data): 引入 SubjectTreeIndex 统一题库树索引
 - **变更类型**: refactor
 - **影响模块**: data, services, ui, tests

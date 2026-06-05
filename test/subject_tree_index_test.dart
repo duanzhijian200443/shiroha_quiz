@@ -151,5 +151,25 @@ void main() {
         throwsUnsupportedError,
       );
     });
+
+    test('copyWithBanks returns a folder with immutable bank list', () {
+      final node = SubjectFolderNode(
+        name: 'Original',
+        banks: const [],
+        isUncategorized: false,
+        isDefaultSubject: false,
+      );
+
+      final banks = [
+        QuestionBankNode(name: 'Bank', count: 1, folderName: 'Original'),
+      ];
+
+      final copy = node.copyWithBanks(banks);
+
+      expect(copy.name, 'Original');
+      expect(copy.banks.length, 1);
+      expect(copy.banks.first.name, 'Bank');
+      expect(() => (copy.banks as List).clear(), throwsUnsupportedError);
+    });
   });
 }
