@@ -17,7 +17,7 @@ class LatexImportRepairService {
     r'|mathcal|mathrm|text|overline|underline|hat|tilde|vec|bar|dot|ddot'
     r'|left|right|begin|end|matrix|pmatrix|bmatrix|vmatrix|cases'
     r'|underbrace|overbrace|xleftarrow|xrightarrow|stackrel|overset'
-    r'|boldsymbol|operatorname|limits|displaystyle)\b)',
+    r'|boldsymbol|operatorname|limits|displaystyle)(?![a-zA-Z]))',
     caseSensitive: true,
   );
 
@@ -165,14 +165,21 @@ class LatexImportRepairService {
       // 在 depth==0 时遇到空格后紧接普通字母，可能是公式结束
       if (braceDepth == 0 && ch == ' ' && i + 1 < len) {
         final nextCode = text[i + 1].codeUnitAt(0);
-        // 下一个字符是大写拉丁字母且不是 LaTeX 命令起始（\）
+        // 下一个字符是大写字母、中文等，或者不是纯数学符号，考虑在空格前截断
+        if (nextCode >= 0x4E00 && nextCode <= 0x9FFF) {
+          break; // 空格后是中文，空格不包括在内
+        }
         if (nextCode >= 0x41 && nextCode <= 0x5A && text[i + 1] != r'\') {
-          i++; // 包含这个空格但不包含后续普通文字
           break;
         }
       }
 
       i++;
+    }
+
+    // 后退剔除末尾多余空格
+    while (i > start && text[i - 1] == ' ') {
+      i--;
     }
 
     return i;
