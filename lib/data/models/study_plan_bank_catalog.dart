@@ -25,7 +25,7 @@ class StudyPlanBank {
     return (mastered / total).clamp(0.0, 1.0);
   }
 
-  bool get isGlobalWrongBook => bankName == '错题本';
+  bool get isGlobalWrongBook => bankName == '🔥 全局错题本';
 
   Map<String, dynamic> toLegacyMap() {
     return {
@@ -113,10 +113,12 @@ class StudyPlanBankCatalog {
     int compareFolder(String a, String b) {
       if (a == priorityFolderName && b != priorityFolderName) return -1;
       if (b == priorityFolderName && a != priorityFolderName) return 1;
-      if (a == uncategorizedFolderName && b != uncategorizedFolderName)
+      if (a == uncategorizedFolderName && b != uncategorizedFolderName) {
         return 1;
-      if (b == uncategorizedFolderName && a != uncategorizedFolderName)
+      }
+      if (b == uncategorizedFolderName && a != uncategorizedFolderName) {
         return -1;
+      }
       return a.compareTo(b);
     }
 
@@ -126,8 +128,9 @@ class StudyPlanBankCatalog {
       if (bank.bankName == '未知题库' || bank.bankName.isEmpty) continue;
 
       final existing = banksByName[bank.bankName];
-      if (existing != null)
+      if (existing != null) {
         continue; // Deduplicate by keeping the first encountered
+      }
 
       banksByName[bank.bankName] = bank;
       validBanks.add(bank);
