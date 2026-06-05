@@ -243,24 +243,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               itemCount: _displayQuestions.length,
               itemBuilder: (context, index) {
                 final q = _displayQuestions[index];
-                return Dismissible(
+                return _QuestionCard(
                   key: ValueKey(
                     '$index-${q.content.hashCode}-${q.standardAnswer.hashCode}',
                   ),
-                  direction: DismissDirection.endToStart,
-                  background: Container(
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    color: Colors.redAccent,
-                    child: const Icon(Icons.delete_sweep, color: Colors.white),
-                  ),
-                  onDismissed: (direction) {
+                  question: q,
+                  index: index,
+                  onDelete: () {
                     setState(() => _displayQuestions.removeAt(index));
                   },
-                  child: _QuestionCard(
-                    question: q,
-                    index: index,
-                  ),
                 );
               },
             ),
@@ -301,12 +292,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
 class _QuestionCard extends StatelessWidget {
   const _QuestionCard({
+    super.key,
     required this.question,
     required this.index,
+    required this.onDelete,
   });
 
   final QuestionDraft question;
   final int index;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -348,6 +342,15 @@ class _QuestionCard extends StatelessWidget {
                 Text(
                   '第 ${index + 1} 题',
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: onDelete,
+                  borderRadius: BorderRadius.circular(12),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4.0),
+                    child: Icon(Icons.close, size: 20, color: Colors.grey),
+                  ),
                 ),
               ],
             ),

@@ -1,65 +1,62 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/latex_import_repair.dart';
+import 'package:shiroha_quiz/utils/content_tokenizer.dart';
 
 void main() {
-  group('LatexImportRepairService Tests', () {
-    final repairer = LatexImportRepairService.instance;
+  const repair = LatexImportRepairService.instance;
 
-    test('Should wrap bare \\frac', () {
-      final input = r'求导得到 \frac{1}{x} 即可';
-      final output = repairer.repairInline(input);
-      expect(output, r'求导得到 \(\frac{1}{x}\) 即可');
-    });
+  test('wraps short bare commands as inline math', () {
+    const input = r'答案为 \frac{1}{2}';
+    final output = repair.repairInline(input);
 
-    test('Should not double wrap already wrapped \\(', () {
-      final input = r'已经是 \(\frac{1}{x}\) 这样了';
-      final output = repairer.repairInline(input);
-      expect(output, r'已经是 \(\frac{1}{x}\) 这样了');
-    });
+    expect(output, r'答案为 \(\frac{1}{2}\)');
+  });
 
-    test(r'Should not double wrap already wrapped $$', () {
-      final input = r'已经是 $$\frac{1}{x}$$ 这样了';
-      final output = repairer.repairInline(input);
-      expect(output, r'已经是 $$\frac{1}{x}$$ 这样了');
-    });
+  test('keeps existing delimiters unchanged', () {
+    const input = r'已包裹 \(x_i\)，块级 \[\sqrt{x}\]';
+    final output = repair.repairInline(input);
 
-    test('Should not double wrap already wrapped \\]', () {
-      final input = r'已经是 \[\frac{1}{x}\] 这样了';
-      final output = repairer.repairInline(input);
-      expect(output, r'已经是 \[\frac{1}{x}\] 这样了');
-    });
+    expect(output, input);
+  });
 
-    test('Should handle plain Chinese text safely', () {
-      final input = '这是普通的中文文本，没有任何公式。';
-      final output = repairer.repairInline(input);
-      expect(output, input);
-    });
+  test('wraps matrix equations as block math without parse errors', () {
+    const input =
+        r'矩阵 \begin{pmatrix}x\\y\end{pmatrix}=\begin{pmatrix}1\\0\end{pmatrix}，可得结论';
+    final output = repair.repairInline(input);
+    final tokens = ContentTokenizer.tokenize(output);
 
-    test('Should stop wrapping when encountering Chinese', () {
-      final input = r'由 \frac{a}{b}推导可得';
-      final output = repairer.repairInline(input);
-      // The repairer might stop at '推', wrapping only the \frac part
-      expect(output, r'由 \(\frac{a}{b}\)推导可得');
-    });
+    expect(
+      output,
+      r'矩阵 \[\begin{pmatrix}x\\y\end{pmatrix}=\begin{pmatrix}1\\0\end{pmatrix}\]，可得结论',
+    );
+    expect(tokens.whereType<BlockMathToken>(), hasLength(1));
+    expect(tokens.whereType<ParseErrorToken>(), isEmpty);
+  });
 
-    test('Should repair full question map (standard_answer, options, explanation)', () {
-      final Map<String, dynamic> question = {
-        'content': r'已知 \int_0^1 x dx',
-        'options': [
-          r'\frac{1}{2}',
-          r'\frac{1}{3}'
-        ],
-        'standard_answer': r'\frac{1}{2}',
-        'explanation': r'根据积分公式 \frac{1}{2} x^2 得到',
-      };
+  test('leaves unsafe unbalanced environments untouched', () {
+    const input = r'坏公式 \begin{pmatrix}1&2';
+    final output = repair.repairInline(input);
 
-      final repaired = repairer.repairQuestion(question);
+    expect(output, input);
+  });
 
-      expect(repaired['content'], r'已知 \(\int_0^1 x dx\)');
-      expect((repaired['options'] as List)[0], r'\(\frac{1}{2}\)');
-      expect((repaired['options'] as List)[1], r'\(\frac{1}{3}\)');
-      expect(repaired['standard_answer'], r'\(\frac{1}{2}\)');
-      expect(repaired['explanation'], r'根据积分公式 \(\frac{1}{2} x^2\) 得到');
-    });
+  test('repairs all import draft fields without mutating source map', () {
+    final source = {
+      'content': r'题干 \sqrt{x}',
+      'standard_answer': r'\frac{1}{2}',
+      'explanation': r'\begin{pmatrix}1&0\\0&1\end{pmatrix}',
+      'options': [r'A. \pi', 1],
+    };
+
+    final repaired = repair.repairQuestion(source);
+
+    expect(source['content'], r'题干 \sqrt{x}');
+    expect(repaired['content'], r'题干 \(\sqrt{x}\)');
+    expect(repaired['standard_answer'], r'\(\frac{1}{2}\)');
+    expect(
+      repaired['explanation'],
+      r'\[\begin{pmatrix}1&0\\0&1\end{pmatrix}\]',
+    );
+    expect(repaired['options'], [r'A. \(\pi\)', 1]);
   });
 }

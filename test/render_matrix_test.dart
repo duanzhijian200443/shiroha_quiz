@@ -177,4 +177,22 @@ void main() {
 
     expect(find.byType(Math), findsOneWidget);
   });
+
+  testWidgets('buildLatexWidget promotes complex inline math to block view',
+      (tester) async {
+    const text = r'Before \(\begin{pmatrix}1&2\\3&4\end{pmatrix}\) after';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.byType(FittedBox), findsNothing);
+  });
 }

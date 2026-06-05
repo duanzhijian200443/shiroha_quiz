@@ -61,7 +61,7 @@ class QuestionDraft {
   }
 
   static List<QuestionDraft> listFromMaps(List<Map<String, dynamic>> maps) {
-    return maps.map(QuestionDraft.fromMap).toList(growable: false);
+    return maps.map(QuestionDraft.fromMap).toList();
   }
 
   Map<String, dynamic> toMap() {

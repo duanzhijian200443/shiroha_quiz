@@ -343,3 +343,16 @@
   - [x] 整理本轮新增服务、Repository、复习仪表盘模型/Widget 与架构边界测试，排除临时上下文导出 `project_context.txt`。
   - [x] 复核 Gemini/反重力全量回归结果：`dart analyze lib test` 为 0 Error / 0 Warning，`flutter test` 33 项全部通过，`git diff --check` 仅有 Windows 行尾提示。
 - **验证状态**: 已完成架构边界搜索、变更范围审计与提交前 diff 检查，准备执行原子化提交与远程同步。
+## [2026-06-05 21:10] - fix(render): stabilize imported LaTeX matrix rendering
+- **Change type**: fix
+- **Affected modules**: import, latex, renderer, tests
+- **Details**:
+  - [x] Added `lib/utils/latex_complexity_classifier.dart` as a shared contract for deciding whether a formula should render inline or as a block.
+  - [x] Reworked `lib/services/latex_import_repair.dart` so short bare formulas are wrapped with `\(...\)`, while matrices, cases, long expressions, and large-operator formulas are wrapped with `\[...\]`.
+  - [x] Added defensive balance checks for braces and LaTeX environments; unsafe unbalanced import fragments are preserved instead of generating broken delimiters.
+  - [x] Updated `StructuredContentRenderer` to promote complex inline math tokens to block math before they enter `RichText`/`WidgetSpan`, avoiding baseline constraint failures and tiny scaled formulas.
+  - [x] Added `test/latex_import_repair_test.dart` and expanded `test/render_matrix_test.dart` to cover import repair, matrix block promotion, existing delimiter preservation, and renderer fallback safety.
+- **Verification**:
+  - `dart format lib/utils/latex_complexity_classifier.dart lib/services/latex_import_repair.dart lib/ui/widgets/structured_content_renderer.dart test/latex_import_repair_test.dart test/render_matrix_test.dart`: completed.
+  - `dart analyze lib/services/latex_import_repair.dart lib/ui/widgets/structured_content_renderer.dart lib/utils/latex_complexity_classifier.dart test/latex_import_repair_test.dart test/render_matrix_test.dart`: No issues found.
+  - `flutter test test/latex_import_repair_test.dart test/render_matrix_test.dart`: 19 tests passed.

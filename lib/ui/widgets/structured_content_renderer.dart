@@ -6,6 +6,7 @@ import 'package:flutter_math_fork/flutter_math.dart';
 
 import '../../utils/content_normalizer.dart';
 import '../../utils/content_tokenizer.dart';
+import '../../utils/latex_complexity_classifier.dart';
 
 typedef StructuredImageBuilder = Widget Function(
   BuildContext context,
@@ -73,6 +74,15 @@ class StructuredContentRenderer extends StatelessWidget {
       } else if (token is ParseErrorToken) {
         flushInline();
         widgets.add(_ParseErrorView(token: token, style: style));
+      } else if (token is InlineMathToken &&
+          LatexComplexityClassifier.shouldRenderAsBlock(token.tex)) {
+        flushInline();
+        widgets.add(_BlockMathView(
+          tex: token.tex,
+          style: style,
+          color: color,
+          fontSize: fontSize,
+        ));
       } else if (token is TextToken && token.text.contains('\n')) {
         _appendSplitTextToken(token, inlineTokens, flushInline, widgets);
       } else {
