@@ -286,47 +286,6 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                               color: theme.primaryColor,
                               fontSize: 12,
                               fontWeight: FontWeight.bold)),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline,
-                          color: Colors.redAccent, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('删除题库'),
-                            content: Text(
-                                '确定要永久删除题库「${bank.bankName}」及其中所有题目和复习记录吗？此操作不可逆！'),
-                            actions: [
-                              TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text('取消')),
-                              TextButton(
-                                onPressed: () async {
-                                  Navigator.pop(ctx);
-                                  await QuestionRepository.instance
-                                      .deleteQuestionBank(bank.bankName);
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('题库已删除')));
-                                    if (isCurrent) {
-                                      await SettingsRepository.instance
-                                          .setCurrentBank('点击修改选择题库');
-                                    }
-                                    _loadData();
-                                  }
-                                },
-                                child: const Text('彻底删除',
-                                    style: TextStyle(
-                                        color: Colors.redAccent,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
                   ],
                 ),
                 const SizedBox(height: 8),

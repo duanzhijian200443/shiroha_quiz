@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'practice_page.dart';
 import 'question_list_screen.dart';
+import '../../data/repositories/question_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
@@ -75,6 +77,49 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
         foregroundColor: textLevel1,
         elevation: 0,
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            tooltip: '删除题库',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('删除题库'),
+                  content: Text(
+                      '确定要永久删除题库「${widget.bankName}」及其中所有题目和复习记录吗？此操作不可逆！'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('取消')),
+                    TextButton(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        await QuestionRepository.instance
+                            .deleteQuestionBank(widget.bankName);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('题库已删除')));
+                          final currentBank = await SettingsRepository.instance
+                              .getCurrentBank();
+                          if (currentBank == widget.bankName) {
+                            await SettingsRepository.instance
+                                .setCurrentBank('点击修改选择题库');
+                          }
+                          if (mounted) Navigator.pop(context);
+                        }
+                      },
+                      child: const Text('彻底删除',
+                          style: TextStyle(
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
