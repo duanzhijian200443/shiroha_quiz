@@ -9,8 +9,10 @@ import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
 import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:shiroha_quiz/data/repositories/review_repository.dart';
+import '../data/models/study_plan_bank_catalog.dart';
 import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
+
+import 'package:shiroha_quiz/data/repositories/review_repository.dart';
 
 const _uuid = Uuid();
 
@@ -279,21 +281,23 @@ class ReviewEngineService with WidgetsBindingObserver {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getAllBankStats() async {
-    List<Map<String, dynamic>> allStats = [];
+  Future<StudyPlanBankCatalog> getStudyPlanBankCatalog() async {
+    final List<StudyPlanBank> rawBanks = [];
 
     // 核心注入：动态生成虚拟错题本卡片
     final lapseCount = await ReviewRepository.instance.getGlobalLapseCount();
     if (lapseCount > 0) {
       final stats = await getBankStats('🔥 全局错题本');
-      allStats.add({
-        'bank_name': '🔥 全局错题本',
-        'folder_name': '🚨 重点突破', // 专属高亮学科文件夹
-        'total': stats['total'],
-        'mastered': stats['mastered_count'],
-        'daily_quota': 40,
-        'days_left': ((stats['total']! - stats['mastered_count']!) / 40).ceil(),
-      });
+      rawBanks.add(StudyPlanBank(
+        bankName: '🔥 全局错题本',
+        folderName: StudyPlanBankCatalog.priorityFolderName, // 专属高亮学科文件夹
+        total: stats['total'] ?? 0,
+        mastered: stats['mastered_count'] ?? 0,
+        dailyQuota: 40,
+        daysLeft:
+            (((stats['total'] ?? 0) - (stats['mastered_count'] ?? 0)) / 40)
+                .ceil(),
+      ));
     }
 
     final bankNames = await ReviewRepository.instance.getAllDistinctBankNames();
@@ -305,19 +309,28 @@ class ReviewEngineService with WidgetsBindingObserver {
       final quota = await SettingsRepository.instance
           .getDailyQuota(bName, defaultQuota: 40);
 
-      final unmastered = (stats['total'] ?? 0) - (stats['mastered_count'] ?? 0);
-      final daysLeft = (unmastered / quota).ceil();
+      final total = stats['total'] ?? 0;
+      final mastered = stats['mastered_count'] ?? 0;
+      final unmastered = (total - mastered) < 0 ? 0 : (total - mastered);
+      final daysLeft = (unmastered / (quota > 0 ? quota : 40)).ceil();
 
-      allStats.add({
-        'bank_name': bName,
-        'folder_name': folderMap[bName] ?? '📁 未分类题库', // 核心注入：文件夹名称
-        'total': stats['total'],
-        'mastered': stats['mastered_count'],
-        'daily_quota': quota,
-        'days_left': daysLeft,
-      });
+      rawBanks.add(StudyPlanBank(
+        bankName: bName,
+        folderName:
+            folderMap[bName] ?? StudyPlanBankCatalog.uncategorizedFolderName,
+        total: total,
+        mastered: mastered,
+        dailyQuota: quota,
+        daysLeft: daysLeft,
+      ));
     }
-    return allStats;
+
+    return StudyPlanBankCatalog.fromBanks(rawBanks);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllBankStats() async {
+    final catalog = await getStudyPlanBankCatalog();
+    return catalog.banks.map((bank) => bank.toLegacyMap()).toList();
   }
 
   Future<void> deleteQuestionBank(String bankName) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/review_engine_service.dart';
+import '../../data/models/study_plan_bank_catalog.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 
@@ -14,7 +15,7 @@ class PlanConfigScreen extends StatefulWidget {
 class _PlanConfigScreenState extends State<PlanConfigScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  List<Map<String, dynamic>> _allBanks = [];
+  StudyPlanBankCatalog? _bankCatalog;
   bool _isLoading = true;
   int _selectedQuota = 40;
 
@@ -32,12 +33,12 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
   }
 
   Future<void> _loadData() async {
-    final banks = await ReviewEngineService().getAllBankStats();
+    final catalog = await ReviewEngineService().getStudyPlanBankCatalog();
     final quota = await SettingsRepository.instance
         .getDailyQuota(widget.currentBank, defaultQuota: 40);
     if (mounted) {
       setState(() {
-        _allBanks = banks;
+        _bankCatalog = catalog;
         _selectedQuota = quota;
         _isLoading = false;
       });
@@ -99,10 +100,9 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
   Widget _buildPlanTab(ThemeData theme, bool isDark) {
     final cardColor =
         isDark ? (theme.cardTheme.color ?? theme.cardColor) : Colors.white;
-    final currentStats = _allBanks.firstWhere(
-        (b) => b['bank_name'] == widget.currentBank,
-        orElse: () => <String, dynamic>{});
-    if (currentStats.isEmpty) return const Center(child: Text('当前题库无数据'));
+    final currentStats = _bankCatalog?.bankByName(widget.currentBank);
+
+    if (currentStats == null) return const Center(child: Text('当前题库无数据'));
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -157,34 +157,24 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
 
   Widget _buildSwitchTab(ThemeData theme, bool isDark) {
     final cardColor = isDark ? theme.cardTheme.color! : Colors.white;
-
-    // 1. 将一维数组按学科文件夹重组为二维 Map
-    Map<String, List<Map<String, dynamic>>> groupedBanks = {};
-    for (var bank in _allBanks) {
-      String folder = bank['folder_name'] as String? ?? '📁 未分类题库';
-      if (!groupedBanks.containsKey(folder)) {
-        groupedBanks[folder] = [];
-      }
-      groupedBanks[folder]!.add(bank);
-    }
+    final groups = _bankCatalog?.groups ?? const <StudyPlanFolderGroup>[];
 
     // 2. 渲染带有 ExpansionTile 的树状嵌套列表
-    if (groupedBanks.isEmpty) {
+    if (groups.isEmpty) {
       return const Center(
           child: Text('暂无题库，请先导入', style: TextStyle(color: Colors.grey)));
     }
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: groupedBanks.length,
+      itemCount: groups.length,
       itemBuilder: (context, index) {
-        String folderName = groupedBanks.keys.elementAt(index);
-        List<Map<String, dynamic>> banks = groupedBanks[folderName]!;
+        final group = groups[index];
+        final folderName = group.folderName;
+        final banks = group.banks;
 
         // 智能交互：如果该分类下包含当前正在学习的题库，默认展开
-        bool isExpanded =
-            banks.any((b) => b['bank_name'] == widget.currentBank) ||
-                index == 0;
+        bool isExpanded = group.containsBank(widget.currentBank) || index == 0;
 
         return Card(
           elevation: 0,
@@ -223,9 +213,9 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                       fontSize: 18,
                       color: theme.primaryColor)),
               children: banks.map((bank) {
-                final isCurrent = bank['bank_name'] == widget.currentBank;
+                final isCurrent = bank.bankName == widget.currentBank;
                 return GestureDetector(
-                  onTap: () => _switchBank(bank['bank_name']),
+                  onTap: () => _switchBank(bank.bankName),
                   child: Padding(
                     padding:
                         const EdgeInsets.only(left: 16, right: 16, bottom: 16),
@@ -241,12 +231,11 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
     );
   }
 
-  Widget _buildBookCard(
-      Map<String, dynamic> bank, Color cardColor, ThemeData theme,
+  Widget _buildBookCard(StudyPlanBank bank, Color cardColor, ThemeData theme,
       {bool isCurrent = false}) {
-    final total = bank['total'] as int? ?? 1;
-    final mastered = bank['mastered'] as int? ?? 0;
-    final progress = (mastered / (total == 0 ? 1 : total)).clamp(0.0, 1.0);
+    final total = bank.total;
+    final mastered = bank.mastered;
+    final progress = bank.progress;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -287,7 +276,7 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                        child: Text(bank['bank_name'],
+                        child: Text(bank.bankName,
                             style: const TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.bold),
                             maxLines: 1)),
@@ -308,7 +297,7 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                           builder: (ctx) => AlertDialog(
                             title: const Text('删除题库'),
                             content: Text(
-                                '确定要永久删除题库「${bank['bank_name']}」及其中所有题目和复习记录吗？此操作不可逆！'),
+                                '确定要永久删除题库「${bank.bankName}」及其中所有题目和复习记录吗？此操作不可逆！'),
                             actions: [
                               TextButton(
                                   onPressed: () => Navigator.pop(ctx),
@@ -317,7 +306,7 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                                 onPressed: () async {
                                   Navigator.pop(ctx);
                                   await QuestionRepository.instance
-                                      .deleteQuestionBank(bank['bank_name']);
+                                      .deleteQuestionBank(bank.bankName);
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(content: Text('题库已删除')));
@@ -341,7 +330,7 @@ class _PlanConfigScreenState extends State<PlanConfigScreen>
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text('每日 ${bank['daily_quota']} 题，剩余 ${bank['days_left']} 天',
+                Text('每日 ${bank.dailyQuota} 题，剩余 ${bank.daysLeft} 天',
                     style: const TextStyle(color: Colors.grey, fontSize: 13)),
                 const SizedBox(height: 12),
                 ClipRRect(
