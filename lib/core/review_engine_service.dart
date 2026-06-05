@@ -10,6 +10,7 @@ import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/models/study_plan_bank_catalog.dart';
+import '../data/models/wrong_book_entry.dart';
 import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
 
 import 'package:shiroha_quiz/data/repositories/review_repository.dart';
@@ -205,6 +206,11 @@ class ReviewEngineService with WidgetsBindingObserver {
     ).millisecondsSinceEpoch;
 
     return ReviewRepository.instance.getDashboardData(now, todayStart);
+  }
+
+  Future<List<WrongBookEntry>> getWrongBookEntries() async {
+    final rows = await ReviewRepository.instance.getDetailedWrongQuestions();
+    return rows.map(WrongBookEntry.fromRow).toList(growable: false);
   }
 
   Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() {

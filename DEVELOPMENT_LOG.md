@@ -1,5 +1,20 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-05 20:50] - refactor(ui): WrongBookPage 接入强类型错题条目
+- **变更类型**: refactor
+- **影响模块**: ui, models, core, tests
+- **详细改动明细**:
+  - [x] 新增 `WrongBookEntry` 模型，支持复杂解析逻辑（多种 options 兜底，答案拆分等）。
+  - [x] `ReviewEngineService` 新增强类型错题本接口，保留旧 Map 接口。
+  - [x] `WrongBookPage` 删除弱类型 Map 读取，改为渲染 `WrongBookEntry` 列表。
+  - [x] 错题本页保留 `toQuestionEditMap()` 以兼容当前的错题编辑页面。
+- **验证状态**:
+  - `dart format lib\data\models\wrong_book_entry.dart lib\core\review_engine_service.dart lib\ui\pages\wrong_book_page.dart test\wrong_book_entry_test.dart`：已完成
+  - `dart analyze lib test`：成功 (0 Error, 0 Warning)
+  - `flutter test test\wrong_book_entry_test.dart test\architecture_boundary_test.dart`：全部通过
+  - `flutter test`：全部通过
+  - `git diff --check`：通过
+
 ## [2026-06-05 20:31] - refactor(ui): PlanConfigScreen 接入强类型学习计划目录
 - **变更类型**: refactor
 - **影响模块**: ui, models, core, tests
