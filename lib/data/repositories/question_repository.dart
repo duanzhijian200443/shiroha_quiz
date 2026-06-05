@@ -94,8 +94,8 @@ class QuestionRepository {
 
   // ---------------------------------------------------------------------------
   // Subject-tree & folder management
-  // Advanced data structure: the tree is modelled as
-  //   Map<folderName, List<bankRow>>  — O(1) folder lookup, O(n) bank scan.
+  // Advanced data structure: the tree is now modelled by SubjectTreeIndex,
+  // providing robust normalization, duplicate protection, and unmodifiable indices.
   // ---------------------------------------------------------------------------
 
   Future<Map<String, List<Map<String, dynamic>>>> getSubjectTree() {

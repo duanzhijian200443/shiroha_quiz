@@ -10,7 +10,7 @@
   - [x] 新增 `test/subject_tree_index_test.dart` 补齐索引覆盖与防卫边界验证。
 - **验证状态**:
   - `dart format lib\data\models\subject_tree_index.dart lib\data\repositories\question_repository.dart lib\ui\pages\data_center_screen.dart test\subject_tree_index_test.dart`：已完成
-  - `dart analyze lib test`：成功 (No issues found)
+  - `dart analyze lib test`：成功 (0 Error, 0 Warning, 84 Info)
   - `flutter test test\subject_tree_index_test.dart`：全部通过 (7 tests passed)
   - `flutter test test\architecture_boundary_test.dart`：全部通过 (1 test passed)
   - `flutter test`：全部通过 (45 tests passed)
