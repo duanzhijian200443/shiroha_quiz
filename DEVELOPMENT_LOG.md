@@ -1,4 +1,19 @@
-﻿# 馃殌 鑷姩鍖?Git 鎻愪氦涓庡紑鍙戞棩蹇楀紩鎿?(Git & Changelog Engine)
+# 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
+
+## [2026-06-05 19:29] - refactor(ai): 引入 QuestionParseMode 强类型解析模式
+- **变更类型**: refactor
+- **影响模块**: ai, services, tests
+- **详细改动明细**:
+  - [x] 新增 `QuestionParseMode` enum，替代文本解析链路中的 `all/stem_only/answer_only` 字符串模式。
+  - [x] 修改 `DocumentParseRouter` 与 `AiTextParseService`，内部统一使用强类型解析模式。
+  - [x] 修改 `AiPrompts.parseChunk`，通过 enum switch 生成不同解析模式的 prompt 指令。
+  - [x] 保留 `AiService.parseMicroBatches` 的旧字符串签名，通过 `QuestionParseMode.fromLegacyValue` 做兼容转换。
+  - [x] 补充解析模式兼容测试与路由断言更新。
+- **验证状态**:
+  - `dart analyze lib test`：成功 (0 Error, 0 Warning, 84 Info)
+  - `flutter test`：全部通过 (34 tests)
+  - `git diff --check`：通过 (仅有 Windows LF/CRLF 提示)
+  - targeted test：已执行 `test/question_parse_mode_test.dart` 和 `test/document_parse_router_test.dart`
 
 ## [2026-06-04 22:30] - refactor(architecture): 鏋舵瀯鍐荤粨涓庡熬宸存竻鐞嗭紝鎶藉彇 LatexMigrationRepository 骞剁‘绔嬭鑼?(Phase 5.1)
 - **鍙樻洿绫诲瀷**: refactor, docs

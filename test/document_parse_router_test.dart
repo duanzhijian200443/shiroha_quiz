@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/data/models/question_parse_mode.dart';
 import 'package:shiroha_quiz/services/document_parse_router.dart';
 
 void main() {
@@ -14,7 +15,7 @@ void main() {
 
       expect(plan.route, DocumentParseRoute.trimTailAnswers);
       expect(plan.segments, hasLength(1));
-      expect(plan.segments.single.parseMode, 'all');
+      expect(plan.segments.single.parseMode, QuestionParseMode.all);
       expect(plan.segments.single.batches.join(), isNot(contains('参考答案')));
     });
 
@@ -26,8 +27,8 @@ void main() {
 
       expect(plan.route, DocumentParseRoute.splitStemAndAnswer);
       expect(plan.segments, hasLength(2));
-      expect(plan.segments[0].parseMode, 'stem_only');
-      expect(plan.segments[1].parseMode, 'answer_only');
+      expect(plan.segments[0].parseMode, QuestionParseMode.stemOnly);
+      expect(plan.segments[1].parseMode, QuestionParseMode.answerOnly);
     });
   });
 }

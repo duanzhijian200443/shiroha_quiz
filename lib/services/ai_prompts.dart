@@ -1,3 +1,5 @@
+import '../data/models/question_parse_mode.dart';
+
 class AiPrompts {
   const AiPrompts._();
 
@@ -207,7 +209,7 @@ $latexFormatRules
 
   static String parseChunk({
     required String rawText,
-    required String parseMode,
+    required QuestionParseMode parseMode,
   }) {
     final modeInstruction = _parseModeInstruction(parseMode);
     return '''
@@ -277,14 +279,13 @@ $visionParsePrompt
     ''';
   }
 
-  static String _parseModeInstruction(String parseMode) {
-    if (parseMode == 'stem_only') {
-      return '【当前为题干区模式】请只提取题干(content)和选项(options)，将 standard_answer 和 explanation 设为 null 或留空；绝对禁止在 content 中使用占位符敷衍。';
-    }
-    if (parseMode == 'answer_only') {
-      return '【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。如果是解答题/证明题（type: 3），必须同时提取 explanation（解析/证明过程）。';
-    }
-    return '''
+  static String _parseModeInstruction(QuestionParseMode parseMode) {
+    return switch (parseMode) {
+      QuestionParseMode.stemOnly =>
+        '【当前为题干区模式】请只提取题干(content)和选项(options)，将 standard_answer 和 explanation 设为 null 或留空；绝对禁止在 content 中使用占位符敷衍。',
+      QuestionParseMode.answerOnly =>
+        '【当前为纯答案区模式】请坚决让 content 为 null！仅输出 q_num(题号) 和 standard_answer(答案)。如果是解答题/证明题（type: 3），必须同时提取 explanation（解析/证明过程）。',
+      QuestionParseMode.all => '''
 【输出模式】
 模式A（完整题目）：输出 content 和 standard_answer。特例：若是解答题/证明题（type: 3），必须同时输出 explanation。
 模式B（只有题干）：standard_answer 设为 null。
@@ -293,6 +294,7 @@ $visionParsePrompt
 除了上述特例允许解答题/证明题（type: 3）提取 explanation 之外，其他题型与模式绝对不要生成任何解析(explanation)字段。
 对于模式A和模式B：绝对禁止在 content 中使用“原题干”、“同上”、“略”等任何占位符敷衍！必须一字不落地将完整题干抄录下来。
 对于模式C：请坚决让 content 为 null，绝对不要把答案填进 content 凑数。
-''';
+''',
+    };
   }
 }

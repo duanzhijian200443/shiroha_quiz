@@ -1,4 +1,5 @@
 import '../data/models/question_draft.dart';
+import '../data/models/question_parse_mode.dart';
 import 'ai_direct_call_service.dart';
 import 'ai_task_resume_coordinator.dart';
 import 'ai_text_generation_service.dart';
@@ -97,7 +98,7 @@ class AiService {
       microBatches,
       taskId: taskId,
       isMarkdown: isMarkdown,
-      parseMode: parseMode,
+      parseMode: QuestionParseMode.fromLegacyValue(parseMode),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../data/models/ai_engine_profile.dart';
+import '../data/models/question_parse_mode.dart';
 import '../data/repositories/ai_engine_repository.dart';
 import '../utils/ai_data_sanitizer.dart';
 import 'ai_prompts.dart';
@@ -69,7 +70,7 @@ class AiTextParseService {
     List<String> microBatches, {
     String? taskId,
     bool isMarkdown = false,
-    String parseMode = 'all',
+    QuestionParseMode parseMode = QuestionParseMode.all,
   }) async {
     final profile = await _engineRepository.getActiveTextEngine();
     if (profile == null) throw Exception("未激活文本引擎");
@@ -107,7 +108,7 @@ class AiTextParseService {
     String rawText,
     AiEngineProfile profile, {
     bool isMarkdown = false,
-    String parseMode = 'all',
+    QuestionParseMode parseMode = QuestionParseMode.all,
   }) async {
     final prompt = AiPrompts.parseChunk(
       rawText: rawText,

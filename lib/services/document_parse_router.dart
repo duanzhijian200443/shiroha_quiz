@@ -1,3 +1,4 @@
+import '../data/models/question_parse_mode.dart';
 import 'document_chunker.dart';
 import 'document_profiler.dart';
 
@@ -15,7 +16,7 @@ class DocumentParseSegment {
   });
 
   final List<String> batches;
-  final String parseMode;
+  final QuestionParseMode parseMode;
 }
 
 class DocumentParsePlan {
@@ -68,7 +69,7 @@ class DocumentParseRouter {
         segments: [
           DocumentParseSegment(
             batches: chunker.split(processedText, isMarkdown: isMarkdown),
-            parseMode: 'all',
+            parseMode: QuestionParseMode.all,
           ),
         ],
       );
@@ -84,11 +85,11 @@ class DocumentParseRouter {
         segments: [
           DocumentParseSegment(
             batches: chunker.split(stemText, isMarkdown: isMarkdown),
-            parseMode: 'stem_only',
+            parseMode: QuestionParseMode.stemOnly,
           ),
           DocumentParseSegment(
             batches: chunker.split(answerText, isMarkdown: isMarkdown),
-            parseMode: 'answer_only',
+            parseMode: QuestionParseMode.answerOnly,
           ),
         ],
       );
@@ -101,7 +102,7 @@ class DocumentParseRouter {
         segments: [
           DocumentParseSegment(
             batches: chunker.split(rawText, isMarkdown: isMarkdown),
-            parseMode: 'stem_only',
+            parseMode: QuestionParseMode.stemOnly,
           ),
         ],
       );
@@ -113,7 +114,7 @@ class DocumentParseRouter {
       segments: [
         DocumentParseSegment(
           batches: chunker.split(rawText, isMarkdown: isMarkdown),
-          parseMode: 'all',
+          parseMode: QuestionParseMode.all,
         ),
       ],
     );
