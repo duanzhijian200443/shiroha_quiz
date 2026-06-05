@@ -1,5 +1,20 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-05 19:48] - refactor(import): 引入 QuestionIdentity 统一题目身份判断
+- **变更类型**: refactor
+- **影响模块**: import, services, data, tests
+- **详细改动明细**:
+  - [x] 新增 `lib/data/models/question_identity.dart`，集中管理题号、题干与题型的身份归一化逻辑。
+  - [x] 修改 `QuestionParsePipeline`，将题号归一化逻辑委托给 `QuestionIdentity`，保留旧方法兼容现有调用。
+  - [x] 修改 `TaskManager._deduplicateQuestions`，用 `Set<QuestionIdentity>` 替代字符串拼接 key。
+  - [x] 新增 `test/question_identity_test.dart`，覆盖题号归一化、Map 弱类型输入和题型区分。
+- **验证状态**:
+  - `dart format lib\data\models\question_identity.dart lib\services\question_parse_pipeline.dart lib\services\task_manager.dart test\question_identity_test.dart`：已完成
+  - `dart analyze lib\data lib\services test`：成功 (No issues found)
+  - `flutter test test\question_identity_test.dart test\question_parse_pipeline_test.dart test\parse_batch_runner_test.dart`：全部通过 (8 tests passed)
+  - `flutter test`：全部通过 (38 tests passed)
+  - `git diff --check`：通过 (仅有 Windows LF/CRLF 提示)
+
 ## [2026-06-05 19:29] - refactor(ai): 引入 QuestionParseMode 强类型解析模式
 - **变更类型**: refactor
 - **影响模块**: ai, services, tests

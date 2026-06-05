@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 
 enum TaskStatus { processing, pendingReview, completed, error }
@@ -198,15 +199,21 @@ class TaskManager extends ChangeNotifier {
 
   List<Map<String, dynamic>> _deduplicateQuestions(
       List<Map<String, dynamic>> questions) {
-    final seen = <String>{};
-    final List<Map<String, dynamic>> result = [];
-    for (var q in questions) {
-      final key = '${q['q_num']}_${q['content']}';
-      if (!seen.contains(key)) {
-        seen.add(key);
-        result.add(q);
+    final seen = <QuestionIdentity>{};
+    final result = <Map<String, dynamic>>[];
+
+    for (final question in questions) {
+      final identity = QuestionIdentity.fromMap(question);
+      if (!identity.hasQuestionNumber && !identity.hasContent) {
+        result.add(question);
+        continue;
+      }
+
+      if (seen.add(identity)) {
+        result.add(question);
       }
     }
+
     return result;
   }
 

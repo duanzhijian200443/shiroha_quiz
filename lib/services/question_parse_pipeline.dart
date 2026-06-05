@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/models/question_identity.dart';
 import '../utils/ai_data_sanitizer.dart';
 
 class QuestionAssemblyResult {
@@ -100,27 +101,7 @@ class QuestionParsePipeline {
   }
 
   String normalizeQuestionNumber(String? raw) {
-    if (raw == null || raw.isEmpty) return '';
-    var normalized = raw.trim();
-    normalized = normalized.replaceAll(RegExp(r'[.。、）\)：:]+$'), '');
-    normalized = normalized.replaceAll(RegExp(r'^(?:第)?\s*'), '');
-    normalized = normalized.replaceAll(RegExp(r'\s*(?:题)$'), '');
-    const numberMap = {
-      '一': '1',
-      '二': '2',
-      '三': '3',
-      '四': '4',
-      '五': '5',
-      '六': '6',
-      '七': '7',
-      '八': '8',
-      '九': '9',
-      '十': '10',
-    };
-    for (final entry in numberMap.entries) {
-      normalized = normalized.replaceAll(entry.key, entry.value);
-    }
-    return normalized.trim().toLowerCase();
+    return QuestionIdentity.normalizeQuestionNumber(raw);
   }
 
   bool isAnswerOnlyQuestion(Map<String, dynamic> question) {
