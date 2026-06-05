@@ -32,6 +32,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
     '智谱清言 (GLM)': 'https://open.bigmodel.cn/api/paas',
     'DeepSeek 官方': 'https://api.deepseek.com',
     '硅基流动 (SiliconFlow)': 'https://api.siliconflow.cn',
+    '小米大模型 (MiMO)': 'https://api.xiaomimimo.com/v1',
     'OpenAI / 第三方中转': 'https://api.openai.com/v1',
     'Ollama (本地/模拟器)': 'http://10.0.2.2:11434/v1',
   };
