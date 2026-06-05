@@ -474,17 +474,30 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getAiEngines(String type) async {
     final db = await database;
-    return await db.query('ai_engines',
-        where: 'engine_type = ?', whereArgs: [type], orderBy: 'name ASC');
+    // 打通文本与视觉的模型列表，共享所有已配置引擎
+    return await db.query('ai_engines', orderBy: 'name ASC');
   }
 
   Future<Map<String, dynamic>?> getActiveAiEngine(String type) async {
     final db = await database;
+    // 优先从设置表独立获取该类型激活的引擎 ID
+    final activeId = await getSetting('active_${type}_engine_id');
+    if (activeId != null) {
+      final res = await db.query('ai_engines',
+          where: 'id = ?', whereArgs: [activeId], limit: 1);
+      if (res.isNotEmpty) return res.first;
+    }
+    // 兼容老版本逻辑
     final res = await db.query('ai_engines',
         where: 'engine_type = ? AND is_active = 1',
         whereArgs: [type],
         limit: 1);
-    return res.isNotEmpty ? res.first : null;
+    if (res.isNotEmpty) return res.first;
+
+    // 如果都没有，尝试找全局任意一个 is_active = 1 的
+    final resGlobal =
+        await db.query('ai_engines', where: 'is_active = 1', limit: 1);
+    return resGlobal.isNotEmpty ? resGlobal.first : null;
   }
 
   Future<void> saveAiEngine(Map<String, dynamic> engine) async {
@@ -494,6 +507,10 @@ class DatabaseHelper {
   }
 
   Future<void> setActiveAiEngine(String id, String type) async {
+    // 使用设置表独立保存各自激活的引擎，不再互相干扰
+    await saveSetting('active_${type}_engine_id', id);
+
+    // 为了向前兼容，依然更新一下 is_active
     final db = await database;
     await db.transaction((txn) async {
       await txn.update('ai_engines', {'is_active': 0},
