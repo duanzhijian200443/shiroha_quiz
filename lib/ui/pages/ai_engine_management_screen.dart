@@ -261,20 +261,61 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           }
         }
       } else {
-        if (!url.endsWith('/models'))
-          url = url.endsWith('/v1') ? '$url/models' : '$url/v1/models';
-        res = await http.get(Uri.parse(url), headers: {
-          'Authorization': 'Bearer ${_apiKeyCtrl.text.trim()}',
-          'Content-Type': 'application/json'
-        }).timeout(const Duration(seconds: 15));
-        if (res.statusCode == 200) {
+        // 多端点自动探测策略：逐一尝试各大供应商的 models 路径
+        final String base =
+            url.endsWith('/models') ? url.substring(0, url.length - 7) : url;
+        final candidates = <String>[];
+        if (url.endsWith('/models')) {
+          candidates.add(url);
+        } else if (url.endsWith('/v1')) {
+          candidates.addAll(['$base/models', '$base/v4/models']);
+        } else if (url.endsWith('/v4')) {
+          candidates.addAll(['$base/models', '$base/v1/models']);
+        } else {
+          // 未知后缀：依次尝试 /models、/v4/models（GLM）、/v1/models（OpenAI）
+          candidates.addAll([
+            '$base/models',
+            '$base/v4/models',
+            '$base/v1/models',
+          ]);
+        }
+
+        http.Response? successRes;
+        for (final candidate in candidates) {
+          try {
+            final r = await http.get(Uri.parse(candidate), headers: {
+              'Authorization': 'Bearer ${_apiKeyCtrl.text.trim()}',
+              'Content-Type': 'application/json',
+            }).timeout(const Duration(seconds: 10));
+            if (r.statusCode == 200) {
+              successRes = r;
+              break;
+            }
+          } catch (_) {}
+        }
+
+        if (successRes != null) {
+          res = successRes;
           final data = json.decode(res.body);
-          if (data['data'] != null && mounted) {
-            final models =
+          List<String> models = [];
+          if (data['data'] != null) {
+            models =
                 (data['data'] as List).map((e) => e['id'].toString()).toList();
+          } else if (data['models'] != null) {
+            models = (data['models'] as List)
+                .map((e) => (e['id'] ?? e['name'] ?? e.toString()).toString())
+                .toList();
+          }
+          if (models.isNotEmpty && mounted) {
             _showModelSelector(models);
             return;
           }
+        } else {
+          // 所有路径均失败，用最后一次候选作为 res 触发 snackbar
+          res = await http.get(Uri.parse(candidates.last), headers: {
+            'Authorization': 'Bearer ${_apiKeyCtrl.text.trim()}',
+            'Content-Type': 'application/json',
+          }).timeout(const Duration(seconds: 10));
         }
       }
       if (mounted)
