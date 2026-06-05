@@ -158,9 +158,7 @@ class TaskManager extends ChangeNotifier {
 
   Future<void> _saveTask(ImportTask task) async {
     try {
-      if (!task.status.isFinalState) {
-        await ImportTaskRepository.instance.saveImportTask(task.toMap());
-      }
+      await ImportTaskRepository.instance.saveImportTask(task.toMap());
     } catch (e) {
       debugPrint('Error saving task to SQLite: $e');
     }
@@ -277,13 +275,10 @@ class TaskManager extends ChangeNotifier {
   void deleteTask(String id) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
-      final task = tasks[idx];
       tasks.removeAt(idx);
-      if (task.status.isFinalState) {
-        ImportTaskRepository.instance.deleteImportTask(id).catchError((e) {
-          debugPrint('Background task deletion failed: $e');
-        });
-      }
+      ImportTaskRepository.instance.deleteImportTask(id).catchError((e) {
+        debugPrint('Background task deletion failed: $e');
+      });
       notifyListeners();
     }
   }
