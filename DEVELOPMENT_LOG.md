@@ -1,5 +1,21 @@
 # 🚀 自动化 Git 提交与开发日志引擎 (Git & Changelog Engine)
 
+## [2026-06-05 20:02] - refactor(data): 引入 SubjectTreeIndex 统一题库树索引
+- **变更类型**: refactor
+- **影响模块**: data, services, ui, tests
+- **详细改动明细**:
+  - [x] 新增 `lib/data/models/subject_tree_index.dart` 领域模型，提供结构化题库树索引与去重逻辑。
+  - [x] 修改 `QuestionRepository`，移除内部私有 `_BankFolderIndex`，统一使用 `SubjectTreeIndex` 提供树形结构状态。
+  - [x] 修改 `DataCenterScreen` 弱类型字段读取，兼容 `name` 和 `bank_name`。
+  - [x] 新增 `test/subject_tree_index_test.dart` 补齐索引覆盖与防卫边界验证。
+- **验证状态**:
+  - `dart format lib\data\models\subject_tree_index.dart lib\data\repositories\question_repository.dart lib\ui\pages\data_center_screen.dart test\subject_tree_index_test.dart`：已完成
+  - `dart analyze lib test`：成功 (No issues found)
+  - `flutter test test\subject_tree_index_test.dart`：全部通过 (7 tests passed)
+  - `flutter test test\architecture_boundary_test.dart`：全部通过 (1 test passed)
+  - `flutter test`：全部通过 (45 tests passed)
+  - `git diff --check`：通过 (仅有 Windows LF/CRLF 提示)
+
 ## [2026-06-05 19:48] - refactor(import): 引入 QuestionIdentity 统一题目身份判断
 - **变更类型**: refactor
 - **影响模块**: import, services, data, tests

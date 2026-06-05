@@ -29,7 +29,9 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
         filtered[entry.key] = entry.value;
       } else {
         final matches = entry.value.where((bank) {
-          final bankName = bank['bank_name']?.toString().toLowerCase() ?? '';
+          final bankName =
+              (bank['name'] ?? bank['bank_name'])?.toString().toLowerCase() ??
+                  '';
           return bankName.contains(q);
         }).toList();
         if (matches.isNotEmpty) {

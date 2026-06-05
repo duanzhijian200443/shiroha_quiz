@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/database/database_helper.dart';
 import '../models/question_draft.dart';
+import '../models/subject_tree_index.dart';
 import '../../utils/ai_data_sanitizer.dart';
 import '../../data/repositories/settings_repository.dart';
 
@@ -63,15 +64,17 @@ class QuestionRepository {
     await _syncBankFolder(trimmedBankName, folderName);
   }
 
+  Future<SubjectTreeIndex> getSubjectTreeIndex() async {
+    return SubjectTreeIndex.fromRawTree(await _databaseHelper.getSubjectTree());
+  }
+
   Future<List<String>> getAvailableBanksAndFolders() async {
-    final index =
-        _BankFolderIndex.fromTree(await _databaseHelper.getSubjectTree());
+    final index = await getSubjectTreeIndex();
     return index.availableBanksAndFolders;
   }
 
   Future<List<String>> getAvailableFolders() async {
-    final index =
-        _BankFolderIndex.fromTree(await _databaseHelper.getSubjectTree());
+    final index = await getSubjectTreeIndex();
     return index.availableFolders;
   }
 
@@ -283,59 +286,5 @@ class QuestionRepository {
   // Get recent wrong questions for AI engine
   Future<List<Map<String, dynamic>>> getRecentWrongQuestions({int limit = 30}) {
     return _databaseHelper.getRecentWrongQuestions(limit: limit);
-  }
-}
-
-class _BankFolderIndex {
-  _BankFolderIndex({
-    required Set<String> banksAndFolders,
-    required Set<String> folders,
-  })  : _banksAndFolders = banksAndFolders,
-        _folders = folders;
-
-  static const _defaultSubject = '默认学科';
-  static const _uncategorizedFolder = '📁 未分类题库';
-
-  final Set<String> _banksAndFolders;
-  final Set<String> _folders;
-
-  factory _BankFolderIndex.fromTree(
-    Map<String, List<Map<String, dynamic>>> tree,
-  ) {
-    final banksAndFolders = <String>{};
-    final folders = <String>{};
-
-    for (final entry in tree.entries) {
-      final folderName = entry.key.trim();
-      if (folderName.isNotEmpty) {
-        banksAndFolders.add(folderName);
-        folders.add(folderName);
-      }
-
-      for (final bank in entry.value) {
-        final bankName = bank['name']?.toString().trim();
-        if (bankName != null && bankName.isNotEmpty) {
-          banksAndFolders.add(bankName);
-        }
-      }
-    }
-
-    banksAndFolders
-      ..remove(_defaultSubject)
-      ..remove(_uncategorizedFolder);
-    folders.remove(_uncategorizedFolder);
-
-    return _BankFolderIndex(
-      banksAndFolders: banksAndFolders,
-      folders: folders,
-    );
-  }
-
-  List<String> get availableBanksAndFolders => _sorted(_banksAndFolders);
-
-  List<String> get availableFolders => _sorted(_folders);
-
-  static List<String> _sorted(Set<String> values) {
-    return values.toList()..sort();
   }
 }
