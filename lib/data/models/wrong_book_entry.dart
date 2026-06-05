@@ -34,7 +34,7 @@ class WrongBookEntry {
 
   bool get hasAnswerOrExplanation =>
       answer.isNotEmpty || explanation.isNotEmpty;
-  bool get isSelectionQuestion => type == 1;
+  bool get isSelectionQuestion => type == 0;
 
   Map<String, dynamic> toQuestionEditMap() {
     return {
@@ -43,6 +43,7 @@ class WrongBookEntry {
       'content': content,
       'options': optionsRaw,
       'standard_answer': standardAnswerRaw,
+      'explanation': explanation,
       'bank_name': bankName,
     };
   }

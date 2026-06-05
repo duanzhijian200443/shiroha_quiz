@@ -108,6 +108,7 @@ void main() {
       expect(map['content'], 'Test question');
       expect(map['options'], '["A", "B"]');
       expect(map['standard_answer'], 'A|||Exp');
+      expect(map['explanation'], 'Exp');
       expect(map['bank_name'], 'Test Bank');
     });
   });
