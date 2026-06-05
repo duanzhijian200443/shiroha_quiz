@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 class DatabaseHelper {
@@ -25,6 +26,17 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
+    final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
+    if (isTest) {
+      return openDatabase(
+        inMemoryDatabasePath,
+        version: _dbVersion,
+        onConfigure: _onConfigure,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+    }
+
     final String dbPath = await getDatabasesPath();
     final String path = join(dbPath, _dbName);
 
@@ -253,6 +265,11 @@ class DatabaseHelper {
   }
 
   static Future<void> deleteDatabaseFile() async {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      await _database?.close();
+      _database = null;
+      return;
+    }
     final String dbPath = await getDatabasesPath();
     final String path = join(dbPath, _dbName);
     await databaseFactory.deleteDatabase(path);
