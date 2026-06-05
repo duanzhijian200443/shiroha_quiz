@@ -224,6 +224,7 @@ class TaskManager extends ChangeNotifier {
       tasks[idx].pendingChunks ??= [];
       tasks[idx].pendingChunks!.addAll(chunks);
       _saveTask(tasks[idx]);
+      notifyListeners(); // UI 能实时看到 pendingChunks 变化
     }
   }
 
@@ -235,6 +236,7 @@ class TaskManager extends ChangeNotifier {
       tasks[idx].parsedData ??= [];
       tasks[idx].parsedData!.addAll(results);
       _saveTask(tasks[idx]);
+      notifyListeners(); // UI 能实时看到批次完成、pending 数量减少
     }
   }
 
@@ -245,6 +247,7 @@ class TaskManager extends ChangeNotifier {
       tasks[idx].failedChunks ??= [];
       tasks[idx].failedChunks!.add(chunk);
       _saveTask(tasks[idx]);
+      notifyListeners(); // UI 能实时看到失败批次
     }
   }
 

@@ -13,6 +13,7 @@ import '../../services/ai_service.dart';
 import '../../services/task_manager.dart';
 import '../../main.dart';
 import 'paste_text_screen.dart';
+import '../../services/latex_import_repair.dart';
 
 class ImportSettingsScreen extends StatefulWidget {
   const ImportSettingsScreen({Key? key}) : super(key: key);
@@ -157,42 +158,58 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             imagePaths.add(filePath);
           }
 
-          // ── 按 pagesPerBatch 张图片打包为一批，大幅减少 API 调用次数 ──
-          const int pagesPerBatch = 4; // 每次请求发几页：4页→调用次数减少4倍
-          List<List<String>> batches = [];
-          for (int i = 0; i < imagePaths.length; i += pagesPerBatch - 1) {
-            int end = i + pagesPerBatch;
-            if (end > imagePaths.length) {
-              end = imagePaths.length;
-            }
-            if (end > i) {
-              batches.add(imagePaths.sublist(i, end));
-            }
-            if (end == imagePaths.length) break;
+          // ── 修复批次步长 bug：原来 i += pagesPerBatch-1 导致页面重叠，
+          //    现在改为 i += pagesPerBatch，每页只出现在一个批次中 ──
+          const int pagesPerBatch = 4;
+          final List<List<String>> batches = [];
+          for (int i = 0; i < imagePaths.length; i += pagesPerBatch) {
+            final end = (i + pagesPerBatch).clamp(0, imagePaths.length);
+            batches.add(imagePaths.sublist(i, end));
           }
-          debugPrint(
-              "📦 共 ${imagePaths.length} 页，打包为 ${batches.length} 批次（每批 $pagesPerBatch 页）");
+          debugPrint('📦 文件 ${fileIdx + 1}/${result.files.length}：'
+              '共 ${imagePaths.length} 页，分 ${batches.length} 批次'
+              '（每批 $pagesPerBatch 页，无重叠）');
 
           int maxConcurrency = _maxConcurrency.toInt();
-          List<List<String>> pendingBatches = List.from(batches);
-          TaskManager.instance.appendPendingChunks(taskId, 'vision',
-              pendingBatches.map((b) => b.join(',')).toList());
-          while (pendingBatches.isNotEmpty) {
-            List<Future<void>> workers = [];
-            int currentWorkers = maxConcurrency;
-            if (currentWorkers > pendingBatches.length)
-              currentWorkers = pendingBatches.length;
-            for (int i = 0; i < currentWorkers; i++) {
+
+          // 有序结果池：按 batchIndex 存储，避免并发 addAll 导致顺序混乱
+          final List<List<Map<String, dynamic>>?> orderedResults =
+              List.filled(batches.length, null);
+
+          // 待处理批次队列：存入索引值以便按 batchIndex 写回 orderedResults
+          List<int> pendingIndices = List.generate(batches.length, (i) => i);
+
+          TaskManager.instance.appendPendingChunks(
+            taskId,
+            'vision',
+            List.generate(batches.length, (i) => 'batch_${fileIdx}_$i'),
+          );
+
+          while (pendingIndices.isNotEmpty) {
+            final List<Future<void>> workers = [];
+            final workerCount = maxConcurrency.clamp(1, pendingIndices.length);
+            for (int w = 0; w < workerCount; w++) {
               workers.add(() async {
-                while (pendingBatches.isNotEmpty) {
-                  final batch = pendingBatches.removeAt(0);
-                  final batchKey = batch.join(',');
+                while (pendingIndices.isNotEmpty) {
+                  final batchIdx = pendingIndices.removeAt(0);
+                  final batch = batches[batchIdx];
+                  final chunkKey = 'batch_${fileIdx}_$batchIdx';
+                  TaskManager.instance.updateProgress(
+                    taskId,
+                    '文件 ${fileIdx + 1}/${result.files.length} — '
+                    'Vision 批次 ${batchIdx + 1}/${batches.length} 解析中...',
+                    0.1 +
+                        (fileIdx / result.files.length) * 0.7 +
+                        (batchIdx / batches.length) *
+                            (0.7 / result.files.length),
+                  );
                   try {
                     final res =
                         await AiService.instance.parseImagesWithVision(batch);
-                    singleFileQuestions.addAll(res);
+                    // 按 batchIndex 写入有序结果池，而非直接 addAll（避免并发乱序）
+                    orderedResults[batchIdx] = res;
                     TaskManager.instance
-                        .markChunkSuccess(taskId, batchKey, res);
+                        .markChunkSuccess(taskId, chunkKey, res);
                   } catch (e) {
                     final errorStr = e.toString().toLowerCase();
                     if (errorStr.contains('429') ||
@@ -201,21 +218,21 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                         errorStr.contains('clientexception') ||
                         errorStr.contains('socketexception') ||
                         errorStr.contains('broken pipe')) {
-                      pendingBatches.insert(0, batch);
+                      pendingIndices.insert(0, batchIdx);
                       if (maxConcurrency > 1) maxConcurrency--;
                       await Future.delayed(const Duration(seconds: 3));
                       return;
                     } else if (errorStr.contains('timeout')) {
-                      pendingBatches.insert(0, batch);
+                      pendingIndices.insert(0, batchIdx);
                       if (maxConcurrency > 1)
                         maxConcurrency--;
                       else
                         await Future.delayed(const Duration(seconds: 10));
                       return;
                     } else {
-                      TaskManager.instance.markChunkFailed(taskId, batchKey);
-                      debugPrint(
-                          "⚠️ 批次 ${batch.length} 页视觉解析彻底失败: $e，跳过以挽救其他数据");
+                      TaskManager.instance.markChunkFailed(taskId, chunkKey);
+                      debugPrint('⚠️ 文件 ${fileIdx + 1} 批次 $batchIdx '
+                          '视觉解析彻底失败: $e，跳过以挽救其他数据');
                     }
                   }
                 }
@@ -224,8 +241,19 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             await Future.wait(workers);
           }
 
-          // 对单文件内图片分页导致的数据碎片，运行一次本地拉链合并作为防抖
+          // 按 batchIndex 顺序展平，保证结果顺序与文档内页码顺序一致
+          for (final batchResult in orderedResults) {
+            if (batchResult != null) {
+              singleFileQuestions.addAll(batchResult);
+            }
+          }
+
+          // 拼图归并 + 导入专用 LaTeX 边界修复
           singleFileQuestions = _runJigsawMerge(singleFileQuestions);
+          singleFileQuestions =
+              LatexImportRepairService.instance.repairAll(singleFileQuestions);
+          debugPrint('✅ 文件 ${fileIdx + 1}/${result.files.length} '
+              '本地拼图完成，得到 ${singleFileQuestions.length} 题');
         } else {
           final file = File(filePath);
           String rawText = '';
@@ -417,7 +445,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     });
 
     debugPrint(
-        '🧩 拼图归并完成：题干桶=${questionByNum.length}，答案桶=${answerByNum.length}，无编号区=${noNumQuestions.length}，最终结果=${mergedQuestions.length} 题');
+        '🧩 本地拼图计算完成：题干桶=${questionByNum.length}，答案桶=${answerByNum.length}，无编号区=${noNumQuestions.length}，待预览结果=${mergedQuestions.length} 题');
     return mergedQuestions;
   }
 
