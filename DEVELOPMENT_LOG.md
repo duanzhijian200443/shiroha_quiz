@@ -1,6 +1,6 @@
 # Development Log
 
-## [2026-06-07 23:15] - feat(import): wire repairLatex flag to PDF vision path only
+## [2026-06-07 23:27] - feat(import): wire repairLatex flag to PDF vision path only
 
 - **Change type**: feat
 - **Affected modules**: ai, import, tests
