@@ -40,7 +40,7 @@ class LatexImportRepairService {
           i += _delimiterOpenLength(text, i);
           continue;
         }
-        buffer.write(text.substring(i, end));
+        buffer.write(_repairDelimitedSegment(text, i, end));
         i = end;
         continue;
       }
@@ -49,6 +49,23 @@ class LatexImportRepairService {
         buffer.write(text[i]);
         i++;
         continue;
+      }
+
+      // Escaped math set block: \{(x,y) | ... \sqrt{...}\}
+      if (_startsWith(text, i, r'\{')) {
+        final setEnd = _findEscapedSetEnd(text, i + 2);
+        if (setEnd != -1) {
+          final expr = text.substring(i, setEnd);
+          if (_isMathSetSegment(expr) && _isSafeLatexSegment(expr)) {
+            final asBlock = LatexComplexityClassifier.shouldRenderAsBlock(expr);
+            buffer
+              ..write(asBlock ? r'\[' : r'\(')
+              ..write(expr)
+              ..write(asBlock ? r'\]' : r'\)');
+            i = setEnd;
+            continue;
+          }
+        }
       }
 
       final match = _bareLatexPattern.matchAsPrefix(text, i);
@@ -237,6 +254,72 @@ class LatexImportRepairService {
       return start + 1 < text.length && text[start + 1] == r'$' ? 2 : 1;
     }
     return 2; // \( 或 \[
+  }
+
+  String _repairDelimitedSegment(String text, int start, int end) {
+    if (text[start] == r'$') {
+      final isDouble = start + 1 < text.length && text[start + 1] == r'$';
+      final open = isDouble ? r'$$' : r'$';
+      final contentStart = start + open.length;
+      final contentEnd = end - open.length;
+      if (contentEnd < contentStart) return text.substring(start, end);
+      final content = text.substring(contentStart, contentEnd);
+      final cleaned = _trimOddTrailingBackslash(content);
+      return '$open$cleaned$open';
+    }
+
+    final open = text[start + 1] == '(' ? r'\(' : r'\[';
+    final close = text[start + 1] == '(' ? r'\)' : r'\]';
+    final contentStart = start + 2;
+    final contentEnd = end - 2;
+    if (contentEnd < contentStart) return text.substring(start, end);
+    final content = text.substring(contentStart, contentEnd);
+    final cleaned = _trimOddTrailingBackslash(content);
+    return '$open$cleaned$close';
+  }
+
+  String _trimOddTrailingBackslash(String input) {
+    var end = input.length;
+    while (end > 0 && input.codeUnitAt(end - 1) <= 32) {
+      end--;
+    }
+    var slashCount = 0;
+    var i = end - 1;
+    while (i >= 0 && input.codeUnitAt(i) == 92) {
+      slashCount++;
+      i--;
+    }
+    if (slashCount.isOdd) {
+      return input.substring(0, end - 1) + input.substring(end);
+    }
+    return input;
+  }
+
+  int _findEscapedSetEnd(String text, int start) {
+    var i = start;
+    while (i < text.length - 1) {
+      if (_startsWith(text, i, r'\}')) {
+        return i + 2;
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  bool _isMathSetSegment(String expr) {
+    if (!expr.startsWith(r'\{') || !expr.endsWith(r'\}')) {
+      return false;
+    }
+    final mathSignals = <RegExp>[
+      RegExp(r'\\(?:frac|sqrt|sin|cos|tan|theta|pi|leq|geq|neq|in|notin|mid)\b'),
+      RegExp(r'[_^]'),
+      RegExp(r'[≤≥∈∉]'),
+      RegExp(r'\|'),
+      RegExp(r'[=<>]'),
+      RegExp(r'\([a-zA-Z],[a-zA-Z]\)'),
+      RegExp(r'\([a-zA-Z],\\theta\)'),
+    ];
+    return mathSignals.any((pattern) => pattern.hasMatch(expr));
   }
 
   bool _startsWith(String input, int index, String needle) {

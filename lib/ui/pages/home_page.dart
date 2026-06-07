@@ -6,7 +6,6 @@ import '../../core/review_engine_service.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../services/task_manager.dart';
-import '../widgets/review_dashboard.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -32,7 +31,6 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadContext() async {
     setState(() => _isLoading = true);
     try {
-      // 1. 仅依赖题库名，彻底抛弃可能导致脑裂的 folder 缓存
       final bank = await SettingsRepository.instance.getCurrentBank();
 
       String targetBank = bank ?? '点击修改选择题库';
@@ -41,11 +39,9 @@ class _HomePageState extends State<HomePage> {
       int newC = 0, reviewC = 0, totalC = 0, masteredC = 0;
 
       if (targetBank != '点击修改选择题库') {
-        // 2. 实时去底层数据库寻址该题库的最新文件夹映射
         targetFolder =
             await QuestionRepository.instance.getFolderForBank(targetBank);
 
-        // 3. 拉取 FSRS 统计数据
         final stats = await ReviewEngineService().getBankStats(targetBank);
         totalC = stats['total'] ?? 0;
         newC = stats['new_count'] ?? 0;
@@ -77,21 +73,21 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // 动态色彩映射
-    final bgColor = theme.scaffoldBackgroundColor;
-    final cardColor = theme.cardTheme.color ?? theme.colorScheme.surface;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    final bgColor = isDark ? theme.scaffoldBackgroundColor : const Color(0xFFF9FAFF);
+    final cardColor = isDark ? theme.cardTheme.color ?? theme.colorScheme.surface : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF1E222B);
+    final subTextColor = isDark ? Colors.white54 : const Color(0xFF8B92A1);
+    final primaryColor = const Color(0xFF7CB8FF); // 接近图中的浅蓝色
+    
+    String newDescText = _newCount == 0 ? "(待发掘)" : "($_newCount 题待学)";
+    String reviewDescText = _reviewCount == 0 ? "(已尘封)" : "($_reviewCount 题待复习)";
 
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        title: const Text('Shiroha Quiz',
-            style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-        centerTitle: true,
+        title: null, // 去掉最上面的软件名
         elevation: 0,
-        backgroundColor: theme.scaffoldBackgroundColor,
-        // 1. 左上角：任务传输中心 (动态监听 TaskManager)
+        backgroundColor: bgColor,
         leading: AnimatedBuilder(
           animation: TaskManager.instance,
           builder: (context, child) {
@@ -100,8 +96,7 @@ class _HomePageState extends State<HomePage> {
               icon: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Icon(Icons.swap_vert_rounded,
-                      color: theme.textTheme.bodyLarge?.color),
+                  Icon(Icons.swap_vert_rounded, color: textColor),
                   if (count > 0)
                     Positioned(
                       right: -2,
@@ -131,14 +126,12 @@ class _HomePageState extends State<HomePage> {
             );
           },
         ),
-        // 2. 右上角：通知中心
         actions: [
           IconButton(
-            icon: Icon(Icons.notifications_none_rounded,
-                color: theme.textTheme.bodyLarge?.color),
+            icon: Icon(Icons.settings_outlined, color: textColor),
             onPressed: () {
               ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('消息中心待下一阶段接入')));
+                  .showSnackBar(const SnackBar(content: Text('设置中心待接入')));
             },
           )
         ],
@@ -147,185 +140,83 @@ class _HomePageState extends State<HomePage> {
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
               child: ListView(
-                padding: const EdgeInsets.all(20.0),
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
                 children: [
-                  // 书本卡片
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4))
-                      ],
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 绿皮书 Icon 模拟
-                        Container(
-                          width: 60,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2EAA70),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Text('Book',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      '$_currentFolder - $_currentBank',
-                                      style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w900,
-                                          color: textColor),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (_) => PlanConfigScreen(
-                                                currentBank: _currentBank)),
-                                      ).then((_) => _loadContext());
-                                    },
-                                    child: Text('修改 >',
-                                        style: TextStyle(
-                                            color: subTextColor, fontSize: 13)),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              // 进度条
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: LinearProgressIndicator(
-                                  value: _totalCount == 0
-                                      ? 0.0
-                                      : (_masteredCount / _totalCount)
-                                          .clamp(0.0, 1.0),
-                                  backgroundColor: Colors.grey.shade200,
-                                  valueColor:
-                                      const AlwaysStoppedAnimation<Color>(
-                                          Color(0xFF4C6ED7)),
-                                  minHeight: 6,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                      _totalCount == 0
-                                          ? '暂无数据'
-                                          : (_masteredCount == _totalCount
-                                              ? '已全部掌握'
-                                              : '正在攻克'),
-                                      style: TextStyle(
-                                          color: subTextColor, fontSize: 12)),
-                                  Text('已掌握 $_masteredCount / $_totalCount',
-                                      style: TextStyle(
-                                          color: subTextColor, fontSize: 12)),
-                                ],
-                              )
-                            ],
-                          ),
-                        )
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
+                  // 顶部卡片
+                  _buildBankCard(cardColor, textColor, subTextColor, primaryColor),
+                  
+                  const SizedBox(height: 36),
                   Text('今日计划',
                       style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 22,
                           fontWeight: FontWeight.w900,
                           color: textColor)),
-                  const SizedBox(height: 24),
-
-                  Row(
-                    children: [
-                      Expanded(
-                          child: _buildStatColumn('待新学', '$_newCount',
-                              '$_totalCount', textColor, subTextColor)),
-                      Expanded(
-                          child: _buildStatColumn('待复习', '$_reviewCount',
-                              '$_totalCount', textColor, subTextColor)),
-                    ],
+                  const SizedBox(height: 20),
+                  
+                  // 今日新学卡片
+                  _buildPlanCard(
+                    title: '今日新学',
+                    subtitle: newDescText,
+                    iconData: Icons.menu_book_rounded,
+                    centerWidget: Row(
+                      children: [
+                         Icon(Icons.lightbulb_outline, color: textColor.withOpacity(0.7), size: 28),
+                         const SizedBox(width: 8),
+                         Column(
+                           mainAxisSize: MainAxisSize.min,
+                           crossAxisAlignment: CrossAxisAlignment.start,
+                           children: [
+                             Container(width: 32, height: 6, decoration: BoxDecoration(color: primaryColor.withOpacity(0.3), borderRadius: BorderRadius.circular(3))),
+                             const SizedBox(height: 6),
+                             Container(width: 20, height: 6, decoration: BoxDecoration(color: primaryColor.withOpacity(0.3), borderRadius: BorderRadius.circular(3))),
+                           ],
+                         )
+                      ]
+                    ),
+                    cardColor: cardColor,
+                    textColor: textColor,
+                    subTextColor: subTextColor,
+                    primaryColor: primaryColor,
+                    onTap: _gotoPractice,
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // 今日复习卡片
+                  _buildPlanCard(
+                    title: '今日复习',
+                    subtitle: reviewDescText,
+                    iconData: Icons.published_with_changes_rounded,
+                    centerWidget: Icon(Icons.check, color: primaryColor.withOpacity(0.3), size: 40),
+                    cardColor: cardColor,
+                    textColor: textColor,
+                    subTextColor: subTextColor,
+                    primaryColor: primaryColor,
+                    onTap: _gotoPractice,
                   ),
 
                   const SizedBox(height: 40),
-
-                  // 3. 底部双开按钮
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 54,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF4C6ED7),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
-                              elevation: 0,
-                            ),
-                            onPressed: () => _gotoPractice(),
-                            child: const Text('新学',
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: SizedBox(
-                          height: 54,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF4C6ED7),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
-                              elevation: 0,
-                            ),
-                            onPressed: () => _gotoPractice(),
-                            child: const Text('复习',
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 40),
-
-                  // 4. 复习仪表盘增强 (Review Dashboard)
-                  ReviewDashboard(bankName: _currentBank),
-
+                  
+                  // 底部插图
+                  if (_currentBank == '点击修改选择题库' || _totalCount == 0)
+                    Column(
+                      children: [
+                        Icon(Icons.library_books_outlined, size: 80, color: subTextColor.withOpacity(0.3)),
+                        const SizedBox(height: 16),
+                        Text('暂无复习数据', style: TextStyle(color: textColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('请先选择题库', style: TextStyle(color: subTextColor, fontSize: 14)),
+                      ],
+                    )
+                  else
+                    Column(
+                      children: [
+                        Icon(Icons.auto_awesome, size: 64, color: primaryColor.withOpacity(0.5)),
+                        const SizedBox(height: 16),
+                        Text('继续保持学习！', style: TextStyle(color: textColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    
                   const SizedBox(height: 40),
                 ],
               ),
@@ -333,31 +224,187 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildStatColumn(String label, String value, String total,
-      Color textColor, Color subTextColor) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(color: subTextColor, fontSize: 14)),
-        const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(value,
-                style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.w900,
-                    height: 1.0,
-                    color: textColor)),
-            Text(' / $total',
-                style: TextStyle(
-                    fontSize: 16,
-                    color: subTextColor,
-                    fontWeight: FontWeight.w500)),
+  Widget _buildBankCard(Color cardColor, Color textColor, Color subTextColor, Color primaryColor) {
+    String title = _currentBank == '点击修改选择题库' ? '考研政治' : _currentBank;
+    if (_currentBank != '点击修改选择题库') {
+        title = _currentBank;
+    }
+    String statusText = _totalCount == 0
+        ? '暂无数据'
+        : (_masteredCount == _totalCount ? '已全部掌握' : '正在攻克');
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+              color: primaryColor.withOpacity(0.15),
+              blurRadius: 32,
+              offset: const Offset(0, 10))
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // 左侧图标
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: primaryColor.withOpacity(0.1)),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))
+              ]
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.auto_stories_rounded, color: textColor, size: 30),
+                const SizedBox(height: 4),
+                Text('Book', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          // 右侧信息
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: textColor),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => PlanConfigScreen(
+                                  currentBank: _currentBank)),
+                        ).then((_) => _loadContext());
+                      },
+                      child: Text('修改 >',
+                          style: TextStyle(
+                              color: subTextColor, fontSize: 13, fontWeight: FontWeight.w500)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: _totalCount == 0
+                        ? 0.0
+                        : (_masteredCount / _totalCount).clamp(0.0, 1.0),
+                    backgroundColor: primaryColor.withOpacity(0.15),
+                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor.withOpacity(0.8)),
+                    minHeight: 4,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(statusText,
+                        style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+                    Text('已掌握 $_masteredCount / $_totalCount',
+                        style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+                  ],
+                )
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanCard({
+    required String title,
+    required String subtitle,
+    required IconData iconData,
+    required Widget centerWidget,
+    required Color cardColor,
+    required Color textColor,
+    required Color subTextColor,
+    required Color primaryColor,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 16,
+                offset: const Offset(0, 6))
           ],
-        )
-      ],
+        ),
+        child: Row(
+          children: [
+            // 左侧图标
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F4FF),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(iconData, color: const Color(0xFF323B59), size: 28),
+            ),
+            const SizedBox(width: 16),
+            // 文字
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor)),
+                const SizedBox(height: 4),
+                Text(subtitle, style: TextStyle(fontSize: 12, color: subTextColor, fontWeight: FontWeight.w500)),
+              ],
+            ),
+            
+            const Spacer(),
+            
+            // 中间装饰
+            centerWidget,
+            
+            const SizedBox(width: 24),
+            
+            // 右侧播放按钮
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: primaryColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: primaryColor.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, 4))
+                ]
+              ),
+              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+            )
+          ],
+        ),
+      ),
     );
   }
 

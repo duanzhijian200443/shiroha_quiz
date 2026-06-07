@@ -109,4 +109,57 @@ void main() {
     );
     expect(repaired['options'], [r'A. \(\pi\)', 1]);
   });
+
+  test('strips odd trailing backslash inside wrapped formula', () {
+    const input = r'\(\frac{E(XY)-E(X)E(Y)}{\sqrt{Var(X)Var(Y)}}=\frac{1}{\sqrt{1\cdot2}}=\frac{\sqrt{2}}{2}\\)';
+    final output = repair.repairInline(input);
+
+    expect(output, contains(r'\frac{E(XY)-E(X)E(Y)}'));
+    expect(
+      output,
+      r'\(\frac{E(XY)-E(X)E(Y)}{\sqrt{Var(X)Var(Y)}}=\frac{1}{\sqrt{1\cdot2}}=\frac{\sqrt{2}}{2}\)',
+    );
+  });
+
+  test('keeps even trailing slashes (matrix row ends) untouched', () {
+    const input = r'\[\begin{matrix}1 & 2\\3 & 4\end{matrix}\]';
+    final output = repair.repairInline(input);
+
+    expect(output, input);
+  });
+
+  test('wraps math set block with escaped braces', () {
+    const input = r'D = \{(x,y) | y - 2 \le x \le \sqrt{4-y^2}, 0 \le y \le 2\}';
+    final output = repair.repairInline(input);
+
+    expect(output, contains(r'D = '));
+    expect(output, contains(r'\{(x,y)'));
+    expect(
+      output.contains(r'\(\{') || output.contains(r'\[\{'),
+      isTrue,
+    );
+    expect(
+      output.contains(r'\}\)') || output.contains(r'\}\]'),
+      isTrue,
+    );
+  });
+
+  test('wraps polar coordinate set block', () {
+    const input = r'D_1 = \{(r,\theta) | 0 \le r \le 2, 0 \le \theta \le \frac{\pi}{2}\}';
+    final output = repair.repairInline(input);
+
+    expect(output, contains(r'D_1 = '));
+    expect(
+      output.contains(r'\(\{') || output.contains(r'\[\{'),
+      isTrue,
+    );
+    expect(output, contains(r'\frac{\pi}{2}'));
+  });
+
+  test('does NOT wrap plain escaped braces (no math)', () {
+    const input = r'这里的 \{注意事项\} 不是数学公式';
+    final output = repair.repairInline(input);
+
+    expect(output, equals(input));
+  });
 }
