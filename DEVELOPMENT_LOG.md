@@ -1,5 +1,17 @@
 # Development Log
 
+## [2026-06-07 23:15] - feat(import): wire repairLatex flag to PDF vision path only
+
+- **Change type**: feat
+- **Affected modules**: ai, import, tests
+- **Details**:
+  - [x] `AiService.parseImagesWithVision` gains optional `repairLatex` param (default `false`).
+  - [x] `AiVisionParseService.parseImages` calls `LatexImportRepairService.instance.repairAll()` only when `repairLatex=true` and questions are non-empty.
+  - [x] `ImportPipelineService` PDF vision branch passes `repairLatex: format == ImportFormat.pdf`.
+  - [x] Non-PDF images, text routes, `QuestionParsePipeline`, prompt, PDF renderer, tokenizer, renderer all unchanged.
+  - [x] 3 routing tests + 9 existing LaTeX repair tests = 12/12 pass. `dart analyze` clean.
+- **Verification**: `flutter test test/latex_import_repair_test.dart test/pdf_vision_latex_repair_routing_test.dart` 12/12 pass.
+
 ## [2026-06-07 23:00] - fix(latex): repairInline unclosed delimiter no longer breaks scan loop
 
 - **Change type**: fix
