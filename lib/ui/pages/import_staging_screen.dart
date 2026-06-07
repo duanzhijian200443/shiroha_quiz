@@ -118,6 +118,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _validateBeforeSave() {
+    if (_isBlockedByQualityGate) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('解析不完整，禁止入库'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     if (_allItems.isEmpty) {
       showDialog(
         context: context,
@@ -445,6 +455,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _confirmAndSave(String bankName, String folderName) async {
+    if (_isBlockedByQualityGate) return;
+
     if (_allItems.isEmpty) {
       Navigator.pop(context);
       return;
