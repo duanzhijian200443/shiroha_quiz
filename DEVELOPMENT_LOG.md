@@ -20,8 +20,6 @@
 - **Verification**: `dart analyze` clean (0 issues), `flutter test` 36/36 pass.
 
 ## [2026-06-07 16:28] - feat(import): Phase 5-A7 Extract math formulas and prevent wrong prefix match in DOCX adapter
-
-## [2026-06-07 16:28] - feat(import): Phase 5-A7 Extract math formulas and prevent wrong prefix match in DOCX adapter
 - **Change type**: feat
 - **Affected modules**: import, docx_adapter
 - **Details**:
