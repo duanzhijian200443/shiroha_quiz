@@ -33,9 +33,10 @@ class TextQuestionRegionizer {
     multiLine: true,
   );
 
-  // 裸数字题号：行首数字后跟正文（非空白非数字）
+  // 裸数字题号：行首数字后跟正文起始词（数学题干惯用词），禁止通用正文匹配
   static final RegExp _bareLineQuestionRegex = RegExp(
-    r'(^|\n)\s*(\d{1,3})\s+(?=[^\d\s])',
+    r'(^|\n)\s*(\d{1,3})\s+(?=(?:设|已知|若|求|证明|计算|判断|选择|填空'
+    r'|下列|关于|函数|矩阵|随机|方程|命题|在|如图|某|考虑|求证|解|试|请))',
     multiLine: true,
   );
 
@@ -245,14 +246,6 @@ class TextQuestionRegionizer {
         .replaceAll(RegExp(r'\n{3,}'), '\n\n')
         .trim();
 
-    // 替换中文一到十为数字，以便题号解析
-    const numberMap = {
-      '一、': '1、', '二、': '2、', '三、': '3、', '四、': '4、', '五、': '5、',
-      '六、': '6、', '七、': '7、', '八、': '8、', '九、': '9、', '十、': '10、',
-    };
-    for (final entry in numberMap.entries) {
-      text = text.replaceAll(RegExp('^\\s*${entry.key}', multiLine: true), entry.value);
-    }
     return text;
   }
 
