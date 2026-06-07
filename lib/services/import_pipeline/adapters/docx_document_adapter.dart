@@ -109,7 +109,10 @@ class DocxDocumentAdapter {
         rawText = docxToText(bytes);
         rawText = rawText
             .replaceAll(RegExp(r'<[^>]+>'), ' ')
-            .replaceAll(RegExp(r'\s{2,}'), ' ');
+            .replaceAll('\r\n', '\n')
+            .replaceAll('\r', '\n')
+            .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+            .replaceAll(RegExp(r'\n{3,}'), '\n\n');
       } catch (fallbackErr) {
         rawText = 'Docx Parsing and Fallback Failed: $e, $fallbackErr';
       }
@@ -207,6 +210,7 @@ class DocxDocumentAdapter {
 
     final elementRegex = RegExp(
       r'<w:t(?:\s[^>]*?)?>(.*?)</w:t>|'
+      r'<m:oMathPara(?:\s[^>]*?)?>(.*?)</m:oMathPara>|'
       r'<m:oMath(?:\s[^>]*?)?>(.*?)</m:oMath>|'
       r'<w:br(?:\s[^>]*?)?/?>|'
       r'<w:drawing(?:\s[^>]*?)?>|'
@@ -221,8 +225,13 @@ class DocxDocumentAdapter {
         // w:t
         buffer.write(match.group(1));
       } else if (match.group(2) != null) {
-        // m:oMath
+        // m:oMathPara
         final mathXml = match.group(2)!;
+        final mathText = _extractAllTextNodes(mathXml).trim();
+        buffer.write(mathText.isEmpty ? ' [FORMULA] ' : ' $mathText ');
+      } else if (match.group(3) != null) {
+        // m:oMath
+        final mathXml = match.group(3)!;
         final mathText = _extractAllTextNodes(mathXml).trim();
         buffer.write(mathText.isEmpty ? ' [FORMULA] ' : ' $mathText ');
       } else {

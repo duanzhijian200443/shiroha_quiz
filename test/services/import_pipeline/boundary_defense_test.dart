@@ -12,6 +12,10 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_api_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_quality_gate.dart';
+import 'package:shiroha_quiz/services/import_pipeline/text_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/answer_block_matcher.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 
 void main() {
   group('Boundary Defense Tests - LocalQuestionAssembler', () {
@@ -391,6 +395,198 @@ B. 选项B
 
       expect(result.blocked, true);
       expect(result.severity, 'critical_under_parse');
+    });
+  });
+
+  group('Boundary Defense Tests - Regionizer', () {
+    test('13. 不得把"参数为 2""区间 (0, 3)"识别为题号', () {
+      const rawText = '''
+在数学中，参数为 2 的函数 f(x) 定义在区间 (0, 3) 上。
+该函数的值域为 [0, 1]。
+请计算此函数的积分。
+''';
+      const regionizer = TextQuestionRegionizer();
+      final result = regionizer.split(rawText, const {});
+
+      // "参数为 2" — "2" 是裸数字但前面没换行，不匹配 _bareLineQuestionRegex（需要 ^|\n）
+      // "区间 (0, 3)" — "(0" not "(1" through "(999" so not a question number anyway
+      // 0 is not a valid question number candidate
+      expect(result.regions, isEmpty);
+    });
+
+    test('14. candidateMax=21 但只有 7 accepted，qualityGate 仍 blocked', () {
+      // 构造 21 个候选，但只有 7 个被 DP 接受
+      final buffer = StringBuffer();
+      for (var i = 1; i <= 21; i++) {
+        if (i <= 7 || i == 21) {
+          // Accepted: 1-7, 21 (DP may skip 8-20 due to penalty)
+          buffer.writeln('$i. 这是一道完整的题目题干，包含足够的文本内容供测试使用。');
+          buffer.writeln('选项内容占位。');
+        } else {
+          // 在文本中出现但不是行首——用行内数字，不匹配 bareLine 正则
+          // 实际上为了让 candidateMax=21，我们需要第 21 号也被候选到
+          // 让 8-20 不出现为题号候选
+        }
+      }
+      // 再在末尾放一个明确的高号
+      buffer.writeln('21. 最后一道题，题干足够长。');
+
+      const regionizer = TextQuestionRegionizer();
+      final result = regionizer.split(buffer.toString(), const {});
+
+      // DP selects all 8 accepted regions
+      expect(result.regions.length, greaterThanOrEqualTo(7));
+
+      // explicitCandidateMax should be 21
+      final explicitMax =
+          result.diagnostics['maxQuestionNumberDetected'] as int?;
+      expect(explicitMax, greaterThanOrEqualTo(21));
+
+      // acceptedMax may be lower
+      final acceptedMax =
+          result.diagnostics['acceptedMaxQuestionNumber'] as int?;
+      expect(acceptedMax, lessThanOrEqualTo(21));
+
+      // 质量门禁应阻塞：expectedCount=21, actual≤21, 需判定
+      const gate = ImportQualityGate();
+      final gateResult = gate.evaluateDocx(ImportQualityGateInput(
+        regionCount: result.regions.length,
+        actualQuestionCount: result.regions.length,
+        maxQuestionNumberDetected: explicitMax ?? 21,
+        answerCount: 0,
+        documentSignals: null,
+        criticalDiagnostics: const [],
+      ));
+
+      // expected=21, actual≤21, 但 accepted 不可能达到 21 的 80%
+      expect(gateResult.blocked, isTrue);
+      expect(gateResult.severity, 'critical_under_parse');
+    });
+  });
+
+  group('Boundary Defense Tests - AnswerBlockMatcher', () {
+    test('15. 对 "1. B 解析：..." 只提取 B，不提取整行', () {
+      const rawText = '''
+1. 题目题干内容
+A. 选项 A
+B. 选项 B
+C. 选项 C
+D. 选项 D
+
+参考答案
+1. B 解析：这个题目考察的是基本概念。
+2. C 解析：这道题需要注意细节。
+''';
+      const matcher = AnswerBlockMatcher();
+      final result = matcher.splitAnswerBlock(rawText);
+
+      expect(result.answers[1], equals('B'));
+      expect(result.answers[2], equals('C'));
+      expect(result.answers[1], isNot(contains('解析')));
+      expect(result.answers[2], isNot(contains('解析')));
+    });
+  });
+
+  group('Boundary Defense Tests - Assembler + Regionizer Chain', () {
+    test('16. region.diagnostics 包含"缺少 B 选项"时 repairRecommended=true', () {
+      const region = TextQuestionRegion(
+        number: 1,
+        rawText: '''
+1. 一个选择题
+A. 选项 A
+答案 A
+''',
+        startOffset: 0,
+        endOffset: 100,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+        diagnostics: ['缺少 B 选项'],
+      );
+
+      const assembler = LocalQuestionAssembler();
+      final result = assembler.assemble(region);
+
+      // region.diagnostics 继承到 assembler diagnostics
+      expect(result.diagnostics, contains('缺少 B 选项'));
+      // region.health == repairable 强制触发修复
+      expect(result.repairRecommended, isTrue);
+    });
+  });
+
+  group('Boundary Defense Tests - DocxAdapter Formula', () {
+    test('17. m:oMathPara 公式至少输出 [FORMULA] 或公式文本', () async {
+      final tempDir = await Directory.systemTemp.createTemp('boundary_mathpara');
+      try {
+        final xml = '''
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
+          <w:body>
+            <w:p>
+              <w:r><w:t>解：</w:t></w:r>
+              <m:oMathPara>
+                <m:oMath>
+                  <m:r><w:t>x</w:t></m:r>
+                </m:oMath>
+              </m:oMathPara>
+              <w:r><w:t>即为所求。</w:t></w:r>
+            </w:p>
+          </w:body>
+        </w:document>
+        ''';
+
+        final docBytes = utf8.encode(xml);
+        final archive = Archive();
+        archive.addFile(
+            ArchiveFile('word/document.xml', docBytes.length, docBytes));
+        final encoder = ZipEncoder();
+        final zipBytes = encoder.encode(archive)!;
+
+        final file = File('${tempDir.path}/test_mathpara.docx');
+        file.writeAsBytesSync(zipBytes);
+
+        final parsed = await DocxDocumentAdapter.parse(
+          filePath: file.path,
+          sourceName: 'test_mathpara.docx',
+        );
+
+        expect(parsed.fallbackUsed, isFalse);
+        final plainText = parsed.toPlainTextForParsing();
+        // m:oMathPara must produce at least [FORMULA] or formula text
+        final hasFormulaOrText =
+            plainText.contains('[FORMULA]') || plainText.contains('x');
+        expect(hasFormulaOrText, isTrue);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    });
+  });
+
+  group('Boundary Defense Tests - DOCX Pipeline Warnings', () {
+    test('18. DOCX blocked 时 warnings 非空且包含 gate warning', () async {
+      const rawText = '''
+1. 题干
+A. 选项A
+B. 选项B
+2. 题干
+A. 选项A
+B. 选项B
+''';
+
+      const service = DocxTextFirstParseService();
+      final result = await service.parseDocxText(
+        rawText: rawText,
+        sourceName: 'test_blocked',
+        documentSignals: const DocumentSignals(questionMarkerCount: 20),
+      );
+
+      expect(result.blocked, isTrue);
+      expect(result.warnings, isNotEmpty);
+      expect(
+        result.warnings.any(
+          (w) => w.contains('解析完整率过低') || w.contains('DOCX'),
+        ),
+        isTrue,
+      );
     });
   });
 }

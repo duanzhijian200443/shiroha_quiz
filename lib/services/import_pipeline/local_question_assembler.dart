@@ -18,7 +18,9 @@ class LocalQuestionAssembler {
   const LocalQuestionAssembler();
 
   LocalAssemblyResult assemble(TextQuestionRegion region) {
-    final diagnostics = <String>[];
+    final diagnostics = <String>[
+      ...region.diagnostics,
+    ];
     var working = _normalizeText(region.rawText);
 
     final inlineAnswer = _extractInlineAnswer(working);
@@ -55,7 +57,8 @@ class LocalQuestionAssembler {
       diagnostics.add('dangling_latex');
     }
 
-    final repairRecommended = _shouldRecommendRepair(
+    final repairRecommended = region.health == RegionHealth.repairable ||
+        _shouldRecommendRepair(
       type: type,
       content: content,
       options: optionExtract.options,

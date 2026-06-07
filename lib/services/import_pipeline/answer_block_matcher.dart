@@ -7,7 +7,10 @@ class AnswerBlockMatcher {
   );
 
   static final RegExp _answerLine = RegExp(
-    r'^\s*(?:第\s*)?(\d{1,3})\s*(?:题|[\.、．])?\s*([A-DＡ-Ｄ]|正确答案[:：]?\s*.+|.+)$',
+    r'^\s*(?:第\s*)?(\d{1,3})\s*(?:题|[\.、．])?\s*'
+    r'(?:答案|正确答案)?\s*[:：]?\s*'
+    r'([A-DＡ-Ｄ]{1,4}|[√×]|对|错|正确|错误)'
+    r'(?:[\s，,。．.;；]|$)(.*)$',
     multiLine: true,
   );
 

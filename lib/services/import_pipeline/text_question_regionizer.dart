@@ -21,15 +21,39 @@ class RegionizerResult {
 class TextQuestionRegionizer {
   const TextQuestionRegionizer();
 
-  // 两阶段扫描候选题号正则：包含 (1) （1） 第1小题 1、 1) 等
-  static final RegExp _questionCandidateRegex = RegExp(
-    r'(^|\n|\s)(?:(?:第\s*)|[(（]\s*)?(\d{1,3})\s*(?:(?:小)?\s*题|[\.、．)）])?\s*(?=[^\d]|$)',
+  // 有明确题号后缀：第N题、N、N. N. N) N）等
+  static final RegExp _explicitQuestionRegex = RegExp(
+    r'(^|\n)\s*(?:第\s*)?(\d{1,3})\s*(?:小?\s*题|[\.、．)）])\s*',
+    multiLine: true,
+  );
+
+  // 括号题号：(N) （N）
+  static final RegExp _parenQuestionRegex = RegExp(
+    r'(^|\n)\s*[（(]\s*(\d{1,3})\s*[）)]\s*',
+    multiLine: true,
+  );
+
+  // 裸数字题号：行首数字后跟正文（非空白非数字）
+  static final RegExp _bareLineQuestionRegex = RegExp(
+    r'(^|\n)\s*(\d{1,3})\s+(?=[^\d\s])',
     multiLine: true,
   );
 
   RegionizerResult split(String rawText, Map<int, String> matchedAnswers) {
     final normalized = _normalize(rawText);
-    final matches = _questionCandidateRegex.allMatches(normalized).toList();
+    final matches = <RegExpMatch>[];
+    matches.addAll(_explicitQuestionRegex.allMatches(normalized));
+    matches.addAll(_parenQuestionRegex.allMatches(normalized));
+    matches.addAll(_bareLineQuestionRegex.allMatches(normalized));
+    // 去重：按 match.start 排序并去重
+    matches.sort((a, b) => a.start.compareTo(b.start));
+    final uniqueMatches = <RegExpMatch>[];
+    for (final m in matches) {
+      if (uniqueMatches.isNotEmpty && uniqueMatches.last.start == m.start) {
+        continue;
+      }
+      uniqueMatches.add(m);
+    }
 
     final diagnostics = <String, dynamic>{
       'candidateCount': 0,
@@ -43,12 +67,17 @@ class TextQuestionRegionizer {
 
     final candidates = <_Candidate>[];
     final rejectedCandidates = <int>[];
+    var explicitCandidateMax = 0;
 
-    for (final match in matches) {
+    for (final match in uniqueMatches) {
       final numStr = match.group(2);
       if (numStr == null) continue;
       final number = int.tryParse(numStr);
       if (number == null) continue;
+
+      if (number > explicitCandidateMax) {
+        explicitCandidateMax = number;
+      }
 
       // Filter A/B/C/D option prefix
       int matchStart = match.start;
@@ -194,7 +223,9 @@ class TextQuestionRegionizer {
 
     diagnostics['acceptedRegionCount'] = regions.length;
     diagnostics['rejectedCandidates'] = rejectedCandidates;
-    diagnostics['maxQuestionNumberDetected'] = maxNumber;
+    diagnostics['acceptedMaxQuestionNumber'] = maxNumber;
+    diagnostics['maxQuestionNumberDetected'] =
+        explicitCandidateMax > maxNumber ? explicitCandidateMax : maxNumber;
     diagnostics['missingNumbers'] = missingNumbers;
 
     return RegionizerResult(regions, diagnostics);

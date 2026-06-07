@@ -69,6 +69,7 @@ class ImportPipelineService {
           documentSignals: parsedDoc.signals,
         );
 
+        allWarnings.addAll(docxParseRes.warnings);
         allDiagnostics.addAll(docxParseRes.diagnostics);
 
         if (docxParseRes.blocked) {
@@ -274,7 +275,7 @@ class ImportPipelineService {
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,
-        blockReason: allDiagnostics['qualityGate']?['reason'],
+        blockReason: _readBlockReason(allDiagnostics),
       );
     } else {
       if (allWarnings.isEmpty && allDiagnostics.isNotEmpty) {
@@ -285,8 +286,17 @@ class ImportPipelineService {
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,
-        blockReason: allDiagnostics['qualityGate']?['reason'],
+        blockReason: _readBlockReason(allDiagnostics),
       );
     }
+  }
+
+  String? _readBlockReason(Map<String, dynamic> diagnostics) {
+    final gate = diagnostics['qualityGate'];
+    if (gate is Map) {
+      return (gate['reason']?.toString() ??
+          gate['severity']?.toString());
+    }
+    return null;
   }
 }
