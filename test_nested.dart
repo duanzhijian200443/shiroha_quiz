@@ -5,7 +5,7 @@ void main() {
   final input = r'\( \( (1, 2, 3)^T\)';
   final normalized = ContentNormalizer.normalizeForRender(input);
   print('Normalized: $normalized');
-  
+
   final tokens = ContentTokenizer.tokenize(normalized);
   for (final t in tokens) {
     if (t is ParseErrorToken) {

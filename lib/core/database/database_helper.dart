@@ -8,7 +8,7 @@ class DatabaseHelper {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 13;
+  static const int _dbVersion = 14;
 
   static DatabaseHelper? _instance;
   static Database? _database;
@@ -23,6 +23,13 @@ class DatabaseHelper {
 
     _database = await _initDatabase();
     return _database!;
+  }
+
+  Future<void> close() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
   }
 
   Future<Database> _initDatabase() async {
@@ -165,7 +172,9 @@ class DatabaseHelper {
         completed_at INTEGER,
         source_type TEXT,
         pending_chunks TEXT,
-        failed_chunks TEXT
+        failed_chunks TEXT,
+        warnings TEXT,
+        diagnostics TEXT
       );
     ''');
   }
@@ -258,6 +267,15 @@ class DatabaseHelper {
       try {
         await db
             .execute('ALTER TABLE questions ADD COLUMN raw_explanation TEXT');
+      } catch (e) {
+        // Ignore
+      }
+    }
+    if (oldVersion < 14) {
+      try {
+        await db.execute('ALTER TABLE import_tasks ADD COLUMN warnings TEXT');
+        await db
+            .execute('ALTER TABLE import_tasks ADD COLUMN diagnostics TEXT');
       } catch (e) {
         // Ignore
       }

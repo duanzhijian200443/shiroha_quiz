@@ -1,0 +1,62 @@
+class AnswerBlockMatcher {
+  const AnswerBlockMatcher();
+
+  static final RegExp _answerStart = RegExp(
+    r'^(参考答案|答案与解析|答案及解析|答案|解析)[\s:：]*$',
+    multiLine: true,
+  );
+
+  static final RegExp _answerLine = RegExp(
+    r'^\s*(?:第\s*)?(\d{1,3})\s*(?:题|[\.、．])?\s*([A-DＡ-Ｄ]|正确答案[:：]?\s*.+|.+)$',
+    multiLine: true,
+  );
+
+  ({String questionBodyText, Map<int, String> answers, String answerBlockText}) splitAnswerBlock(
+    String rawText,
+  ) {
+    final matches = _answerStart.allMatches(rawText).toList();
+    if (matches.isEmpty) {
+      return (questionBodyText: rawText, answers: const <int, String>{}, answerBlockText: '');
+    }
+
+    // 从后往前找，找到第一个包含连续答案序列的块。如果没有，就认为没有独立的答案块。
+    for (final match in matches.reversed) {
+      final answerTextCandidate = rawText.substring(match.start);
+      final questionTextCandidate = rawText.substring(0, match.start).trim();
+
+      final answers = <int, String>{};
+      int maxConsecutive = 0;
+      int currentConsecutive = 0;
+      int lastNum = -1;
+
+      for (final m in _answerLine.allMatches(answerTextCandidate)) {
+        final number = int.tryParse(m.group(1) ?? '');
+        final answer = m.group(2)?.trim();
+        if (number != null && answer != null && answer.isNotEmpty) {
+          answers[number] = answer;
+          if (number == lastNum + 1 || lastNum == -1) {
+            currentConsecutive++;
+            if (currentConsecutive > maxConsecutive) {
+              maxConsecutive = currentConsecutive;
+            }
+          } else {
+            currentConsecutive = 1;
+          }
+          lastNum = number;
+        }
+      }
+
+      // 只要匹配到了明确的答案区块标志，且能提取出至少 1 个有效答案，就认为是有效块。
+      if (answers.isNotEmpty) {
+        return (
+          questionBodyText: questionTextCandidate,
+          answers: answers,
+          answerBlockText: answerTextCandidate,
+        );
+      }
+    }
+
+    // 没找到合理的序列，退化为无单独答案块
+    return (questionBodyText: rawText, answers: const <int, String>{}, answerBlockText: '');
+  }
+}

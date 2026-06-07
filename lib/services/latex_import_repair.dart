@@ -1,4 +1,5 @@
 import '../utils/latex_complexity_classifier.dart';
+import '../utils/content_normalizer.dart';
 
 /// Import-only LaTeX repair.
 ///
@@ -25,12 +26,18 @@ class LatexImportRepairService {
   String repairInline(String text) {
     if (text.isEmpty) return text;
 
+    text = ContentNormalizer.normalizeForStorage(text);
+
     final buffer = StringBuffer();
     var i = 0;
 
     while (i < text.length) {
       if (_startsDelimiter(text, i)) {
         final end = _findDelimiterEnd(text, i);
+        if (end == -1) {
+          buffer.write(_stripUnclosedDelimiter(text, i));
+          break;
+        }
         buffer.write(text.substring(i, end));
         i = end;
         continue;
@@ -115,12 +122,12 @@ class LatexImportRepairService {
       final close = isDouble ? r'$$' : r'$';
       final searchFrom = start + (isDouble ? 2 : 1);
       final idx = text.indexOf(close, searchFrom);
-      return idx == -1 ? text.length : idx + close.length;
+      return idx == -1 ? -1 : idx + close.length;
     }
 
     final close = text[start + 1] == '(' ? r'\)' : r'\]';
     final idx = _findClosingDelimiter(text, start + 2, close);
-    return idx == -1 ? text.length : idx + close.length;
+    return idx == -1 ? -1 : idx + close.length;
   }
 
   int _findLatexExprEnd(String text, int start) {
@@ -222,6 +229,15 @@ class LatexImportRepairService {
   bool _isCjk(int codeUnit) => codeUnit >= 0x4E00 && codeUnit <= 0x9FFF;
 
   bool _isUpperAscii(int codeUnit) => codeUnit >= 0x41 && codeUnit <= 0x5A;
+
+  String _stripUnclosedDelimiter(String text, int start) {
+    if (text[start] == r'$') {
+      final openLength =
+          start + 1 < text.length && text[start + 1] == r'$' ? 2 : 1;
+      return text.substring(start + openLength);
+    }
+    return text.substring(start + 2);
+  }
 
   bool _startsWith(String input, int index, String needle) {
     if (index < 0 || index + needle.length > input.length) return false;

@@ -27,13 +27,19 @@ class QuestionParsePipeline {
       responseText,
     );
 
+    if (strictContentQuality && questions.isNotEmpty) {
+      _moveAnswerLeakedStemToExplanation(questions);
+    }
+
     if (!strictContentQuality || questions.isEmpty) {
       return questions;
     }
 
     final emptyStemCount = questions.where(_hasEmptyOrPlaceholderStem).length;
     if (emptyStemCount / questions.length > 0.5) {
-      throw Exception('题干提取率过低，疑似文档结构识别失败或AI未严格抄录题干！请更换大模型或检查文档图片结构。');
+      throw Exception(
+        '题干提取率过低，疑似文档结构识别失败或 AI 未严格摘录题干，请更换大模型或检查文档图片结构。',
+      );
     }
     return questions;
   }
@@ -84,11 +90,11 @@ class QuestionParsePipeline {
         if (explanation.isNotEmpty) {
           mergedQuestions[targetIndex]['explanation'] = answer['explanation'];
         }
-        diagnostics.add('题号 $rawAnswerNumber (标准号:$answerNumber) 的题干与答案拼图成功！');
+        diagnostics.add('题号 $rawAnswerNumber (标准号 $answerNumber) 的题干与答案拼图成功。');
       } else {
         mergedQuestions.add(answer);
         diagnostics.add(
-          '题号 $rawAnswerNumber (标准号:$answerNumber) 的答案未能找到题干配对，已独立保留。',
+          '题号 $rawAnswerNumber (标准号 $answerNumber) 的答案未能找到题干配对，已独立保留。',
         );
       }
     }
@@ -110,10 +116,10 @@ class QuestionParsePipeline {
     if (answer.isEmpty) return false;
     if (content.isEmpty) return true;
     if (content.length <= 10 &&
-        RegExp(r'^[A-Da-d√×正确错误ABCD,，\s]+$').hasMatch(content)) {
+        RegExp(r'^[A-Da-d√×对错正确错误ABCD,\s]+$').hasMatch(content)) {
       return true;
     }
-    if (content.contains('[纯答案') || content.contains('[ANSWER')) {
+    if (content.contains('[纯答案]') || content.contains('[ANSWER')) {
       return true;
     }
     if (content == answer) return true;
@@ -131,5 +137,42 @@ class QuestionParsePipeline {
   bool _hasEmptyOrPlaceholderStem(Map<String, dynamic> question) {
     final content = question['content']?.toString() ?? '';
     return content.isEmpty || content.contains('假设');
+  }
+
+  void _moveAnswerLeakedStemToExplanation(
+    List<Map<String, dynamic>> questions,
+  ) {
+    for (final question in questions) {
+      final content = question['content']?.toString().trim() ?? '';
+      if (!_looksLikeAnswerLeakedStem(content)) continue;
+
+      final explanation = question['explanation']?.toString().trim() ?? '';
+      question['content'] = '';
+      question['explanation'] =
+          explanation.isEmpty ? content : '$content\n\n$explanation';
+    }
+  }
+
+  bool _looksLikeAnswerLeakedStem(String content) {
+    if (content.isEmpty) return false;
+
+    final compact = content.replaceAll(RegExp(r'\s+'), '');
+    final startsWithSolutionMarker = RegExp(
+      r'^(?:\u89e3[:\uff1a]?|\u5206\u6790[:\uff1a]?|\u8bc1\u660e[:\uff1a]?|[\uff08(][\u2160-\u216bIVXivx123]+[\uff09)])',
+    ).hasMatch(compact);
+    if (!startsWithSolutionMarker) return false;
+
+    const answerLikeSignals = [
+      '\u6c42\u77e9\u9635A',
+      'A=',
+      'Q=',
+      '\u6b63\u4ea4\u53d8\u6362',
+      '\u6807\u51c6\u5f62',
+      '\u901a\u89e3',
+      '\u53ef\u53d6\u4e3a',
+      '\u7279\u5f81\u503c',
+      '\u7279\u5f81\u5411\u91cf',
+    ];
+    return answerLikeSignals.any(compact.contains);
   }
 }

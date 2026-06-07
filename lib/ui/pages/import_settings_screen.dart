@@ -1,19 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
-import 'package:docx_to_text/docx_to_text.dart';
-import 'package:archive/archive_io.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import 'dart:convert';
 import '../../services/ai_service.dart';
 import '../../services/task_manager.dart';
+import '../../services/import_pipeline/import_pipeline_service.dart';
+import '../../services/import_pipeline/import_parse_request.dart';
 import '../../main.dart';
 import 'paste_text_screen.dart';
-import '../../services/latex_import_repair.dart';
 
 class ImportSettingsScreen extends StatefulWidget {
   const ImportSettingsScreen({Key? key}) : super(key: key);
@@ -84,9 +77,10 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         return await AiService.instance.parseFileWithVision(image.path);
       });
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('获取图片失败: $e'), backgroundColor: Colors.redAccent));
+      }
     }
   }
 
@@ -114,339 +108,90 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         : '多文件自动拼合 (${result.files.length}个)';
 
     _dispatchBackgroundTask(sourceDesc, (taskId) async {
-      List<List<Map<String, dynamic>>> fileResults = [];
+      final request = ImportParseRequest(
+        filePaths: result.files.map((e) => e.path!).toList(),
+        fileNames: result.files.map((e) => e.name).toList(),
+        useVisionEngine: _useVisionEngine,
+        maxConcurrency: _maxConcurrency.toInt(),
+        taskId: taskId,
+      );
 
-      // 遍历所有文件，分别独立解析以获取结构化数据
-      for (int fileIdx = 0; fileIdx < result.files.length; fileIdx++) {
-        final filePath = result.files[fileIdx].path!;
-        final lowerPath = filePath.toLowerCase();
-        List<Map<String, dynamic>> singleFileQuestions = [];
+      final parseResult =
+          await ImportPipelineService.instance.parseFiles(request);
+      final questions = parseResult.questions;
 
-        TaskManager.instance.updateProgress(
-            taskId,
-            '正在解析第 ${fileIdx + 1}/${result.files.length} 个文件...',
-            0.1 + (fileIdx / result.files.length) * 0.7);
-
-        if (_useVisionEngine) {
-          List<String> imagePaths = [];
-          if (lowerPath.endsWith('.pdf')) {
-            final tempDir = await getTemporaryDirectory();
-            final document = await pdfx.PdfDocument.openFile(filePath);
-            final pageCount = document.pagesCount;
-            for (int i = 1; i <= pageCount; i++) {
-              final page = await document.getPage(i);
-              // 性能优化：直接让底层 C++ 引擎渲染出约 900px 宽度的图片
-              // 避免以 2x 渲染出几千像素的巨图后再用 Dart 纯软件压缩，能提速数倍
-              double scale = 900 / page.width;
-              if (scale > 2.0) scale = 2.0; // 限制最大缩放
-              if (scale < 1.0) scale = 1.0; // 限制最小缩放，防止太模糊
-
-              final pageImage = await page.render(
-                  width: page.width * scale,
-                  height: page.height * scale,
-                  format: pdfx.PdfPageImageFormat.jpeg);
-              if (pageImage != null) {
-                final imgFile =
-                    File('${tempDir.path}/file_${fileIdx}_page_$i.jpg');
-                await imgFile.writeAsBytes(pageImage.bytes);
-                imagePaths.add(imgFile.path);
-              }
-              await page.close();
-            }
-            await document.close();
-          } else {
-            imagePaths.add(filePath);
-          }
-
-          // ── 修复批次步长 bug：原来 i += pagesPerBatch-1 导致页面重叠，
-          //    现在改为 i += pagesPerBatch，每页只出现在一个批次中 ──
-          const int pagesPerBatch = 4;
-          final List<List<String>> batches = [];
-          for (int i = 0; i < imagePaths.length; i += pagesPerBatch) {
-            final end = (i + pagesPerBatch).clamp(0, imagePaths.length);
-            batches.add(imagePaths.sublist(i, end));
-          }
-          debugPrint('📦 文件 ${fileIdx + 1}/${result.files.length}：'
-              '共 ${imagePaths.length} 页，分 ${batches.length} 批次'
-              '（每批 $pagesPerBatch 页，无重叠）');
-
-          int maxConcurrency = _maxConcurrency.toInt();
-
-          // 有序结果池：按 batchIndex 存储，避免并发 addAll 导致顺序混乱
-          final List<List<Map<String, dynamic>>?> orderedResults =
-              List.filled(batches.length, null);
-
-          // 待处理批次队列：存入索引值以便按 batchIndex 写回 orderedResults
-          List<int> pendingIndices = List.generate(batches.length, (i) => i);
-
-          TaskManager.instance.appendPendingChunks(
-            taskId,
-            'vision',
-            List.generate(batches.length, (i) => 'batch_${fileIdx}_$i'),
-          );
-
-          while (pendingIndices.isNotEmpty) {
-            final List<Future<void>> workers = [];
-            final workerCount = maxConcurrency.clamp(1, pendingIndices.length);
-            for (int w = 0; w < workerCount; w++) {
-              workers.add(() async {
-                while (pendingIndices.isNotEmpty) {
-                  final batchIdx = pendingIndices.removeAt(0);
-                  final batch = batches[batchIdx];
-                  final chunkKey = 'batch_${fileIdx}_$batchIdx';
-                  TaskManager.instance.updateProgress(
-                    taskId,
-                    '文件 ${fileIdx + 1}/${result.files.length} — '
-                    'Vision 批次 ${batchIdx + 1}/${batches.length} 解析中...',
-                    0.1 +
-                        (fileIdx / result.files.length) * 0.7 +
-                        (batchIdx / batches.length) *
-                            (0.7 / result.files.length),
-                  );
-                  try {
-                    final res =
-                        await AiService.instance.parseImagesWithVision(batch);
-                    // 按 batchIndex 写入有序结果池，而非直接 addAll（避免并发乱序）
-                    orderedResults[batchIdx] = res;
-                    TaskManager.instance
-                        .markChunkSuccess(taskId, chunkKey, res);
-                  } catch (e) {
-                    final errorStr = e.toString().toLowerCase();
-                    if (errorStr.contains('429') ||
-                        errorStr.contains('too many requests') ||
-                        errorStr.contains('connection closed') ||
-                        errorStr.contains('clientexception') ||
-                        errorStr.contains('socketexception') ||
-                        errorStr.contains('broken pipe')) {
-                      pendingIndices.insert(0, batchIdx);
-                      if (maxConcurrency > 1) maxConcurrency--;
-                      await Future.delayed(const Duration(seconds: 3));
-                      return;
-                    } else if (errorStr.contains('timeout')) {
-                      pendingIndices.insert(0, batchIdx);
-                      if (maxConcurrency > 1)
-                        maxConcurrency--;
-                      else
-                        await Future.delayed(const Duration(seconds: 10));
-                      return;
-                    } else {
-                      TaskManager.instance.markChunkFailed(taskId, chunkKey);
-                      debugPrint('⚠️ 文件 ${fileIdx + 1} 批次 $batchIdx '
-                          '视觉解析彻底失败: $e，跳过以挽救其他数据');
-                    }
-                  }
-                }
-              }());
-            }
-            await Future.wait(workers);
-          }
-
-          // 按 batchIndex 顺序展平，保证结果顺序与文档内页码顺序一致
-          for (final batchResult in orderedResults) {
-            if (batchResult != null) {
-              singleFileQuestions.addAll(batchResult);
-            }
-          }
-
-          // 拼图归并 + 导入专用 LaTeX 边界修复
-          singleFileQuestions = _runJigsawMerge(singleFileQuestions);
-          singleFileQuestions =
-              LatexImportRepairService.instance.repairAll(singleFileQuestions);
-          debugPrint('✅ 文件 ${fileIdx + 1}/${result.files.length} '
-              '本地拼图完成，得到 ${singleFileQuestions.length} 题');
-        } else {
-          final file = File(filePath);
-          String rawText = '';
-          bool isMarkdownFile = false;
-          if (lowerPath.endsWith('.pdf')) {
-            final bytes = await file.readAsBytes();
-            final document = PdfDocument(inputBytes: bytes);
-            rawText = PdfTextExtractor(document).extractText();
-            document.dispose();
-          } else if (lowerPath.endsWith('.docx')) {
-            final bytes = await file.readAsBytes();
-            rawText = docxToText(bytes);
-            rawText = rawText
-                .replaceAll(RegExp(r'<[^>]+>'), ' ')
-                .replaceAll(RegExp(r'\s{2,}'), ' ');
-          } else if (lowerPath.endsWith('.zip')) {
-            final bytes = await file.readAsBytes();
-            final archive = ZipDecoder().decodeBytes(bytes);
-            for (final archiveFile in archive) {
-              if (archiveFile.isFile &&
-                  archiveFile.name.toLowerCase().endsWith('.md')) {
-                final data = archiveFile.content as List<int>;
-                rawText = utf8.decode(data, allowMalformed: true);
-                isMarkdownFile = true;
-                break;
-              }
-            }
-          } else {
-            rawText = await file.readAsString();
-            if (lowerPath.endsWith('.md')) isMarkdownFile = true;
-          }
-
-          if (rawText.trim().length > 10) {
-            singleFileQuestions = await AiService.instance.parseTextToQuestions(
-                rawText,
-                taskId: taskId,
-                isMarkdown: isMarkdownFile);
-          }
+      if (questions.isEmpty) {
+        String errorMsg = '未能成功提取题目。请检查原文件是否包含足够清晰的题目结构。';
+        if (parseResult.warnings.isNotEmpty) {
+          errorMsg += '\n\n诊断警告:\n' + parseResult.warnings.join('\n');
+        }
+        if (parseResult.diagnostics.isNotEmpty) {
+          debugPrint('Import Diagnostics: ${parseResult.diagnostics}');
+          errorMsg += '\n\nDiagnostics:\n' +
+              _formatDiagnostics(parseResult.diagnostics).join('\n');
         }
 
-        if (singleFileQuestions.isNotEmpty) {
-          fileResults.add(singleFileQuestions);
-        }
-      }
-
-      // 如果有多个文件，交给大模型做轻量级结构化交叉配对
-      if (fileResults.length > 1) {
-        TaskManager.instance.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
-        return await AiService.instance.mergeStructuredQuestions(fileResults);
-      } else if (fileResults.length == 1) {
-        return fileResults.first;
-      } else {
+        // Attach structured diagnostics before failing so UI can show details
+        TaskManager.instance.attachDiagnostics(
+          taskId,
+          warnings: parseResult.warnings,
+          diagnostics: parseResult.diagnostics,
+        );
+        TaskManager.instance.failTask(taskId, errorMsg);
         return [];
       }
+
+      TaskManager.instance.attachDiagnostics(
+        taskId,
+        warnings: parseResult.warnings,
+        diagnostics: parseResult.diagnostics,
+      );
+
+      return _attachImportDiagnostics(
+        questions,
+        warnings: parseResult.warnings,
+        diagnostics: parseResult.diagnostics,
+      );
     });
   }
 
-  // ============================================================
-  // 🧩 本地智能拼图归并算法 (Local Jigsaw Merge Algorithm)
-  // 功能：将纯答案页（模式 C）与孤立题干（模式 B）按题号配对，完成闭环拼图
-  // ============================================================
-  List<Map<String, dynamic>> _runJigsawMerge(
-      List<Map<String, dynamic>> allParsedQuestions) {
-    if (allParsedQuestions.isEmpty) return [];
+  List<Map<String, dynamic>> _attachImportDiagnostics(
+    List<Map<String, dynamic>> questions, {
+    required List<String> warnings,
+    required Map<String, dynamic> diagnostics,
+  }) {
+    if (warnings.isEmpty && diagnostics.isEmpty) return questions;
 
-    final Map<String, Map<String, dynamic>> questionByNum = {}; // 题干桶：key=q_num
-    final Map<String, Map<String, dynamic>> answerByNum = {}; // 答案桶：key=q_num
-    final List<Map<String, dynamic>> noNumQuestions = []; // 无编号题目暂存区
+    final result = questions.map((q) => Map<String, dynamic>.from(q)).toList();
+    result[0]['_import_diagnostics'] = [
+      ...warnings,
+      ..._formatDiagnostics(diagnostics),
+    ];
+    return result;
+  }
 
-    for (final q in allParsedQuestions) {
-      String qNumRaw = (q['q_num'] ?? '').toString().trim();
-      String qNum = '';
-      final numMatch = RegExp(r'\d+').firstMatch(qNumRaw);
-      if (numMatch != null) qNum = numMatch.group(0)!;
-
-      final hasContent =
-          q['content'] != null && (q['content'] as String).trim().isNotEmpty;
-      final ansStr = (q['standard_answer']?.toString() ?? '').trim();
-      final lowerAns = ansStr.toLowerCase();
-      final hasAnswer = ansStr.isNotEmpty &&
-          lowerAns != 'null' &&
-          lowerAns != 'none' &&
-          ansStr != '无' &&
-          ansStr != '未提供' &&
-          !ansStr.contains('未见答案') &&
-          !ansStr.contains('暂无');
-
-      if (qNum.isEmpty) {
-        if (hasContent || hasAnswer) noNumQuestions.add(q);
-        continue;
-      }
-
-      if (hasContent && !hasAnswer) {
-        if (questionByNum.containsKey(qNum)) {
-          // 进行题干长度博弈，保留长且丰富的题干，防止短的残缺片段覆盖已有题干
-          // 但必须把已有题干中可能包含的答案和解析吃进来
-          final existing = questionByNum[qNum]!;
-          final existingContent = existing['content']?.toString() ?? '';
-          final newContent = q['content']?.toString() ?? '';
-          if (newContent.length > existingContent.length) {
-            if (existing['standard_answer'] != null) {
-              q['standard_answer'] = existing['standard_answer'];
-            }
-            if (existing['explanation'] != null) {
-              q['explanation'] = existing['explanation'];
-            }
-            questionByNum[qNum] = q;
+  List<String> _formatDiagnostics(Map<String, dynamic> diagnostics) {
+    final result = <String>[];
+    void _flatten(Map<String, dynamic> map, String prefix) {
+      for (final entry in map.entries) {
+        final val = entry.value;
+        if (val is Map<String, dynamic>) {
+          _flatten(
+              val, prefix.isEmpty ? '${entry.key} ' : '$prefix${entry.key} ');
+        } else if (val is List) {
+          for (var item in val) {
+            result
+                .add('${prefix.isEmpty ? "" : "[$prefix] "}${item.toString()}');
           }
         } else {
-          questionByNum[qNum] = q;
-        }
-      } else if (!hasContent && hasAnswer) {
-        answerByNum[qNum] = q;
-      } else if (hasContent) {
-        if (questionByNum.containsKey(qNum)) {
-          final existing = questionByNum[qNum]!;
-          final existingContent = existing['content']?.toString() ?? '';
-          final newContent = q['content']?.toString() ?? '';
-
-          // 长度博弈：保留更长、内容更丰富的题干，防止跨页造成的伪题干（短答案）覆盖真题干
-          if (existingContent.length >= newContent.length) {
-            // 保留原有题干，但把新来的答案和解析吃进来（补全拼图）
-            if (hasAnswer) {
-              existing['standard_answer'] = q['standard_answer'];
-              if (q['explanation'] != null) {
-                existing['explanation'] = q['explanation'];
-              }
-            }
-          } else {
-            // 新题干更长，说明旧题干可能是前一页的残影，用新的覆盖旧的
-            if (existing['standard_answer'] != null && !hasAnswer) {
-              q['standard_answer'] = existing['standard_answer'];
-            }
-            questionByNum[qNum] = q;
-          }
-        } else {
-          questionByNum[qNum] = q;
+          result.add(
+              '${prefix.isEmpty ? "" : "[$prefix] "}${entry.key}: ${val.toString()}');
         }
       }
     }
 
-    for (final entry in answerByNum.entries) {
-      final num = entry.key;
-      final answerSlot = entry.value;
-      if (questionByNum.containsKey(num)) {
-        final q = questionByNum[num]!;
-        if (q['standard_answer'] == null ||
-            q['standard_answer'].toString().trim().isEmpty) {
-          q['standard_answer'] = answerSlot['standard_answer'];
-        }
-        if (q['explanation'] == null && answerSlot['explanation'] != null) {
-          q['explanation'] = answerSlot['explanation'];
-        }
-      } else {
-        noNumQuestions.add(answerSlot);
-      }
-    }
-
-    final mergedQuestions = [...questionByNum.values, ...noNumQuestions];
-
-    // 按题型（选择 -> 填空 -> 解答）和题号进行自动化排序
-    mergedQuestions.sort((a, b) {
-      int typeA = (a['type'] is int)
-          ? a['type']
-          : int.tryParse(a['type']?.toString() ?? '3') ?? 3;
-      int typeB = (b['type'] is int)
-          ? b['type']
-          : int.tryParse(b['type']?.toString() ?? '3') ?? 3;
-
-      // 统一 0 和 1（单选/多选）都在最前
-      int weightA = (typeA == 0 || typeA == 1) ? 0 : typeA;
-      int weightB = (typeB == 0 || typeB == 1) ? 0 : typeB;
-
-      if (weightA != weightB) {
-        return weightA.compareTo(weightB);
-      }
-
-      // 类型相同，按题号数字排序
-      String qNumRawA = (a['q_num'] ?? '').toString();
-      String qNumRawB = (b['q_num'] ?? '').toString();
-      int qNumA = int.tryParse(
-              RegExp(r'\d+').firstMatch(qNumRawA)?.group(0) ?? '999') ??
-          999;
-      int qNumB = int.tryParse(
-              RegExp(r'\d+').firstMatch(qNumRawB)?.group(0) ?? '999') ??
-          999;
-
-      return qNumA.compareTo(qNumB);
-    });
-
-    debugPrint(
-        '🧩 本地拼图计算完成：题干桶=${questionByNum.length}，答案桶=${answerByNum.length}，无编号区=${noNumQuestions.length}，待预览结果=${mergedQuestions.length} 题');
-    return mergedQuestions;
+    _flatten(diagnostics, '');
+    return result;
   }
 
   Future<void> _pasteAndParse() async {

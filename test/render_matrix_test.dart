@@ -29,6 +29,13 @@ void main() {
     expect(ContentNormalizer.normalizeForStorage(input3), r'\[A\]');
   });
 
+  test('normalizer preserves escaped commands and row breaks for renderer', () {
+    const input = r'\[\\begin{pmatrix}1&2&3\\2&4&6\end{pmatrix}\]';
+    final output = ContentNormalizer.normalizeForStorage(input);
+
+    expect(output, input);
+  });
+
   test(
       'normalizer avoids double-wrapping already wrapped formulas in dollar conversion',
       () {
@@ -81,12 +88,12 @@ void main() {
       'cleanAndParseJson repairs JSON LaTeX escapes without wrapping bare math',
       () {
     const raw = r'''
-    {"questions":[{"type":0,"content":"Stem with \(x_i\)","options":["A. \frac{1}{4}","B. \(\\frac{1}{2}\)"],"standard_answer":"B"}]}
+    {"questions":[{"type":0,"content":"选择正确的是：Stem with \(x_i\)\nA. \frac{1}{4}\nB. \(\\frac{1}{2}\)","options":["A. \frac{1}{4}","B. \(\\frac{1}{2}\)"],"standard_answer":"B"}]}
     ''';
     final parsed = AiDataSanitizer.cleanAndParseJson(raw);
     final options = parsed.first['options'] as List;
 
-    expect(parsed.first['content'], r'Stem with \(x_i\)');
+    expect(parsed.first['content'], contains(r'Stem with \(x_i\)'));
     expect(options[0], r'A. \frac{1}{4}');
     expect(options[1], r'B. \(\frac{1}{2}\)');
   });
@@ -178,6 +185,81 @@ void main() {
     expect(find.byType(Math), findsOneWidget);
   });
 
+  testWidgets('buildLatexWidget renders escaped matrix from imported JSON',
+      (tester) async {
+    const text = r'A=\\[\\begin{pmatrix}1&2&3\\2&4&6\\3&6&9\end{pmatrix}\\]';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining(r'\begin{pmatrix}', findRichText: true),
+        findsNothing);
+  });
+
+  testWidgets('buildLatexWidget keeps matrix row breaks before variables',
+      (tester) async {
+    const text =
+        r'\[\\begin{pmatrix}x_2\\x_3\end{pmatrix}=\\begin{pmatrix}1\\0\end{pmatrix}\]';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining(r'\x_3', findRichText: true), findsNothing);
+  });
+
+  testWidgets('buildLatexWidget strips nested delimiters inside math',
+      (tester) async {
+    const text = r'\(\int (2 + \sqrt{x})e^{\(\int \frac{1}{2\sqrt{x}}dx\)}dx\)';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining(r'\int', findRichText: true), findsNothing);
+  });
+
+  testWidgets('buildLatexWidget skips structurally unsafe left right formulas',
+      (tester) async {
+    const text = r'\(\left[\int\)';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsNothing);
+    expect(
+        find.textContaining(r'\left[\int', findRichText: true), findsOneWidget);
+  });
+
   testWidgets('buildLatexWidget promotes complex inline math to block view',
       (tester) async {
     const text = r'Before \(\begin{pmatrix}1&2\\3&4\end{pmatrix}\) after';
@@ -194,5 +276,24 @@ void main() {
 
     expect(find.byType(Math), findsOneWidget);
     expect(find.byType(FittedBox), findsNothing);
+  });
+
+  testWidgets('buildLatexWidget degrades unclosed delimiters to plain text',
+      (tester) async {
+    const text = r'Before \(x_i and after text';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => buildLatexWidget(context, text),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsNothing);
+    expect(find.textContaining(r'\(x_i and after text', findRichText: true),
+        findsOneWidget);
   });
 }

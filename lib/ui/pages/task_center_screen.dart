@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../services/task_manager.dart';
 import '../../services/ai_service.dart';
+import '../../services/import_pipeline/import_diagnostic_message.dart';
+import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import 'import_staging_screen.dart';
 
 class TaskCenterScreen extends StatelessWidget {
@@ -36,7 +38,7 @@ class TaskCenterScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.inbox_rounded,
-                        size: 80, color: Colors.grey.withOpacity(0.3)),
+                        size: 80, color: Colors.grey.withValues(alpha: 0.3)),
                     const SizedBox(height: 16),
                     const Text('当前没有后台任务',
                         style: TextStyle(
@@ -68,7 +70,7 @@ class TaskCenterScreen extends StatelessWidget {
                 } else if (t.status == TaskStatus.pendingReview) {
                   icon = Icons.rule_rounded;
                   iconColor = Colors.orange;
-                } // 待校对图标
+                }
 
                 return Card(
                   elevation: 0,
@@ -78,25 +80,24 @@ class TaskCenterScreen extends StatelessWidget {
                       side: BorderSide(
                           color: isDark
                               ? Colors.white10
-                              : Colors.grey.withOpacity(0.2))),
+                              : Colors.grey.withValues(alpha: 0.2))),
                   color: theme.cardTheme.color,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(16),
                     onTap: t.status == TaskStatus.pendingReview &&
                             t.parsedData != null
                         ? () {
-                            // 点击待校对任务，弹出暂存区
                             Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (_) => ImportStagingScreen(
                                   taskId: t.id,
                                   parsedQuestions: t.parsedData!,
+                                  warnings: t.warnings,
+                                  diagnostics: t.diagnostics,
                                 ),
                               ),
-                            ).then((_) {
-                              // 返回后我们先不强制删掉任务，等待真入库（若用户真入库，可在暂存区调用 completeTask 或此处判断）
-                            });
+                            );
                           }
                         : null,
                     child: Padding(
@@ -149,12 +150,48 @@ class TaskCenterScreen extends StatelessWidget {
                                       child: LinearProgressIndicator(
                                           value: t.percent,
                                           minHeight: 6,
-                                          backgroundColor:
-                                              Colors.grey.withOpacity(0.2),
+                                          backgroundColor: Colors.grey
+                                              .withValues(alpha: 0.2),
                                           valueColor:
                                               const AlwaysStoppedAnimation<
                                                   Color>(Colors.blueAccent))),
                                   const SizedBox(height: 8),
+                                  if (t.pendingChunks != null ||
+                                      t.failedChunks != null) ...[
+                                    Row(
+                                      children: [
+                                        if (t.pendingChunks != null)
+                                          Text(
+                                              '待解析: ${t.pendingChunks!.length} 批次',
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey)),
+                                        if (t.pendingChunks != null &&
+                                            t.failedChunks != null)
+                                          const SizedBox(width: 12),
+                                        if (t.failedChunks != null &&
+                                            t.failedChunks!.isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.redAccent
+                                                  .withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                                '失败: ${t.failedChunks!.length} 批次',
+                                                style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.redAccent,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
                                 ],
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,6 +242,64 @@ class TaskCenterScreen extends StatelessWidget {
                                       ),
                                   ],
                                 ),
+                                if (t.status == TaskStatus.pendingReview &&
+                                    t.warnings != null &&
+                                    t.warnings!.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.orange.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                          color: Colors.orange
+                                              .withValues(alpha: 0.2)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.warning_amber_rounded,
+                                            size: 16, color: Colors.orange),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            '解析完成，但有 ${t.warnings!.length} 条注意事项',
+                                            style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.orange,
+                                                fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                if (t.status == TaskStatus.error &&
+                                    (t.warnings?.isNotEmpty == true ||
+                                        t.diagnostics?.isNotEmpty == true)) ...[
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: () =>
+                                          _showDiagnosticsSheet(context, t),
+                                      style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: const Size(0, 28),
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                        foregroundColor: Colors.redAccent,
+                                      ),
+                                      icon: const Icon(Icons.info_outline,
+                                          size: 16),
+                                      label: const Text('查看详细诊断原因',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold)),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -222,6 +317,148 @@ class TaskCenterScreen extends StatelessWidget {
               },
             );
           }),
+    );
+  }
+
+  void _showDiagnosticsSheet(BuildContext context, ImportTask task) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _ImportTaskDiagnosticSheet(task: task),
+    );
+  }
+}
+
+class _ImportTaskDiagnosticSheet extends StatelessWidget {
+  final ImportTask task;
+
+  const _ImportTaskDiagnosticSheet({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final messages = ImportDiagnosticFormatter.format(
+      warnings: task.warnings,
+      diagnostics: task.diagnostics,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.75,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '解析诊断报告',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: theme.textTheme.titleLarge?.color,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            task.title,
+            style: const TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          if (messages.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text('无可用诊断信息', style: TextStyle(color: Colors.grey)),
+              ),
+            )
+          else
+            Expanded(
+              child: ListView.separated(
+                itemCount: messages.length,
+                separatorBuilder: (_, __) => const Divider(height: 16),
+                itemBuilder: (context, index) {
+                  final msg = messages[index];
+                  IconData icon;
+                  Color color;
+                  switch (msg.severity) {
+                    case ImportDiagnosticSeverity.error:
+                      icon = Icons.error_outline_rounded;
+                      color = Colors.redAccent;
+                      break;
+                    case ImportDiagnosticSeverity.warning:
+                      icon = Icons.warning_amber_rounded;
+                      color = Colors.orange;
+                      break;
+                    case ImportDiagnosticSeverity.info:
+                      icon = Icons.info_outline_rounded;
+                      color = Colors.blueAccent;
+                      break;
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, color: color, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              msg.title,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: color,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              msg.message,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: theme.textTheme.bodyMedium?.color,
+                                height: 1.4,
+                              ),
+                            ),
+                            if (msg.source != null || msg.code != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${msg.source != null ? "来源: ${msg.source}" : ""}'
+                                '${msg.source != null && msg.code != null ? " | " : ""}'
+                                '${msg.code != null ? "代码: ${msg.code}" : ""}',
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

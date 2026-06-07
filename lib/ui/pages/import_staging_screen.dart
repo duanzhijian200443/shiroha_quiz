@@ -1,17 +1,36 @@
 import 'package:flutter/material.dart';
-import '../../data/models/question_draft.dart';
+import 'package:flutter/services.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
+import '../../services/import_pipeline/import_diagnostic_message.dart';
+import '../../services/import_pipeline/import_diagnostic_formatter.dart';
+import '../../services/import_review/import_review_analyzer.dart';
+import '../../services/import_review/import_review_item.dart';
+import '../../services/import_review/import_review_issue.dart';
+import '../../services/import_review/import_review_badge_formatter.dart';
+import '../../services/import_review/import_review_batch_controller.dart';
+import '../../services/import_review/import_review_filter.dart';
+import '../../services/import_review/import_review_visible_item.dart';
+import '../../services/import_review/import_review_report_builder.dart';
+import '../../services/import_review/import_review_report_formatter.dart';
+import '../../data/models/question_draft.dart';
 import '../widgets/markdown_extensions.dart';
 import '../../main.dart';
 
 class ImportStagingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> parsedQuestions;
   final String? taskId;
+  final List<String>? warnings;
+  final Map<String, dynamic>? diagnostics;
+  final QuestionRepository? questionRepository;
+
   const ImportStagingScreen({
     super.key,
     required this.parsedQuestions,
     this.taskId,
+    this.warnings,
+    this.diagnostics,
+    this.questionRepository,
   });
 
   @override
@@ -19,19 +38,74 @@ class ImportStagingScreen extends StatefulWidget {
 }
 
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
-  late List<QuestionDraft> _displayQuestions;
+  late List<ImportReviewItem> _allItems;
+  late List<ImportReviewVisibleItem> _visibleItems;
+  late List<String> _importDiagnostics;
+  late List<ImportDiagnosticMessage> _diagnosticMessages;
+  late ImportReviewAnalyzerResult _reviewResult;
+  ImportReviewFilter _activeFilter = ImportReviewFilter.all;
+  ImportReviewSort _activeSort = ImportReviewSort.originalOrder;
   bool _isSaving = false;
+  bool _selectionMode = false;
+  final Set<int> _selectedOriginalIndices = {};
 
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
-  final QuestionRepository _questionRepository = QuestionRepository.instance;
+  late final QuestionRepository _questionRepository =
+      widget.questionRepository ?? QuestionRepository.instance;
   List<String> _existingFolders = [];
+
+  bool get _isBlockedByQualityGate {
+    final gate = widget.diagnostics?['qualityGate'];
+    return gate is Map && gate['blocked'] == true;
+  }
+
+  String get _confirmButtonText {
+    if (_isBlockedByQualityGate) return '解析不完整，禁止入库';
+    return '确认无误，收入题库';
+  }
 
   @override
   void initState() {
     super.initState();
-    _displayQuestions = QuestionDraft.listFromMaps(widget.parsedQuestions);
+    final messages = ImportDiagnosticFormatter.format(
+      warnings: widget.warnings,
+      diagnostics: widget.diagnostics,
+    );
+    if (messages.isNotEmpty) {
+      _diagnosticMessages = messages;
+      _importDiagnostics = const [];
+    } else {
+      _importDiagnostics = _readImportDiagnostics(widget.parsedQuestions);
+      _diagnosticMessages = _importDiagnostics
+          .map((w) => ImportDiagnosticMessage(
+                severity: ImportDiagnosticSeverity.warning,
+                title: '导入警告',
+                message: w,
+              ))
+          .toList();
+    }
+    _allItems = widget.parsedQuestions
+        .asMap()
+        .entries
+        .map((e) => ImportReviewItem.fromMap(e.value, e.key))
+        .toList();
+    _refreshReviewState();
     _loadExistingFolders();
+  }
+
+  List<String> _readImportDiagnostics(List<Map<String, dynamic>> questions) {
+    if (questions.isEmpty) return const [];
+
+    final raw = questions.first['_import_diagnostics'];
+    if (raw is List) {
+      return raw
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+    }
+
+    return const [];
   }
 
   Future<void> _loadExistingFolders() async {
@@ -44,47 +118,244 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _validateBeforeSave() {
-    final emptyStems = _displayQuestions
-        .where((q) =>
-            q.content.trim().isEmpty ||
-            q.content.contains('假设') ||
-            q.content.contains('原题干'))
-        .length;
-
-    final emptyRate =
-        _displayQuestions.isEmpty ? 0 : emptyStems / _displayQuestions.length;
-
-    if (emptyRate > 0.4) {
+    if (_allItems.isEmpty) {
       showDialog(
         context: context,
-        builder: (_) => AlertDialog(
+        builder: (ctx) => AlertDialog(
+          title:
+              const Text('提示', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: const Text('当前没有可入库题目'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final report = ImportReviewReportBuilder.build(_allItems, _reviewResult);
+
+    if (report.qualityScore < 60) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
           title: const Text('提取质量不佳',
               style: TextStyle(fontWeight: FontWeight.bold)),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Text('有 $emptyStems 道题目未能识别题干，建议检查原文档结构后重新导入。'),
+          content:
+              Text(ImportReviewReportFormatter.formatDialogSummary(report)),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消', style: TextStyle(color: Colors.grey))),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('返回检查', style: TextStyle(color: Colors.grey)),
+            ),
             ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: () {
-                  Navigator.pop(context);
-                  _showSaveDialog();
-                },
-                child: const Text('仍然保存')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showSaveDialog();
+              },
+              child: const Text('仍然继续'),
+            ),
+          ],
+        ),
+      );
+    } else if (report.errorCount > 0) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('仍有严重问题',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content:
+              Text(ImportReviewReportFormatter.formatDialogSummary(report)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('返回检查', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showSaveDialog();
+              },
+              child: const Text('仍然继续'),
+            ),
+          ],
+        ),
+      );
+    } else if (report.warningCount > 0 || report.infoCount > 0) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('普通确认摘要',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content:
+              Text(ImportReviewReportFormatter.formatDialogSummary(report)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showSaveDialog();
+              },
+              child: const Text('继续'),
+            ),
           ],
         ),
       );
     } else {
       _showSaveDialog();
     }
+  }
+
+  void _enterSelectionMode() {
+    setState(() {
+      _selectionMode = true;
+      _selectedOriginalIndices.clear();
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedOriginalIndices.clear();
+    });
+  }
+
+  void _toggleSelection(ImportReviewItem item) {
+    setState(() {
+      if (_selectedOriginalIndices.contains(item.originalIndex)) {
+        _selectedOriginalIndices.remove(item.originalIndex);
+      } else {
+        _selectedOriginalIndices.add(item.originalIndex);
+      }
+    });
+  }
+
+  void _selectAllVisible() {
+    setState(() {
+      for (final vi in _visibleItems) {
+        _selectedOriginalIndices.add(vi.item.originalIndex);
+      }
+    });
+  }
+
+  void _applyBatchResult(List<ImportReviewItem> nextItems) {
+    setState(() {
+      _allItems = nextItems;
+      _selectedOriginalIndices.clear();
+      _selectionMode = false;
+      _refreshReviewState();
+    });
+  }
+
+  void _deleteSelectedWithConfirm() {
+    if (_selectedOriginalIndices.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除选中题目'),
+        content:
+            Text('将删除 ${_selectedOriginalIndices.length} 道题，此操作仅影响本次导入暂存列表。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(ctx);
+              final nextItems = ImportReviewBatchController.deleteSelected(
+                items: _allItems,
+                selectedOriginalIndices: _selectedOriginalIndices,
+              );
+              _applyBatchResult(nextItems);
+            },
+            child: const Text('确认删除'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _changeSelectedType(QuestionType targetType) {
+    final nextItems = ImportReviewBatchController.changeTypeSelected(
+      items: _allItems,
+      selectedOriginalIndices: _selectedOriginalIndices,
+      targetType: targetType,
+    );
+    _applyBatchResult(nextItems);
+  }
+
+  void _showChangeTypeDialog() {
+    if (_selectedOriginalIndices.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量修改题型'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('选择题'),
+              leading: const Icon(Icons.radio_button_checked),
+              onTap: () {
+                Navigator.pop(ctx);
+                _changeSelectedType(QuestionType.singleChoice);
+              },
+            ),
+            ListTile(
+              title: const Text('填空题'),
+              leading: const Icon(Icons.space_bar),
+              onTap: () {
+                Navigator.pop(ctx);
+                _changeSelectedType(QuestionType.fillBlank);
+              },
+            ),
+            ListTile(
+              title: const Text('简答题'),
+              leading: const Icon(Icons.notes),
+              onTap: () {
+                Navigator.pop(ctx);
+                _changeSelectedType(QuestionType.shortAnswer);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSaveDialog() {
@@ -174,17 +445,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _confirmAndSave(String bankName, String folderName) async {
-    if (_displayQuestions.isEmpty) {
+    if (_allItems.isEmpty) {
       Navigator.pop(context);
       return;
     }
+
+    final report = ImportReviewReportBuilder.build(_allItems, _reviewResult);
 
     setState(() => _isSaving = true);
     try {
       await _questionRepository.saveQuestionDraftsToBank(
         bankName: bankName,
         folderName: folderName,
-        questions: _displayQuestions,
+        questions: _allItems.map((item) => item.draft).toList(),
       );
 
       // 触发全局题库刷新事件
@@ -196,10 +469,47 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('🎉 成功入库 ${_displayQuestions.length} 题！'),
-            backgroundColor: Colors.green));
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('🎉 导入成功！'), backgroundColor: Colors.green));
+
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) {
+            return AlertDialog(
+              title: const Text('本次导入报告',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    ImportReviewReportFormatter.formatSuccessReport(
+                        report, bankName, folderName),
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                  ),
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('完成'),
+                ),
+              ],
+            );
+          },
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -211,15 +521,364 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     }
   }
 
+  void _refreshReviewState() {
+    _reviewResult = ImportReviewAnalyzer.analyzeItems(_allItems);
+    _refreshVisibleItems();
+  }
+
+  void _refreshVisibleItems() {
+    _visibleItems = ImportReviewFilterService.apply(
+      items: _allItems,
+      analysis: _reviewResult,
+      filter: _activeFilter,
+      sort: _activeSort,
+    );
+  }
+
+  Widget _buildToolbar() {
+    final theme = Theme.of(context);
+    final counts = ImportReviewFilterService.countByFilter(
+      items: _allItems,
+      analysis: _reviewResult,
+    );
+
+    String getFilterLabel(ImportReviewFilter filter) {
+      switch (filter) {
+        case ImportReviewFilter.all:
+          return '全部';
+        case ImportReviewFilter.errorsOnly:
+          return '严重';
+        case ImportReviewFilter.warningsOnly:
+          return '警告';
+        case ImportReviewFilter.missingAnswer:
+          return '缺答案';
+        case ImportReviewFilter.choiceIssues:
+          return '选择题';
+        case ImportReviewFilter.fusionRisks:
+          return '融合风险';
+        case ImportReviewFilter.answerConflict:
+          return '答案冲突';
+        case ImportReviewFilter.orphanOrAnswerOnly:
+          return '孤立/仅答案';
+        case ImportReviewFilter.visionOnly:
+          return '视觉';
+        case ImportReviewFilter.fused:
+          return '图文融合';
+      }
+    }
+
+    String getSortLabel(ImportReviewSort sort) {
+      switch (sort) {
+        case ImportReviewSort.originalOrder:
+          return '原始顺序';
+        case ImportReviewSort.riskFirst:
+          return '风险优先';
+        case ImportReviewSort.missingFieldsFirst:
+          return '缺失优先';
+        case ImportReviewSort.sourceRiskFirst:
+          return '来源风险优先';
+      }
+    }
+
+    return Container(
+      color: theme.cardColor,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: ImportReviewFilter.values.map((filter) {
+                final count = counts[filter] ?? 0;
+                final isSelected = _activeFilter == filter;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: FilterChip(
+                    label: Text('${getFilterLabel(filter)} $count'),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _activeFilter = filter;
+                          _selectionMode = false;
+                          _selectedOriginalIndices.clear();
+                          _refreshVisibleItems();
+                        });
+                      }
+                    },
+                    selectedColor: theme.primaryColor.withValues(alpha: 0.2),
+                    checkmarkColor: theme.primaryColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(
+                        color: isSelected
+                            ? theme.primaryColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const Divider(height: 8, thickness: 0.5),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '已筛选出 ${_visibleItems.length} 道题',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                PopupMenuButton<ImportReviewSort>(
+                  initialValue: _activeSort,
+                  onSelected: (sort) {
+                    setState(() {
+                      _activeSort = sort;
+                      _selectionMode = false;
+                      _selectedOriginalIndices.clear();
+                      _refreshVisibleItems();
+                    });
+                  },
+                  itemBuilder: (context) => ImportReviewSort.values.map((sort) {
+                    return PopupMenuItem<ImportReviewSort>(
+                      value: sort,
+                      child: Text(getSortLabel(sort)),
+                    );
+                  }).toList(),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.sort, size: 16, color: theme.primaryColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        getSortLabel(_activeSort),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDiagnosticsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '导入诊断详情',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).textTheme.titleLarge?.color,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (widget.diagnostics != null && widget.diagnostics!.containsKey('rawTextPreview')) ...[
+              _buildRawTextPreviewCard(context),
+              const SizedBox(height: 16),
+            ],
+            Expanded(
+              child: ListView.separated(
+                itemCount: _diagnosticMessages.length,
+                separatorBuilder: (_, __) => const Divider(height: 16),
+                itemBuilder: (context, index) {
+                  final msg = _diagnosticMessages[index];
+                  IconData icon;
+                  Color color;
+                  switch (msg.severity) {
+                    case ImportDiagnosticSeverity.error:
+                      icon = Icons.error_outline_rounded;
+                      color = Colors.redAccent;
+                      break;
+                    case ImportDiagnosticSeverity.warning:
+                      icon = Icons.warning_amber_rounded;
+                      color = Colors.orange;
+                      break;
+                    case ImportDiagnosticSeverity.info:
+                      icon = Icons.info_outline_rounded;
+                      color = Colors.blueAccent;
+                      break;
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, color: color, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              msg.title,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: color,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              msg.message,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.color,
+                                height: 1.4,
+                              ),
+                            ),
+                            if (msg.source != null || msg.code != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${msg.source != null ? "来源: ${msg.source}" : ""}'
+                                '${msg.source != null && msg.code != null ? " | " : ""}'
+                                '${msg.code != null ? "代码: ${msg.code}" : ""}',
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryBar() {
+    final summary = _reviewResult.summary;
+    Color scoreColor;
+    if (summary.qualityScore >= 80) {
+      scoreColor = Colors.green;
+    } else if (summary.qualityScore >= 60) {
+      scoreColor = Colors.orange;
+    } else {
+      scoreColor = Colors.redAccent;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: Theme.of(context).cardColor,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: scoreColor.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '${summary.qualityScore}',
+              style: TextStyle(
+                color: scoreColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '质量摘要 (共 ${summary.totalCount} 题)',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '错误: ${summary.errorCount} | 警告: ${summary.warningCount} | 缺答案: ${summary.missingAnswerCount}',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title:
-            const Text('解析结果校对', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+            _selectionMode
+                ? '已选 ${_selectedOriginalIndices.length} 题'
+                : '解析结果校对',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         elevation: 0,
+        leading: _selectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _exitSelectionMode,
+              )
+            : null,
+        actions: [
+          if (!_selectionMode)
+            IconButton(
+              icon: const Icon(Icons.checklist),
+              tooltip: '批量操作',
+              onPressed: _enterSelectionMode,
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -237,54 +896,341 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               ],
             ),
           ),
+          if (_diagnosticMessages.isNotEmpty) ...[
+            Builder(builder: (context) {
+              final hasError = _diagnosticMessages
+                  .any((m) => m.severity == ImportDiagnosticSeverity.error);
+              final hasWarning = _diagnosticMessages
+                  .any((m) => m.severity == ImportDiagnosticSeverity.warning);
+
+              Color bannerBg;
+              Color textAndIconColor;
+              IconData bannerIcon;
+              String bannerTitle;
+
+              if (hasError) {
+                bannerBg = Colors.redAccent.withValues(alpha: 0.1);
+                textAndIconColor = Colors.redAccent;
+                bannerIcon = Icons.error_outline_rounded;
+                bannerTitle = '解析发生严重错误';
+              } else if (hasWarning) {
+                bannerBg = Colors.orangeAccent.withValues(alpha: 0.12);
+                textAndIconColor = Colors.orange;
+                bannerIcon = Icons.warning_amber_rounded;
+                bannerTitle = '解析有注意事项';
+              } else {
+                bannerBg = Colors.blueAccent.withValues(alpha: 0.08);
+                textAndIconColor = Colors.blueAccent;
+                bannerIcon = Icons.info_outline_rounded;
+                bannerTitle = '包含解析报告';
+              }
+
+              return Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                color: bannerBg,
+                child: Row(
+                  children: [
+                    Icon(bannerIcon, color: textAndIconColor, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$bannerTitle (${_diagnosticMessages.length} 条记录)',
+                        style: TextStyle(
+                          color: textAndIconColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _showDiagnosticsSheet(context),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 30),
+                        foregroundColor: textAndIconColor,
+                      ),
+                      child: const Row(
+                        children: [
+                          Text('查看详情',
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold)),
+                          Icon(Icons.arrow_right, size: 16),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+          const Divider(height: 1),
+          _buildSummaryBar(),
+          const Divider(height: 1),
+          _buildToolbar(),
+          const Divider(height: 1),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _displayQuestions.length,
-              itemBuilder: (context, index) {
-                final q = _displayQuestions[index];
-                return _QuestionCard(
-                  key: ValueKey(
-                    '$index-${q.content.hashCode}-${q.standardAnswer.hashCode}',
-                  ),
-                  question: q,
-                  index: index,
-                  onDelete: () {
-                    setState(() => _displayQuestions.removeAt(index));
-                  },
-                );
-              },
-            ),
+            child: _allItems.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.delete_outline,
+                          size: 48,
+                          color: Colors.grey.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '所有题目已被删除',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : (_visibleItems.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.filter_list_off,
+                              size: 48,
+                              color: Colors.grey.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '当前筛选下没有题目',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _visibleItems.length,
+                        itemBuilder: (context, index) {
+                          final visibleItem = _visibleItems[index];
+                          final item = visibleItem.item;
+                          return Dismissible(
+                            key: ValueKey(item.originalIndex),
+                            direction: _selectionMode
+                                ? DismissDirection.none
+                                : DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              color: Colors.redAccent,
+                              child: const Icon(Icons.delete_sweep,
+                                  color: Colors.white),
+                            ),
+                            onDismissed: (direction) {
+                              setState(() {
+                                _allItems.removeWhere((it) =>
+                                    it.originalIndex == item.originalIndex);
+                                _refreshReviewState();
+                              });
+                            },
+                            child: Row(
+                              children: [
+                                if (_selectionMode)
+                                  Checkbox(
+                                    value: _selectedOriginalIndices
+                                        .contains(item.originalIndex),
+                                    onChanged: (val) {
+                                      _toggleSelection(item);
+                                    },
+                                  ),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: _selectionMode
+                                        ? () => _toggleSelection(item)
+                                        : null,
+                                    child: _QuestionCard(
+                                      item: item,
+                                      index: visibleItem.canonicalIndex,
+                                      issues: visibleItem.issues,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      )),
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: theme.primaryColor,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+      bottomNavigationBar: _selectionMode
+          ? SafeArea(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  boxShadow: const [
+                    BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 4,
+                        offset: Offset(0, -2))
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton.icon(
+                      icon: const Icon(Icons.select_all),
+                      label: const Text('全选当前'),
+                      onPressed: _selectAllVisible,
+                    ),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          icon: const Icon(Icons.edit),
+                          label: const Text('改题型'),
+                          onPressed: _selectedOriginalIndices.isEmpty
+                              ? null
+                              : _showChangeTypeDialog,
+                        ),
+                        TextButton.icon(
+                          icon:
+                              const Icon(Icons.delete, color: Colors.redAccent),
+                          label: const Text('删除',
+                              style: TextStyle(color: Colors.redAccent)),
+                          onPressed: _selectedOriginalIndices.isEmpty
+                              ? null
+                              : _deleteSelectedWithConfirm,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: _isBlockedByQualityGate ? Colors.grey : theme.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
+                      : (_isBlockedByQualityGate ? const Icon(Icons.block) : const Icon(Icons.check_circle_outline)),
+                  label: Text(
+                      _isBlockedByQualityGate
+                          ? _confirmButtonText
+                          : (_isSaving
+                              ? '正在入库...'
+                              : '确认无误，将 ${_allItems.length} 题收入题库'),
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                  onPressed: (_isSaving || _isBlockedByQualityGate) ? null : _validateBeforeSave,
+                ),
+              ),
             ),
-            icon: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        color: Colors.white, strokeWidth: 2))
-                : const Icon(Icons.check_circle_outline),
-            label: Text(
-                _isSaving
-                    ? '正在入库...'
-                    : '确认无误，将 ${_displayQuestions.length} 题收入题库',
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            onPressed: _isSaving ? null : _validateBeforeSave,
+    );
+  }
+
+  Widget _buildRawTextPreviewCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final rawText = widget.diagnostics!['rawTextPreview'] as String;
+    final length = widget.diagnostics!['rawTextLength'] ?? rawText.length;
+    final lineCount = widget.diagnostics!['rawTextLineCount'] ?? rawText.split('\n').length;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.primaryColor.withOpacity(0.2)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.description_outlined, color: theme.primaryColor, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    '原始提取文本 (DOCX)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: theme.textTheme.titleMedium?.color,
+                    ),
+                  ),
+                ],
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: rawText));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('已复制原始文本预览到剪贴板'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy_rounded, size: 14),
+                label: const Text('复制原始文本预览'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: const Size(0, 28),
+                  textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  backgroundColor: theme.primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            '字符数: $length | 行数: $lineCount',
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 100,
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: theme.brightness == Brightness.dark
+                  ? Colors.black26
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                rawText,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -292,19 +1238,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
 class _QuestionCard extends StatelessWidget {
   const _QuestionCard({
-    super.key,
-    required this.question,
+    required this.item,
     required this.index,
-    required this.onDelete,
+    required this.issues,
   });
 
-  final QuestionDraft question;
+  final ImportReviewItem item;
   final int index;
-  final VoidCallback onDelete;
+  final List<ImportReviewIssue> issues;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final question = item.draft;
     final standardAnswer = question.standardAnswer.trim();
     final explanation = question.explanation.trim();
 
@@ -343,17 +1289,38 @@ class _QuestionCard extends StatelessWidget {
                   '第 ${index + 1} 题',
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
-                const Spacer(),
-                InkWell(
-                  onTap: onDelete,
-                  borderRadius: BorderRadius.circular(12),
-                  child: const Padding(
-                    padding: EdgeInsets.all(4.0),
-                    child: Icon(Icons.close, size: 20, color: Colors.grey),
-                  ),
-                ),
               ],
             ),
+            if (item.metadata.riskHints.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6.0,
+                runSpacing: 6.0,
+                children: ImportReviewBadgeFormatter.formatRiskHints(
+                        item.metadata.riskHints)
+                    .map((badge) => Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: badge.backgroundColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            badge.label,
+                            style: TextStyle(
+                              color: badge.textColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ],
+            if (issues.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _IssueSummary(issues: issues),
+            ],
             const SizedBox(height: 12),
             _buildMarkdown(context, question.content),
             const Divider(height: 24),
@@ -376,6 +1343,74 @@ class _QuestionCard extends StatelessWidget {
       text,
       textColor: Theme.of(context).textTheme.bodyLarge?.color,
       fontSize: 14.0,
+    );
+  }
+}
+
+class _IssueSummary extends StatelessWidget {
+  const _IssueSummary({required this.issues});
+
+  final List<ImportReviewIssue> issues;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleIssues = issues.take(3).toList(growable: false);
+    final hasError =
+        issues.any((issue) => issue.severity == ImportReviewSeverity.error);
+    final color = hasError ? Colors.redAccent : Colors.orangeAccent;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final issue in visibleIssues)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    issue.severity == ImportReviewSeverity.error
+                        ? Icons.error_outline
+                        : Icons.info_outline,
+                    size: 14,
+                    color: color,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      issue.message,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (issues.length > visibleIssues.length)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '另有 ${issues.length - visibleIssues.length} 条问题',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

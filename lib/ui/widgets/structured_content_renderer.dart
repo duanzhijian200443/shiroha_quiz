@@ -212,6 +212,17 @@ class _InlineTokenParagraph extends StatelessWidget {
       }
     }
 
+    if (spans.length == 1 && spans.first is TextSpan) {
+      final textSpan = spans.first as TextSpan;
+      if (textSpan.children == null || textSpan.children!.isEmpty) {
+        return Text(
+          textSpan.text ?? '',
+          style: textSpan.style ?? style,
+          textScaler: MediaQuery.textScalerOf(context),
+        );
+      }
+    }
+
     return RichText(
       textScaler: MediaQuery.textScalerOf(context),
       text: TextSpan(style: style, children: spans),
@@ -311,6 +322,16 @@ class _MathTexView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final safeTex = _MathTexSanitizer.sanitize(tex);
+    if (_MathTexSanitizer.isStructurallyUnsafe(safeTex)) {
+      if (kDebugMode) {
+        debugPrint('Structured LaTeX skipped unsafe formula: $safeTex');
+      }
+      return _LatexErrorChip(
+        tex: tex,
+        style: style,
+        inline: inline,
+      );
+    }
     return Math.tex(
       safeTex,
       textStyle: style.copyWith(color: color, fontSize: fontSize),
@@ -375,22 +396,15 @@ class _ParseErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.08),
-        border: Border.all(color: Colors.orange.shade300),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        '${token.raw}\n${token.reason}',
-        style: style.copyWith(
-          fontFamily: 'monospace',
-          fontSize: (style.fontSize ?? 14) * 0.86,
-          color: Colors.deepOrange.shade900,
-        ),
-      ),
+    final text = Text(
+      token.raw,
+      style: style,
+    );
+    if (!kDebugMode) return text;
+
+    return Tooltip(
+      message: token.reason,
+      child: text,
     );
   }
 }
@@ -400,16 +414,101 @@ class _MathTexSanitizer {
 
   static String sanitize(String tex) {
     var result = tex.trim();
+    result = _normalizeJsonEscapedLatex(result);
+    result = _stripNestedMathDelimiters(result);
     result = _replaceUnsupportedCommands(result);
     result = _normalizeUnicodeMathSymbols(result);
     return result;
   }
 
+  static String _normalizeJsonEscapedLatex(String tex) {
+    return tex
+        .replaceAll(r'\\(', r'\(')
+        .replaceAll(r'\\)', r'\)')
+        .replaceAll(r'\\[', r'\[')
+        .replaceAll(r'\\]', r'\]')
+        .replaceAll(r'\\begin', r'\begin')
+        .replaceAll(r'\\end', r'\end')
+        .replaceAll(r'\\frac', r'\frac')
+        .replaceAll(r'\\sqrt', r'\sqrt')
+        .replaceAll(r'\\sum', r'\sum')
+        .replaceAll(r'\\int', r'\int')
+        .replaceAll(r'\\lim', r'\lim')
+        .replaceAll(r'\\left', r'\left')
+        .replaceAll(r'\\right', r'\right')
+        .replaceAll(r'\\rightarrow', r'\rightarrow')
+        .replaceAll(r'\\leftarrow', r'\leftarrow')
+        .replaceAll(r'\\geq', r'\geq')
+        .replaceAll(r'\\leq', r'\leq')
+        .replaceAll(r'\\neq', r'\neq')
+        .replaceAll(r'\\approx', r'\approx')
+        .replaceAll(r'\\infty', r'\infty')
+        .replaceAll(r'\\partial', r'\partial')
+        .replaceAll(r'\\sin', r'\sin')
+        .replaceAll(r'\\cos', r'\cos')
+        .replaceAll(r'\\tan', r'\tan')
+        .replaceAll(r'\\ln', r'\ln')
+        .replaceAll(r'\\log', r'\log');
+  }
+
+  static String _stripNestedMathDelimiters(String tex) {
+    var result = tex.trim();
+    while (true) {
+      final old = result;
+      if (result.startsWith(r'\(') && result.endsWith(r'\)')) {
+        result = result.substring(2, result.length - 2).trim();
+      } else if (result.startsWith(r'\[') && result.endsWith(r'\]')) {
+        result = result.substring(2, result.length - 2).trim();
+      }
+      result = result
+          .replaceAll(r'{\(', '{')
+          .replaceAll(r'\)}', '}')
+          .replaceAll(r'{\[', '{')
+          .replaceAll(r'\]}', '}');
+      if (result == old) return result;
+    }
+  }
+
+  static bool isStructurallyUnsafe(String tex) {
+    if (_commandCount(tex, 'left') != _commandCount(tex, 'right')) {
+      return true;
+    }
+    return !_hasBalancedEnvironments(tex);
+  }
+
+  static int _commandCount(String tex, String command) {
+    return RegExp('\\\\$command\\b').allMatches(tex).length;
+  }
+
+  static bool _hasBalancedEnvironments(String tex) {
+    final stack = <String>[];
+    final pattern = RegExp(r'\\(begin|end)\{([^{}]+)\}');
+    for (final match in pattern.allMatches(tex)) {
+      final kind = match.group(1);
+      final env = match.group(2)!;
+      if (kind == 'begin') {
+        stack.add(env);
+      } else if (stack.isEmpty || stack.removeLast() != env) {
+        return false;
+      }
+    }
+    return stack.isEmpty;
+  }
+
   static String _replaceUnsupportedCommands(String tex) {
-    return tex.replaceAllMapped(
+    var result = tex.replaceAllMapped(
       RegExp(r'\\xlongequal(?:\[[^\]]*\])?\{((?:[^{}]|\{[^{}]*\})*)\}'),
       (match) => r'\overset{' + match.group(1)! + r'}{=}',
     );
+    result = result.replaceAllMapped(
+      RegExp(r'\\rightarrow\{([^{}]*)\}'),
+      (match) => r'\overset{' + match.group(1)! + r'}{\longrightarrow}',
+    );
+    result = result.replaceAllMapped(
+      RegExp(r'\\leftarrow\{([^{}]*)\}'),
+      (match) => r'\overset{' + match.group(1)! + r'}{\longleftarrow}',
+    );
+    return result;
   }
 
   static String _normalizeUnicodeMathSymbols(String tex) {

@@ -40,6 +40,15 @@ void main() {
     expect(output, input);
   });
 
+  test('drops unclosed opening delimiters instead of emitting broken math', () {
+    const input = r'前文 \(x_i and after text';
+    final output = repair.repairInline(input);
+    final tokens = ContentTokenizer.tokenize(output);
+
+    expect(output, r'前文 x_i and after text');
+    expect(tokens.whereType<ParseErrorToken>(), isEmpty);
+  });
+
   test('repairs all import draft fields without mutating source map', () {
     final source = {
       'content': r'题干 \sqrt{x}',

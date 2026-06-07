@@ -1,5 +1,6 @@
 import '../data/models/question_draft.dart';
 import '../data/models/question_parse_mode.dart';
+import 'import_pipeline/text_question_region.dart';
 import 'ai_direct_call_service.dart';
 import 'ai_task_resume_coordinator.dart';
 import 'ai_text_generation_service.dart';
@@ -100,6 +101,11 @@ class AiService {
       isMarkdown: isMarkdown,
       parseMode: QuestionParseMode.fromLegacyValue(parseMode),
     );
+  }
+
+  Future<Map<String, dynamic>> repairSingleQuestionRegion(
+      TextQuestionRegion region) async {
+    return _textParseService.repairSingleQuestionRegion(region);
   }
 
   Future<List<Map<String, dynamic>>> parseImagesWithVision(

@@ -28,6 +28,10 @@ class ImportTask {
   List<String>? pendingChunks;
   List<String>? failedChunks;
 
+  // 4-H 新增：导入过程中的警告和诊断详情
+  List<String>? warnings;
+  Map<String, dynamic>? diagnostics;
+
   final int createdAt;
   int? completedAt;
 
@@ -44,6 +48,8 @@ class ImportTask {
     this.sourceType,
     this.pendingChunks,
     this.failedChunks,
+    this.warnings,
+    this.diagnostics,
     int? createdAt,
     this.completedAt,
   }) : createdAt = createdAt ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000);
@@ -65,6 +71,8 @@ class ImportTask {
       'pending_chunks':
           pendingChunks != null ? jsonEncode(pendingChunks) : null,
       'failed_chunks': failedChunks != null ? jsonEncode(failedChunks) : null,
+      'warnings': warnings != null ? jsonEncode(warnings) : null,
+      'diagnostics': diagnostics != null ? jsonEncode(diagnostics) : null,
     };
   }
 
@@ -106,6 +114,26 @@ class ImportTask {
       } catch (_) {}
     }
 
+    List<String>? warningsList;
+    if (map['warnings'] != null) {
+      try {
+        final decoded = jsonDecode(map['warnings'] as String);
+        if (decoded is List) {
+          warningsList = decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {}
+    }
+
+    Map<String, dynamic>? diagnosticsMap;
+    if (map['diagnostics'] != null) {
+      try {
+        final decoded = jsonDecode(map['diagnostics'] as String);
+        if (decoded is Map) {
+          diagnosticsMap = Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {}
+    }
+
     return ImportTask(
       id: map['id'] as String,
       title: map['title'] as String,
@@ -121,6 +149,8 @@ class ImportTask {
       sourceType: map['source_type'] as String?,
       pendingChunks: pending,
       failedChunks: failed,
+      warnings: warningsList,
+      diagnostics: diagnosticsMap,
     );
   }
 }
@@ -180,8 +210,15 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  void requireReview(String id, String text, List<Map<String, dynamic>> data,
-      String bank, String folder) {
+  void requireReview(
+    String id,
+    String text,
+    List<Map<String, dynamic>> data,
+    String bank,
+    String folder, {
+    List<String> warnings = const [],
+    Map<String, dynamic> diagnostics = const {},
+  }) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].status = TaskStatus.pendingReview;
@@ -190,6 +227,26 @@ class TaskManager extends ChangeNotifier {
       tasks[idx].bankName = bank;
       tasks[idx].folderName = folder;
       tasks[idx].percent = 1.0;
+      if (warnings.isNotEmpty) {
+        tasks[idx].warnings = warnings;
+      }
+      if (diagnostics.isNotEmpty) {
+        tasks[idx].diagnostics = diagnostics;
+      }
+      _saveTask(tasks[idx]);
+      notifyListeners();
+    }
+  }
+
+  void attachDiagnostics(
+    String id, {
+    List<String> warnings = const [],
+    Map<String, dynamic> diagnostics = const {},
+  }) {
+    final idx = tasks.indexWhere((t) => t.id == id);
+    if (idx != -1) {
+      tasks[idx].warnings = warnings;
+      tasks[idx].diagnostics = diagnostics;
       _saveTask(tasks[idx]);
       notifyListeners();
     }

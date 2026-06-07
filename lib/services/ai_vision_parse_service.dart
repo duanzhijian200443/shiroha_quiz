@@ -94,7 +94,7 @@ class AiVisionParseService {
 
       final responseText = await _apiClient.callVision(
         profile: profile,
-        prompt: AiPrompts.visionParsePrompt,
+        prompt: AiPrompts.visionParseWithConstraints(),
         assets: [asset],
         temperature: profile.temperature,
         timeout: isZhipu && isPdf

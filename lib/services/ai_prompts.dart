@@ -3,6 +3,15 @@ import '../data/models/question_parse_mode.dart';
 class AiPrompts {
   const AiPrompts._();
 
+  static const String extractionFieldContract = '''
+    【题型与字段契约（最高优先级）】
+    1. 只有原文题干区域明确出现 A/B/C/D 等选项时，才允许输出 type:0 和 options。
+    2. 禁止根据“分析”“解”“参考答案”自行脑补 A/B/C/D 选项；没有原文选项的计算题、证明题、矩阵题、二次型题必须是 type:3，options 必须为 []。
+    3. “分析”只是帮助理解的提示文字，不是必要字段，不要把“分析”原文塞进 content、standard_answer 或 explanation。
+    4. 简答题/解答题/证明题必须保留 content、standard_answer、explanation：content 是原题干，standard_answer 是最终答案，explanation 是“解/证明/推导”过程。
+    5. 选择题和填空题不需要 explanation；即使原文附带解析，也不要输出 explanation 字段或设为空字符串。
+''';
+
   static const String latexFormatRules = r'''
     [STRICT LATEX CONTRACT - MUST FOLLOW]
     1. Inline math MUST use \( ... \). Block math MUST use \[ ... \].
@@ -224,6 +233,7 @@ $latexFormatRules
 遇到包含 (1)(2) 或 (I)(II) 等多个小问的综合大题，绝对禁止将其拆分为多道独立的题！
 必须合并为一道 type:3（解答题），题干包含背景和所有小问，答案合并所有对应解答。
 
+$extractionFieldContract
 $modeInstruction
 
 【选择题选项剥离红线规则】
@@ -239,9 +249,63 @@ $rawText
 ''';
   }
 
+  static String repairSingleQuestion({
+    required int questionNumber,
+    required String dirtyText,
+    required String? answerText,
+    required List<String> diagnostics,
+  }) {
+    return '''
+你是一个教育数据清洗专家。你正在修复【第 $questionNumber 题】的异常格式。
+检测到的异常日志：${diagnostics.isEmpty ? '无' : diagnostics.join(', ')}
+
+【核心红线约束】
+1. 你必须且只能输出【第 $questionNumber 题】这一道题的数据！
+2. 绝对禁止新增题目！绝对禁止改变题号！
+3. 输出格式必须为纯 JSON 数组，且数组内只有 1 个对象，不要用 markdown 包裹。
+
+【格式模板】
+[
+  {
+    "q_num": "$questionNumber",
+    "type": 0, // 0:单选 1:多选 2:填空 3:简答 4:判断
+    "content": "题干完整原文(必须把选项剥离出去，题干绝对不包含选项部分)",
+    "options": ["A. xx", "B. xx", "C. xx", "D. xx"], // 非选择题请留空 []
+    "standard_answer": "正确选项或最终答案",
+    "explanation": "详细解析（若无则设为 null 或留空）"
+  }
+]
+
+$latexFormatRules
+
+如果遇到包含多个小问的综合题，请合并在一个题干内，不要拆成多题。
+如果由于格式极其损坏无法修复，请原样返回题干并在 standard_answer 附上尝试解析的结果。
+
+【需要修复的原始文本】
+<document>
+$dirtyText
+</document>
+
+【已匹配到的答案区文本】
+<answer>
+${answerText ?? '暂无匹配的答案'}
+</answer>
+''';
+  }
+
+  static const String visionStemAnswerIsolationRules = '''
+    【题干/答案隔离硬规则】
+    - content 只能包含题号后、【分析】【解】【证明】【参考答案】【答案】之前的原始题目要求。
+    - 如果当前页只有“(21)（Ⅰ）A=...”“（Ⅰ）求矩阵 A=...”“解：（Ⅰ）...”这类答案或解题步骤，必须输出 content:null，不要用答案步骤补题干。
+    - 若同一页同时有题目和解析，必须保留题目开头的背景句（如“设二次型...”）以及 (I)(II)(III) 的提问；解析步骤放入 explanation，最终结论放入 standard_answer。
+    - 绝对禁止让 content 以“（Ⅰ）求矩阵 A=”“（Ⅰ）A=”“解”“分析”或公式答案开头。
+''';
+
   static String visionParseWithConstraints() {
     return '''
 $visionParsePrompt
+    $extractionFieldContract
+    $visionStemAnswerIsolationRules
     【解析约束】
 除了上述特例允许 type:3 提取 explanation 之外，其他题型不要生成解析(explanation)字段。
 请原样保留题干文字，不要使用“原题干”、“同上”、“略”等占位符。

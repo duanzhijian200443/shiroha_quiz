@@ -10,6 +10,7 @@ import 'llm_api_client.dart';
 import 'parse_batch_runner.dart';
 import 'question_parse_pipeline.dart';
 import 'task_manager.dart';
+import 'import_pipeline/text_question_region.dart';
 
 class AiTextParseService {
   AiTextParseService({
@@ -125,6 +126,49 @@ class AiTextParseService {
       return compute(AiDataSanitizer.cleanAndParseJson, responseText);
     } catch (e) {
       throw Exception("块级解析失败: $e");
+    }
+  }
+
+  Future<Map<String, dynamic>> repairSingleQuestionRegion(
+    TextQuestionRegion region,
+  ) async {
+    final profile = await _engineRepository.getActiveTextEngine();
+    if (profile == null) throw Exception("未激活文本引擎");
+
+    final prompt = AiPrompts.repairSingleQuestion(
+      questionNumber: region.number,
+      dirtyText: region.rawText,
+      answerText: region.answerText,
+      diagnostics: region.diagnostics,
+    );
+
+    try {
+      final responseText = await _apiClient.callText(
+        profile: profile,
+        prompt: prompt,
+        temperature: 0.1,
+        jsonResponse: true,
+      );
+      final list = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
+      if (list.isEmpty) {
+         throw Exception("修复返回了空列表");
+      }
+      return list.first;
+    } catch (e) {
+      debugPrint("单题修复失败 第 \${region.number} 题: \$e");
+      return {
+        'q_num': region.number.toString(),
+        'type': 3,
+        'content': region.rawText,
+        'standard_answer': region.answerText ?? '',
+        'options': [],
+        'explanation': '',
+        '_import_review': {
+           'source': 'docx_text_deterministic',
+           'health': 'repair_failed',
+           'diagnostics': ['AI 修复失败, 原样保留'],
+        }
+      };
     }
   }
 

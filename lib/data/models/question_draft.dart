@@ -43,6 +43,24 @@ class QuestionDraft {
   final String explanation;
   final String? rawExplanation;
 
+  QuestionDraft copyWith({
+    QuestionType? type,
+    String? content,
+    List<String>? options,
+    String? standardAnswer,
+    String? explanation,
+    String? rawExplanation,
+  }) {
+    return QuestionDraft(
+      type: type ?? this.type,
+      content: content ?? this.content,
+      options: options ?? this.options,
+      standardAnswer: standardAnswer ?? this.standardAnswer,
+      explanation: explanation ?? this.explanation,
+      rawExplanation: rawExplanation ?? this.rawExplanation,
+    );
+  }
+
   bool get hasAnswerOrExplanation =>
       standardAnswer.trim().isNotEmpty || explanation.trim().isNotEmpty;
 
@@ -61,7 +79,7 @@ class QuestionDraft {
   }
 
   static List<QuestionDraft> listFromMaps(List<Map<String, dynamic>> maps) {
-    return maps.map(QuestionDraft.fromMap).toList();
+    return maps.map(QuestionDraft.fromMap).toList(growable: false);
   }
 
   Map<String, dynamic> toMap() {

@@ -18,7 +18,7 @@ void main() {
     print('INPUT: $input');
     final repaired = repairer.repairInline(input);
     final normalized = ContentNormalizer.normalizeForRender(repaired);
-    
+
     final tokens = ContentTokenizer.tokenize(normalized);
     for (final t in tokens) {
       if (t is ParseErrorToken) {

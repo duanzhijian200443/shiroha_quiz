@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'dart:async';
 
 void main() {
   group('Vision Batch Concurrency Ordered Merge Test', () {
-    test('Should flatten results by batch index even if completed out of order', () async {
+    test('Should flatten results by batch index even if completed out of order',
+        () async {
       // 模拟 3 个批次的图片数据
       final batches = [
         ['img_0_p1.jpg', 'img_0_p2.jpg'], // batch 0
@@ -20,7 +20,7 @@ void main() {
 
       int maxConcurrency = 2; // 允许并发 2 个
       final List<Future<void>> workers = [];
-      
+
       // 模拟的异步解析服务，刻意让 batch 1 最慢，batch 2 最快，batch 0 居中
       Future<List<Map<String, dynamic>>> mockParse(int batchIndex) async {
         if (batchIndex == 0) {

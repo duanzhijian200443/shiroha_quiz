@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'content_normalizer.dart';
+import '../services/import_pipeline/ai_question_normalizer.dart';
 
 class AiDataSanitizer {
   const AiDataSanitizer._();
@@ -15,19 +16,31 @@ class AiDataSanitizer {
     final decoded = _decodeJsonWithTailRepair(repaired);
     final questions = _extractQuestionList(decoded);
 
+    // Call Normalizer to sanitize structures, options parsing, type mappings, drop invalid items
+    final normalizedResult = AiQuestionNormalizer.normalizeAll(questions);
+
+    // Now perform LaTeX storage normalization on the normalized items
     final finalQuestions = <Map<String, dynamic>>[];
-    for (final item in questions) {
-      if (item is! Map) continue;
-
-      final q = Map<String, dynamic>.from(item);
-      var currentType = _readInt(q['type']) ?? 0;
-
-      _ensureFallbackContent(q);
-      _normalizeQuestionFields(q);
-      q.remove('sub_questions');
-
-      currentType = _extractOptionsFromContentIfNeeded(q, currentType);
-      _normalizeQuestionType(q, currentType);
+    for (final q in normalizedResult.questions) {
+      if (q['content'] != null) {
+        q['content'] = cleanLatexBeforeDB(q['content'].toString());
+      }
+      if (q['standard_answer'] != null) {
+        q['standard_answer'] =
+            cleanLatexBeforeDB(q['standard_answer'].toString());
+      }
+      if (q['explanation'] != null) {
+        q['explanation'] = cleanLatexBeforeDB(q['explanation'].toString());
+      }
+      if (q['raw_explanation'] != null) {
+        q['raw_explanation'] =
+            cleanLatexBeforeDB(q['raw_explanation'].toString());
+      }
+      if (q['options'] is List) {
+        final opts = q['options'] as List;
+        q['options'] =
+            opts.map((o) => cleanLatexBeforeDB(o.toString())).toList();
+      }
       finalQuestions.add(q);
     }
 
@@ -36,12 +49,18 @@ class AiDataSanitizer {
 
   static String cleanLatexBeforeDB(String text) {
     if (text.isEmpty) return text;
-    return ContentNormalizer.normalizeForStorage(_decodeLiteralControls(text));
+    final decoded = _decodeLiteralControls(text);
+    return ContentNormalizer.normalizeForStorage(
+      _normalizeJsonEscapedKnownLatexCommands(decoded),
+    );
   }
 
   static String formatLatex(String text) {
     if (text.isEmpty) return text;
-    return ContentNormalizer.normalizeForRender(_decodeLiteralControls(text));
+    final decoded = _decodeLiteralControls(text);
+    return ContentNormalizer.normalizeForRender(
+      _normalizeJsonEscapedKnownLatexCommands(decoded),
+    );
   }
 
   static String normalizeDelimiters(String text) {
@@ -51,6 +70,18 @@ class AiDataSanitizer {
 
   static List<String> findBareLatexCommands(String text) {
     return ContentNormalizer.findBareLatexCommands(text);
+  }
+
+  static String _normalizeJsonEscapedKnownLatexCommands(String text) {
+    return text.replaceAllMapped(
+      RegExp(
+        r'\\\\(?=(?:begin|end|frac|sqrt|sum|int|lim|left|right|mathrm|mathbf|'
+        r'mathbb|mathcal|text|hat|bar|vec|dot|ddot|overline|underline|'
+        r'xlongequal|overset|underset|rightarrow|leftarrow|geq|leq|neq|'
+        r'approx|infty|partial|sin|cos|tan|ln|log)\b)',
+      ),
+      (_) => '\\',
+    );
   }
 
   // Kept as a compatibility shim for older callers. It is diagnostic only and
@@ -233,113 +264,6 @@ class AiDataSanitizer {
       return [decoded];
     }
     return const <dynamic>[];
-  }
-
-  static void _ensureFallbackContent(Map<String, dynamic> q) {
-    final content = q['content']?.toString().trim() ?? '';
-    if (content.isNotEmpty) return;
-
-    final answer = q['standard_answer']?.toString().trim();
-    final explanation = q['explanation']?.toString().trim();
-    if (answer != null && answer.isNotEmpty) {
-      q['content'] = '[Answer extracted]\n$answer';
-    } else if (explanation != null && explanation.isNotEmpty) {
-      q['content'] = '[Explanation extracted]\n$explanation';
-    } else {
-      q['content'] = 'No question content';
-    }
-  }
-
-  static void _normalizeQuestionFields(Map<String, dynamic> q) {
-    final content = q['content'];
-    if (content != null) {
-      q['content'] = cleanLatexBeforeDB(content.toString());
-    }
-
-    final standardAnswer = q['standard_answer'];
-    if (standardAnswer != null) {
-      q['standard_answer'] = cleanLatexBeforeDB(standardAnswer.toString());
-    }
-
-    final answer = q['answer'];
-    if (answer != null) {
-      q['answer'] = cleanLatexBeforeDB(answer.toString());
-    }
-
-    final explanation = q['explanation'];
-    if (explanation != null) {
-      q['explanation'] = cleanLatexBeforeDB(explanation.toString());
-    }
-
-    final rawExplanation = q['raw_explanation'];
-    if (rawExplanation != null) {
-      q['raw_explanation'] = cleanLatexBeforeDB(rawExplanation.toString());
-    }
-
-    final options = q['options'];
-    if (options is List) {
-      q['options'] = options
-          .map((option) => cleanLatexBeforeDB(option.toString()))
-          .toList(growable: false);
-    }
-  }
-
-  static int _extractOptionsFromContentIfNeeded(
-    Map<String, dynamic> q,
-    int currentType,
-  ) {
-    final content = q['content']?.toString() ?? '';
-    final optionMatch = RegExp(
-      r'(?:^|\s)(?:\(?A\)?|A)[\.、．]\s*(.*?)'
-      r'(?:\s)(?:\(?B\)?|B)[\.、．]\s*(.*?)'
-      r'(?:\s)(?:\(?C\)?|C)[\.、．]\s*(.*?)'
-      r'(?:\s)(?:\(?D\)?|D)[\.、．]\s*(.*)$',
-      caseSensitive: false,
-      dotAll: true,
-    ).firstMatch(content);
-
-    if (optionMatch == null) return currentType;
-
-    final existingOptions = q['options'];
-    final hasExistingOptions = existingOptions is List &&
-        existingOptions.any((option) => option.toString().trim().isNotEmpty);
-    if (hasExistingOptions) return currentType;
-
-    q['content'] = content.substring(0, optionMatch.start).trim();
-    q['options'] = [
-      'A. ${cleanLatexBeforeDB(optionMatch.group(1)!.trim())}',
-      'B. ${cleanLatexBeforeDB(optionMatch.group(2)!.trim())}',
-      'C. ${cleanLatexBeforeDB(optionMatch.group(3)!.trim())}',
-      'D. ${cleanLatexBeforeDB(optionMatch.group(4)!.trim())}',
-    ];
-
-    if (currentType == 3) return 0;
-    return currentType;
-  }
-
-  static void _normalizeQuestionType(Map<String, dynamic> q, int currentType) {
-    if (currentType == 2 || currentType == 3) {
-      q['type'] = currentType;
-      q['options'] = const <String>[];
-      return;
-    }
-
-    final options = q['options'];
-    final hasOptions = options is List &&
-        options.any((option) => option.toString().trim().isNotEmpty);
-    if (hasOptions) {
-      q['type'] = currentType == 1 ? 1 : 0;
-    } else {
-      q['type'] = 3;
-      q['options'] = const <String>[];
-    }
-  }
-
-  static int? _readInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value);
-    return null;
   }
 
   static String _decodeLiteralControls(String text) {
