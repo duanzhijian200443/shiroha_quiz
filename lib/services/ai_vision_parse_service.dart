@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/repositories/ai_engine_repository.dart';
 import 'ai_prompts.dart';
+import 'latex_import_repair.dart';
 import 'llm_api_client.dart';
 import 'llm_providers/llm_provider_client.dart';
 import 'llm_providers/llm_provider_registry.dart';
@@ -25,8 +26,9 @@ class AiVisionParseService {
   final VisionAssetBuilder _assetBuilder;
 
   Future<List<Map<String, dynamic>>> parseImages(
-    List<String> imagePaths,
-  ) async {
+    List<String> imagePaths, {
+    bool repairLatex = false,
+  }) async {
     final profile = await _engineRepository.getActiveVisionEngine();
     if (profile == null) throw Exception("未激活视觉 AI 引擎");
 
@@ -48,10 +50,16 @@ class AiVisionParseService {
       );
       debugPrint(
           "✅ Vision API 返回成功，耗时 ${DateTime.now().difference(startTime).inSeconds} 秒。");
-      return _parsePipeline.parseVisionQuestions(
+      final questions = await _parsePipeline.parseVisionQuestions(
         responseText,
         strictContentQuality: true,
       );
+
+      if (!repairLatex || questions.isEmpty) {
+        return questions;
+      }
+
+      return LatexImportRepairService.instance.repairAll(questions);
     } catch (e) {
       throw Exception("多图视觉解析异常: $e");
     }

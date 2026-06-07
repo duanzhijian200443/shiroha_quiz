@@ -109,8 +109,11 @@ class AiService {
   }
 
   Future<List<Map<String, dynamic>>> parseImagesWithVision(
-      List<String> imagePaths) async {
-    return _visionParseService.parseImages(imagePaths);
+    List<String> imagePaths, {
+    bool repairLatex = false,
+  }) async {
+    return _visionParseService.parseImages(imagePaths,
+        repairLatex: repairLatex);
   }
 
   Future<List<Map<String, dynamic>>> parseFileWithVision(

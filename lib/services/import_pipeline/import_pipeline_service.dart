@@ -125,7 +125,10 @@ class ImportPipelineService {
           pagesPerBatch: pagesPerBatch,
           maxConcurrency: request.maxConcurrency,
           parseBatch: (batchPaths) =>
-              AiService.instance.parseImagesWithVision(batchPaths),
+              AiService.instance.parseImagesWithVision(
+                batchPaths,
+                repairLatex: format == ImportFormat.pdf,
+              ),
           onProgress: (progress, status) {
             TaskManager.instance.updateProgress(
               taskId,
