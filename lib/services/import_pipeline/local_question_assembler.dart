@@ -47,7 +47,7 @@ class LocalQuestionAssembler {
 
     if (content.isEmpty) diagnostics.add('empty_content');
     if (answer.isEmpty) diagnostics.add('missing_answer');
-    if (explanation.isEmpty) diagnostics.add('missing_explanation');
+    if (explanation.isEmpty) diagnostics.add('info_missing_explanation');
 
     if (type == 0 && optionExtract.options.length < 2) {
       diagnostics.add('choice_options_less_than_2');
