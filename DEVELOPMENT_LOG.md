@@ -1,5 +1,17 @@
 # Development Log
 
+## [2026-06-08 00:00] - fix(latex): repair trailing backslash in wrapped formulas, math set block detection
+
+- **Change type**: fix
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] `_repairDelimitedSegment()`: strip odd trailing backslash from content inside already-wrapped `\(…\)` / `\[…\]` / `$…$` while keeping even slashes (matrix `\\`) intact.
+  - [x] Escaped math set block `\{…\}` detection: when braces enclose `\sqrt`, `\frac`, `\le`, `\ge`, `(a,b)` pairs etc., wrap as block/inline math.
+  - [x] `_isMathSetSegment()`: only triggers when explicit math signals present inside braces. Plain `\{注意事项\}` left untouched.
+  - [x] 6 new tests (14/14 pass), `dart analyze` clean.
+  - [x] No renderer / tokenizer / prompt / PDF renderer / pipeline changes.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 14/14 pass.
+
 ## [2026-06-07 23:27] - feat(import): wire repairLatex flag to PDF vision path only
 
 - **Change type**: feat
