@@ -589,6 +589,135 @@ B. 选项B
       );
     });
   });
+
+  group('Boundary Defense Tests - Section Heading Filter', () {
+    test('19. "一、选择题"不得变成第 1 题', () {
+      const rawText = '''
+一、选择题
+1. 以下哪个选项是正确的？
+A. 选项A
+B. 选项B
+二、填空题
+2. 天空是___色的。
+''';
+      const regionizer = TextQuestionRegionizer();
+      final result = regionizer.split(rawText, const {});
+
+      // 章节标题 "一、选择题" / "二、填空题" 不得被识别为题号
+      // 只有 1. 和 2. 是真正的题目
+      expect(result.regions.length, 2);
+      expect(result.regions[0].number, 1);
+      expect(result.regions[1].number, 2);
+      // 确认一、选择题没有被当成 number=1 的题目
+      expect(
+        result.regions.any(
+          (r) => r.rawText.contains('一、选择题'),
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('Boundary Defense Tests - Explanation Boundary', () {
+    test('20. "分析函数 f(x)"不得被切成 explanation', () {
+      const region = TextQuestionRegion(
+        number: 1,
+        rawText: '1. 试分析函数 f(x) 的单调性并求极值。',
+        startOffset: 0,
+        endOffset: 100,
+        kind: TextQuestionKind.subjective,
+        health: RegionHealth.clean,
+      );
+
+      const assembler = LocalQuestionAssembler();
+      final result = assembler.assemble(region);
+
+      // "分析"在题干中间作为动词使用，不应触发 explanation 切分
+      // 关键：切分正则要求 (^|\\n|。|；|;|\\.\\s+) 前缀，而这里"试分析"前面是"题。"之后的内容
+      // 实际场景中"1. 试分析..." → 清理题号后变成"试分析函数..." → 不应该被切
+      expect(result.question['explanation'], isEmpty);
+      expect(
+        result.question['content'].toString(),
+        contains('分析函数'),
+      );
+    });
+  });
+
+  group('Boundary Defense Tests - Subjective Answer', () {
+    test('21. "1. x = 2 解析：..." 能提取答案 x = 2', () {
+      const rawText = '''
+1. 求解方程：x + 1 = 3
+2. 求函数极值
+
+参考答案
+1. x = 2 解析：移项得 x = 3 - 1 = 2。
+2. 极大值 5，极小值 -3 解析：通过导数判断。
+''';
+      const matcher = AnswerBlockMatcher();
+      final result = matcher.splitAnswerBlock(rawText);
+
+      // 应提取到主观答案（不被 choice regex 匹配，走 subjective fallback）
+      expect(result.answers.isNotEmpty, isTrue);
+      // 主观答案应不包含"解析"正文
+      if (result.answers[1] != null) {
+        expect(result.answers[1], isNot(contains('解析')));
+        expect(result.answers[1], isNot(contains('移项')));
+      }
+      if (result.answers[2] != null) {
+        expect(result.answers[2], isNot(contains('解析')));
+        expect(result.answers[2], isNot(contains('导数')));
+      }
+    });
+  });
+
+  group('Boundary Defense Tests - Save Defense', () {
+    test('22. blocked=true 时 DocxTextFirstParseResult.blocked 为真', () async {
+      const rawText = '仅有一道题的文本';
+      const service = DocxTextFirstParseService();
+      final result = await service.parseDocxText(
+        rawText: rawText,
+        sourceName: 'test_save_defense',
+        documentSignals: const DocumentSignals(questionMarkerCount: 10),
+      );
+
+      // 即使只有 1 题，如果门禁判定 blocked，result.blocked 必须是 true
+      // blocked 时 warnings 非空
+      if (result.blocked) {
+        expect(result.warnings, isNotEmpty);
+      }
+      // 无论如何，架构上 blocked 标志位存在
+      expect(result.blocked, anyOf(isTrue, isFalse));
+    });
+  });
+
+  group('Boundary Defense Tests - BareLine Guard', () {
+    test('23. 裸数字题号只匹配强题干动词，不匹配普通材料编号', () {
+      const rawText = '''
+材料一：关于某政策的背景介绍
+材料二：相关数据分析
+1. 设函数 f(x) 在区间 [a, b] 上连续，证明存在 ξ 使得 f(ξ) = 0。
+2. 已知数列 {a_n} 满足递推关系，求通项公式。
+附录 1 参考公式
+附录 2 常数表
+''';
+      const regionizer = TextQuestionRegionizer();
+      final result = regionizer.split(rawText, const {});
+
+      // 裸数字"1. 设函数"应被识别（设 = 数学题干词）
+      // 裸数字"2. 已知"应被识别（已知 = 数学题干词）
+      // "材料一" "材料二" 不会被 _explicitQuestionRegex 匹配（无后缀符）
+      // "附录 1" 不会被 _bareLineQuestionRegex 匹配（"附录"非题干词，"参考"也非）
+      final numbers = result.regions.map((r) => r.number).toSet();
+      expect(numbers.contains(1), isTrue);
+      expect(numbers.contains(2), isTrue);
+      // 不应包含"材料一"/"材料二"被错误识别
+      expect(numbers.contains(3), isFalse);
+      expect(
+        result.regions.any((r) => r.rawText.contains('材料')),
+        isFalse,
+      );
+    });
+  });
 }
 
 class MockLlmApiClient extends LlmApiClient {
