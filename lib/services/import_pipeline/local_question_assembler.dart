@@ -113,15 +113,18 @@ class LocalQuestionAssembler {
 
   _ExplanationExtract _extractInlineExplanation(String text) {
     final regex = RegExp(
-      r'(?:答案解析|解析|分析)\s*[:：]?\s*',
+      r'(?:^|[\n。；;]|[\.．]\s+)\s*(?:答案解析|解析|分析)\s*[:：]?\s*',
       caseSensitive: false,
+      multiLine: true,
     );
 
     final match = regex.firstMatch(text);
     if (match == null) return _ExplanationExtract(null, text);
 
+    // boundary 之前的文本从 match.start 截取，去除边界空白
     final before = text.substring(0, match.start).trim();
-    final explanation = text.substring(match.end).trim();
+    final matchText = match.group(0) ?? '';
+    final explanation = text.substring(match.start + matchText.length).trim();
 
     return _ExplanationExtract(
       explanation.isEmpty ? null : explanation,
