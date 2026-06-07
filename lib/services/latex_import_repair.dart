@@ -68,6 +68,46 @@ class LatexImportRepairService {
         }
       }
 
+      // Bare math set block: {(x,y) | ... \sqrt{...}}
+      if (text[i] == '{' && !_isEscapedAt(text, i)) {
+        final setEnd = _findBareSetEnd(text, i);
+        if (setEnd != -1) {
+          final expr = text.substring(i, setEnd);
+          if (_isMathSetSegment(expr) && _isSafeLatexSegment(expr)) {
+            final repairedExpr = _escapeOuterBareSetBraces(expr);
+            final asBlock =
+                LatexComplexityClassifier.shouldRenderAsBlock(repairedExpr);
+            buffer
+              ..write(asBlock ? r'\[' : r'\(')
+              ..write(repairedExpr)
+              ..write(asBlock ? r'\]' : r'\)');
+            i = setEnd;
+            continue;
+          }
+        }
+      }
+
+      // Unicode integral fragment: ∮_L(...) → \oint_L(...)
+      if (_isUnicodeIntegralStart(text, i)) {
+        final exprEnd = _findUnicodeIntegralExprEnd(text, i);
+        if (exprEnd > i) {
+          final expr = text.substring(i, exprEnd).trimRight();
+          if (_isConcreteUnicodeIntegralExpr(expr)) {
+            final repairedExpr = _normalizeUnicodeIntegralExpr(expr);
+            if (_isSafeLatexSegment(repairedExpr)) {
+              final asBlock =
+                  LatexComplexityClassifier.shouldRenderAsBlock(repairedExpr);
+              buffer
+                ..write(asBlock ? r'\[' : r'\(')
+                ..write(repairedExpr)
+                ..write(asBlock ? r'\]' : r'\)');
+              i = exprEnd;
+              continue;
+            }
+          }
+        }
+      }
+
       final match = _bareLatexPattern.matchAsPrefix(text, i);
       if (match == null) {
         buffer.write(text[i]);
@@ -307,19 +347,187 @@ class LatexImportRepairService {
   }
 
   bool _isMathSetSegment(String expr) {
-    if (!expr.startsWith(r'\{') || !expr.endsWith(r'\}')) {
+    final isEscapedSet = expr.startsWith(r'\{') && expr.endsWith(r'\}');
+    final isBareSet = expr.startsWith('{') && expr.endsWith('}');
+
+    if (!isEscapedSet && !isBareSet) {
       return false;
     }
+
+    final inner = isEscapedSet
+        ? expr.substring(2, expr.length - 2)
+        : expr.substring(1, expr.length - 1);
+
+    if (inner.trim().isEmpty) return false;
+
+    // Plain Chinese text inside braces is not math (e.g. {注意事项})
+    if (RegExp(r'[一-鿿]').hasMatch(inner)) {
+      return false;
+    }
+
+    final hasSetShape = inner.contains('|') ||
+        inner.contains(r'\mid') ||
+        RegExp(r'\([^)]*[,，][^)]*\)').hasMatch(inner);
+
+    if (!hasSetShape) {
+      return false;
+    }
+
     final mathSignals = <RegExp>[
-      RegExp(r'\\(?:frac|sqrt|sin|cos|tan|theta|pi|leq|geq|neq|in|notin|mid)\b'),
+      RegExp(
+          r'\\(?:frac|sqrt|sin|cos|tan|theta|pi|leq|geq|neq|in|notin|mid)\b'),
       RegExp(r'[_^]'),
       RegExp(r'[≤≥∈∉]'),
-      RegExp(r'\|'),
       RegExp(r'[=<>]'),
-      RegExp(r'\([a-zA-Z],[a-zA-Z]\)'),
-      RegExp(r'\([a-zA-Z],\\theta\)'),
+      RegExp(r'\b(?:le|ge)\b'),
     ];
-    return mathSignals.any((pattern) => pattern.hasMatch(expr));
+
+    return mathSignals.any((pattern) => pattern.hasMatch(inner));
+  }
+
+  bool _isEscapedAt(String text, int index) {
+    var slashCount = 0;
+    var i = index - 1;
+    while (i >= 0 && text.codeUnitAt(i) == 92) {
+      slashCount++;
+      i--;
+    }
+    return slashCount.isOdd;
+  }
+
+  int _findBareSetEnd(String text, int start) {
+    if (start >= text.length || text[start] != '{') return -1;
+
+    var depth = 0;
+    var i = start;
+
+    while (i < text.length) {
+      final ch = text[i];
+
+      if (ch == r'\') {
+        i += i + 1 < text.length ? 2 : 1;
+        continue;
+      }
+
+      if (ch == '\n') return -1;
+
+      if (ch == '{') {
+        depth++;
+        i++;
+        continue;
+      }
+
+      if (ch == '}') {
+        depth--;
+        i++;
+        if (depth == 0) return i;
+        if (depth < 0) return -1;
+        continue;
+      }
+
+      i++;
+    }
+
+    return -1;
+  }
+
+  String _escapeOuterBareSetBraces(String expr) {
+    if (expr.length < 2 || !expr.startsWith('{') || !expr.endsWith('}')) {
+      return expr;
+    }
+    return r'\{' + expr.substring(1, expr.length - 1) + r'\}';
+  }
+
+  bool _isUnicodeIntegralStart(String text, int index) {
+    if (index < 0 || index >= text.length) return false;
+    final ch = text[index];
+    return ch == '∫' || ch == '∬' || ch == '∭' || ch == '∮';
+  }
+
+  int _findUnicodeIntegralExprEnd(String text, int start) {
+    var i = start;
+    var braceDepth = 0;
+    var parenDepth = 0;
+
+    while (i < text.length) {
+      final ch = text[i];
+
+      if (ch == r'\') {
+        i += i + 1 < text.length ? 2 : 1;
+        continue;
+      }
+
+      if (ch == '{') {
+        braceDepth++;
+        i++;
+        continue;
+      }
+
+      if (ch == '}') {
+        braceDepth--;
+        i++;
+        if (braceDepth < 0) break;
+        continue;
+      }
+
+      if (ch == '(' || ch == '（') {
+        parenDepth++;
+        i++;
+        continue;
+      }
+
+      if (ch == ')' || ch == '）') {
+        if (parenDepth > 0) parenDepth--;
+        i++;
+        continue;
+      }
+
+      if (braceDepth == 0 && parenDepth == 0) {
+        if (_isNaturalLanguageBoundary(ch)) break;
+        if (ch == '\n') break;
+        if (ch == ' ' && i + 1 < text.length) {
+          final next = text.codeUnitAt(i + 1);
+          if (_isCjk(next)) break;
+        }
+      }
+
+      i++;
+    }
+
+    while (i > start && text[i - 1] == ' ') {
+      i--;
+    }
+
+    return i;
+  }
+
+  bool _isConcreteUnicodeIntegralExpr(String expr) {
+    final value = expr.trim();
+    if (value.isEmpty) return false;
+
+    if (!RegExp(r'^[∫-∮]').hasMatch(value)) return false;
+
+    // Bare symbol with no formula body → skip
+    if (RegExp(r'^[∫-∮](?:_[A-Za-z0-9]+)?$').hasMatch(value)) {
+      return false;
+    }
+
+    final hasFormulaBody = value.contains('(') ||
+        value.contains(r'\') ||
+        value.contains('+') ||
+        value.contains('-') ||
+        value.contains('=') ||
+        value.contains('d');
+
+    return hasFormulaBody;
+  }
+
+  String _normalizeUnicodeIntegralExpr(String expr) {
+    if (expr.startsWith('∮')) return r'\oint' + expr.substring(1);
+    if (expr.startsWith('∭')) return r'\iiint' + expr.substring(1);
+    if (expr.startsWith('∬')) return r'\iint' + expr.substring(1);
+    if (expr.startsWith('∫')) return r'\int' + expr.substring(1);
+    return expr;
   }
 
   bool _startsWith(String input, int index, String needle) {

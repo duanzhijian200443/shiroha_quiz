@@ -35,15 +35,18 @@ class _MainScreenState extends State<MainScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: const Color(0xFF5B8DF8),
+        unselectedItemColor: Colors.grey,
         items: const [
           BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_rounded), label: '今日面板'),
+              icon: Icon(Icons.psychology_outlined), label: '今日面板'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.library_books_rounded), label: '学科库'),
+              icon: Icon(Icons.my_library_books_outlined), label: '学科库'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.receipt_long_rounded), label: '模考中心'),
+              icon: Icon(Icons.pending_actions_outlined), label: '模考中心'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: '我的'),
+              icon: Icon(Icons.school_outlined), label: '我的'),
         ],
       ),
     );

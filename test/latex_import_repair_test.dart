@@ -185,16 +185,16 @@ void main() {
       // must have been changed (not a no-op)
       expect(output, isNot(equals(input)));
 
-      // the set-block should be delimited
+      // the set-block should be delimited with visible LaTeX braces
       expect(
-        output.contains(r'\({(x,y)') || output.contains(r'\[{(x,y)'),
+        output.contains(r'\(\{(x,y)') || output.contains(r'\[\{(x,y)'),
         isTrue,
-        reason: 'bare {…} math set should be wrapped in delimiters',
+        reason: 'bare {…} math set should be wrapped with visible braces',
       );
       expect(
-        output.contains(r'2}\)') || output.contains(r'2}\]'),
+        output.contains(r'\}\)') || output.contains(r'\}\]'),
         isTrue,
-        reason: 'closing delimiter after the set block',
+        reason: 'closing visible brace delimiter after the set block',
       );
     });
 
@@ -213,9 +213,9 @@ void main() {
       expect(output, isNot(equals(input)));
 
       expect(
-        output.contains(r'\({(r,\theta)') || output.contains(r'\[{(r,\theta)'),
+        output.contains(r'\(\{(r,\theta)') || output.contains(r'\[\{(r,\theta)'),
         isTrue,
-        reason: 'bare {…} polar set should be wrapped in delimiters',
+        reason: 'bare {…} polar set should be wrapped with visible braces',
       );
     });
 
@@ -235,7 +235,7 @@ void main() {
       expect(output, isNot(equals(input)));
 
       expect(
-        output.contains(r'\({(r,\theta)') || output.contains(r'\[{(r,\theta)'),
+        output.contains(r'\(\{(r,\theta)') || output.contains(r'\[\{(r,\theta)'),
         isTrue,
         reason: 'bare set with multiple fracs should be whole-wrapped',
       );
@@ -253,18 +253,18 @@ void main() {
           r'计算 I = ∮_L(yz^2-\cos z)dx+2xz^2dy+(2xyz+x\sin z)dz';
       final output = repair.repairInline(input);
 
-      // keep surrounding text
-      expect(output, contains('∮_L'));
+      // ∮ is normalised to \oint, but we assert the result is not the input
+      expect(output, contains(r'\oint_L'));
       expect(output, contains(r'\sin z'));
 
       // must have been changed
       expect(output, isNot(equals(input)));
 
-      // the formula part should be delimited
+      // the formula part should be delimited with \oint (normalised)
       expect(
-        output.contains(r'\(∮_L') || output.contains(r'\[∮_L'),
+        output.contains(r'\(\oint_L') || output.contains(r'\[\oint_L'),
         isTrue,
-        reason: 'Unicode ∮ integral fragment should be wrapped in delimiters',
+        reason: 'Unicode ∮ should be normalised to \\oint and wrapped',
       );
     });
 
