@@ -162,4 +162,118 @@ void main() {
 
     expect(output, equals(input));
   });
+
+  // ═══════════════════════════════════════════════════════════
+  // Step 5-A failure-capture tests for remaining bare-LaTeX gaps.
+  // These tests describe desired behaviour that the current
+  // repairer does NOT yet implement.  Do NOT modify production
+  // code in this step — only lock in the test contracts.
+  // ═══════════════════════════════════════════════════════════
+
+  group('Step 5-A — failure capture (known gaps)', () {
+    test('bare \'{...}\' Cartesian set block should be wrapped', () {
+      const input =
+          r'D = {(x,y) | y - 2 \le x \le \sqrt{4-y^2}, 0 \le y \le 2}';
+      final output = repair.repairInline(input);
+
+      // keep surrounding text
+      expect(output, contains(r'D = '));
+
+      // internal command must not stay bare
+      expect(output, contains(r'\sqrt{4-y^2}'));
+
+      // must have been changed (not a no-op)
+      expect(output, isNot(equals(input)));
+
+      // the set-block should be delimited
+      expect(
+        output.contains(r'\({(x,y)') || output.contains(r'\[{(x,y)'),
+        isTrue,
+        reason: 'bare {…} math set should be wrapped in delimiters',
+      );
+      expect(
+        output.contains(r'2}\)') || output.contains(r'2}\]'),
+        isTrue,
+        reason: 'closing delimiter after the set block',
+      );
+    });
+
+    test('bare \'{...}\' polar set block should be wrapped', () {
+      const input =
+          r'D_1 = {(r,\theta) | 0 \le r \le 2, 0 \le \theta \le \frac{\pi}{2}}';
+      final output = repair.repairInline(input);
+
+      // keep surrounding text
+      expect(output, contains(r'D_1 = '));
+
+      // internal frac must not stay bare
+      expect(output, contains(r'\frac{\pi}{2}'));
+
+      // must have been changed
+      expect(output, isNot(equals(input)));
+
+      expect(
+        output.contains(r'\({(r,\theta)') || output.contains(r'\[{(r,\theta)'),
+        isTrue,
+        reason: 'bare {…} polar set should be wrapped in delimiters',
+      );
+    });
+
+    test('bare \'{...}\' with multiple fracs should be whole-wrapped', () {
+      const input =
+          r'D_2 = {(r,\theta) | 0 \le r \le \frac{2}{\sin\theta - \cos\theta}, \frac{\pi}{2} \le \theta \le \pi}';
+      final output = repair.repairInline(input);
+
+      // keep surrounding text
+      expect(output, contains(r'D_2 = '));
+
+      // both internal fracs must exist
+      expect(output, contains(r'\frac{2}{\sin\theta - \cos\theta}'));
+      expect(output, contains(r'\frac{\pi}{2}'));
+
+      // must have been changed
+      expect(output, isNot(equals(input)));
+
+      expect(
+        output.contains(r'\({(r,\theta)') || output.contains(r'\[{(r,\theta)'),
+        isTrue,
+        reason: 'bare set with multiple fracs should be whole-wrapped',
+      );
+    });
+
+    test('plain Chinese bare braces without math must NOT be wrapped', () {
+      const input = '这里的 {注意事项} 不是数学公式';
+      final output = repair.repairInline(input);
+
+      expect(output, equals(input));
+    });
+
+    test('Unicode contour-integral fragment should be wrapped', () {
+      const input =
+          r'计算 I = ∮_L(yz^2-\cos z)dx+2xz^2dy+(2xyz+x\sin z)dz';
+      final output = repair.repairInline(input);
+
+      // keep surrounding text
+      expect(output, contains('∮_L'));
+      expect(output, contains(r'\sin z'));
+
+      // must have been changed
+      expect(output, isNot(equals(input)));
+
+      // the formula part should be delimited
+      expect(
+        output.contains(r'\(∮_L') || output.contains(r'\[∮_L'),
+        isTrue,
+        reason: 'Unicode ∮ integral fragment should be wrapped in delimiters',
+      );
+    });
+
+    test('plain-text integral symbol mention must NOT be wrapped', () {
+      const input = '符号 ∮ 表示曲线积分，不是具体计算公式';
+      final output = repair.repairInline(input);
+
+      // plain explanatory text — no-op
+      expect(output, equals(input));
+    });
+  });
 }
