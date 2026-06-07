@@ -93,6 +93,17 @@ class TextQuestionRegionizer {
         continue;
       }
 
+      // 中文章节标题拒绝：一、选择题 / 二、填空题 等不得误识别为题号
+      final lineEnd = normalized.indexOf('\n', matchStart);
+      final candidateLine = normalized.substring(
+        startOffset,
+        lineEnd == -1 ? normalized.length : lineEnd,
+      );
+      if (_looksLikeSectionHeading(candidateLine)) {
+        rejectedCandidates.add(number);
+        continue;
+      }
+
       candidates.add(_Candidate(
         number: number,
         start: match.start,
@@ -303,5 +314,11 @@ class TextQuestionRegionizer {
     }
 
     return RegionHealth.clean;
+  }
+
+  bool _looksLikeSectionHeading(String line) {
+    return RegExp(
+      r'^\s*[一二三四五六七八九十]+、\s*(选择题|填空题|判断题|简答题|解答题|计算题|证明题|综合题)',
+    ).hasMatch(line);
   }
 }

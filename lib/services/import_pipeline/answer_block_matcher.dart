@@ -66,7 +66,10 @@ class AnswerBlockMatcher {
         for (final m in _subjectiveAnswerLine.allMatches(answerTextCandidate)) {
           final number = int.tryParse(m.group(1) ?? '');
           final answer = m.group(2)?.trim();
-          if (number != null && answer != null && answer.isNotEmpty && answer.length <= 80) {
+          if (number != null &&
+              answer != null &&
+              answer.isNotEmpty &&
+              _isSafeSubjectiveAnswer(answer)) {
             answers[number] = answer;
             if (number == lastNum + 1 || lastNum == -1) {
               currentConsecutive++;
@@ -93,5 +96,14 @@ class AnswerBlockMatcher {
 
     // 没找到合理的序列，退化为无单独答案块
     return (questionBodyText: rawText, answers: const <int, String>{}, answerBlockText: '');
+  }
+
+  bool _isSafeSubjectiveAnswer(String value) {
+    final text = value.trim();
+    if (text.isEmpty || text.length > 80) return false;
+    if (RegExp(r'(本题|因为|所以|解析|分析|考查)').hasMatch(text)) {
+      return false;
+    }
+    return true;
   }
 }
