@@ -1,5 +1,23 @@
 # Development Log
 
+## [2026-06-08 07:39] - test(latex): Step 5-A — 6 failure-capture tests for remaining bare-LaTeX gaps
+
+- **Change type**: test
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] 6 new failure-capture tests added to `test/latex_import_repair_test.dart`.
+  - [x] 4 tests currently FAIL (expected):
+    - Bare `{...}` Cartesian set block not wrapped
+    - Bare `{...}` polar set block not wrapped
+    - Bare `{...}` with multiple `\frac`s not whole-wrapped
+    - Unicode contour-integral `∮` not recognized as math start
+  - [x] 2 regression guards PASS:
+    - Plain Chinese `{注意事项}` → correctly no-op
+    - Plain `∮` explanatory text → correctly no-op
+  - [x] 16/20 pass, 4 known failures.
+  - [x] **No production code changed.** Step 5-B will implement the fixes.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 16/20 pass (4 expected failures).
+
 ## [2026-06-08 00:00] - fix(latex): repair trailing backslash in wrapped formulas, math set block detection
 
 - **Change type**: fix
