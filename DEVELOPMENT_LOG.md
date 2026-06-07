@@ -1,5 +1,20 @@
 # Development Log
 
+## [2026-06-08 08:00] - fix(latex): handle bare {} math sets, Unicode contour integrals — 20/20 pass
+
+- **Change type**: fix
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] **Fix 1**: Bare `{}` Cartesian set blocks: `{(x,y) \| ... \sqrt{...}}` → wrapped with visible LaTeX braces `\(\{...\}\)`.
+  - [x] **Fix 2**: Bare `{}` polar set with multiple `\frac`s: whole block wrapped.
+  - [x] **Fix 3**: Unicode `∮`/`∫`/`∬`/`∭` normalised to `\oint`/`\int`/`\iint`/`\iiint` and wrapped.
+  - [x] **Fix 4**: `_isConcreteUnicodeIntegralExpr` guards against bare-symbol explanatory text.
+  - [x] `_isMathSetSegment` expanded to accept both `\{...\}` and `{...}` with inner math signal check + CJK rejection.
+  - [x] `_findBareSetEnd` brace-depth-aware, `_escapeOuterBareSetBraces`, `_isEscapedAt` helpers added.
+  - [x] 20/20 tests pass, `dart analyze` clean.
+  - [x] No renderer / tokenizer / prompt / PDF renderer / pipeline changes.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 20/20 pass.
+
 ## [2026-06-08 07:39] - test(latex): Step 5-A — 6 failure-capture tests for remaining bare-LaTeX gaps
 
 - **Change type**: test
