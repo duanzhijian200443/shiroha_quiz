@@ -1,6 +1,6 @@
 # Development Log
 
-## [2026-06-07 18:30] - fix(import): P0/P1 defensive hardening — regex narrowing, diagnostic chaining, defense-in-depth
+## [2026-06-07 22:00] - fix(import): P0/P1 defensive hardening — regex narrowing, diagnostic chaining, defense-in-depth
 
 - **Change type**: fix
 - **Affected modules**: import, ui, tests
