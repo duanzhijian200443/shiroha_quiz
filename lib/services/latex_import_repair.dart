@@ -35,8 +35,10 @@ class LatexImportRepairService {
       if (_startsDelimiter(text, i)) {
         final end = _findDelimiterEnd(text, i);
         if (end == -1) {
-          buffer.write(_stripUnclosedDelimiter(text, i));
-          break;
+          // Unclosed — skip only the opening delimiter, don't break.
+          // The remaining text must still be scanned for bare LaTeX.
+          i += _delimiterOpenLength(text, i);
+          continue;
         }
         buffer.write(text.substring(i, end));
         i = end;
@@ -230,13 +232,11 @@ class LatexImportRepairService {
 
   bool _isUpperAscii(int codeUnit) => codeUnit >= 0x41 && codeUnit <= 0x5A;
 
-  String _stripUnclosedDelimiter(String text, int start) {
+  int _delimiterOpenLength(String text, int start) {
     if (text[start] == r'$') {
-      final openLength =
-          start + 1 < text.length && text[start + 1] == r'$' ? 2 : 1;
-      return text.substring(start + openLength);
+      return start + 1 < text.length && text[start + 1] == r'$' ? 2 : 1;
     }
-    return text.substring(start + 2);
+    return 2; // \( 或 \[
   }
 
   bool _startsWith(String input, int index, String needle) {

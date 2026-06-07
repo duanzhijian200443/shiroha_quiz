@@ -40,13 +40,54 @@ void main() {
     expect(output, input);
   });
 
-  test('drops unclosed opening delimiters instead of emitting broken math', () {
-    const input = r'前文 \(x_i and after text';
+  test('unclosed \\( skips delimiter only, continues scanning', () {
+    const input = r'前文 \( 坏公式 后文 \iint_D \frac{(x-y)^2}{x^2+y^2} dxdy';
     final output = repair.repairInline(input);
     final tokens = ContentTokenizer.tokenize(output);
 
-    expect(output, r'前文 x_i and after text');
+    // The opening \( is skipped; later bare LaTeX is wrapped.
+    expect(output, contains(r'\iint_D'));
+    expect(
+      output.contains(r'\(') || output.contains(r'\['),
+      isTrue,
+    );
+    expect(output, isNot(equals(input)));
+    // No parse errors from broken delimiter remnants.
     expect(tokens.whereType<ParseErrorToken>(), isEmpty);
+  });
+
+  test('unclosed \\[ does not block later bare \\sqrt', () {
+    const input = r'解析 \[ 未闭合 之后有 \sqrt{x^2+y^2}';
+    final output = repair.repairInline(input);
+
+    expect(output, contains(r'\sqrt'));
+    expect(output, contains(r'\sqrt{x^2+y^2}'));
+    expect(
+      output.contains(r'\(\sqrt{x^2+y^2}\)') ||
+          output.contains(r'\[\sqrt{x^2+y^2}\]'),
+      isTrue,
+    );
+  });
+
+  test('unclosed \$ does not block later bare \\sin', () {
+    const input = r'坏美元 $ 后面有 \sin\theta + \cos\theta';
+    final output = repair.repairInline(input);
+
+    expect(output, contains(r'\sin'));
+    expect(output, contains(r'\cos'));
+    expect(
+      output.contains(r'\(') || output.contains(r'\['),
+      isTrue,
+    );
+  });
+
+  test('already wrapped delimiters are not re-wrapped', () {
+    const input = r'已知 \(x^2+y^2=1\)，求 \frac{1}{2}';
+    final output = repair.repairInline(input);
+
+    expect(output, contains(r'\(x^2+y^2=1\)'));
+    expect(output, isNot(contains(r'\(\(x^2+y^2=1\)\)')));
+    expect(output, contains(r'\frac{1}{2}'));
   });
 
   test('repairs all import draft fields without mutating source map', () {
