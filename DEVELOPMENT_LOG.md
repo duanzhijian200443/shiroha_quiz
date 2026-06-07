@@ -1,5 +1,17 @@
 # Development Log
 
+## [2026-06-07 22:35] - fix(import): Patches A-D — section heading filter, subjective answer safety, defense-in-depth
+
+- **Change type**: fix
+- **Affected modules**: import, ui
+- **Details**:
+  - [x] **Patch A**: `text_question_regionizer.dart` — Add `_looksLikeSectionHeading()` to reject Chinese section titles (一、选择题 / 二、填空题 etc.) before they become question candidates.
+  - [x] **Patch B**: `local_question_assembler.dart` — `_extractInlineExplanation()` now requires `(^|\\n|。|；|;|\\.\\s+)` boundary prefix before markers.
+  - [x] **Patch C**: `answer_block_matcher.dart` — Add `_isSafeSubjectiveAnswer()` guard: reject answers >80 chars or containing explanation keywords (本题/因为/所以/解析/分析/考查).
+  - [x] **Patch D**: `import_staging_screen.dart` — `_validateBeforeSave()` and `_confirmAndSave()` both independently check `_isBlockedByQualityGate`.
+  - [x] 19/19 boundary defense tests pass.
+- **Verification**: `dart analyze` clean (0 issues), `flutter test` 19/19 pass.
+
 ## [2026-06-07 22:00] - fix(import): P0/P1 defensive hardening — regex narrowing, diagnostic chaining, defense-in-depth
 
 - **Change type**: fix
