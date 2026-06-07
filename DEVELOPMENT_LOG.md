@@ -1,5 +1,20 @@
 # Development Log
 
+## [2026-06-07 22:10] - test(import): add 5 boundary defense tests (#19-#23) + fix choice regex
+
+- **Change type**: test
+- **Affected modules**: import, tests
+- **Details**:
+  - [x] **Test 19** (Section Heading Filter): "一、选择题" must not become question #1 — `_looksLikeSectionHeading` verified.
+  - [x] **Test 20** (Explanation Boundary): "试分析函数 f(x)" must not be split — boundary regex `(^|\\n|。|；|;)` verified.
+  - [x] **Test 21** (Subjective Answer): "1. x = 2 解析：..." extracts answer `x = 2` without explanation body.
+  - [x] **Test 22** (Save Defense): `blocked=true` → `DocxTextFirstParseResult.blocked` is true, warnings non-empty.
+  - [x] **Test 23** (BareLine Guard): Bare-line numbers only match math stem verbs (设/已知/若/求/…), not material labels (材料/附录).
+  - [x] **Fix**: `_choiceAnswerLine` suffix changed from greedy `(?:[\\s…]|$)(.*)$` to zero-width lookahead `(?=[\\s…]|$)` to prevent consuming next answer line.
+  - [x] **Fix**: `docx_strict_route_test` MockRegionizer now emits `maxQuestionNumberDetected` in diagnostics; High loss rate test uses `maxNo=21` to reliably trigger gate.
+  - [x] **36/36** all import pipeline tests pass, `dart analyze` clean (0 issues).
+- **Verification**: `dart analyze` clean, `flutter test` 36/36 pass.
+
 ## [2026-06-07 22:10] - fix(import): Patches A-D — section heading filter, subjective answer safety, defense-in-depth
 
 - **Change type**: fix
