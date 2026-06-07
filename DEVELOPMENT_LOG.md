@@ -1,5 +1,25 @@
 # Development Log
 
+## [2026-06-07 18:30] - fix(import): P0/P1 defensive hardening — regex narrowing, diagnostic chaining, defense-in-depth
+
+- **Change type**: fix
+- **Affected modules**: import, ui, tests
+- **Details**:
+  - [x] **Patch 1**: `import_pipeline_service.dart` — `allWarnings.addAll(docxParseRes.warnings)`, `_readBlockReason()` falls back to `severity` if `reason` absent.
+  - [x] **Patch 2**: `text_question_regionizer.dart` — Split single `_questionCandidateRegex` into three: `_explicitQuestionRegex` (suffix-anchored), `_parenQuestionRegex` (parenthesized), `_bareLineQuestionRegex` (line-start + body-guarded `(?=[^\\d\\s])`). Ban plain inline digits as question markers.
+  - [x] **Patch 3**: `text_question_regionizer.dart` — `diagnostics['acceptedMaxQuestionNumber']` + `diagnostics['maxQuestionNumberDetected'] = max(explicitCandidateMax, acceptedMax)`.
+  - [x] **Patch 4**: `answer_block_matcher.dart` — Remove `|.+` catch-all from `_answerLine`; only extract verifiable answer values.
+  - [x] **Patch 5**: `local_question_assembler.dart` — Initialize diagnostics from `region.diagnostics`; `repairRecommended = region.health == repairable || _shouldRecommendRepair()`.
+  - [x] **Patch 6**: `docx_document_adapter.dart` — Add `m:oMathPara` capture group; fix fallback whitespace to preserve newlines.
+  - [x] **P0**: Remove Chinese number map (`_normalize` "一、"→"1、") — section headers are NOT question numbers.
+  - [x] **P0**: `_bareLineQuestionRegex` now requires math stem word (设/已知/若/求/…) after number.
+  - [x] **P1**: Dual-pass answer extraction: `_choiceAnswerLine` (A-D/√×/对/错) + `_subjectiveAnswerLine` (short text ≤80 chars).
+  - [x] **P1**: `_extractInlineExplanation` now requires `(^|\\n|。|；|;|\\.\\s+)` boundary prefix before markers.
+  - [x] **P1**: `missing_explanation` → `info_missing_explanation` — answer is core field, explanation is informational.
+  - [x] **P1**: Defense-in-depth: `_validateBeforeSave()` and `_confirmAndSave()` now independently check `_isBlockedByQualityGate`.
+  - [x] 19/19 boundary defense tests pass (added 6 new: #13-#18).
+- **Verification**: `dart analyze` clean (0 issues), `flutter test` 19/19 pass.
+
 ## [2026-06-07 17:15] - feat(import): integrate 5-step DocxTextFirstParseService pipeline with boundary defense tests
 - **Change type**: feat
 - **Affected modules**: import, import_review, UI, tests
