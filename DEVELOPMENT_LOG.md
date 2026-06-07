@@ -1,65 +1,25 @@
 # Development Log
 
-## [2026-06-07 22:24] - test(import): add 5 boundary defense tests (#19-#23) + fix choice regex
+## [2026-06-07 22:10] - refactor(import): DocxTextFirstParseService 5-step pipeline integration & P0/P1 defensive hardening
 
-- **Change type**: test
-- **Affected modules**: import, tests
+- **Change type**: feat, fix
+- **Affected modules**: import, import_review, ui, tests
 - **Details**:
-  - [x] **Test 19** (Section Heading Filter): "一、选择题" must not become question #1 — `_looksLikeSectionHeading` verified.
-  - [x] **Test 20** (Explanation Boundary): "试分析函数 f(x)" must not be split — boundary regex `(^|\\n|。|；|;)` verified.
-  - [x] **Test 21** (Subjective Answer): "1. x = 2 解析：..." extracts answer `x = 2` without explanation body.
-  - [x] **Test 22** (Save Defense): `blocked=true` → `DocxTextFirstParseResult.blocked` is true, warnings non-empty.
-  - [x] **Test 23** (BareLine Guard): Bare-line numbers only match math stem verbs (设/已知/若/求/…), not material labels (材料/附录).
-  - [x] **Fix**: `_choiceAnswerLine` suffix changed from greedy `(?:[\\s…]|$)(.*)$` to zero-width lookahead `(?=[\\s…]|$)` to prevent consuming next answer line.
-  - [x] **Fix**: `docx_strict_route_test` MockRegionizer now emits `maxQuestionNumberDetected` in diagnostics; High loss rate test uses `maxNo=21` to reliably trigger gate.
-  - [x] **36/36** all import pipeline tests pass, `dart analyze` clean (0 issues).
-- **Verification**: `dart analyze` clean, `flutter test` 36/36 pass.
+  - **Pipeline Integration**: Wired `AnswerBlockMatcher → TextQuestionRegionizer → LocalQuestionAssembler → SingleQuestionRepairService → ImportQualityGate` with const constructor + full DI. Replaced `blockReason` with `warnings`, added `_isBlockedByQualityGate` UI guard.
+  - **Patch 1**: `import_pipeline_service.dart` — Propagate DOCX `warnings`, safe `blockReason` fallback.
+  - **Patch 2**: `text_question_regionizer.dart` — Split single regex into three: `_explicitQuestionRegex`, `_parenQuestionRegex`, `_bareLineQuestionRegex`; removed Chinese number map (`一、`→`1、`); added `_looksLikeSectionHeading()` filter.
+  - **Patch 3**: `text_question_regionizer.dart` — `diagnostics['acceptedMaxQuestionNumber']` + `maxQuestionNumberDetected = max(explicitCandidateMax, acceptedMax)`.
+  - **Patch 4**: `answer_block_matcher.dart` — Removed `|.+` catch-all from `_answerLine`; split into `_choiceAnswerLine` + `_subjectiveAnswerLine` with `_isSafeSubjectiveAnswer()` guard.
+  - **Patch 5**: `local_question_assembler.dart` — Inherit `region.diagnostics`, merge `region.health` into `repairRecommended`.
+  - **Patch 6**: `docx_document_adapter.dart` — Add `m:oMathPara` capture, fix fallback whitespace preservation.
+  - **Patch B**: `_extractInlineExplanation` requires `(^|\\n|。|；|;)` boundary prefix.
+  - **Patch C**: Subjective answer ≤80 chars, reject explanation keywords.
+  - **Patch D**: `_validateBeforeSave()` + `_confirmAndSave()` double-check `_isBlockedByQualityGate`.
+  - **UI**: `_isBlockedByQualityGate` reads only top-level `qualityGate` Map, no recursive scan.
+  - **Tests**: 36 boundary/unit tests (19 in `boundary_defense_test.dart`, 8 in `docx_text_first_parse_test.dart`, 4 in `docx_strict_route_test.dart`, 5 in other suites). Covers section headings, inline answers, explanation boundaries, subjective answers, formula extraction, pipeline warnings, save defense, bareLine guard, regionizer candidate filtering, answer block matcher, assembler-regionizer chain.
+- **Verification**: `dart analyze` clean (0 issues), `flutter test` 36/36 pass.
 
-## [2026-06-07 22:10] - fix(import): Patches A-D — section heading filter, subjective answer safety, defense-in-depth
-
-- **Change type**: fix
-- **Affected modules**: import, ui
-- **Details**:
-  - [x] **Patch A**: `text_question_regionizer.dart` — Add `_looksLikeSectionHeading()` to reject Chinese section titles (一、选择题 / 二、填空题 etc.) before they become question candidates.
-  - [x] **Patch B**: `local_question_assembler.dart` — `_extractInlineExplanation()` now requires `(^|\\n|。|；|;|\\.\\s+)` boundary prefix before markers.
-  - [x] **Patch C**: `answer_block_matcher.dart` — Add `_isSafeSubjectiveAnswer()` guard: reject answers >80 chars or containing explanation keywords (本题/因为/所以/解析/分析/考查).
-  - [x] **Patch D**: `import_staging_screen.dart` — `_validateBeforeSave()` and `_confirmAndSave()` both independently check `_isBlockedByQualityGate`.
-  - [x] 19/19 boundary defense tests pass.
-- **Verification**: `dart analyze` clean (0 issues), `flutter test` 19/19 pass.
-
-## [2026-06-07 22:00] - fix(import): P0/P1 defensive hardening — regex narrowing, diagnostic chaining, defense-in-depth
-
-- **Change type**: fix
-- **Affected modules**: import, ui, tests
-- **Details**:
-  - [x] **Patch 1**: `import_pipeline_service.dart` — `allWarnings.addAll(docxParseRes.warnings)`, `_readBlockReason()` falls back to `severity` if `reason` absent.
-  - [x] **Patch 2**: `text_question_regionizer.dart` — Split single `_questionCandidateRegex` into three: `_explicitQuestionRegex` (suffix-anchored), `_parenQuestionRegex` (parenthesized), `_bareLineQuestionRegex` (line-start + body-guarded `(?=[^\\d\\s])`). Ban plain inline digits as question markers.
-  - [x] **Patch 3**: `text_question_regionizer.dart` — `diagnostics['acceptedMaxQuestionNumber']` + `diagnostics['maxQuestionNumberDetected'] = max(explicitCandidateMax, acceptedMax)`.
-  - [x] **Patch 4**: `answer_block_matcher.dart` — Remove `|.+` catch-all from `_answerLine`; only extract verifiable answer values.
-  - [x] **Patch 5**: `local_question_assembler.dart` — Initialize diagnostics from `region.diagnostics`; `repairRecommended = region.health == repairable || _shouldRecommendRepair()`.
-  - [x] **Patch 6**: `docx_document_adapter.dart` — Add `m:oMathPara` capture group; fix fallback whitespace to preserve newlines.
-  - [x] **P0**: Remove Chinese number map (`_normalize` "一、"→"1、") — section headers are NOT question numbers.
-  - [x] **P0**: `_bareLineQuestionRegex` now requires math stem word (设/已知/若/求/…) after number.
-  - [x] **P1**: Dual-pass answer extraction: `_choiceAnswerLine` (A-D/√×/对/错) + `_subjectiveAnswerLine` (short text ≤80 chars).
-  - [x] **P1**: `_extractInlineExplanation` now requires `(^|\\n|。|；|;|\\.\\s+)` boundary prefix before markers.
-  - [x] **P1**: `missing_explanation` → `info_missing_explanation` — answer is core field, explanation is informational.
-  - [x] **P1**: Defense-in-depth: `_validateBeforeSave()` and `_confirmAndSave()` now independently check `_isBlockedByQualityGate`.
-  - [x] 19/19 boundary defense tests pass (added 6 new: #13-#18).
-- **Verification**: `dart analyze` clean (0 issues), `flutter test` 19/19 pass.
-
-## [2026-06-07 17:15] - feat(import): integrate 5-step DocxTextFirstParseService pipeline with boundary defense tests
-- **Change type**: feat
-- **Affected modules**: import, import_review, UI, tests
-- **Details**:
-  - [x] Integrated 5-step pipeline in `DocxTextFirstParseService`: AnswerBlockMatcher → TextQuestionRegionizer → LocalQuestionAssembler → SingleQuestionRepairService → ImportQualityGate, with const constructor and full DI.
-  - [x] Replaced `DocxTextFirstParseResult.blockReason` with `warnings`; adapt all callers and test suites.
-  - [x] Added `_isBlockedByQualityGate` (read-only top-level `qualityGate` map access) and `_confirmButtonText` to `import_staging_screen.dart` — no recursive scan.
-  - [x] Added Phase 4 boundary test (inline answer/explanation extraction from compact text) and Phase 6 test (critical_under_parse with regionCount=7/maxDetected=21/actual=7).
-  - [x] New `import_pipeline/` adapters: docx, markdown, txt, zip document adapters; fusion coordinators; vision batch parsing; LaTeX repair; document signal detection.
-  - [x] New `import_review/` module: analyzer, batch controller, filter, metadata, report builder, report formatter, summary.
-  - [x] Updated `import_staging_screen` with A5 quality report dialog, batch selection operations, rawText preview card, diagnostics drawer.
-  - [x] Various companion fixes: task manager diagnostics, AI prompts, sanitizer, database helper, question draft copyWith.
-- **Verification**: 13/13 boundary defense tests pass, dart analyze clean (0 issues).
+## [2026-06-07 16:28] - feat(import): Phase 5-A7 Extract math formulas and prevent wrong prefix match in DOCX adapter
 
 ## [2026-06-07 16:28] - feat(import): Phase 5-A7 Extract math formulas and prevent wrong prefix match in DOCX adapter
 - **Change type**: feat
