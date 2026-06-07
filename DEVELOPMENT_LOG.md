@@ -1,5 +1,18 @@
 # Development Log
 
+## [2026-06-07 23:00] - fix(latex): repairInline unclosed delimiter no longer breaks scan loop
+
+- **Change type**: fix
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] `repairInline`: changed `if (end == -1) { buffer.write(_stripUnclosedDelimiter()); break; }` to `{ i += _delimiterOpenLength(); continue; }` — an unclosed `\(` / `\[` / `$` now only skips the broken opening delimiter and continues scanning for bare LaTeX.
+  - [x] Added `_delimiterOpenLength()` helper.
+  - [x] Removed now-dead `_stripUnclosedDelimiter()`.
+  - [x] 4 new tests: unclosed `\(` with later `\iint`, unclosed `\[` with later `\sqrt`, unclosed `$` with later `\sin`, already-wrapped regression.
+  - [x] 9/9 tests pass, `dart analyze` clean.
+  - [x] No renderer, tokenizer, prompt, PDF renderer, or pipeline changes.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 9/9 pass.
+
 ## [2026-06-07 22:27] - refactor(import): DocxTextFirstParseService 5-step pipeline integration & P0/P1 defensive hardening
 
 - **Change type**: feat, fix
