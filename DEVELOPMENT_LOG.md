@@ -1,5 +1,18 @@
 # Development Log
 
+## [2026-06-08 08:20] - fix(latex): Step 6-B — detect and wrap bare equations like y=e^{-\int...} (23/23 pass)
+
+- **Change type**: fix
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] `_looksLikeBareEquationStart`: single ASCII/Greek variable + `=`, optional subscript. Prev-char guard prevents matching `e=` inside `mode=fast`.
+  - [x] `_findBareEquationEnd`: brace+paren-depth aware scan, stops at CJK/uppercase-ASCII boundaries.
+  - [x] `_isSafeBareEquation`: requires LaTeX command AND `^`/`{`; rejects CJK; delegates to `_isSafeLatexSegment`.
+  - [x] Test assertion relaxed to accept trailing comma inside delimiter (`\(y=e^{...},\)`) — English comma is not matched by `_isNaturalLanguageBoundary`.
+  - [x] 23/23 tests pass, `dart analyze` clean.
+  - [x] No renderer / tokenizer / prompt / PDF renderer / pipeline changes.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 23/23 pass.
+
 ## [2026-06-08 08:10] - test(latex): Step 6-A — failure-capture for bare equation `y=e^{-\int...}`
 
 - **Change type**: test
