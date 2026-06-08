@@ -224,7 +224,7 @@ class LatexImportRepairService {
       }
 
       if (braceDepth == 0) {
-        if (_isEquationBoundaryPunctuation(ch)) break;
+        if (_isNaturalLanguageBoundary(ch)) break;
         if (ch == '\n') break;
         if (ch == ' ' && i + 1 < text.length) {
           final next = text.codeUnitAt(i + 1);
@@ -498,7 +498,7 @@ class LatexImportRepairService {
       }
 
       if (braceDepth == 0 && parenDepth == 0) {
-        if (_isEquationBoundaryPunctuation(ch)) break;
+        if (_isNaturalLanguageBoundary(ch)) break;
         if (ch == '\n') break;
         if (ch == ' ' && i + 1 < text.length) {
           final next = text.codeUnitAt(i + 1);
