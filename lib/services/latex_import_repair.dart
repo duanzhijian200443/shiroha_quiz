@@ -224,7 +224,7 @@ class LatexImportRepairService {
       }
 
       if (braceDepth == 0) {
-        if (_isNaturalLanguageBoundary(ch)) break;
+        if (_isEquationBoundaryPunctuation(ch)) break;
         if (ch == '\n') break;
         if (ch == ' ' && i + 1 < text.length) {
           final next = text.codeUnitAt(i + 1);
@@ -498,7 +498,7 @@ class LatexImportRepairService {
       }
 
       if (braceDepth == 0 && parenDepth == 0) {
-        if (_isNaturalLanguageBoundary(ch)) break;
+        if (_isEquationBoundaryPunctuation(ch)) break;
         if (ch == '\n') break;
         if (ch == ' ' && i + 1 < text.length) {
           final next = text.codeUnitAt(i + 1);
@@ -588,7 +588,7 @@ class LatexImportRepairService {
       }
 
       if (braceDepth == 0 && parenDepth == 0) {
-        if (_isNaturalLanguageBoundary(ch)) break;
+        if (_isEquationBoundaryPunctuation(ch)) break;
         if (ch == '\n') break;
         if (ch == ' ' && i + 1 < text.length) {
           final next = text.codeUnitAt(i + 1);
@@ -682,6 +682,13 @@ class LatexImportRepairService {
         ch == 'λ' ||
         ch == 'μ' ||
         ch == 'σ';
+  }
+
+  bool _isEquationBoundaryPunctuation(String ch) {
+    return _isNaturalLanguageBoundary(ch) ||
+        ch == ',' ||
+        ch == ';' ||
+        ch == ':';
   }
 
   bool _startsWith(String input, int index, String needle) {

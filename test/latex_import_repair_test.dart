@@ -287,30 +287,22 @@ void main() {
 
   group('Step 6-A — bare equation failure capture', () {
     test(
-      'bare equation with exponential integral should be wrapped as one formula',
+      'bare equation with exponential integral should stop before ascii comma',
       () {
         const input =
             r'根据求解公式,y=e^{-\int\frac{1}{2\sqrt{x}}dx}, 可继续计算。';
 
         final output = repair.repairInline(input);
 
-        expect(output, contains('根据求解公式,'));
-        expect(output, contains('可继续计算。'));
-        expect(output, contains(r'\int\frac{1}{2\sqrt{x}}dx'));
-        expect(output, isNot(equals(input)));
-
-        // The equation may include a trailing comma (,) inside the delimiter
-        // because the boundary logic considers it part of the formula.
-        // Accept either \(y=e^{...}\) or \(y=e^{...},\)
         expect(
-          output.contains(r'\(y=e^{-\int\frac{1}{2\sqrt{x}}dx}\)') ||
-              output.contains(r'\[y=e^{-\int\frac{1}{2\sqrt{x}}dx}\]') ||
-              output.contains(r'\(y=e^{-\int\frac{1}{2\sqrt{x}}dx},\)') ||
-              output.contains(r'\[y=e^{-\int\frac{1}{2\sqrt{x}}dx},\]'),
-          isTrue,
-          reason:
-              'bare equation y=e^{...} should be wrapped as a complete formula, '
-              'not repaired from the inner \\int',
+          output,
+          contains(r'\(y=e^{-\int\frac{1}{2\sqrt{x}}dx}\), 可继续计算。'),
+        );
+
+        // The trailing comma must NOT be inside the math delimiter.
+        expect(
+          output,
+          isNot(contains(r'\(y=e^{-\int\frac{1}{2\sqrt{x}}dx},\)')),
         );
       },
     );
@@ -334,5 +326,14 @@ void main() {
         expect(output, equals(input));
       },
     );
+
+    test('simple x equals number should not be wrapped by bare equation repair',
+        () {
+      const input = '令 x=1，继续讨论。';
+
+      final output = repair.repairInline(input);
+
+      expect(output, equals(input));
+    });
   });
 }
