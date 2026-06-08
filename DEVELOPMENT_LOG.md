@@ -1,5 +1,16 @@
 # Development Log
 
+## [2026-06-08 08:10] - test(latex): Step 6-A — failure-capture for bare equation `y=e^{-\int...}`
+
+- **Change type**: test
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] 1 new failure-capture test: `y=e^{-\int\frac{1}{2\sqrt{x}}dx}` stays bare — repairer starts from `\int` and can't balance the `}` from outer `e^{...}`.
+  - [x] 2 regression guards: `mode=fast` key=value text → no-op, `y=结果变量` Chinese text → no-op.
+  - [x] 22/23 pass, 1 known failure.
+  - [x] **No production code changed.** Step 6-B will implement the fix.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 22/23 pass (1 expected failure).
+
 ## [2026-06-08 08:00] - fix(latex): handle bare {} math sets, Unicode contour integrals — 20/20 pass
 
 - **Change type**: fix
