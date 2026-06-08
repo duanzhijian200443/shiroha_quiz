@@ -127,7 +127,12 @@ class ImportPipelineService {
           parseBatch: (batchPaths) =>
               AiService.instance.parseImagesWithVision(
                 batchPaths,
-                repairLatex: format == ImportFormat.pdf,
+                // TEMP: PDF LaTeX repair disabled after import regressions
+                // involving LatexErrorChip, question order, q_num drift, and
+                // answer loss.  Keep repair service code intact.
+                // Re-enable only after offline replay proves repairAll does
+                // not change import structure or trigger renderer regressions.
+                repairLatex: false,
               ),
           onProgress: (progress, status) {
             TaskManager.instance.updateProgress(
