@@ -1,5 +1,17 @@
 # Development Log
 
+## [2026-06-08 08:30] - fix(latex): Step 6-C — ASCII punctuation boundary in bare equation scanning
+
+- **Change type**: fix
+- **Affected modules**: latex, tests
+- **Details**:
+  - [x] `_isEquationBoundaryPunctuation`: extends `_isNaturalLanguageBoundary` with ASCII `,` `;` `:`. Used only in `_findBareEquationEnd`.
+  - [x] Test tightened: comma after `y=e^{...}` must NOT be inside delimiter → `\(y=e^{-\int...}\),` (correct).
+  - [x] Added `x=1` regression guard (no LaTeX command → no-op).
+  - [x] 24/24 tests pass, `dart analyze` clean.
+  - [x] No renderer / tokenizer / prompt / PDF renderer / pipeline changes.
+- **Verification**: `flutter test test/latex_import_repair_test.dart` 24/24 pass.
+
 ## [2026-06-08 08:20] - fix(latex): Step 6-B — detect and wrap bare equations like y=e^{-\int...} (23/23 pass)
 
 - **Change type**: fix
