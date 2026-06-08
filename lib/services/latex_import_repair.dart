@@ -108,6 +108,21 @@ class LatexImportRepairService {
         }
       }
 
+      // Bare equation: y=e^{-\int...} — scan from variable=, not from \int
+      final equationEnd = _findBareEquationEnd(text, i);
+      if (equationEnd > i) {
+        final expr = text.substring(i, equationEnd).trimRight();
+        if (_isSafeBareEquation(expr)) {
+          final asBlock = LatexComplexityClassifier.shouldRenderAsBlock(expr);
+          buffer
+            ..write(asBlock ? r'\[' : r'\(')
+            ..write(expr)
+            ..write(asBlock ? r'\]' : r'\)');
+          i = equationEnd;
+          continue;
+        }
+      }
+
       final match = _bareLatexPattern.matchAsPrefix(text, i);
       if (match == null) {
         buffer.write(text[i]);
@@ -528,6 +543,145 @@ class LatexImportRepairService {
     if (expr.startsWith('∬')) return r'\iint' + expr.substring(1);
     if (expr.startsWith('∫')) return r'\int' + expr.substring(1);
     return expr;
+  }
+
+  // ── bare equation: y=e^{-\int...} ──
+
+  int _findBareEquationEnd(String text, int start) {
+    if (!_looksLikeBareEquationStart(text, start)) return -1;
+
+    var i = start;
+    var braceDepth = 0;
+    var parenDepth = 0;
+
+    while (i < text.length) {
+      final ch = text[i];
+
+      if (ch == r'\') {
+        i += i + 1 < text.length ? 2 : 1;
+        continue;
+      }
+
+      if (ch == '{') {
+        braceDepth++;
+        i++;
+        continue;
+      }
+
+      if (ch == '}') {
+        braceDepth--;
+        i++;
+        if (braceDepth < 0) break;
+        continue;
+      }
+
+      if (ch == '(' || ch == '（') {
+        parenDepth++;
+        i++;
+        continue;
+      }
+
+      if (ch == ')' || ch == '）') {
+        if (parenDepth > 0) parenDepth--;
+        i++;
+        continue;
+      }
+
+      if (braceDepth == 0 && parenDepth == 0) {
+        if (_isNaturalLanguageBoundary(ch)) break;
+        if (ch == '\n') break;
+        if (ch == ' ' && i + 1 < text.length) {
+          final next = text.codeUnitAt(i + 1);
+          if (_isCjk(next) || _isUpperAscii(next)) break;
+        }
+      }
+
+      i++;
+    }
+
+    while (i > start && text[i - 1] == ' ') {
+      i--;
+    }
+
+    return i;
+  }
+
+  bool _looksLikeBareEquationStart(String text, int start) {
+    if (start < 0 || start >= text.length) return false;
+
+    // Previous char must not be letter/digit/underscore (guards against
+    // matching 'e=' inside 'mode=fast').
+    if (start > 0) {
+      final prev = text.codeUnitAt(start - 1);
+      if (_isAsciiLetter(prev) || _isAsciiDigit(prev) || prev == 0x5F) {
+        return false;
+      }
+    }
+
+    var i = start;
+
+    // Single ASCII or Greek variable name: x=  y=  A=  ρ=
+    if (i < text.length && _isAsciiLetter(text.codeUnitAt(i))) {
+      i++;
+    } else if (i < text.length && _isGreekVariableChar(text[i])) {
+      i++;
+    } else {
+      return false;
+    }
+
+    // Optional subscript: x_n=  y_1=  y_{k+1}=
+    if (i < text.length && text[i] == '_') {
+      i++;
+      if (i >= text.length) return false;
+
+      if (text[i] == '{') {
+        final close = text.indexOf('}', i + 1);
+        if (close == -1) return false;
+        i = close + 1;
+      } else {
+        final code = text.codeUnitAt(i);
+        if (!_isAsciiLetter(code) && !_isAsciiDigit(code)) return false;
+        i++;
+      }
+    }
+
+    return i < text.length && text[i] == '=';
+  }
+
+  bool _isSafeBareEquation(String expr) {
+    final value = expr.trim();
+    if (value.isEmpty) return false;
+    if (!value.contains('=')) return false;
+
+    // Must not contain Chinese (guards against y=结果变量).
+    if (RegExp(r'[一-鿿]').hasMatch(value)) return false;
+
+    // Must contain both a LaTeX command AND a math power/group.
+    final hasLatex = RegExp(
+      r'\\(?:frac|sqrt|int|iint|iiint|oint|sum|prod|lim'
+      r'|sin|cos|tan|ln|log|theta|pi)\b',
+    ).hasMatch(value);
+    final hasPowerOrGroup = value.contains('^') || value.contains('{');
+
+    if (!hasLatex || !hasPowerOrGroup) return false;
+
+    return _isSafeLatexSegment(value);
+  }
+
+  bool _isAsciiLetter(int code) =>
+      (code >= 0x41 && code <= 0x5A) || (code >= 0x61 && code <= 0x7A);
+
+  bool _isAsciiDigit(int code) => code >= 0x30 && code <= 0x39;
+
+  bool _isGreekVariableChar(String ch) {
+    return ch == 'ρ' ||
+        ch == 'θ' ||
+        ch == 'α' ||
+        ch == 'β' ||
+        ch == 'γ' ||
+        ch == 'λ' ||
+        ch == 'μ' ||
+        ch == 'σ';
   }
 
   bool _startsWith(String input, int index, String needle) {
