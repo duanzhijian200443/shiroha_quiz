@@ -276,4 +276,58 @@ void main() {
       expect(output, equals(input));
     });
   });
+
+  // ═══════════════════════════════════════════════════════════
+  // Step 6-A failure-capture tests for the last remaining
+  // bare-equation rendering problem.
+  // These tests describe desired behaviour that the current
+  // repairer does NOT yet implement.  Do NOT modify production
+  // code in this step — only lock in the test contracts.
+  // ═══════════════════════════════════════════════════════════
+
+  group('Step 6-A — bare equation failure capture', () {
+    test(
+      'bare equation with exponential integral should be wrapped as one formula',
+      () {
+        const input =
+            r'根据求解公式,y=e^{-\int\frac{1}{2\sqrt{x}}dx}, 可继续计算。';
+
+        final output = repair.repairInline(input);
+
+        expect(output, contains('根据求解公式,'));
+        expect(output, contains('可继续计算。'));
+        expect(output, contains(r'\int\frac{1}{2\sqrt{x}}dx'));
+        expect(output, isNot(equals(input)));
+
+        expect(
+          output.contains(r'\(y=e^{-\int\frac{1}{2\sqrt{x}}dx}\)') ||
+              output.contains(r'\[y=e^{-\int\frac{1}{2\sqrt{x}}dx}\]'),
+          isTrue,
+          reason:
+              'bare equation y=e^{...} should be wrapped as a complete formula, '
+              'not repaired from the inner \\int',
+        );
+      },
+    );
+
+    test('plain key value text should not be wrapped as math', () {
+      const input = '配置项 mode=fast 只是普通文本，不是数学公式。';
+
+      final output = repair.repairInline(input);
+
+      expect(output, equals(input));
+    });
+
+    test(
+      'simple Chinese text with y equals but no LaTeX command '
+      'should not be forced into math',
+      () {
+        const input = '这里说 y=结果变量，只是说明文字。';
+
+        final output = repair.repairInline(input);
+
+        expect(output, equals(input));
+      },
+    );
+  });
 }
