@@ -16,6 +16,7 @@ class ImportSettingsScreen extends StatefulWidget {
 
 class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   bool _useVisionEngine = false;
+  bool _useOcrEngine = false;
   double _maxConcurrency = 3.0; // 默认多图并发线程
   final ImagePicker _picker = ImagePicker();
 
@@ -112,6 +113,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         filePaths: result.files.map((e) => e.path!).toList(),
         fileNames: result.files.map((e) => e.name).toList(),
         useVisionEngine: _useVisionEngine,
+        useOcrEngine: _useOcrEngine,
         maxConcurrency: _maxConcurrency.toInt(),
         taskId: taskId,
       );
@@ -246,9 +248,19 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             ),
             const SizedBox(height: 24),
             SwitchListTile(
+              title: const Text('智谱 GLM-OCR 解析 (PDF/图片)',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              subtitle: const Text('优先把 PDF/图片识别为 Markdown/LaTeX，再走题目结构化。需视觉引擎配置为智谱 bigmodel.cn。',
+                  style: TextStyle(fontSize: 12)),
+              value: _useOcrEngine,
+              activeColor: Colors.teal,
+              contentPadding: EdgeInsets.zero,
+              onChanged: (val) => setState(() => _useOcrEngine = val),
+            ),
+            SwitchListTile(
               title: const Text('深度视觉解析 (慢速/极高精度)',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              subtitle: const Text('包含代码截图或复杂公式的 PDF/图片 请开启。',
+              subtitle: const Text('包含代码截图或复杂公式的 PDF/图片 请开启。开启 OCR 时将作为失败兜底。',
                   style: TextStyle(fontSize: 12)),
               value: _useVisionEngine,
               activeColor: Colors.purpleAccent,
