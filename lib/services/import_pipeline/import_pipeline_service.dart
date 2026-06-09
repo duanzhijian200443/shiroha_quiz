@@ -18,6 +18,7 @@ import 'adapters/zip_document_adapter.dart';
 import 'mixed_document_vision_service.dart';
 import 'pdf_page_image_renderer.dart';
 import 'vision_batch_parse_coordinator.dart';
+import 'zhipu_ocr_import_route.dart';
 
 class ImportPipelineService {
   static final ImportPipelineService instance = ImportPipelineService._();
@@ -94,7 +95,35 @@ class ImportPipelineService {
         continue;
       }
 
-      if (request.useVisionEngine) {
+      if (request.useOcrEngine) {
+        final ocrRoute = const ZhipuOcrImportRoute();
+        if (ocrRoute.supports(format)) {
+          TaskManager.instance.updateProgress(
+            taskId,
+            '文件 ${fileIdx + 1}/${request.filePaths.length} — 正在使用 GLM-OCR 解析...',
+            0.1 + (fileIdx / request.filePaths.length) * 0.7 + 0.05,
+          );
+          try {
+            final ocrRes = await ocrRoute.parseFile(
+              filePath: filePath,
+              sourceName: sourceName,
+              taskId: taskId,
+            );
+            singleFileQuestions = ocrRes.questions;
+            allWarnings.addAll(ocrRes.warnings);
+            allDiagnostics['ocr_file_$fileIdx'] = ocrRes.diagnostics;
+            if (singleFileQuestions.isEmpty && request.useVisionEngine) {
+              allWarnings.add('GLM-OCR 未提取到题目，已回退到深度视觉解析: $sourceName');
+            }
+          } catch (e) {
+            allWarnings.add('GLM-OCR 解析失败: $e');
+            allDiagnostics['ocr_file_${fileIdx}_error'] = e.toString();
+            if (!request.useVisionEngine) rethrow;
+          }
+        }
+      }
+
+      if (singleFileQuestions.isEmpty && request.useVisionEngine) {
         List<String> imagePaths = [];
         if (format == ImportFormat.pdf) {
           final renderer = const PdfPageImageRenderer();
@@ -127,11 +156,6 @@ class ImportPipelineService {
           parseBatch: (batchPaths) =>
               AiService.instance.parseImagesWithVision(
                 batchPaths,
-                // TEMP: PDF LaTeX repair disabled after import regressions
-                // involving LatexErrorChip, question order, q_num drift, and
-                // answer loss.  Keep repair service code intact.
-                // Re-enable only after offline replay proves repairAll does
-                // not change import structure or trigger renderer regressions.
                 repairLatex: false,
               ),
           onProgress: (progress, status) {
@@ -171,14 +195,11 @@ class ImportPipelineService {
         allWarnings.addAll(fusion.warnings);
         debugPrint('✅ 文件 ${fileIdx + 1}/${request.filePaths.length} '
             '本地拼图完成，得到 ${singleFileQuestions.length} 题');
-      } else {
+      } else if (singleFileQuestions.isEmpty) {
         final file = File(filePath);
         String rawText = '';
         bool isMarkdownFile = false;
         ParsedDocument? parsedDoc;
-        final sourceName = request.fileNames.length > fileIdx
-            ? request.fileNames[fileIdx]
-            : filePath.split(Platform.pathSeparator).last;
 
         if (format == ImportFormat.pdf) {
           final bytes = await file.readAsBytes();
@@ -190,7 +211,7 @@ class ImportPipelineService {
             parsedDoc = await ZipDocumentAdapter.parse(
                 filePath: filePath, sourceName: sourceName);
             isMarkdownFile =
-                true; // Treats as markdown because zip emits markdown text
+                true;
           } else if (format == ImportFormat.md) {
             parsedDoc = await MarkdownDocumentAdapter.parse(
                 filePath: filePath, sourceName: sourceName);
@@ -199,7 +220,6 @@ class ImportPipelineService {
             parsedDoc = await TxtDocumentAdapter.parse(
                 filePath: filePath, sourceName: sourceName);
           } else {
-            // fallback for unknown
             rawText = await file.readAsString();
           }
 
@@ -225,7 +245,6 @@ class ImportPipelineService {
               isMarkdown: isMarkdownFile);
         }
 
-        // --- Phase 4-A: Mixed Vision Supplement ---
         if (format != ImportFormat.docx && parsedDoc != null && parsedDoc.imageAssets.isNotEmpty) {
           TaskManager.instance.updateProgress(
               taskId,
