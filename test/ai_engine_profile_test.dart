@@ -32,6 +32,26 @@ void main() {
       expect(profile.isComplete, isTrue);
     });
 
+    test('supports OCR engine types from database rows', () {
+      final profile = AiEngineProfile.fromMap(
+        {
+          'id': 'engine-ocr',
+          'engine_type': 'ocr',
+          'name': 'GLM OCR',
+          'api_key': 'key',
+          'base_url': 'https://open.bigmodel.cn/api/paas',
+          'model_name': 'glm-ocr',
+          'temperature': 0.0,
+          'reasoning_effort': '',
+          'is_active': 1,
+        },
+        fallbackType: AiEngineType.text,
+      );
+
+      expect(profile.engineType, AiEngineType.ocr);
+      expect(profile.modelName, 'glm-ocr');
+    });
+
     test('reports missing required provider fields without throwing', () {
       final profile = AiEngineProfile.fromMap(
         {

@@ -11,15 +11,27 @@ class AiEngineRepository {
 
   Future<List<AiEngineProfile>> getEngines(AiEngineType type) async {
     final rows = await _databaseHelper.getAiEngines(type.dbValue);
-    return rows
+    final profiles = rows
         .map((row) => AiEngineProfile.fromMap(row, fallbackType: type))
+        .toList(growable: false);
+    if (type == AiEngineType.ocr) {
+      return profiles
+          .where((profile) => profile.engineType == AiEngineType.ocr)
+          .toList(growable: false);
+    }
+    return profiles
+        .where((profile) => profile.engineType != AiEngineType.ocr)
         .toList(growable: false);
   }
 
   Future<AiEngineProfile?> getActiveEngine(AiEngineType type) async {
     final row = await _databaseHelper.getActiveAiEngine(type.dbValue);
     if (row == null) return null;
-    return AiEngineProfile.fromMap(row, fallbackType: type);
+    final profile = AiEngineProfile.fromMap(row, fallbackType: type);
+    if (type == AiEngineType.ocr) {
+      return profile.engineType == AiEngineType.ocr ? profile : null;
+    }
+    return profile.engineType == AiEngineType.ocr ? null : profile;
   }
 
   Future<AiEngineProfile?> getActiveTextEngine() {
@@ -28,6 +40,14 @@ class AiEngineRepository {
 
   Future<AiEngineProfile?> getActiveVisionEngine() {
     return getActiveEngine(AiEngineType.vision);
+  }
+
+  Future<AiEngineProfile?> getActiveOcrEngine() async {
+    final profile = await getActiveEngine(AiEngineType.ocr);
+    if (profile == null || profile.engineType != AiEngineType.ocr) {
+      return null;
+    }
+    return profile;
   }
 
   Future<void> saveEngine(AiEngineProfile profile) async {

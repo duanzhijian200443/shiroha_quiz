@@ -1,0 +1,574 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - link "跳到主要内容" [ref=e2] [cursor=pointer]
+      - link "无障碍功能帮助" [ref=e3] [cursor=pointer]:
+        - /url: https://support.google.com/websearch/answer/181196?hl=zh-CN
+  - generic [ref=e8]:
+    - search [ref=e9]:
+      - generic [ref=e11]:
+        - link "Google 首页" [ref=e13] [cursor=pointer]:
+          - /url: https://www.google.com/webhp?hl=zh-CN&sa=X&ved=0ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQPAgI
+          - img [ref=e14]
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - combobox "搜索" [ref=e25]: token efficient document parsing OCR layout vision language model cascade official token efficient document parsing OCR layout vision language model cascade official
+            - generic [ref=e26]:
+              - button "清除" [ref=e28] [cursor=pointer]:
+                - img [ref=e30]
+              - generic [ref=e33]:
+                - button "按语音搜索" [ref=e34] [cursor=pointer]:
+                  - img [ref=e35]
+                - button "按图搜索" [ref=e37] [cursor=pointer]:
+                  - img [ref=e38]
+          - button "搜索" [ref=e40] [cursor=pointer]:
+            - img [ref=e43]
+    - generic [ref=e45]:
+      - button "设置" [ref=e47] [cursor=pointer]:
+        - img [ref=e50]
+      - generic [ref=e53]:
+        - button "Google 应用" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - link "登录" [ref=e60] [cursor=pointer]:
+          - /url: https://accounts.google.com/ServiceLogin?hl=zh-CN&passive=true&continue=https://www.google.com/search%3Fq%3Dtoken%2Befficient%2Bdocument%2Bparsing%2BOCR%2Blayout%2Bvision%2Blanguage%2Bmodel%2Bcascade%2Bofficial%26sei%3D8ncnaoSTJbym2roP8uLngQk&ec=futura_srp_og_si_72236_p
+  - generic [ref=e62]:
+    - navigation [ref=e68]:
+      - generic [ref=e74]:
+        - list [ref=e75]:
+          - listitem [ref=e76]:
+            - link "AI 模式" [ref=e79] [cursor=pointer]:
+              - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&udm=50&fbs=ADc_l-Z6XGGbkKmpylZqg2J7ZOuVtSi6kM5ZjADb03gRVWnenfhJMtO4x41VfNir3SjdVdhyyyyYILncmWVWY-SA4CdevaFXj2U84euI-vNNo4UARBZiEMiLkftjOcHGEGsV2MNshrExxITsxtzQmt2SYQ7GDqTutogYlYidRHes7C0j56sLndEECIKxqDcegRwL0VLg0iGeqCHXQAUizC73_MYHuBGUFA&aep=1&ntc=1&sa=X&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ2J8OegQIERAD
+              - generic [ref=e82]: AI 模式
+          - listitem [ref=e83]:
+            - link "全部" [disabled] [ref=e84]:
+              - generic [ref=e86]: 全部
+          - listitem [ref=e87]:
+            - link "购物" [ref=e88] [cursor=pointer]:
+              - /url: /search?sca_esv=e8b56c3c652e1040&udm=28&fbs=ADc_l-Z6XGGbkKmpylZqg2J7ZOuVtSi6kM5ZjADb03gRVWnenfhJMtO4x41VfNir3SjdVdhyyyyYILncmWVWY-SA4CdevaFXj2U84euI-vNNo4UARBZiEMiLkftjOcHGEGsV2MNshrExxITsxtzQmt2SYQ7GDqTutogYlYidRHes7C0j56sLndEECIKxqDcegRwL0VLg0iGeqCHXQAUizC73_MYHuBGUFA&q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&ved=1t:220175&ictx=111
+              - generic [ref=e90]: 购物
+          - listitem [ref=e91]:
+            - link "图片" [ref=e92] [cursor=pointer]:
+              - /url: /search?sca_esv=e8b56c3c652e1040&udm=2&fbs=ADc_l-Z6XGGbkKmpylZqg2J7ZOuVtSi6kM5ZjADb03gRVWnenfhJMtO4x41VfNir3SjdVdhyyyyYILncmWVWY-SA4CdevaFXj2U84euI-vNNo4UARBZiEMiLkftjOcHGEGsV2MNshrExxITsxtzQmt2SYQ7GDqTutogYlYidRHes7C0j56sLndEECIKxqDcegRwL0VLg0iGeqCHXQAUizC73_MYHuBGUFA&q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sa=X&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQtKgLegQIFhAB
+              - generic [ref=e94]: 图片
+          - listitem [ref=e95]:
+            - link "视频" [ref=e96] [cursor=pointer]:
+              - /url: /search?sca_esv=e8b56c3c652e1040&udm=7&fbs=ADc_l-Z6XGGbkKmpylZqg2J7ZOuVtSi6kM5ZjADb03gRVWnenfhJMtO4x41VfNir3SjdVdhyyyyYILncmWVWY-SA4CdevaFXj2U84euI-vNNo4UARBZiEMiLkftjOcHGEGsV2MNshrExxITsxtzQmt2SYQ7GDqTutogYlYidRHes7C0j56sLndEECIKxqDcegRwL0VLg0iGeqCHXQAUizC73_MYHuBGUFA&q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sa=X&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQtKgLegQIFRAB
+              - generic [ref=e98]: 视频
+          - listitem [ref=e99]:
+            - link "短视频" [ref=e100] [cursor=pointer]:
+              - /url: /search?sca_esv=e8b56c3c652e1040&udm=39&fbs=ADc_l-Z6XGGbkKmpylZqg2J7ZOuVtSi6kM5ZjADb03gRVWnenfhJMtO4x41VfNir3SjdVdhyyyyYILncmWVWY-SA4CdevaFXj2U84euI-vNNo4UARBZiEMiLkftjOcHGEGsV2MNshrExxITsxtzQmt2SYQ7GDqTutogYlYidRHes7C0j56sLndEECIKxqDcegRwL0VLg0iGeqCHXQAUizC73_MYHuBGUFA&q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sa=X&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQs6gLegQIFBAB
+              - generic [ref=e102]: 短视频
+          - listitem [ref=e103]:
+            - link "新闻" [ref=e104] [cursor=pointer]:
+              - /url: /search?sca_esv=e8b56c3c652e1040&q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&tbm=nws&source=lnms&fbs=ADc_l-Z6XGGbkKmpylZqg2J7ZOuVtSi6kM5ZjADb03gRVWnenfhJMtO4x41VfNir3SjdVdhyyyyYILncmWVWY-SA4CdevaFXj2U84euI-vNNo4UARBZiEMiLkftjOcHGEGsV2MNshrExxITsxtzQmt2SYQ7GDqTutogYlYidRHes7C0j56sLndEECIKxqDcegRwL0VLg0iGeqCHXQAUizC73_MYHuBGUFA&sa=X&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ0pQJegQIExAB
+              - generic [ref=e106]: 新闻
+          - listitem [ref=e107]:
+            - button "更多过滤条件" [ref=e108] [cursor=pointer]:
+              - generic "更多过滤条件" [ref=e109]:
+                - generic [ref=e110]:
+                  - generic [ref=e111]: 更多
+                  - img [ref=e113]
+        - button "工具" [ref=e116] [cursor=pointer]:
+          - generic [ref=e118]:
+            - generic [ref=e119]: 工具
+            - img [ref=e121]
+    - heading "搜索结果" [level=1] [ref=e123]
+    - generic [ref=e128]:
+      - generic [ref=e147]:
+        - generic [ref=e149]:
+          - generic [ref=e151]:
+            - generic [ref=e152]:
+              - img [ref=e153]
+              - heading "AI 概览" [level=2] [ref=e155]
+            - button "关于这条结果的详细信息" [ref=e159]:
+              - img [ref=e161]
+          - generic [ref=e181]:
+            - generic [ref=e184]:
+              - generic [ref=e185]:
+                - text: Token-efficient document parsing using Vision Language Models (VLMs) is
+                - mark [ref=e186]: shifting from traditional, multi-stage OCR pipelines to end-to-end architectures
+                - text: . Modern models minimize visual tokens and eliminate cascading errors by employing
+                - strong [ref=e187]: coarse-to-fine processing
+                - text: (detecting layout first, then zooming into text areas) and
+                - strong [ref=e188]: contextual optical compression
+                - text: (encoding pages into compact visual spaces).
+                - generic [ref=e190]:
+                  - link "arXiv（+4 个）- 查看相关链接" [ref=e191] [cursor=pointer]:
+                    - /url: https://arxiv.org/html/2603.24326v1
+                  - button "arXiv（+4 个）- 查看相关链接" [ref=e192] [cursor=pointer]:
+                    - generic [ref=e194]:
+                      - generic [ref=e195]: arXiv
+                      - generic [ref=e196]: "+4"
+              - generic [ref=e197]:
+                - text: "These token-efficient strategies rely on specific techniques to optimize token budgets and parsing throughput without losing structural integrity:"
+                - button [ref=e200] [cursor=pointer]:
+                  - img [ref=e203]
+              - heading [level=3] [ref=e206]: 1. Coarse-to-Fine Cascaded Layout Processing
+              - generic [ref=e208]:
+                - text: "Standard VLMs suffer from a quadratic increase in visual tokens when fed full pages at high resolutions. State-of-the-art models mitigate this via decoupled cascades:"
+                - generic [ref=e210]:
+                  - link [ref=e211] [cursor=pointer]:
+                    - /url: https://openaccess.thecvf.com/content/CVPR2026/papers/Cui_Boosting_Document_Parsing_Efficiency_and_Performance_with_Coarse-to-Fine_Visual_Processing_CVPR_2026_paper.pdf
+                  - button [ref=e212] [cursor=pointer]:
+                    - generic [ref=e214]:
+                      - generic [ref=e215]: CVF Open Access
+                      - generic [ref=e216]: "+1"
+              - list [ref=e218]:
+                - listitem [ref=e219]:
+                  - generic [ref=e220]:
+                    - strong [ref=e221]: "Valid Region Focus:"
+                    - text: A lightweight module initially runs a fast, coarse layout analysis (e.g., PP-DocLayout) to identify bounding boxes for text blocks, formulas, and charts.
+                - listitem [ref=e222]:
+                  - generic [ref=e223]:
+                    - strong [ref=e224]: "Selective Zoom:"
+                    - text: Instead of processing an entire document page's pixels, the VLM extracts and processes only these informative, high-resolution regions, drastically cutting down the token budget.
+                  - generic [ref=e226]:
+                    - link [ref=e227] [cursor=pointer]:
+                      - /url: https://openaccess.thecvf.com/content/CVPR2026/papers/Cui_Boosting_Document_Parsing_Efficiency_and_Performance_with_Coarse-to-Fine_Visual_Processing_CVPR_2026_paper.pdf
+                    - button [ref=e228] [cursor=pointer]:
+                      - generic [ref=e230]:
+                        - generic [ref=e231]: CVF Open Access
+                        - generic [ref=e232]: "+2"
+              - heading [level=3] [ref=e234]: 2. Contextual Optical Compression
+              - generic [ref=e236]:
+                - text: Instead of detecting and classifying individual glyphs sequentially, models compress the visual information directly.
+                - generic [ref=e238]:
+                  - link [ref=e239] [cursor=pointer]:
+                    - /url: https://huggingface.co/blog/prithivMLmods/multimodal-ocr-vlms
+                  - button [ref=e240] [cursor=pointer]:
+                    - generic [ref=e243]: Hugging Face
+              - list [ref=e245]:
+                - listitem [ref=e246]:
+                  - generic [ref=e247]:
+                    - strong [ref=e248]: "Encoder-Based Compression:"
+                    - text: Encoders like DeepEncoder process complex, high-resolution document images and compress the pixel space into a significantly smaller sequence of visual tokens.
+                - listitem [ref=e249]:
+                  - generic [ref=e250]:
+                    - strong [ref=e251]: "Native Structured Markup:"
+                    - text: Once the image is compressed into a compact set of tokens, a smaller language decoder can output the document directly into lightweight structural markup (such as Markdown or LaTeX) while reducing context memory overhead.
+                  - generic [ref=e253]:
+                    - link [ref=e254] [cursor=pointer]:
+                      - /url: https://arxiv.org/html/2602.12957v1
+                    - button [ref=e255] [cursor=pointer]:
+                      - generic [ref=e257]:
+                        - generic [ref=e258]: arXiv
+                        - generic [ref=e259]: "+1"
+              - heading [level=3] [ref=e261]: 3. Parallel Token Prediction (PTP)
+              - generic [ref=e263]:
+                - text: Auto-regressive (AR) decoding, where models generate one token at a time, remains a significant computational bottleneck for OCR-based VLMs.
+                - generic [ref=e265]:
+                  - link [ref=e266] [cursor=pointer]:
+                    - /url: https://arxiv.org/abs/2603.15206
+                  - button [ref=e267] [cursor=pointer]:
+                    - generic [ref=e270]: arXiv
+              - list [ref=e272]:
+                - listitem [ref=e273]:
+                  - generic [ref=e274]:
+                    - strong [ref=e275]: "Multi-Token Generation:"
+                    - text: Recent advancements, such as the PTP mechanism, equip lightweight VLMs to generate multiple tokens in parallel per forward pass, increasing decoding throughput and reducing sequence latency.
+                  - generic [ref=e277]:
+                    - link [ref=e278] [cursor=pointer]:
+                      - /url: https://arxiv.org/abs/2603.15206
+                    - button [ref=e279] [cursor=pointer]:
+                      - generic [ref=e281]:
+                        - generic [ref=e282]: arXiv
+                        - generic [ref=e283]: "+1"
+              - heading [level=3] [ref=e285]: Notable Frameworks & Open-Source Implementations
+              - generic [ref=e287]: "If you are looking to integrate or evaluate these token-efficient methods in your pipelines, several domain-specific VLMs and pipelines lead the current landscape:"
+              - list [ref=e289]:
+                - listitem [ref=e290]:
+                  - generic [ref=e291]:
+                    - strong [ref=e292]: "DeepSeek-OCR / DeepSeek-OCR-2:"
+                    - text: Employs Contextual Optical Compression to deliver state-of-the-art OCR while using up to 20 × fewer tokens.
+                - listitem [ref=e293]:
+                  - generic [ref=e294]:
+                    - strong [ref=e295]: "PaddleOCR-VL:"
+                    - text: A resource-efficient (0.9B parameter) cascaded framework that utilizes dynamic high-resolution encoders and Valid Region Focus Modules to skip background regions and parse dense, multilingual content.
+                - listitem [ref=e296]:
+                  - generic [ref=e297]:
+                    - strong [ref=e298]: "GLM-OCR:"
+                    - text: Another compact 0.9B model that utilizes Multi-Token Prediction (MTP) and a two-stage layout/region pipeline for highly efficient production system deployment.
+                - listitem [ref=e299]:
+                  - generic [ref=e300]:
+                    - strong [ref=e301]: "dots.ocr:"
+                    - text: A unified, end-to-end VLM framework that handles layout detection, text recognition, and reading order generation within a single model architecture.
+                  - generic [ref=e303]:
+                    - link [ref=e304] [cursor=pointer]:
+                      - /url: https://openaccess.thecvf.com/content/CVPR2026/papers/Cui_Boosting_Document_Parsing_Efficiency_and_Performance_with_Coarse-to-Fine_Visual_Processing_CVPR_2026_paper.pdf
+                    - button [ref=e305] [cursor=pointer]:
+                      - generic [ref=e307]:
+                        - generic [ref=e308]: CVF Open Access
+                        - generic [ref=e309]: "+4"
+            - generic [ref=e314]:
+              - generic [ref=e316]:
+                - button "11 个网站" [ref=e317] [cursor=pointer]:
+                  - generic [ref=e326]: 11 个网站
+                - button "关于这条结果" [ref=e331] [cursor=pointer]:
+                  - img [ref=e333]
+              - list [ref=e336]:
+                - listitem [ref=e337]:
+                  - generic [ref=e338]:
+                    - link "Training-Free Acceleration for Document Parsing Vision-Language .... 在新标签页中打开。" [ref=e339] [cursor=pointer]:
+                      - /url: https://arxiv.org/html/2602.12957v1
+                    - generic [ref=e340]:
+                      - generic [ref=e342]:
+                        - generic [ref=e343]: Training-Free Acceleration for Document Parsing Vision-Language ...
+                        - generic [ref=e344]: 2026年2月13日 — The model ingests a page image and directly emits structured...
+                      - generic [ref=e345]:
+                        - generic [ref=e350]: arXiv
+                        - button "关于这条结果" [ref=e354] [cursor=pointer]:
+                          - img [ref=e356]
+                - listitem [ref=e360]:
+                  - generic [ref=e361]:
+                    - link "Boosting Document Parsing Efficiency and Performance with Coarse .... 在新标签页中打开。" [ref=e362] [cursor=pointer]:
+                      - /url: https://arxiv.org/html/2603.24326v1
+                    - generic [ref=e363]:
+                      - generic [ref=e365]:
+                        - generic [ref=e366]: Boosting Document Parsing Efficiency and Performance with Coarse ...
+                        - generic [ref=e367]: "2026年3月25日 — 1 Introduction. Figure 1: PaddleOCR-VL achieves state-of-the..."
+                      - generic [ref=e368]:
+                        - generic [ref=e373]: arXiv
+                        - button [ref=e377] [cursor=pointer]:
+                          - img [ref=e379]
+                - listitem [ref=e383]:
+                  - generic [ref=e384]:
+                    - link [ref=e385] [cursor=pointer]:
+                      - /url: https://openaccess.thecvf.com/content/CVPR2026/papers/Cui_Boosting_Document_Parsing_Efficiency_and_Performance_with_Coarse-to-Fine_Visual_Processing_CVPR_2026_paper.pdf
+                    - generic [ref=e386]:
+                      - generic [ref=e388]:
+                        - generic [ref=e389]: Boosting Document Parsing Efficiency and Performance with ...
+                        - generic [ref=e390]: Document parsing is a fine-grained task where image resoluti...
+                      - generic [ref=e392]:
+                        - generic [ref=e397]: CVF Open Access
+                        - button [ref=e401] [cursor=pointer]:
+                          - img [ref=e403]
+              - button [ref=e407] [cursor=pointer]:
+                - generic [ref=e408]: 全部显示
+        - button "显示更多 AI 概览" [ref=e412]:
+          - generic [ref=e414] [cursor=pointer]:
+            - generic [ref=e415]: 展开
+            - img [ref=e417]
+      - main [ref=e420]:
+        - generic [ref=e424]:
+          - table [ref=e430]:
+            - rowgroup [ref=e431]:
+              - row "Google 学术：token efficient document parsing OCR layout vision language model cascade official" [ref=e432]:
+                - cell "Google 学术：token efficient document parsing OCR layout vision language model cascade official" [ref=e433]:
+                  - heading "Google 学术：token efficient document parsing OCR layout vision language model cascade official" [level=3] [ref=e434]:
+                    - link "Google 学术：token efficient document parsing OCR layout vision language model cascade official" [ref=e435] [cursor=pointer]:
+                      - /url: https://scholar.google.co.jp/scholar?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&hl=zh-CN&as_sdt=0&as_vis=1&oi=scholart
+                      - generic [ref=e436]:
+                        - text: Google 学术：
+                        - emphasis [ref=e437]: token efficient document parsing OCR layout vision language model cascade official
+              - 'row "… document layout parsing in a single vision-language … - ‎Li - 被引用次数：29 Document parsing unveiled: Techniques, challenges, … - ‎Zhang - 被引用次数：64 … -language model for efficient high-resolution document … - ‎Niu - 被引用次数：61" [ref=e438]':
+                - 'cell "… document layout parsing in a single vision-language … - ‎Li - 被引用次数：29 Document parsing unveiled: Techniques, challenges, … - ‎Zhang - 被引用次数：64 … -language model for efficient high-resolution document … - ‎Niu - 被引用次数：61" [ref=e439]':
+                  - heading "… document layout parsing in a single vision-language … - ‎Li - 被引用次数：29" [level=3] [ref=e440]:
+                    - link "… document layout parsing in a single vision-language …" [ref=e441] [cursor=pointer]:
+                      - /url: https://scholar.google.co.jp/scholar_url?url=https://arxiv.org/pdf/2512.02498&hl=zh-CN&sa=X&ei=83cnap_bHa2k6rQPjZ2egAg&scisig=ANDmEU5U3YfH715xrulcyf19oeeA&oi=scholarr
+                      - generic [ref=e442]:
+                        - text: …
+                        - emphasis [ref=e443]: document layout parsing
+                        - text: in a single
+                        - emphasis [ref=e444]: vision
+                        - text: "-"
+                        - emphasis [ref=e445]: language
+                        - text: …
+                    - generic [ref=e446]:
+                      - text: "-"
+                      - generic [ref=e447]: ‎Li
+                      - text: "- 被引用次数：29"
+                  - 'heading "Document parsing unveiled: Techniques, challenges, … - ‎Zhang - 被引用次数：64" [level=3] [ref=e448]':
+                    - 'link "Document parsing unveiled: Techniques, challenges, …" [ref=e449] [cursor=pointer]':
+                      - /url: https://scholar.google.co.jp/scholar_url?url=https://arxiv.org/pdf/2410.21169%3F&hl=zh-CN&sa=X&ei=83cnap_bHa2k6rQPjZ2egAg&scisig=ANDmEU6IxdkDgNKIDGN3yQaKhxEV&oi=scholarr
+                      - generic [ref=e450]:
+                        - emphasis [ref=e451]: Document parsing
+                        - text: "unveiled: Techniques, challenges, …"
+                    - generic [ref=e452]:
+                      - text: "-"
+                      - generic [ref=e453]: ‎Zhang
+                      - text: "- 被引用次数：64"
+                  - heading "… -language model for efficient high-resolution document … - ‎Niu - 被引用次数：61" [level=3] [ref=e454]:
+                    - link "… -language model for efficient high-resolution document …" [ref=e455] [cursor=pointer]:
+                      - /url: https://scholar.google.co.jp/scholar_url?url=https://openreview.net/pdf%3Fid%3DGqfnTTsSFr&hl=zh-CN&sa=X&ei=83cnap_bHa2k6rQPjZ2egAg&scisig=ANDmEU4UADqlje2oOeyJjWNiVlu7&oi=scholarr
+                      - generic [ref=e456]:
+                        - text: … -
+                        - emphasis [ref=e457]: language model
+                        - text: for
+                        - emphasis [ref=e458]: efficient
+                        - text: high-resolution
+                        - emphasis [ref=e459]: document
+                        - text: …
+                    - generic [ref=e460]:
+                      - text: "-"
+                      - generic [ref=e461]: ‎Niu
+                      - text: "- 被引用次数：61"
+          - generic [ref=e464]:
+            - heading "Web results" [level=2] [ref=e465]
+            - generic [ref=e466]:
+              - generic [ref=e469]:
+                - link "Boosting Document Parsing Efficiency and Performance ... arXiv https://arxiv.org › html" [ref=e471] [cursor=pointer]:
+                  - /url: https://arxiv.org/html/2603.24326v2
+                  - heading "Boosting Document Parsing Efficiency and Performance ..." [level=3] [ref=e472]
+                  - generic [ref=e477]:
+                    - generic [ref=e479]: arXiv
+                    - generic [ref=e481]: https://arxiv.org › html
+                - generic [ref=e482]:
+                  - generic [ref=e483]: ·
+                  - link "翻译此页" [ref=e484] [cursor=pointer]:
+                    - /url: https://translate.google.com/translate?u=https://arxiv.org/html/2603.24326v2&hl=zh-CN&sl=en&tl=zh-CN&client=search
+                - button "关于这条结果的详细信息" [ref=e485] [cursor=pointer]:
+                  - img [ref=e488]
+              - generic [ref=e491]:
+                - generic [ref=e492]: 2026年4月3日 —
+                - generic [ref=e493]:
+                  - text: This
+                  - emphasis [ref=e494]: design
+                  - text: offers two advantages. First, it avoids processing large irrelevant backgrounds and therefore reduces the number of visual
+                  - emphasis [ref=e495]: tokens
+                  - text: ...
+          - generic [ref=e499]:
+            - generic [ref=e502]:
+              - 'link "Yuliang-Liu/AWESOME-OCR-LLM: OCR in the Era of ... GitHub https://github.com › Yuliang-Liu › AWESO..." [ref=e504] [cursor=pointer]':
+                - /url: https://github.com/Yuliang-Liu/AWESOME-OCR-LLM
+                - 'heading "Yuliang-Liu/AWESOME-OCR-LLM: OCR in the Era of ..." [level=3] [ref=e505]'
+                - generic [ref=e510]:
+                  - generic [ref=e512]: GitHub
+                  - generic [ref=e514]: https://github.com › Yuliang-Liu › AWESO...
+              - generic [ref=e515]:
+                - generic [ref=e516]: ·
+                - link "翻译此页" [ref=e517] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://github.com/Yuliang-Liu/AWESOME-OCR-LLM&hl=zh-CN&sl=en&tl=zh-CN&client=search
+              - button "关于这条结果的详细信息" [ref=e518] [cursor=pointer]:
+                - img [ref=e521]
+            - generic [ref=e525]:
+              - text: Reinforcement learning for
+              - emphasis [ref=e526]: layout
+              - text: and reading order modeling.
+              - emphasis [ref=e527]: OCR
+              - text: "-free"
+              - emphasis [ref=e528]: document
+              - text: understanding
+              - emphasis [ref=e529]: models
+              - text: ". Scaling down: compact"
+              - emphasis [ref=e530]: document
+              - text: VLMs under 1B parameters.
+          - generic [ref=e534]:
+            - generic [ref=e537]:
+              - link "Boosting Document Parsing Efficiency and Performance with ... CVF Open Access https://openaccess.thecvf.com › content › papers" [ref=e539] [cursor=pointer]:
+                - /url: https://openaccess.thecvf.com/content/CVPR2026/papers/Cui_Boosting_Document_Parsing_Efficiency_and_Performance_with_Coarse-to-Fine_Visual_Processing_CVPR_2026_paper.pdf
+                - heading "Boosting Document Parsing Efficiency and Performance with ..." [level=3] [ref=e540]
+                - generic [ref=e545]:
+                  - generic [ref=e547]: CVF Open Access
+                  - generic [ref=e549]: https://openaccess.thecvf.com › content › papers
+              - generic [ref=e550]:
+                - generic:
+                  - generic: PDF
+              - button "关于这条结果的详细信息" [ref=e551] [cursor=pointer]:
+                - img [ref=e554]
+            - generic [ref=e556]:
+              - generic [ref=e557]:
+                - generic [ref=e558]: 作者：C Cui · 2026 —
+                - text: It significantly outperforms ex- isting solutions, exhibits strong competitiveness against top-tier VLMs, and delivers fast inference while utilizing.
+              - generic [ref=e559]: 11 页
+          - generic [ref=e563]:
+            - generic [ref=e566]:
+              - link "Turn Complex Documents into Usable Data with VLM ... NVIDIA Developer https://developer.nvidia.com › blog › turn-c..." [ref=e568] [cursor=pointer]:
+                - /url: https://developer.nvidia.com/blog/turn-complex-documents-into-usable-data-with-vlm-nvidia-nemotron-parse-1-1/
+                - heading "Turn Complex Documents into Usable Data with VLM ..." [level=3] [ref=e569]
+                - generic [ref=e574]:
+                  - generic [ref=e576]: NVIDIA Developer
+                  - generic [ref=e578]: https://developer.nvidia.com › blog › turn-c...
+              - generic [ref=e579]:
+                - generic [ref=e580]: ·
+                - link "翻译此页" [ref=e581] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://developer.nvidia.com/blog/turn-complex-documents-into-usable-data-with-vlm-nvidia-nemotron-parse-1-1/&hl=zh-CN&sl=en&tl=zh-CN&client=search
+              - button "关于这条结果的详细信息" [ref=e582] [cursor=pointer]:
+                - img [ref=e585]
+            - generic [ref=e588]:
+              - generic [ref=e589]: 2025年7月29日 —
+              - generic [ref=e590]:
+                - text: Designed to tackle the hardest aspects of document intelligence,
+                - emphasis [ref=e591]: Nemotron Parse 1.1
+                - text: is an optimized model built on cutting-edge vision language ...
+          - generic [ref=e595]:
+            - generic [ref=e598]:
+              - 'link "PaddleOCR-VL: Boosting Multilingual Document Parsing ... Baidu''s Ernie https://ernie.baidu.com › blog › publication › Pa..." [ref=e600] [cursor=pointer]':
+                - /url: https://ernie.baidu.com/blog/publication/PaddleOCR-VL_Technical_Report.pdf
+                - 'heading "PaddleOCR-VL: Boosting Multilingual Document Parsing ..." [level=3] [ref=e601]'
+                - generic [ref=e606]:
+                  - generic [ref=e608]: Baidu's Ernie
+                  - generic [ref=e610]: https://ernie.baidu.com › blog › publication › Pa...
+              - generic [ref=e611]:
+                - generic:
+                  - generic: PDF
+              - button "关于这条结果的详细信息" [ref=e612] [cursor=pointer]:
+                - img [ref=e615]
+            - generic [ref=e619]:
+              - text: This
+              - emphasis [ref=e620]: vision
+              - text: "-"
+              - emphasis [ref=e621]: language model
+              - text: is specifically designed for resource-
+              - emphasis [ref=e622]: efficient
+              - text: inference and excels at element recognition within
+              - emphasis [ref=e623]: document parsing
+              - text: . By integrating a ...
+          - generic [ref=e627]:
+            - generic [ref=e630]:
+              - link "Vision language models for end-to-end document parsing Thoughtworks https://www.thoughtworks.com › techniques" [ref=e632] [cursor=pointer]:
+                - /url: https://www.thoughtworks.com/radar/techniques/vision-language-models-for-end-to-end-document-parsing
+                - heading "Vision language models for end-to-end document parsing" [level=3] [ref=e633]
+                - generic [ref=e638]:
+                  - generic [ref=e640]: Thoughtworks
+                  - generic [ref=e642]: https://www.thoughtworks.com › techniques
+              - generic [ref=e643]:
+                - generic [ref=e644]: ·
+                - link "翻译此页" [ref=e645] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://www.thoughtworks.com/radar/techniques/vision-language-models-for-end-to-end-document-parsing&hl=zh-CN&sl=en&tl=zh-CN&client=search
+              - button "关于这条结果的详细信息" [ref=e646] [cursor=pointer]:
+                - img [ref=e649]
+            - generic [ref=e652]:
+              - generic [ref=e653]: 2026年4月15日 —
+              - generic [ref=e654]:
+                - emphasis [ref=e655]: Document parsing
+                - text: often relies on multi-stage pipelines combining
+                - emphasis [ref=e656]: layout
+                - text: detection, traditional
+                - emphasis [ref=e657]: OCR
+                - text: and post-processing scripts.
+          - generic [ref=e661]:
+            - generic [ref=e664]:
+              - link "The Best Vision Language Models and Agentic OCR Tools LlamaIndex https://www.llamaindex.ai › insights › best-..." [ref=e666] [cursor=pointer]:
+                - /url: https://www.llamaindex.ai/insights/best-vision-language-models
+                - heading "The Best Vision Language Models and Agentic OCR Tools" [level=3] [ref=e667]
+                - generic [ref=e672]:
+                  - generic [ref=e674]: LlamaIndex
+                  - generic [ref=e676]: https://www.llamaindex.ai › insights › best-...
+              - generic [ref=e677]:
+                - generic [ref=e678]: ·
+                - link "翻译此页" [ref=e679] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://www.llamaindex.ai/insights/best-vision-language-models&hl=zh-CN&sl=en&tl=zh-CN&client=search
+              - button "关于这条结果的详细信息" [ref=e680] [cursor=pointer]:
+                - img [ref=e683]
+            - generic [ref=e686]:
+              - generic [ref=e687]: 2026年3月31日 —
+              - generic [ref=e688]:
+                - emphasis [ref=e689]: Vision language models
+                - text: (VLMs) and agentic
+                - emphasis [ref=e690]: document
+                - text: systems are more flexible because they reason over
+                - emphasis [ref=e691]: layout
+                - text: and meaning, not just coordinates.
+          - generic [ref=e695]:
+            - generic [ref=e698]:
+              - link "Vision-Language Models Outperform OCR in Complex ... LinkedIn · TheNextGenTechInsider.com 1 个回应 · 2个月前" [ref=e700] [cursor=pointer]:
+                - /url: https://www.linkedin.com/posts/thenextgentechinsider_visionlanguagemodels-ocrfailure-llmintegration-activity-7441892534693543937-HOQu
+                - heading "Vision-Language Models Outperform OCR in Complex ..." [level=3] [ref=e701]
+                - generic [ref=e706]:
+                  - generic [ref=e708]: LinkedIn · TheNextGenTechInsider.com
+                  - generic [ref=e710]: 1 个回应 · 2个月前
+              - button "关于这条结果的详细信息" [ref=e711] [cursor=pointer]:
+                - img [ref=e714]
+            - generic [ref=e718]:
+              - emphasis [ref=e719]: Vision-Language Models Now Outperform OCR
+              - text: in Complex Document Parsing OCR's limitations are exposing a major flaw in AI document workflows ...
+          - generic [ref=e723]:
+            - generic [ref=e726]:
+              - link "Hall of Multimodal OCR VLMs and Demonstrations Hugging Face https://huggingface.co › prithivMLmods › m..." [ref=e728] [cursor=pointer]:
+                - /url: https://huggingface.co/blog/prithivMLmods/multimodal-ocr-vlms
+                - heading "Hall of Multimodal OCR VLMs and Demonstrations" [level=3] [ref=e729]
+                - generic [ref=e734]:
+                  - generic [ref=e736]: Hugging Face
+                  - generic [ref=e738]: https://huggingface.co › prithivMLmods › m...
+              - generic [ref=e739]:
+                - generic [ref=e740]: ·
+                - link "翻译此页" [ref=e741] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://huggingface.co/blog/prithivMLmods/multimodal-ocr-vlms&hl=zh-CN&sl=en&tl=zh-CN&client=search
+              - button "关于这条结果的详细信息" [ref=e742] [cursor=pointer]:
+                - img [ref=e745]
+            - generic [ref=e748]:
+              - generic [ref=e749]: 2025年10月31日 —
+              - generic [ref=e750]:
+                - emphasis [ref=e751]: PaddleOCR-VL
+                - text: is a state-of-the-art, resource-efficient vision-language model specifically designed for document parsing. Its core architecture ...
+          - generic [ref=e755]:
+            - generic [ref=e758]:
+              - 'link "Introducing chunkr-parse-1-thinking: The best VLM for ... Chunkr https://www.chunkr.ai › Blog" [ref=e760] [cursor=pointer]':
+                - /url: https://www.chunkr.ai/blog/chunkr-parse-1-thinking-the-best-vlm-for-document-ocr
+                - 'heading "Introducing chunkr-parse-1-thinking: The best VLM for ..." [level=3] [ref=e761]'
+                - generic [ref=e766]:
+                  - generic [ref=e768]: Chunkr
+                  - generic [ref=e770]: https://www.chunkr.ai › Blog
+              - generic [ref=e771]:
+                - generic [ref=e772]: ·
+                - link "翻译此页" [ref=e773] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://www.chunkr.ai/blog/chunkr-parse-1-thinking-the-best-vlm-for-document-ocr&hl=zh-CN&sl=en&tl=zh-CN&client=search
+              - button "关于这条结果的详细信息" [ref=e774] [cursor=pointer]:
+                - img [ref=e777]
+            - generic [ref=e780]:
+              - generic [ref=e781]: 2025年10月9日 —
+              - generic [ref=e782]:
+                - text: These
+                - emphasis [ref=e783]: models
+                - text: are purpose-built to
+                - emphasis [ref=e784]: parse
+                - text: individual components of PDFs - tables, forms, pictures, text
+                - emphasis [ref=e785]: OCR
+                - text: ", formulas, and even full pages. The \" ..."
+        - navigation [ref=e788]:
+          - heading "网页导航" [level=1] [ref=e789]
+          - text: "1"
+          - link "Page 2" [ref=e792] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=10&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAE
+            - text: "2"
+          - link "Page 3" [ref=e794] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=20&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAG
+            - text: "3"
+          - link "Page 4" [ref=e796] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=30&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAI
+            - text: "4"
+          - link "Page 5" [ref=e798] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=40&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAK
+            - text: "5"
+          - link "Page 6" [ref=e800] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=50&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAM
+            - text: "6"
+          - link "Page 7" [ref=e802] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=60&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAO
+            - text: "7"
+          - link "Page 8" [ref=e804] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=70&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAQ
+            - text: "8"
+          - link "Page 9" [ref=e806] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=80&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAS
+            - text: "9"
+          - link "Page 10" [ref=e808] [cursor=pointer]:
+            - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=90&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8tMDegQIOBAU
+            - text: "10"
+          - heading "下一页" [level=2] [ref=e810]:
+            - link "下一页" [ref=e811] [cursor=pointer]:
+              - /url: /search?q=token+efficient+document+parsing+OCR+layout+vision+language+model+cascade+official&sca_esv=e8b56c3c652e1040&ei=83cnaq-oELnj2roPw7LakAk&start=10&sa=N&sstk=AU9db-C7EostJF-CJ6ljzkhj05rDuwhmb3Ah3MKJzeSSGpBpErnbMhG8XbJZG1NOIxS8rM9ZstiSDo9czcjb2aSed4WHjWFgaONLsA&ved=2ahUKEwjv7a7wi_mUAxW5sVYBHUOZFpIQ8NMDegQIOBAW
+              - generic [ref=e813]: 下一页
+        - navigation
+    - contentinfo [ref=e814]:
+      - heading "页脚链接" [level=1] [ref=e815]
+      - generic [ref=e819]:
+        - generic [ref=e821]:
+          - text: 日本
+          - generic [ref=e823]:
+            - button "东京都 - 是根据您的 IP 地址推断出来的" [ref=e825] [cursor=pointer]:
+              - generic [ref=e826]: 东京都
+              - generic [ref=e828]:
+                - text: "-"
+                - generic [ref=e829]: 是根据您的 IP 地址推断出来的
+            - text: "-"
+            - button "更新位置信息" [ref=e831] [cursor=pointer]: 更新位置信息
+        - generic [ref=e834]:
+          - link "帮助" [ref=e835] [cursor=pointer]:
+            - /url: https://support.google.com/websearch/?p=ws_results_help&hl=zh-CN&fg=1
+          - link "发送反馈" [ref=e836] [cursor=pointer]:
+            - /url: "#"
+          - link "隐私权" [ref=e837] [cursor=pointer]:
+            - /url: https://policies.google.com/privacy?hl=zh-CN&fg=1
+          - link "条款" [ref=e838] [cursor=pointer]:
+            - /url: https://policies.google.com/terms?hl=zh-CN&fg=1

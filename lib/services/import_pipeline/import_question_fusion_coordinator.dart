@@ -16,6 +16,7 @@ class ImportQuestionFusionCoordinator {
     required List<Map<String, dynamic>> textQuestions,
     required List<Map<String, dynamic>> visionQuestions,
     required String sourceName,
+    bool repairLatexAfterFusion = true,
   }) {
     final fragments = <QuestionFragment>[
       ...textQuestions.asMap().entries.map(
@@ -35,15 +36,27 @@ class ImportQuestionFusionCoordinator {
     ];
 
     final fusion = fusionService.fuse(fragments);
-    final repaired = latexRepairService.repairAll(fusion.questions);
+    final LatexImportRepairBatchResult? repairResult = repairLatexAfterFusion
+        ? latexRepairService.repairAllSafelyWithDiagnostics(fusion.questions)
+        : null;
+    final questions = repairResult?.questions ?? fusion.questions;
+    final latexRepairDiagnostics = repairResult?.diagnostics ??
+        {
+          'mode': 'skipped',
+          'total': fusion.questions.length,
+          'changedCount': 0,
+          'fallbackCount': 0,
+        };
 
     return ImportParseResult(
-      questions: repaired,
+      questions: questions,
       warnings: fusion.diagnostics,
       diagnostics: {
         sourceName: {
           'fusionMergedCount': fusion.mergedCount,
           'fusionOrphanCount': fusion.orphanCount,
+          'latexRepairAfterFusion': repairLatexAfterFusion,
+          'latexRepair': latexRepairDiagnostics,
           if (fusion.diagnostics.isNotEmpty)
             'fusionDiagnostics': fusion.diagnostics,
         },

@@ -1,0 +1,358 @@
+- generic [active] [ref=e1]:
+  - generic "Navigation"
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: https://docling-project.github.io/docling/#getting-started
+  - banner [ref=e3]:
+    - navigation "Header" [ref=e4]:
+      - generic "Navigation" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+      - generic [ref=e9]:
+        - generic [ref=e11]: Docling
+        - generic:
+          - generic: Index
+      - generic [ref=e12]:
+        - radio "Switch to light mode"
+        - radio "Switch to dark mode"
+        - generic "Switch to dark mode" [ref=e13] [cursor=pointer]:
+          - img [ref=e14]
+        - radio "Switch to system preference"
+      - dialog "Search" [ref=e16]:
+        - button "Search Ctrl+K" [ref=e17] [cursor=pointer]
+      - link "docling-project/docling v2.99.0 61.2k 4.3k" [ref=e19] [cursor=pointer]:
+        - /url: https://github.com/docling-project/docling
+        - img [ref=e21]
+        - generic [ref=e23]:
+          - text: docling-project/docling
+          - list [ref=e24]:
+            - listitem [ref=e25]: v2.99.0
+            - listitem [ref=e26]: 61.2k
+            - listitem [ref=e27]: 4.3k
+  - generic [ref=e28]:
+    - main [ref=e29]:
+      - generic [ref=e30]:
+        - navigation "Navigation" [ref=e34]:
+          - generic [ref=e35]:
+            - link "Docling" [ref=e36] [cursor=pointer]:
+              - /url: ""
+              - img "Docling" [ref=e37]
+            - text: Docling
+          - link "docling-project/docling v2.99.0 61.2k 4.3k" [ref=e39] [cursor=pointer]:
+            - /url: https://github.com/docling-project/docling
+            - img [ref=e41]
+            - generic [ref=e43]:
+              - text: docling-project/docling
+              - list [ref=e44]:
+                - listitem [ref=e45]: v2.99.0
+                - listitem [ref=e46]: 61.2k
+                - listitem [ref=e47]: 4.3k
+          - list [ref=e48]:
+            - listitem [ref=e49]:
+              - link "Documentation" [ref=e51] [cursor=pointer]:
+                - /url: ""
+                - generic [ref=e52]: Documentation
+              - navigation [ref=e55]:
+                - list [ref=e56]:
+                  - listitem [ref=e57]:
+                    - generic [ref=e59] [cursor=pointer]: Getting started
+                  - listitem [ref=e61]:
+                    - generic [ref=e63] [cursor=pointer]: Usage
+                  - listitem [ref=e65]:
+                    - link "FAQ" [ref=e67] [cursor=pointer]:
+                      - /url: https://docling-project.github.io/docling/faq/
+                      - generic [ref=e68]: FAQ
+            - listitem [ref=e69]:
+              - link "Concepts" [ref=e71] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/concepts/
+                - generic [ref=e72]: Concepts
+            - listitem [ref=e75]:
+              - link "Examples" [ref=e77] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/examples/
+                - generic [ref=e78]: Examples
+            - listitem [ref=e81]:
+              - link "Integrations" [ref=e83] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/integrations/
+                - generic [ref=e84]: Integrations
+            - listitem [ref=e87]:
+              - generic [ref=e89] [cursor=pointer]: Reference
+        - navigation "On this page" [ref=e94]:
+          - generic [ref=e95]: On this page
+          - list [ref=e96]:
+            - listitem [ref=e97]:
+              - link "Getting started" [ref=e98] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/#getting-started
+                - generic [ref=e99]: Getting started
+            - listitem [ref=e100]:
+              - link "Features" [ref=e101] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/#features
+                - generic [ref=e102]: Features
+              - navigation "Features" [ref=e103]:
+                - list [ref=e104]:
+                  - listitem [ref=e105]:
+                    - link "What's new" [ref=e106] [cursor=pointer]:
+                      - /url: https://docling-project.github.io/docling/#whats-new
+                      - generic [ref=e107]: What's new
+                  - listitem [ref=e108]:
+                    - link "Coming soon" [ref=e109] [cursor=pointer]:
+                      - /url: https://docling-project.github.io/docling/#coming-soon
+                      - generic [ref=e110]: Coming soon
+            - listitem [ref=e111]:
+              - link "What's next" [ref=e112] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/#whats-next
+                - generic [ref=e113]: What's next
+            - listitem [ref=e114]:
+              - link "Live assistant" [ref=e115] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/#live-assistant
+                - generic [ref=e116]: Live assistant
+            - listitem [ref=e117]:
+              - link "LF AI & Data" [ref=e118] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/#lf-ai-data
+                - generic [ref=e119]: LF AI & Data
+              - navigation "LF AI & Data" [ref=e120]:
+                - list [ref=e121]:
+                  - listitem [ref=e122]:
+                    - link "IBM ❤️ Open Source AI" [ref=e123] [cursor=pointer]:
+                      - /url: https://docling-project.github.io/docling/#ibm-open-source-ai
+                      - generic [ref=e124]: IBM ❤️ Open Source AI
+        - article [ref=e126]:
+          - heading "Index" [level=1] [ref=e127]
+          - paragraph [ref=e128]:
+            - img "Docling" [ref=e129]
+            - link "DS4SD%2Fdocling | Trendshift" [ref=e130] [cursor=pointer]:
+              - /url: https://trendshift.io/repositories/17240
+              - img "DS4SD%2Fdocling | Trendshift" [ref=e131]
+          - paragraph [ref=e132]:
+            - link "arXiv" [ref=e133] [cursor=pointer]:
+              - /url: https://arxiv.org/abs/2408.09869
+              - img "arXiv" [ref=e134]
+            - link "PyPI version" [ref=e135] [cursor=pointer]:
+              - /url: https://pypi.org/project/docling/
+              - img "PyPI version" [ref=e136]
+            - link "PyPI - Python Version" [ref=e137] [cursor=pointer]:
+              - /url: https://pypi.org/project/docling/
+              - img "PyPI - Python Version" [ref=e138]
+            - link "uv" [ref=e139] [cursor=pointer]:
+              - /url: https://github.com/astral-sh/uv
+              - img "uv" [ref=e140]
+            - link "Ruff" [ref=e141] [cursor=pointer]:
+              - /url: https://github.com/astral-sh/ruff
+              - img "Ruff" [ref=e142]
+            - link "Pydantic v2" [ref=e143] [cursor=pointer]:
+              - /url: https://pydantic.dev
+              - img "Pydantic v2" [ref=e144]
+            - link "pre-commit" [ref=e145] [cursor=pointer]:
+              - /url: https://github.com/pre-commit/pre-commit
+              - img "pre-commit" [ref=e146]
+            - link "License MIT" [ref=e147] [cursor=pointer]:
+              - /url: https://opensource.org/licenses/MIT
+              - img "License MIT" [ref=e148]
+            - link "PyPI Downloads" [ref=e149] [cursor=pointer]:
+              - /url: https://pepy.tech/projects/docling
+              - img "PyPI Downloads" [ref=e150]
+            - link "Docling Actor" [ref=e151] [cursor=pointer]:
+              - /url: https://apify.com/vancura/docling
+              - img "Docling Actor" [ref=e152]
+            - link "Chat with Dosu" [ref=e153] [cursor=pointer]:
+              - /url: https://app.dosu.dev/097760a8-135e-4789-8234-90c8837d7f1c/ask?utm_source=github
+              - img "Chat with Dosu" [ref=e154]
+            - link "Discord" [ref=e155] [cursor=pointer]:
+              - /url: https://docling.ai/discord
+              - img "Discord" [ref=e156]
+            - link "OpenSSF Best Practices" [ref=e157] [cursor=pointer]:
+              - /url: https://www.bestpractices.dev/projects/10101
+              - img "OpenSSF Best Practices" [ref=e158]
+            - link "LF AI & Data" [ref=e159] [cursor=pointer]:
+              - /url: https://lfaidata.foundation/projects/
+              - img "LF AI & Data" [ref=e160]
+          - paragraph [ref=e161]: Docling simplifies document processing, parsing diverse formats — including advanced PDF understanding — and providing seamless integrations with the gen AI ecosystem.
+          - heading "Getting started" [level=2] [ref=e162]
+          - paragraph [ref=e163]: 🐣 Ready to kick off your Docling journey? Let's dive right into it!
+          - generic [ref=e164]:
+            - link "⬇️ Installation Quickly install Docling in your environment" [ref=e165] [cursor=pointer]:
+              - /url: https://docling-project.github.io/docling/getting_started/installation/
+              - text: ⬇️ Installation
+              - text: Quickly install Docling in your environment
+            - link "▶️ Quickstart Get a jumpstart on basic Docling usage" [ref=e166] [cursor=pointer]:
+              - /url: https://docling-project.github.io/docling/getting_started/quickstart/
+              - text: ▶️ Quickstart
+              - text: Get a jumpstart on basic Docling usage
+            - link "🧩 Concepts Learn Docling fundamentals and get a glimpse under the hood" [ref=e167] [cursor=pointer]:
+              - /url: https://docling-project.github.io/docling/concepts/
+              - text: 🧩 Concepts
+              - text: Learn Docling fundamentals and get a glimpse under the hood
+            - link "🧑🏽‍🍳 Examples Try out recipes for various use cases, including conversion, RAG, and more" [ref=e168] [cursor=pointer]:
+              - /url: https://docling-project.github.io/docling/examples/
+              - text: 🧑🏽‍🍳 Examples
+              - text: Try out recipes for various use cases, including conversion, RAG, and more
+            - link "🤖 Integrations Check out integrations with popular AI tools and frameworks" [ref=e169] [cursor=pointer]:
+              - /url: https://docling-project.github.io/docling/integrations/
+              - text: 🤖 Integrations
+              - text: Check out integrations with popular AI tools and frameworks
+            - link "📖 Reference See more API details" [ref=e170] [cursor=pointer]:
+              - /url: https://docling-project.github.io/docling/reference/document_converter/
+              - text: 📖 Reference
+              - text: See more API details
+          - heading "Features" [level=2] [ref=e171]
+          - list [ref=e172]:
+            - listitem [ref=e173]:
+              - text: 🗂️ Parsing of
+              - link "multiple document formats" [ref=e174] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/usage/supported_formats/
+              - text: incl. PDF, DOCX, PPTX, XLSX, HTML, WAV, MP3, WebVTT, email formats (EML, MSG), images (PNG, TIFF, JPEG, ...), LaTeX, plain text, and more
+            - listitem [ref=e175]: 📑 Advanced PDF understanding incl. page layout, reading order, table structure, code, formulas, image classification, and more
+            - listitem [ref=e176]:
+              - text: 🧬 Unified, expressive
+              - link "DoclingDocument" [ref=e177] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/concepts/docling_document/
+              - text: representation format
+            - listitem [ref=e178]:
+              - text: ↪️ Various
+              - link "export formats" [ref=e179] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/usage/supported_formats/
+              - text: and options, including Markdown, HTML, WebVTT,
+              - link "DocTags" [ref=e180] [cursor=pointer]:
+                - /url: https://arxiv.org/abs/2503.11576
+              - text: and lossless JSON
+            - listitem [ref=e181]:
+              - text: 📜 Support of several application-specifc XML schemas incl.
+              - link "USPTO" [ref=e182] [cursor=pointer]:
+                - /url: https://www.uspto.gov/patents
+              - text: patents,
+              - link "JATS" [ref=e183] [cursor=pointer]:
+                - /url: https://jats.nlm.nih.gov/
+              - text: articles, and
+              - link "XBRL" [ref=e184] [cursor=pointer]:
+                - /url: https://www.xbrl.org/
+              - text: financial reports
+            - listitem [ref=e185]: 🔒 Local execution capabilities for sensitive data and air-gapped environments
+            - listitem [ref=e186]:
+              - text: 🤖 Plug-and-play
+              - link "integrations" [ref=e187] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/integrations/
+              - text: incl. LangChain, LlamaIndex, Crew AI & Haystack for agentic AI
+            - listitem [ref=e188]: 🔍 Extensive OCR support for scanned PDFs and images
+            - listitem [ref=e189]:
+              - text: 👓 Support of several Visual Language Models (
+              - link "GraniteDocling" [ref=e190] [cursor=pointer]:
+                - /url: https://huggingface.co/ibm-granite/granite-docling-258M
+              - text: )
+            - listitem [ref=e191]: 🎙️ Audio support with Automatic Speech Recognition (ASR) models
+            - listitem [ref=e192]:
+              - text: 🔌 Connect to any agent using the
+              - link "MCP server" [ref=e193] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/usage/mcp/
+            - listitem [ref=e194]: 💻 Simple and convenient CLI
+          - heading "What's new" [level=3] [ref=e195]
+          - list [ref=e196]:
+            - listitem [ref=e197]: 📤 Structured [information extraction][extraction] [🧪 beta]
+            - listitem [ref=e198]:
+              - text: 📑 New layout model (
+              - strong [ref=e199]: Heron
+              - text: ) by default, for faster PDF parsing
+            - listitem [ref=e200]:
+              - text: 🔌
+              - link "MCP server" [ref=e201] [cursor=pointer]:
+                - /url: https://docling-project.github.io/docling/usage/mcp/
+              - text: for agentic applications
+            - listitem [ref=e202]: 💼 Parsing of XBRL (eXtensible Business Reporting Language) documents for financial reports
+            - listitem [ref=e203]:
+              - text: 📧 Parsing of email files (
+              - code [ref=e204]: .eml
+              - text: ","
+              - code [ref=e205]: .msg
+              - text: )
+            - listitem [ref=e206]: 💬 Parsing of WebVTT (Web Video Text Tracks) files
+            - listitem [ref=e207]: 💬 Parsing of LaTeX files
+            - listitem [ref=e208]:
+              - text: 📝 Parsing of plain-text files (
+              - code [ref=e209]: .txt
+              - text: ","
+              - code [ref=e210]: .text
+              - text: ) and Markdown supersets (
+              - code [ref=e211]: .qmd
+              - text: ","
+              - code [ref=e212]: .Rmd
+              - text: )
+          - heading "Coming soon" [level=3] [ref=e213]
+          - list [ref=e214]:
+            - listitem [ref=e215]: 📝 Metadata extraction, including title, authors, references & language
+            - listitem [ref=e216]: 📝 Chart understanding (Barchart, Piechart, LinePlot, etc)
+            - listitem [ref=e217]: 📝 Complex chemistry understanding (Molecular structures)
+          - heading "What's next" [level=2] [ref=e218]
+          - paragraph [ref=e219]: 🚀 The journey has just begun! Join us and become a part of the growing Docling community.
+          - list [ref=e220]:
+            - listitem [ref=e221]:
+              - link "GitHub" [ref=e222] [cursor=pointer]:
+                - /url: https://github.com/docling-project/docling
+                - img [ref=e224]
+                - text: GitHub
+            - listitem [ref=e226]:
+              - link "Discord" [ref=e227] [cursor=pointer]:
+                - /url: https://docling.ai/discord
+                - img [ref=e229]
+                - text: Discord
+            - listitem [ref=e231]:
+              - link "LinkedIn" [ref=e232] [cursor=pointer]:
+                - /url: https://linkedin.com/company/docling/
+                - img [ref=e234]
+                - text: LinkedIn
+          - heading "Live assistant" [level=2] [ref=e236]
+          - paragraph [ref=e237]:
+            - text: Do you want to leverage the power of AI and get live support on Docling? Try out the
+            - link "Chat with Dosu" [ref=e238] [cursor=pointer]:
+              - /url: https://app.dosu.dev/097760a8-135e-4789-8234-90c8837d7f1c/ask?utm_source=github
+            - text: functionalities provided by our friends at
+            - link "Dosu" [ref=e239] [cursor=pointer]:
+              - /url: https://dosu.dev/
+            - text: .
+          - paragraph [ref=e240]:
+            - link "Chat with Dosu" [ref=e241] [cursor=pointer]:
+              - /url: https://app.dosu.dev/097760a8-135e-4789-8234-90c8837d7f1c/ask?utm_source=github
+              - img "Chat with Dosu" [ref=e242]
+          - heading "LF AI & Data" [level=2] [ref=e243]
+          - paragraph [ref=e244]:
+            - text: Docling is hosted as a project in the
+            - link "LF AI & Data Foundation" [ref=e245] [cursor=pointer]:
+              - /url: https://lfaidata.foundation/projects/
+            - text: .
+          - heading "IBM ❤️ Open Source AI" [level=3] [ref=e246]
+          - paragraph [ref=e247]: The project was started by the AI for knowledge team at IBM Research Zurich.
+      - button "Back to top":
+        - img
+        - text: Back to top
+    - contentinfo [ref=e248]:
+      - navigation "Footer" [ref=e249]:
+        - 'link "Next: Installation" [ref=e250] [cursor=pointer]':
+          - /url: https://docling-project.github.io/docling/getting_started/installation/
+          - generic [ref=e251]:
+            - text: Next
+            - generic [ref=e252]: Installation
+          - img [ref=e254]
+      - generic [ref=e258]:
+        - link "github.com" [ref=e259] [cursor=pointer]:
+          - /url: https://github.com/docling-project/docling
+          - img [ref=e260]
+        - link "docling.ai" [ref=e262] [cursor=pointer]:
+          - /url: https://docling.ai/discord
+          - img [ref=e263]
+        - link "linkedin.com" [ref=e265] [cursor=pointer]:
+          - /url: https://linkedin.com/company/docling/
+          - img [ref=e266]
+  - progressbar
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - button:
+              - img
+            - generic:
+              - combobox "Search"
+            - button:
+              - img
+          - generic:
+            - list
+        - generic:
+          - generic:
+            - heading "Filters" [level=3]
+            - heading "Tags" [level=4]
+            - list

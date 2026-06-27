@@ -1,11 +1,22 @@
 import '../utils/latex_complexity_classifier.dart';
 import '../utils/content_normalizer.dart';
+import '../utils/content_tokenizer.dart';
 
 /// Import-only LaTeX repair.
 ///
 /// This service normalizes AI/Vision drafts before they enter the staging UI.
 /// It deliberately does not change the global renderer contract: old bare
 /// LaTeX remains plain text unless the import pipeline opts into this repair.
+class LatexImportRepairBatchResult {
+  final List<Map<String, dynamic>> questions;
+  final Map<String, dynamic> diagnostics;
+
+  const LatexImportRepairBatchResult({
+    required this.questions,
+    required this.diagnostics,
+  });
+}
+
 class LatexImportRepairService {
   const LatexImportRepairService._();
 
@@ -177,8 +188,147 @@ class LatexImportRepairService {
     return result;
   }
 
+  Map<String, dynamic> repairQuestionSafely(Map<String, dynamic> q) {
+    final repaired = repairQuestion(q);
+    if (isStructurallySafeRepair(q, repaired)) {
+      return repaired;
+    }
+    return Map<String, dynamic>.from(q);
+  }
+
   List<Map<String, dynamic>> repairAll(List<Map<String, dynamic>> questions) {
     return questions.map(repairQuestion).toList();
+  }
+
+  List<Map<String, dynamic>> repairAllSafely(
+      List<Map<String, dynamic>> questions) {
+    return repairAllSafelyWithDiagnostics(questions).questions;
+  }
+
+  LatexImportRepairBatchResult repairAllSafelyWithDiagnostics(
+      List<Map<String, dynamic>> questions) {
+    final repairedQuestions = <Map<String, dynamic>>[];
+    var changedCount = 0;
+    var fallbackCount = 0;
+
+    for (final question in questions) {
+      final repaired = repairQuestion(question);
+      if (!isStructurallySafeRepair(question, repaired)) {
+        repairedQuestions.add(Map<String, dynamic>.from(question));
+        fallbackCount++;
+        continue;
+      }
+      if (_repairChanged(question, repaired)) {
+        changedCount++;
+      }
+      repairedQuestions.add(repaired);
+    }
+
+    return LatexImportRepairBatchResult(
+      questions: repairedQuestions,
+      diagnostics: {
+        'mode': 'safe',
+        'total': questions.length,
+        'changedCount': changedCount,
+        'fallbackCount': fallbackCount,
+      },
+    );
+  }
+
+  bool isStructurallySafeRepair(
+    Map<String, dynamic> original,
+    Map<String, dynamic> repaired,
+  ) {
+    for (final key in const ['q_num', 'type', 'question_type']) {
+      if (original[key] != repaired[key]) {
+        return false;
+      }
+    }
+
+    for (final key in const ['content', 'standard_answer', 'explanation']) {
+      if (!_isSafeStringFieldRepair(original[key], repaired[key])) {
+        return false;
+      }
+    }
+
+    if (!_isSafeOptionsRepair(original['options'], repaired['options'])) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool _isSafeStringFieldRepair(dynamic original, dynamic repaired) {
+    if (original is! String) {
+      return original == repaired;
+    }
+    if (repaired is! String) {
+      return false;
+    }
+
+    final originalTrimmed = original.trim();
+    final repairedTrimmed = repaired.trim();
+    if (originalTrimmed.isNotEmpty && repairedTrimmed.isEmpty) {
+      return false;
+    }
+    if (_hasSuspiciousLengthChange(originalTrimmed, repairedTrimmed)) {
+      return false;
+    }
+    return !_hasParseErrorToken(repaired);
+  }
+
+  bool _isSafeOptionsRepair(dynamic original, dynamic repaired) {
+    if (original == null) {
+      return repaired == null;
+    }
+    if (original is! List || repaired is! List) {
+      return original == repaired;
+    }
+    if (original.length != repaired.length) {
+      return false;
+    }
+    for (var i = 0; i < original.length; i++) {
+      if (!_isSafeStringFieldRepair(original[i], repaired[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _repairChanged(
+    Map<String, dynamic> original,
+    Map<String, dynamic> repaired,
+  ) {
+    for (final key in const ['content', 'standard_answer', 'explanation']) {
+      if (original[key] != repaired[key]) return true;
+    }
+    return !_sameList(original['options'], repaired['options']);
+  }
+
+  bool _sameList(dynamic a, dynamic b) {
+    if (a == null && b == null) return true;
+    if (a is! List || b is! List) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  bool _hasSuspiciousLengthChange(String original, String repaired) {
+    if (original.isEmpty) return false;
+    if (repaired.length > original.length * 3 && repaired.length > 512) {
+      return true;
+    }
+    if (original.length >= 16 && repaired.length * 2 < original.length) {
+      return true;
+    }
+    return false;
+  }
+
+  bool _hasParseErrorToken(String value) {
+    return ContentTokenizer.tokenize(value)
+        .any((token) => token is ParseErrorToken);
   }
 
   bool _startsDelimiter(String text, int i) {

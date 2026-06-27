@@ -151,6 +151,12 @@ void main() {
 
       expect(result.questions.single['content'], r'Compute \(\frac{1}{2}\)');
       expect(result.questions.single['explanation'], r'Use \(\sqrt{x}\)');
+      expect(result.diagnostics['formula.docx']['latexRepair'], {
+        'mode': 'safe',
+        'total': 1,
+        'changedCount': 1,
+        'fallbackCount': 0,
+      });
     });
 
     test('ignores Chinese placeholder answers before selecting vision answer',
@@ -179,6 +185,49 @@ void main() {
           reason: 'placeholder "$placeholder" must not override Vision answer',
         );
       }
+    });
+    test('skips LaTeX repair when repairLatexAfterFusion is false', () {
+      final result = coordinator.fuseTextAndVision(
+        sourceName: 'pdf_vision.md',
+        textQuestions: [
+          {
+            'q_num': '7',
+            'content': r'Compute \frac{1}{2}',
+          },
+        ],
+        visionQuestions: [
+          {
+            'q_num': '7',
+            'explanation': r'Use \sqrt{x}',
+          },
+        ],
+        repairLatexAfterFusion: false,
+      );
+
+      expect(result.questions.single['content'], r'Compute \frac{1}{2}');
+      expect(result.questions.single['explanation'], r'Use \sqrt{x}');
+      expect(
+        (result.questions.single['content'] as String).contains(r'\('),
+        false,
+      );
+      expect(
+        (result.questions.single['explanation'] as String).contains(r'\('),
+        false,
+      );
+      expect(
+        result.diagnostics['pdf_vision.md']['latexRepairAfterFusion'],
+        false,
+      );
+      expect(result.diagnostics['pdf_vision.md']['latexRepair'], {
+        'mode': 'skipped',
+        'total': 1,
+        'changedCount': 0,
+        'fallbackCount': 0,
+      });
+      expect(
+        result.diagnostics['pdf_vision.md']['fusionMergedCount'],
+        1,
+      );
     });
   });
 }

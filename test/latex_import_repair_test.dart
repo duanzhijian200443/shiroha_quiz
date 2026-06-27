@@ -110,8 +110,97 @@ void main() {
     expect(repaired['options'], [r'A. \(\pi\)', 1]);
   });
 
+  test('safe repair keeps valid LaTeX repairs', () {
+    final source = {
+      'q_num': '1',
+      'type': 0,
+      'content': r'Compute \sqrt{x}',
+      'standard_answer': r'\frac{1}{2}',
+      'options': [r'A. \pi', 'B. 1'],
+    };
+
+    final repaired = repair.repairQuestionSafely(source);
+
+    expect(repaired['q_num'], '1');
+    expect(repaired['type'], 0);
+    expect(repaired['content'], r'Compute \(\sqrt{x}\)');
+    expect(repaired['standard_answer'], r'\(\frac{1}{2}\)');
+    expect(repaired['options'], [r'A. \(\pi\)', 'B. 1']);
+  });
+
+  test('safe batch repair reports diagnostics', () {
+    final result = repair.repairAllSafelyWithDiagnostics([
+      {
+        'q_num': '1',
+        'type': 0,
+        'content': r'Compute \sqrt{x}',
+      },
+      {
+        'q_num': '2',
+        'type': 3,
+        'content': 'Plain text',
+      },
+    ]);
+
+    expect(result.questions[0]['content'], r'Compute \(\sqrt{x}\)');
+    expect(result.questions[1]['content'], 'Plain text');
+    expect(result.diagnostics, {
+      'mode': 'safe',
+      'total': 2,
+      'changedCount': 1,
+      'fallbackCount': 0,
+    });
+  });
+
+  test('safe repair rejects structural identity changes', () {
+    final source = {
+      'q_num': '1',
+      'type': 0,
+      'content': 'Question',
+      'standard_answer': 'A',
+    };
+    final repaired = {
+      ...source,
+      'q_num': '2',
+    };
+
+    expect(repair.isStructurallySafeRepair(source, repaired), false);
+  });
+
+  test('safe repair rejects option count changes', () {
+    final source = {
+      'q_num': '1',
+      'type': 0,
+      'content': 'Question',
+      'options': ['A', 'B'],
+      'standard_answer': 'A',
+    };
+    final repaired = {
+      ...source,
+      'options': ['A'],
+    };
+
+    expect(repair.isStructurallySafeRepair(source, repaired), false);
+  });
+
+  test('safe repair rejects repaired parse error tokens', () {
+    final source = {
+      'q_num': '1',
+      'type': 3,
+      'content': 'Question',
+      'standard_answer': 'A',
+    };
+    final repaired = {
+      ...source,
+      'content': r'Question \(unclosed',
+    };
+
+    expect(repair.isStructurallySafeRepair(source, repaired), false);
+  });
+
   test('strips odd trailing backslash inside wrapped formula', () {
-    const input = r'\(\frac{E(XY)-E(X)E(Y)}{\sqrt{Var(X)Var(Y)}}=\frac{1}{\sqrt{1\cdot2}}=\frac{\sqrt{2}}{2}\\)';
+    const input =
+        r'\(\frac{E(XY)-E(X)E(Y)}{\sqrt{Var(X)Var(Y)}}=\frac{1}{\sqrt{1\cdot2}}=\frac{\sqrt{2}}{2}\\)';
     final output = repair.repairInline(input);
 
     expect(output, contains(r'\frac{E(XY)-E(X)E(Y)}'));
@@ -129,7 +218,8 @@ void main() {
   });
 
   test('wraps math set block with escaped braces', () {
-    const input = r'D = \{(x,y) | y - 2 \le x \le \sqrt{4-y^2}, 0 \le y \le 2\}';
+    const input =
+        r'D = \{(x,y) | y - 2 \le x \le \sqrt{4-y^2}, 0 \le y \le 2\}';
     final output = repair.repairInline(input);
 
     expect(output, contains(r'D = '));
@@ -145,7 +235,8 @@ void main() {
   });
 
   test('wraps polar coordinate set block', () {
-    const input = r'D_1 = \{(r,\theta) | 0 \le r \le 2, 0 \le \theta \le \frac{\pi}{2}\}';
+    const input =
+        r'D_1 = \{(r,\theta) | 0 \le r \le 2, 0 \le \theta \le \frac{\pi}{2}\}';
     final output = repair.repairInline(input);
 
     expect(output, contains(r'D_1 = '));
@@ -213,7 +304,8 @@ void main() {
       expect(output, isNot(equals(input)));
 
       expect(
-        output.contains(r'\(\{(r,\theta)') || output.contains(r'\[\{(r,\theta)'),
+        output.contains(r'\(\{(r,\theta)') ||
+            output.contains(r'\[\{(r,\theta)'),
         isTrue,
         reason: 'bare {…} polar set should be wrapped with visible braces',
       );
@@ -235,7 +327,8 @@ void main() {
       expect(output, isNot(equals(input)));
 
       expect(
-        output.contains(r'\(\{(r,\theta)') || output.contains(r'\[\{(r,\theta)'),
+        output.contains(r'\(\{(r,\theta)') ||
+            output.contains(r'\[\{(r,\theta)'),
         isTrue,
         reason: 'bare set with multiple fracs should be whole-wrapped',
       );
@@ -249,8 +342,7 @@ void main() {
     });
 
     test('Unicode contour-integral fragment should be wrapped', () {
-      const input =
-          r'计算 I = ∮_L(yz^2-\cos z)dx+2xz^2dy+(2xyz+x\sin z)dz';
+      const input = r'计算 I = ∮_L(yz^2-\cos z)dx+2xz^2dy+(2xyz+x\sin z)dz';
       final output = repair.repairInline(input);
 
       // ∮ is normalised to \oint, but we assert the result is not the input
@@ -289,8 +381,7 @@ void main() {
     test(
       'bare equation with exponential integral should stop before ascii comma',
       () {
-        const input =
-            r'根据求解公式,y=e^{-\int\frac{1}{2\sqrt{x}}dx}, 可继续计算。';
+        const input = r'根据求解公式,y=e^{-\int\frac{1}{2\sqrt{x}}dx}, 可继续计算。';
 
         final output = repair.repairInline(input);
 

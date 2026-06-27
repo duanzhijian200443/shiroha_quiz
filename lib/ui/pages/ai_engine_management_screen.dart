@@ -5,7 +5,7 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../../data/models/ai_engine_profile.dart';
 
 class AiEngineManagementScreen extends StatefulWidget {
-  final String engineType; // 'text' 或 'vision'
+  final String engineType; // 'text'、'vision' 或 'ocr'
   const AiEngineManagementScreen({super.key, required this.engineType});
   @override
   State<AiEngineManagementScreen> createState() =>
@@ -37,6 +37,26 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
     'Ollama (本地/模拟器)': 'http://10.0.2.2:11434/v1',
   };
 
+  bool get _isOcrEngine => widget.engineType == 'ocr';
+
+  String _screenTitle() => switch (widget.engineType) {
+        'text' => '文本逻辑引擎',
+        'vision' => '多模态视觉引擎',
+        'ocr' => '文档 OCR 解析引擎',
+        _ => 'AI 引擎',
+      };
+
+  String _defaultModelForProvider(String provider) {
+    if (_isOcrEngine) {
+      return 'glm-ocr';
+    }
+    if (provider.contains('Gemini')) return 'gemini-1.5-flash';
+    if (provider.contains('智谱')) return 'glm-4-flash';
+    if (provider.contains('DeepSeek')) return 'deepseek-chat';
+    if (provider.contains('SiliconFlow')) return 'deepseek-ai/DeepSeek-V3';
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -48,8 +68,9 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
     try {
       final engineTypeEnum = AiEngineType.fromDbValue(widget.engineType);
       final data = await AiEngineRepository.instance.getEngines(engineTypeEnum);
-      final active =
-          await AiEngineRepository.instance.getActiveEngine(engineTypeEnum);
+      final active = _isOcrEngine
+          ? await AiEngineRepository.instance.getActiveOcrEngine()
+          : await AiEngineRepository.instance.getActiveEngine(engineTypeEnum);
 
       if (mounted) {
         setState(() {
@@ -89,8 +110,13 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
       _apiKeyCtrl.clear();
       _baseUrlCtrl.clear();
       _modelCtrl.clear();
-      _temperature = 0.7;
+      if (_isOcrEngine) {
+        _selectedProvider = '智谱清言 (GLM)';
+        _baseUrlCtrl.text = _providers[_selectedProvider] ?? '';
+      }
+      _temperature = _isOcrEngine ? 0.0 : 0.7;
       _reasoningEffort = '';
+      _modelCtrl.text = _defaultModelForProvider(_selectedProvider);
     });
   }
 
@@ -127,7 +153,9 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           name: savedName,
           apiKey: _apiKeyCtrl.text.trim(),
           baseUrl: _baseUrlCtrl.text.trim(),
-          modelName: _modelCtrl.text.trim(),
+          modelName: _modelCtrl.text.trim().isNotEmpty
+              ? _modelCtrl.text.trim()
+              : _defaultModelForProvider(_selectedProvider),
           temperature: _temperature,
           reasoningEffort: _reasoningEffort,
           isActive: true,
@@ -149,7 +177,9 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           name: currentEngine.name,
           apiKey: _apiKeyCtrl.text.trim(),
           baseUrl: _baseUrlCtrl.text.trim(),
-          modelName: _modelCtrl.text.trim(),
+          modelName: _modelCtrl.text.trim().isNotEmpty
+              ? _modelCtrl.text.trim()
+              : _defaultModelForProvider(_selectedProvider),
           temperature: _temperature,
           reasoningEffort: _reasoningEffort,
           isActive: true,
@@ -354,7 +384,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final title = widget.engineType == 'text' ? '文本逻辑引擎' : '多模态视觉引擎';
+    final title = _screenTitle();
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -473,15 +503,11 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
                               _selectedProvider = val;
                               _baseUrlCtrl.text = _providers[val]!;
                               // 智能联动推荐模型名称
-                              if (_modelCtrl.text.isEmpty) {
-                                if (val.contains('Gemini'))
-                                  _modelCtrl.text = 'gemini-1.5-flash';
-                                else if (val.contains('智谱'))
-                                  _modelCtrl.text = 'glm-4-flash';
-                                else if (val.contains('DeepSeek'))
-                                  _modelCtrl.text = 'deepseek-chat';
-                                else if (val.contains('SiliconFlow'))
-                                  _modelCtrl.text = 'deepseek-ai/DeepSeek-V3';
+                              final suggestedModel =
+                                  _defaultModelForProvider(val);
+                              if (_modelCtrl.text.isEmpty &&
+                                  suggestedModel.isNotEmpty) {
+                                _modelCtrl.text = suggestedModel;
                               }
                             });
                           } else if (val == '自定义 (Custom)') {

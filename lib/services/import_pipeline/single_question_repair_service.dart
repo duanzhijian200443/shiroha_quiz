@@ -17,7 +17,8 @@ class SingleQuestionRepairService {
   final LlmApiClient _apiClient;
   final AiEngineRepository? _engineRepository;
 
-  AiEngineRepository get engineRepository => _engineRepository ?? AiEngineRepository.instance;
+  AiEngineRepository get engineRepository =>
+      _engineRepository ?? AiEngineRepository.instance;
 
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
@@ -76,10 +77,11 @@ class SingleQuestionRepairService {
     TextQuestionRegion region,
     LocalAssemblyResult localResult,
   ) {
-    final local = const JsonEncoder.withIndent('  ').convert(localResult.question);
+    final local =
+        const JsonEncoder.withIndent('  ').convert(localResult.question);
 
     return '''
-你正在修复 DOCX 导入中的【第 ${region.number} 题】。
+你正在修复导入流程中的【第 ${region.number} 题】。
 
 硬性规则：
 1. 只能输出第 ${region.number} 题。
@@ -91,6 +93,7 @@ class SingleQuestionRepairService {
 7. options 必须是字符串数组，例如 ["A. ...", "B. ..."]。
 8. 字段只能使用：
    question_number, type, content, options, standard_answer, explanation, raw_explanation
+9. 只有 type=3 的解答题/证明题允许输出 explanation/raw_explanation；type=0/1/2 必须设为空。
 
 现有本地解析结果：
 $local
@@ -149,11 +152,28 @@ ${region.rawText}
     required Map<String, dynamic> fallback,
     required int regionNumber,
   }) {
+    final fallbackType = _readInt(fallback['type']) ?? 3;
+    final repairedType = _readInt(repaired['type']) ?? fallbackType;
+    final type = fallbackType == 0 || fallbackType == 1 || fallbackType == 2
+        ? fallbackType
+        : repairedType;
     final options = repaired['options'];
+    final explanation = type == 3
+        ? _readString(
+            repaired['explanation'],
+            fallback: fallback['explanation'],
+          )
+        : '';
+    final rawExplanation = type == 3
+        ? _readNullableString(
+            repaired['raw_explanation'],
+            fallback: repaired['explanation'] ?? fallback['raw_explanation'],
+          )
+        : null;
 
     return {
       'question_number': regionNumber,
-      'type': _readInt(repaired['type']) ?? _readInt(fallback['type']) ?? 3,
+      'type': type,
       'content': _readString(
         repaired['content'],
         fallback: fallback['content'],
@@ -167,18 +187,13 @@ ${region.rawText}
         repaired['standard_answer'],
         fallback: repaired['answer'] ?? fallback['standard_answer'],
       ),
-      'explanation': _readString(
-        repaired['explanation'],
-        fallback: fallback['explanation'],
-      ),
-      'raw_explanation': _readNullableString(
-        repaired['raw_explanation'],
-        fallback: repaired['explanation'] ?? fallback['raw_explanation'],
-      ),
+      'explanation': explanation,
+      'raw_explanation': rawExplanation,
       'source': 'docx_text_ai_repair',
       'diagnostics': [
         if (fallback['diagnostics'] is List)
           ...(fallback['diagnostics'] as List).map((e) => e.toString()),
+        if (repairedType != type) 'repair_type_clamped_to_fallback',
         'ai_repair_applied',
       ],
     };

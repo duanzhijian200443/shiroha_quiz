@@ -152,9 +152,17 @@ class ImportReviewFilterService {
   static int _getSourceRiskRank(
       List<String> riskHints, List<ImportReviewIssue> issues) {
     if (riskHints.contains('answer_conflict')) return 4;
+    if (riskHints.contains('answer_leaked_to_content') ||
+        riskHints.contains('low_quality_vision_parse') ||
+        riskHints.contains('q_num_drift') ||
+        riskHints.contains('duplicate_q_num')) {
+      return 4;
+    }
     if (riskHints.contains('orphan_fragment') ||
         riskHints.contains('answer_only_fragment') ||
-        riskHints.contains('partial_question')) {
+        riskHints.contains('partial_question') ||
+        riskHints.contains('missing_answer_or_explanation') ||
+        riskHints.contains('type_options_mismatch')) {
       return 3;
     }
     if (riskHints.contains('vision_only')) return 2;

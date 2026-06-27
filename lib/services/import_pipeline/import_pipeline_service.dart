@@ -15,9 +15,13 @@ import 'parsed_document.dart';
 import 'adapters/txt_document_adapter.dart';
 import 'adapters/markdown_document_adapter.dart';
 import 'adapters/zip_document_adapter.dart';
+import 'import_question_final_sorter.dart';
 import 'mixed_document_vision_service.dart';
+import 'ocr_import_service.dart';
 import 'pdf_page_image_renderer.dart';
 import 'vision_batch_parse_coordinator.dart';
+import 'vision_question_quality_gate.dart';
+import 'vision_import_quality_summary.dart';
 
 class ImportPipelineService {
   static final ImportPipelineService instance = ImportPipelineService._();
@@ -52,7 +56,7 @@ class ImportPipelineService {
         final parsedDoc = await DocxDocumentAdapter.parse(
             filePath: filePath, sourceName: sourceName);
         final rawText = parsedDoc.toPlainTextForParsing(includeImages: false);
-        
+
         allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
         if (!parsedDoc.fallbackUsed) {
           if (parsedDoc.signals.imageCount > 0 ||
@@ -77,7 +81,8 @@ class ImportPipelineService {
         }
 
         if (docxParseRes.diagnostics.containsKey('qualityGate')) {
-          allDiagnostics['qualityGate'] = docxParseRes.diagnostics['qualityGate'];
+          allDiagnostics['qualityGate'] =
+              docxParseRes.diagnostics['qualityGate'];
         } else if (docxParseRes.blocked) {
           allDiagnostics['qualityGate'] = {
             'blocked': true,
@@ -95,82 +100,126 @@ class ImportPipelineService {
       }
 
       if (request.useVisionEngine) {
-        List<String> imagePaths = [];
-        if (format == ImportFormat.pdf) {
-          final renderer = const PdfPageImageRenderer();
-          final renderRes = await renderer.renderToImages(
-            filePath: filePath,
-            fileIndex: fileIdx,
-          );
-          imagePaths.addAll(renderRes.imagePaths);
-          allWarnings.addAll(renderRes.warnings);
-          allDiagnostics['pdf_render_file_$fileIdx'] = renderRes.diagnostics;
-        } else {
-          imagePaths.add(filePath);
+        var handledByOcr = false;
+        final ocrResult = await const OcrImportService().tryParse(
+          filePath: filePath,
+          sourceName: sourceName,
+          format: format,
+        );
+        if (ocrResult != null) {
+          allWarnings.addAll(ocrResult.warnings);
+          allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
+          if (ocrResult.usedOcr) {
+            handledByOcr = true;
+            final qualityGate = const VisionQuestionQualityGate().evaluate(
+              ocrResult.questions,
+              sourceName: 'glm_ocr_intermediate',
+            );
+            singleFileQuestions = qualityGate.questions;
+            allWarnings.addAll(qualityGate.warnings);
+            allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
+                qualityGate.diagnostics;
+            allDiagnostics['vision_quality_gate_file_$fileIdx'] =
+                qualityGate.diagnostics;
+            debugPrint('GLM-OCR import completed for file ${fileIdx + 1}: '
+                '${singleFileQuestions.length} questions');
+          }
         }
 
-        final int pagesPerBatch = format == ImportFormat.pdf ? 1 : 4;
-        final int batchCount =
-            (imagePaths.length + pagesPerBatch - 1) ~/ pagesPerBatch;
-
-        TaskManager.instance.appendPendingChunks(
-          taskId,
-          'vision',
-          List.generate(batchCount, (i) => 'batch_${fileIdx}_$i'),
-        );
-
-        final coordinator = const VisionBatchParseCoordinator();
-        final visionRes = await coordinator.parse(
-          imagePaths: imagePaths,
-          pagesPerBatch: pagesPerBatch,
-          maxConcurrency: request.maxConcurrency,
-          parseBatch: (batchPaths) =>
-              AiService.instance.parseImagesWithVision(
-                batchPaths,
-                // TEMP: PDF LaTeX repair disabled after import regressions
-                // involving LatexErrorChip, question order, q_num drift, and
-                // answer loss.  Keep repair service code intact.
-                // Re-enable only after offline replay proves repairAll does
-                // not change import structure or trigger renderer regressions.
-                repairLatex: false,
-              ),
-          onProgress: (progress, status) {
-            TaskManager.instance.updateProgress(
-              taskId,
-              '文件 ${fileIdx + 1}/${request.filePaths.length} — $status',
-              0.1 +
-                  (fileIdx / request.filePaths.length) * 0.7 +
-                  progress * (0.7 / request.filePaths.length),
+        if (!handledByOcr) {
+          List<String> imagePaths = [];
+          if (format == ImportFormat.pdf) {
+            final renderer = const PdfPageImageRenderer();
+            final renderRes = await renderer.renderToImages(
+              filePath: filePath,
+              fileIndex: fileIdx,
             );
-          },
-          onBatchSuccess: (batchIdx, questions) {
-            final chunkKey = 'batch_${fileIdx}_$batchIdx';
-            TaskManager.instance.markChunkSuccess(taskId, chunkKey, questions);
-          },
-          onBatchFailed: (batchIdx, error) {
-            final chunkKey = 'batch_${fileIdx}_$batchIdx';
-            TaskManager.instance.markChunkFailed(taskId, chunkKey);
-          },
-          onBatchRetry: (batchIdx, error) {
-            debugPrint(
-                'Vision batch $batchIdx encountered transient error, will retry: $error');
-          },
-        );
+            imagePaths.addAll(renderRes.imagePaths);
+            allWarnings.addAll(renderRes.warnings);
+            allDiagnostics['pdf_render_file_$fileIdx'] = renderRes.diagnostics;
+          } else {
+            imagePaths.add(filePath);
+          }
 
-        singleFileQuestions.addAll(visionRes.questions);
-        allWarnings.addAll(visionRes.warnings);
-        allDiagnostics['vision_batch_file_$fileIdx'] = visionRes.diagnostics;
+          final int pagesPerBatch = format == ImportFormat.pdf ? 1 : 4;
+          final int batchCount =
+              (imagePaths.length + pagesPerBatch - 1) ~/ pagesPerBatch;
 
-        final fusionCoordinator = const ImportQuestionFusionCoordinator();
-        final fusion = fusionCoordinator.fuseTextAndVision(
-          textQuestions: [],
-          visionQuestions: singleFileQuestions,
-          sourceName: 'vision_pdf_page',
-        );
-        singleFileQuestions = fusion.questions;
-        allWarnings.addAll(fusion.warnings);
-        debugPrint('✅ 文件 ${fileIdx + 1}/${request.filePaths.length} '
-            '本地拼图完成，得到 ${singleFileQuestions.length} 题');
+          TaskManager.instance.appendPendingChunks(
+            taskId,
+            'vision',
+            List.generate(batchCount, (i) => 'batch_${fileIdx}_$i'),
+          );
+
+          final coordinator = const VisionBatchParseCoordinator();
+          final visionRes = await coordinator.parse(
+            imagePaths: imagePaths,
+            pagesPerBatch: pagesPerBatch,
+            maxConcurrency: request.maxConcurrency,
+            parseBatch: (batchPaths) =>
+                AiService.instance.parseImagesWithVision(
+              batchPaths,
+              // TEMP: PDF LaTeX repair disabled after import regressions
+              // involving LatexErrorChip, question order, q_num drift, and
+              // answer loss.  Keep repair service code intact.
+              // Re-enable only after offline replay proves repairAll does
+              // not change import structure or trigger renderer regressions.
+              repairLatex: false,
+            ),
+            onProgress: (progress, status) {
+              TaskManager.instance.updateProgress(
+                taskId,
+                '文件 ${fileIdx + 1}/${request.filePaths.length} — $status',
+                0.1 +
+                    (fileIdx / request.filePaths.length) * 0.7 +
+                    progress * (0.7 / request.filePaths.length),
+              );
+            },
+            onBatchSuccess: (batchIdx, questions) {
+              final chunkKey = 'batch_${fileIdx}_$batchIdx';
+              TaskManager.instance
+                  .markChunkSuccess(taskId, chunkKey, questions);
+            },
+            onBatchFailed: (batchIdx, error) {
+              final chunkKey = 'batch_${fileIdx}_$batchIdx';
+              TaskManager.instance.markChunkFailed(taskId, chunkKey);
+            },
+            onBatchRetry: (batchIdx, error) {
+              debugPrint(
+                  'Vision batch $batchIdx encountered transient error, will retry: $error');
+            },
+          );
+
+          singleFileQuestions.addAll(visionRes.questions);
+          allWarnings.addAll(visionRes.warnings);
+          allDiagnostics['vision_batch_file_$fileIdx'] = visionRes.diagnostics;
+
+          final fusionCoordinator = const ImportQuestionFusionCoordinator();
+          final pureVisionSourceName = format == ImportFormat.pdf
+              ? 'vision_pdf_page'
+              : 'vision_image_file';
+          final fusion = fusionCoordinator.fuseTextAndVision(
+            textQuestions: [],
+            visionQuestions: singleFileQuestions,
+            sourceName: pureVisionSourceName,
+            // Pure Vision imports (PDF pages and standalone images) preserve the
+            // model's raw LaTeX. Post-fusion repair is reserved for text-first
+            // mixed imports where local text anchors constrain the structure.
+            repairLatexAfterFusion: false,
+          );
+          final qualityGate = const VisionQuestionQualityGate().evaluate(
+            fusion.questions,
+            sourceName: pureVisionSourceName,
+          );
+          singleFileQuestions = qualityGate.questions;
+          allWarnings.addAll(fusion.warnings);
+          allWarnings.addAll(qualityGate.warnings);
+          allDiagnostics.addAll(fusion.diagnostics);
+          allDiagnostics['vision_quality_gate_file_$fileIdx'] =
+              qualityGate.diagnostics;
+          debugPrint('✅ 文件 ${fileIdx + 1}/${request.filePaths.length} '
+              '本地拼图完成，得到 ${singleFileQuestions.length} 题');
+        }
       } else {
         final file = File(filePath);
         String rawText = '';
@@ -226,7 +275,9 @@ class ImportPipelineService {
         }
 
         // --- Phase 4-A: Mixed Vision Supplement ---
-        if (format != ImportFormat.docx && parsedDoc != null && parsedDoc.imageAssets.isNotEmpty) {
+        if (format != ImportFormat.docx &&
+            parsedDoc != null &&
+            parsedDoc.imageAssets.isNotEmpty) {
           TaskManager.instance.updateProgress(
               taskId,
               '文件 ${fileIdx + 1}/${request.filePaths.length} — 启动图文混合补充解析...',
@@ -271,15 +322,21 @@ class ImportPipelineService {
       TaskManager.instance.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
       final merged =
           await AiService.instance.mergeStructuredQuestions(fileResults);
+      final sorted = const ImportQuestionFinalSorter().sort(merged);
+      allDiagnostics['final_sort'] = sorted.diagnostics;
+      _attachVisionQualitySummary(allDiagnostics);
       return ImportParseResult(
-        questions: merged,
+        questions: sorted.questions,
         warnings: allWarnings,
         diagnostics: allDiagnostics,
       );
     } else if (fileResults.isNotEmpty) {
       final flattenedQuestions = fileResults.expand((e) => e).toList();
+      final sorted = const ImportQuestionFinalSorter().sort(flattenedQuestions);
+      allDiagnostics['final_sort'] = sorted.diagnostics;
+      _attachVisionQualitySummary(allDiagnostics);
       return ImportParseResult(
-        questions: flattenedQuestions,
+        questions: sorted.questions,
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,
@@ -302,9 +359,13 @@ class ImportPipelineService {
   String? _readBlockReason(Map<String, dynamic> diagnostics) {
     final gate = diagnostics['qualityGate'];
     if (gate is Map) {
-      return (gate['reason']?.toString() ??
-          gate['severity']?.toString());
+      return (gate['reason']?.toString() ?? gate['severity']?.toString());
     }
     return null;
+  }
+
+  void _attachVisionQualitySummary(Map<String, dynamic> diagnostics) {
+    diagnostics['visionQualitySummary'] =
+        VisionImportQualitySummary.fromDiagnostics(diagnostics).toDiagnostics();
   }
 }

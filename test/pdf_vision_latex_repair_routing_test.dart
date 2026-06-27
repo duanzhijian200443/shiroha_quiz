@@ -5,6 +5,7 @@ import 'package:shiroha_quiz/services/vision_asset_builder.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_providers/llm_provider_client.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_fusion_coordinator.dart';
 
 class _MockLlmApiClient extends LlmApiClient {
   final String responseText;
@@ -173,5 +174,122 @@ void main() {
         expect(q18content, contains(r'\iint'));
       },
     );
+  });
+
+  group('ImportQuestionFusionCoordinator pure vision repair routing', () {
+    const coordinator = ImportQuestionFusionCoordinator();
+
+    test('PDF vision-only path skips repairAll for bare matrix', () {
+      final result = coordinator.fuseTextAndVision(
+        sourceName: 'vision_pdf_page',
+        textQuestions: [],
+        visionQuestions: [
+          {
+            'q_num': '20',
+            'content': r'\begin{pmatrix}1&2\\3&4\end{pmatrix}',
+            'standard_answer': 'A',
+          },
+        ],
+        repairLatexAfterFusion: false,
+      );
+
+      final q = result.questions.single;
+      expect(
+        q['content'],
+        r'\begin{pmatrix}1&2\\3&4\end{pmatrix}',
+      );
+      expect(
+        (q['content'] as String).contains(r'\['),
+        false,
+      );
+      expect(
+        (q['content'] as String).contains(r'\('),
+        false,
+      );
+      expect(
+        result.diagnostics['vision_pdf_page']['latexRepairAfterFusion'],
+        false,
+      );
+    });
+
+    test('standalone image vision path also skips repairAll', () {
+      final result = coordinator.fuseTextAndVision(
+        sourceName: 'vision_image_file',
+        textQuestions: [],
+        visionQuestions: [
+          {
+            'q_num': '20',
+            'content': r'Compute \frac{1}{2}',
+            'standard_answer': r'\sqrt{x}',
+          },
+        ],
+        repairLatexAfterFusion: false,
+      );
+
+      final q = result.questions.single;
+      expect(q['content'], r'Compute \frac{1}{2}');
+      expect(q['standard_answer'], r'\sqrt{x}');
+      expect((q['content'] as String).contains(r'\('), false);
+      expect((q['standard_answer'] as String).contains(r'\('), false);
+      expect(
+        result.diagnostics['vision_image_file']['latexRepairAfterFusion'],
+        false,
+      );
+    });
+
+    test('default path wraps bare LaTeX with repairAll', () {
+      final result = coordinator.fuseTextAndVision(
+        sourceName: 'formula.md',
+        textQuestions: [],
+        visionQuestions: [
+          {
+            'q_num': '21',
+            'content': r'\begin{pmatrix}1&2\\3&4\end{pmatrix}',
+            'standard_answer': 'B',
+          },
+        ],
+      );
+
+      final q = result.questions.single;
+      expect(
+        (q['content'] as String).contains(r'\(') ||
+            (q['content'] as String).contains(r'\['),
+        isTrue,
+      );
+      expect(
+        result.diagnostics['formula.md']['latexRepairAfterFusion'],
+        true,
+      );
+    });
+
+    test('diagnostics records latexRepairAfterFusion in all paths', () {
+      final withRepair = coordinator.fuseTextAndVision(
+        sourceName: 'with.md',
+        textQuestions: [],
+        visionQuestions: [
+          {'q_num': '22', 'content': r'\frac{a}{b}'},
+        ],
+        repairLatexAfterFusion: true,
+      );
+
+      expect(
+        withRepair.diagnostics['with.md']['latexRepairAfterFusion'],
+        true,
+      );
+
+      final withoutRepair = coordinator.fuseTextAndVision(
+        sourceName: 'without.md',
+        textQuestions: [],
+        visionQuestions: [
+          {'q_num': '23', 'content': r'\frac{a}{b}'},
+        ],
+        repairLatexAfterFusion: false,
+      );
+
+      expect(
+        withoutRepair.diagnostics['without.md']['latexRepairAfterFusion'],
+        false,
+      );
+    });
   });
 }

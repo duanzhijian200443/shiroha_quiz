@@ -60,9 +60,26 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     return gate is Map && gate['blocked'] == true;
   }
 
+  String? get _qualityGateReason {
+    final gate = widget.diagnostics?['qualityGate'];
+    if (gate is! Map) return null;
+    if (gate['blocked'] != true) return null;
+    final reason = gate['reason'];
+    if (reason is String && reason.trim().isNotEmpty) return reason.trim();
+    return null;
+  }
+
   String get _confirmButtonText {
+    final reason = _qualityGateReason;
+    if (reason != null) return '解析不完整，禁止入库：$reason';
     if (_isBlockedByQualityGate) return '解析不完整，禁止入库';
     return '确认无误，收入题库';
+  }
+
+  bool get _hasLowQualityVision {
+    final summary = widget.diagnostics?['visionQualitySummary'];
+    if (summary is! Map) return false;
+    return summary['hasLowQualityVisionParse'] == true;
   }
 
   @override
@@ -730,7 +747,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            if (widget.diagnostics != null && widget.diagnostics!.containsKey('rawTextPreview')) ...[
+            if (widget.diagnostics != null &&
+                widget.diagnostics!.containsKey('rawTextPreview')) ...[
               _buildRawTextPreviewCard(context),
               const SizedBox(height: 16),
             ],
@@ -909,74 +927,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ),
           ),
           if (_diagnosticMessages.isNotEmpty) ...[
-            Builder(builder: (context) {
-              final hasError = _diagnosticMessages
-                  .any((m) => m.severity == ImportDiagnosticSeverity.error);
-              final hasWarning = _diagnosticMessages
-                  .any((m) => m.severity == ImportDiagnosticSeverity.warning);
-
-              Color bannerBg;
-              Color textAndIconColor;
-              IconData bannerIcon;
-              String bannerTitle;
-
-              if (hasError) {
-                bannerBg = Colors.redAccent.withValues(alpha: 0.1);
-                textAndIconColor = Colors.redAccent;
-                bannerIcon = Icons.error_outline_rounded;
-                bannerTitle = '解析发生严重错误';
-              } else if (hasWarning) {
-                bannerBg = Colors.orangeAccent.withValues(alpha: 0.12);
-                textAndIconColor = Colors.orange;
-                bannerIcon = Icons.warning_amber_rounded;
-                bannerTitle = '解析有注意事项';
-              } else {
-                bannerBg = Colors.blueAccent.withValues(alpha: 0.08);
-                textAndIconColor = Colors.blueAccent;
-                bannerIcon = Icons.info_outline_rounded;
-                bannerTitle = '包含解析报告';
-              }
-
-              return Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                color: bannerBg,
-                child: Row(
-                  children: [
-                    Icon(bannerIcon, color: textAndIconColor, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '$bannerTitle (${_diagnosticMessages.length} 条记录)',
-                        style: TextStyle(
-                          color: textAndIconColor,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => _showDiagnosticsSheet(context),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 30),
-                        foregroundColor: textAndIconColor,
-                      ),
-                      child: const Row(
-                        children: [
-                          Text('查看详情',
-                              style: TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.bold)),
-                          Icon(Icons.arrow_right, size: 16),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
+            _buildDiagnosticBanner(),
           ],
+          if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
           const Divider(height: 1),
           _buildSummaryBar(),
           const Divider(height: 1),
@@ -1132,7 +1085,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: _isBlockedByQualityGate ? Colors.grey : theme.primaryColor,
+                    backgroundColor: _isBlockedByQualityGate
+                        ? Colors.grey
+                        : theme.primaryColor,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -1143,7 +1098,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2))
-                      : (_isBlockedByQualityGate ? const Icon(Icons.block) : const Icon(Icons.check_circle_outline)),
+                      : (_isBlockedByQualityGate
+                          ? const Icon(Icons.block)
+                          : const Icon(Icons.check_circle_outline)),
                   label: Text(
                       _isBlockedByQualityGate
                           ? _confirmButtonText
@@ -1152,24 +1109,190 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                               : '确认无误，将 ${_allItems.length} 题收入题库'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold)),
-                  onPressed: (_isSaving || _isBlockedByQualityGate) ? null : _validateBeforeSave,
+                  onPressed: (_isSaving || _isBlockedByQualityGate)
+                      ? null
+                      : _validateBeforeSave,
                 ),
               ),
             ),
     );
   }
 
+  Widget _buildDiagnosticBanner() {
+    // The original diagnostic banner logic extracted from inline in build().
+    // Moved to a separate method so new banners (like vision low quality) can
+    // live alongside it without nesting.
+    return Builder(builder: (context) {
+      final hasError = _diagnosticMessages
+          .any((m) => m.severity == ImportDiagnosticSeverity.error);
+      final hasWarning = _diagnosticMessages
+          .any((m) => m.severity == ImportDiagnosticSeverity.warning);
+
+      Color bannerBg;
+      Color textAndIconColor;
+      IconData bannerIcon;
+      String bannerTitle;
+
+      if (hasError) {
+        bannerBg = Colors.redAccent.withValues(alpha: 0.1);
+        textAndIconColor = Colors.redAccent;
+        bannerIcon = Icons.error_outline_rounded;
+        bannerTitle = '解析发生严重错误';
+      } else if (hasWarning) {
+        bannerBg = Colors.orangeAccent.withValues(alpha: 0.12);
+        textAndIconColor = Colors.orange;
+        bannerIcon = Icons.warning_amber_rounded;
+        bannerTitle = '解析有注意事项';
+      } else {
+        bannerBg = Colors.blueAccent.withValues(alpha: 0.08);
+        textAndIconColor = Colors.blueAccent;
+        bannerIcon = Icons.info_outline_rounded;
+        bannerTitle = '包含解析报告';
+      }
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        color: bannerBg,
+        child: Row(
+          children: [
+            Icon(bannerIcon, color: textAndIconColor, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$bannerTitle (${_diagnosticMessages.length} 条记录)',
+                style: TextStyle(
+                  color: textAndIconColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => _showDiagnosticsSheet(context),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 30),
+                foregroundColor: textAndIconColor,
+              ),
+              child: const Row(
+                children: [
+                  Text('查看详情',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  Icon(Icons.arrow_right, size: 16),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildVisionLowQualityBanner() {
+    final summary = widget.diagnostics?['visionQualitySummary'];
+    if (summary is! Map) return const SizedBox.shrink();
+    final issueSummary = _formatVisionIssueCounts(summary['issueCounts']);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: Colors.red.shade50,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.visibility_off, color: Colors.redAccent, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '视觉解析质量偏低',
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '建议人工复核，或切换更强视觉模型后重新导入。'
+                  '风险题数：${summary['riskyCount'] ?? 0} / ${summary['total'] ?? 0}',
+                  style: const TextStyle(
+                    color: Colors.redAccent,
+                    fontSize: 12,
+                  ),
+                ),
+                if (issueSummary != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    issueSummary,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _formatVisionIssueCounts(dynamic rawCounts) {
+    if (rawCounts is! Map || rawCounts.isEmpty) return null;
+    final entries = <MapEntry<String, int>>[];
+    for (final entry in rawCounts.entries) {
+      final count = _readPositiveInt(entry.value);
+      if (count <= 0) continue;
+      entries.add(MapEntry(entry.key.toString(), count));
+    }
+    if (entries.isEmpty) return null;
+
+    entries.sort((a, b) => b.value.compareTo(a.value));
+    final visible = entries.take(3).map((entry) {
+      return '${_visionIssueLabel(entry.key)} ${entry.value}';
+    }).join('，');
+    return '主要风险：$visible';
+  }
+
+  int _readPositiveInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim()) ?? 0;
+    return 0;
+  }
+
+  String _visionIssueLabel(String code) {
+    return switch (code) {
+      'answer_leaked_to_content' => '答案混入题干',
+      'missing_answer_or_explanation' => '缺少答案/解析',
+      'type_options_mismatch' => '题型选项不匹配',
+      'duplicate_q_num' => '重复题号',
+      'q_num_drift' => '题号漂移',
+      _ => code,
+    };
+  }
+
+  // Replaced by _buildDiagnosticBanner() and _buildVisionLowQualityBanner().
+  // _buildRawTextPreviewCard is used only from _showDiagnosticsSheet.
+
   Widget _buildRawTextPreviewCard(BuildContext context) {
     final theme = Theme.of(context);
     final rawText = widget.diagnostics!['rawTextPreview'] as String;
     final length = widget.diagnostics!['rawTextLength'] ?? rawText.length;
-    final lineCount = widget.diagnostics!['rawTextLineCount'] ?? rawText.split('\n').length;
+    final lineCount =
+        widget.diagnostics!['rawTextLineCount'] ?? rawText.split('\n').length;
 
     return Container(
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.primaryColor.withOpacity(0.2)),
+        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.2)),
       ),
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -1180,7 +1303,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.description_outlined, color: theme.primaryColor, size: 20),
+                  Icon(Icons.description_outlined,
+                      color: theme.primaryColor, size: 20),
                   const SizedBox(width: 8),
                   Text(
                     '原始提取文本 (DOCX)',
@@ -1205,12 +1329,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                 icon: const Icon(Icons.copy_rounded, size: 14),
                 label: const Text('复制原始文本预览'),
                 style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   minimumSize: const Size(0, 28),
-                  textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  textStyle: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.bold),
                   backgroundColor: theme.primaryColor,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6)),
                 ),
               ),
             ],

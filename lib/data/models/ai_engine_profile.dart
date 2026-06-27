@@ -1,6 +1,7 @@
 enum AiEngineType {
   text('text'),
-  vision('vision');
+  vision('vision'),
+  ocr('ocr');
 
   const AiEngineType(this.dbValue);
 
@@ -14,6 +15,7 @@ enum AiEngineType {
     return switch (normalized) {
       'text' => AiEngineType.text,
       'vision' => AiEngineType.vision,
+      'ocr' => AiEngineType.ocr,
       _ => fallback,
     };
   }

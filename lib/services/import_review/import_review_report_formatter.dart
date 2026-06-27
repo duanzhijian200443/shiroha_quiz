@@ -104,6 +104,18 @@ class ImportReviewReportFormatter {
         return '图文融合题目';
       case ImportReviewIssueCode.unsupportedTypeFallback:
         return '不支持的题型回退';
+      case ImportReviewIssueCode.answerLeakedToContent:
+        return '答案疑似进入题干';
+      case ImportReviewIssueCode.missingAnswerOrExplanation:
+        return '视觉审计缺答案/解析';
+      case ImportReviewIssueCode.typeOptionsMismatch:
+        return '题型与选项不一致';
+      case ImportReviewIssueCode.duplicateQuestionNumber:
+        return '重复题号';
+      case ImportReviewIssueCode.questionNumberDrift:
+        return '题号顺序漂移';
+      case ImportReviewIssueCode.lowQualityVisionParse:
+        return '视觉结构质量偏低';
     }
   }
 
@@ -121,6 +133,18 @@ class ImportReviewReportFormatter {
         return '仅视觉来源';
       case 'fused_from_text_vision':
         return '图文融合来源';
+      case 'answer_leaked_to_content':
+        return '答案疑似进入题干';
+      case 'missing_answer_or_explanation':
+        return '缺失答案或解析';
+      case 'type_options_mismatch':
+        return '题型与选项不一致';
+      case 'duplicate_q_num':
+        return '重复题号';
+      case 'q_num_drift':
+        return '题号顺序漂移';
+      case 'low_quality_vision_parse':
+        return '视觉结构质量偏低';
       default:
         return hint;
     }

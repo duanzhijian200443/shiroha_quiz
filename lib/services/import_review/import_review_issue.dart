@@ -15,6 +15,12 @@ enum ImportReviewIssueCode {
   visionOnly,
   fusedFromTextVision,
   unsupportedTypeFallback,
+  answerLeakedToContent,
+  missingAnswerOrExplanation,
+  typeOptionsMismatch,
+  duplicateQuestionNumber,
+  questionNumberDrift,
+  lowQualityVisionParse,
 }
 
 class ImportReviewIssue {

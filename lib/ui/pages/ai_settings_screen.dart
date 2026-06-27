@@ -13,6 +13,7 @@ class AiSettingsScreen extends StatefulWidget {
 class _AiSettingsScreenState extends State<AiSettingsScreen> {
   String _textEngineName = '未配置';
   String _visionEngineName = '未配置';
+  String _ocrEngineName = '未配置';
 
   @override
   void initState() {
@@ -24,10 +25,12 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     final textEngine = await AiEngineRepository.instance.getActiveTextEngine();
     final visionEngine =
         await AiEngineRepository.instance.getActiveVisionEngine();
+    final ocrEngine = await AiEngineRepository.instance.getActiveOcrEngine();
     if (mounted) {
       setState(() {
         _textEngineName = textEngine?.name ?? '点击去配置';
         _visionEngineName = visionEngine?.name ?? '点击去配置';
+        _ocrEngineName = ocrEngine?.name ?? '点击去配置';
       });
     }
   }
@@ -103,6 +106,30 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                             MaterialPageRoute(
                                 builder: (_) => const AiEngineManagementScreen(
                                     engineType: 'vision')))
+                        .then((_) => _loadActiveSummary());
+                  },
+                ),
+                const Divider(height: 1, indent: 64),
+                ListTile(
+                  leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                          color: Colors.teal.shade50,
+                          borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.document_scanner_rounded,
+                          color: Colors.teal)),
+                  title: const Text('文档 OCR 解析引擎',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(_ocrEngineName,
+                      style: const TextStyle(fontSize: 12, color: Colors.teal)),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                      size: 14, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const AiEngineManagementScreen(
+                                    engineType: 'ocr')))
                         .then((_) => _loadActiveSummary());
                   },
                 ),

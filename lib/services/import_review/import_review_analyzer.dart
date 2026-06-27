@@ -86,6 +86,54 @@ class ImportReviewAnalyzer {
             questionIndex: i,
             message: '本题由文本与视觉模型结果融合而成',
           ));
+        } else if (hint == 'answer_leaked_to_content') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.answerLeakedToContent,
+            questionIndex: i,
+            message: '题干疑似混入答案或解析，请核对字段归属',
+          ));
+          warningCount++;
+        } else if (hint == 'missing_answer_or_explanation') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.missingAnswerOrExplanation,
+            questionIndex: i,
+            message: '视觉结构审计发现答案与解析同时缺失',
+          ));
+          warningCount++;
+        } else if (hint == 'type_options_mismatch') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.typeOptionsMismatch,
+            questionIndex: i,
+            message: '题型与选项结构不一致',
+          ));
+          warningCount++;
+        } else if (hint == 'duplicate_q_num') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.duplicateQuestionNumber,
+            questionIndex: i,
+            message: '视觉结果中出现重复题号，请核对是否误合并',
+          ));
+          warningCount++;
+        } else if (hint == 'q_num_drift') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.questionNumberDrift,
+            questionIndex: i,
+            message: '视觉结果题号顺序疑似漂移',
+          ));
+          warningCount++;
+        } else if (hint == 'low_quality_vision_parse') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.lowQualityVisionParse,
+            questionIndex: i,
+            message: '本批次视觉结构质量偏低，建议重点复核',
+          ));
+          warningCount++;
         }
       }
 

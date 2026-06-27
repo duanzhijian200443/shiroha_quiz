@@ -59,7 +59,7 @@ class AiVisionParseService {
         return questions;
       }
 
-      return LatexImportRepairService.instance.repairAll(questions);
+      return LatexImportRepairService.instance.repairAllSafely(questions);
     } catch (e) {
       throw Exception("多图视觉解析异常: $e");
     }

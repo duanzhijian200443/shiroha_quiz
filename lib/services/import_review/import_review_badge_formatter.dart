@@ -60,6 +60,48 @@ class ImportReviewBadgeFormatter {
             textColor: Colors.blueAccent,
           ));
           break;
+        case 'answer_leaked_to_content':
+          badges.add(const ImportReviewBadge(
+            label: '答案进题干',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
+        case 'missing_answer_or_explanation':
+          badges.add(const ImportReviewBadge(
+            label: '缺答案解析',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
+        case 'type_options_mismatch':
+          badges.add(const ImportReviewBadge(
+            label: '题型选项不符',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
+        case 'duplicate_q_num':
+          badges.add(const ImportReviewBadge(
+            label: '题号重复',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
+        case 'q_num_drift':
+          badges.add(const ImportReviewBadge(
+            label: '题号漂移',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
+        case 'low_quality_vision_parse':
+          badges.add(const ImportReviewBadge(
+            label: '视觉低质',
+            backgroundColor: Color(0xFFFFEBEE),
+            textColor: Colors.redAccent,
+          ));
+          break;
         default:
           badges.add(ImportReviewBadge(
             label: hint,

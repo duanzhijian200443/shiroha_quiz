@@ -15,6 +15,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   String _textEngineName = '未配置';
   String _visionEngineName = '未配置';
+  String _ocrEngineName = '未配置';
   Map<DateTime, int> _heatmapData = {};
   int _totalReviewed = 0;
   bool _isLoading = true;
@@ -32,6 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           await AiEngineRepository.instance.getActiveTextEngine();
       final visionEngine =
           await AiEngineRepository.instance.getActiveVisionEngine();
+      final ocrEngine = await AiEngineRepository.instance.getActiveOcrEngine();
       final heatmap = await QuestionRepository.instance.getHeatmapData();
 
       int total = 0;
@@ -41,6 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _textEngineName = textEngine?.name ?? '点击去配置';
           _visionEngineName = visionEngine?.name ?? '点击去配置';
+          _ocrEngineName = ocrEngine?.name ?? '点击去配置';
           _heatmapData = heatmap;
           _totalReviewed = total;
           _isLoading = false;
@@ -264,6 +267,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       builder: (_) =>
                                           const AiEngineManagementScreen(
                                               engineType: 'vision')))
+                              .then((_) => _loadData());
+                        },
+                      ),
+                      const Divider(height: 1, indent: 64),
+                      ListTile(
+                        leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                                color: Colors.teal.shade50,
+                                borderRadius: BorderRadius.circular(8)),
+                            child: const Icon(Icons.document_scanner_rounded,
+                                color: Colors.teal)),
+                        title: const Text('文档 OCR 解析引擎',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(_ocrEngineName,
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.teal)),
+                        trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                            size: 14, color: Colors.grey),
+                        onTap: () {
+                          Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const AiEngineManagementScreen(
+                                              engineType: 'ocr')))
                               .then((_) => _loadData());
                         },
                       ),

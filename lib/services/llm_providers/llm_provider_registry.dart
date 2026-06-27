@@ -12,7 +12,7 @@ class LlmProviderRegistry {
     if (baseUrl.contains('generativelanguage.googleapis.com')) {
       return LlmProviderKind.gemini;
     }
-    if (baseUrl.contains('bigmodel.cn')) {
+    if (baseUrl.contains('bigmodel.cn') || baseUrl.contains('z.ai')) {
       return LlmProviderKind.zhipu;
     }
     return LlmProviderKind.openAiCompatible;

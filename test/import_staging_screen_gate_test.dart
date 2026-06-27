@@ -73,6 +73,6 @@ void main() {
     final buttonWidget = tester.widget<ElevatedButton>(elevatedButton);
     expect(buttonWidget.onPressed, isNull, reason: 'Save button should be disabled');
 
-    expect(find.text(blockReason), findsOneWidget);
+    expect(find.textContaining(blockReason), findsOneWidget);
   });
 }

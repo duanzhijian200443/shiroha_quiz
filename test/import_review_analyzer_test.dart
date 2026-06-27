@@ -197,5 +197,45 @@ void main() {
           .firstWhere((i) => i.code == ImportReviewIssueCode.visionOnly);
       expect(visionIssue.severity, ImportReviewSeverity.info);
     });
+
+    test('analyzeItems converts vision quality gate hints into warnings', () {
+      final items = [
+        ImportReviewItem(
+          draft: QuestionDraft(
+            content: '解：可得答案。',
+            type: QuestionType.shortAnswer,
+            options: const [],
+            explanation: '',
+            standardAnswer: 'A',
+          ),
+          metadata: const ImportReviewMetadata(
+            source: 'vision',
+            sources: ['vision'],
+            fragmentKinds: [],
+            originalIndices: [],
+            riskHints: [
+              'answer_leaked_to_content',
+              'q_num_drift',
+              'duplicate_q_num',
+              'low_quality_vision_parse',
+            ],
+          ),
+          originalIndex: 0,
+        ),
+      ];
+
+      final res = ImportReviewAnalyzer.analyzeItems(items);
+
+      expect(res.summary.warningCount, 4);
+      expect(
+        res.issues.map((issue) => issue.code),
+        containsAll([
+          ImportReviewIssueCode.answerLeakedToContent,
+          ImportReviewIssueCode.questionNumberDrift,
+          ImportReviewIssueCode.duplicateQuestionNumber,
+          ImportReviewIssueCode.lowQualityVisionParse,
+        ]),
+      );
+    });
   });
 }
