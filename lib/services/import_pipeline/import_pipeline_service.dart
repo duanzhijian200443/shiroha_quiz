@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
+import '../../core/observability/app_logger.dart';
+import '../../core/observability/trace_context.dart';
 import '../ai_service.dart';
 import '../task_manager.dart';
 import 'import_file_detector.dart';
@@ -27,7 +29,28 @@ class ImportPipelineService {
   static final ImportPipelineService instance = ImportPipelineService._();
   ImportPipelineService._();
 
-  Future<ImportParseResult> parseFiles(ImportParseRequest request) async {
+  Future<ImportParseResult> parseFiles(ImportParseRequest request) {
+    Future<ImportParseResult> runPipeline() => AppLogger.span(
+          'Import pipeline',
+          () => _parseFiles(request),
+          module: 'ImportPipeline',
+          data: <String, Object?>{
+            'fileCount': request.filePaths.length,
+            'visionEnabled': request.useVisionEngine,
+            'maxConcurrency': request.maxConcurrency,
+          },
+        );
+
+    if (TraceContext.traceId == null) {
+      return TraceContext.run(
+        taskId: request.taskId,
+        action: runPipeline,
+      );
+    }
+    return runPipeline();
+  }
+
+  Future<ImportParseResult> _parseFiles(ImportParseRequest request) async {
     List<List<Map<String, dynamic>>> fileResults = [];
     List<String> allWarnings = [];
     Map<String, dynamic> allDiagnostics = {};
@@ -50,6 +73,16 @@ class ImportPipelineService {
       final sourceName = request.fileNames.length > fileIdx
           ? request.fileNames[fileIdx]
           : filePath.split(Platform.pathSeparator).last;
+
+      AppLogger.info(
+        'Import file processing started',
+        module: 'ImportPipeline',
+        data: <String, Object?>{
+          'fileIndex': fileIdx,
+          'sourceName': sourceName,
+          'format': format.name,
+        },
+      );
 
       if (format == ImportFormat.docx) {
         hasStrictDocxRoute = true;

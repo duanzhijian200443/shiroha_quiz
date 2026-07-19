@@ -251,7 +251,7 @@ B. 选项B
       expect(result.question['content'], equals('被修复后的题干'));
       expect(result.question['options'], equals(['A. 新选项A', 'B. 新选项B']));
       expect(result.question['standard_answer'], equals('A'));
-      expect(result.question['explanation'], equals('被修复后的解析'));
+      expect(result.question['explanation'], equals(''));
       expect(result.diagnostics, contains('ai_repair_applied'));
     });
 

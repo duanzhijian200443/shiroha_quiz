@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/database/database_helper.dart';
+import 'core/observability/app_logger.dart';
 import 'data/repositories/settings_repository.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
@@ -35,27 +38,59 @@ class DevHttpOverrides extends HttpOverrides {
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+void main() {
+  runZonedGuarded<Future<void>>(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await AppLogger.initialize();
 
-  // 桌面端（Windows / Linux）需通过 FFI 加载 SQLite 原生库
-  if (Platform.isWindows || Platform.isLinux) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
+    FlutterError.onError = (details) {
+      AppLogger.error(
+        'Unhandled Flutter framework error',
+        module: 'Flutter',
+        error: details.exception,
+        stackTrace: details.stack,
+      );
+      FlutterError.presentError(details);
+    };
 
-  final savedTheme = await SettingsRepository.instance.getAppTheme();
-  if (savedTheme.isNotEmpty) {
-    globalThemeNotifier.value = savedTheme;
-  }
+    PlatformDispatcher.instance.onError = (error, stackTrace) {
+      AppLogger.error(
+        'Unhandled platform error',
+        module: 'Platform',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    };
 
-  // 初始化 flutter_tex MathJax 渲染服务
-  // Windows/Linux/macOS 桌面端的 webview_flutter 无完整实现，跳过
-  if (Platform.isAndroid || Platform.isIOS) {
-    await TeXRenderingServer.start();
-  }
+    // 桌面端（Windows / Linux）需通过 FFI 加载 SQLite 原生库
+    if (Platform.isWindows || Platform.isLinux) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
 
-  runApp(const ShirohaQuizApp());
+    final savedTheme = await SettingsRepository.instance.getAppTheme();
+    if (savedTheme.isNotEmpty) {
+      globalThemeNotifier.value = savedTheme;
+    }
+
+    // 初始化 flutter_tex MathJax 渲染服务
+    // Windows/Linux/macOS 桌面端的 webview_flutter 无完整实现，跳过
+    if (Platform.isAndroid || Platform.isIOS) {
+      await TeXRenderingServer.start();
+    }
+
+    AppLogger.info('Application started', module: 'Application');
+    runApp(const ShirohaQuizApp());
+  }, (error, stackTrace) {
+    AppLogger.error(
+      'Unhandled root-zone error',
+      module: 'Application',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    Error.throwWithStackTrace(error, stackTrace);
+  });
 }
 
 class ShirohaQuizApp extends StatelessWidget {

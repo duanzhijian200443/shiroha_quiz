@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../core/observability/app_logger.dart';
+import '../../core/observability/trace_context.dart';
 import '../../services/ai_service.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_pipeline/import_pipeline_service.dart';
@@ -43,29 +45,62 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     Navigator.pop(context);
 
     // 3. 在独立微任务队列中执行耗时大模型解析
-    Future.microtask(() async {
-      try {
-        TaskManager.instance
-            .updateProgress(taskId, '正在呼叫 AI 引擎进行多模态解析...', 0.4);
+    Future.microtask(() => TraceContext.run(
+          taskId: taskId,
+          action: () async {
+            AppLogger.info(
+              'Background import dispatched',
+              module: 'Import',
+              data: <String, Object?>{'source': sourceDesc},
+            );
+            try {
+              TaskManager.instance
+                  .updateProgress(taskId, '正在呼叫 AI 引擎进行多模态解析...', 0.4);
 
-        final parsedQuestions = await parseTask(taskId);
+              final parsedQuestions = await AppLogger.span(
+                'Import parsing',
+                () => parseTask(taskId),
+                module: 'Import',
+                data: <String, Object?>{'source': sourceDesc},
+              );
 
-        if (parsedQuestions.isEmpty) {
-          TaskManager.instance.failTask(taskId, '解析完毕，但未提取到任何题目');
-          return;
-        }
+              if (parsedQuestions.isEmpty) {
+                AppLogger.warning(
+                  'Import produced no questions',
+                  module: 'Import',
+                  data: <String, Object?>{'source': sourceDesc},
+                );
+                TaskManager.instance.failTask(taskId, '解析完毕，但未提取到任何题目');
+                return;
+              }
 
-        // 核心热修复：不再强行入库！转交管家进行状态挂起
-        TaskManager.instance.requireReview(
-            taskId, '解析成功！请点击此处进行人工校对并入库', parsedQuestions, '', '');
+              // 核心热修复：不再强行入库！转交管家进行状态挂起
+              TaskManager.instance.requireReview(
+                  taskId, '解析成功！请点击此处进行人工校对并入库', parsedQuestions, '', '');
 
-        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-            content: Text('🔔 $sourceDesc 解析完成，请前往左上角【传输中心】校对入库！'),
-            backgroundColor: Colors.orange));
-      } catch (e) {
-        TaskManager.instance.failTask(taskId, e.toString());
-      }
-    });
+              AppLogger.info(
+                'Import is ready for review',
+                module: 'Import',
+                data: <String, Object?>{
+                  'source': sourceDesc,
+                  'questionCount': parsedQuestions.length,
+                },
+              );
+              rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
+                  content: Text('🔔 $sourceDesc 解析完成，请前往左上角【传输中心】校对入库！'),
+                  backgroundColor: Colors.orange));
+            } catch (error, stackTrace) {
+              AppLogger.error(
+                'Background import failed',
+                module: 'Import',
+                error: error,
+                stackTrace: stackTrace,
+                data: <String, Object?>{'source': sourceDesc},
+              );
+              TaskManager.instance.failTask(taskId, error.toString());
+            }
+          },
+        ));
   }
 
   Future<void> _pickImage(ImageSource source) async {
