@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
@@ -59,7 +57,12 @@ class OcrImportService {
     if (profile == null ||
         LlmProviderRegistry.kindForBaseUrl(profile.baseUrl) !=
             LlmProviderKind.zhipu) {
-      return null;
+      return const OcrImportResult(
+        usedOcr: false,
+        questions: <Map<String, dynamic>>[],
+        warnings: <String>['未配置可用的智谱 OCR 引擎，请先完成 OCR 配置。'],
+        diagnostics: <String, dynamic>{'status': 'failed_not_configured'},
+      );
     }
 
     final diagnostics = <String, dynamic>{
@@ -79,11 +82,11 @@ class OcrImportService {
       diagnostics['document'] = document.toDiagnostics();
 
       if (!document.hasUsableBlocks) {
-        diagnostics['status'] = 'fallback_empty_ocr_blocks';
+        diagnostics['status'] = 'failed_empty_ocr_blocks';
         return OcrImportResult(
           usedOcr: false,
           questions: const [],
-          warnings: const ['GLM-OCR 未返回可用版面块，已降级为旧视觉解析路径。'],
+          warnings: const ['OCR 未识别到有效文字，请检查文档清晰度后重试。'],
           diagnostics: diagnostics,
         );
       }
@@ -91,11 +94,11 @@ class OcrImportService {
       final regionized = _regionizer.regionize(document);
       diagnostics['regionizer'] = regionized.diagnostics;
       if (regionized.regions.isEmpty) {
-        diagnostics['status'] = 'fallback_no_question_regions';
+        diagnostics['status'] = 'failed_no_question_regions';
         return OcrImportResult(
           usedOcr: false,
           questions: const [],
-          warnings: const ['GLM-OCR 未切分出题目区域，已降级为旧视觉解析路径。'],
+          warnings: const ['OCR 未识别到有效题目区域，请检查文档内容后重试。'],
           diagnostics: diagnostics,
         );
       }
@@ -129,11 +132,11 @@ class OcrImportService {
       }
 
       if (questions.isEmpty) {
-        diagnostics['status'] = 'fallback_no_assembled_questions';
+        diagnostics['status'] = 'failed_no_assembled_questions';
         return OcrImportResult(
           usedOcr: false,
           questions: const [],
-          warnings: const ['GLM-OCR 已返回内容，但本地组题为空，已降级为旧视觉解析路径。'],
+          warnings: const ['OCR 已返回文字，但未能组装出有效题目。'],
           diagnostics: diagnostics,
         );
       }
@@ -153,15 +156,13 @@ class OcrImportService {
         warnings: const [],
         diagnostics: diagnostics,
       );
-    } catch (e, stackTrace) {
-      debugPrint('OcrImportService: GLM-OCR failed, falling back: $e');
-      debugPrint('$stackTrace');
-      diagnostics['status'] = 'fallback_exception';
-      diagnostics['error'] = e.toString();
+    } catch (e) {
+      diagnostics['status'] = 'failed_request';
+      diagnostics['errorType'] = e.runtimeType.toString();
       return OcrImportResult(
         usedOcr: false,
         questions: const [],
-        warnings: ['GLM-OCR 解析失败，已降级为旧视觉解析路径：$e'],
+        warnings: const ['OCR 请求失败，请检查 OCR 配置或网络后重试。'],
         diagnostics: diagnostics,
       );
     }

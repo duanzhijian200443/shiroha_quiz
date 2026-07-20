@@ -1,14 +1,21 @@
+enum ImportParseMode { text, vision, ocr }
+
 class ImportParseRequest {
   final List<String> filePaths;
   final List<String> fileNames;
-  final bool useVisionEngine;
+  final ImportParseMode mode;
   final int maxConcurrency;
   final String taskId;
+
+  // Phase-one compatibility bridge for the existing two-route pipeline.
+  // OCR keeps the current OCR-first/vision-fallback behavior until routing is
+  // migrated to [mode] in the next phase.
+  bool get useVisionEngine => mode != ImportParseMode.text;
 
   const ImportParseRequest({
     required this.filePaths,
     required this.fileNames,
-    required this.useVisionEngine,
+    required this.mode,
     required this.maxConcurrency,
     required this.taskId,
   });

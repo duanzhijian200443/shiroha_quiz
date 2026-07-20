@@ -33,6 +33,8 @@ Avoid using unrestricted full access for normal development.
 ## Planner prompt template
 
 ```text
+角色：规划
+
 Read AGENTS.md, ARCHITECTURE.md, and docs/agents/planner.md.
 
 Work strictly as a read-only Planner.
@@ -47,6 +49,8 @@ Issue:
 ## Executor prompt template
 
 ```text
+角色：执行
+
 Read AGENTS.md, ARCHITECTURE.md, and docs/agents/executor.md.
 
 Execute the task package below.
@@ -65,6 +69,8 @@ Task package:
 ## Verifier prompt template
 
 ```text
+角色：验证
+
 Read AGENTS.md and docs/agents/verifier.md.
 
 Work strictly as a verification-only Agent.
@@ -82,6 +88,8 @@ Return a concise validation report with exit status and failure classification.
 ## Reviewer prompt template
 
 ```text
+角色：审查
+
 Read AGENTS.md, ARCHITECTURE.md, and docs/agents/reviewer.md.
 
 Review only:

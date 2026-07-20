@@ -15,16 +15,21 @@ the current task.
 
 ## Role activation
 
-- `ROLE: PLANNER` requires reading `docs/agents/planner.md`.
-- `ROLE: EXECUTOR` requires reading `docs/agents/executor.md`.
-- `ROLE: VERIFIER` requires reading `docs/agents/verifier.md`.
-- `ROLE: REVIEWER` requires reading `docs/agents/reviewer.md`.
-- After successfully reading the required role file, explicitly declare which
-  role file has been loaded before continuing the task.
+- The role identifier must be the first line of the user request and must be
+  exactly one of the following mappings:
+  - `角色：规划` → `docs/agents/planner.md`
+  - `角色：执行` → `docs/agents/executor.md`
+  - `角色：验证` → `docs/agents/verifier.md`
+  - `角色：审查` → `docs/agents/reviewer.md`
+- A request must not activate more than one role.
+- After successfully reading the required role file, explicitly declare the
+  current role and the role file that was loaded before continuing the task.
 - If the required role file does not exist or cannot be read, stop the task and
   report the problem. Do not continue under an assumed role.
 - Once activated, keep the same role for the entire task. Do not switch roles
   during the task unless the user explicitly instructs you to do so.
+- If no role is specified, do not select a write-enabled role on your own.
+- When role instructions conflict, follow the more restrictive rule.
 
 ## Architecture
 

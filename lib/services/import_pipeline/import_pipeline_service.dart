@@ -18,16 +18,87 @@ import 'adapters/txt_document_adapter.dart';
 import 'adapters/markdown_document_adapter.dart';
 import 'adapters/zip_document_adapter.dart';
 import 'import_question_final_sorter.dart';
-import 'mixed_document_vision_service.dart';
 import 'ocr_import_service.dart';
 import 'pdf_page_image_renderer.dart';
 import 'vision_batch_parse_coordinator.dart';
 import 'vision_question_quality_gate.dart';
 import 'vision_import_quality_summary.dart';
 
+typedef ImportTextParser = Future<List<Map<String, dynamic>>> Function(
+  String rawText, {
+  required String taskId,
+  required bool isMarkdown,
+});
+
+typedef ImportVisionParser = Future<List<Map<String, dynamic>>> Function(
+  List<String> imagePaths,
+);
+
+typedef ImportOcrParser = Future<OcrImportResult?> Function({
+  required String filePath,
+  required String sourceName,
+  required ImportFormat format,
+});
+
+Future<List<Map<String, dynamic>>> _defaultTextParser(
+  String rawText, {
+  required String taskId,
+  required bool isMarkdown,
+}) {
+  return AiService.instance.parseTextToQuestions(
+    rawText,
+    taskId: taskId,
+    isMarkdown: isMarkdown,
+  );
+}
+
+Future<List<Map<String, dynamic>>> _defaultVisionParser(
+  List<String> imagePaths,
+) {
+  return AiService.instance.parseImagesWithVision(
+    imagePaths,
+    // TEMP: PDF LaTeX repair remains disabled until offline replay proves
+    // repairAll does not change import structure or renderer behavior.
+    repairLatex: false,
+  );
+}
+
+Future<OcrImportResult?> _defaultOcrParser({
+  required String filePath,
+  required String sourceName,
+  required ImportFormat format,
+}) {
+  return const OcrImportService().tryParse(
+    filePath: filePath,
+    sourceName: sourceName,
+    format: format,
+  );
+}
+
 class ImportPipelineService {
   static final ImportPipelineService instance = ImportPipelineService._();
-  ImportPipelineService._();
+  ImportPipelineService._({
+    ImportTextParser? textParser,
+    ImportVisionParser? visionParser,
+    ImportOcrParser? ocrParser,
+  })  : _textParser = textParser ?? _defaultTextParser,
+        _visionParser = visionParser ?? _defaultVisionParser,
+        _ocrParser = ocrParser ?? _defaultOcrParser;
+
+  @visibleForTesting
+  ImportPipelineService.forTesting({
+    required ImportTextParser textParser,
+    required ImportVisionParser visionParser,
+    required ImportOcrParser ocrParser,
+  }) : this._(
+          textParser: textParser,
+          visionParser: visionParser,
+          ocrParser: ocrParser,
+        );
+
+  final ImportTextParser _textParser;
+  final ImportVisionParser _visionParser;
+  final ImportOcrParser _ocrParser;
 
   Future<ImportParseResult> parseFiles(ImportParseRequest request) {
     Future<ImportParseResult> runPipeline() => AppLogger.span(
@@ -36,7 +107,7 @@ class ImportPipelineService {
           module: 'ImportPipeline',
           data: <String, Object?>{
             'fileCount': request.filePaths.length,
-            'visionEnabled': request.useVisionEngine,
+            'mode': request.mode.name,
             'maxConcurrency': request.maxConcurrency,
           },
         );
@@ -84,83 +155,124 @@ class ImportPipelineService {
         },
       );
 
-      if (format == ImportFormat.docx) {
-        hasStrictDocxRoute = true;
-        final parsedDoc = await DocxDocumentAdapter.parse(
-            filePath: filePath, sourceName: sourceName);
-        final rawText = parsedDoc.toPlainTextForParsing(includeImages: false);
-
-        allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
-        if (!parsedDoc.fallbackUsed) {
-          if (parsedDoc.signals.imageCount > 0 ||
-              parsedDoc.signals.tableCount > 0) {
-            allDiagnostics['${sourceName}_info'] =
-                '检测到 ${parsedDoc.signals.tableCount} 个表格、${parsedDoc.signals.imageCount} 张图片。图片仅记录，不再触发题干补充融合。';
-          }
-        }
-
-        final docxParseRes = await DocxTextFirstParseService().parseDocxText(
-          rawText: rawText,
-          sourceName: sourceName,
-          taskId: taskId,
-          documentSignals: parsedDoc.signals,
-        );
-
-        allWarnings.addAll(docxParseRes.warnings);
-        allDiagnostics.addAll(docxParseRes.diagnostics);
-
-        if (docxParseRes.blocked) {
-          hasBlockedParse = true;
-        }
-
-        if (docxParseRes.diagnostics.containsKey('qualityGate')) {
-          allDiagnostics['qualityGate'] =
-              docxParseRes.diagnostics['qualityGate'];
-        } else if (docxParseRes.blocked) {
-          allDiagnostics['qualityGate'] = {
-            'blocked': true,
-            'reason': docxParseRes.warnings.isNotEmpty
-                ? docxParseRes.warnings.first
-                : 'unknown',
-          };
-        }
-
-        singleFileQuestions = docxParseRes.questions;
-        if (singleFileQuestions.isNotEmpty) {
-          fileResults.add(singleFileQuestions);
-        }
-        continue;
-      }
-
-      if (request.useVisionEngine) {
-        var handledByOcr = false;
-        final ocrResult = await const OcrImportService().tryParse(
-          filePath: filePath,
-          sourceName: sourceName,
-          format: format,
-        );
-        if (ocrResult != null) {
-          allWarnings.addAll(ocrResult.warnings);
-          allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
-          if (ocrResult.usedOcr) {
-            handledByOcr = true;
-            final qualityGate = const VisionQuestionQualityGate().evaluate(
-              ocrResult.questions,
-              sourceName: 'glm_ocr_intermediate',
+      switch (request.mode) {
+        case ImportParseMode.text:
+          if (format == ImportFormat.docx) {
+            hasStrictDocxRoute = true;
+            final parsedDoc = await DocxDocumentAdapter.parse(
+              filePath: filePath,
+              sourceName: sourceName,
             );
-            singleFileQuestions = qualityGate.questions;
-            allWarnings.addAll(qualityGate.warnings);
-            allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
-                qualityGate.diagnostics;
-            allDiagnostics['vision_quality_gate_file_$fileIdx'] =
-                qualityGate.diagnostics;
-            debugPrint('GLM-OCR import completed for file ${fileIdx + 1}: '
-                '${singleFileQuestions.length} questions');
-          }
-        }
+            final rawText =
+                parsedDoc.toPlainTextForParsing(includeImages: false);
 
-        if (!handledByOcr) {
-          List<String> imagePaths = [];
+            allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
+            if (!parsedDoc.fallbackUsed &&
+                (parsedDoc.signals.imageCount > 0 ||
+                    parsedDoc.signals.tableCount > 0)) {
+              allDiagnostics['${sourceName}_info'] =
+                  '检测到 ${parsedDoc.signals.tableCount} 个表格、${parsedDoc.signals.imageCount} 张图片。图片仅记录，不再触发题干补充融合。';
+            }
+
+            final docxParseRes =
+                await DocxTextFirstParseService().parseDocxText(
+              rawText: rawText,
+              sourceName: sourceName,
+              taskId: taskId,
+              documentSignals: parsedDoc.signals,
+            );
+
+            allWarnings.addAll(docxParseRes.warnings);
+            allDiagnostics.addAll(docxParseRes.diagnostics);
+            if (docxParseRes.blocked) {
+              hasBlockedParse = true;
+            }
+            if (docxParseRes.diagnostics.containsKey('qualityGate')) {
+              allDiagnostics['qualityGate'] =
+                  docxParseRes.diagnostics['qualityGate'];
+            } else if (docxParseRes.blocked) {
+              allDiagnostics['qualityGate'] = {
+                'blocked': true,
+                'reason': docxParseRes.warnings.isNotEmpty
+                    ? docxParseRes.warnings.first
+                    : 'unknown',
+              };
+            }
+            singleFileQuestions = docxParseRes.questions;
+            break;
+          }
+
+          if (format == ImportFormat.image) {
+            allWarnings.add('文本模式不支持图片文件，请改用视觉或 OCR 模式。');
+            break;
+          }
+
+          final file = File(filePath);
+          String rawText = '';
+          bool isMarkdownFile = false;
+          ParsedDocument? parsedDoc;
+
+          if (format == ImportFormat.pdf) {
+            final bytes = await file.readAsBytes();
+            final document = PdfDocument(inputBytes: bytes);
+            rawText = PdfTextExtractor(document).extractText();
+            document.dispose();
+            if (rawText.trim().isEmpty) {
+              allWarnings.add('未检测到可提取文字，请改用视觉或 OCR 模式。');
+            }
+          } else {
+            if (format == ImportFormat.zip) {
+              parsedDoc = await ZipDocumentAdapter.parse(
+                filePath: filePath,
+                sourceName: sourceName,
+              );
+              isMarkdownFile = true;
+            } else if (format == ImportFormat.md) {
+              parsedDoc = await MarkdownDocumentAdapter.parse(
+                filePath: filePath,
+                sourceName: sourceName,
+              );
+              isMarkdownFile = true;
+            } else if (format == ImportFormat.txt) {
+              parsedDoc = await TxtDocumentAdapter.parse(
+                filePath: filePath,
+                sourceName: sourceName,
+              );
+            } else {
+              rawText = await file.readAsString();
+            }
+
+            if (parsedDoc != null) {
+              rawText = parsedDoc.toPlainTextForParsing();
+              allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
+              if (parsedDoc.diagnostics.containsKey('warning')) {
+                allWarnings.add(parsedDoc.diagnostics['warning'].toString());
+              }
+              if (parsedDoc.diagnostics.containsKey('warnings')) {
+                final warnings = parsedDoc.diagnostics['warnings'];
+                if (warnings is List) {
+                  allWarnings.addAll(warnings.map((e) => e.toString()));
+                }
+              }
+            }
+          }
+
+          if (rawText.trim().length > 10) {
+            singleFileQuestions = await _textParser(
+              rawText,
+              taskId: taskId,
+              isMarkdown: isMarkdownFile,
+            );
+          }
+          break;
+
+        case ImportParseMode.vision:
+          if (format != ImportFormat.pdf && format != ImportFormat.image) {
+            allWarnings.add('视觉模式仅支持 PDF 或图片文件。');
+            break;
+          }
+
+          final imagePaths = <String>[];
           if (format == ImportFormat.pdf) {
             final renderer = const PdfPageImageRenderer();
             final renderRes = await renderer.renderToImages(
@@ -174,31 +286,20 @@ class ImportPipelineService {
             imagePaths.add(filePath);
           }
 
-          final int pagesPerBatch = format == ImportFormat.pdf ? 1 : 4;
-          final int batchCount =
+          final pagesPerBatch = format == ImportFormat.pdf ? 1 : 4;
+          final batchCount =
               (imagePaths.length + pagesPerBatch - 1) ~/ pagesPerBatch;
-
           TaskManager.instance.appendPendingChunks(
             taskId,
             'vision',
             List.generate(batchCount, (i) => 'batch_${fileIdx}_$i'),
           );
 
-          final coordinator = const VisionBatchParseCoordinator();
-          final visionRes = await coordinator.parse(
+          final visionRes = await const VisionBatchParseCoordinator().parse(
             imagePaths: imagePaths,
             pagesPerBatch: pagesPerBatch,
             maxConcurrency: request.maxConcurrency,
-            parseBatch: (batchPaths) =>
-                AiService.instance.parseImagesWithVision(
-              batchPaths,
-              // TEMP: PDF LaTeX repair disabled after import regressions
-              // involving LatexErrorChip, question order, q_num drift, and
-              // answer loss.  Keep repair service code intact.
-              // Re-enable only after offline replay proves repairAll does
-              // not change import structure or trigger renderer regressions.
-              repairLatex: false,
-            ),
+            parseBatch: _visionParser,
             onProgress: (progress, status) {
               TaskManager.instance.updateProgress(
                 taskId,
@@ -219,7 +320,8 @@ class ImportPipelineService {
             },
             onBatchRetry: (batchIdx, error) {
               debugPrint(
-                  'Vision batch $batchIdx encountered transient error, will retry: $error');
+                'Vision batch $batchIdx encountered transient error, will retry: $error',
+              );
             },
           );
 
@@ -227,17 +329,14 @@ class ImportPipelineService {
           allWarnings.addAll(visionRes.warnings);
           allDiagnostics['vision_batch_file_$fileIdx'] = visionRes.diagnostics;
 
-          final fusionCoordinator = const ImportQuestionFusionCoordinator();
           final pureVisionSourceName = format == ImportFormat.pdf
               ? 'vision_pdf_page'
               : 'vision_image_file';
-          final fusion = fusionCoordinator.fuseTextAndVision(
-            textQuestions: [],
+          final fusion =
+              const ImportQuestionFusionCoordinator().fuseTextAndVision(
+            textQuestions: const [],
             visionQuestions: singleFileQuestions,
             sourceName: pureVisionSourceName,
-            // Pure Vision imports (PDF pages and standalone images) preserve the
-            // model's raw LaTeX. Post-fusion repair is reserved for text-first
-            // mixed imports where local text anchors constrain the structure.
             repairLatexAfterFusion: false,
           );
           final qualityGate = const VisionQuestionQualityGate().evaluate(
@@ -250,100 +349,44 @@ class ImportPipelineService {
           allDiagnostics.addAll(fusion.diagnostics);
           allDiagnostics['vision_quality_gate_file_$fileIdx'] =
               qualityGate.diagnostics;
-          debugPrint('✅ 文件 ${fileIdx + 1}/${request.filePaths.length} '
-              '本地拼图完成，得到 ${singleFileQuestions.length} 题');
-        }
-      } else {
-        final file = File(filePath);
-        String rawText = '';
-        bool isMarkdownFile = false;
-        ParsedDocument? parsedDoc;
-        final sourceName = request.fileNames.length > fileIdx
-            ? request.fileNames[fileIdx]
-            : filePath.split(Platform.pathSeparator).last;
+          break;
 
-        if (format == ImportFormat.pdf) {
-          final bytes = await file.readAsBytes();
-          final document = PdfDocument(inputBytes: bytes);
-          rawText = PdfTextExtractor(document).extractText();
-          document.dispose();
-        } else {
-          if (format == ImportFormat.zip) {
-            parsedDoc = await ZipDocumentAdapter.parse(
-                filePath: filePath, sourceName: sourceName);
-            isMarkdownFile =
-                true; // Treats as markdown because zip emits markdown text
-          } else if (format == ImportFormat.md) {
-            parsedDoc = await MarkdownDocumentAdapter.parse(
-                filePath: filePath, sourceName: sourceName);
-            isMarkdownFile = true;
-          } else if (format == ImportFormat.txt) {
-            parsedDoc = await TxtDocumentAdapter.parse(
-                filePath: filePath, sourceName: sourceName);
-          } else {
-            // fallback for unknown
-            rawText = await file.readAsString();
+        case ImportParseMode.ocr:
+          if (format != ImportFormat.pdf && format != ImportFormat.image) {
+            allWarnings.add('OCR 模式仅支持 PDF 或图片文件。');
+            break;
           }
 
-          if (parsedDoc != null) {
-            rawText = parsedDoc.toPlainTextForParsing();
-            allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
-            if (parsedDoc.diagnostics.containsKey('warning')) {
-              allWarnings.add(parsedDoc.diagnostics['warning'].toString());
+          final ocrResult = await _ocrParser(
+            filePath: filePath,
+            sourceName: sourceName,
+            format: format,
+          );
+          if (ocrResult == null) {
+            allWarnings.add('OCR 未能处理当前文件。');
+            break;
+          }
+
+          allWarnings.addAll(ocrResult.warnings);
+          allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
+          if (!ocrResult.usedOcr || ocrResult.questions.isEmpty) {
+            if (ocrResult.warnings.isEmpty) {
+              allWarnings.add('OCR 未能提取到有效题目。');
             }
-            if (parsedDoc.diagnostics.containsKey('warnings')) {
-              final w = parsedDoc.diagnostics['warnings'];
-              if (w is List) {
-                allWarnings.addAll(w.map((e) => e.toString()));
-              }
-            }
-          }
-        }
-
-        if (rawText.trim().length > 10) {
-          singleFileQuestions = await AiService.instance.parseTextToQuestions(
-              rawText,
-              taskId: taskId,
-              isMarkdown: isMarkdownFile);
-        }
-
-        // --- Phase 4-A: Mixed Vision Supplement ---
-        if (format != ImportFormat.docx &&
-            parsedDoc != null &&
-            parsedDoc.imageAssets.isNotEmpty) {
-          TaskManager.instance.updateProgress(
-              taskId,
-              '文件 ${fileIdx + 1}/${request.filePaths.length} — 启动图文混合补充解析...',
-              0.1 + (fileIdx / request.filePaths.length) * 0.7 + 0.05);
-
-          final mixedService = MixedDocumentVisionService();
-          final visionResult = await mixedService.process(parsedDoc);
-
-          if (visionResult.questions.isNotEmpty) {
-            final fusion =
-                const ImportQuestionFusionCoordinator().fuseTextAndVision(
-              textQuestions: singleFileQuestions,
-              visionQuestions: visionResult.questions,
-              sourceName: sourceName,
-            );
-            singleFileQuestions = fusion.questions;
-            allWarnings.addAll(fusion.warnings);
-            allDiagnostics.addAll(fusion.diagnostics);
+            break;
           }
 
-          if (visionResult.warnings.isNotEmpty) {
-            allWarnings.addAll(visionResult.warnings);
-          }
-          if (visionResult.diagnostics.isNotEmpty) {
-            parsedDoc.diagnostics['mixedVisionDiagnostics'] =
-                visionResult.diagnostics;
-          }
-          if (visionResult.metadata.isNotEmpty) {
-            parsedDoc.diagnostics['mixedVisionMetadata'] =
-                visionResult.metadata;
-          }
-          allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
-        }
+          final ocrQualityGate = const VisionQuestionQualityGate().evaluate(
+            ocrResult.questions,
+            sourceName: 'glm_ocr_intermediate',
+          );
+          singleFileQuestions = ocrQualityGate.questions;
+          allWarnings.addAll(ocrQualityGate.warnings);
+          allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
+              ocrQualityGate.diagnostics;
+          allDiagnostics['vision_quality_gate_file_$fileIdx'] =
+              ocrQualityGate.diagnostics;
+          break;
       }
 
       if (singleFileQuestions.isNotEmpty) {

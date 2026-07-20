@@ -17,7 +17,7 @@ class ImportSettingsScreen extends StatefulWidget {
 }
 
 class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
-  bool _useVisionEngine = false;
+  ImportParseMode _selectedMode = ImportParseMode.vision;
   double _maxConcurrency = 3.0; // 默认多图并发线程
   final ImagePicker _picker = ImagePicker();
 
@@ -146,7 +146,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       final request = ImportParseRequest(
         filePaths: result.files.map((e) => e.path!).toList(),
         fileNames: result.files.map((e) => e.name).toList(),
-        useVisionEngine: _useVisionEngine,
+        mode: _selectedMode,
         maxConcurrency: _maxConcurrency.toInt(),
         taskId: taskId,
       );
@@ -280,17 +280,59 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               ],
             ),
             const SizedBox(height: 24),
-            SwitchListTile(
-              title: const Text('深度视觉解析 (慢速/极高精度)',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              subtitle: const Text('包含代码截图或复杂公式的 PDF/图片 请开启。',
-                  style: TextStyle(fontSize: 12)),
-              value: _useVisionEngine,
-              activeColor: Colors.purpleAccent,
-              contentPadding: EdgeInsets.zero,
-              onChanged: (val) => setState(() => _useVisionEngine = val),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '解析模式',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    _ImportParseModeCard(
+                      key: const ValueKey<String>('import-parse-mode-vision'),
+                      title: '视觉（推荐）',
+                      description: '适合图片、扫描 PDF 与复杂公式',
+                      icon: Icons.visibility_rounded,
+                      selected: _selectedMode == ImportParseMode.vision,
+                      onTap: () => setState(
+                        () => _selectedMode = ImportParseMode.vision,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _ImportParseModeCard(
+                      key: const ValueKey<String>('import-parse-mode-text'),
+                      title: '文本（最快）',
+                      description: '适合可提取文字的 PDF 与剪贴板文本',
+                      icon: Icons.text_snippet_rounded,
+                      selected: _selectedMode == ImportParseMode.text,
+                      onTap: () => setState(
+                        () => _selectedMode = ImportParseMode.text,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _ImportParseModeCard(
+                      key: const ValueKey<String>('import-parse-mode-ocr'),
+                      title: 'OCR（扫描）',
+                      description: '先识别文字再解析，适合扫描文档',
+                      icon: Icons.document_scanner_rounded,
+                      selected: _selectedMode == ImportParseMode.ocr,
+                      onTap: () => setState(
+                        () => _selectedMode = ImportParseMode.ocr,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            if (_useVisionEngine)
+            if (_selectedMode == ImportParseMode.vision)
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
@@ -303,11 +345,14 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                         const Text('多图并发线程上限',
                             style: TextStyle(
                                 fontSize: 13, fontWeight: FontWeight.bold)),
-                        Text('${_maxConcurrency.toInt()} 线程',
-                            style: const TextStyle(
-                                fontSize: 13,
-                                color: Colors.purpleAccent,
-                                fontWeight: FontWeight.bold)),
+                        Text(
+                          '${_maxConcurrency.toInt()} 线程',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                     Slider(
@@ -315,7 +360,6 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                       min: 1,
                       max: 10,
                       divisions: 9,
-                      activeColor: Colors.purpleAccent,
                       onChanged: (val) => setState(() => _maxConcurrency = val),
                     ),
                     const Text('⚠️ 提示: 并发越高速度越快，若触发大模型 429 频率限制，引擎会自动为您降频。',
@@ -384,6 +428,95 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               onPressed: _pasteAndParse,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImportParseModeCard extends StatelessWidget {
+  const _ImportParseModeCard({
+    super.key,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      button: true,
+      label: '$title，$description',
+      child: Material(
+        color: selected ? colorScheme.primaryContainer : colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  color: selected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: selected
+                                  ? colorScheme.onPrimaryContainer
+                                  : colorScheme.onSurface,
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: selected
+                                  ? colorScheme.onPrimaryContainer
+                                  : colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: selected
+                      ? colorScheme.primary
+                      : colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
