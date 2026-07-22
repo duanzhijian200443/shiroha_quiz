@@ -267,6 +267,118 @@ void main() {
     expect(second.status, TaskStatus.pendingReview);
   });
 
+  testWidgets(
+      'task cards retain task-ID identity through list and diagnostics updates',
+      (WidgetTester tester) async {
+    final taskA = ImportTask(
+      id: 'task-a',
+      title: 'same.pdf',
+      status: TaskStatus.processing,
+      progressText: 'processing-a',
+      diagnostics: <String, dynamic>{
+        TaskManager.keyTraceId: 'trace-a',
+        TaskManager.keyParseMode: 'ocr',
+        'pageCount': 2,
+      },
+    );
+    final taskB = ImportTask(
+      id: 'task-b',
+      title: 'same.pdf',
+      status: TaskStatus.completed,
+      progressText: 'processing-b',
+      diagnostics: <String, dynamic>{
+        TaskManager.keyTraceId: 'trace-b',
+        TaskManager.keyParseMode: 'ocr',
+      },
+    );
+    TaskManager.instance.tasks.addAll(<ImportTask>[taskA, taskB]);
+
+    await tester.pumpWidget(createWidgetUnderTest());
+    await tester.pump();
+
+    final cardA = find.byKey(const ValueKey<String>('import-task-task-a'));
+    final cardB = find.byKey(const ValueKey<String>('import-task-task-b'));
+    expect(cardA, findsOneWidget);
+    expect(cardB, findsOneWidget);
+    final taskAElement = tester.element(cardA);
+    final diagnosticsA = find.descendant(
+      of: cardA,
+      matching: find.byKey(
+        const ValueKey<String>('task-diagnostics-task-a'),
+      ),
+    );
+    expect(
+      tester.getSemantics(diagnosticsA).getSemanticsData().label,
+      contains('查看诊断'),
+    );
+
+    final taskC = ImportTask(
+      id: 'task-c',
+      title: 'same.pdf',
+      status: TaskStatus.completed,
+      progressText: 'processing-c',
+    );
+    TaskManager.instance.tasks.insert(0, taskC);
+    TaskManager.instance.notifyListeners();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey<String>('import-task-task-c')),
+        findsOneWidget);
+    expect(tester.element(cardA), same(taskAElement));
+
+    taskA.status = TaskStatus.pendingReview;
+    taskA.progressText = 'review-a';
+    taskA.parsedData = const <Map<String, dynamic>>[];
+    TaskManager.instance.notifyListeners();
+    await tester.pump();
+    expect(find.text('review-a'), findsOneWidget);
+    expect(tester.element(cardA), same(taskAElement));
+
+    taskA.status = TaskStatus.completed;
+    taskA.progressText = 'completed-a';
+    taskA.completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    TaskManager.instance.notifyListeners();
+    await tester.pump();
+    expect(find.text('completed-a'), findsOneWidget);
+    expect(tester.element(cardA), same(taskAElement));
+
+    await tester.tap(diagnosticsA);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('trace-a'), findsOneWidget);
+    final detailsToggle = find.text('技术诊断详情');
+    expect(detailsToggle, findsOneWidget);
+    await tester.ensureVisible(detailsToggle);
+    await tester.pump();
+    await tester.tap(detailsToggle);
+    await tester.pump();
+    expect(find.text('pageCount'), findsOneWidget);
+    await tester.tap(detailsToggle);
+    await tester.pump();
+    expect(find.text('pageCount'), findsNothing);
+    await tester.ensureVisible(detailsToggle);
+    await tester.pump();
+    await tester.tap(detailsToggle);
+    await tester.pump();
+    expect(find.text('pageCount'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('copy-trace-task-a')));
+    await tester.pump();
+    expect(clipboardText, 'trace-a');
+    await tester.tap(find.byIcon(Icons.close).last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.element(cardA), same(taskAElement));
+
+    await tester.tap(
+      find.descendant(of: cardB, matching: find.byIcon(Icons.close)),
+    );
+    await tester.pump();
+    expect(cardB, findsNothing);
+    expect(cardA, findsOneWidget);
+    expect(find.text('completed-a'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('null trace is safe even without diagnostics',
       (WidgetTester tester) async {
     TaskManager.instance.tasks.add(

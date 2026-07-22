@@ -58,6 +58,15 @@ class TaskCenterScreen extends StatelessWidget {
             return ListView.builder(
               padding: const EdgeInsets.all(16.0),
               itemCount: tasks.length,
+              findChildIndexCallback: (key) {
+                if (key is! ValueKey<String> ||
+                    !key.value.startsWith('import-task-')) {
+                  return null;
+                }
+                final taskId = key.value.substring('import-task-'.length);
+                final index = tasks.indexWhere((task) => task.id == taskId);
+                return index == -1 ? null : index;
+              },
               itemBuilder: (context, index) {
                 final t = tasks[index];
                 IconData icon = Icons.sync;
@@ -75,6 +84,7 @@ class TaskCenterScreen extends StatelessWidget {
                 }
 
                 return Card(
+                  key: ValueKey<String>('import-task-${t.id}'),
                   elevation: 0,
                   margin: const EdgeInsets.only(bottom: 12),
                   shape: RoundedRectangleBorder(
