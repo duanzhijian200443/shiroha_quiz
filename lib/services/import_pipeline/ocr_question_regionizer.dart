@@ -213,7 +213,11 @@ class OcrQuestionRegionizer {
     _MutableRegion? current;
     var currentField = OcrRegionField.stem;
     var currentSectionKind = TextQuestionKind.unknown;
-    int? lastAcceptedTopLevelNumber;
+    final confirmedAcceptedNumbers = <int>[];
+    var highestOfficialSectionOrdinal = 0;
+    var currentSectionIsReference = false;
+    var referenceSectionDetected = false;
+    var referenceSectionCandidateCount = 0;
 
     final questionCandidateTrace = <Map<String, dynamic>>[];
     var questionCandidateTraceTruncated = false;
@@ -269,6 +273,87 @@ class OcrQuestionRegionizer {
       currentField = OcrRegionField.stem;
     }
 
+    int? previousAcceptedNumber() =>
+        confirmedAcceptedNumbers.isEmpty ? null : confirmedAcceptedNumbers.last;
+
+    String? candidateRejectionReason({
+      required int number,
+      required bool requiresSectionContext,
+    }) {
+      if (currentSectionIsReference) return 'reference_section';
+      if (requiresSectionContext &&
+          currentSectionKind == TextQuestionKind.unknown) {
+        return 'missing_section_context';
+      }
+
+      final previous = previousAcceptedNumber();
+      if (previous != null && number != previous + 1) {
+        return 'sequence_mismatch';
+      }
+      return null;
+    }
+
+    void startQuestion({
+      required int number,
+      required _OcrTextUnit unit,
+      required String markerKind,
+      required String remainingText,
+    }) {
+      final previous = previousAcceptedNumber();
+      finishCurrent();
+      final kindInfo = _kindForQuestionNumber(
+        number,
+        currentSectionKind: currentSectionKind,
+      );
+      current = _MutableRegion(
+        number,
+        declaredKind: kindInfo.kind,
+        initialDiagnostics: kindInfo.diagnostics,
+      );
+      currentField = OcrRegionField.stem;
+      current!.addSource(unit.block);
+      if (remainingText.isNotEmpty && remainingText != number.toString()) {
+        current!.addPart(currentField, remainingText);
+      }
+      addTrace(
+        number: number,
+        unit: unit,
+        markerKind: markerKind,
+        decision: 'accepted',
+        reason: 'valid_question_start',
+        previousAcceptedNumber: previous,
+        sectionIndex: currentSectionIndex,
+      );
+      confirmedAcceptedNumbers.add(number);
+    }
+
+    void rejectQuestionCandidate({
+      required int number,
+      required _OcrTextUnit unit,
+      required String markerKind,
+      required String reason,
+      required String text,
+    }) {
+      if (reason == 'reference_section') {
+        referenceSectionCandidateCount++;
+      }
+      addTrace(
+        number: number,
+        unit: unit,
+        markerKind: markerKind,
+        decision: 'rejected',
+        reason: reason,
+        previousAcceptedNumber: previousAcceptedNumber(),
+        sectionIndex: currentSectionIndex,
+      );
+      if (current == null) {
+        ignoredBlocks.add(unit.block.blockId);
+      } else {
+        current!.addSource(unit.block);
+        current!.addPart(currentField, text);
+      }
+    }
+
     for (var i = 0; i < units.length; i++) {
       final unit = units[i];
       if (unit.wasSplit) splitCount++;
@@ -276,10 +361,31 @@ class OcrQuestionRegionizer {
       final text = _normalizeText(unit.text);
       if (text.isEmpty) continue;
 
+      if (confirmedAcceptedNumbers.isNotEmpty &&
+          _isReferenceSummaryHeading(text)) {
+        finishCurrent();
+        currentSectionIsReference = true;
+        referenceSectionDetected = true;
+        ignoredBlocks.add(unit.block.blockId);
+        continue;
+      }
+
       final section = _readSectionHeading(text);
       if (section != null) {
         finishCurrent();
         currentSectionIndex++;
+        if (!currentSectionIsReference &&
+            section.ordinal == 1 &&
+            highestOfficialSectionOrdinal >= 3 &&
+            confirmedAcceptedNumbers.isNotEmpty) {
+          currentSectionIsReference = true;
+          referenceSectionDetected = true;
+        }
+        if (!currentSectionIsReference &&
+            section.ordinal != null &&
+            section.ordinal! > highestOfficialSectionOrdinal) {
+          highestOfficialSectionOrdinal = section.ordinal!;
+        }
         currentSectionKind = section.kind;
         sections.add(section);
         ignoredBlocks.add(unit.block.blockId);
@@ -313,63 +419,34 @@ class OcrQuestionRegionizer {
       if (parenthesizedMarker != null) {
         recordQuestionCandidate(unit);
         parenthesizedArabicCandidateCount++;
-        final expectedNumber = lastAcceptedTopLevelNumber == null
-            ? null
-            : lastAcceptedTopLevelNumber + 1;
-        final isSequenceAccepted =
-            currentSectionKind != TextQuestionKind.unknown &&
-                (expectedNumber == null ||
-                    parenthesizedMarker.number == expectedNumber);
+        final rejectionReason = candidateRejectionReason(
+          number: parenthesizedMarker.number,
+          requiresSectionContext: true,
+        );
 
-        if (isSequenceAccepted) {
+        if (rejectionReason == null) {
           parenthesizedArabicAcceptedCount++;
           sequenceAcceptedCount++;
-          finishCurrent();
-          final kindInfo = _kindForQuestionNumber(
-            parenthesizedMarker.number,
-            currentSectionKind: currentSectionKind,
-          );
-          current = _MutableRegion(
-            parenthesizedMarker.number,
-            declaredKind: kindInfo.kind,
-            initialDiagnostics: kindInfo.diagnostics,
-          );
-          currentField = OcrRegionField.stem;
-          current!.addSource(unit.block);
-          current!.addPart(
-            currentField,
-            parenthesizedMarker.remainingText,
-          );
-          addTrace(
+          startQuestion(
             number: parenthesizedMarker.number,
             unit: unit,
             markerKind: 'parenthesized_arabic',
-            decision: 'accepted',
-            reason: 'valid_question_start',
-            previousAcceptedNumber: lastAcceptedTopLevelNumber,
-            sectionIndex: currentSectionIndex,
+            remainingText: parenthesizedMarker.remainingText,
           );
-          lastAcceptedTopLevelNumber = parenthesizedMarker.number;
           continue;
         }
 
         parenthesizedArabicRejectedCount++;
-        sequenceRejectedCount++;
-        addTrace(
+        if (rejectionReason == 'sequence_mismatch') {
+          sequenceRejectedCount++;
+        }
+        rejectQuestionCandidate(
           number: parenthesizedMarker.number,
           unit: unit,
           markerKind: 'parenthesized_arabic',
-          decision: 'rejected',
-          reason: 'sequence_mismatch',
-          previousAcceptedNumber: lastAcceptedTopLevelNumber,
-          sectionIndex: currentSectionIndex,
+          reason: rejectionReason,
+          text: text,
         );
-        if (current == null) {
-          ignoredBlocks.add(unit.block.blockId);
-        } else {
-          current!.addSource(unit.block);
-          current!.addPart(currentField, text);
-        }
         continue;
       }
 
@@ -388,37 +465,37 @@ class OcrQuestionRegionizer {
             markerKind: markerKind,
             decision: 'rejected',
             reason: 'looks_like_option',
-            previousAcceptedNumber: lastAcceptedTopLevelNumber,
+            previousAcceptedNumber: previousAcceptedNumber(),
             sectionIndex: currentSectionIndex,
           );
         } else {
           recordQuestionCandidate(unit);
-          finishCurrent();
-          final kindInfo = _kindForQuestionNumber(
-            questionNumber,
-            currentSectionKind: currentSectionKind,
+          final rejectionReason = candidateRejectionReason(
+            number: questionNumber,
+            requiresSectionContext: false,
           );
-          current = _MutableRegion(
-            questionNumber,
-            declaredKind: kindInfo.kind,
-            initialDiagnostics: kindInfo.diagnostics,
-          );
-          currentField = OcrRegionField.stem;
-          current!.addSource(unit.block);
-          final remaining = _stripQuestionPrefix(text);
-          if (remaining.isNotEmpty && remaining != questionNumber.toString()) {
-            current!.addPart(currentField, remaining);
+
+          if (rejectionReason == null) {
+            sequenceAcceptedCount++;
+            startQuestion(
+              number: questionNumber,
+              unit: unit,
+              markerKind: markerKind,
+              remainingText: _stripQuestionPrefix(text),
+            );
+            continue;
           }
-          addTrace(
+
+          if (rejectionReason == 'sequence_mismatch') {
+            sequenceRejectedCount++;
+          }
+          rejectQuestionCandidate(
             number: questionNumber,
             unit: unit,
             markerKind: markerKind,
-            decision: 'accepted',
-            reason: 'valid_question_start',
-            previousAcceptedNumber: lastAcceptedTopLevelNumber,
-            sectionIndex: currentSectionIndex,
+            reason: rejectionReason,
+            text: text,
           );
-          lastAcceptedTopLevelNumber = questionNumber;
           continue;
         }
       } else {
@@ -436,20 +513,56 @@ class OcrQuestionRegionizer {
             markerKind: 'unknown',
             decision: 'rejected',
             reason: 'looks_like_option',
-            previousAcceptedNumber: lastAcceptedTopLevelNumber,
+            previousAcceptedNumber: previousAcceptedNumber(),
             sectionIndex: currentSectionIndex,
           );
         } else {
           final info = _parseMarkerInfo(text);
           if (info != null) {
             final parsedNum = info.number;
+            final remainingText = _stripQuestionPrefix(text);
+            final canPromoteFormulaLeadingMarker = parsedNum != null &&
+                unit.startsAtBlockStart &&
+                currentSectionKind != TextQuestionKind.unknown &&
+                _looksLikeFormulaLeadingStem(remainingText);
+
+            if (canPromoteFormulaLeadingMarker) {
+              recordQuestionCandidate(unit);
+              final rejectionReason = candidateRejectionReason(
+                number: parsedNum,
+                requiresSectionContext: true,
+              );
+              if (rejectionReason == null) {
+                sequenceAcceptedCount++;
+                startQuestion(
+                  number: parsedNum,
+                  unit: unit,
+                  markerKind: info.markerKind,
+                  remainingText: remainingText,
+                );
+                continue;
+              }
+
+              if (rejectionReason == 'sequence_mismatch') {
+                sequenceRejectedCount++;
+              }
+              rejectQuestionCandidate(
+                number: parsedNum,
+                unit: unit,
+                markerKind: info.markerKind,
+                reason: rejectionReason,
+                text: text,
+              );
+              continue;
+            }
+
             String reason = 'other';
             if (parsedNum == null) {
               reason = 'invalid_number_range';
             } else if (_looksLikeOption(text)) {
               reason = 'looks_like_option';
-            } else if (lastAcceptedTopLevelNumber != null &&
-                parsedNum <= lastAcceptedTopLevelNumber) {
+            } else if (previousAcceptedNumber() != null &&
+                parsedNum <= previousAcceptedNumber()!) {
               reason = 'duplicate_or_reset';
             }
 
@@ -464,7 +577,7 @@ class OcrQuestionRegionizer {
               markerKind: info.markerKind,
               decision: 'rejected',
               reason: reason,
-              previousAcceptedNumber: lastAcceptedTopLevelNumber,
+              previousAcceptedNumber: previousAcceptedNumber(),
               sectionIndex: currentSectionIndex,
             );
           }
@@ -541,6 +654,8 @@ class OcrQuestionRegionizer {
         'romanSubquestionCount': romanSubquestionCount,
         'sequenceAcceptedCount': sequenceAcceptedCount,
         'sequenceRejectedCount': sequenceRejectedCount,
+        'referenceSectionDetected': referenceSectionDetected,
+        'referenceSectionCandidateCount': referenceSectionCandidateCount,
         'questionCandidateTrace': questionCandidateTrace,
         if (questionCandidateTraceTruncated)
           'questionCandidateTraceTruncated': true,
@@ -907,6 +1022,12 @@ class OcrQuestionRegionizer {
     return _stripLeadingMarkdownStructure(normalized) != normalized;
   }
 
+  bool _isReferenceSummaryHeading(String text) {
+    final normalized =
+        _normalizeQuestionCandidateText(text).replaceAll(RegExp(r'\s+'), '');
+    return RegExp(r'(?:参考)?答案(?:速查|速览|汇总|一览)').hasMatch(normalized);
+  }
+
   _SectionHeadingInfo? _readSectionHeading(String text) {
     final normalized = _normalizeQuestionCandidateText(text)
         .replaceFirst(RegExp(r'^第\s*'), '')
@@ -1021,6 +1142,14 @@ class OcrQuestionRegionizer {
   bool _looksLikeStemStart(String text) {
     return RegExp(r'^\s*(?:设|已知|若|求|证明|计算|下列|关于|函数|随机|令|讨论|判断|选择|填空|设随机|设函数)')
         .hasMatch(text);
+  }
+
+  bool _looksLikeFormulaLeadingStem(String text) {
+    final normalized = text.trimLeft();
+    if (normalized.isEmpty) return false;
+    return RegExp(
+      r'^(?:\$|\\\(|\\\[|\\[A-Za-z]+|[∫∑√]|当\s*[A-Za-z]|[A-Za-z][A-Za-z0-9_]*\s*[_^=<>≤≥])',
+    ).hasMatch(normalized);
   }
 
   List<int> _missingNumbers(List<int> acceptedNumbers) {

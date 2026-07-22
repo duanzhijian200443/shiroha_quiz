@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../services/task_manager.dart';
 import '../../services/ai_service.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
@@ -276,13 +277,12 @@ class TaskCenterScreen extends StatelessWidget {
                                     ),
                                   ),
                                 ],
-                                if (t.status == TaskStatus.error &&
-                                    (t.warnings?.isNotEmpty == true ||
-                                        t.diagnostics?.isNotEmpty == true)) ...[
+                                ...[
                                   const SizedBox(height: 8),
                                   Align(
                                     alignment: Alignment.centerLeft,
                                     child: TextButton.icon(
+                                      key: ValueKey('task-diagnostics-${t.id}'),
                                       onPressed: () =>
                                           _showDiagnosticsSheet(context, t),
                                       style: TextButton.styleFrom(
@@ -290,11 +290,14 @@ class TaskCenterScreen extends StatelessWidget {
                                         minimumSize: const Size(0, 28),
                                         tapTargetSize:
                                             MaterialTapTargetSize.shrinkWrap,
-                                        foregroundColor: Colors.redAccent,
+                                        foregroundColor:
+                                            t.status == TaskStatus.error
+                                                ? Colors.redAccent
+                                                : theme.primaryColor,
                                       ),
                                       icon: const Icon(Icons.info_outline,
                                           size: 16),
-                                      label: const Text('查看详细诊断原因',
+                                      label: const Text('查看诊断',
                                           style: TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold)),
@@ -344,6 +347,27 @@ class _ImportTaskDiagnosticSheet extends StatefulWidget {
 class _ImportTaskDiagnosticSheetState
     extends State<_ImportTaskDiagnosticSheet> {
   bool _isTechnicalDetailsExpanded = false;
+
+  String get _taskStatusLabel => switch (widget.task.status) {
+        TaskStatus.processing => '正在解析',
+        TaskStatus.pendingReview => '等待用户校对',
+        TaskStatus.completed => '成功完成',
+        TaskStatus.error => '解析失败',
+      };
+
+  Duration get _taskElapsed {
+    final end = widget.task.completedAt ??
+        DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return Duration(seconds: (end - widget.task.createdAt).clamp(0, 1 << 31));
+  }
+
+  Future<void> _copyTraceId(String traceId) async {
+    await Clipboard.setData(ClipboardData(text: traceId));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Trace ID 已复制')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -412,20 +436,20 @@ class _ImportTaskDiagnosticSheetState
     Color statusColor;
     IconData statusIcon;
 
-    switch (summary.outcome) {
-      case ImportTaskOutcome.success:
+    switch (widget.task.status) {
+      case TaskStatus.completed:
         statusColor = Colors.green;
         statusIcon = Icons.check_circle;
         break;
-      case ImportTaskOutcome.emptyResult:
+      case TaskStatus.pendingReview:
         statusColor = Colors.orange;
-        statusIcon = Icons.warning_rounded;
+        statusIcon = Icons.rule_rounded;
         break;
-      case ImportTaskOutcome.failure:
+      case TaskStatus.error:
         statusColor = Colors.redAccent;
         statusIcon = Icons.error_rounded;
         break;
-      case ImportTaskOutcome.processing:
+      case TaskStatus.processing:
         statusColor = Colors.blue;
         statusIcon = Icons.hourglass_top_rounded;
         break;
@@ -450,46 +474,42 @@ class _ImportTaskDiagnosticSheetState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      summary.outcomeLabel,
+                      _taskStatusLabel,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: statusColor,
                       ),
                     ),
-                    if (summary.parseMode != null)
-                      Text(
-                        '模式: ${summary.parseMode}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.textTheme.bodyMedium?.color
-                              ?.withOpacity(0.7),
-                        ),
-                      ),
                   ],
                 ),
               ),
-              if (summary.elapsed != null)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: theme.cardColor,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.timer_outlined,
-                          size: 14, color: theme.hintColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${summary.elapsed!.inSeconds}s',
-                        style: TextStyle(fontSize: 12, color: theme.hintColor),
-                      ),
-                    ],
-                  ),
-                ),
             ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 8),
+          _buildMetadataRow(
+            label: 'Trace ID',
+            value: summary.traceId ?? '不可用',
+            trailing: summary.traceId == null
+                ? null
+                : IconButton(
+                    key: ValueKey('copy-trace-${widget.task.id}'),
+                    onPressed: () => _copyTraceId(summary.traceId!),
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    tooltip: '复制 Trace ID',
+                    visualDensity: VisualDensity.compact,
+                  ),
+          ),
+          _buildMetadataRow(
+            label: '解析模式',
+            value: summary.parseMode ?? '不可用',
+          ),
+          _buildMetadataRow(label: '任务状态', value: _taskStatusLabel),
+          _buildMetadataRow(
+            label: '导入耗时',
+            value: '${_taskElapsed.inSeconds}s',
           ),
           if (summary.lastSuccessStage != null ||
               summary.failedStage != null) ...[
@@ -557,6 +577,34 @@ class _ImportTaskDiagnosticSheetState
     );
   }
 
+  Widget _buildMetadataRow({
+    required String label,
+    required String value,
+    Widget? trailing,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
   Widget _buildTechnicalDetailsToggle(ThemeData theme) {
     return InkWell(
       onTap: () {
@@ -595,30 +643,6 @@ class _ImportTaskDiagnosticSheetState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (summary.traceId != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            margin: const EdgeInsets.only(bottom: 16, top: 8),
-            decoration: BoxDecoration(
-              color: theme.cardColor,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: theme.dividerColor),
-            ),
-            child: Row(
-              children: [
-                const Text('Trace ID: ',
-                    style:
-                        TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                Expanded(
-                  child: SelectableText(
-                    summary.traceId!,
-                    style:
-                        const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-            ),
-          ),
         if (summary.technicalFields.isNotEmpty) ...[
           const Text('关键指标:',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),

@@ -1197,6 +1197,309 @@ void main() {
       });
     });
 
+    group('Unified top-level sequence rules', () {
+      test(
+          'rejects every out-of-sequence marker without polluting the sequence',
+          () {
+        final blocks = <OcrBlock>[];
+        var order = 0;
+
+        void add(String id, String text) {
+          blocks.add(
+            OcrBlock(
+              blockId: id,
+              pageIndex: 1,
+              type: 'text',
+              text: text,
+              bbox: const [],
+              readingOrder: order++,
+            ),
+          );
+        }
+
+        add('section', '一、选择题');
+        for (var number = 1; number <= 8; number++) {
+          add('q$number', '$number. 第$number道脱敏题干。');
+        }
+        add('reference_heading', '1. 扩展条目。');
+        for (var number = 1; number <= 5; number++) {
+          add('reference_item_$number', '（$number）参考条目。');
+        }
+        add('reference_table', '2. 参考表格。');
+        add('bare_reference', '1 设参考对象。');
+        add('plain_reference', '2');
+        add('plain_reference_text', '设参考对象。');
+        add('q9', '9. 第九道脱敏题干。');
+
+        final result = const OcrQuestionRegionizer().regionize(
+          OcrDocument(
+            sourceName: 'sequence-pollution.pdf',
+            markdown: '',
+            rawResponses: const [],
+            usage: const {},
+            pages: [OcrPage(pageIndex: 1, blocks: blocks)],
+          ),
+        );
+
+        expect(
+          result.diagnostics['acceptedNumbers'],
+          List<int>.generate(9, (index) => index + 1),
+        );
+        expect(result.diagnostics['regionCount'], 9);
+        expect(result.diagnostics['sequenceAcceptedCount'], 9);
+        expect(result.diagnostics['sequenceRejectedCount'], 9);
+
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        final rejectedReferenceEntries = trace.where(
+          (entry) =>
+              entry['blockOrder'] >= 9 &&
+              entry['blockOrder'] <= 17 &&
+              entry['decision'] == 'rejected',
+        );
+        expect(rejectedReferenceEntries, hasLength(9));
+        for (final entry in rejectedReferenceEntries) {
+          expect(entry['reason'], 'sequence_mismatch');
+          expect(entry['previousAcceptedNumber'], 8);
+        }
+        expect(
+          rejectedReferenceEntries.map((entry) => entry['markerKind']).toSet(),
+          containsAll(<String>{
+            'parenthesized_arabic',
+            'punctuated_integer',
+            'explicit_question',
+            'plain_integer',
+          }),
+        );
+
+        final q9Trace = trace.singleWhere(
+          (entry) => entry['blockOrder'] == 19,
+        );
+        expect(q9Trace['decision'], 'accepted');
+        expect(q9Trace['previousAcceptedNumber'], 8);
+      });
+
+      test('accepts a formula-leading marker when it continues the sequence',
+          () {
+        final document = OcrDocument(
+          sourceName: 'formula-leading.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'section',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '二、填空题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q11',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '11. 第十一道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'q12',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: r'12 $x^2+1=0$',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'q13',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: r'13 $\int_0^1 x\,dx$',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+                OcrBlock(
+                  blockId: 'q14',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '14. 第十四道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 4,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [11, 12, 13, 14]);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        for (final number in [12, 13]) {
+          final entry = trace.singleWhere((item) => item['number'] == number);
+          expect(entry['decision'], 'accepted');
+          expect(entry['reason'], 'valid_question_start');
+        }
+      });
+
+      test('rejects candidates after the official section sequence restarts',
+          () {
+        final document = OcrDocument(
+          sourceName: 'restarted-sections.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'choice',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q1',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '1. 第一道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'fill',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '二、填空题',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'q2',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '2. 第二道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+                OcrBlock(
+                  blockId: 'subjective',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '三、解答题',
+                  bbox: [],
+                  readingOrder: 4,
+                ),
+                OcrBlock(
+                  blockId: 'q3',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '3. 第三道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 5,
+                ),
+                OcrBlock(
+                  blockId: 'restarted_choice',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 6,
+                ),
+                OcrBlock(
+                  blockId: 'reference_q4',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '（4）参考条目。',
+                  bbox: [],
+                  readingOrder: 7,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [1, 2, 3]);
+        expect(result.diagnostics['referenceSectionDetected'], isTrue);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        final referenceEntry = trace.singleWhere(
+          (entry) => entry['number'] == 4,
+        );
+        expect(referenceEntry['decision'], 'rejected');
+        expect(referenceEntry['reason'], 'reference_section');
+        expect(referenceEntry['previousAcceptedNumber'], 3);
+      });
+
+      test('rejects an otherwise continuous marker after an answer summary',
+          () {
+        final document = OcrDocument(
+          sourceName: 'answer-summary.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'section',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q1',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '1. 第一道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'summary',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '模拟试卷答案速查',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'reference_q2',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '2. 参考条目。',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [1]);
+        expect(result.diagnostics['referenceSectionDetected'], isTrue);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        final referenceEntry = trace.singleWhere(
+          (entry) => entry['number'] == 2,
+        );
+        expect(referenceEntry['decision'], 'rejected');
+        expect(referenceEntry['reason'], 'reference_section');
+        expect(referenceEntry['previousAcceptedNumber'], 1);
+      });
+    });
+
     group('Candidate Trace Tests', () {
       test(
           'records trace for normal, parenthesized, rejected option, sequence mismatch, sectionIndex',

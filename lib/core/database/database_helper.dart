@@ -4,6 +4,11 @@ import 'package:path/path.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
+enum DatabaseRuntimeProfile {
+  production,
+  isolatedSmokeInMemory,
+}
+
 class DatabaseHelper {
   DatabaseHelper._();
 
@@ -12,6 +17,28 @@ class DatabaseHelper {
 
   static DatabaseHelper? _instance;
   static Database? _database;
+  static Future<Database>? _openingDatabase;
+  static DatabaseRuntimeProfile _runtimeProfile =
+      DatabaseRuntimeProfile.production;
+  static bool _runtimeProfileConfigured = false;
+  static String? _openedDatabasePath;
+
+  static DatabaseRuntimeProfile get runtimeProfile => _runtimeProfile;
+
+  @visibleForTesting
+  static String? get openedDatabasePathForTesting => _openedDatabasePath;
+
+  static void configureRuntimeProfile(DatabaseRuntimeProfile profile) {
+    if (_runtimeProfileConfigured ||
+        _database != null ||
+        _openingDatabase != null) {
+      throw StateError(
+        'Database runtime profile can be configured only once before opening.',
+      );
+    }
+    _runtimeProfile = profile;
+    _runtimeProfileConfigured = true;
+  }
 
   static DatabaseHelper get instance {
     _instance ??= DatabaseHelper._();
@@ -20,40 +47,55 @@ class DatabaseHelper {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
+    if (_openingDatabase != null) return _openingDatabase!;
 
-    _database = await _initDatabase();
-    return _database!;
+    _runtimeProfileConfigured = true;
+    final opening = _initDatabase();
+    _openingDatabase = opening;
+    try {
+      final database = await opening;
+      _database = database;
+      return database;
+    } finally {
+      if (identical(_openingDatabase, opening)) {
+        _openingDatabase = null;
+      }
+    }
   }
 
   Future<void> close() async {
+    final opening = _openingDatabase;
+    if (opening != null) {
+      try {
+        await opening;
+      } catch (_) {
+        // Opening failures do not leave a database handle to close.
+      }
+    }
     if (_database != null) {
       await _database!.close();
       _database = null;
     }
+    _openedDatabasePath = null;
   }
 
   Future<Database> _initDatabase() async {
     final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
-    if (isTest) {
-      return openDatabase(
-        inMemoryDatabasePath,
-        version: _dbVersion,
-        onConfigure: _onConfigure,
-        onCreate: _onCreate,
-        onUpgrade: _onUpgrade,
-      );
-    }
+    final useInMemory = isTest ||
+        _runtimeProfile == DatabaseRuntimeProfile.isolatedSmokeInMemory;
+    final path = useInMemory
+        ? inMemoryDatabasePath
+        : join(await getDatabasesPath(), _dbName);
 
-    final String dbPath = await getDatabasesPath();
-    final String path = join(dbPath, _dbName);
-
-    return openDatabase(
+    final database = await openDatabase(
       path,
       version: _dbVersion,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    _openedDatabasePath = path;
+    return database;
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -283,15 +325,25 @@ class DatabaseHelper {
   }
 
   static Future<void> deleteDatabaseFile() async {
-    if (Platform.environment.containsKey('FLUTTER_TEST')) {
-      await _database?.close();
-      _database = null;
+    final isEphemeral = Platform.environment.containsKey('FLUTTER_TEST') ||
+        _runtimeProfile == DatabaseRuntimeProfile.isolatedSmokeInMemory;
+    if (isEphemeral) {
+      await instance.close();
       return;
     }
+    await instance.close();
     final String dbPath = await getDatabasesPath();
     final String path = join(dbPath, _dbName);
     await databaseFactory.deleteDatabase(path);
-    _database = null;
+  }
+
+  @visibleForTesting
+  static Future<void> resetRuntimeProfileForTesting() async {
+    await instance.close();
+    _openingDatabase = null;
+    _openedDatabasePath = null;
+    _runtimeProfile = DatabaseRuntimeProfile.production;
+    _runtimeProfileConfigured = false;
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBanksSummary() async {

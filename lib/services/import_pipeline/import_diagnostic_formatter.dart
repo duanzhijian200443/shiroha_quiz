@@ -331,7 +331,8 @@ class ImportDiagnosticFormatter {
       }
       if (diags.containsKey('qualityGate')) {
         lastSuccessStage = '质量门禁';
-      } else if (outcome == ImportTaskOutcome.emptyResult && failedStage == null) {
+      } else if (outcome == ImportTaskOutcome.emptyResult &&
+          failedStage == null) {
         failedStage = '提取阶段';
         userGuidance = 'OCR 成功但未能提取出任何有效题目，建议尝试视觉模式或检查原图清晰度。';
         suggestRetry = true;

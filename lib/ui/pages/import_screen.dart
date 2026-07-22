@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../data/repositories/question_repository.dart';
+import '../../services/bank_update_notifier.dart';
 import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'import_settings_screen.dart';
-import '../../main.dart';
 
 class ImportScreen extends StatefulWidget {
   const ImportScreen({super.key});

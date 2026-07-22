@@ -170,9 +170,17 @@ class TaskManager extends ChangeNotifier {
   static final TaskManager _instance = TaskManager._internal();
   static TaskManager get instance => _instance;
 
-  TaskManager._internal() {
-    _loadTasksFromDb();
+  TaskManager._internal() : _persistTasks = true {
+    ready = _loadTasksFromDb();
   }
+
+  @visibleForTesting
+  TaskManager.forTesting() : _persistTasks = false {
+    ready = Future<void>.value();
+  }
+
+  late final Future<void> ready;
+  final bool _persistTasks;
 
   final List<ImportTask> tasks = [];
   int get processingCount =>
@@ -200,6 +208,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   Future<void> _saveTask(ImportTask task) async {
+    if (!_persistTasks) return;
     try {
       await ImportTaskRepository.instance.saveImportTask(task.toMap());
     } catch (e) {
@@ -372,18 +381,22 @@ class TaskManager extends ChangeNotifier {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks.removeAt(idx);
-      ImportTaskRepository.instance.deleteImportTask(id).catchError((e) {
-        debugPrint('Background task deletion failed: $e');
-      });
+      if (_persistTasks) {
+        ImportTaskRepository.instance.deleteImportTask(id).catchError((e) {
+          debugPrint('Background task deletion failed: $e');
+        });
+      }
       notifyListeners();
     }
   }
 
   void clearCompletedTasks() {
     tasks.removeWhere((t) => t.status.isFinalState);
-    ImportTaskRepository.instance.clearCompletedImportTasks().catchError((e) {
-      debugPrint('Clear completed tasks failed: $e');
-    });
+    if (_persistTasks) {
+      ImportTaskRepository.instance.clearCompletedImportTasks().catchError((e) {
+        debugPrint('Clear completed tasks failed: $e');
+      });
+    }
     notifyListeners();
   }
 }

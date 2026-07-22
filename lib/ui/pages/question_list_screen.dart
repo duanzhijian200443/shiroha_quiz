@@ -8,7 +8,15 @@ import '../widgets/markdown_extensions.dart';
 
 class QuestionListScreen extends StatefulWidget {
   final String bankName;
-  const QuestionListScreen({super.key, required this.bankName});
+  final QuestionRepository? questionRepository;
+  final ValueChanged<int?>? onLoadFinished;
+
+  const QuestionListScreen({
+    super.key,
+    required this.bankName,
+    this.questionRepository,
+    this.onLoadFinished,
+  });
   @override
   State<QuestionListScreen> createState() => _QuestionListScreenState();
 }
@@ -18,6 +26,8 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
   bool _isLoading = true;
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
+  QuestionRepository get _questionRepository =>
+      widget.questionRepository ?? QuestionRepository.instance;
 
   @override
   void initState() {
@@ -36,15 +46,20 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     setState(() => _isLoading = true);
     try {
       final data =
-          await QuestionRepository.instance.getQuestionsByBank(widget.bankName);
-      if (mounted)
+          await _questionRepository.getQuestionsByBank(widget.bankName);
+      if (mounted) {
         setState(() {
           _questions = data;
           _isLoading = false;
         });
+        widget.onLoadFinished?.call(data.length);
+      }
     } catch (e) {
       debugPrint('加载题目列表失败: $e');
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        widget.onLoadFinished?.call(null);
+      }
     }
   }
 
@@ -53,8 +68,10 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     _debounce = Timer(const Duration(milliseconds: 400), () async {
       setState(() => _isLoading = true);
       try {
-        final data = await QuestionRepository.instance
-            .searchQuestions(widget.bankName, query);
+        final data = await _questionRepository.searchQuestions(
+          widget.bankName,
+          query,
+        );
         if (mounted)
           setState(() {
             _questions = data;
@@ -87,7 +104,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
               ],
             ));
     if (confirm == true) {
-      await QuestionRepository.instance.deleteQuestion(id);
+      await _questionRepository.deleteQuestion(id);
       _onSearchChanged(_searchController.text);
     }
   }

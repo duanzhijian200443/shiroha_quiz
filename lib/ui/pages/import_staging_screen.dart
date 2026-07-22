@@ -13,9 +13,10 @@ import '../../services/import_review/import_review_filter.dart';
 import '../../services/import_review/import_review_visible_item.dart';
 import '../../services/import_review/import_review_report_builder.dart';
 import '../../services/import_review/import_review_report_formatter.dart';
+import '../../services/import_review/import_commit_service.dart';
+import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
 import '../widgets/markdown_extensions.dart';
-import '../../main.dart';
 
 class ImportStagingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> parsedQuestions;
@@ -23,6 +24,7 @@ class ImportStagingScreen extends StatefulWidget {
   final List<String>? warnings;
   final Map<String, dynamic>? diagnostics;
   final QuestionRepository? questionRepository;
+  final ImportCommitService? commitService;
 
   const ImportStagingScreen({
     super.key,
@@ -31,6 +33,7 @@ class ImportStagingScreen extends StatefulWidget {
     this.warnings,
     this.diagnostics,
     this.questionRepository,
+    this.commitService,
   });
 
   @override
@@ -49,10 +52,18 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   bool _selectionMode = false;
   final Set<int> _selectedOriginalIndices = {};
 
+  String? get _traceId {
+    final value =
+        widget.diagnostics?[TaskManager.keyTraceId]?.toString().trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
   late final QuestionRepository _questionRepository =
       widget.questionRepository ?? QuestionRepository.instance;
+  late final ImportCommitService _commitService = widget.commitService ??
+      ImportCommitService(questionRepository: _questionRepository);
   List<String> _existingFolders = [];
 
   bool get _isBlockedByQualityGate {
@@ -132,6 +143,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         _existingFolders = folders;
       });
     }
+  }
+
+  Future<void> _copyTraceId() async {
+    final traceId = _traceId;
+    if (traceId == null) return;
+    await Clipboard.setData(ClipboardData(text: traceId));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Trace ID 已复制')),
+    );
   }
 
   void _validateBeforeSave() {
@@ -483,19 +504,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
     setState(() => _isSaving = true);
     try {
-      await _questionRepository.saveQuestionDraftsToBank(
+      await _commitService.commit(
         bankName: bankName,
         folderName: folderName,
         questions: _allItems.map((item) => item.draft).toList(),
+        taskId: widget.taskId,
+        diagnostics: widget.diagnostics ?? const <String, dynamic>{},
       );
 
       // 触发全局题库刷新事件
       globalBankUpdateNotifier.value++;
-
-      // 如果来自后台解析任务，将任务更新为已完成状态
-      if (widget.taskId != null) {
-        TaskManager.instance.completeTask(widget.taskId!, '已成功导入题库: $bankName');
-      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -926,6 +944,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               ],
             ),
           ),
+          if (_traceId != null) _buildTraceBar(),
           if (_diagnosticMessages.isNotEmpty) ...[
             _buildDiagnosticBanner(),
           ],
@@ -1188,6 +1207,35 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         ),
       );
     });
+  }
+
+  Widget _buildTraceBar() {
+    final traceId = _traceId!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.06),
+      child: Row(
+        children: [
+          Icon(Icons.hub_outlined,
+              color: Theme.of(context).primaryColor, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              '导入追踪：$traceId',
+              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('copy-staging-trace'),
+            onPressed: _copyTraceId,
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            tooltip: '复制 Trace ID',
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildVisionLowQualityBanner() {

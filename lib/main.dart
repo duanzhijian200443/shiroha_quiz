@@ -8,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
 import 'data/repositories/settings_repository.dart';
+import 'services/bank_update_notifier.dart' as bank_updates;
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/pages/main_screen.dart';
@@ -22,7 +23,8 @@ final GlobalKey<NavigatorState> globalNavigatorKey =
     GlobalKey<NavigatorState>();
 
 // 新增：题库刷新事件总线
-final ValueNotifier<int> globalBankUpdateNotifier = ValueNotifier(0);
+final ValueNotifier<int> globalBankUpdateNotifier =
+    bank_updates.globalBankUpdateNotifier;
 
 class DevHttpOverrides extends HttpOverrides {
   @override
