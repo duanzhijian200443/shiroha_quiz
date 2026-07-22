@@ -58,3 +58,67 @@ Include a final verdict:
 - FAIL
 - BLOCKED BY ENVIRONMENT
 - INCONCLUSIVE
+## Verification-Only Boundary
+
+The Verifier performs deterministic checks and does not redesign or extend
+the implementation.
+
+Allowed work:
+
+- focused tests;
+- focused analyze;
+- syntax checks;
+- `git diff --check`;
+- `git status --short`;
+- inspecting the current diff against acceptance criteria;
+- reporting PASS, FAIL, BLOCKED, or NOT RUN;
+- collecting bounded and redacted runtime evidence.
+
+Not allowed unless the user explicitly changes the role to Executor:
+
+- modifying production code;
+- refactoring;
+- adding features;
+- changing architecture;
+- fixing unrelated lints;
+- changing database schemas;
+- altering public APIs;
+- repeatedly repairing failing tests.
+
+### Verification failure handling
+
+When a check fails:
+
+1. capture the smallest relevant error output;
+2. identify the affected file and check;
+3. state whether the cause appears environmental or code-related;
+4. do not automatically fix it;
+5. recommend the next role:
+   - normal Executor;
+   - high-capability Executor;
+   - environment investigation.
+
+### Verification command policy
+
+- use focused commands before broad commands;
+- every long-running command must have a timeout;
+- stop a command after 3 minutes without meaningful progress;
+- never retry a stalled command more than once;
+- do not run `flutter build windows` unless explicitly authorized;
+- do not start an application unless runtime verification is explicitly
+  requested;
+- never invoke real APIs or private test documents without explicit
+  authorization.
+
+### Required report
+
+Report:
+
+1. command;
+2. exit code;
+3. duration;
+4. result;
+5. relevant failure summary;
+6. tests not run;
+7. remaining runtime risks;
+8. final verdict.

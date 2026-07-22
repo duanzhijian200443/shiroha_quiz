@@ -99,9 +99,24 @@ void main() {
       expect(taskManagerIndex, greaterThan(configureIndex));
     });
 
-    test('PowerShell launcher keeps secrets out of arguments and streams JSON',
-        () {
+    test('PowerShell launcher bounds build and run lifecycle safely', () {
       final source = File('tool/run_ocr_ui_smoke.ps1').readAsStringSync();
+
+      for (final parameter in <String>[
+        r'$Pdf',
+        r'$Commit',
+        r'$ExpectedQuestionCount',
+        r'$ExpectedNumbers',
+        r'$CloseOnSuccess',
+        r'$SkipBuild',
+        r'$BuildTimeoutSeconds',
+        r'$RunTimeoutSeconds',
+        r'$Interactive',
+      ]) {
+        expect(source, contains(parameter));
+      }
+      expect(source, contains(r'[int]$BuildTimeoutSeconds = 600'));
+      expect(source, contains(r'[int]$RunTimeoutSeconds = 900'));
 
       expect(source, contains('Read-Host'));
       expect(source, contains('-AsSecureString'));
@@ -109,9 +124,33 @@ void main() {
       expect(source, contains('ZeroFreeBSTR'));
       expect(source, contains(r'$startInfo.CreateNoWindow = $false'));
       expect(source, contains('lib/main_ocr_ui_smoke.dart'));
-      expect(source, contains('StandardOutput.ReadLine()'));
+      expect(source, contains('StandardOutput.ReadLineAsync()'));
       expect(source, contains('SHIROHA_UI_SMOKE_RUNTIME_DIR'));
       expect(source, contains('Remove-Item'));
+      expect(source, contains("-Stage 'build' -Status 'running'"));
+      expect(source, contains("-Stage 'build' -Status 'timeout'"));
+      expect(source, contains("-Stage 'run' -Status 'timeout'"));
+      expect(source,
+          contains("\$stage -eq 'ui_ready' -and \$status -eq 'success'"));
+      expect(source, contains("'quality_gate_blocked'"));
+      expect(source, contains("'duplicate_question_numbers'"));
+      expect(source, contains("'expected_question_count_mismatch'"));
+      expect(source, contains("'unexpected_question_numbers'"));
+      expect(source, contains('function Stop-OwnedProcessTree'));
+      expect(source, contains('taskkill.exe'));
+      expect(source, contains("'/PID'"));
+      expect(source, contains("'/T'"));
+      expect(source, contains(r'if (-not $Interactive -or $CloseOnSuccess)'));
+
+      expect(
+        source,
+        isNot(matches(RegExp(r'^\s*&\s*flutter\s+build\b', multiLine: true))),
+      );
+      expect(source, isNot(contains('StandardOutput.ReadLine()')));
+      expect(source, isNot(matches(RegExp(r'\.WaitForExit\(\s*\)'))));
+      expect(source, isNot(contains('/IM')));
+      expect(source, isNot(contains('Get-Process')));
+      expect(source, isNot(contains('Stop-Process -Name')));
       expect(source, isNot(contains('--api-key')));
       expect(source, isNot(contains('--dart-define')));
       expect(source, isNot(contains('flutter run')));

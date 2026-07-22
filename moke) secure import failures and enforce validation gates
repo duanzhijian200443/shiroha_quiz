@@ -1,0 +1,12 @@
+warning: in the working copy of 'AGENTS.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/agents/executor.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/agents/verifier.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/core/observability/app_logger.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/main_ocr_ui_smoke.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/import_pipeline/import_task_coordinator.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/task_manager.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'test/core/observability/observability_test.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'test/import_task_coordinator_test.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'test/ocr_ui_smoke_contract_test.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'test/ocr_ui_smoke_widget_test.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tool/run_ocr_ui_smoke.ps1', LF will be replaced by CRLF the next time Git touches it

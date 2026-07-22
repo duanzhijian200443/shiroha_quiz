@@ -1,6 +1,10 @@
+import 'package:path/path.dart' as p;
+
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
+import '../../data/models/question_identity.dart';
 import '../task_manager.dart';
+import 'import_failure_classifier.dart';
 import 'import_parse_request.dart';
 import 'import_parse_result.dart';
 import 'import_pipeline_service.dart';
@@ -31,6 +35,8 @@ class ImportTaskCoordinator {
         _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId;
 
   static final ImportTaskCoordinator instance = ImportTaskCoordinator();
+  static const String keySourceQuestionCount = '_sourceQuestionCount';
+  static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
 
   final TaskManager _taskManager;
   final Future<void> _readiness;
@@ -72,9 +78,10 @@ class ImportTaskCoordinator {
     final taskId = _taskIdFactory();
     final traceId = _traceIdFactory();
     final handle = ImportTaskHandle(taskId: taskId, traceId: traceId);
+    final safeSourceDescription = _safeSourceDescription(sourceDescription);
     _taskManager.addTask(ImportTask(
       id: taskId,
-      title: '文档解析任务: $sourceDescription',
+      title: '文档解析任务: $safeSourceDescription',
       progressText: '已进入后台队列...',
       percent: 0.1,
       diagnostics: <String, dynamic>{
@@ -88,7 +95,7 @@ class ImportTaskCoordinator {
           traceId: traceId,
           action: () => _runParse(
             handle: handle,
-            sourceDescription: sourceDescription,
+            sourceDescription: safeSourceDescription,
             parse: parse,
           ),
         ));
@@ -103,37 +110,60 @@ class ImportTaskCoordinator {
     AppLogger.info(
       'Background import dispatched',
       module: 'Import',
-      data: <String, Object?>{'source': sourceDescription},
+      data: const <String, Object?>{'stage': 'import_dispatch'},
     );
+    final stopwatch = Stopwatch()..start();
     try {
       _taskManager.updateProgress(
         handle.taskId,
         '正在调用解析引擎...',
         0.4,
       );
-      final result = await AppLogger.span(
-        'Import parsing',
-        () => parse(handle.taskId),
+      AppLogger.info(
+        'Import parsing started',
         module: 'Import',
-        data: <String, Object?>{'source': sourceDescription},
+        data: const <String, Object?>{'stage': 'import_parse'},
+      );
+      final result = await parse(handle.taskId);
+      AppLogger.info(
+        'Import parsing completed',
+        module: 'Import',
+        data: <String, Object?>{
+          'stage': 'import_parse',
+          'durationMs': stopwatch.elapsedMilliseconds,
+        },
       );
 
       if (result.questions.isEmpty) {
-        _taskManager.attachDiagnostics(
-          handle.taskId,
-          warnings: result.warnings,
-          diagnostics: Map<String, dynamic>.from(result.diagnostics),
+        _failSafely(
+          handle,
+          ImportFailureClassifier.providerResponseFormatFailure,
+          warningCount: result.warnings.length,
         );
-        _taskManager.failTask(handle.taskId, _emptyResultMessage(result));
         AppLogger.warning(
           'Import produced no questions',
           module: 'Import',
-          data: <String, Object?>{'source': sourceDescription},
+          data: <String, Object?>{
+            'stage': 'import_parse',
+            'status': 'failed',
+            'errorType':
+                ImportFailureClassifier.providerResponseFormatFailure.errorType,
+            'warningCount': result.warnings.length,
+          },
         );
         return;
       }
 
       final questions = _attachImportDiagnostics(result);
+      final diagnostics = Map<String, dynamic>.from(result.diagnostics)
+        ..[keySourceQuestionCount] = result.questions.length
+        ..[keySourceQuestionNumbers] = result.questions
+            .map(
+              (question) => QuestionIdentity.tryParseExplicitQuestionNumber(
+                question['q_num'],
+              ),
+            )
+            .toList(growable: false);
       _taskManager.requireReview(
         handle.taskId,
         '解析成功，请进行人工校对并入库',
@@ -141,35 +171,67 @@ class ImportTaskCoordinator {
         '',
         '',
         warnings: result.warnings,
-        diagnostics: Map<String, dynamic>.from(result.diagnostics),
+        diagnostics: diagnostics,
       );
       AppLogger.info(
         'Import is ready for review',
         module: 'Import',
         data: <String, Object?>{
-          'source': sourceDescription,
+          'stage': 'import_parse',
           'questionCount': questions.length,
         },
       );
-      onReadyForReview?.call(sourceDescription);
-    } catch (error, stackTrace) {
+      try {
+        onReadyForReview?.call(sourceDescription);
+      } catch (_) {
+        AppLogger.warning(
+          'Import review notification failed',
+          module: 'Import',
+          data: const <String, Object?>{
+            'stage': 'review_notification',
+            'status': 'failed',
+          },
+        );
+      }
+    } catch (error) {
+      final failure = ImportFailureClassifier.classify(error);
+      _failSafely(handle, failure);
       AppLogger.error(
         'Background import failed',
         module: 'Import',
-        error: error,
-        stackTrace: stackTrace,
-        data: <String, Object?>{'source': sourceDescription},
+        data: <String, Object?>{
+          'stage': 'import_parse',
+          'status': 'failed',
+          'errorType': failure.errorType,
+          'durationMs': stopwatch.elapsedMilliseconds,
+        },
       );
-      _taskManager.failTask(handle.taskId, error.toString());
     }
   }
 
-  String _emptyResultMessage(ImportParseResult result) {
-    var message = '解析完毕，但未提取到任何题目';
-    if (result.warnings.isNotEmpty) {
-      message += '\n${result.warnings.join('\n')}';
-    }
-    return message;
+  static String _safeSourceDescription(String sourceDescription) {
+    final basename = p.basename(sourceDescription.trim());
+    return basename.isEmpty || basename == '.' ? '导入文件' : basename;
+  }
+
+  void _failSafely(
+    ImportTaskHandle handle,
+    ImportFailureClassification failure, {
+    int? warningCount,
+  }) {
+    _taskManager.failTask(
+      handle.taskId,
+      failure.userMessage,
+      warnings: const <String>[],
+      clearSensitivePayload: true,
+      diagnostics: <String, dynamic>{
+        'traceId': handle.traceId,
+        'failedStage': 'import_parse',
+        'errorType': failure.errorType,
+        'status': 'failed',
+        if (warningCount != null) 'warningCount': warningCount,
+      },
+    );
   }
 
   List<Map<String, dynamic>> _attachImportDiagnostics(

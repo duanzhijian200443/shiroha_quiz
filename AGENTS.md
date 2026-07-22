@@ -288,5 +288,91 @@ A normal task request should contain only:
 - acceptance criteria
 - focused validation
 - stop conditions
+## Agent Cost and Execution Boundaries
 
+Use high-capability agents only for work that requires architectural
+reasoning, uncertain root-cause analysis, security decisions, concurrency,
+database safety, cross-module changes, or high-risk implementation.
+
+Deterministic work must be handed to a Verifier, ordinary agent, local
+terminal, or CI. Deterministic work includes:
+
+- running focused tests;
+- running focused static analysis;
+- formatting already modified files;
+- PowerShell syntax checks;
+- `git diff --check`;
+- `git status --short`;
+- collecting command output;
+- waiting for builds or long-running processes;
+- producing routine validation summaries.
+
+### Phase boundary
+
+An Executor must stop active implementation when all of the following are true:
+
+1. the requested production behavior has been implemented;
+2. the relevant code is syntactically complete;
+3. at least one focused implementation test or analyze pass has succeeded;
+4. the remaining work consists mainly of verification, formatting,
+   long-running commands, diff inspection, or report generation.
+
+At this boundary, the Executor must produce a handoff package and stop.
+It must not continue into an open-ended "final audit".
+
+### Handoff package
+
+The handoff must contain:
+
+1. files modified or created;
+2. implemented behavior;
+3. tests already run and their results;
+4. commands still needing to be run;
+5. known risks and unverified runtime behavior;
+6. the recommended next role;
+7. current `git status --short`.
+
+### Command limits
+
+Unless the user explicitly authorizes otherwise:
+
+- do not run a full repository test suite;
+- do not run Windows Release builds;
+- do not start generated applications;
+- do not invoke real external APIs;
+- do not wait indefinitely for a process;
+- do not retry the same failing or stalled command more than once;
+- do not silently increase a timeout after it has expired.
+
+A command that produces no meaningful progress for 3 minutes must be treated
+as stalled. Stop waiting, preserve its evidence, and report it as incomplete.
+
+Any long-running build must have an explicit timeout before it starts.
+A timeout is an incomplete verification result, not proof of build failure.
+
+### Final audit restriction
+
+During final audit, do not:
+
+- discover and implement unrelated improvements;
+- refactor newly noticed code;
+- expand the file scope;
+- add optional tests;
+- clean existing lints;
+- run broad builds or test suites.
+
+Only fix a blocking compile or focused-test failure directly caused by the
+current task. Make at most one focused repair attempt. If it still fails,
+stop and hand the evidence to the next role.
+
+### Model handoff
+
+Agents cannot switch models themselves.
+
+When a task crosses from uncertain implementation into deterministic
+verification, explicitly recommend:
+
+`Next role: Verifier or ordinary low-cost agent`
+
+Do not continue merely because verification has not yet been completed.
 Agents must automatically apply the shared architecture, safety, privacy, Git, validation, and reporting rules from this file.

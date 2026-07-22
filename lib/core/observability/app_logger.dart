@@ -174,14 +174,14 @@ abstract final class AppLogger {
         },
       );
       return result;
-    } catch (error, stackTrace) {
+    } catch (error) {
       AppLogger.error(
         '$name failed',
         module: module,
-        error: error,
-        stackTrace: stackTrace,
         data: <String, Object?>{
           ...data,
+          'errorType': error.runtimeType.toString(),
+          'status': 'failed',
           'durationMs': stopwatch.elapsedMilliseconds,
         },
       );

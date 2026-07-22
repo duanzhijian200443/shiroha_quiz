@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 
@@ -211,8 +212,16 @@ class TaskManager extends ChangeNotifier {
     if (!_persistTasks) return;
     try {
       await ImportTaskRepository.instance.saveImportTask(task.toMap());
-    } catch (e) {
-      debugPrint('Error saving task to SQLite: $e');
+    } catch (_) {
+      AppLogger.warning(
+        'Import task persistence failed',
+        module: 'ImportTask',
+        data: const <String, Object?>{
+          'stage': 'task_persistence',
+          'status': 'failed',
+          'errorType': 'ImportTaskPersistenceFailure',
+        },
+      );
     }
   }
 
@@ -366,13 +375,41 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  void failTask(String id, String error) {
+  void failTask(
+    String id,
+    String error, {
+    List<String>? warnings,
+    Map<String, dynamic>? diagnostics,
+    bool clearSensitivePayload = false,
+  }) {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
-      tasks[idx].status = TaskStatus.error;
-      tasks[idx].errorMsg = error;
-      tasks[idx].completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      _saveTask(tasks[idx]);
+      final task = tasks[idx];
+      final existingTraceId = task.traceId;
+      final existingParseMode = task.parseMode;
+      if (clearSensitivePayload) {
+        task.parsedData = null;
+        task.pendingChunks = null;
+        task.failedChunks = null;
+        task.warnings = List<String>.from(warnings ?? const <String>[]);
+      } else if (warnings != null) {
+        task.warnings = List<String>.from(warnings);
+      }
+      if (clearSensitivePayload || diagnostics != null) {
+        task.diagnostics = Map<String, dynamic>.from(
+          diagnostics ?? const <String, dynamic>{},
+        );
+        if (existingTraceId != null) {
+          task.diagnostics![keyTraceId] = existingTraceId;
+        }
+        if (existingParseMode != null) {
+          task.diagnostics![keyParseMode] = existingParseMode;
+        }
+      }
+      task.status = TaskStatus.error;
+      task.errorMsg = error;
+      task.completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      _saveTask(task);
       notifyListeners();
     }
   }

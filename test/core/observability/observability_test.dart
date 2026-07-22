@@ -114,6 +114,27 @@ void main() {
     expect(encoded, contains('[REDACTED]'));
   });
 
+  test('span preserves non-import operation result and lifecycle logs',
+      () async {
+    final sink = _MemoryLogSink();
+    AppLogger.setSink(sink);
+
+    final result = await AppLogger.span(
+      'Synthetic operation',
+      () async => 42,
+      module: 'NonImportTest',
+      data: const <String, Object?>{'safeCount': 1},
+    );
+    await AppLogger.flush();
+
+    expect(result, 42);
+    expect(sink.records, hasLength(2));
+    expect(sink.records.first.message, 'Synthetic operation started');
+    expect(sink.records.last.message, 'Synthetic operation completed');
+    expect(sink.records.last.data['safeCount'], 1);
+    expect(sink.records.last.data['durationMs'], isA<int>());
+  });
+
   test('global error callbacks preserve unhandled failure semantics', () {
     final source = File('lib/main.dart').readAsStringSync();
     final platformHandler = RegExp(

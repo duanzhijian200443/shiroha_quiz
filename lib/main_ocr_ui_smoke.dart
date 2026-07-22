@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -179,8 +180,12 @@ class OcrUiSmokeEvent {
     this.importMode,
     this.databaseProfile,
     this.durationMs,
+    this.rawQuestionNumberCount,
+    this.finalQuestionCount,
     this.duplicateQuestionNumberCount,
     this.missingQuestionNumberCount,
+    this.unexpectedQuestionNumberCount,
+    this.qualityGateBlocked,
     this.warningCount,
     this.causeType,
   });
@@ -196,8 +201,12 @@ class OcrUiSmokeEvent {
   final String? importMode;
   final String? databaseProfile;
   final int? durationMs;
+  final int? rawQuestionNumberCount;
+  final int? finalQuestionCount;
   final int? duplicateQuestionNumberCount;
   final int? missingQuestionNumberCount;
+  final int? unexpectedQuestionNumberCount;
+  final bool? qualityGateBlocked;
   final int? warningCount;
   final String? causeType;
 
@@ -214,10 +223,18 @@ class OcrUiSmokeEvent {
         if (_safeToken(databaseProfile) case final value?)
           'databaseProfile': value,
         if (durationMs != null) 'durationMs': durationMs,
+        if (rawQuestionNumberCount != null)
+          'rawQuestionNumberCount': rawQuestionNumberCount,
+        if (finalQuestionCount != null)
+          'finalQuestionCount': finalQuestionCount,
         if (duplicateQuestionNumberCount != null)
           'duplicateQuestionNumberCount': duplicateQuestionNumberCount,
         if (missingQuestionNumberCount != null)
           'missingQuestionNumberCount': missingQuestionNumberCount,
+        if (unexpectedQuestionNumberCount != null)
+          'unexpectedQuestionNumberCount': unexpectedQuestionNumberCount,
+        if (qualityGateBlocked != null)
+          'qualityGateBlocked': qualityGateBlocked,
         if (warningCount != null) 'warningCount': warningCount,
         if (causeType != null)
           'causeType': RegExp(r'^[A-Za-z][A-Za-z0-9_]*$').hasMatch(causeType!)
@@ -457,7 +474,7 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
     final task = matches.first;
     if (task.status == TaskStatus.pendingReview) {
       _handledTerminalState = true;
-      _openReview(task);
+      unawaited(_openReview(task));
     } else if (task.status == TaskStatus.error) {
       _handledTerminalState = true;
       _showFailure('import_failed', 'ImportTaskFailure', task: task);
@@ -474,9 +491,58 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
       questionRepository: widget.questionRepository,
       commitService: widget.commitService,
     );
-    if (mounted) setState(() => _screen = staging);
+    if (!mounted) return;
 
-    final metrics = _questionNumberMetrics(questions);
+    FlutterErrorDetails? firstFrameError;
+    try {
+      firstFrameError = await _showScreenAndWaitForFirstFrame(staging);
+    } catch (error) {
+      if (!mounted) return;
+      _showFailure(
+        'review_screen_switch_failed',
+        error.runtimeType.toString(),
+        task: task,
+      );
+      return;
+    }
+    if (!mounted) return;
+    if (firstFrameError != null) {
+      _showFailure(
+        'review_screen_build_failed',
+        firstFrameError.exception.runtimeType.toString(),
+        task: task,
+      );
+      return;
+    }
+
+    final metrics = _questionNumberMetrics(task, questions);
+    final qualityGateBlocked = _isQualityGateBlocked(task);
+    final expectationFailure = _expectationFailure(
+      questions.length,
+      metrics,
+    );
+    if (expectationFailure != null) {
+      _emitBlocked(
+        task,
+        expectationFailure,
+        questions.length,
+        metrics,
+        qualityGateBlocked: qualityGateBlocked,
+      );
+      return;
+    }
+
+    if (qualityGateBlocked) {
+      _emitBlocked(
+        task,
+        'quality_gate_blocked',
+        questions.length,
+        metrics,
+        qualityGateBlocked: true,
+      );
+      return;
+    }
+
     if (!widget.config.commit) {
       _emitUiReady(
         task: task,
@@ -484,12 +550,6 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
         questionCount: questions.length,
         metrics: metrics,
       );
-      return;
-    }
-
-    final expectationFailure = _expectationFailure(questions, metrics);
-    if (expectationFailure != null) {
-      _emitBlocked(task, expectationFailure, questions.length, metrics);
       return;
     }
 
@@ -502,7 +562,13 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
         diagnostics: task.diagnostics ?? const <String, dynamic>{},
       );
     } on ImportCommitBlockedException {
-      _emitBlocked(task, 'quality_gate_blocked', questions.length, metrics);
+      _emitBlocked(
+        task,
+        'quality_gate_blocked',
+        questions.length,
+        metrics,
+        qualityGateBlocked: true,
+      );
       return;
     } catch (error) {
       _showFailure(
@@ -534,20 +600,52 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
     });
   }
 
+  Future<FlutterErrorDetails?> _showScreenAndWaitForFirstFrame(
+    Widget screen,
+  ) async {
+    if (!mounted) return null;
+
+    FlutterErrorDetails? firstFrameError;
+    final previousHandler = FlutterError.onError;
+    late final void Function(FlutterErrorDetails details) frameHandler;
+    frameHandler = (details) {
+      firstFrameError ??= details;
+      previousHandler?.call(details);
+    };
+    FlutterError.onError = frameHandler;
+    try {
+      setState(() => _screen = screen);
+      await WidgetsBinding.instance.endOfFrame;
+    } finally {
+      if (identical(FlutterError.onError, frameHandler)) {
+        FlutterError.onError = previousHandler;
+      }
+    }
+    return firstFrameError;
+  }
+
   String? _expectationFailure(
-    List<Map<String, dynamic>> questions,
+    int finalQuestionCount,
     _QuestionNumberMetrics metrics,
   ) {
-    final expectedCount = widget.config.expectedQuestionCount;
-    if (expectedCount != null && questions.length != expectedCount) {
-      return 'expected_question_count_mismatch';
+    if (metrics.duplicateCount != 0) {
+      return 'duplicate_question_numbers';
     }
     final expectedNumbers = widget.config.expectedNumbers;
-    if (expectedNumbers.isNotEmpty &&
-        (metrics.duplicateCount != 0 ||
-            !Set<int>.from(expectedNumbers).containsAll(metrics.numbers) ||
-            !metrics.numbers.toSet().containsAll(expectedNumbers))) {
-      return 'expected_question_numbers_mismatch';
+    if (expectedNumbers.isNotEmpty) {
+      final sameOrder = metrics.numbers.length == expectedNumbers.length &&
+          Iterable<int>.generate(expectedNumbers.length).every(
+            (index) => metrics.numbers[index] == expectedNumbers[index],
+          );
+      if (finalQuestionCount != expectedNumbers.length ||
+          metrics.numbers.length != expectedNumbers.length ||
+          !sameOrder) {
+        return 'unexpected_question_numbers';
+      }
+    }
+    final expectedCount = widget.config.expectedQuestionCount;
+    if (expectedCount != null && finalQuestionCount != expectedCount) {
+      return 'expected_question_count_mismatch';
     }
     return null;
   }
@@ -556,11 +654,12 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
     ImportTask task,
     String status,
     int questionCount,
-    _QuestionNumberMetrics metrics,
-  ) {
+    _QuestionNumberMetrics metrics, {
+    required bool qualityGateBlocked,
+  }) {
     _stopwatch.stop();
     widget.eventWriter.emit(OcrUiSmokeEvent(
-      stage: 'failed',
+      stage: 'validation',
       status: status,
       fileName: widget.config.fileName,
       traceId: task.traceId,
@@ -570,8 +669,12 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
       importMode: ImportParseMode.ocr.name,
       databaseProfile: 'isolated_smoke',
       durationMs: _stopwatch.elapsedMilliseconds,
+      rawQuestionNumberCount: metrics.rawNumberCount,
+      finalQuestionCount: questionCount,
       duplicateQuestionNumberCount: metrics.duplicateCount,
       missingQuestionNumberCount: metrics.missingCount,
+      unexpectedQuestionNumberCount: metrics.unexpectedCount,
+      qualityGateBlocked: qualityGateBlocked,
       warningCount: task.warnings?.length ?? 0,
     ));
   }
@@ -594,12 +697,16 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
       importMode: ImportParseMode.ocr.name,
       databaseProfile: 'isolated_smoke',
       durationMs: _stopwatch.elapsedMilliseconds,
+      rawQuestionNumberCount: metrics.rawNumberCount,
+      finalQuestionCount: questionCount,
       duplicateQuestionNumberCount: metrics.duplicateCount,
       missingQuestionNumberCount: metrics.missingCount,
+      unexpectedQuestionNumberCount: metrics.unexpectedCount,
+      qualityGateBlocked: false,
       warningCount: task.warnings?.length ?? 0,
     ));
     if (widget.config.closeOnSuccess) {
-      Future<void>.delayed(Duration.zero, () => exit(0));
+      unawaited(stdout.flush().then((_) => exit(0)));
     }
   }
 
@@ -625,20 +732,34 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
     }
   }
 
+  bool _isQualityGateBlocked(ImportTask task) {
+    final qualityGate = task.diagnostics?['qualityGate'];
+    return qualityGate is Map && qualityGate['blocked'] == true;
+  }
+
   _QuestionNumberMetrics _questionNumberMetrics(
+    ImportTask task,
     List<Map<String, dynamic>> questions,
   ) {
-    final numbers = questions
-        .map((question) =>
-            QuestionIdentity.tryParseExplicitQuestionNumber(question['q_num']))
+    final sourceNumbers =
+        task.diagnostics?[ImportTaskCoordinator.keySourceQuestionNumbers];
+    final rawNumbers = sourceNumbers is List
+        ? sourceNumbers
+        : questions.map((question) => question['q_num']).toList();
+    final numbers = rawNumbers
+        .map(QuestionIdentity.tryParseExplicitQuestionNumber)
         .whereType<int>()
         .toList(growable: false);
     final unique = numbers.toSet();
     final expected = widget.config.expectedNumbers.toSet();
     return _QuestionNumberMetrics(
       numbers: numbers,
+      rawNumberCount: numbers.length,
       duplicateCount: numbers.length - unique.length,
-      missingCount: expected.isEmpty ? 0 : expected.difference(unique).length,
+      missingCount:
+          expected.isEmpty ? null : expected.difference(unique).length,
+      unexpectedCount:
+          expected.isEmpty ? null : unique.difference(expected).length,
     );
   }
 
@@ -656,13 +777,17 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
 class _QuestionNumberMetrics {
   const _QuestionNumberMetrics({
     required this.numbers,
+    required this.rawNumberCount,
     required this.duplicateCount,
     required this.missingCount,
+    required this.unexpectedCount,
   });
 
   final List<int> numbers;
+  final int rawNumberCount;
   final int duplicateCount;
-  final int missingCount;
+  final int? missingCount;
+  final int? unexpectedCount;
 }
 
 class _SmokeProgressScreen extends StatelessWidget {

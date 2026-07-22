@@ -74,3 +74,54 @@ Report:
 - remaining risks;
 - current Git diff summary;
 - out-of-scope findings.
+## Bounded Execution
+
+The Executor owns implementation, not unlimited verification.
+
+Before editing:
+
+1. identify the smallest allowed file scope;
+2. identify the minimum regression tests;
+3. identify commands that are prohibited or long-running;
+4. define the implementation-complete condition.
+
+After the requested behavior is implemented:
+
+1. run only the minimum focused test needed to catch an immediate mistake;
+2. run focused analyze only for touched files when practical;
+3. do not begin a broad final audit;
+4. do not run native Windows builds unless explicitly requested;
+5. produce the required handoff package;
+6. stop.
+
+### Executor retry policy
+
+For each failing test or command:
+
+- inspect the first failure;
+- make at most one focused correction when the cause is clearly within the
+  current task;
+- rerun only that focused check;
+- if it still fails or exposes a broader design issue, stop and report it.
+
+Do not enter repeated fix-and-rerun loops.
+
+### Scope expansion
+
+Newly discovered issues must be reported as follow-up findings unless they
+directly prevent the requested implementation from compiling or satisfying
+its stated acceptance criteria.
+
+Do not fix unrelated findings during the same task.
+
+### Long-running operations
+
+The Executor must not spend time waiting for:
+
+- full Flutter test suites;
+- Windows CMake/MSBuild Release builds;
+- generated application windows;
+- real OCR or network smoke tests;
+- indefinite log streams.
+
+Prepare the command and hand it to the Verifier or user instead.
