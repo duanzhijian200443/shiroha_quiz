@@ -24,12 +24,17 @@ class AnswerBlockMatcher {
     multiLine: true,
   );
 
-  ({String questionBodyText, Map<int, String> answers, String answerBlockText}) splitAnswerBlock(
+  ({String questionBodyText, Map<int, String> answers, String answerBlockText})
+      splitAnswerBlock(
     String rawText,
   ) {
     final matches = _answerStart.allMatches(rawText).toList();
     if (matches.isEmpty) {
-      return (questionBodyText: rawText, answers: const <int, String>{}, answerBlockText: '');
+      return (
+        questionBodyText: rawText,
+        answers: const <int, String>{},
+        answerBlockText: ''
+      );
     }
 
     // 从后往前找，找到第一个包含连续答案序列的块。如果没有，就认为没有独立的答案块。
@@ -96,7 +101,11 @@ class AnswerBlockMatcher {
     }
 
     // 没找到合理的序列，退化为无单独答案块
-    return (questionBodyText: rawText, answers: const <int, String>{}, answerBlockText: '');
+    return (
+      questionBodyText: rawText,
+      answers: const <int, String>{},
+      answerBlockText: ''
+    );
   }
 
   bool _isSafeSubjectiveAnswer(String value) {

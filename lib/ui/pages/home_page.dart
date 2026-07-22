@@ -73,11 +73,15 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final bgColor = isDark ? theme.scaffoldBackgroundColor : const Color(0xFFF8F9FE);
-    final cardColor = isDark ? theme.cardTheme.color ?? theme.colorScheme.surface : Colors.white;
+    final bgColor =
+        isDark ? theme.scaffoldBackgroundColor : const Color(0xFFF8F9FE);
+    final cardColor = isDark
+        ? theme.cardTheme.color ?? theme.colorScheme.surface
+        : Colors.white;
     final textColor = isDark ? Colors.white : const Color(0xFF1E222B);
     final subTextColor = isDark ? Colors.white54 : const Color(0xFF8B92A1);
-    final primaryColor = const Color(0xFF5B8DF8); // Deeper blue matching the play button
+    final primaryColor =
+        const Color(0xFF5B8DF8); // Deeper blue matching the play button
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -146,11 +150,13 @@ class _HomePageState extends State<HomePage> {
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20.0, vertical: 12.0),
                 children: [
                   // 顶部卡片
-                  _buildBankCard(cardColor, textColor, subTextColor, primaryColor),
-                  
+                  _buildBankCard(
+                      cardColor, textColor, subTextColor, primaryColor),
+
                   const SizedBox(height: 32),
                   Text('今日计划',
                       style: TextStyle(
@@ -158,7 +164,7 @@ class _HomePageState extends State<HomePage> {
                           fontWeight: FontWeight.w900,
                           color: textColor)),
                   const SizedBox(height: 16),
-                  
+
                   // 今日新学卡片
                   _buildPlanCard(
                     title: '今日新学',
@@ -171,9 +177,9 @@ class _HomePageState extends State<HomePage> {
                     primaryColor: primaryColor,
                     onTap: _gotoPractice,
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // 今日复习卡片
                   _buildPlanCard(
                     title: '今日复习',
@@ -188,27 +194,40 @@ class _HomePageState extends State<HomePage> {
                   ),
 
                   const SizedBox(height: 48),
-                  
+
                   // 底部插图
                   if (_currentBank == '点击修改选择题库' || _totalCount == 0)
                     Column(
                       children: [
-                        Icon(Icons.desk, size: 80, color: primaryColor.withOpacity(0.4)),
+                        Icon(Icons.desk,
+                            size: 80, color: primaryColor.withOpacity(0.4)),
                         const SizedBox(height: 16),
-                        Text('暂无复习数据', style: TextStyle(color: subTextColor, fontSize: 16, fontWeight: FontWeight.w600)),
+                        Text('暂无复习数据',
+                            style: TextStyle(
+                                color: subTextColor,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
-                        Text('请先选择题库', style: TextStyle(color: subTextColor.withOpacity(0.8), fontSize: 14)),
+                        Text('请先选择题库',
+                            style: TextStyle(
+                                color: subTextColor.withOpacity(0.8),
+                                fontSize: 14)),
                       ],
                     )
                   else
                     Column(
                       children: [
-                        Icon(Icons.auto_awesome, size: 80, color: primaryColor.withOpacity(0.4)),
+                        Icon(Icons.auto_awesome,
+                            size: 80, color: primaryColor.withOpacity(0.4)),
                         const SizedBox(height: 16),
-                        Text('继续保持学习！', style: TextStyle(color: subTextColor, fontSize: 16, fontWeight: FontWeight.w600)),
+                        Text('继续保持学习！',
+                            style: TextStyle(
+                                color: subTextColor,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600)),
                       ],
                     ),
-                    
+
                   const SizedBox(height: 40),
                 ],
               ),
@@ -216,10 +235,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildBankCard(Color cardColor, Color textColor, Color subTextColor, Color primaryColor) {
+  Widget _buildBankCard(Color cardColor, Color textColor, Color subTextColor,
+      Color primaryColor) {
     String title = _currentBank == '点击修改选择题库' ? '考研政治' : _currentBank;
     if (_currentBank != '点击修改选择题库') {
-        title = _currentBank;
+      title = _currentBank;
     }
     String statusText = _totalCount == 0
         ? '暂无数据'
@@ -245,16 +265,18 @@ class _HomePageState extends State<HomePage> {
             width: 64,
             height: 72,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF8BADE8), Color(0xFF6B92D4)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(color: primaryColor.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
-              ]
-            ),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF8BADE8), Color(0xFF6B92D4)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                      color: primaryColor.withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4))
+                ]),
             child: const Center(
               child: Icon(Icons.menu_book, color: Colors.white, size: 36),
             ),
@@ -284,13 +306,15 @@ class _HomePageState extends State<HomePage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => PlanConfigScreen(
-                                  currentBank: _currentBank)),
+                              builder: (_) =>
+                                  PlanConfigScreen(currentBank: _currentBank)),
                         ).then((_) => _loadContext());
                       },
                       child: Text('修改 >',
                           style: TextStyle(
-                              color: subTextColor, fontSize: 13, fontWeight: FontWeight.w500)),
+                              color: subTextColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500)),
                     ),
                   ],
                 ),
@@ -311,9 +335,15 @@ class _HomePageState extends State<HomePage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(statusText,
-                        style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+                        style: TextStyle(
+                            color: subTextColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500)),
                     Text('已掌握 $_masteredCount / $_totalCount',
-                        style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+                        style: TextStyle(
+                            color: subTextColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500)),
                   ],
                 )
               ],
@@ -367,17 +397,27 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor)),
+                  Text(title,
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: textColor)),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Icon(
                         count == 0 ? Icons.check_circle : Icons.schedule,
-                        color: count == 0 ? const Color(0xFF52C41A) : Colors.orange,
+                        color: count == 0
+                            ? const Color(0xFF52C41A)
+                            : Colors.orange,
                         size: 14,
                       ),
                       const SizedBox(width: 4),
-                      Text('$count $unit', style: TextStyle(fontSize: 13, color: subTextColor, fontWeight: FontWeight.w500)),
+                      Text('$count $unit',
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: subTextColor,
+                              fontWeight: FontWeight.w500)),
                     ],
                   )
                 ],
@@ -388,13 +428,16 @@ class _HomePageState extends State<HomePage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: primaryColor,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(color: primaryColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))
-                ]
-              ),
-              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
+                  color: primaryColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                        color: primaryColor.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2))
+                  ]),
+              child: const Icon(Icons.play_arrow_rounded,
+                  color: Colors.white, size: 24),
             )
           ],
         ),

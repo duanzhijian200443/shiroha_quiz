@@ -17,6 +17,39 @@ class QuestionIdentity {
     );
   }
 
+  /// Parses only an explicit question-number field.
+  ///
+  /// This intentionally does not inspect question content and is stricter than
+  /// [normalizeQuestionNumber], whose legacy behavior is kept unchanged.
+  static int? tryParseExplicitQuestionNumber(Object? raw) {
+    if (raw is int) return raw > 0 ? raw : null;
+    if (raw is num) {
+      if (!raw.isFinite || raw != raw.truncateToDouble()) return null;
+      final value = raw.toInt();
+      return value > 0 ? value : null;
+    }
+    if (raw is! String) return null;
+
+    var candidate = raw.trim();
+    if (candidate.isEmpty) return null;
+
+    candidate = candidate.replaceFirst(RegExp(r'^#{1,6}\s*'), '').trim();
+    candidate = candidate.replaceAllMapped(
+      RegExp(r'[０-９]'),
+      (match) => String.fromCharCode(match.group(0)!.codeUnitAt(0) - 0xfee0),
+    );
+
+    final isExplicit = RegExp(r'^\d+$').hasMatch(candidate) ||
+        RegExp(r'^\d+\s*[.．、]$').hasMatch(candidate) ||
+        RegExp(r'^[（(]\s*\d+\s*[）)]$').hasMatch(candidate) ||
+        RegExp(r'^第\s*\d+\s*题$').hasMatch(candidate);
+    if (!isExplicit) return null;
+
+    final digits = RegExp(r'\d+').firstMatch(candidate)?.group(0);
+    final value = digits == null ? null : int.tryParse(digits);
+    return value != null && value > 0 ? value : null;
+  }
+
   static String normalizeQuestionNumber(dynamic raw) {
     if (raw == null) return '';
     var normalized = raw.toString().trim();

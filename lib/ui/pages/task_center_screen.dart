@@ -3,6 +3,7 @@ import '../../services/task_manager.dart';
 import '../../services/ai_service.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
+import '../../services/import_pipeline/import_diagnostic_summary.dart';
 import 'import_staging_screen.dart';
 
 class TaskCenterScreen extends StatelessWidget {
@@ -330,18 +331,24 @@ class TaskCenterScreen extends StatelessWidget {
   }
 }
 
-class _ImportTaskDiagnosticSheet extends StatelessWidget {
+class _ImportTaskDiagnosticSheet extends StatefulWidget {
   final ImportTask task;
 
   const _ImportTaskDiagnosticSheet({required this.task});
 
   @override
+  State<_ImportTaskDiagnosticSheet> createState() =>
+      _ImportTaskDiagnosticSheetState();
+}
+
+class _ImportTaskDiagnosticSheetState
+    extends State<_ImportTaskDiagnosticSheet> {
+  bool _isTechnicalDetailsExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final messages = ImportDiagnosticFormatter.format(
-      warnings: task.warnings,
-      diagnostics: task.diagnostics,
-    );
+    final summary = ImportDiagnosticFormatter.summarize(widget.task);
 
     return Container(
       decoration: BoxDecoration(
@@ -353,7 +360,7 @@ class _ImportTaskDiagnosticSheet extends StatelessWidget {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.75,
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -378,87 +385,350 @@ class _ImportTaskDiagnosticSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            task.title,
+            widget.task.title,
             style: const TextStyle(fontSize: 13, color: Colors.grey),
           ),
           const SizedBox(height: 16),
-          if (messages.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Text('无可用诊断信息', style: TextStyle(color: Colors.grey)),
-              ),
-            )
-          else
-            Expanded(
-              child: ListView.separated(
-                itemCount: messages.length,
-                separatorBuilder: (_, __) => const Divider(height: 16),
-                itemBuilder: (context, index) {
-                  final msg = messages[index];
-                  IconData icon;
-                  Color color;
-                  switch (msg.severity) {
-                    case ImportDiagnosticSeverity.error:
-                      icon = Icons.error_outline_rounded;
-                      color = Colors.redAccent;
-                      break;
-                    case ImportDiagnosticSeverity.warning:
-                      icon = Icons.warning_amber_rounded;
-                      color = Colors.orange;
-                      break;
-                    case ImportDiagnosticSeverity.info:
-                      icon = Icons.info_outline_rounded;
-                      color = Colors.blueAccent;
-                      break;
-                  }
-
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(icon, color: color, size: 22),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              msg.title,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: color,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              msg.message,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: theme.textTheme.bodyMedium?.color,
-                                height: 1.4,
-                              ),
-                            ),
-                            if (msg.source != null || msg.code != null) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                '${msg.source != null ? "来源: ${msg.source}" : ""}'
-                                '${msg.source != null && msg.code != null ? " | " : ""}'
-                                '${msg.code != null ? "代码: ${msg.code}" : ""}',
-                                style: const TextStyle(
-                                    fontSize: 11, color: Colors.grey),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                },
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildSummaryCard(theme, summary),
+                  const SizedBox(height: 24),
+                  _buildTechnicalDetailsToggle(theme),
+                  if (_isTechnicalDetailsExpanded)
+                    _buildTechnicalDetails(theme, summary),
+                ],
               ),
             ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSummaryCard(ThemeData theme, ImportDiagnosticSummary summary) {
+    Color statusColor;
+    IconData statusIcon;
+
+    switch (summary.outcome) {
+      case ImportTaskOutcome.success:
+        statusColor = Colors.green;
+        statusIcon = Icons.check_circle;
+        break;
+      case ImportTaskOutcome.emptyResult:
+        statusColor = Colors.orange;
+        statusIcon = Icons.warning_rounded;
+        break;
+      case ImportTaskOutcome.failure:
+        statusColor = Colors.redAccent;
+        statusIcon = Icons.error_rounded;
+        break;
+      case ImportTaskOutcome.processing:
+        statusColor = Colors.blue;
+        statusIcon = Icons.hourglass_top_rounded;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(statusIcon, color: statusColor, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      summary.outcomeLabel,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: statusColor,
+                      ),
+                    ),
+                    if (summary.parseMode != null)
+                      Text(
+                        '模式: ${summary.parseMode}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.textTheme.bodyMedium?.color
+                              ?.withOpacity(0.7),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (summary.elapsed != null)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.timer_outlined,
+                          size: 14, color: theme.hintColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${summary.elapsed!.inSeconds}s',
+                        style: TextStyle(fontSize: 12, color: theme.hintColor),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          if (summary.lastSuccessStage != null ||
+              summary.failedStage != null) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            if (summary.lastSuccessStage != null)
+              _buildStageRow(Icons.check_circle_outline, Colors.green, '最后成功阶段',
+                  summary.lastSuccessStage!),
+            if (summary.failedStage != null)
+              _buildStageRow(Icons.error_outline, Colors.redAccent, '失败阶段',
+                  summary.failedStage!),
+          ],
+          if (summary.errorType != null) ...[
+            const SizedBox(height: 8),
+            _buildStageRow(Icons.bug_report_outlined, Colors.redAccent, '异常类型',
+                summary.errorType!),
+          ],
+          if (summary.userGuidance != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.cardColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.lightbulb_outline,
+                      color: Colors.amber, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      summary.userGuidance!,
+                      style: const TextStyle(fontSize: 13, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStageRow(
+      IconData icon, Color color, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Text('$label: ',
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTechnicalDetailsToggle(ThemeData theme) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _isTechnicalDetailsExpanded = !_isTechnicalDetailsExpanded;
+        });
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Row(
+          children: [
+            Text(
+              '技术诊断详情',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: theme.textTheme.titleMedium?.color,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              _isTechnicalDetailsExpanded
+                  ? Icons.keyboard_arrow_up
+                  : Icons.keyboard_arrow_down,
+              color: Colors.grey,
+            ),
+            const Expanded(child: Divider(indent: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTechnicalDetails(
+      ThemeData theme, ImportDiagnosticSummary summary) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (summary.traceId != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            margin: const EdgeInsets.only(bottom: 16, top: 8),
+            decoration: BoxDecoration(
+              color: theme.cardColor,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: Row(
+              children: [
+                const Text('Trace ID: ',
+                    style:
+                        TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: SelectableText(
+                    summary.traceId!,
+                    style:
+                        const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (summary.technicalFields.isNotEmpty) ...[
+          const Text('关键指标:',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.cardColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: summary.technicalFields.entries.map((e) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: Text(e.key,
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey)),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Text(e.value,
+                            style: const TextStyle(
+                                fontSize: 12, fontFamily: 'monospace')),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (summary.details.isNotEmpty) ...[
+          const Text('详细日志:',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...summary.details.map((msg) {
+            IconData icon;
+            Color color;
+            switch (msg.severity) {
+              case ImportDiagnosticSeverity.error:
+                icon = Icons.error_outline_rounded;
+                color = Colors.redAccent;
+                break;
+              case ImportDiagnosticSeverity.warning:
+                icon = Icons.warning_amber_rounded;
+                color = Colors.orange;
+                break;
+              case ImportDiagnosticSeverity.info:
+                icon = Icons.info_outline_rounded;
+                color = Colors.blueAccent;
+                break;
+            }
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, color: color, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          msg.title,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          msg.message,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.textTheme.bodyMedium?.color,
+                          ),
+                        ),
+                        if (msg.source != null || msg.code != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '${msg.source != null ? "来源: " + msg.source! : ""}'
+                            '${msg.source != null && msg.code != null ? " | " : ""}'
+                            '${msg.code != null ? "代码: " + msg.code! : ""}',
+                            style: const TextStyle(
+                                fontSize: 10, color: Colors.grey),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ] else if (summary.technicalFields.isEmpty && summary.traceId == null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Text('无技术诊断信息', style: TextStyle(color: Colors.grey)),
+            ),
+          ),
+      ],
     );
   }
 }

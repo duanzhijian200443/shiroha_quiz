@@ -239,8 +239,8 @@ class DocxDocumentAdapter {
         if (matchedText.contains('w:br')) {
           buffer.write('\n');
         } else if (matchedText.contains('w:drawing') ||
-                   matchedText.contains('w:object') ||
-                   matchedText.contains('v:imagedata')) {
+            matchedText.contains('w:object') ||
+            matchedText.contains('v:imagedata')) {
           buffer.write(' [IMAGE] ');
         }
       }
@@ -251,7 +251,8 @@ class DocxDocumentAdapter {
 
   static String _extractAllTextNodes(String xmlNode) {
     final buffer = StringBuffer();
-    final matches = RegExp(r'<(w:t|m:t)(?:\s[^>]*?)?>([^<]*)</\1>').allMatches(xmlNode);
+    final matches =
+        RegExp(r'<(w:t|m:t)(?:\s[^>]*?)?>([^<]*)</\1>').allMatches(xmlNode);
     for (final m in matches) {
       final text = m.group(2);
       if (text != null) {

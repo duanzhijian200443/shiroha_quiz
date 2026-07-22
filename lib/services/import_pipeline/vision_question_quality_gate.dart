@@ -1,4 +1,5 @@
 import '../../data/models/question_identity.dart';
+import 'import_document_role.dart';
 
 class VisionQuestionQualityGateResult {
   final List<Map<String, dynamic>> questions;
@@ -20,6 +21,7 @@ class VisionQuestionQualityGate {
   VisionQuestionQualityGateResult evaluate(
     List<Map<String, dynamic>> questions, {
     required String sourceName,
+    ImportDocumentRole? documentRole,
   }) {
     final annotated = <Map<String, dynamic>>[];
     final warnings = <String>[];
@@ -54,7 +56,9 @@ class VisionQuestionQualityGate {
         record('answer_leaked_to_content');
       }
 
-      if (answer.isEmpty && explanation.isEmpty) {
+      if (documentRole == ImportDocumentRole.stemOnly) {
+        hints.remove('missing_answer_or_explanation');
+      } else if (answer.isEmpty && explanation.isEmpty) {
         hints.add('missing_answer_or_explanation');
         record('missing_answer_or_explanation');
       }
@@ -121,6 +125,9 @@ class VisionQuestionQualityGate {
         'total': questions.length,
         'riskyCount': riskyCount,
         'lowQuality': lowQuality,
+        'blocked': false,
+        if (documentRole != null) 'documentRole': documentRole.name,
+        'requiresReview': documentRole == ImportDocumentRole.ambiguous,
         if (issueCounts.isNotEmpty) 'issueCounts': issueCounts,
       },
     );

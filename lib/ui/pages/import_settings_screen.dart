@@ -10,8 +10,28 @@ import '../../services/import_pipeline/import_parse_request.dart';
 import '../../main.dart';
 import 'paste_text_screen.dart';
 
+typedef ImportFilePicker = Future<FilePickerResult?> Function();
+typedef ImportImagePicker = Future<XFile?> Function(ImageSource source);
+typedef ImportTaskParser = Future<List<Map<String, dynamic>>> Function(
+  String taskId,
+);
+typedef ImportTaskDispatcher = void Function(
+  String sourceDescription,
+  ImportTaskParser parseTask,
+);
+
 class ImportSettingsScreen extends StatefulWidget {
-  const ImportSettingsScreen({Key? key}) : super(key: key);
+  const ImportSettingsScreen({
+    Key? key,
+    this.pickFiles,
+    this.pickImage,
+    this.taskDispatcher,
+  }) : super(key: key);
+
+  final ImportFilePicker? pickFiles;
+  final ImportImagePicker? pickImage;
+  final ImportTaskDispatcher? taskDispatcher;
+
   @override
   State<ImportSettingsScreen> createState() => _ImportSettingsScreenState();
 }
@@ -29,13 +49,26 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   // 核心重构：对接全局 TaskManager 的后台任务派发器
   void _dispatchBackgroundTask(String sourceDesc,
       Future<List<Map<String, dynamic>>> Function(String taskId) parseTask) {
+    final testDispatcher = widget.taskDispatcher;
+    if (testDispatcher != null) {
+      testDispatcher(sourceDesc, parseTask);
+      return;
+    }
+
     // 1. 生成工单并抛入全局管家
     final taskId = 'task_' + DateTime.now().millisecondsSinceEpoch.toString();
+    final traceId = TraceContext.createTraceId();
+    final modeSnapshot = _selectedMode.name;
+
     TaskManager.instance.addTask(ImportTask(
       id: taskId,
       title: '文档解析任务: $sourceDesc',
       progressText: '已进入后台队列...',
       percent: 0.1,
+      diagnostics: {
+        TaskManager.keyTraceId: traceId,
+        TaskManager.keyParseMode: modeSnapshot,
+      },
     ));
 
     // 2. 瞬间退回上一页，解脱 UI 阻塞
@@ -47,6 +80,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     // 3. 在独立微任务队列中执行耗时大模型解析
     Future.microtask(() => TraceContext.run(
           taskId: taskId,
+          traceId: traceId,
           action: () async {
             AppLogger.info(
               'Background import dispatched',
@@ -104,12 +138,24 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
+    if (_selectedMode == ImportParseMode.text) return;
+
+    final selectedMode = _selectedMode;
+    final maxConcurrency = _maxConcurrency.toInt();
     try {
-      final XFile? image =
-          await _picker.pickImage(source: source, imageQuality: 85);
+      final XFile? image = widget.pickImage != null
+          ? await widget.pickImage!(source)
+          : await _picker.pickImage(source: source, imageQuality: 85);
       if (image == null) return;
       _dispatchBackgroundTask('图片识别', (taskId) async {
-        return await AiService.instance.parseFileWithVision(image.path);
+        final request = ImportParseRequest(
+          filePaths: <String>[image.path],
+          fileNames: <String>[image.name],
+          mode: selectedMode,
+          maxConcurrency: maxConcurrency,
+          taskId: taskId,
+        );
+        return _parseImportRequest(request);
       });
     } catch (e) {
       if (mounted) {
@@ -120,22 +166,36 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 
   Future<void> _pickAndParseFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: [
-        'pdf',
-        'txt',
-        'png',
-        'jpg',
-        'jpeg',
-        'docx',
-        'md',
-        'zip'
-      ],
-      allowMultiple: true,
-    );
+    final selectedMode = _selectedMode;
+    final maxConcurrency = _maxConcurrency.toInt();
+    final result = widget.pickFiles != null
+        ? await widget.pickFiles!()
+        : await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: [
+              'pdf',
+              'txt',
+              'png',
+              'jpg',
+              'jpeg',
+              'docx',
+              'md',
+              'zip'
+            ],
+            allowMultiple: true,
+          );
 
     if (result == null || result.files.isEmpty) return;
+
+    final incompatibleFiles = result.files
+        .where((file) => !_isFileCompatible(file, selectedMode))
+        .toList();
+    if (incompatibleFiles.isNotEmpty) {
+      if (mounted) {
+        _showIncompatibleFiles(selectedMode, incompatibleFiles);
+      }
+      return;
+    }
 
     // 如果是单文件，显示其名称；多文件则显示“多文件合并导入”
     final String sourceDesc = result.files.length == 1
@@ -146,48 +206,86 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       final request = ImportParseRequest(
         filePaths: result.files.map((e) => e.path!).toList(),
         fileNames: result.files.map((e) => e.name).toList(),
-        mode: _selectedMode,
-        maxConcurrency: _maxConcurrency.toInt(),
+        mode: selectedMode,
+        maxConcurrency: maxConcurrency,
         taskId: taskId,
       );
+      return _parseImportRequest(request);
+    });
+  }
 
-      final parseResult =
-          await ImportPipelineService.instance.parseFiles(request);
-      final questions = parseResult.questions;
+  bool _isFileCompatible(PlatformFile file, ImportParseMode mode) {
+    final extension = _fileExtension(file);
+    return switch (mode) {
+      ImportParseMode.text =>
+        const <String>{'pdf', 'docx', 'txt', 'md', 'zip'}.contains(extension),
+      ImportParseMode.vision ||
+      ImportParseMode.ocr =>
+        const <String>{'pdf', 'png', 'jpg', 'jpeg'}.contains(extension),
+    };
+  }
 
-      if (questions.isEmpty) {
-        String errorMsg = '未能成功提取题目。请检查原文件是否包含足够清晰的题目结构。';
-        if (parseResult.warnings.isNotEmpty) {
-          errorMsg += '\n\n诊断警告:\n' + parseResult.warnings.join('\n');
-        }
-        if (parseResult.diagnostics.isNotEmpty) {
-          debugPrint('Import Diagnostics: ${parseResult.diagnostics}');
-          errorMsg += '\n\nDiagnostics:\n' +
-              _formatDiagnostics(parseResult.diagnostics).join('\n');
-        }
+  String _fileExtension(PlatformFile file) {
+    final declared = file.extension?.trim().toLowerCase();
+    if (declared != null && declared.isNotEmpty) return declared;
+    final separator = file.name.lastIndexOf('.');
+    if (separator < 0 || separator == file.name.length - 1) return '';
+    return file.name.substring(separator + 1).toLowerCase();
+  }
 
-        // Attach structured diagnostics before failing so UI can show details
-        TaskManager.instance.attachDiagnostics(
-          taskId,
-          warnings: parseResult.warnings,
-          diagnostics: parseResult.diagnostics,
-        );
-        TaskManager.instance.failTask(taskId, errorMsg);
-        return [];
+  void _showIncompatibleFiles(
+    ImportParseMode mode,
+    List<PlatformFile> files,
+  ) {
+    final guidance = switch (mode) {
+      ImportParseMode.text => '文本模式不支持图片，请改用视觉或 OCR 模式。',
+      ImportParseMode.vision => '视觉模式不支持 ZIP、DOCX 或纯文本文件。',
+      ImportParseMode.ocr => 'OCR 模式仅支持 PDF、PNG 和 JPG/JPEG。',
+    };
+    final fileNames = files.map((file) => file.name).join('、');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$guidance\n不兼容文件：$fileNames')),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _parseImportRequest(
+    ImportParseRequest request,
+  ) async {
+    final parseResult =
+        await ImportPipelineService.instance.parseFiles(request);
+    final questions = parseResult.questions;
+
+    if (questions.isEmpty) {
+      String errorMsg = '未能成功提取题目。请检查原文件是否包含足够清晰的题目结构。';
+      if (parseResult.warnings.isNotEmpty) {
+        errorMsg += '\n\n诊断警告:\n${parseResult.warnings.join('\n')}';
+      }
+      if (parseResult.diagnostics.isNotEmpty) {
+        debugPrint('Import Diagnostics: ${parseResult.diagnostics}');
+        errorMsg +=
+            '\n\nDiagnostics:\n${_formatDiagnostics(parseResult.diagnostics).join('\n')}';
       }
 
       TaskManager.instance.attachDiagnostics(
-        taskId,
+        request.taskId,
         warnings: parseResult.warnings,
         diagnostics: parseResult.diagnostics,
       );
+      TaskManager.instance.failTask(request.taskId, errorMsg);
+      return [];
+    }
 
-      return _attachImportDiagnostics(
-        questions,
-        warnings: parseResult.warnings,
-        diagnostics: parseResult.diagnostics,
-      );
-    });
+    TaskManager.instance.attachDiagnostics(
+      request.taskId,
+      warnings: parseResult.warnings,
+      diagnostics: parseResult.diagnostics,
+    );
+
+    return _attachImportDiagnostics(
+      questions,
+      warnings: parseResult.warnings,
+      diagnostics: parseResult.diagnostics,
+    );
   }
 
   List<Map<String, dynamic>> _attachImportDiagnostics(
@@ -242,6 +340,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final imageEntriesEnabled = _selectedMode != ImportParseMode.text;
+    final clipboardEnabled = _selectedMode == ImportParseMode.text;
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -372,10 +472,15 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               children: [
                 Expanded(
                     child: ElevatedButton.icon(
+                        key: const ValueKey<String>('import-camera-button'),
                         style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: theme.primaryColor,
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                theme.colorScheme.surfaceContainerHighest,
+                            disabledForegroundColor:
+                                theme.colorScheme.onSurfaceVariant,
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
                             elevation: 0),
@@ -383,14 +488,21 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                         label: const Text('拍照识别',
                             style: TextStyle(
                                 fontSize: 15, fontWeight: FontWeight.bold)),
-                        onPressed: () => _pickImage(ImageSource.camera))),
+                        onPressed: imageEntriesEnabled
+                            ? () => _pickImage(ImageSource.camera)
+                            : null)),
                 const SizedBox(width: 12),
                 Expanded(
                     child: ElevatedButton.icon(
+                        key: const ValueKey<String>('import-gallery-button'),
                         style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: theme.primaryColor,
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                theme.colorScheme.surfaceContainerHighest,
+                            disabledForegroundColor:
+                                theme.colorScheme.onSurfaceVariant,
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
                             elevation: 0),
@@ -398,11 +510,14 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                         label: const Text('相册选图',
                             style: TextStyle(
                                 fontSize: 15, fontWeight: FontWeight.bold)),
-                        onPressed: () => _pickImage(ImageSource.gallery))),
+                        onPressed: imageEntriesEnabled
+                            ? () => _pickImage(ImageSource.gallery)
+                            : null)),
               ],
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
+              key: const ValueKey<String>('import-file-button'),
               style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   foregroundColor: theme.primaryColor,
@@ -416,16 +531,22 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
+              key: const ValueKey<String>('import-clipboard-button'),
               style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   foregroundColor: theme.primaryColor,
-                  side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+                  disabledForegroundColor: theme.colorScheme.onSurfaceVariant,
+                  side: BorderSide(
+                    color: clipboardEnabled
+                        ? theme.primaryColor.withOpacity(0.3)
+                        : theme.colorScheme.outlineVariant,
+                  ),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12))),
               icon: const Icon(Icons.content_paste),
               label: const Text('从剪贴板粘贴文本解析',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              onPressed: _pasteAndParse,
+              onPressed: clipboardEnabled ? _pasteAndParse : null,
             ),
           ],
         ),

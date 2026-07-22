@@ -81,7 +81,8 @@ void main() {
       );
     });
 
-    test('lowQuality:false still aggregates correctly without recommendedAction',
+    test(
+        'lowQuality:false still aggregates correctly without recommendedAction',
         () {
       final result = VisionImportQualitySummary.fromDiagnostics({
         'vision_quality_gate_file_0': {

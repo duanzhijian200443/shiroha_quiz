@@ -6,8 +6,7 @@ import 'package:shiroha_quiz/services/latex_import_repair.dart';
 void main() {
   const repair = LatexImportRepairService.instance;
 
-  const input =
-      r'根据求解公式,y=e^{-\int\frac{1}{2\sqrt{x}}dx}, 可继续计算。';
+  const input = r'根据求解公式,y=e^{-\int\frac{1}{2\sqrt{x}}dx}, 可继续计算。';
 
   final output = repair.repairInline(input);
 

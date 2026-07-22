@@ -6,6 +6,7 @@ import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../ai_service.dart';
 import '../task_manager.dart';
+import 'import_document_role.dart';
 import 'import_file_detector.dart';
 import 'import_format.dart';
 import 'import_parse_request.dart';
@@ -379,6 +380,9 @@ class ImportPipelineService {
           final ocrQualityGate = const VisionQuestionQualityGate().evaluate(
             ocrResult.questions,
             sourceName: 'glm_ocr_intermediate',
+            documentRole: tryParseImportDocumentRole(
+              ocrResult.diagnostics['documentRole'],
+            ),
           );
           singleFileQuestions = ocrQualityGate.questions;
           allWarnings.addAll(ocrQualityGate.warnings);

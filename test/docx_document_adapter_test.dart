@@ -112,7 +112,9 @@ void main() {
     expect((parsed.parts.first as TextPart).role, TextRole.paragraph);
   });
 
-  test('DocxDocumentAdapter can extract formula and handle w:tbl prefix bug defense', () async {
+  test(
+      'DocxDocumentAdapter can extract formula and handle w:tbl prefix bug defense',
+      () async {
     final xml = '''
       <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">

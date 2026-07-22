@@ -55,9 +55,8 @@ class ImportQualityGate {
 
     final actualCount = input.actualQuestionCount;
 
-    final completionRate = expectedCount == 0
-        ? 0.0
-        : actualCount / expectedCount;
+    final completionRate =
+        expectedCount == 0 ? 0.0 : actualCount / expectedCount;
 
     if (input.regionCount == 0) {
       return _blocked(

@@ -26,7 +26,8 @@ class DocxTextFirstParseService {
     AnswerBlockMatcher answerMatcher = const AnswerBlockMatcher(),
     TextQuestionRegionizer regionizer = const TextQuestionRegionizer(),
     LocalQuestionAssembler assembler = const LocalQuestionAssembler(),
-    SingleQuestionRepairService repairService = const SingleQuestionRepairService(),
+    SingleQuestionRepairService repairService =
+        const SingleQuestionRepairService(),
     ImportQualityGate qualityGate = const ImportQualityGate(),
   })  : _answerMatcher = answerMatcher,
         _regionizer = regionizer,

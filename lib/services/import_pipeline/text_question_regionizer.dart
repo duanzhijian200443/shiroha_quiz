@@ -11,6 +11,7 @@ class _Candidate {
     required this.end,
   });
 }
+
 class RegionizerResult {
   final List<TextQuestionRegion> regions;
   final Map<String, dynamic> diagnostics;
@@ -85,7 +86,8 @@ class TextQuestionRegionizer {
       if (matchStart < normalized.length && normalized[matchStart] == '\n') {
         matchStart++;
       }
-      final lineStart = matchStart > 0 ? normalized.lastIndexOf('\n', matchStart - 1) : -1;
+      final lineStart =
+          matchStart > 0 ? normalized.lastIndexOf('\n', matchStart - 1) : -1;
       final startOffset = lineStart == -1 ? 0 : lineStart + 1;
       final prefix = normalized.substring(startOffset, matchStart);
       if (RegExp(r'^\s*[A-DＡ-Ｄ][\.、．\)]').hasMatch(prefix)) {
@@ -111,7 +113,8 @@ class TextQuestionRegionizer {
       ));
     }
 
-    diagnostics['candidateCount'] = candidates.length + rejectedCandidates.length;
+    diagnostics['candidateCount'] =
+        candidates.length + rejectedCandidates.length;
 
     if (candidates.isEmpty) {
       diagnostics['rejectedCandidates'] = rejectedCandidates;
@@ -159,7 +162,8 @@ class TextQuestionRegionizer {
     }
 
     if (bestIndex == -1) {
-      diagnostics['rejectedCandidates'] = candidates.map((c) => c.number).toList()..addAll(rejectedCandidates);
+      diagnostics['rejectedCandidates'] =
+          candidates.map((c) => c.number).toList()..addAll(rejectedCandidates);
       return RegionizerResult(const [], diagnostics);
     }
 
@@ -170,7 +174,7 @@ class TextQuestionRegionizer {
       curr = parent[curr];
     }
     final chronologicalIndices = selectedIndices.reversed.toList();
-    
+
     final acceptedIndicesSet = chronologicalIndices.toSet();
     for (int i = 0; i < candidates.length; i++) {
       if (!acceptedIndicesSet.contains(i)) {
@@ -203,7 +207,8 @@ class TextQuestionRegionizer {
       if (i > 0) {
         final prevCandidate = candidates[chronologicalIndices[i - 1]];
         if (candidate.number > prevCandidate.number + 1) {
-          regionDiagnostics.add('题号存在跳跃: 从 ${prevCandidate.number} 跳到 ${candidate.number}');
+          regionDiagnostics
+              .add('题号存在跳跃: 从 ${prevCandidate.number} 跳到 ${candidate.number}');
         }
       }
 
@@ -243,9 +248,12 @@ class TextQuestionRegionizer {
     return RegionizerResult(regions, diagnostics);
   }
 
-  int _getTentativeLength(int index, List<_Candidate> candidates, int totalLength) {
+  int _getTentativeLength(
+      int index, List<_Candidate> candidates, int totalLength) {
     final start = candidates[index].start;
-    final end = (index + 1 < candidates.length) ? candidates[index + 1].start : totalLength;
+    final end = (index + 1 < candidates.length)
+        ? candidates[index + 1].start
+        : totalLength;
     return end - start;
   }
 
@@ -267,7 +275,9 @@ class TextQuestionRegionizer {
       return TextQuestionKind.choice;
     }
 
-    final hasBlankSignal = text.contains('___') || text.contains('___') || RegExp(r'（\s{2,}）|\(\s{2,}\)').hasMatch(text);
+    final hasBlankSignal = text.contains('___') ||
+        text.contains('___') ||
+        RegExp(r'（\s{2,}）|\(\s{2,}\)').hasMatch(text);
     if (hasBlankSignal) {
       return TextQuestionKind.fillBlank;
     }
@@ -284,8 +294,10 @@ class TextQuestionRegionizer {
     final diagnostics = <String>[];
 
     if (kind == TextQuestionKind.choice) {
-      final hasA = RegExp(r'(^|\n)\s*A[\.、．\)]\s*').hasMatch(text) || RegExp(r'[\(（]A[\)）]').hasMatch(text);
-      final hasB = RegExp(r'(^|\n)\s*B[\.、．\)]\s*').hasMatch(text) || RegExp(r'[\(（]B[\)）]').hasMatch(text);
+      final hasA = RegExp(r'(^|\n)\s*A[\.、．\)]\s*').hasMatch(text) ||
+          RegExp(r'[\(（]A[\)）]').hasMatch(text);
+      final hasB = RegExp(r'(^|\n)\s*B[\.、．\)]\s*').hasMatch(text) ||
+          RegExp(r'[\(（]B[\)）]').hasMatch(text);
       if (!hasA) {
         diagnostics.add('缺少 A 选项');
       }
@@ -304,11 +316,11 @@ class TextQuestionRegionizer {
     return diagnostics;
   }
 
-  RegionHealth _determineHealth(String text, TextQuestionKind kind, List<String> diagnostics) {
+  RegionHealth _determineHealth(
+      String text, TextQuestionKind kind, List<String> diagnostics) {
     // 只有涉及内容的诊断异常（如缺失选项、未闭合公式）才触发 AI 修复流程
-    final hasContentIssue = diagnostics.any((d) =>
-        d.contains('缺少') || d.contains('未闭合')
-    );
+    final hasContentIssue =
+        diagnostics.any((d) => d.contains('缺少') || d.contains('未闭合'));
     if (hasContentIssue) {
       return RegionHealth.repairable;
     }

@@ -45,8 +45,8 @@ class ParsedDocument {
             final alt = part.altText ?? part.relationshipId;
             final src = part.resolvedPath ?? part.path;
             if (alt != null && alt.isNotEmpty) {
-              buffer
-                  .writeln('[Image asset=${part.assetId} alt=$alt source=$src]');
+              buffer.writeln(
+                  '[Image asset=${part.assetId} alt=$alt source=$src]');
             } else {
               buffer.writeln('[Image asset=${part.assetId} source=$src]');
             }

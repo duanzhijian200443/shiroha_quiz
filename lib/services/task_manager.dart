@@ -32,6 +32,14 @@ class ImportTask {
   List<String>? warnings;
   Map<String, dynamic>? diagnostics;
 
+  // 诊断元数据快捷获取
+  String? get traceId => diagnostics?[TaskManager.keyTraceId]?.toString();
+  String? get parseMode => diagnostics?[TaskManager.keyParseMode]?.toString();
+  Duration? get elapsed {
+    if (completedAt == null) return null;
+    return Duration(seconds: completedAt! - createdAt);
+  }
+
   final int createdAt;
   int? completedAt;
 
@@ -156,8 +164,13 @@ class ImportTask {
 }
 
 class TaskManager extends ChangeNotifier {
-  static final TaskManager instance = TaskManager._();
-  TaskManager._() {
+  static const String keyTraceId = '_traceId';
+  static const String keyParseMode = '_parseMode';
+
+  static final TaskManager _instance = TaskManager._internal();
+  static TaskManager get instance => _instance;
+
+  TaskManager._internal() {
     _loadTasksFromDb();
   }
 
@@ -231,7 +244,19 @@ class TaskManager extends ChangeNotifier {
         tasks[idx].warnings = warnings;
       }
       if (diagnostics.isNotEmpty) {
+        final existingTraceId = tasks[idx].traceId;
+        final existingParseMode = tasks[idx].parseMode;
+
         tasks[idx].diagnostics = diagnostics;
+
+        // 恢复原有元数据
+        if (existingTraceId != null || existingParseMode != null) {
+          tasks[idx].diagnostics ??= {};
+          if (existingTraceId != null)
+            tasks[idx].diagnostics![keyTraceId] = existingTraceId;
+          if (existingParseMode != null)
+            tasks[idx].diagnostics![keyParseMode] = existingParseMode;
+        }
       }
       _saveTask(tasks[idx]);
       notifyListeners();
@@ -246,7 +271,21 @@ class TaskManager extends ChangeNotifier {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].warnings = warnings;
+
+      final existingTraceId = tasks[idx].traceId;
+      final existingParseMode = tasks[idx].parseMode;
+
       tasks[idx].diagnostics = diagnostics;
+
+      // 恢复原有元数据
+      if (existingTraceId != null || existingParseMode != null) {
+        tasks[idx].diagnostics ??= {};
+        if (existingTraceId != null)
+          tasks[idx].diagnostics![keyTraceId] = existingTraceId;
+        if (existingParseMode != null)
+          tasks[idx].diagnostics![keyParseMode] = existingParseMode;
+      }
+
       _saveTask(tasks[idx]);
       notifyListeners();
     }

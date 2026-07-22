@@ -16,7 +16,7 @@ class MockQuestionRepository implements QuestionRepository {
   Future<List<String>> getAvailableFolders() async {
     return [];
   }
-  
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -44,7 +44,8 @@ void main() {
     );
   }
 
-  testWidgets('Save button is active when qualityGate is not blocked', (WidgetTester tester) async {
+  testWidgets('Save button is active when qualityGate is not blocked',
+      (WidgetTester tester) async {
     await tester.pumpWidget(createWidget(diagnostics: {}));
     await tester.pumpAndSettle();
 
@@ -52,12 +53,15 @@ void main() {
     expect(elevatedButton, findsOneWidget);
 
     final buttonWidget = tester.widget<ElevatedButton>(elevatedButton);
-    expect(buttonWidget.onPressed, isNotNull, reason: 'Save button should be enabled');
+    expect(buttonWidget.onPressed, isNotNull,
+        reason: 'Save button should be enabled');
 
     expect(find.textContaining('确认无误'), findsOneWidget);
   });
 
-  testWidgets('Save button is disabled and shows reason when qualityGate is blocked', (WidgetTester tester) async {
+  testWidgets(
+      'Save button is disabled and shows reason when qualityGate is blocked',
+      (WidgetTester tester) async {
     final blockReason = '解析丢失率过高（实际 1，预期 10）';
     await tester.pumpWidget(createWidget(diagnostics: {
       'qualityGate': {
@@ -71,7 +75,8 @@ void main() {
     expect(elevatedButton, findsOneWidget);
 
     final buttonWidget = tester.widget<ElevatedButton>(elevatedButton);
-    expect(buttonWidget.onPressed, isNull, reason: 'Save button should be disabled');
+    expect(buttonWidget.onPressed, isNull,
+        reason: 'Save button should be disabled');
 
     expect(find.textContaining(blockReason), findsOneWidget);
   });

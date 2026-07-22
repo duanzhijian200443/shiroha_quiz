@@ -1,159 +1,292 @@
-# Shiroha Quiz Development Instructions
+# Shiroha Quiz Agent Instructions
 
-## Required context
+## 1. Scope and precedence
 
-Before making non-trivial changes, read:
+These instructions apply to all agent work in this repository.
+
+When instructions conflict:
+
+1. Follow higher-level platform and user instructions.
+2. Follow the more restrictive repository rule.
+3. Follow the active role file.
+4. Stop and ask for approval when the conflict cannot be resolved safely.
+
+Operate only inside this repository unless the user explicitly authorizes otherwise.
+
+---
+
+## 2. Required context
+
+Before any non-trivial task, read:
 
 - `ARCHITECTURE.md`
-- Relevant files under `.agents/rules/`
-- Relevant role instructions under `docs/agents/`
-- Relevant existing tests
-- The implementation surrounding the target code
+- relevant files under `.agents/rules/`
+- the active role file under `docs/agents/`
+- relevant existing tests
+- the implementation surrounding the target code
+- current uncommitted changes affecting the task
 
-Do not assume a rule file has been read unless it was explicitly opened during
-the current task.
+Do not claim a file was reviewed unless it was opened during the current task.
 
-## Role activation
+---
 
-- The role identifier must be the first line of the user request and must be
-  exactly one of the following mappings:
-  - `角色：规划` → `docs/agents/planner.md`
-  - `角色：执行` → `docs/agents/executor.md`
-  - `角色：验证` → `docs/agents/verifier.md`
-  - `角色：审查` → `docs/agents/reviewer.md`
-- A request must not activate more than one role.
-- After successfully reading the required role file, explicitly declare the
-  current role and the role file that was loaded before continuing the task.
-- If the required role file does not exist or cannot be read, stop the task and
-  report the problem. Do not continue under an assumed role.
-- Once activated, keep the same role for the entire task. Do not switch roles
-  during the task unless the user explicitly instructs you to do so.
-- If no role is specified, do not select a write-enabled role on your own.
-- When role instructions conflict, follow the more restrictive rule.
+## 3. Role activation
 
-## Architecture
+The first line of the user request may activate exactly one role:
 
-Preserve the project dependency direction:
+| Identifier | Role file |
+|---|---|
+| `角色：规划` | `docs/agents/planner.md` |
+| `角色：执行` | `docs/agents/executor.md` |
+| `角色：验证` | `docs/agents/verifier.md` |
+| `角色：审查` | `docs/agents/reviewer.md` |
+| `角色：诊断` | `docs/agents/diagnostician.md` |
 
-UI -> Service -> Repository -> DatabaseHelper
+Rules:
 
-- UI and Service layers must not directly access SQLite or `DatabaseHelper`.
-- Database operations must go through the appropriate Repository.
-- Business logic belongs in Services, not Repositories or Widgets.
-- Repositories are responsible for persistence concerns.
-- Do not introduce cross-layer shortcuts for convenience.
-- Follow the architecture documented in `ARCHITECTURE.md`.
+- Read the mapped role file before continuing.
+- Then state the active role and loaded role file.
+- If the role file is missing or unreadable, stop.
+- Do not activate more than one role.
+- Do not switch roles during a task unless the user explicitly requests it.
+- Without an explicit role, do not assume a write-enabled role.
 
-## Development workflow
+---
 
-For each implementation task:
+## 4. Architecture
 
-1. Inspect the relevant implementation and tests.
-2. Verify that the reported problem actually exists.
-3. State a concise implementation plan.
+Preserve the dependency direction:
+
+`UI -> Service -> Repository -> DatabaseHelper`
+
+Requirements:
+
+- UI and Services must not access SQLite or `DatabaseHelper` directly.
+- Persistence belongs in Repositories.
+- Business logic belongs in Services.
+- Widgets must not contain domain logic.
+- Reuse existing abstractions before adding new ones.
+- Follow `ARCHITECTURE.md`.
+
+---
+
+## 5. Task workflow
+
+For implementation tasks:
+
+1. Inspect the relevant code, tests, and current diff.
+2. Verify the reported problem exists.
+3. State a concise plan.
 4. Confirm the allowed modification scope.
-5. Add or update regression tests when fixing behavior.
+5. Add or update regression tests.
 6. Make the smallest coherent change.
 7. Run focused validation.
-8. Report changed files, validation results, and remaining risks.
+8. Report results, remaining risks, and out-of-scope findings.
 
-## Change discipline
+For read-only tasks, do not modify, format, create, rename, or delete files.
 
-- Do not refactor unrelated code.
-- Do not rename unrelated symbols.
-- Do not reformat unrelated files.
-- Do not silently change public behavior.
-- Do not silently change persisted data formats.
+---
+
+## 6. Change discipline
+
+- Do not modify files outside the declared scope.
+- Stop and request approval before expanding scope.
+- Do not refactor, rename, or reformat unrelated code.
+- Do not silently change public behavior or persisted formats.
 - Preserve backward compatibility unless explicitly authorized.
-- Reuse existing abstractions before introducing new ones.
-- Do not add, remove, or upgrade packages without explicit approval.
-- Never modify generated files manually.
-- Do not modify files outside the declared task scope.
-- If an out-of-scope file must be changed, stop and request approval first.
-
-## Agent safety boundaries
-
-- Only operate inside this repository.
+- Do not add, remove, or upgrade packages without approval.
+- Never edit generated files manually.
 - Preserve all existing user changes.
-- Never discard or overwrite unrelated changes.
-- Never run destructive Git commands, including:
-  - `git reset --hard`
-  - `git clean -fd`
-  - `git clean -fdx`
-  - destructive `git checkout`
-  - destructive `git restore`
-  - force push
-- Never commit, push, merge, rebase, or create tags unless explicitly requested.
-- Never access, print, copy, expose, or modify:
-  - API keys
-  - access tokens
-  - signing keys
-  - keystore files
-  - passwords
-  - credentials
-  - environment secrets
-  - private configuration
-- Do not enable or use network access unless the task explicitly requires it.
-- Do not expand a task merely because nearby problems were discovered.
-- Report out-of-scope problems separately instead of fixing them automatically.
+- Report nearby problems instead of fixing them automatically.
 
-## Security and privacy
+---
 
-Never write the following values to logs:
+## 7. Git and destructive actions
+
+Never run destructive or history-rewriting commands, including:
+
+- `git reset --hard`
+- `git clean -fd`
+- `git clean -fdx`
+- destructive `git checkout`
+- destructive `git restore`
+- force push
+
+Do not commit, push, merge, rebase, tag, or create branches unless explicitly requested.
+
+Before and after write tasks, inspect:
+
+```bash
+git status --short
+```
+
+Do not remove unrelated tracked or untracked files.
+
+---
+
+## 8. Security and privacy
+
+Never access, print, copy, modify, persist, or expose:
 
 - API keys
 - access tokens
 - Authorization headers
+- signing keys
+- keystores
+- passwords
 - credentials
-- complete user prompts
-- complete answer contents
-- private file contents
+- environment secrets
+- private configuration
+- complete private file contents
+
+Never write these values to logs, diagnostics, reports, fixtures, or tests.
+
+Also avoid logging:
+
+- complete prompts
+- complete answers or explanations
+- raw OCR text
+- model response bodies
+- Base64 payloads
 - sensitive absolute paths
+- full exception messages when they may contain private data
 
-Treat the following areas as high risk:
+Prefer safe structured values such as:
 
+- counts
+- IDs
+- stages
+- statuses
+- runtime type names
+- redacted metrics
+
+Network access is disabled by default. Use it only when the task explicitly requires it.
+
+---
+
+## 9. High-risk areas
+
+Treat these as high risk:
+
+- import pipelines
 - logging and redaction
 - global exception handling
 - database migrations
-- import pipelines
-- async task recovery
+- async recovery
 - file rotation
 - isolate or multi-process coordination
 - API key storage
+- OCR/AI result merging
+- persisted data compatibility
 
-High-risk changes should include failure-path tests and concurrency tests where
-applicable.
+High-risk changes should include failure-path tests and concurrency tests where applicable.
 
-## Flutter validation
+---
+
+## 10. Validation
 
 Use focused validation during implementation.
 
-Run the full validation workflow only when requested or before a release:
+Typical commands:
+
+```bash
+dart format <changed-files>
+flutter analyze <changed-production-files>
+flutter test <focused-tests>
+git diff --check
+```
+
+Rules:
+
+- Run Flutter tests serially on Windows unless parallel execution is known to be safe.
+- Do not run full-repository formatting for a focused task.
+- Do not fix unrelated historical analyze findings.
+- Never claim a command passed unless it was executed.
+- Always report skipped or failed validation.
+
+Run the full workflow only when requested or before release:
 
 ```powershell
 .\scripts\verify.ps1
 ```
 
-Individual validation commands may include:
+---
 
-```bash
-dart format --output=none --set-exit-if-changed .
-flutter analyze
-flutter test
+## 11. Local private PDF test corpus
+
+Private smoke-test PDFs are stored under:
+
+```text
+scratch/test_pdfs/
 ```
 
-Never claim a command or test passed unless it was actually executed.
+Current structure:
 
-## Reporting
+```text
+scratch/test_pdfs/
+└─ math/
+   ├─ paired/
+   └─ single/
+```
 
-At the end of a task, report:
+Meaning:
 
-- files changed;
-- behavior changed;
-- tests and commands executed;
-- exit status;
-- failures or skipped checks;
-- remaining risks;
-- out-of-scope findings.
+- `paired/`: a stem-only paper and its matching solution paper
+- `single/`: one PDF that should import independently
+
+Future subjects may use the same structure, for example:
+
+```text
+politics/paired/
+politics/single/
+english/paired/
+english/single/
+```
+
+Rules:
+
+1. Do not scan outside `scratch/test_pdfs/` for test PDFs.
+2. Do not modify, rename, copy, upload, commit, or track these PDFs.
+3. Do not copy real question text into fixtures, logs, diagnostics, or reports.
+4. Reports may include only filenames, counts, question numbers, stages, statuses, and redacted metrics.
+5. `paired` verification must distinguish:
+   - stem-only import
+   - solution-only import
+   - combined import
+6. `single` verification uses one PDF only.
+7. These assets must remain untracked by Git.
+
+---
+
+## 12. Reporting
+
+At the end of a task, report only what is relevant:
+
+- files changed
+- behavior changed
+- tests and commands executed
+- exit status
+- failures or skipped checks
+- remaining risks
+- out-of-scope findings
+- `git status --short`
 
 Do not hide failed validation.
+
+---
+
+## 13. Prompt economy
+
+Task prompts should not repeat rules already defined here.
+
+A normal task request should contain only:
+
+- role
+- task goal
+- allowed scope
+- task-specific constraints
+- acceptance criteria
+- focused validation
+- stop conditions
+
+Agents must automatically apply the shared architecture, safety, privacy, Git, validation, and reporting rules from this file.

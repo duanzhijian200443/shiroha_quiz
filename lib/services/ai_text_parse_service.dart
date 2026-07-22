@@ -149,9 +149,10 @@ class AiTextParseService {
         temperature: 0.1,
         jsonResponse: true,
       );
-      final list = await compute(AiDataSanitizer.cleanAndParseJson, responseText);
+      final list =
+          await compute(AiDataSanitizer.cleanAndParseJson, responseText);
       if (list.isEmpty) {
-         throw Exception("修复返回了空列表");
+        throw Exception("修复返回了空列表");
       }
       return list.first;
     } catch (e) {
@@ -164,9 +165,9 @@ class AiTextParseService {
         'options': [],
         'explanation': '',
         '_import_review': {
-           'source': 'docx_text_deterministic',
-           'health': 'repair_failed',
-           'diagnostics': ['AI 修复失败, 原样保留'],
+          'source': 'docx_text_deterministic',
+          'health': 'repair_failed',
+          'diagnostics': ['AI 修复失败, 原样保留'],
         }
       };
     }

@@ -45,8 +45,7 @@ B. 选项 B
     test('1b. Phase 4 — 紧凑内联“答案+分析”格式：从正文行内提取 answer/explanation', () {
       const region = TextQuestionRegion(
         number: 1,
-        rawText:
-            '1 设函数 f(x) ... (A) f(1)=0 (B) f(1)=1 答案 B. 分析 本题考查极限。',
+        rawText: '1 设函数 f(x) ... (A) f(1)=0 (B) f(1)=1 答案 B. 分析 本题考查极限。',
         startOffset: 0,
         endOffset: 80,
         kind: TextQuestionKind.choice,
@@ -78,12 +77,14 @@ B. 选项 B
       final assembler = const LocalQuestionAssembler();
       final result = assembler.assemble(region);
 
-      expect(result.question['options'], equals([
-        'A. 选项 A 内容',
-        'B. 选项 B 内容',
-        'C. 选项 C 内容',
-        'D. 选项 D 内容',
-      ]));
+      expect(
+          result.question['options'],
+          equals([
+            'A. 选项 A 内容',
+            'B. 选项 B 内容',
+            'C. 选项 C 内容',
+            'D. 选项 D 内容',
+          ]));
     });
 
     test('3. 选择题被识别为选择题，不得默认为简答题。', () {
@@ -121,7 +122,8 @@ B. 选项 B
     File createMockDocx(String name, String documentXml) {
       final archive = Archive();
       final docBytes = utf8.encode(documentXml);
-      archive.addFile(ArchiveFile('word/document.xml', docBytes.length, docBytes));
+      archive
+          .addFile(ArchiveFile('word/document.xml', docBytes.length, docBytes));
 
       final encoder = ZipEncoder();
       final zipBytes = encoder.encode(archive)!;
@@ -288,7 +290,8 @@ B. 选项B
         localResult: localResult,
       );
 
-      expect(result.diagnostics, contains('repair_rejected_question_number_changed'));
+      expect(result.diagnostics,
+          contains('repair_rejected_question_number_changed'));
       expect(result.question['content'], equals('原始破损题干...')); // 保留原本内容
     });
 
@@ -323,12 +326,15 @@ B. 选项B
         localResult: localResult,
       );
 
-      expect(result.diagnostics.any((d) => d.contains('repair_failed')), isTrue);
+      expect(
+          result.diagnostics.any((d) => d.contains('repair_failed')), isTrue);
     });
   });
 
   group('Boundary Defense Tests - ImportQualityGate', () {
-    test('9. expectedCount 应计算多个信号（regionCount, maxDetected, answerCount, markerCount）的最大值', () {
+    test(
+        '9. expectedCount 应计算多个信号（regionCount, maxDetected, answerCount, markerCount）的最大值',
+        () {
       const gate = ImportQualityGate();
       const input = ImportQualityGateInput(
         regionCount: 8,
@@ -341,7 +347,8 @@ B. 选项B
 
       final result = gate.evaluateDocx(input);
       expect(result.expectedCount, equals(20)); // 应是 8, 12, 15, 20 的最大值即 20
-      expect(result.blocked, isTrue); // expectedCount 为 20 且 actualQuestionCount 为 8（小于 20 * 0.8 = 16），判定为 blocked
+      expect(result.blocked,
+          isTrue); // expectedCount 为 20 且 actualQuestionCount 为 8（小于 20 * 0.8 = 16），判定为 blocked
       expect(result.severity, equals('critical_under_parse'));
     });
 
@@ -359,10 +366,13 @@ B. 选项B
       final result = gate.evaluateDocx(input);
       expect(result.blocked, isTrue);
       expect(result.severity, equals('regionizer_empty'));
-      expect(result.diagnostics['policy'], equals('no_full_text_ai_fallback_for_docx'));
+      expect(result.diagnostics['policy'],
+          equals('no_full_text_ai_fallback_for_docx'));
     });
 
-    test('11. criticalDiagnostics 不为空时判定为 critical_diagnostics 且 blocked = true', () {
+    test(
+        '11. criticalDiagnostics 不为空时判定为 critical_diagnostics 且 blocked = true',
+        () {
       const gate = ImportQualityGate();
       const input = ImportQualityGateInput(
         regionCount: 5,
@@ -376,10 +386,13 @@ B. 选项B
       final result = gate.evaluateDocx(input);
       expect(result.blocked, isTrue);
       expect(result.severity, equals('critical_diagnostics'));
-      expect(result.diagnostics['criticalDiagnostics'], contains('Dangling formula detected'));
+      expect(result.diagnostics['criticalDiagnostics'],
+          contains('Dangling formula detected'));
     });
 
-    test('12. Phase 6 — regionCount=7 / maxDetected=21 / actual=7 触发 critical_under_parse', () {
+    test(
+        '12. Phase 6 — regionCount=7 / maxDetected=21 / actual=7 触发 critical_under_parse',
+        () {
       const gate = ImportQualityGate();
 
       final result = gate.evaluateDocx(
@@ -515,7 +528,8 @@ A. 选项 A
 
   group('Boundary Defense Tests - DocxAdapter Formula', () {
     test('17. m:oMathPara 公式至少输出 [FORMULA] 或公式文本', () async {
-      final tempDir = await Directory.systemTemp.createTemp('boundary_mathpara');
+      final tempDir =
+          await Directory.systemTemp.createTemp('boundary_mathpara');
       try {
         final xml = '''
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>

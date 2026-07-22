@@ -53,7 +53,8 @@ void main() {
       final matcher = const AnswerBlockMatcher();
       final split = matcher.splitAnswerBlock(rawText);
       final regionizer = const TextQuestionRegionizer();
-      final regions = regionizer.split(split.questionBodyText, split.answers).regions;
+      final regions =
+          regionizer.split(split.questionBodyText, split.answers).regions;
 
       expect(regions.length, 2);
       expect(regions[0].number, 1);
@@ -76,12 +77,12 @@ B. 选项B
 ''';
       final regionizer = const TextQuestionRegionizer();
       final regions = regionizer.split(rawText, {}).regions;
-      
+
       // 第2个 "1. TCP..." 因为不满足单调性，会被当成正文或被 filter 过滤（或者因为其前面没有 A 选项之类的而融合）
       // 由于现有单调性过滤，如果 1 后面跟 1，会保留，但如果是伪题号可能抛弃。
       // 在本框架中，如果 "1. TCP..." 紧跟在 1. 之后，可能会判定为 number=1，但随后题号去重会保留最长文本。
       // 因此期望的题数是 2，或者是 1. 包含了这些正文。
-      
+
       // 我们测试最终结果的题目数量。
       // 在当前去重逻辑中，同一个 number 出现多次，保留内容最长的。
       expect(regions.length, 2);
@@ -97,7 +98,7 @@ B. 选项B
 ''';
       final regionizer = const TextQuestionRegionizer();
       final regions = regionizer.split(rawText, {}).regions;
-      
+
       expect(regions.length, 2);
       final q1 = regions.firstWhere((r) => r.number == 1);
       expect(q1.rawText.contains('较长的题干'), isTrue);
@@ -110,11 +111,11 @@ B. 选项B
 ''';
       final regionizer = const TextQuestionRegionizer();
       final regions = regionizer.split(rawText, {}).regions;
-      
+
       expect(regions.length, 2);
       expect(regions[0].kind, TextQuestionKind.subjective);
       expect(regions[0].health, RegionHealth.clean); // 主观题没有AB不修
-      
+
       expect(regions[1].kind, TextQuestionKind.fillBlank);
       expect(regions[1].health, RegionHealth.clean); // 填空题也没有AB不修
     });
@@ -128,7 +129,7 @@ A. 对
 '''; // 第 2 题只有 A，没有 B
       final regionizer = const TextQuestionRegionizer();
       final regions = regionizer.split(rawText, {}).regions;
-      
+
       expect(regions.length, 2);
       // 第1题由于没探测到A/B，且没有填空判断符，可能会被当成 subjective。
       // 如果被当成 subjective，它是 clean 的。
@@ -146,7 +147,7 @@ A. 对
 ''';
       final regionizer = const TextQuestionRegionizer();
       final regions = regionizer.split(rawText, {}).regions;
-      
+
       expect(regions[0].rawText.contains('\n这是第二行内容'), isTrue);
       expect(regions[0].rawText.contains('\n这是第三行内容'), isTrue);
     });

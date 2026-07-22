@@ -59,13 +59,13 @@ class LocalQuestionAssembler {
 
     final repairRecommended = region.health == RegionHealth.repairable ||
         _shouldRecommendRepair(
-      type: type,
-      content: content,
-      options: optionExtract.options,
-      answer: answer,
-      diagnostics: diagnostics,
-      rawTextLength: region.rawText.length,
-    );
+          type: type,
+          content: content,
+          options: optionExtract.options,
+          answer: answer,
+          diagnostics: diagnostics,
+          rawTextLength: region.rawText.length,
+        );
 
     final rejected = content.isEmpty && region.rawText.trim().length < 8;
 

@@ -136,9 +136,28 @@ class OcrQuestionRegionizer {
 
   final List<OcrQuestionNumberKindRange> questionNumberKindRanges;
 
-  static final RegExp _lineQuestionRegex = RegExp(
-    r'(^|\n)\s*(?:第\s*)?(\d{1,3})\s*(?:题|[\.、．])?\s*(?=(?:设|已知|若|求|证明|计算|下列|关于|函数|随机|令|讨论|判断|选择|填空|设随机|设函数|[（(]?[ⅠⅡⅢIVX]))',
-    multiLine: true,
+  static final RegExp _explicitQuestionMarkerRegex = RegExp(
+    r'^\s*([0-9０-９]{1,3})\s*([\.、．])\s*([\s\S]*)$',
+  );
+
+  static final RegExp _bareQuestionMarkerRegex = RegExp(
+    r'^\s*(?:第\s*)?([0-9０-９]{1,3})(?:\s*题\s*|\s+)([\s\S]+)$',
+  );
+
+  static final RegExp _standaloneQuestionMarkerRegex = RegExp(
+    r'^\s*([0-9０-９]{1,3})\s*[\.、．]\s*$',
+  );
+
+  static final RegExp _numericOnlyQuestionMarkerRegex = RegExp(
+    r'^\s*([0-9０-９]{1,3})\s*$',
+  );
+
+  static final RegExp _parenthesizedArabicMarkerRegex = RegExp(
+    r'^\s*(?:（([0-9０-９]{1,3})）|\(([0-9０-９]{1,3})\))\s*([\s\S]*)$',
+  );
+
+  static final RegExp _romanSubquestionRegex = RegExp(
+    r'^\s*(?:（[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+）|\([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\))',
   );
 
   static final RegExp _answerLabelRegex = RegExp(
@@ -151,14 +170,21 @@ class OcrQuestionRegionizer {
     caseSensitive: false,
   );
 
-  static final RegExp _sectionHeadingRegex = RegExp(
-    r'(^|\n)\s*#{0,6}\s*(?:第\s*)?[一二三四五六七八九十]+[、,，.．]?\s*(?:单项选择题|选择题|填空题|解答题|证明题|计算题)\s*(?=\n|$)',
-    multiLine: true,
-  );
-
   static final RegExp _numberedFieldRegex = RegExp(
     r'^\s*(?:第\s*)?(\d{1,3})\s*(?:题|[\.、．])?\s*(答案解析|标准答案|参考答案|答案|解析|分析|详解|解|证明)\s*[:：]?\s*([\s\S]*)$',
     caseSensitive: false,
+  );
+
+  static final RegExp _markdownQuotePrefixRegex = RegExp(
+    r'^[ \t]{0,3}>[ \t]+',
+  );
+
+  static final RegExp _markdownHeadingPrefixRegex = RegExp(
+    r'^[ \t]{0,3}#{1,6}[ \t]+',
+  );
+
+  static final RegExp _sectionQuestionCountRegex = RegExp(
+    r'(?:本题\s*)?共\s*([0-9０-９]{1,3})\s*(?:小题|题)',
   );
 
   OcrQuestionRegionizerResult regionize(OcrDocument document) {
@@ -171,12 +197,65 @@ class OcrQuestionRegionizer {
     final ignoredBlocks = <String>[];
     final rejectedQuestionStarts = <String>[];
     final numberedFieldCandidates = <_NumberedFieldCandidate>[];
-    final sectionHeadings = <String>[];
+    final sections = <_SectionHeadingInfo>[];
+    final pageCandidateCounts = <String, int>{};
     var splitCount = 0;
+    var markdownPrefixedCandidateCount = 0;
+    var blockStartCandidateCount = 0;
+    var internalLineCandidateCount = 0;
+    var parenthesizedArabicCandidateCount = 0;
+    var parenthesizedArabicAcceptedCount = 0;
+    var parenthesizedArabicRejectedCount = 0;
+    var romanSubquestionCount = 0;
+    var sequenceAcceptedCount = 0;
+    var sequenceRejectedCount = 0;
 
     _MutableRegion? current;
     var currentField = OcrRegionField.stem;
     var currentSectionKind = TextQuestionKind.unknown;
+    int? lastAcceptedTopLevelNumber;
+
+    final questionCandidateTrace = <Map<String, dynamic>>[];
+    var questionCandidateTraceTruncated = false;
+    var currentSectionIndex = 0;
+
+    void addTrace({
+      required int number,
+      required _OcrTextUnit unit,
+      required String markerKind,
+      required String decision,
+      required String reason,
+      required int? previousAcceptedNumber,
+      required int sectionIndex,
+    }) {
+      if (questionCandidateTrace.length >= 100) {
+        questionCandidateTraceTruncated = true;
+        return;
+      }
+      questionCandidateTrace.add({
+        'number': number,
+        'pageIndex': unit.block.pageIndex,
+        'markerKind': markerKind,
+        'decision': decision,
+        'reason': reason,
+        'previousAcceptedNumber': previousAcceptedNumber,
+        'sectionIndex': sectionIndex,
+        'blockOrder': unit.block.readingOrder,
+      });
+    }
+
+    void recordQuestionCandidate(_OcrTextUnit unit) {
+      final pageKey = unit.block.pageIndex.toString();
+      pageCandidateCounts[pageKey] = (pageCandidateCounts[pageKey] ?? 0) + 1;
+      if (_hasLeadingMarkdownStructure(unit.text)) {
+        markdownPrefixedCandidateCount++;
+      }
+      if (unit.startsAtBlockStart) {
+        blockStartCandidateCount++;
+      } else {
+        internalLineCandidateCount++;
+      }
+    }
 
     void finishCurrent() {
       if (current == null) return;
@@ -197,11 +276,12 @@ class OcrQuestionRegionizer {
       final text = _normalizeText(unit.text);
       if (text.isEmpty) continue;
 
-      final sectionKind = _readSectionHeadingKind(text);
-      if (sectionKind != null) {
+      final section = _readSectionHeading(text);
+      if (section != null) {
         finishCurrent();
-        currentSectionKind = sectionKind;
-        sectionHeadings.add(text);
+        currentSectionIndex++;
+        currentSectionKind = section.kind;
+        sections.add(section);
         ignoredBlocks.add(unit.block.blockId);
         continue;
       }
@@ -225,15 +305,94 @@ class OcrQuestionRegionizer {
         continue;
       }
 
+      if (_isRomanSubquestion(text)) {
+        romanSubquestionCount++;
+      }
+
+      final parenthesizedMarker = _readParenthesizedArabicMarker(text);
+      if (parenthesizedMarker != null) {
+        recordQuestionCandidate(unit);
+        parenthesizedArabicCandidateCount++;
+        final expectedNumber = lastAcceptedTopLevelNumber == null
+            ? null
+            : lastAcceptedTopLevelNumber + 1;
+        final isSequenceAccepted =
+            currentSectionKind != TextQuestionKind.unknown &&
+                (expectedNumber == null ||
+                    parenthesizedMarker.number == expectedNumber);
+
+        if (isSequenceAccepted) {
+          parenthesizedArabicAcceptedCount++;
+          sequenceAcceptedCount++;
+          finishCurrent();
+          final kindInfo = _kindForQuestionNumber(
+            parenthesizedMarker.number,
+            currentSectionKind: currentSectionKind,
+          );
+          current = _MutableRegion(
+            parenthesizedMarker.number,
+            declaredKind: kindInfo.kind,
+            initialDiagnostics: kindInfo.diagnostics,
+          );
+          currentField = OcrRegionField.stem;
+          current!.addSource(unit.block);
+          current!.addPart(
+            currentField,
+            parenthesizedMarker.remainingText,
+          );
+          addTrace(
+            number: parenthesizedMarker.number,
+            unit: unit,
+            markerKind: 'parenthesized_arabic',
+            decision: 'accepted',
+            reason: 'valid_question_start',
+            previousAcceptedNumber: lastAcceptedTopLevelNumber,
+            sectionIndex: currentSectionIndex,
+          );
+          lastAcceptedTopLevelNumber = parenthesizedMarker.number;
+          continue;
+        }
+
+        parenthesizedArabicRejectedCount++;
+        sequenceRejectedCount++;
+        addTrace(
+          number: parenthesizedMarker.number,
+          unit: unit,
+          markerKind: 'parenthesized_arabic',
+          decision: 'rejected',
+          reason: 'sequence_mismatch',
+          previousAcceptedNumber: lastAcceptedTopLevelNumber,
+          sectionIndex: currentSectionIndex,
+        );
+        if (current == null) {
+          ignoredBlocks.add(unit.block.blockId);
+        } else {
+          current!.addSource(unit.block);
+          current!.addPart(currentField, text);
+        }
+        continue;
+      }
+
       final questionNumber = _detectQuestionNumber(
-        text,
-        nextText: i + 1 < units.length ? units[i + 1].text : null,
+        unit,
+        nextUnit: i + 1 < units.length ? units[i + 1] : null,
       );
 
       if (questionNumber != null) {
+        final markerKind = _determineMarkerKind(text);
         if (_looksLikeOption(text)) {
           rejectedQuestionStarts.add(unit.block.blockId);
+          addTrace(
+            number: questionNumber,
+            unit: unit,
+            markerKind: markerKind,
+            decision: 'rejected',
+            reason: 'looks_like_option',
+            previousAcceptedNumber: lastAcceptedTopLevelNumber,
+            sectionIndex: currentSectionIndex,
+          );
         } else {
+          recordQuestionCandidate(unit);
           finishCurrent();
           final kindInfo = _kindForQuestionNumber(
             questionNumber,
@@ -250,7 +409,65 @@ class OcrQuestionRegionizer {
           if (remaining.isNotEmpty && remaining != questionNumber.toString()) {
             current!.addPart(currentField, remaining);
           }
+          addTrace(
+            number: questionNumber,
+            unit: unit,
+            markerKind: markerKind,
+            decision: 'accepted',
+            reason: 'valid_question_start',
+            previousAcceptedNumber: lastAcceptedTopLevelNumber,
+            sectionIndex: currentSectionIndex,
+          );
+          lastAcceptedTopLevelNumber = questionNumber;
           continue;
+        }
+      } else {
+        if (_looksLikeOption(text)) {
+          final match =
+              RegExp(r'^\s*(?:[（(]\s*([A-D])\s*[）)]|([A-D])\s*[\.．、])')
+                  .firstMatch(_normalizeQuestionCandidateText(text));
+          final letter =
+              (match?.group(1) ?? match?.group(2) ?? 'A').toUpperCase();
+          final numVal = letter.codeUnitAt(0) - 'A'.codeUnitAt(0) + 1;
+
+          addTrace(
+            number: numVal,
+            unit: unit,
+            markerKind: 'unknown',
+            decision: 'rejected',
+            reason: 'looks_like_option',
+            previousAcceptedNumber: lastAcceptedTopLevelNumber,
+            sectionIndex: currentSectionIndex,
+          );
+        } else {
+          final info = _parseMarkerInfo(text);
+          if (info != null) {
+            final parsedNum = info.number;
+            String reason = 'other';
+            if (parsedNum == null) {
+              reason = 'invalid_number_range';
+            } else if (_looksLikeOption(text)) {
+              reason = 'looks_like_option';
+            } else if (lastAcceptedTopLevelNumber != null &&
+                parsedNum <= lastAcceptedTopLevelNumber) {
+              reason = 'duplicate_or_reset';
+            }
+
+            final numberVal = parsedNum ??
+                int.tryParse(
+                    _normalizeQuestionMarkerText(info.rawNumberString ?? '')) ??
+                0;
+
+            addTrace(
+              number: numberVal,
+              unit: unit,
+              markerKind: info.markerKind,
+              decision: 'rejected',
+              reason: reason,
+              previousAcceptedNumber: lastAcceptedTopLevelNumber,
+              sectionIndex: currentSectionIndex,
+            );
+          }
         }
       }
 
@@ -281,6 +498,15 @@ class OcrQuestionRegionizer {
     final acceptedNumbers =
         patchedRegions.map((region) => region.number).toList();
     final missingNumbers = _missingNumbers(acceptedNumbers);
+    final expectedQuestionCount = _expectedQuestionCount(sections);
+    final tailMissingNumbers = _tailMissingNumbers(
+      acceptedNumbers,
+      expectedQuestionCount,
+    );
+    final missingQuestionCount = _missingQuestionCount(
+      acceptedNumbers,
+      expectedQuestionCount,
+    );
 
     return OcrQuestionRegionizerResult(
       regions: patchedRegions,
@@ -292,12 +518,32 @@ class OcrQuestionRegionizer {
         'ignoredBlockIds': ignoredBlocks.take(40).toList(),
         'rejectedQuestionStarts': rejectedQuestionStarts,
         'numberedFieldCandidateCount': numberedFieldCandidates.length,
-        'sectionHeadingCount': sectionHeadings.length,
-        if (sectionHeadings.isNotEmpty)
-          'sectionHeadings': sectionHeadings.take(20).toList(),
+        'sectionHeadingCount': sections.length,
+        if (sections.isNotEmpty)
+          'sections': [
+            for (var index = 0; index < sections.length; index++)
+              sections[index].toDiagnostics(index + 1),
+          ],
         'splitUnitCount': splitCount,
         'acceptedNumbers': acceptedNumbers,
         'missingNumbers': missingNumbers,
+        'pageCandidateCounts': pageCandidateCounts,
+        'markdownPrefixedCandidateCount': markdownPrefixedCandidateCount,
+        'blockStartCandidateCount': blockStartCandidateCount,
+        'internalLineCandidateCount': internalLineCandidateCount,
+        'parenthesizedArabicCandidateCount': parenthesizedArabicCandidateCount,
+        'acceptedQuestionCount': acceptedNumbers.length,
+        'expectedQuestionCount': expectedQuestionCount,
+        'tailMissingNumbers': tailMissingNumbers,
+        'missingQuestionCount': missingQuestionCount,
+        'parenthesizedArabicAcceptedCount': parenthesizedArabicAcceptedCount,
+        'parenthesizedArabicRejectedCount': parenthesizedArabicRejectedCount,
+        'romanSubquestionCount': romanSubquestionCount,
+        'sequenceAcceptedCount': sequenceAcceptedCount,
+        'sequenceRejectedCount': sequenceRejectedCount,
+        'questionCandidateTrace': questionCandidateTrace,
+        if (questionCandidateTraceTruncated)
+          'questionCandidateTraceTruncated': true,
       },
     );
   }
@@ -306,26 +552,37 @@ class OcrQuestionRegionizer {
     final text = block.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final boundaries = <int>{0, text.length};
 
-    for (final match in _lineQuestionRegex.allMatches(text)) {
-      final start = _contentStart(match);
-      if (start > 0 && start < text.length) {
-        boundaries.add(start);
-      }
-    }
+    var lineStart = 0;
+    while (lineStart < text.length) {
+      final newline = text.indexOf('\n', lineStart);
+      final lineEnd = newline < 0 ? text.length : newline;
+      final nextLineStart = newline < 0 ? text.length : newline + 1;
+      final line = text.substring(lineStart, lineEnd);
 
-    for (final match in _sectionHeadingRegex.allMatches(text)) {
-      final start = _contentStart(match);
-      if (start >= 0 && start < text.length) {
-        boundaries.add(start);
+      if (_isSectionHeading(line)) {
+        boundaries.add(lineStart);
+        boundaries.add(nextLineStart);
+      } else if (_isValidInlineQuestionStart(line) ||
+          _isValidBareQuestionStart(line) ||
+          _readParenthesizedArabicMarker(line) != null ||
+          _isRomanSubquestion(line)) {
+        boundaries.add(lineStart);
       }
-      if (match.end > 0 && match.end < text.length) {
-        boundaries.add(match.end);
-      }
+
+      if (newline < 0) break;
+      lineStart = nextLineStart;
     }
 
     final sortedBoundaries = boundaries.toList()..sort();
     if (sortedBoundaries.length <= 2) {
-      return [_OcrTextUnit(block: block, text: text, wasSplit: false)];
+      return [
+        _OcrTextUnit(
+          block: block,
+          text: text,
+          wasSplit: false,
+          startsAtBlockStart: true,
+        ),
+      ];
     }
 
     final units = <_OcrTextUnit>[];
@@ -341,6 +598,7 @@ class OcrQuestionRegionizer {
                 blockId: '${block.blockId}#s${units.length + 1}'),
             text: part,
             wasSplit: true,
+            startsAtBlockStart: start == 0,
           ),
         );
       }
@@ -349,34 +607,146 @@ class OcrQuestionRegionizer {
     return units;
   }
 
-  int _contentStart(RegExpMatch match) {
-    final prefix = match.group(1) ?? '';
-    return match.start + prefix.length;
-  }
-
-  int? _detectQuestionNumber(String text, {String? nextText}) {
-    final direct = _lineQuestionRegex.firstMatch(text);
-    if (direct != null && direct.start == 0) {
-      return int.tryParse(direct.group(2) ?? '');
+  int? _detectQuestionNumber(
+    _OcrTextUnit unit, {
+    _OcrTextUnit? nextUnit,
+  }) {
+    final text = _normalizeQuestionCandidateText(unit.text);
+    if (_isValidInlineQuestionStart(text) || _isValidBareQuestionStart(text)) {
+      return _extractQuestionNumber(text);
     }
 
-    final numericOnly = RegExp(r'^\s*(\d{1,3})\s*$').firstMatch(text);
+    if (_isStandaloneQuestionMarker(text) &&
+        _isValidStandaloneFollower(unit, nextUnit)) {
+      return _extractQuestionNumber(text);
+    }
+
+    final numericOnly = _numericOnlyQuestionMarkerRegex.firstMatch(text);
     if (numericOnly != null &&
-        nextText != null &&
-        _looksLikeStemStart(nextText)) {
-      return int.tryParse(numericOnly.group(1) ?? '');
+        nextUnit != null &&
+        unit.block.pageIndex == nextUnit.block.pageIndex &&
+        _looksLikeStemStart(_normalizeQuestionCandidateText(nextUnit.text))) {
+      return _parseQuestionNumber(numericOnly.group(1) ?? '');
     }
 
     return null;
   }
 
+  String _normalizeQuestionMarkerText(String text) {
+    const fullWidthDigits = '０１２３４５６７８９';
+    return text.replaceAllMapped(RegExp(r'[０-９]'), (match) {
+      return fullWidthDigits.indexOf(match.group(0)!).toString();
+    });
+  }
+
+  int? _parseQuestionNumber(String text) {
+    final normalized = _normalizeQuestionMarkerText(text);
+    final number = int.tryParse(normalized);
+    if (number == null || number < 1 || number > 999) return null;
+    return number;
+  }
+
+  _ParenthesizedArabicMarker? _readParenthesizedArabicMarker(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    final match = _parenthesizedArabicMarkerRegex.firstMatch(candidate);
+    if (match == null) return null;
+
+    final number = _parseQuestionNumber(match.group(1) ?? match.group(2) ?? '');
+    if (number == null) return null;
+    return _ParenthesizedArabicMarker(
+      number: number,
+      remainingText: (match.group(3) ?? '').trim(),
+    );
+  }
+
+  bool _isRomanSubquestion(String text) {
+    return _romanSubquestionRegex.hasMatch(
+      _normalizeQuestionCandidateText(text),
+    );
+  }
+
+  int? _extractQuestionNumber(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    final explicit = _explicitQuestionMarkerRegex.firstMatch(candidate);
+    if (explicit != null) {
+      return _parseQuestionNumber(explicit.group(1) ?? '');
+    }
+
+    final standalone = _standaloneQuestionMarkerRegex.firstMatch(candidate);
+    if (standalone != null) {
+      return _parseQuestionNumber(standalone.group(1) ?? '');
+    }
+
+    final bare = _bareQuestionMarkerRegex.firstMatch(candidate);
+    if (bare != null) {
+      return _parseQuestionNumber(bare.group(1) ?? '');
+    }
+
+    return null;
+  }
+
+  bool _isValidInlineQuestionStart(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    final match = _explicitQuestionMarkerRegex.firstMatch(candidate);
+    if (match == null || _parseQuestionNumber(match.group(1) ?? '') == null) {
+      return false;
+    }
+
+    final remaining = (match.group(3) ?? '').trimLeft();
+    if (remaining.isEmpty) return false;
+    return !RegExp(r'^[0-9０-９]').hasMatch(remaining);
+  }
+
+  bool _isValidBareQuestionStart(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    final match = _bareQuestionMarkerRegex.firstMatch(candidate);
+    if (match == null || _parseQuestionNumber(match.group(1) ?? '') == null) {
+      return false;
+    }
+    return _looksLikeStemStart(match.group(2) ?? '');
+  }
+
+  bool _isStandaloneQuestionMarker(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    final match = _standaloneQuestionMarkerRegex.firstMatch(candidate);
+    return match != null && _parseQuestionNumber(match.group(1) ?? '') != null;
+  }
+
+  bool _isValidStandaloneFollower(
+    _OcrTextUnit unit,
+    _OcrTextUnit? nextUnit,
+  ) {
+    if (nextUnit == null || unit.block.pageIndex != nextUnit.block.pageIndex) {
+      return false;
+    }
+
+    final nextText = _normalizeQuestionCandidateText(nextUnit.text);
+    return nextText.isNotEmpty &&
+        !_isSectionHeading(nextText) &&
+        !_isValidInlineQuestionStart(nextText) &&
+        !_isValidBareQuestionStart(nextText) &&
+        !_isStandaloneQuestionMarker(nextText) &&
+        !_looksLikeOption(nextText) &&
+        _readFieldTransition(nextText) == null;
+  }
+
   String _stripQuestionPrefix(String text) {
-    return text
-        .replaceFirst(
-          RegExp(r'^\s*(?:第\s*)?\d{1,3}\s*(?:题|[\.、．])?\s*'),
-          '',
-        )
-        .trim();
+    final candidate = _normalizeQuestionCandidateText(text);
+    final parenthesized = _readParenthesizedArabicMarker(candidate);
+    if (parenthesized != null) return parenthesized.remainingText;
+
+    final explicit = _explicitQuestionMarkerRegex.firstMatch(candidate);
+    if (explicit != null) return (explicit.group(3) ?? '').trim();
+
+    if (_isStandaloneQuestionMarker(candidate) ||
+        _numericOnlyQuestionMarkerRegex.hasMatch(candidate)) {
+      return '';
+    }
+
+    final bare = _bareQuestionMarkerRegex.firstMatch(candidate);
+    if (bare != null) return (bare.group(2) ?? '').trim();
+
+    return candidate.trim();
   }
 
   _FieldTransition? _readFieldTransition(String text) {
@@ -418,6 +788,82 @@ class OcrQuestionRegionizer {
     );
   }
 
+  _MarkerInfo? _parseMarkerInfo(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+
+    final parenMatch = _parenthesizedArabicMarkerRegex.firstMatch(candidate);
+    if (parenMatch != null) {
+      final rawNum = parenMatch.group(1) ?? parenMatch.group(2) ?? '';
+      return _MarkerInfo(
+        number: _parseQuestionNumber(rawNum),
+        markerKind: 'parenthesized_arabic',
+        rawNumberString: rawNum,
+      );
+    }
+
+    final bareMatch = _bareQuestionMarkerRegex.firstMatch(candidate);
+    if (bareMatch != null) {
+      final rawNum = bareMatch.group(1) ?? '';
+      return _MarkerInfo(
+        number: _parseQuestionNumber(rawNum),
+        markerKind: 'explicit_question',
+        rawNumberString: rawNum,
+      );
+    }
+
+    final explicitMatch = _explicitQuestionMarkerRegex.firstMatch(candidate);
+    if (explicitMatch != null) {
+      final rawNum = explicitMatch.group(1) ?? '';
+      return _MarkerInfo(
+        number: _parseQuestionNumber(rawNum),
+        markerKind: 'punctuated_integer',
+        rawNumberString: rawNum,
+      );
+    }
+
+    final standaloneMatch =
+        _standaloneQuestionMarkerRegex.firstMatch(candidate);
+    if (standaloneMatch != null) {
+      final rawNum = standaloneMatch.group(1) ?? '';
+      return _MarkerInfo(
+        number: _parseQuestionNumber(rawNum),
+        markerKind: 'punctuated_integer',
+        rawNumberString: rawNum,
+      );
+    }
+
+    final numericOnlyMatch =
+        _numericOnlyQuestionMarkerRegex.firstMatch(candidate);
+    if (numericOnlyMatch != null) {
+      final rawNum = numericOnlyMatch.group(1) ?? '';
+      return _MarkerInfo(
+        number: _parseQuestionNumber(rawNum),
+        markerKind: 'plain_integer',
+        rawNumberString: rawNum,
+      );
+    }
+
+    return null;
+  }
+
+  String _determineMarkerKind(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    if (_parenthesizedArabicMarkerRegex.hasMatch(candidate)) {
+      return 'parenthesized_arabic';
+    }
+    if (_bareQuestionMarkerRegex.hasMatch(candidate)) {
+      return 'explicit_question';
+    }
+    if (_explicitQuestionMarkerRegex.hasMatch(candidate) ||
+        _standaloneQuestionMarkerRegex.hasMatch(candidate)) {
+      return 'punctuated_integer';
+    }
+    if (_numericOnlyQuestionMarkerRegex.hasMatch(candidate)) {
+      return 'plain_integer';
+    }
+    return 'unknown';
+  }
+
   OcrRegionField _labelToField(String label) {
     if (RegExp(r'答案|标准答案|参考答案').hasMatch(label)) {
       return OcrRegionField.answer;
@@ -434,24 +880,142 @@ class OcrQuestionRegionizer {
         .trim();
   }
 
-  TextQuestionKind? _readSectionHeadingKind(String text) {
-    final normalized = text
-        .trim()
-        .replaceFirst(RegExp(r'^#{1,6}\s*'), '')
+  String _normalizeQuestionCandidateText(String text) {
+    return _stripLeadingMarkdownStructure(_normalizeText(text));
+  }
+
+  String _stripLeadingMarkdownStructure(String text) {
+    var result = text;
+    while (true) {
+      final quote = _markdownQuotePrefixRegex.firstMatch(result);
+      if (quote != null) {
+        result = result.substring(quote.end);
+        continue;
+      }
+
+      final heading = _markdownHeadingPrefixRegex.firstMatch(result);
+      if (heading != null) {
+        result = result.substring(heading.end);
+        continue;
+      }
+      return result;
+    }
+  }
+
+  bool _hasLeadingMarkdownStructure(String text) {
+    final normalized = _normalizeText(text);
+    return _stripLeadingMarkdownStructure(normalized) != normalized;
+  }
+
+  _SectionHeadingInfo? _readSectionHeading(String text) {
+    final normalized = _normalizeQuestionCandidateText(text)
         .replaceFirst(RegExp(r'^第\s*'), '')
         .replaceAll(RegExp(r'\s+'), '');
-    final match = RegExp(r'^[一二三四五六七八九十]+[、,，.．]?(单项选择题|选择题|填空题|解答题|证明题|计算题)$')
-        .firstMatch(normalized);
-    if (match == null) return null;
 
-    final label = match.group(1) ?? '';
-    if (label.contains('选择')) return TextQuestionKind.choice;
-    if (label.contains('填空')) return TextQuestionKind.fillBlank;
-    return TextQuestionKind.subjective;
+    final prefix = RegExp(
+      r'^([一二三四五六七八九十]+)[、,，\.．]?(.*)$',
+    ).firstMatch(normalized);
+    if (prefix == null) return null;
+
+    const labels = [
+      '单项选择题',
+      '多项选择题',
+      '选择题',
+      '填空题',
+      '解答题',
+      '证明题',
+      '计算题',
+    ];
+    final remainder = prefix.group(2) ?? '';
+    final label = labels.cast<String?>().firstWhere(
+          (candidate) => remainder.startsWith(candidate!),
+          orElse: () => null,
+        );
+    if (label == null) return null;
+
+    final suffix = remainder.substring(label.length);
+    if (!_isValidSectionHeadingSuffix(suffix)) return null;
+
+    final kind = label.contains('选择')
+        ? TextQuestionKind.choice
+        : label.contains('填空')
+            ? TextQuestionKind.fillBlank
+            : TextQuestionKind.subjective;
+    return _SectionHeadingInfo(
+      ordinal: _parseChineseSectionOrdinal(prefix.group(1) ?? ''),
+      kind: kind,
+      expectedQuestionCount: _extractExpectedSectionQuestionCount(suffix),
+    );
+  }
+
+  bool _isSectionHeading(String text) {
+    return _readSectionHeading(text) != null;
+  }
+
+  int? _extractExpectedSectionQuestionCount(String suffix) {
+    final counts = <int>{};
+    for (final match in _sectionQuestionCountRegex.allMatches(suffix)) {
+      final count = _parseQuestionNumber(match.group(1) ?? '');
+      if (count != null && count <= 200) counts.add(count);
+    }
+    return counts.length == 1 ? counts.single : null;
+  }
+
+  int? _parseChineseSectionOrdinal(String raw) {
+    const digits = <String, int>{
+      '一': 1,
+      '二': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+    };
+    if (raw == '十') return 10;
+    if (!raw.contains('十')) return digits[raw];
+
+    final parts = raw.split('十');
+    if (parts.length != 2) return null;
+    final tens = parts.first.isEmpty ? 1 : digits[parts.first];
+    final ones = parts.last.isEmpty ? 0 : digits[parts.last];
+    if (tens == null || ones == null) return null;
+    return tens * 10 + ones;
+  }
+
+  bool _isValidSectionHeadingSuffix(String suffix) {
+    if (suffix.isEmpty) return true;
+
+    if (suffix.startsWith('：') || suffix.startsWith(':')) {
+      return _looksLikeSectionInstruction(suffix.substring(1));
+    }
+
+    final usesChineseBrackets = suffix.startsWith('（') && suffix.endsWith('）');
+    final usesAsciiBrackets = suffix.startsWith('(') && suffix.endsWith(')');
+    if (usesChineseBrackets || usesAsciiBrackets) {
+      return _looksLikeSectionInstruction(
+        suffix.substring(1, suffix.length - 1),
+      );
+    }
+
+    return _looksLikeSectionInstruction(suffix);
+  }
+
+  bool _looksLikeSectionInstruction(String text) {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return false;
+    final hasInstructionSubject =
+        RegExp(r'^(?:本题|每|共|请|其中|答题|作答)').hasMatch(normalized);
+    final hasInstructionDetail =
+        RegExp(r'(?:题|分|选项|作答|要求)').hasMatch(normalized);
+    return hasInstructionSubject && hasInstructionDetail;
   }
 
   bool _looksLikeOption(String text) {
-    return RegExp(r'^\s*(?:\([A-D]\)|[A-D][\.、．])').hasMatch(text);
+    return RegExp(r'^\s*(?:\([A-D]\)|[A-D][\.、．])').hasMatch(
+      _normalizeQuestionCandidateText(text),
+    );
   }
 
   bool _looksLikeStemStart(String text) {
@@ -465,6 +1029,51 @@ class OcrQuestionRegionizer {
     final missing = <int>[];
     for (var i = sorted.first; i <= sorted.last; i++) {
       if (!sorted.contains(i)) missing.add(i);
+    }
+    return missing;
+  }
+
+  int? _expectedQuestionCount(List<_SectionHeadingInfo> sections) {
+    if (sections.isEmpty) return null;
+    for (var index = 0; index < sections.length; index++) {
+      final section = sections[index];
+      if (section.ordinal != index + 1 ||
+          section.expectedQuestionCount == null) {
+        return null;
+      }
+    }
+    return sections.fold<int>(
+      0,
+      (total, section) => total + section.expectedQuestionCount!,
+    );
+  }
+
+  List<int> _tailMissingNumbers(
+    List<int> acceptedNumbers,
+    int? expectedQuestionCount,
+  ) {
+    if (expectedQuestionCount == null || acceptedNumbers.isEmpty) {
+      return const [];
+    }
+    final lastAccepted = acceptedNumbers.reduce((a, b) => a > b ? a : b);
+    if (lastAccepted >= expectedQuestionCount) return const [];
+    return [
+      for (var number = lastAccepted + 1;
+          number <= expectedQuestionCount;
+          number++)
+        number,
+    ];
+  }
+
+  int? _missingQuestionCount(
+    List<int> acceptedNumbers,
+    int? expectedQuestionCount,
+  ) {
+    if (expectedQuestionCount == null) return null;
+    final accepted = acceptedNumbers.toSet();
+    var missing = 0;
+    for (var number = 1; number <= expectedQuestionCount; number++) {
+      if (!accepted.contains(number)) missing++;
     }
     return missing;
   }
@@ -605,11 +1214,13 @@ class _OcrTextUnit {
     required this.block,
     required this.text,
     required this.wasSplit,
+    required this.startsAtBlockStart,
   });
 
   final OcrBlock block;
   final String text;
   final bool wasSplit;
+  final bool startsAtBlockStart;
 }
 
 class _FieldTransition {
@@ -650,4 +1261,46 @@ class _KindInfo {
 
   final TextQuestionKind kind;
   final List<String> diagnostics;
+}
+
+class _SectionHeadingInfo {
+  const _SectionHeadingInfo({
+    required this.ordinal,
+    required this.kind,
+    required this.expectedQuestionCount,
+  });
+
+  final int? ordinal;
+  final TextQuestionKind kind;
+  final int? expectedQuestionCount;
+
+  Map<String, dynamic> toDiagnostics(int sectionIndex) {
+    return {
+      'sectionIndex': sectionIndex,
+      'kind': kind.name,
+      'expectedSectionQuestionCount': expectedQuestionCount,
+    };
+  }
+}
+
+class _ParenthesizedArabicMarker {
+  const _ParenthesizedArabicMarker({
+    required this.number,
+    required this.remainingText,
+  });
+
+  final int number;
+  final String remainingText;
+}
+
+class _MarkerInfo {
+  const _MarkerInfo({
+    required this.number,
+    required this.markerKind,
+    required this.rawNumberString,
+  });
+
+  final int? number;
+  final String markerKind;
+  final String? rawNumberString;
 }

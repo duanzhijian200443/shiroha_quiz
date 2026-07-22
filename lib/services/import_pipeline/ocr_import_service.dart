@@ -1,8 +1,10 @@
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
+import 'import_document_role.dart';
 import 'import_format.dart';
 import 'local_question_assembler.dart';
+import 'ocr_document.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
 import 'single_question_repair_service.dart';
@@ -103,29 +105,61 @@ class OcrImportService {
         );
       }
 
-      final questions = <Map<String, dynamic>>[];
+      final assembled = <_OcrAssemblyCandidate>[];
       var repairRecommendedCount = 0;
       var repairAttemptedCount = 0;
       var repairAppliedCount = 0;
       var rejectedCount = 0;
 
       for (final region in regionized.regions) {
-        var result = _assembler.assemble(region);
-        if (result.repairRecommended && !result.rejected) {
-          repairRecommendedCount++;
-          repairAttemptedCount++;
-          result = await _repairService.repair(
-            region: region.toTextQuestionRegion(),
-            localResult: result,
-          );
-          if (result.diagnostics.contains('ai_repair_applied')) {
-            repairAppliedCount++;
-          }
-        }
-
+        final result = _assembler.assemble(region);
         if (result.rejected) {
           rejectedCount++;
           continue;
+        }
+        assembled.add(_OcrAssemblyCandidate(region: region, result: result));
+      }
+
+      final roleAssessment = _assessDocumentRole(
+        document: document,
+        assembled: assembled,
+        sectionHeadingCount:
+            _readInt(regionized.diagnostics['sectionHeadingCount']),
+      );
+      final isStemOnly = roleAssessment.role == ImportDocumentRole.stemOnly;
+      final questions = <Map<String, dynamic>>[];
+      var repairSkippedForStemOnlyCount = 0;
+      var discardedAnswerFromRepairCount = 0;
+      var clearedAssemblerAnswerCount = 0;
+
+      for (final candidate in assembled) {
+        final region = candidate.region;
+        var result = candidate.result;
+        if (isStemOnly && _hasNonEmptyAnswer(result.question)) {
+          clearedAssemblerAnswerCount++;
+        }
+
+        if (result.repairRecommended && !result.rejected) {
+          repairRecommendedCount++;
+          if (isStemOnly && !_requiresStructuralRepair(region, result)) {
+            repairSkippedForStemOnlyCount++;
+          } else {
+            repairAttemptedCount++;
+            result = await _repairService.repair(
+              region: region.toTextQuestionRegion(),
+              localResult: result,
+            );
+            if (result.diagnostics.contains('ai_repair_applied')) {
+              repairAppliedCount++;
+              if (isStemOnly && _hasAnswerOrExplanation(result.question)) {
+                discardedAnswerFromRepairCount++;
+              }
+            }
+          }
+        }
+
+        if (isStemOnly) {
+          result = _enforceStemOnly(result);
         }
 
         questions.add(_restoreOcrProvenance(result, region));
@@ -144,16 +178,27 @@ class OcrImportService {
       diagnostics.addAll({
         'status': 'used_ocr',
         'assembledQuestionCount': questions.length,
+        'finalQuestionCount': questions.length,
+        ...roleAssessment.toDiagnostics(),
         'repairRecommendedCount': repairRecommendedCount,
+        'repairAttemptCount': repairAttemptedCount,
         'repairAttemptedCount': repairAttemptedCount,
         'repairAppliedCount': repairAppliedCount,
+        'repairSkippedForStemOnlyCount': repairSkippedForStemOnlyCount,
+        'discardedAnswerFromRepairCount': discardedAnswerFromRepairCount,
+        'clearedAssemblerAnswerCount': clearedAssemblerAnswerCount,
+        'finalNonEmptyAnswerCount': questions.where(_hasNonEmptyAnswer).length,
+        'finalNonEmptyExplanationCount':
+            questions.where(_hasNonEmptyExplanation).length,
         'rejectedRegionCount': rejectedCount,
       });
 
       return OcrImportResult(
         usedOcr: true,
         questions: questions,
-        warnings: const [],
+        warnings: roleAssessment.role == ImportDocumentRole.ambiguous
+            ? const ['文档答案结构不明确，请人工复核。']
+            : const [],
         diagnostics: diagnostics,
       );
     } catch (e) {
@@ -188,4 +233,196 @@ class OcrImportService {
     question['diagnostics'] = diagnostics;
     return question;
   }
+
+  _OcrDocumentRoleAssessment _assessDocumentRole({
+    required OcrDocument document,
+    required List<_OcrAssemblyCandidate> assembled,
+    required int? sectionHeadingCount,
+  }) {
+    final questionCount = assembled.length;
+    final nonEmptyStemCount = assembled
+        .where(
+            (item) => _readString(item.result.question['content']).isNotEmpty)
+        .length;
+    final nonEmptyAnswerCount = assembled
+        .where((item) => _hasNonEmptyAnswer(item.result.question))
+        .length;
+    final nonEmptyExplanationCount = assembled
+        .where((item) => _hasNonEmptyExplanation(item.result.question))
+        .length;
+    final markerCounts = _countExplicitMarkers(document.flattenedBlocks);
+    final stemCoverage =
+        questionCount == 0 ? 0.0 : nonEmptyStemCount / questionCount;
+    final answerCoverage =
+        questionCount == 0 ? 0.0 : nonEmptyAnswerCount / questionCount;
+    final explanationCoverage =
+        questionCount == 0 ? 0.0 : nonEmptyExplanationCount / questionCount;
+
+    late final ImportDocumentRole role;
+    late final double confidence;
+    final hasExplicitMarkers =
+        markerCounts.answer > 0 || markerCounts.explanation > 0;
+    final hasStructuredAnswerData =
+        nonEmptyAnswerCount > 0 || nonEmptyExplanationCount > 0;
+
+    if (questionCount == 0 || stemCoverage < 0.8) {
+      role = ImportDocumentRole.ambiguous;
+      confidence = 0.4;
+    } else if (hasExplicitMarkers) {
+      if (hasStructuredAnswerData) {
+        role = ImportDocumentRole.answerBearing;
+        confidence = 0.95;
+      } else {
+        role = ImportDocumentRole.ambiguous;
+        confidence = 0.5;
+      }
+    } else if (explanationCoverage == 0 && answerCoverage <= 0.25) {
+      role = ImportDocumentRole.stemOnly;
+      confidence = answerCoverage == 0 ? 0.95 : 0.8;
+    } else {
+      role = ImportDocumentRole.ambiguous;
+      confidence = 0.55;
+    }
+
+    return _OcrDocumentRoleAssessment(
+      role: role,
+      confidence: confidence,
+      explicitAnswerMarkerCount: markerCounts.answer,
+      explicitExplanationMarkerCount: markerCounts.explanation,
+      questionCount: questionCount,
+      nonEmptyStemCount: nonEmptyStemCount,
+      localNonEmptyAnswerCount: nonEmptyAnswerCount,
+      localNonEmptyExplanationCount: nonEmptyExplanationCount,
+      sectionHeadingCount: sectionHeadingCount ?? 0,
+    );
+  }
+
+  _ExplicitMarkerCounts _countExplicitMarkers(Iterable<OcrBlock> blocks) {
+    var answer = 0;
+    var explanation = 0;
+    final answerPattern = RegExp(
+      r'(?:^|\n)\s*(?:#{1,6}\s+|>\s+)?(?:(?:【\s*(?:标准答案|参考答案|答案)\s*】)\s*|(?:标准答案|参考答案|答案)\s*[:：])',
+      multiLine: true,
+    );
+    final explanationPattern = RegExp(
+      r'(?:^|\n)\s*(?:#{1,6}\s+|>\s+)?(?:(?:【\s*(?:答案解析|解析|分析|详解|解)\s*】)\s*|(?:答案解析|解析|分析|详解|解)\s*[:：])',
+      multiLine: true,
+    );
+    for (final block in blocks) {
+      answer += answerPattern.allMatches(block.text).length;
+      explanation += explanationPattern.allMatches(block.text).length;
+    }
+    return _ExplicitMarkerCounts(answer: answer, explanation: explanation);
+  }
+
+  bool _requiresStructuralRepair(
+    OcrQuestionRegion region,
+    LocalAssemblyResult result,
+  ) {
+    final question = result.question;
+    final type = _readInt(question['type']);
+    final options = question['options'];
+    final optionCount = options is List ? options.length : 0;
+    return region.isCrossPage ||
+        _readString(question['content']).isEmpty ||
+        ((type == 0 || type == 1) && optionCount < 2) ||
+        result.diagnostics.contains('dangling_latex') ||
+        result.diagnostics.contains('empty_content') ||
+        result.diagnostics.contains('choice_options_less_than_2');
+  }
+
+  LocalAssemblyResult _enforceStemOnly(LocalAssemblyResult result) {
+    final question = Map<String, dynamic>.from(result.question)
+      ..['standard_answer'] = ''
+      ..['explanation'] = ''
+      ..['raw_explanation'] = null;
+    final diagnostics = result.diagnostics
+        .where((item) => item != 'missing_answer')
+        .toSet()
+        .toList();
+    final questionDiagnostics = question['diagnostics'];
+    if (questionDiagnostics is List) {
+      question['diagnostics'] = questionDiagnostics
+          .map((item) => item.toString())
+          .where((item) => item != 'missing_answer')
+          .toSet()
+          .toList();
+    }
+    return LocalAssemblyResult(
+      question: question,
+      diagnostics: diagnostics,
+      repairRecommended: false,
+      rejected: result.rejected,
+    );
+  }
+
+  bool _hasNonEmptyAnswer(Map<String, dynamic> question) =>
+      _readString(question['standard_answer']).isNotEmpty;
+
+  bool _hasNonEmptyExplanation(Map<String, dynamic> question) =>
+      _readString(question['explanation']).isNotEmpty ||
+      _readString(question['raw_explanation']).isNotEmpty;
+
+  bool _hasAnswerOrExplanation(Map<String, dynamic> question) =>
+      _hasNonEmptyAnswer(question) || _hasNonEmptyExplanation(question);
+
+  String _readString(Object? value) => value?.toString().trim() ?? '';
+
+  int? _readInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(_readString(value));
+  }
+}
+
+class _OcrAssemblyCandidate {
+  const _OcrAssemblyCandidate({required this.region, required this.result});
+
+  final OcrQuestionRegion region;
+  final LocalAssemblyResult result;
+}
+
+class _ExplicitMarkerCounts {
+  const _ExplicitMarkerCounts(
+      {required this.answer, required this.explanation});
+
+  final int answer;
+  final int explanation;
+}
+
+class _OcrDocumentRoleAssessment {
+  const _OcrDocumentRoleAssessment({
+    required this.role,
+    required this.confidence,
+    required this.explicitAnswerMarkerCount,
+    required this.explicitExplanationMarkerCount,
+    required this.questionCount,
+    required this.nonEmptyStemCount,
+    required this.localNonEmptyAnswerCount,
+    required this.localNonEmptyExplanationCount,
+    required this.sectionHeadingCount,
+  });
+
+  final ImportDocumentRole role;
+  final double confidence;
+  final int explicitAnswerMarkerCount;
+  final int explicitExplanationMarkerCount;
+  final int questionCount;
+  final int nonEmptyStemCount;
+  final int localNonEmptyAnswerCount;
+  final int localNonEmptyExplanationCount;
+  final int sectionHeadingCount;
+
+  Map<String, dynamic> toDiagnostics() => {
+        'documentRole': role.name,
+        'documentRoleConfidence': confidence,
+        'explicitAnswerMarkerCount': explicitAnswerMarkerCount,
+        'explicitExplanationMarkerCount': explicitExplanationMarkerCount,
+        'documentQuestionCount': questionCount,
+        'documentNonEmptyStemCount': nonEmptyStemCount,
+        'localNonEmptyAnswerCount': localNonEmptyAnswerCount,
+        'localNonEmptyExplanationCount': localNonEmptyExplanationCount,
+        'documentSectionHeadingCount': sectionHeadingCount,
+        'requiresReview': role == ImportDocumentRole.ambiguous,
+      };
 }

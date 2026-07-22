@@ -81,7 +81,10 @@ class ImportQuestionFinalSorter {
     final typeCompare = a.typeRank.compareTo(b.typeRank);
     if (typeCompare != 0) return typeCompare;
 
-    if (a.hasReliableQNum && b.hasReliableQNum && a.qNum != null && b.qNum != null) {
+    if (a.hasReliableQNum &&
+        b.hasReliableQNum &&
+        a.qNum != null &&
+        b.qNum != null) {
       final qCompare = a.qNum!.compareTo(b.qNum!);
       if (qCompare != 0) return qCompare;
     }
@@ -164,7 +167,8 @@ int _readTypeRank(dynamic typeValue) {
 }
 
 int? _readQuestionNumber(Map<String, dynamic> question) {
-  final normalized = QuestionIdentity.normalizeQuestionNumber(question['q_num']);
+  final normalized =
+      QuestionIdentity.normalizeQuestionNumber(question['q_num']);
   if (normalized.isEmpty) return null;
   final match = RegExp(r'\d+').firstMatch(normalized);
   if (match == null) return null;
@@ -177,7 +181,8 @@ bool _hasReliableQNum(Map<String, dynamic> question) {
   final hints = meta['riskHints'];
   if (hints is! List || hints.isEmpty) return true;
   for (final hint in hints) {
-    if (ImportQuestionFinalSorter._unreliableQNumHints.contains(hint.toString())) {
+    if (ImportQuestionFinalSorter._unreliableQNumHints
+        .contains(hint.toString())) {
       return false;
     }
   }

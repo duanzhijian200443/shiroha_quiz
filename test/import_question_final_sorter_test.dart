@@ -165,7 +165,12 @@ void main() {
       final input = [
         {'q_num': '1', 'type': 0, 'content': 'has meta', '_import_review': {}},
         {'q_num': '2', 'type': 0, 'content': 'null meta'},
-        {'q_num': '3', 'type': 0, 'content': 'string meta', '_import_review': 'bad'},
+        {
+          'q_num': '3',
+          'type': 0,
+          'content': 'string meta',
+          '_import_review': 'bad'
+        },
       ];
 
       final result = sorter.sort(input);
@@ -182,11 +187,23 @@ void main() {
           };
 
       final input = [
-        {'q_num': '1', 'type': 0, 'content': 'a', '_import_review': metaWithIndices(['bad']),
+        {
+          'q_num': '1',
+          'type': 0,
+          'content': 'a',
+          '_import_review': metaWithIndices(['bad']),
         },
-        {'q_num': '2', 'type': 0, 'content': 'b', '_import_review': metaWithIndices([null]),
+        {
+          'q_num': '2',
+          'type': 0,
+          'content': 'b',
+          '_import_review': metaWithIndices([null]),
         },
-        {'q_num': '3', 'type': 0, 'content': 'c', '_import_review': metaWithIndices([2.0]),
+        {
+          'q_num': '3',
+          'type': 0,
+          'content': 'c',
+          '_import_review': metaWithIndices([2.0]),
         },
       ];
 
@@ -242,7 +259,8 @@ void main() {
       expect(types[2], 3);
     });
 
-    test('negative originalIndices are treated as missing (q_num unreliable)', () {
+    test('negative originalIndices are treated as missing (q_num unreliable)',
+        () {
       // A has originalIndices [-1] → falls back to list index 1
       // B has originalIndices [0]  → sourceOrder = 0
       // Both q_num unreliable → sourceOrder decides: B (0) < A (1)

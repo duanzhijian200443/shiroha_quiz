@@ -93,7 +93,18 @@ void main() {
 
     // Verify bottom sheet title is visible
     expect(find.text('解析诊断报告'), findsOneWidget);
-    expect(find.text('PDF 渲染失败'), findsOneWidget);
-    expect(find.text('corrupted'), findsOneWidget);
+
+    // Verify summary card details
+    expect(find.text('解析失败'), findsWidgets);
+    expect(find.text('异常类型: '), findsWidgets);
+    expect(find.text('Parse failed'), findsWidgets);
+
+    // Tap on technical details
+    await tester.tap(find.text('技术诊断详情'));
+    await tester.pumpAndSettle();
+
+    // Verify technical fields are shown (status: crash)
+    expect(find.text('pdf_render.status'), findsOneWidget);
+    expect(find.text('crash'), findsOneWidget);
   });
 }

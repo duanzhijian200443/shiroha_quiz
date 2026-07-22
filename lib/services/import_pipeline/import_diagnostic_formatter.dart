@@ -1,4 +1,6 @@
 import 'import_diagnostic_message.dart';
+import '../task_manager.dart';
+import 'import_diagnostic_summary.dart';
 
 class ImportDiagnosticFormatter {
   static List<ImportDiagnosticMessage> format({
@@ -232,5 +234,180 @@ class ImportDiagnosticFormatter {
     }
 
     return messages;
+  }
+
+  static final _technicalFieldWhitelist = {
+    'status',
+    'sourceName',
+    'format',
+    'provider',
+    'model',
+    'pageCount',
+    'blockCount',
+    'totalPages',
+    'batchCount',
+    'failedBatchCount',
+    'totalBatches',
+    'expectedCount',
+    'actualCount',
+    'completionRate',
+    'total',
+    'riskyCount',
+    'lowQualityFileCount',
+    'answerCount',
+    'questionCount',
+    'repairCount',
+    'rejectedCount',
+  };
+
+  static ImportDiagnosticSummary summarize(ImportTask task) {
+    final outcome = task.status == TaskStatus.processing
+        ? ImportTaskOutcome.processing
+        : (task.errorMsg != null
+            ? ImportTaskOutcome.failure
+            : (task.parsedData?.isEmpty ?? true)
+                ? ImportTaskOutcome.emptyResult
+                : ImportTaskOutcome.success);
+
+    String outcomeLabel;
+    switch (outcome) {
+      case ImportTaskOutcome.success:
+        outcomeLabel = '解析成功';
+        break;
+      case ImportTaskOutcome.emptyResult:
+        outcomeLabel = '无有效提取内容';
+        break;
+      case ImportTaskOutcome.failure:
+        outcomeLabel = '解析失败';
+        break;
+      case ImportTaskOutcome.processing:
+        outcomeLabel = '正在解析...';
+        break;
+    }
+
+    final mode = task.parseMode ?? 'text';
+    final traceId = task.traceId;
+    final elapsed = task.elapsed;
+    final diags = task.diagnostics ?? const {};
+
+    String? lastSuccessStage;
+    String? failedStage;
+    String? errorType;
+    bool suggestRetry = false;
+    String? userGuidance;
+
+    // Extract whitelist fields
+    final Map<String, String> extractedFields = {};
+    void traverseAndExtract(Map<String, dynamic> data, [String prefix = '']) {
+      for (final entry in data.entries) {
+        if (entry.key == TaskManager.keyTraceId ||
+            entry.key == TaskManager.keyParseMode) continue;
+
+        if (entry.value is Map<String, dynamic>) {
+          traverseAndExtract(entry.value as Map<String, dynamic>,
+              prefix.isEmpty ? entry.key : '$prefix.${entry.key}');
+        } else if (_technicalFieldWhitelist.contains(entry.key)) {
+          extractedFields[prefix.isEmpty ? entry.key : '$prefix.${entry.key}'] =
+              entry.value.toString();
+        }
+      }
+    }
+
+    traverseAndExtract(diags);
+
+    // Stage logic
+    if (mode == 'ocr') {
+      final ocrStatus = _findNestedString(diags, 'status');
+      if (ocrStatus == 'attempted' || ocrStatus == 'used_ocr') {
+        lastSuccessStage = 'OCR 引擎请求';
+      } else if (ocrStatus == 'failed_no_question_regions') {
+        failedStage = '题目区域识别阶段 / Regionizer';
+        userGuidance = 'OCR 已返回文字，但未能识别到有效题目区域。请确保文档包含清晰可见的题目排版或更换排版规范的文档后重试。';
+        suggestRetry = true;
+      } else if (ocrStatus != null && ocrStatus.startsWith('failed_')) {
+        failedStage = 'OCR 请求阶段';
+        userGuidance = '建议检查网络连接或更换 OCR 引擎。';
+        suggestRetry = true;
+      }
+      if (diags.containsKey('qualityGate')) {
+        lastSuccessStage = '质量门禁';
+      } else if (outcome == ImportTaskOutcome.emptyResult && failedStage == null) {
+        failedStage = '提取阶段';
+        userGuidance = 'OCR 成功但未能提取出任何有效题目，建议尝试视觉模式或检查原图清晰度。';
+        suggestRetry = true;
+      }
+    } else if (mode == 'vision') {
+      final pdfCrash = _findNestedString(diags, 'status') == 'crash';
+      if (pdfCrash) {
+        failedStage = 'PDF 渲染';
+        userGuidance = 'PDF 渲染失败，可能是由于文件损坏或加密导致，建议导出为图片后重试。';
+      } else {
+        lastSuccessStage = 'PDF 渲染 / 文件准备';
+      }
+
+      final failedBatches = _findNestedInt(diags, 'failedBatchCount') ?? 0;
+      if (failedBatches > 0) {
+        failedStage = '视觉批次解析';
+        userGuidance = '部分视觉批次失败，建议重试。';
+        suggestRetry = true;
+      }
+
+      if (outcome == ImportTaskOutcome.emptyResult && failedStage == null) {
+        failedStage = '提取阶段';
+        userGuidance = '未能提取出有效题目，建议检查图片内容是否包含规范题型。';
+      }
+    } else {
+      if (outcome == ImportTaskOutcome.emptyResult) {
+        failedStage = '文字检测';
+        userGuidance = '未能检测到有效的文字题型标识。如果文档包含较多图片或排版复杂，建议尝试“OCR 模式”或“视觉模式”。';
+      } else if (outcome == ImportTaskOutcome.success) {
+        lastSuccessStage = '本地解析与组题';
+      }
+    }
+
+    if (task.errorMsg != null) {
+      errorType = task.errorMsg!.split(':').first;
+      if (errorType!.length > 50) {
+        errorType = errorType!.substring(0, 50) + '...';
+      }
+    }
+
+    return ImportDiagnosticSummary(
+      outcome: outcome,
+      outcomeLabel: outcomeLabel,
+      parseMode: mode,
+      traceId: traceId,
+      elapsed: elapsed,
+      lastSuccessStage: lastSuccessStage,
+      failedStage: failedStage,
+      errorType: errorType,
+      suggestRetry: suggestRetry,
+      userGuidance: userGuidance,
+      details: format(warnings: task.warnings, diagnostics: task.diagnostics),
+      technicalFields: extractedFields,
+    );
+  }
+
+  static String? _findNestedString(Map<String, dynamic> data, String key) {
+    if (data.containsKey(key) && data[key] is String)
+      return data[key] as String;
+    for (final v in data.values) {
+      if (v is Map<String, dynamic>) {
+        final res = _findNestedString(v, key);
+        if (res != null) return res;
+      }
+    }
+    return null;
+  }
+
+  static int? _findNestedInt(Map<String, dynamic> data, String key) {
+    if (data.containsKey(key) && data[key] is int) return data[key] as int;
+    for (final v in data.values) {
+      if (v is Map<String, dynamic>) {
+        final res = _findNestedInt(v, key);
+        if (res != null) return res;
+      }
+    }
+    return null;
   }
 }

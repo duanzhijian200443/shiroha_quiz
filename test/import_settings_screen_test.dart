@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/ui/pages/import_settings_screen.dart';
@@ -10,6 +11,7 @@ void main() {
     ThemeData? theme,
     Size size = const Size(900, 1400),
     TextScaler textScaler = TextScaler.noScaling,
+    ImportSettingsScreen screen = const ImportSettingsScreen(),
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -23,7 +25,7 @@ void main() {
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
           child: child!,
         ),
-        home: const ImportSettingsScreen(),
+        home: screen,
       ),
     );
     await tester.pumpAndSettle();
@@ -153,5 +155,254 @@ void main() {
     expect(find.text('视觉（推荐）'), findsOneWidget);
     expect(find.text('OCR（扫描）'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('text mode disables camera and gallery but allows clipboard',
+      (tester) async {
+    await pumpScreen(tester);
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    final camera = tester.widget<ElevatedButton>(
+      find.byKey(const ValueKey<String>('import-camera-button')),
+    );
+    final gallery = tester.widget<ElevatedButton>(
+      find.byKey(const ValueKey<String>('import-gallery-button')),
+    );
+    final clipboard = tester.widget<OutlinedButton>(
+      find.byKey(const ValueKey<String>('import-clipboard-button')),
+    );
+    final cameraSemantics = tester.getSemantics(
+      find.byKey(const ValueKey<String>('import-camera-button')),
+    );
+
+    expect(camera.onPressed, isNull);
+    expect(gallery.onPressed, isNull);
+    expect(clipboard.onPressed, isNotNull);
+    expect(
+      cameraSemantics.flagsCollection.isEnabled == ui.Tristate.isFalse,
+      isTrue,
+    );
+  });
+
+  testWidgets('vision mode enables image entries and disables clipboard',
+      (tester) async {
+    await pumpScreen(tester);
+
+    expect(
+      tester
+          .widget<ElevatedButton>(
+            find.byKey(const ValueKey<String>('import-camera-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<ElevatedButton>(
+            find.byKey(const ValueKey<String>('import-gallery-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey<String>('import-clipboard-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+    final clipboardSemantics = tester.getSemantics(
+      find.byKey(const ValueKey<String>('import-clipboard-button')),
+    );
+    expect(
+      clipboardSemantics.flagsCollection.isEnabled == ui.Tristate.isFalse,
+      isTrue,
+    );
+  });
+
+  testWidgets('OCR mode enables image entries and disables clipboard',
+      (tester) async {
+    await pumpScreen(tester);
+    await tester.tap(find.text('OCR（扫描）'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<ElevatedButton>(
+            find.byKey(const ValueKey<String>('import-camera-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<ElevatedButton>(
+            find.byKey(const ValueKey<String>('import-gallery-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey<String>('import-clipboard-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('disabled image entry neither picks an image nor dispatches',
+      (tester) async {
+    var pickCalls = 0;
+    var dispatchCalls = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickImage: (source) async {
+          pickCalls++;
+          return null;
+        },
+        taskDispatcher: (source, parseTask) {
+          dispatchCalls++;
+        },
+      ),
+    );
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-camera-button')),
+    );
+    await tester.pump();
+
+    expect(pickCalls, 0);
+    expect(dispatchCalls, 0);
+  });
+
+  testWidgets('vision mode rejects ZIP DOCX TXT and MD as one selection',
+      (tester) async {
+    var dispatchCalls = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'archive.zip', path: 'archive.zip', size: 0),
+          PlatformFile(name: 'paper.docx', path: 'paper.docx', size: 0),
+          PlatformFile(name: 'notes.txt', path: 'notes.txt', size: 0),
+          PlatformFile(name: 'quiz.md', path: 'quiz.md', size: 0),
+        ]),
+        taskDispatcher: (source, parseTask) {
+          dispatchCalls++;
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(dispatchCalls, 0);
+    expect(
+      find.textContaining('视觉模式不支持 ZIP、DOCX 或纯文本文件'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('archive.zip'), findsOneWidget);
+    expect(find.textContaining('paper.docx'), findsOneWidget);
+    expect(find.textContaining('notes.txt'), findsOneWidget);
+    expect(find.textContaining('quiz.md'), findsOneWidget);
+  });
+
+  testWidgets('OCR mode rejects files other than PDF PNG and JPG',
+      (tester) async {
+    var dispatchCalls = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'paper.docx', path: 'paper.docx', size: 0),
+        ]),
+        taskDispatcher: (source, parseTask) {
+          dispatchCalls++;
+        },
+      ),
+    );
+    await tester.tap(find.text('OCR（扫描）'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(dispatchCalls, 0);
+    expect(
+      find.textContaining('OCR 模式仅支持 PDF、PNG 和 JPG/JPEG'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('mixed compatible and incompatible files are rejected together',
+      (tester) async {
+    var dispatchCalls = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'scan.pdf', path: 'scan.pdf', size: 0),
+          PlatformFile(name: 'notes.txt', path: 'notes.txt', size: 0),
+        ]),
+        taskDispatcher: (source, parseTask) {
+          dispatchCalls++;
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(dispatchCalls, 0);
+    expect(find.textContaining('notes.txt'), findsOneWidget);
+  });
+
+  testWidgets('text mode rejects images without changing the selected mode',
+      (tester) async {
+    var dispatchCalls = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
+        ]),
+        taskDispatcher: (source, parseTask) {
+          dispatchCalls++;
+        },
+      ),
+    );
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pumpAndSettle();
+
+    final textSemantics = tester.getSemantics(
+      find.byKey(const ValueKey<String>('import-parse-mode-text')),
+    );
+    expect(dispatchCalls, 0);
+    expect(
+      find.textContaining('文本模式不支持图片，请改用视觉或 OCR 模式'),
+      findsOneWidget,
+    );
+    expect(
+      textSemantics.flagsCollection.isSelected == ui.Tristate.isTrue,
+      isTrue,
+    );
   });
 }
