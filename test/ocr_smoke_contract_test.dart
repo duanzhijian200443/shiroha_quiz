@@ -11,7 +11,6 @@ void main() {
     test('maps only safe existing OCR diagnostics without fabricated zeros',
         () {
       final report = buildOcrSmokeIndependentParseReport(
-        fileName: 'safe.pdf',
         durationMs: 42,
         result: OcrImportResult(
           usedOcr: true,
@@ -101,7 +100,6 @@ void main() {
 
     test('maps candidate trace fields when they are provided', () {
       final report = buildOcrSmokeIndependentParseReport(
-        fileName: 'trace.pdf',
         durationMs: 10,
         result: OcrImportResult(
           usedOcr: true,
@@ -138,7 +136,6 @@ void main() {
 
     test('reports unavailable diagnostics as null', () {
       final report = buildOcrSmokeIndependentParseReport(
-        fileName: 'safe.pdf',
         durationMs: 1,
         result: const OcrImportResult(
           usedOcr: false,
@@ -163,7 +160,6 @@ void main() {
 
     test('diagnostic report does not forward nested sensitive fields', () {
       final report = buildOcrSmokeIndependentParseReport(
-        fileName: 'safe.pdf',
         durationMs: 1,
         result: const OcrImportResult(
           usedOcr: true,
@@ -192,11 +188,137 @@ void main() {
       expect(output, isNot(contains('PRIVATE_PROVIDER_BODY')));
       expect(output, isNot(contains('PRIVATE_AUTHORIZATION')));
       expect(output, isNot(contains(r'C:\private')));
+      expect(report, isNot(contains('fileName')));
+    });
+
+    test('normalizes all supported Unicode PDF path forms to one file', () {
+      final repository = Directory.systemTemp.createTempSync(
+        'ocr-smoke-unicode-',
+      );
+      addTearDown(() => repository.deleteSync(recursive: true));
+      final pdf = File(
+        '${repository.path}${Platform.pathSeparator}scratch'
+        '${Platform.pathSeparator}test_pdfs${Platform.pathSeparator}fixture'
+        '${Platform.pathSeparator}中文试卷.pdf',
+      )..createSync(recursive: true);
+      pdf.writeAsBytesSync(const [0x25, 0x50, 0x44, 0x46]);
+
+      final shortPath = resolveOcrSmokePdfPath(
+        r'fixture\中文试卷.pdf',
+        repositoryRoot: repository.path,
+      );
+      final repositoryRelativePath = resolveOcrSmokePdfPath(
+        r'scratch\test_pdfs\fixture\中文试卷.pdf',
+        repositoryRoot: repository.path,
+      );
+      final absolutePath = resolveOcrSmokePdfPath(
+        pdf.path,
+        repositoryRoot: repository.path,
+      );
+
+      expect(shortPath, absolutePath);
+      expect(repositoryRelativePath, absolutePath);
+      expect(absolutePath, contains('中文试卷.pdf'));
+    });
+
+    test('classifies PDF preflight failures before provider execution', () {
+      final repository = Directory.systemTemp.createTempSync(
+        'ocr-smoke-preflight-',
+      );
+      addTearDown(() => repository.deleteSync(recursive: true));
+      Directory(
+        '${repository.path}${Platform.pathSeparator}scratch'
+        '${Platform.pathSeparator}test_pdfs',
+      ).createSync(recursive: true);
+
+      expect(
+        () => resolveOcrSmokePdfPath(
+          r'math\single\missing.pdf',
+          repositoryRoot: repository.path,
+        ),
+        throwsA(
+          isA<OcrSmokePreflightException>().having(
+            (error) => error.status,
+            'status',
+            'pdf_not_found',
+          ),
+        ),
+      );
+      expect(
+        () => resolveOcrSmokePdfPath(
+          '${repository.parent.path}${Platform.pathSeparator}outside.pdf',
+          repositoryRoot: repository.path,
+        ),
+        throwsA(
+          isA<OcrSmokePreflightException>().having(
+            (error) => error.status,
+            'status',
+            'pdf_outside_allowed_root',
+          ),
+        ),
+      );
+    });
+
+    test('classifies provider and regionizer failures by safe type', () {
+      expect(
+        classifyOcrSmokeResultFailure(
+          const OcrImportResult(
+            usedOcr: false,
+            questions: [],
+            warnings: [],
+            diagnostics: {
+              'status': 'failed_request',
+              'errorType': 'ZhipuOcrAuthenticationException',
+            },
+          ),
+        ),
+        const OcrSmokeFailure('provider', 'authentication_error'),
+      );
+      expect(
+        classifyOcrSmokeResultFailure(
+          const OcrImportResult(
+            usedOcr: false,
+            questions: [],
+            warnings: [],
+            diagnostics: {
+              'status': 'failed_request',
+              'errorType': 'ZhipuOcrResponseFormatException',
+            },
+          ),
+        ),
+        const OcrSmokeFailure('provider', 'response_format_error'),
+      );
+      expect(
+        classifyOcrSmokeResultFailure(
+          const OcrImportResult(
+            usedOcr: false,
+            questions: [],
+            warnings: [],
+            diagnostics: {'status': 'failed_no_question_regions'},
+          ),
+        ),
+        const OcrSmokeFailure('regionizer', 'no_question_regions'),
+      );
+      expect(
+        classifyOcrSmokeResultFailure(
+          const OcrImportResult(
+            usedOcr: false,
+            questions: [],
+            warnings: [],
+            diagnostics: {
+              'status': 'failed_request',
+              'errorType': 'FileSystemException',
+            },
+          ),
+        ),
+        const OcrSmokeFailure('preflight', 'file_read_error'),
+      );
     });
 
     Future<Map<String, dynamic>> runSmokeTest(
       List<String> args, {
       Map<String, String>? env,
+      String? repositoryRoot,
       required int expectedExitCode,
       required void Function(List<Map<String, dynamic>> jsonLines) verify,
     }) async {
@@ -213,6 +335,7 @@ void main() {
           }
         },
         environment: env ?? {'SHIROHA_OCR_API_KEY': 'fake-key-for-test'},
+        repositoryRoot: repositoryRoot,
       );
 
       expect(exitCode, expectedExitCode);
@@ -228,8 +351,8 @@ void main() {
         verify: (jsonLines) {
           expect(jsonLines, isNotEmpty);
           final json = jsonLines.last;
-          expect(json['stage'], 'failed');
-          expect(json['status'], 'no_pdf_provided');
+          expect(json['stage'], 'launcher');
+          expect(json['status'], 'invalid_pdf_argument');
         },
       );
     });
@@ -271,8 +394,8 @@ void main() {
         verify: (jsonLines) {
           expect(jsonLines, isNotEmpty);
           final json = jsonLines.last;
-          expect(json['stage'], 'failed');
-          expect(json['status'], 'invalid_arguments');
+          expect(json['stage'], 'launcher');
+          expect(json['status'], 'invalid_pdf_argument');
         },
       );
     });
@@ -288,7 +411,7 @@ void main() {
             'apiKeyPresent': false,
           });
           final json = jsonLines.last;
-          expect(json['stage'], 'failed');
+          expect(json['stage'], 'launcher');
           expect(json['status'], 'missing_api_key');
           expect(
             jsonLines.where((line) => line['stage'] == 'independent_parse'),
@@ -329,13 +452,24 @@ void main() {
       );
     });
 
-    test('rejects absolute paths', () async {
+    test('accepts absolute paths under the allowed root', () async {
+      final repository = Directory.systemTemp.createTempSync(
+        'ocr-smoke-absolute-',
+      );
+      addTearDown(() => repository.deleteSync(recursive: true));
+      final pdf = File(
+        '${repository.path}${Platform.pathSeparator}scratch'
+        '${Platform.pathSeparator}test_pdfs${Platform.pathSeparator}empty.pdf',
+      )..createSync(recursive: true);
+
       await runSmokeTest(
-        ['--pdf=C:/fake.pdf'],
+        ['--pdf=${pdf.path}'],
+        repositoryRoot: repository.path,
         expectedExitCode: 1,
         verify: (jsonLines) {
           final json = jsonLines.last;
-          expect(json['status'], 'absolute_path_rejected');
+          expect(json['stage'], 'preflight');
+          expect(json['status'], 'file_read_error');
         },
       );
     });
@@ -346,7 +480,7 @@ void main() {
         expectedExitCode: 1,
         verify: (jsonLines) {
           final json = jsonLines.last;
-          expect(json['status'], 'path_traversal_rejected');
+          expect(json['status'], 'pdf_outside_allowed_root');
         },
       );
     });
@@ -357,53 +491,51 @@ void main() {
         expectedExitCode: 1,
         verify: (jsonLines) {
           final json = jsonLines.last;
-          expect(json['status'], 'non_pdf_rejected');
+          expect(json['stage'], 'launcher');
+          expect(json['status'], 'invalid_pdf_argument');
         },
       );
     });
 
-    test('rejects targets outside the root directory', () async {
+    test('reports missing PDF as preflight rather than provider failure',
+        () async {
       await runSmokeTest(
         ['--pdf=math/single/missing.pdf'],
         expectedExitCode: 1,
         verify: (jsonLines) {
-          final parseJson = jsonLines[1];
-          expect(parseJson['stage'], 'independent_parse');
-          expect(parseJson['status'], 'failed_unhandled_exception');
-          expect(parseJson['causeType'], 'FileSystemException');
-
-          final endJson = jsonLines[2];
-          expect(endJson['stage'], 'failed');
-          expect(endJson['status'], 'provider_error');
+          final json = jsonLines.last;
+          expect(json['stage'], 'preflight');
+          expect(json['status'], 'pdf_not_found');
+          expect(
+            jsonLines.where((line) => line['stage'] == 'provider'),
+            isEmpty,
+          );
         },
       );
     });
 
-    test('single file parameter creates only an independent task', () async {
+    test('single missing file stops during preflight', () async {
       await runSmokeTest(
         ['--pdf=math/single/missing.pdf'],
         expectedExitCode: 1,
         verify: (jsonLines) {
-          expect(jsonLines.length, 3);
+          expect(jsonLines.length, 2);
           expect(jsonLines[0]['stage'], 'preflight');
-          expect(jsonLines[1]['stage'], 'independent_parse');
-          expect(jsonLines[2]['stage'], 'failed');
+          expect(jsonLines[1]['stage'], 'preflight');
         },
       );
     });
 
-    test(
-        'double file parameters produce two independent stages and one combined stage',
+    test('double file parameters are accepted before preflight failure',
         () async {
       await runSmokeTest(
         ['--pdf=math/single/missing1.pdf', '--pdf=math/single/missing2.pdf'],
         expectedExitCode: 1,
         verify: (jsonLines) {
-          expect(jsonLines.length, 4);
+          expect(jsonLines.length, 2);
           expect(jsonLines[0]['stage'], 'preflight');
-          expect(jsonLines[1]['stage'], 'independent_parse');
-          expect(jsonLines[2]['stage'], 'independent_parse');
-          expect(jsonLines[3]['stage'], 'failed');
+          expect(jsonLines[1]['stage'], 'preflight');
+          expect(jsonLines[1]['status'], 'pdf_not_found');
         },
       );
     });
@@ -474,27 +606,57 @@ void main() {
       expect(output, isNotEmpty);
     });
 
-    test('PowerShell launcher keeps API Key out of command-line arguments', () {
+    test('PowerShell launcher preserves credential and Unicode boundaries', () {
       final source = File('tool/run_ocr_smoke.ps1').readAsStringSync();
 
+      expect(
+        source,
+        isNot(contains(r'[Parameter(Mandatory = $true, Position = 0)]')),
+      );
+      expect(source, contains(r'[switch]$UseSavedAppKey'));
+      expect(source, contains(r'[switch]$SkipBuild'));
       expect(source, contains('Read-Host'));
       expect(source, contains('-AsSecureString'));
       expect(source, contains('SHIROHA_OCR_API_KEY'));
       expect(source, contains('ZeroFreeBSTR'));
-      expect(source, contains("EnvironmentVariables['SHIROHA_OCR_API_KEY']"));
+      expect(source, contains("Environment['SHIROHA_OCR_API_KEY']"));
       expect(
         source,
-        contains("EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')"),
+        contains("Environment.Remove('SHIROHA_OCR_API_KEY')"),
       );
-      expect(source, contains(r'$process.Kill()'));
+      expect(source, contains('Resolve-Path -LiteralPath'));
+      expect(source, contains('ConvertTo-WindowsCommandLineArgument'));
+      expect(source, contains('Join-WindowsCommandLine'));
+      expect(source, contains('saved_api_key_unavailable'));
+      expect(source, contains('taskkill.exe'));
+      expect(source, isNot(contains('Kill(\$true)')));
+      expect(source, isNot(contains('ToHexString')));
+      expect(source, isNot(contains('.ArgumentList')));
       expect(source, isNot(contains('SetEnvironmentVariable')));
       expect(source, isNot(contains('--dart-define')));
       expect(source, isNot(contains('--api-key')));
       expect(source, isNot(contains('flutter run')));
-      expect(source,
-          contains("flutter build windows --release -t tool/ocr_smoke.dart"));
+      expect(
+        source,
+        contains(r'$startInfo.Arguments = Join-WindowsCommandLine'),
+      );
+      expect(source.toLowerCase(), isNot(contains('cmd.exe')));
+      expect(source, contains('flutter_tools.dart'));
       expect(source, contains(r'$startInfo.FileName = $executablePath'));
       expect(source, contains('[System.Diagnostics.Process]::Start'));
+      expect(
+        source,
+        contains(
+          r"$buildStartInfo.Environment.Remove('SHIROHA_OCR_API_KEY')",
+        ),
+      );
+
+      final environmentCheck = source.indexOf(
+        r'$env:SHIROHA_OCR_API_KEY',
+      );
+      final prompt = source.indexOf('Read-Host');
+      expect(environmentCheck, greaterThanOrEqualTo(0));
+      expect(environmentCheck, lessThan(prompt));
     });
   });
 }

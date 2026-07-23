@@ -11,6 +11,130 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
+class OcrSmokePreflightException implements Exception {
+  const OcrSmokePreflightException(this.status, this.causeType);
+
+  final String status;
+  final String causeType;
+}
+
+class OcrSmokeFailure {
+  const OcrSmokeFailure(this.stage, this.status);
+
+  final String stage;
+  final String status;
+
+  @override
+  bool operator ==(Object other) =>
+      other is OcrSmokeFailure &&
+      other.stage == stage &&
+      other.status == status;
+
+  @override
+  int get hashCode => Object.hash(stage, status);
+}
+
+String resolveOcrSmokePdfPath(
+  String pdfArgument, {
+  required String repositoryRoot,
+}) {
+  final rawPath = pdfArgument.trim();
+  if (rawPath.isEmpty || p.extension(rawPath).toLowerCase() != '.pdf') {
+    throw const OcrSmokePreflightException(
+      'invalid_pdf_argument',
+      'InvalidPdfArgument',
+    );
+  }
+
+  final allowedRoot = p.normalize(
+    p.absolute(p.join(repositoryRoot, 'scratch', 'test_pdfs')),
+  );
+  final rawSegments = p.split(p.normalize(rawPath));
+  if (rawSegments.contains('..')) {
+    throw const OcrSmokePreflightException(
+      'pdf_outside_allowed_root',
+      'PdfOutsideAllowedRoot',
+    );
+  }
+
+  final isRepositoryRelative = rawSegments.length >= 2 &&
+      rawSegments[0].toLowerCase() == 'scratch' &&
+      rawSegments[1].toLowerCase() == 'test_pdfs';
+  final candidate = p.normalize(
+    p.isAbsolute(rawPath)
+        ? rawPath
+        : p.join(isRepositoryRelative ? repositoryRoot : allowedRoot, rawPath),
+  );
+  if (!p.isWithin(allowedRoot, candidate)) {
+    throw const OcrSmokePreflightException(
+      'pdf_outside_allowed_root',
+      'PdfOutsideAllowedRoot',
+    );
+  }
+
+  final entityType = FileSystemEntity.typeSync(candidate, followLinks: true);
+  if (entityType == FileSystemEntityType.notFound) {
+    throw const OcrSmokePreflightException(
+      'pdf_not_found',
+      'FileSystemException',
+    );
+  }
+  if (entityType != FileSystemEntityType.file) {
+    throw const OcrSmokePreflightException(
+      'file_read_error',
+      'FileSystemException',
+    );
+  }
+
+  try {
+    final resolvedRoot = Directory(allowedRoot).resolveSymbolicLinksSync();
+    final resolvedFile = File(candidate).resolveSymbolicLinksSync();
+    if (!p.isWithin(resolvedRoot, resolvedFile)) {
+      throw const OcrSmokePreflightException(
+        'pdf_outside_allowed_root',
+        'PdfOutsideAllowedRoot',
+      );
+    }
+    final file = File(resolvedFile);
+    if (file.lengthSync() <= 0) {
+      throw const OcrSmokePreflightException(
+        'file_read_error',
+        'FileSystemException',
+      );
+    }
+    final handle = file.openSync(mode: FileMode.read);
+    handle.closeSync();
+    return resolvedFile;
+  } on OcrSmokePreflightException {
+    rethrow;
+  } on FileSystemException {
+    throw const OcrSmokePreflightException(
+      'file_read_error',
+      'FileSystemException',
+    );
+  }
+}
+
+OcrSmokeFailure? classifyOcrSmokeResultFailure(OcrImportResult result) {
+  final status = result.diagnostics['status'];
+  if (status == 'failed_no_question_regions') {
+    return const OcrSmokeFailure('regionizer', 'no_question_regions');
+  }
+  if (status != 'failed_request') return null;
+
+  return switch (result.diagnostics['errorType']) {
+    'FileSystemException' ||
+    'PathNotFoundException' =>
+      const OcrSmokeFailure('preflight', 'file_read_error'),
+    'ZhipuOcrAuthenticationException' =>
+      const OcrSmokeFailure('provider', 'authentication_error'),
+    'ZhipuOcrResponseFormatException' ||
+    'FormatException' =>
+      const OcrSmokeFailure('provider', 'response_format_error'),
+    _ => const OcrSmokeFailure('provider', 'request_error'),
+  };
+}
+
 class _StubAiEngineRepository extends AiEngineRepository {
   _StubAiEngineRepository(this.profile);
   final AiEngineProfile profile;
@@ -23,7 +147,6 @@ class _StubAiEngineRepository extends AiEngineRepository {
 }
 
 Map<String, dynamic> buildOcrSmokeIndependentParseReport({
-  required String fileName,
   required OcrImportResult result,
   required int durationMs,
 }) {
@@ -32,7 +155,6 @@ Map<String, dynamic> buildOcrSmokeIndependentParseReport({
   final regionizerDiagnostics = diagnostics['regionizer'] as Map?;
 
   return {
-    'fileName': fileName,
     'stage': 'independent_parse',
     'status': diagnostics['status'],
     'usedOcr': result.usedOcr,
@@ -110,14 +232,20 @@ Future<int> runOcrSmoke(
   List<String> args,
   void Function(String) printLine, {
   required Map<String, String> environment,
+  String? repositoryRoot,
 }) async {
   void printJson(Map<String, dynamic> jsonMap) {
     printLine(jsonEncode(jsonMap));
   }
 
-  int exitWithError(String status, {String? causeType, int code = 1}) {
+  int exitWithError(
+    String status, {
+    String stage = 'failed',
+    String? causeType,
+    int code = 1,
+  }) {
     printJson({
-      'stage': 'failed',
+      'stage': stage,
       'status': status,
       if (causeType != null) 'causeType': causeType,
     });
@@ -158,42 +286,49 @@ Future<int> runOcrSmoke(
   }
 
   if (pdfArgs.isEmpty) {
-    return exitWithError('no_pdf_provided');
+    return exitWithError(
+      'invalid_pdf_argument',
+      stage: 'launcher',
+      causeType: 'InvalidPdfArgument',
+    );
   }
   if (pdfArgs.length > 2) {
     return exitWithError('invalid_arguments');
   }
 
   if (!apiKeyPresent) {
-    return exitWithError('missing_api_key');
+    return exitWithError(
+      'missing_api_key',
+      stage: 'launcher',
+      causeType: 'MissingApiKey',
+    );
   }
   final baseUrl = environment['SHIROHA_OCR_BASE_URL'] ??
       'https://open.bigmodel.cn/api/paas';
 
-  final rootDir =
-      p.canonicalize(p.join(Directory.current.path, 'scratch', 'test_pdfs'));
-
   final validPaths = <String>[];
   for (final String pdfArg in pdfArgs) {
-    if (pdfArg.trim().isEmpty) {
-      return exitWithError('invalid_arguments');
+    try {
+      validPaths.add(
+        resolveOcrSmokePdfPath(
+          pdfArg,
+          repositoryRoot: repositoryRoot ?? Directory.current.path,
+        ),
+      );
+    } on OcrSmokePreflightException catch (error) {
+      return exitWithError(
+        error.status,
+        stage:
+            error.status == 'invalid_pdf_argument' ? 'launcher' : 'preflight',
+        causeType: error.causeType,
+      );
     }
-    if (p.isAbsolute(pdfArg)) {
-      return exitWithError('absolute_path_rejected');
-    }
-    if (pdfArg.contains('..')) {
-      return exitWithError('path_traversal_rejected');
-    }
-    if (!pdfArg.toLowerCase().endsWith('.pdf')) {
-      return exitWithError('non_pdf_rejected');
-    }
-
-    final fullPath = p.canonicalize(p.join(rootDir, pdfArg));
-    if (!p.isWithin(rootDir, fullPath)) {
-      return exitWithError('path_outside_root_rejected');
-    }
-    validPaths.add(fullPath);
   }
+  printJson({
+    'stage': 'preflight',
+    'pdfCount': validPaths.length,
+    'pdfReadable': true,
+  });
 
   final profile = AiEngineProfile(
     id: 'smoke-test-ocr',
@@ -201,7 +336,7 @@ Future<int> runOcrSmoke(
     name: 'smoke-test-zhipu',
     apiKey: apiKey,
     baseUrl: baseUrl,
-    modelName: 'glm-4v',
+    modelName: ZhipuOcrClient.model,
     temperature: 0.0,
     reasoningEffort: '',
     isActive: true,
@@ -217,7 +352,7 @@ Future<int> runOcrSmoke(
   );
 
   final batches = <MultiFileQuestionBatch>[];
-  var hasProviderError = false;
+  var hasFailure = false;
 
   for (int i = 0; i < validPaths.length; i++) {
     final fullPath = validPaths[i];
@@ -225,10 +360,6 @@ Future<int> runOcrSmoke(
     final stopwatch = Stopwatch()..start();
 
     try {
-      if (!File(fullPath).existsSync()) {
-        throw FileSystemException('File not found', fullPath);
-      }
-
       final result = await ocrService.tryParse(
         filePath: fullPath,
         sourceName: fileName,
@@ -238,7 +369,6 @@ Future<int> runOcrSmoke(
 
       if (result == null) {
         printJson({
-          'fileName': fileName,
           'stage': 'independent_parse',
           'status': 'skipped_null',
           'durationMs': stopwatch.elapsedMilliseconds,
@@ -247,33 +377,51 @@ Future<int> runOcrSmoke(
       }
 
       final diagnostics = result.diagnostics;
+      final classifiedFailure = classifyOcrSmokeResultFailure(result);
+      if (classifiedFailure != null) {
+        hasFailure = true;
+        printJson({
+          'stage': classifiedFailure.stage,
+          'status': classifiedFailure.status,
+          if (diagnostics['errorType'] case final String errorType)
+            'causeType': errorType,
+          'durationMs': stopwatch.elapsedMilliseconds,
+        });
+        continue;
+      }
       printJson(buildOcrSmokeIndependentParseReport(
-        fileName: fileName,
         result: result,
         durationMs: stopwatch.elapsedMilliseconds,
       ));
-
-      if (diagnostics['status'] == 'failed_request') {
-        hasProviderError = true;
-      }
 
       batches.add(MultiFileQuestionBatch(
         fileIndex: i,
         questions: result.questions,
       ));
-    } catch (e) {
-      hasProviderError = true;
+    } on FileSystemException catch (error) {
+      stopwatch.stop();
+      hasFailure = true;
       printJson({
-        'fileName': fileName,
-        'stage': 'independent_parse',
-        'status': 'failed_unhandled_exception',
-        'causeType': e.runtimeType.toString(),
+        'stage': 'preflight',
+        'status': 'file_read_error',
+        'causeType': error.runtimeType.toString(),
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
+    } catch (error) {
+      stopwatch.stop();
+      hasFailure = true;
+      final responseFormat =
+          error is FormatException || error is ZhipuOcrResponseFormatException;
+      printJson({
+        'stage': 'provider',
+        'status': responseFormat ? 'response_format_error' : 'request_error',
+        'causeType': error.runtimeType.toString(),
         'durationMs': stopwatch.elapsedMilliseconds,
       });
     }
   }
 
-  if (validPaths.length == 2 && !hasProviderError) {
+  if (validPaths.length == 2 && !hasFailure) {
     try {
       final mergeService = const MultiFileQuestionMergeService();
       final mergeResult = mergeService.merge(batches);
@@ -294,7 +442,7 @@ Future<int> runOcrSmoke(
         'blocked': metrics['blocked'],
       });
     } catch (e) {
-      hasProviderError = true;
+      hasFailure = true;
       printJson({
         'stage': 'combined_merge',
         'status': 'failed_merge_exception',
@@ -303,13 +451,11 @@ Future<int> runOcrSmoke(
     }
   }
 
-  if (hasProviderError) {
-    return exitWithError('provider_error');
-  } else {
-    printJson({
-      'stage': 'completed',
-      'status': 'success',
-    });
-    return 0;
-  }
+  if (hasFailure) return 1;
+
+  printJson({
+    'stage': 'completed',
+    'status': 'success',
+  });
+  return 0;
 }

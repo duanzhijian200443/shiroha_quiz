@@ -7,6 +7,18 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../import_pipeline/ocr_document.dart';
 
+class ZhipuOcrAuthenticationException implements Exception {
+  const ZhipuOcrAuthenticationException();
+}
+
+class ZhipuOcrRequestException implements Exception {
+  const ZhipuOcrRequestException();
+}
+
+class ZhipuOcrResponseFormatException implements Exception {
+  const ZhipuOcrResponseFormatException();
+}
+
 class ZhipuOcrClient {
   const ZhipuOcrClient({
     http.Client? httpClient,
@@ -122,21 +134,28 @@ class ZhipuOcrClient {
           .timeout(timeout);
 
       if (response.statusCode != 200) {
-        throw Exception(
-          'GLM-OCR layout parsing failed: ${response.statusCode} - ${response.body}',
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          throw const ZhipuOcrAuthenticationException();
+        }
+        throw const ZhipuOcrRequestException();
+      }
+
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map) {
+          throw const ZhipuOcrResponseFormatException();
+        }
+
+        return OcrDocument.fromLayoutParsingResponse(
+          Map<String, dynamic>.from(decoded),
+          sourceName: sourceName,
+          pageOffset: pageOffset,
         );
+      } on ZhipuOcrResponseFormatException {
+        rethrow;
+      } on FormatException {
+        throw const ZhipuOcrResponseFormatException();
       }
-
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map) {
-        throw FormatException('GLM-OCR returned non-object JSON.');
-      }
-
-      return OcrDocument.fromLayoutParsingResponse(
-        Map<String, dynamic>.from(decoded),
-        sourceName: sourceName,
-        pageOffset: pageOffset,
-      );
     } finally {
       if (_httpClient == null) {
         client.close();

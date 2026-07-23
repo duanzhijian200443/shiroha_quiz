@@ -1,8 +1,25 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
 void main() {
+  const profile = AiEngineProfile(
+    id: 'test-ocr',
+    engineType: AiEngineType.ocr,
+    name: 'Test OCR',
+    apiKey: 'fixture-api-key',
+    baseUrl: 'https://example.test/api/paas',
+    modelName: ZhipuOcrClient.model,
+    temperature: 0,
+    reasoningEffort: '',
+    isActive: true,
+  );
+
   group('ZhipuOcrClient / OcrDocument', () {
     test('buildLayoutParsingUrl appends the right endpoint suffix', () {
       expect(
@@ -61,6 +78,49 @@ void main() {
       expect(document.pages.first.blocks.first.type, 'text');
       expect(document.pages.first.blocks.first.text, contains('1 设 lim'));
       expect(document.toDiagnostics()['pageCount'], 2);
+    });
+
+    test('uses a typed authentication failure without response-body leakage',
+        () async {
+      final image = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'zhipu-ocr-auth-${DateTime.now().microsecondsSinceEpoch}.png',
+      )..writeAsBytesSync(const [1]);
+      addTearDown(() => image.deleteSync());
+      final client = ZhipuOcrClient(
+        httpClient: MockClient(
+          (_) async => http.Response('PRIVATE_PROVIDER_BODY', 401),
+        ),
+      );
+
+      await expectLater(
+        client.parseFile(
+          profile: profile,
+          filePath: image.path,
+          sourceName: 'fixture.png',
+        ),
+        throwsA(isA<ZhipuOcrAuthenticationException>()),
+      );
+    });
+
+    test('uses a typed response-format failure for malformed JSON', () async {
+      final image = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'zhipu-ocr-format-${DateTime.now().microsecondsSinceEpoch}.png',
+      )..writeAsBytesSync(const [1]);
+      addTearDown(() => image.deleteSync());
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((_) async => http.Response('not-json', 200)),
+      );
+
+      await expectLater(
+        client.parseFile(
+          profile: profile,
+          filePath: image.path,
+          sourceName: 'fixture.png',
+        ),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
     });
   });
 }
