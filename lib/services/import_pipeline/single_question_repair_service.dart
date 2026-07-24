@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_api_client.dart';
 import 'local_question_assembler.dart';
@@ -68,7 +66,8 @@ class SingleQuestionRepairService {
         rejected: false,
       );
     } catch (e) {
-      debugPrint('SingleQuestionRepairService: repair failed: $e');
+      // ignore: avoid_print
+      print('SingleQuestionRepairService: repair failed: $e');
       return _appendDiagnostic(localResult, 'repair_failed:$e');
     }
   }

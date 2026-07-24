@@ -1,5 +1,8 @@
+// ignore_for_file: depend_on_referenced_packages
+
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -8,10 +11,12 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
+import 'import_acceptance.dart' show writeReplayCache, computeReplayCacheFingerprint;
 import 'ocr_smoke_report.dart';
 
 typedef OcrSmokeSavedApiKeyLoader = Future<String?> Function();
@@ -530,9 +535,15 @@ Future<int> _runOcrSmokeCore(
   final repository = _StubAiEngineRepository(profile);
   final repairService =
       SingleQuestionRepairService(engineRepository: repository);
+
+  final writeReplayCacheEnabled =
+      environment['SHIROHA_WRITE_REPLAY_CACHE'] == 'true';
+  final replayCaseId = environment['SHIROHA_REPLAY_CASE_ID'] ?? '';
+  final capturingClient = _CapturingOcrClient(const ZhipuOcrClient());
+
   final ocrService = OcrImportService(
     engineRepository: repository,
-    ocrClient: const ZhipuOcrClient(),
+    ocrClient: capturingClient,
     repairService: repairService,
   );
 
@@ -638,9 +649,70 @@ Future<int> _runOcrSmokeCore(
 
   if (hasFailure) return 1;
 
+  // Write replay cache if requested and OCR succeeded
+  if (writeReplayCacheEnabled &&
+      replayCaseId.isNotEmpty &&
+      capturingClient.lastDocument != null) {
+    try {
+      final repoRoot = repositoryRoot ?? Directory.current.path;
+      final pdfFile = File(validPaths.first);
+      final pdfBytes = pdfFile.readAsBytesSync();
+      final fingerprint = computeReplayCacheFingerprint(
+        pdfBytes: pdfBytes,
+        documentSchemaVersion: 1,
+        ocrModelId: ZhipuOcrClient.model,
+      );
+      final pdfHash = sha256.convert(pdfBytes).toString();
+      writeReplayCache(
+        caseId: replayCaseId,
+        repositoryRoot: repoRoot,
+        document: capturingClient.lastDocument!,
+        fingerprint: fingerprint,
+        pdfContentHash: pdfHash,
+      );
+      printJson({
+        'stage': 'replay_cache',
+        'status': 'written',
+        'caseId': replayCaseId,
+        'fingerprint': fingerprint,
+      });
+    } catch (e) {
+      printJson({
+        'stage': 'replay_cache',
+        'status': 'write_failed',
+        'causeType': e.runtimeType.toString(),
+      });
+    }
+  }
+
   printJson({
     'stage': 'completed',
     'status': 'success',
   });
   return 0;
+}
+
+/// Wraps a ZhipuOcrClient to capture the last OcrDocument returned.
+class _CapturingOcrClient extends ZhipuOcrClient {
+  _CapturingOcrClient(this._delegate);
+
+  final ZhipuOcrClient _delegate;
+  OcrDocument? lastDocument;
+
+  @override
+  Future<OcrDocument> parseFile({
+    required AiEngineProfile profile,
+    required String filePath,
+    required String sourceName,
+    Duration timeout = const Duration(minutes: 8),
+  }) async {
+    final doc = await _delegate.parseFile(
+      profile: profile,
+      filePath: filePath,
+      sourceName: sourceName,
+      timeout: timeout,
+    );
+    lastDocument = doc;
+    return doc;
+  }
 }

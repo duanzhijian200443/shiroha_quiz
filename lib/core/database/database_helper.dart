@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import '../../data/repositories/ai_engine_repository.dart';
 
 enum DatabaseRuntimeProfile {
   production,
@@ -41,7 +42,13 @@ class DatabaseHelper {
   }
 
   static DatabaseHelper get instance {
-    _instance ??= DatabaseHelper._();
+    AiEngineRepository.defaultDatabaseHelperProvider ??=
+        () => DatabaseHelper.instance;
+    if (_instance == null) {
+      final helper = DatabaseHelper._();
+      _instance = helper;
+      AiEngineRepository.instance = AiEngineRepository(databaseHelper: helper);
+    }
     return _instance!;
   }
 

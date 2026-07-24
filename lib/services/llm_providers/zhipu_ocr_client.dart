@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../data/models/ai_engine_profile.dart';
 import '../import_pipeline/ocr_document.dart';
@@ -174,13 +173,18 @@ class ZhipuOcrClient {
   }
 
   int _readPdfPageCount(List<int> bytes) {
-    PdfDocument? document;
     try {
-      document = PdfDocument(inputBytes: bytes);
-      return document.pages.count;
-    } finally {
-      document?.dispose();
-    }
+      final text = latin1.decode(bytes);
+      final pagesMatch =
+          RegExp(r'/Type\s*/Pages\b.*?/Count\s+(\d+)').firstMatch(text);
+      if (pagesMatch != null) {
+        final count = int.tryParse(pagesMatch.group(1)!);
+        if (count != null && count > 0) return count;
+      }
+      final pageMatches = RegExp(r'/Type\s*/Page\b').allMatches(text).length;
+      if (pageMatches > 0) return pageMatches;
+    } catch (_) {}
+    return 1;
   }
 
   String _requestId(String sourceName, int? startPage) {

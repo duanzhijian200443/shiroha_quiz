@@ -7,7 +7,9 @@ param(
     [ValidateRange(30, 600)]
     [int]$BuildTimeoutSeconds = 180,
     [ValidateRange(60, 1200)]
-    [int]$OcrTimeoutSeconds = 600
+    [int]$OcrTimeoutSeconds = 600,
+    [switch]$WriteReplayCache,
+    [string]$CaseId = ''
 )
 
 Set-StrictMode -Version Latest
@@ -693,6 +695,10 @@ try {
     $startInfo.EnvironmentVariables['SHIROHA_OCR_RUN_ID'] = $script:reportRunId
     $startInfo.EnvironmentVariables['SHIROHA_OCR_BUILD_CACHE_HIT'] =
         $buildCacheHit.ToString().ToLowerInvariant()
+    if ($WriteReplayCache) {
+        $startInfo.EnvironmentVariables['SHIROHA_WRITE_REPLAY_CACHE'] = 'true'
+        $startInfo.EnvironmentVariables['SHIROHA_REPLAY_CASE_ID'] = $CaseId
+    }
     $toolArguments = @()
     foreach ($resolvedPdfPath in $resolvedPdfPaths) {
         $toolArguments += '--pdf'
@@ -705,6 +711,8 @@ try {
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_RUN_ID')
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_BUILD_CACHE_HIT')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_WRITE_REPLAY_CACHE')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPLAY_CASE_ID')
     if ($apiKeyPointer -ne [IntPtr]::Zero) {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($apiKeyPointer)
         $apiKeyPointer = [IntPtr]::Zero
@@ -798,6 +806,8 @@ finally {
         $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
         $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_RUN_ID')
         $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_BUILD_CACHE_HIT')
+        $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_WRITE_REPLAY_CACHE')
+        $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPLAY_CASE_ID')
     }
     if ($null -ne $process) {
         try {

@@ -1,3 +1,4 @@
+import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
 import 'text_question_region.dart';
@@ -182,15 +183,7 @@ class OcrQuestionAssembler {
   }
 
   bool _hasDanglingLatex(String text) {
-    final inlineOpen = RegExp(r'\\\(').allMatches(text).length;
-    final inlineClose = RegExp(r'\\\)').allMatches(text).length;
-    final blockOpen = RegExp(r'\\\[').allMatches(text).length;
-    final blockClose = RegExp(r'\\\]').allMatches(text).length;
-    if (inlineOpen != inlineClose || blockOpen != blockClose) return true;
-
-    final leftCount = RegExp(r'\\left').allMatches(text).length;
-    final rightCount = RegExp(r'\\right').allMatches(text).length;
-    return leftCount != rightCount;
+    return const LatexSanityChecker().hasDanglingDelimiters(text);
   }
 }
 

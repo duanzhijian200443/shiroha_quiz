@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 
 import '../tool/ocr_smoke.dart';
@@ -898,5 +901,113 @@ void main() {
       final gitignore = File('.gitignore').readAsStringSync();
       expect(gitignore, contains('scratch/ocr_reports/'));
     });
+
+    test('loadSavedOcrApiKey resolves saved profile using AiEngineRepository.instance', () async {
+      final fakeProfile = AiEngineProfile(
+        id: 'test-id',
+        engineType: AiEngineType.ocr,
+        name: 'test-ocr',
+        apiKey: 'fake-saved-key-12345',
+        baseUrl: 'https://fake.url',
+        modelName: 'glm-4v',
+        temperature: 0.0,
+        reasoningEffort: '',
+        isActive: true,
+      );
+
+      final originalInstance = AiEngineRepository.instance;
+      try {
+        AiEngineRepository.instance = AiEngineRepository(
+          databaseHelper: _FakeDatabaseHelper(fakeProfile),
+        );
+        final key = await loadSavedOcrApiKey();
+        expect(key, equals('fake-saved-key-12345'));
+      } finally {
+        AiEngineRepository.instance = originalInstance;
+      }
+    });
+
+    test('runOcrSmoke under both normal and WriteReplayCache modes resolve the same saved credential loader', () async {
+      final fakeProfile = AiEngineProfile(
+        id: 'test-id',
+        engineType: AiEngineType.ocr,
+        name: 'test-ocr',
+        apiKey: 'fake-saved-key-12345',
+        baseUrl: 'https://fake.url',
+        modelName: 'glm-4v',
+        temperature: 0.0,
+        reasoningEffort: '',
+        isActive: true,
+      );
+
+      final originalInstance = AiEngineRepository.instance;
+      try {
+        AiEngineRepository.instance = AiEngineRepository(
+          databaseHelper: _FakeDatabaseHelper(fakeProfile),
+        );
+
+        // Standard mode
+        final eventsNormal = <Map<String, dynamic>>[];
+        await runOcrSmoke(
+          ['--pdf=non_existent.pdf'],
+          (line) => eventsNormal.add(jsonDecode(line) as Map<String, dynamic>),
+          environment: {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+          loadSavedApiKey: loadSavedOcrApiKey,
+        );
+
+        // WriteReplayCache mode
+        final eventsCache = <Map<String, dynamic>>[];
+        await runOcrSmoke(
+          ['--pdf=non_existent.pdf'],
+          (line) => eventsCache.add(jsonDecode(line) as Map<String, dynamic>),
+          environment: {
+            'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true',
+            'SHIROHA_WRITE_REPLAY_CACHE': 'true',
+            'SHIROHA_REPLAY_CASE_ID': 'test_case',
+          },
+          loadSavedApiKey: loadSavedOcrApiKey,
+        );
+
+        expect(eventsNormal.first['apiKeyPresent'], isTrue);
+        expect(eventsCache.first['apiKeyPresent'], isTrue);
+        expect(eventsNormal.first['stage'], 'preflight');
+        expect(eventsCache.first['stage'], 'preflight');
+      } finally {
+        AiEngineRepository.instance = originalInstance;
+      }
+    });
+
+    test('DatabaseHelper.instance binds defaultDatabaseHelperProvider eagerly without top-level lazy variable evaluation', () {
+      final originalProvider = AiEngineRepository.defaultDatabaseHelperProvider;
+      try {
+        AiEngineRepository.defaultDatabaseHelperProvider = null;
+        // Accessing DatabaseHelper.instance must eagerly set defaultDatabaseHelperProvider
+        final helper = DatabaseHelper.instance;
+        expect(AiEngineRepository.defaultDatabaseHelperProvider, isNotNull);
+        expect(AiEngineRepository.defaultDatabaseHelperProvider!(), same(helper));
+      } finally {
+        AiEngineRepository.defaultDatabaseHelperProvider = originalProvider;
+      }
+    });
   });
+}
+
+class _FakeDatabaseHelper {
+  _FakeDatabaseHelper(this._profile);
+
+  final AiEngineProfile _profile;
+
+  Future<Map<String, dynamic>?> getActiveAiEngine(String dbValue) async {
+    if (dbValue == AiEngineType.ocr.dbValue) {
+      return _profile.toMap();
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getAiEngines(String dbValue) async {
+    if (dbValue == AiEngineType.ocr.dbValue) {
+      return [_profile.toMap()];
+    }
+    return [];
+  }
 }
