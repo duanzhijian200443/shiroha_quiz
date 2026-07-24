@@ -37,6 +37,54 @@ class ImportTaskCoordinator {
   static final ImportTaskCoordinator instance = ImportTaskCoordinator();
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
+  static const Set<String> _safeOcrStatuses = <String>{
+    'failed_not_configured',
+    'failed_empty_ocr_blocks',
+    'failed_no_question_regions',
+    'failed_no_assembled_questions',
+    'failed_request',
+  };
+  static const Set<String> _safeOcrErrorTypes = <String>{
+    'FileSystemException',
+    'PathNotFoundException',
+    'ZhipuOcrAuthenticationException',
+    'ZhipuOcrRequestException',
+    'ZhipuOcrResponseFormatException',
+    'TimeoutException',
+    'SocketException',
+    'ClientException',
+    'FormatException',
+    'StateError',
+    'TypeError',
+    'RangeError',
+    'ArgumentError',
+    'UnsupportedError',
+    'Exception',
+  };
+  static const ImportFailureClassification _ocrNotConfiguredFailure =
+      ImportFailureClassification(
+    type: ImportFailureType.providerRequest,
+    errorType: 'OcrNotConfiguredFailure',
+    userMessage: '未配置可用的 OCR 引擎，请先完成 OCR 配置',
+  );
+  static const ImportFailureClassification _ocrEmptyBlocksFailure =
+      ImportFailureClassification(
+    type: ImportFailureType.providerResponseFormat,
+    errorType: 'OcrEmptyBlocksFailure',
+    userMessage: 'OCR 未识别到有效文字，请检查文档清晰度后重试',
+  );
+  static const ImportFailureClassification _ocrNoQuestionRegionsFailure =
+      ImportFailureClassification(
+    type: ImportFailureType.unknown,
+    errorType: 'OcrNoQuestionRegionsFailure',
+    userMessage: 'OCR 已返回文字，但未识别到有效题目区域',
+  );
+  static const ImportFailureClassification _ocrNoAssembledQuestionsFailure =
+      ImportFailureClassification(
+    type: ImportFailureType.unknown,
+    errorType: 'OcrNoAssembledQuestionsFailure',
+    userMessage: 'OCR 已返回文字，但未能组装出有效题目',
+  );
 
   final TaskManager _taskManager;
   final Future<void> _readiness;
@@ -135,19 +183,23 @@ class ImportTaskCoordinator {
       );
 
       if (result.questions.isEmpty) {
+        final emptyFailure = _classifyEmptyResult(result);
         _failSafely(
           handle,
-          ImportFailureClassifier.providerResponseFormatFailure,
+          emptyFailure.failure,
           warningCount: result.warnings.length,
+          status: emptyFailure.ocrStatus,
+          ocrErrorType: emptyFailure.ocrErrorType,
         );
         AppLogger.warning(
           'Import produced no questions',
           module: 'Import',
           data: <String, Object?>{
             'stage': 'import_parse',
-            'status': 'failed',
-            'errorType':
-                ImportFailureClassifier.providerResponseFormatFailure.errorType,
+            'status': emptyFailure.ocrStatus ?? 'failed',
+            'errorType': emptyFailure.failure.errorType,
+            if (emptyFailure.ocrErrorType != null)
+              'ocrErrorType': emptyFailure.ocrErrorType,
             'warningCount': result.warnings.length,
           },
         );
@@ -214,10 +266,67 @@ class ImportTaskCoordinator {
     return basename.isEmpty || basename == '.' ? '导入文件' : basename;
   }
 
+  static _EmptyResultFailure _classifyEmptyResult(ImportParseResult result) {
+    Map<Object?, Object?>? ocrDiagnostics;
+    for (final entry in result.diagnostics.entries) {
+      if (entry.key.startsWith('ocr_import_file_') && entry.value is Map) {
+        ocrDiagnostics = entry.value as Map<Object?, Object?>;
+        break;
+      }
+    }
+
+    final rawStatus = ocrDiagnostics?['status'];
+    final ocrStatus =
+        rawStatus is String && _safeOcrStatuses.contains(rawStatus)
+            ? rawStatus
+            : null;
+    final rawErrorType = ocrDiagnostics?['errorType'];
+    final ocrErrorType =
+        rawErrorType is String && _safeOcrErrorTypes.contains(rawErrorType)
+            ? rawErrorType
+            : null;
+
+    final failure = switch (ocrStatus) {
+      'failed_not_configured' => _ocrNotConfiguredFailure,
+      'failed_empty_ocr_blocks' => _ocrEmptyBlocksFailure,
+      'failed_no_question_regions' => _ocrNoQuestionRegionsFailure,
+      'failed_no_assembled_questions' => _ocrNoAssembledQuestionsFailure,
+      'failed_request' => _classifyOcrRequestFailure(ocrErrorType),
+      _ => ImportFailureClassifier.providerResponseFormatFailure,
+    };
+    return _EmptyResultFailure(
+      failure: failure,
+      ocrStatus: ocrStatus,
+      ocrErrorType: ocrErrorType,
+    );
+  }
+
+  static ImportFailureClassification _classifyOcrRequestFailure(
+    String? errorType,
+  ) {
+    return switch (errorType) {
+      'FileSystemException' ||
+      'PathNotFoundException' =>
+        ImportFailureClassifier.fileReadFailure,
+      'ZhipuOcrResponseFormatException' ||
+      'FormatException' =>
+        ImportFailureClassifier.providerResponseFormatFailure,
+      'ZhipuOcrAuthenticationException' ||
+      'ZhipuOcrRequestException' ||
+      'TimeoutException' ||
+      'SocketException' ||
+      'ClientException' =>
+        ImportFailureClassifier.providerRequestFailure,
+      _ => ImportFailureClassifier.unknownFailure,
+    };
+  }
+
   void _failSafely(
     ImportTaskHandle handle,
     ImportFailureClassification failure, {
     int? warningCount,
+    String? status,
+    String? ocrErrorType,
   }) {
     _taskManager.failTask(
       handle.taskId,
@@ -228,7 +337,8 @@ class ImportTaskCoordinator {
         'traceId': handle.traceId,
         'failedStage': 'import_parse',
         'errorType': failure.errorType,
-        'status': 'failed',
+        'status': status ?? 'failed',
+        if (ocrErrorType != null) 'ocrErrorType': ocrErrorType,
         if (warningCount != null) 'warningCount': warningCount,
       },
     );
@@ -274,4 +384,16 @@ class ImportTaskCoordinator {
     flatten(diagnostics, '');
     return values;
   }
+}
+
+class _EmptyResultFailure {
+  const _EmptyResultFailure({
+    required this.failure,
+    required this.ocrStatus,
+    required this.ocrErrorType,
+  });
+
+  final ImportFailureClassification failure;
+  final String? ocrStatus;
+  final String? ocrErrorType;
 }

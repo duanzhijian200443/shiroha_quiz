@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -10,6 +11,10 @@ import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
+
+import 'ocr_smoke_report.dart';
+
+typedef OcrSmokeSavedApiKeyLoader = Future<String?> Function();
 
 class OcrSmokePreflightException implements Exception {
   const OcrSmokePreflightException(this.status, this.causeType);
@@ -153,6 +158,16 @@ Map<String, dynamic> buildOcrSmokeIndependentParseReport({
   final diagnostics = result.diagnostics;
   final docDiagnostics = diagnostics['document'] as Map?;
   final regionizerDiagnostics = diagnostics['regionizer'] as Map?;
+  final candidateTrace =
+      regionizerDiagnostics?['questionCandidateTrace'] as List?;
+  final markerProbeTrace = regionizerDiagnostics?['markerProbeTrace'] as List?;
+  final acceptedNumbers =
+      _safeIntegerList(regionizerDiagnostics?['acceptedNumbers']);
+  final missingNumbers = <int>{
+    ...?_safeIntegerList(regionizerDiagnostics?['missingNumbers']),
+    ...?_safeIntegerList(regionizerDiagnostics?['tailMissingNumbers']),
+  }.toList()
+    ..sort();
 
   return {
     'stage': 'independent_parse',
@@ -162,8 +177,10 @@ Map<String, dynamic> buildOcrSmokeIndependentParseReport({
     'blockCount': docDiagnostics?['blockCount'],
     'unitCount': regionizerDiagnostics?['unitCount'],
     'regionCount': regionizerDiagnostics?['regionCount'],
-    'acceptedNumbers': regionizerDiagnostics?['acceptedNumbers'],
-    'missingNumbers': regionizerDiagnostics?['missingNumbers'],
+    'acceptedNumbers': acceptedNumbers,
+    'duplicateNumbers': _duplicateNumbers(acceptedNumbers),
+    'missingNumbers': regionizerDiagnostics == null ? null : missingNumbers,
+    'tailMissingNumbers': regionizerDiagnostics?['tailMissingNumbers'],
     'sectionHeadingCount': regionizerDiagnostics?['sectionHeadingCount'],
     'numberedFieldCandidateCount':
         regionizerDiagnostics?['numberedFieldCandidateCount'],
@@ -211,19 +228,138 @@ Map<String, dynamic> buildOcrSmokeIndependentParseReport({
         diagnostics['discardedAnswerFromRepairCount'],
     'clearedAssemblerAnswerCount': diagnostics['clearedAssemblerAnswerCount'],
     'rejectedRegionCount': diagnostics['rejectedRegionCount'],
-    'questionCandidateTrace': regionizerDiagnostics?['questionCandidateTrace'],
-    'questionCandidateTraceTruncated':
-        regionizerDiagnostics?['questionCandidateTraceTruncated'],
+    'questionCandidateTrace': candidateTrace,
+    'questionCandidateCount': candidateTrace?.length,
+    'rejectedCandidateCount': candidateTrace
+        ?.where((candidate) =>
+            candidate is Map && candidate['decision'] == 'rejected')
+        .length,
+    'referenceSectionDetected':
+        regionizerDiagnostics?['referenceSectionDetected'],
+    'referenceSectionCandidateCount':
+        regionizerDiagnostics?['referenceSectionCandidateCount'],
+    'questionCandidateTraceTruncated': regionizerDiagnostics == null
+        ? null
+        : regionizerDiagnostics['questionCandidateTraceTruncated'] == true,
+    'markerProbeTrace': markerProbeTrace,
+    'markerProbeCount': markerProbeTrace?.length,
+    'markerProbeTraceTruncated': regionizerDiagnostics == null
+        ? null
+        : regionizerDiagnostics['markerProbeTraceTruncated'] == true,
     'durationMs': durationMs,
   };
 }
 
+List<int>? _safeIntegerList(Object? value) {
+  if (value is! List) return null;
+  return [
+    for (final item in value)
+      if (item is int) item else if (item is num) item.toInt(),
+  ];
+}
+
+List<int>? _duplicateNumbers(List<int>? numbers) {
+  if (numbers == null) return null;
+  final counts = <int, int>{};
+  for (final number in numbers) {
+    counts[number] = (counts[number] ?? 0) + 1;
+  }
+  return counts.entries
+      .where((entry) => entry.value > 1)
+      .map((entry) => entry.key)
+      .toList()
+    ..sort();
+}
+
+Map<String, dynamic> buildOcrSmokeTerminalEvent(
+  Map<String, dynamic> event,
+) {
+  if (event['stage'] == 'independent_parse') {
+    final trace = event['questionCandidateTrace'];
+    final candidates = trace is List ? trace : null;
+    Map<String, dynamic>? firstAnomaly;
+    if (candidates != null) {
+      for (final candidate in candidates) {
+        if (candidate is Map && candidate['decision'] == 'rejected') {
+          firstAnomaly = {
+            'number': candidate['number'],
+            'decision': 'rejected',
+            'reason': candidate['reason'],
+          };
+          break;
+        }
+      }
+    }
+    return {
+      'stage': event['stage'],
+      'status': event['status'],
+      'durationMs': event['durationMs'],
+      'ocrBlockCount': event['blockCount'],
+      'questionCandidateCount':
+          event['questionCandidateCount'] ?? candidates?.length,
+      'acceptedNumbers': event['acceptedNumbers'],
+      'rejectedCandidateCount': event['rejectedCandidateCount'],
+      'duplicateNumbers': event['duplicateNumbers'],
+      'missingNumbers': event['missingNumbers'],
+      'regionCount': event['regionCount'],
+      'assembledQuestionCount': event['assembledQuestionCount'],
+      'finalQuestionCount': event['finalQuestionCount'],
+      'referenceSectionDetected': event['referenceSectionDetected'],
+      'referenceSectionCandidateCount': event['referenceSectionCandidateCount'],
+      'questionCandidateTraceTruncated':
+          event['questionCandidateTraceTruncated'],
+      'markerProbeCount': event['markerProbeCount'],
+      'markerProbeTraceTruncated': event['markerProbeTraceTruncated'],
+      'firstAnomaly': firstAnomaly,
+    };
+  }
+  const safeKeys = {
+    'stage',
+    'status',
+    'causeType',
+    'durationMs',
+    'apiKeyPresent',
+    'pdfCount',
+    'pdfReadable',
+    'requiresReview',
+    'blocked',
+  };
+  return {
+    for (final entry in event.entries)
+      if (safeKeys.contains(entry.key)) entry.key: entry.value,
+  };
+}
+
+Future<String?> loadSavedOcrApiKey() async {
+  final profile = await AiEngineRepository.instance.getActiveOcrEngine();
+  return profile?.apiKey;
+}
+
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final environment = Platform.environment;
+  final environmentApiKey = environment['SHIROHA_OCR_API_KEY'];
+  final useSavedAppKey =
+      environment['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true' &&
+          (environmentApiKey == null || environmentApiKey.trim().isEmpty);
+  if (useSavedAppKey && (Platform.isWindows || Platform.isLinux)) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
   final exitCode = await runOcrSmoke(
     args,
     stdout.writeln,
-    environment: Platform.environment,
+    environment: environment,
+    loadSavedApiKey: useSavedAppKey ? loadSavedOcrApiKey : null,
+    reportWriter: OcrSmokeReportWriter(
+      repositoryRoot: Directory.current.path,
+      runId: environment['SHIROHA_OCR_RUN_ID'],
+    ),
+    buildCacheHit: switch (environment['SHIROHA_OCR_BUILD_CACHE_HIT']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    },
   );
   exit(exitCode);
 }
@@ -233,11 +369,44 @@ Future<int> runOcrSmoke(
   void Function(String) printLine, {
   required Map<String, String> environment,
   String? repositoryRoot,
+  OcrSmokeReportWriter? reportWriter,
+  bool? buildCacheHit,
+  OcrSmokeSavedApiKeyLoader? loadSavedApiKey,
 }) async {
-  void printJson(Map<String, dynamic> jsonMap) {
-    printLine(jsonEncode(jsonMap));
+  final events = <Map<String, dynamic>>[];
+
+  void emitEvent(Map<String, dynamic> event) {
+    events.add(Map<String, dynamic>.from(event));
+    printLine(jsonEncode(buildOcrSmokeTerminalEvent(event)));
   }
 
+  final exitCode = await _runOcrSmokeCore(
+    args,
+    emitEvent,
+    environment: environment,
+    repositoryRoot: repositoryRoot,
+    loadSavedApiKey: loadSavedApiKey,
+  );
+  if (reportWriter != null) {
+    final result = await reportWriter.write(
+      events: events,
+      exitCode: exitCode,
+      buildCacheHit: buildCacheHit,
+    );
+    printLine(jsonEncode(
+      result.succeeded ? result.terminalEvent : result.failureEvent,
+    ));
+  }
+  return exitCode;
+}
+
+Future<int> _runOcrSmokeCore(
+  List<String> args,
+  void Function(Map<String, dynamic>) printJson, {
+  required Map<String, String> environment,
+  String? repositoryRoot,
+  OcrSmokeSavedApiKeyLoader? loadSavedApiKey,
+}) async {
   int exitWithError(
     String status, {
     String stage = 'failed',
@@ -252,7 +421,16 @@ Future<int> runOcrSmoke(
     return code;
   }
 
-  final apiKey = environment['SHIROHA_OCR_API_KEY'];
+  var apiKey = environment['SHIROHA_OCR_API_KEY'];
+  final environmentApiKeyPresent = apiKey != null && apiKey.trim().isNotEmpty;
+  final useSavedAppKey = environment['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true';
+  if (!environmentApiKeyPresent && useSavedAppKey) {
+    try {
+      apiKey = await loadSavedApiKey?.call();
+    } catch (_) {
+      apiKey = null;
+    }
+  }
   final apiKeyPresent = apiKey != null && apiKey.trim().isNotEmpty;
   printJson({
     'stage': 'preflight',
@@ -296,6 +474,13 @@ Future<int> runOcrSmoke(
     return exitWithError('invalid_arguments');
   }
 
+  if (!apiKeyPresent && useSavedAppKey) {
+    return exitWithError(
+      'saved_api_key_unavailable',
+      stage: 'launcher',
+      causeType: 'SavedApiKeyUnavailable',
+    );
+  }
   if (!apiKeyPresent) {
     return exitWithError(
       'missing_api_key',

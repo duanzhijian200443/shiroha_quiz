@@ -1086,6 +1086,72 @@ void main() {
         ]);
       });
 
+      test('ignores reference sections when deriving the official tail', () {
+        final blocks = <OcrBlock>[];
+        var order = 0;
+
+        void add(String id, String text) {
+          blocks.add(OcrBlock(
+            blockId: id,
+            pageIndex: 1,
+            type: 'text',
+            text: text,
+            bbox: const [],
+            readingOrder: order++,
+          ));
+        }
+
+        add(
+          'choice_section',
+          '一、选择题（本题共10小题，每小题5分，共50分）',
+        );
+        for (var number = 1; number <= 10; number++) {
+          add('q$number', '$number. 第$number道选择脱敏题干。');
+        }
+        add('fill_section', '二、填空题（本题共6小题，每小题5分，共30分）');
+        for (var number = 11; number <= 12; number++) {
+          add('q$number', '$number. 第$number道填空脱敏题干。');
+        }
+        add('subjective_section', '三、解答题（本题共6小题，共70分）');
+        add('reference_choice', '一、选择题');
+        add('reference_q1', '（1）参考条目。');
+        add('reference_fill', '二、填空题');
+        add('reference_q11', '（11）参考条目。');
+        add('reference_subjective', '三、解答题');
+        add('reference_q13', '（13）参考条目。');
+
+        final result = const OcrQuestionRegionizer().regionize(
+          OcrDocument(
+            sourceName: 'official-tail-before-reference.pdf',
+            markdown: '',
+            rawResponses: const [],
+            usage: const {},
+            pages: [OcrPage(pageIndex: 1, blocks: blocks)],
+          ),
+        );
+
+        expect(
+          result.diagnostics['acceptedNumbers'],
+          List<int>.generate(12, (index) => index + 1),
+        );
+        expect(result.diagnostics['expectedQuestionCount'], 22);
+        expect(
+          result.diagnostics['tailMissingNumbers'],
+          List<int>.generate(10, (index) => index + 13),
+        );
+        expect(result.diagnostics['missingQuestionCount'], 10);
+        expect(result.diagnostics['referenceSectionDetected'], isTrue);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        final referenceEntries = trace.where(
+          (entry) => entry['reason'] == 'reference_section',
+        );
+        expect(referenceEntries, hasLength(3));
+        expect(
+          referenceEntries.map((entry) => entry['number']).toList(),
+          [1, 11, 13],
+        );
+      });
+
       test('does not promote Markdown lookalikes to top-level questions', () {
         final document = OcrDocument(
           sourceName: 'markdown-negative.pdf',
@@ -1343,6 +1409,321 @@ void main() {
           expect(entry['decision'], 'accepted');
           expect(entry['reason'], 'valid_question_start');
         }
+      });
+
+      test(
+          'accepts a block-start bare marker when it strictly continues an official section',
+          () {
+        final document = OcrDocument(
+          sourceName: 'sequential-bare-marker.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'section',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '二、填空题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q12',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '12. 第十二道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'q13',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '13 曲线相关的脱敏题干。',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'q14',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '14. 第十四道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [12, 13, 14]);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        final q13 = trace.singleWhere((entry) => entry['number'] == 13);
+        expect(q13['markerKind'], 'explicit_question');
+        expect(q13['decision'], 'accepted');
+        expect(q13['reason'], 'valid_question_start');
+        expect(q13['previousAcceptedNumber'], 12);
+      });
+
+      test(
+          'recovers sequential digit-prefix question markers only in official sections',
+          () {
+        final document = OcrDocument(
+          sourceName: 'sequential-digit-prefix.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'subjective',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '三、解答题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q17',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '17. 第十七道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'q18',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '18设函数满足脱敏条件。',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'q19',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '19若脱敏条件成立，求结论。',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+                OcrBlock(
+                  blockId: 'q20',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '20. 第二十道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 4,
+                ),
+                OcrBlock(
+                  blockId: 'q21',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '21. 第二十一道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 5,
+                ),
+                OcrBlock(
+                  blockId: 'q22',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '22求满足脱敏约束的结果。',
+                  bbox: [],
+                  readingOrder: 6,
+                ),
+                OcrBlock(
+                  blockId: 'reference_choice',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 7,
+                ),
+                OcrBlock(
+                  blockId: 'reference_unrecognized',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '23设参考对象。',
+                  bbox: [],
+                  readingOrder: 8,
+                ),
+                OcrBlock(
+                  blockId: 'reference_recognized',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '（23）参考条目。',
+                  bbox: [],
+                  readingOrder: 9,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [17, 18, 19, 20, 21, 22]);
+        expect(result.diagnostics['missingNumbers'], isEmpty);
+        final acceptedNumbers =
+            result.regions.map((region) => region.number).toList();
+        expect(acceptedNumbers.toSet(), hasLength(acceptedNumbers.length));
+        for (final number in [18, 19, 22]) {
+          final region =
+              result.regions.singleWhere((region) => region.number == number);
+          expect(region.stemText, isNot(startsWith(number.toString())));
+        }
+
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        for (final number in [18, 19, 22]) {
+          final entry = trace.singleWhere((item) => item['number'] == number);
+          expect(entry['markerKind'], 'digit_prefix_unrecognized');
+          expect(entry['decision'], 'accepted');
+          expect(entry['reason'], 'valid_question_start');
+          expect(entry['previousAcceptedNumber'], number - 1);
+        }
+        for (final number in [20, 21]) {
+          final entry = trace.singleWhere((item) => item['number'] == number);
+          expect(entry['decision'], 'accepted');
+          expect(entry['reason'], 'valid_question_start');
+        }
+        expect(
+          trace.where((entry) => entry['reason'] == 'sequence_mismatch'),
+          isEmpty,
+        );
+        final referenceEntry =
+            trace.singleWhere((entry) => entry['blockOrder'] == 9);
+        expect(referenceEntry['decision'], 'rejected');
+        expect(referenceEntry['reason'], 'reference_section');
+        expect(
+          result.diagnostics['markerProbeTrace'],
+          isEmpty,
+        );
+      });
+
+      test('keeps unsafe digit-prefix probes out of the candidate sequence',
+          () {
+        const sensitiveInternal = 'PRIVATE_INTERNAL_STEM';
+        const sensitiveOther = 'PRIVATE_OTHER_FOLLOWER';
+        final document = OcrDocument(
+          sourceName: 'unsafe-digit-prefix.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'subjective',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '三、解答题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q17_with_internal',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '17. 第十七道脱敏题干。\n18设$sensitiveInternal',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'skipped_q19',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '19设跳号题干。',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'other_q18',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '18x$sensitiveOther',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+                OcrBlock(
+                  blockId: 'valid_q18',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '18. 第十八道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 4,
+                ),
+                OcrBlock(
+                  blockId: 'duplicate_q18',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '18设重复题干。',
+                  bbox: [],
+                  readingOrder: 5,
+                ),
+                OcrBlock(
+                  blockId: 'skipped_q20',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '20求跳号结果。',
+                  bbox: [],
+                  readingOrder: 6,
+                ),
+                OcrBlock(
+                  blockId: 'reference_choice',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 7,
+                ),
+                OcrBlock(
+                  blockId: 'reference_q19',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '19设参考对象。',
+                  bbox: [],
+                  readingOrder: 8,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [17, 18]);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        expect(
+          trace.where(
+            (entry) => entry['markerKind'] == 'digit_prefix_unrecognized',
+          ),
+          isEmpty,
+        );
+        final probes = result.diagnostics['markerProbeTrace'] as List;
+        expect(
+          probes.where((entry) => entry['parsedNumber'] == 19),
+          hasLength(1),
+        );
+        expect(
+          probes.where(
+            (entry) =>
+                entry['parsedNumber'] == 18 &&
+                entry['startsAtBlockStart'] == false,
+          ),
+          hasLength(1),
+        );
+        final encoded = probes.toString();
+        expect(encoded, isNot(contains(sensitiveInternal)));
+        expect(encoded, isNot(contains(sensitiveOther)));
       });
 
       test('rejects candidates after the official section sequence restarts',
@@ -1649,6 +2030,117 @@ void main() {
           expect(keys, isNot(contains('raw')));
           expect(keys, isNot(contains('content')));
           expect(keys, isNot(contains('answer')));
+        }
+      });
+
+      test('records only safe probes for marker-like lines not made candidates',
+          () {
+        const sensitiveInternal = 'PRIVATE_INTERNAL_MARKER_TEXT';
+        const sensitiveBlockStart = 'PRIVATE_BLOCK_START_MARKER_TEXT';
+        const sensitiveReference = 'PRIVATE_REFERENCE_MARKER_TEXT';
+        final document = OcrDocument(
+          sourceName: 'marker-probe.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'section',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '三、解答题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q17_with_unmatched_internal',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '17. 第十七道脱敏题干。\n18x $sensitiveInternal',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'unmatched_block_start',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '19x $sensitiveBlockStart',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'reference_heading',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '参考答案速查',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+                OcrBlock(
+                  blockId: 'reference_marker',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '22x $sensitiveReference',
+                  bbox: [],
+                  readingOrder: 4,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+        final probes = result.diagnostics['markerProbeTrace'] as List;
+
+        expect(result.diagnostics['acceptedNumbers'], [17]);
+        expect(probes, hasLength(2));
+        expect(probes, [
+          {
+            'pageIndex': 1,
+            'blockOrder': 1,
+            'sectionIndex': 1,
+            'startsAtBlockStart': false,
+            'startsAtLineBoundary': true,
+            'markerShape': 'digit_prefix_unrecognized',
+            'parsedNumber': 18,
+            'followerClass': 'other',
+            'probeReason': 'internal_line_not_split',
+          },
+          {
+            'pageIndex': 1,
+            'blockOrder': 2,
+            'sectionIndex': 1,
+            'startsAtBlockStart': true,
+            'startsAtLineBoundary': true,
+            'markerShape': 'digit_prefix_unrecognized',
+            'parsedNumber': 19,
+            'followerClass': 'other',
+            'probeReason': 'block_start_not_candidate',
+          },
+        ]);
+        expect(result.diagnostics['markerProbeTraceTruncated'], isFalse);
+        final encoded = probes.toString();
+        expect(encoded, isNot(contains(sensitiveInternal)));
+        expect(encoded, isNot(contains(sensitiveBlockStart)));
+        expect(encoded, isNot(contains(sensitiveReference)));
+        for (final probe in probes) {
+          expect(
+            (probe as Map).keys.toSet(),
+            {
+              'pageIndex',
+              'blockOrder',
+              'sectionIndex',
+              'startsAtBlockStart',
+              'startsAtLineBoundary',
+              'markerShape',
+              'parsedNumber',
+              'followerClass',
+              'probeReason',
+            },
+          );
         }
       });
 

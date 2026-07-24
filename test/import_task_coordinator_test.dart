@@ -52,6 +52,22 @@ class _FailureCase {
   final String expectedMessage;
 }
 
+class _EmptyOcrFailureCase {
+  const _EmptyOcrFailureCase({
+    required this.name,
+    required this.status,
+    required this.expectedType,
+    required this.expectedMessage,
+    this.ocrErrorType,
+  });
+
+  final String name;
+  final String status;
+  final String? ocrErrorType;
+  final String expectedType;
+  final String expectedMessage;
+}
+
 const _sensitiveFragments = <String>[
   'fixture-secret',
   'Authorization: Bearer fixture-token',
@@ -213,6 +229,117 @@ void main() {
       expect(persisted, isNot(contains(fragment)));
     }
   });
+
+  for (final failure in <_EmptyOcrFailureCase>[
+    const _EmptyOcrFailureCase(
+      name: 'missing OCR configuration',
+      status: 'failed_not_configured',
+      expectedType: 'OcrNotConfiguredFailure',
+      expectedMessage: '未配置可用的 OCR 引擎，请先完成 OCR 配置',
+    ),
+    const _EmptyOcrFailureCase(
+      name: 'empty OCR blocks',
+      status: 'failed_empty_ocr_blocks',
+      expectedType: 'OcrEmptyBlocksFailure',
+      expectedMessage: 'OCR 未识别到有效文字，请检查文档清晰度后重试',
+    ),
+    const _EmptyOcrFailureCase(
+      name: 'no question regions',
+      status: 'failed_no_question_regions',
+      expectedType: 'OcrNoQuestionRegionsFailure',
+      expectedMessage: 'OCR 已返回文字，但未识别到有效题目区域',
+    ),
+    const _EmptyOcrFailureCase(
+      name: 'no assembled questions',
+      status: 'failed_no_assembled_questions',
+      expectedType: 'OcrNoAssembledQuestionsFailure',
+      expectedMessage: 'OCR 已返回文字，但未能组装出有效题目',
+    ),
+    const _EmptyOcrFailureCase(
+      name: 'provider authentication failure',
+      status: 'failed_request',
+      ocrErrorType: 'ZhipuOcrAuthenticationException',
+      expectedType: 'ProviderRequestFailure',
+      expectedMessage: 'OCR 服务请求失败，请检查网络或服务配置',
+    ),
+    const _EmptyOcrFailureCase(
+      name: 'provider response format failure',
+      status: 'failed_request',
+      ocrErrorType: 'ZhipuOcrResponseFormatException',
+      expectedType: 'ProviderResponseFormatFailure',
+      expectedMessage: 'OCR 返回结果格式异常，请稍后重试',
+    ),
+    const _EmptyOcrFailureCase(
+      name: 'internal OCR runtime failure',
+      status: 'failed_request',
+      ocrErrorType: 'StateError',
+      expectedType: 'UnknownImportFailure',
+      expectedMessage: '导入过程中发生异常，请根据 Trace ID 查看诊断',
+    ),
+  ]) {
+    test(
+        'empty OCR ${failure.name} preserves only allowlisted cause diagnostics',
+        () async {
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        parser: (request) async => ImportParseResult(
+          questions: const <Map<String, dynamic>>[],
+          warnings: <String>[_sensitiveFailureText],
+          diagnostics: <String, dynamic>{
+            'ocr_import_file_0': <String, dynamic>{
+              'status': failure.status,
+              if (failure.ocrErrorType != null)
+                'errorType': failure.ocrErrorType,
+              'rawResponse': _sensitiveFailureText,
+            },
+            'unrelated': <String, dynamic>{
+              'status': 'failed_sensitive',
+              'errorType': _sensitiveFailureText,
+            },
+          },
+        ),
+        taskIdFactory: () => 'task-empty-${failure.name.replaceAll(' ', '-')}',
+        traceIdFactory: () => 'trace-empty-ocr',
+      );
+
+      final handle = await coordinator.dispatchRequest(
+        sourceDescription: r'C:\private\fixture.pdf',
+        filePaths: const <String>['fixture.pdf'],
+        fileNames: const <String>['fixture.pdf'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+      );
+      final task = await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.error,
+      );
+      await AppLogger.flush();
+
+      expect(task.errorMsg, failure.expectedMessage);
+      expect(task.diagnostics?['status'], failure.status);
+      expect(task.diagnostics?['errorType'], failure.expectedType);
+      if (failure.ocrErrorType == null) {
+        expect(task.diagnostics, isNot(contains('ocrErrorType')));
+      } else {
+        expect(
+          task.diagnostics?['ocrErrorType'],
+          failure.ocrErrorType,
+        );
+      }
+
+      final persisted = jsonEncode(task.toMap());
+      final logs = jsonEncode(
+        logSink.records.map((record) => record.toJson()).toList(),
+      );
+      for (final fragment in _sensitiveFragments) {
+        expect(task.errorMsg, isNot(contains(fragment)));
+        expect(persisted, isNot(contains(fragment)));
+        expect(logs, isNot(contains(fragment)));
+      }
+    });
+  }
 
   test('default parser span keeps failure details out of logs and task data',
       () async {

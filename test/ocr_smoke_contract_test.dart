@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 
 import '../tool/ocr_smoke.dart';
+import '../tool/ocr_smoke_report.dart';
 
 void main() {
   group('ocr_smoke.dart contract tests', () {
@@ -95,10 +96,12 @@ void main() {
       expect(report['repairSkippedForStemOnlyCount'], 23);
       expect(report['repairAppliedCount'], 0);
       expect(report['questionCandidateTrace'], isNull);
-      expect(report['questionCandidateTraceTruncated'], isNull);
+      expect(report['questionCandidateTraceTruncated'], isFalse);
+      expect(report['markerProbeTrace'], isNull);
+      expect(report['markerProbeTraceTruncated'], isFalse);
     });
 
-    test('maps candidate trace fields when they are provided', () {
+    test('maps candidate and marker probe trace fields when provided', () {
       final report = buildOcrSmokeIndependentParseReport(
         durationMs: 10,
         result: OcrImportResult(
@@ -121,6 +124,20 @@ void main() {
                 }
               ],
               'questionCandidateTraceTruncated': true,
+              'markerProbeTrace': [
+                {
+                  'pageIndex': 2,
+                  'blockOrder': 3,
+                  'sectionIndex': 1,
+                  'startsAtBlockStart': false,
+                  'startsAtLineBoundary': true,
+                  'markerShape': 'digit_prefix_unrecognized',
+                  'parsedNumber': 18,
+                  'followerClass': 'other',
+                  'probeReason': 'internal_line_not_split',
+                },
+              ],
+              'markerProbeTraceTruncated': false,
             }
           },
         ),
@@ -132,6 +149,11 @@ void main() {
         1,
       );
       expect(report['questionCandidateTraceTruncated'], isTrue);
+      final probes = report['markerProbeTrace'] as List;
+      expect(probes, hasLength(1));
+      expect(probes.single['parsedNumber'], 18);
+      expect(report['markerProbeCount'], 1);
+      expect(report['markerProbeTraceTruncated'], isFalse);
     });
 
     test('reports unavailable diagnostics as null', () {
@@ -156,6 +178,8 @@ void main() {
       expect(report['rejectedRegionCount'], isNull);
       expect(report['questionCandidateTrace'], isNull);
       expect(report['questionCandidateTraceTruncated'], isNull);
+      expect(report['markerProbeTrace'], isNull);
+      expect(report['markerProbeTraceTruncated'], isNull);
     });
 
     test('diagnostic report does not forward nested sensitive fields', () {
@@ -189,6 +213,39 @@ void main() {
       expect(output, isNot(contains('PRIVATE_AUTHORIZATION')));
       expect(output, isNot(contains(r'C:\private')));
       expect(report, isNot(contains('fileName')));
+    });
+
+    test('terminal event omits full trace and nested sensitive fields', () {
+      final terminalEvent = buildOcrSmokeTerminalEvent({
+        'stage': 'independent_parse',
+        'status': 'used_ocr',
+        'durationMs': 12,
+        'blockCount': 20,
+        'acceptedNumbers': [12],
+        'missingNumbers': [13],
+        'questionCandidateTrace': [
+          {
+            'number': 13,
+            'decision': 'rejected',
+            'reason': 'other',
+            'text': 'OCR-SENSITIVE-CONTENT',
+          },
+        ],
+        'sourceName': 'private-exam.pdf',
+        'apiKey': 'fixture-api-key',
+      });
+
+      expect(terminalEvent['questionCandidateCount'], 1);
+      expect(terminalEvent['firstAnomaly'], {
+        'number': 13,
+        'decision': 'rejected',
+        'reason': 'other',
+      });
+      final output = jsonEncode(terminalEvent);
+      expect(terminalEvent, isNot(contains('questionCandidateTrace')));
+      expect(output, isNot(contains('OCR-SENSITIVE-CONTENT')));
+      expect(output, isNot(contains('private-exam.pdf')));
+      expect(output, isNot(contains('fixture-api-key')));
     });
 
     test('normalizes all supported Unicode PDF path forms to one file', () {
@@ -319,6 +376,7 @@ void main() {
       List<String> args, {
       Map<String, String>? env,
       String? repositoryRoot,
+      Future<String?> Function()? loadSavedApiKey,
       required int expectedExitCode,
       required void Function(List<Map<String, dynamic>> jsonLines) verify,
     }) async {
@@ -336,6 +394,7 @@ void main() {
         },
         environment: env ?? {'SHIROHA_OCR_API_KEY': 'fake-key-for-test'},
         repositoryRoot: repositoryRoot,
+        loadSavedApiKey: loadSavedApiKey,
       );
 
       expect(exitCode, expectedExitCode);
@@ -383,6 +442,84 @@ void main() {
           final output = jsonEncode(jsonLines);
           expect(output, isNot(contains('contract-test-secret')));
           expect(output, isNot(contains('Authorization')));
+        },
+      );
+    });
+
+    test('environment API Key takes priority over the saved credential',
+        () async {
+      var savedKeyReadCount = 0;
+      await runSmokeTest(
+        ['--unknown'],
+        env: const {
+          'SHIROHA_OCR_API_KEY': 'environment-contract-secret',
+          'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true',
+        },
+        loadSavedApiKey: () async {
+          savedKeyReadCount++;
+          return 'saved-contract-secret';
+        },
+        expectedExitCode: 1,
+        verify: (jsonLines) {
+          expect(jsonLines.first, {
+            'stage': 'preflight',
+            'apiKeyPresent': true,
+          });
+          final output = jsonEncode(jsonLines);
+          expect(output, isNot(contains('environment-contract-secret')));
+          expect(output, isNot(contains('saved-contract-secret')));
+        },
+      );
+
+      expect(savedKeyReadCount, 0);
+    });
+
+    test('explicit saved credential request uses the injected loader',
+        () async {
+      var savedKeyReadCount = 0;
+      await runSmokeTest(
+        ['--unknown'],
+        env: const {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+        loadSavedApiKey: () async {
+          savedKeyReadCount++;
+          return 'saved-contract-secret';
+        },
+        expectedExitCode: 1,
+        verify: (jsonLines) {
+          expect(jsonLines.first, {
+            'stage': 'preflight',
+            'apiKeyPresent': true,
+          });
+          expect(
+            jsonLines.where(
+              (line) => line['status'] == 'saved_api_key_unavailable',
+            ),
+            isEmpty,
+          );
+          expect(
+            jsonEncode(jsonLines),
+            isNot(contains('saved-contract-secret')),
+          );
+        },
+      );
+
+      expect(savedKeyReadCount, 1);
+    });
+
+    test('saved credential read failure is safely classified', () async {
+      await runSmokeTest(
+        ['--pdf=fake.pdf'],
+        env: const {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+        loadSavedApiKey: () async {
+          throw StateError('PRIVATE saved credential failure');
+        },
+        expectedExitCode: 1,
+        verify: (jsonLines) {
+          expect(jsonLines.last['stage'], 'launcher');
+          expect(jsonLines.last['status'], 'saved_api_key_unavailable');
+          final output = jsonEncode(jsonLines);
+          expect(output, isNot(contains('PRIVATE saved credential failure')));
+          expect(output, isNot(contains('StateError')));
         },
       );
     });
@@ -589,7 +726,7 @@ void main() {
     test('production main passes Platform.environment explicitly and exits',
         () {
       final source = File('tool/ocr_smoke.dart').readAsStringSync();
-      expect(source, contains('environment: Platform.environment'));
+      expect(source, contains('final environment = Platform.environment'));
       expect(source, contains('exit(exitCode)'));
     });
 
@@ -606,8 +743,80 @@ void main() {
       expect(output, isNotEmpty);
     });
 
+    test('report write failure preserves smoke exit and emits safe status',
+        () async {
+      final output = <String>[];
+      final writer = OcrSmokeReportWriter(
+        repositoryRoot: Directory.systemTemp.path,
+        runId: 'ocr-run-20260723-120002-c1d2e3f4',
+        fileWriter: (_, __) async {
+          throw const FileSystemException('PRIVATE report path');
+        },
+      );
+
+      final exitCode = await runOcrSmoke(
+        const [],
+        output.add,
+        environment: const {},
+        reportWriter: writer,
+      );
+
+      expect(exitCode, 1);
+      final lastEvent = jsonDecode(output.last) as Map<String, dynamic>;
+      expect(lastEvent, {
+        'stage': 'report',
+        'status': 'report_write_failed',
+        'causeType': 'FileSystemException',
+      });
+      expect(output.join(), isNot(contains('PRIVATE report path')));
+    });
+
+    test('saved fixture credential is absent from output and report files',
+        () async {
+      const fixtureKey = 'saved-report-contract-secret';
+      const args = ['--unknown'];
+      final repository = Directory.systemTemp.createTempSync(
+        'ocr-smoke-saved-key-report-',
+      );
+      addTearDown(() {
+        if (repository.existsSync()) {
+          repository.deleteSync(recursive: true);
+        }
+      });
+      final output = <String>[];
+
+      final exitCode = await runOcrSmoke(
+        args,
+        output.add,
+        environment: const {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+        loadSavedApiKey: () async => fixtureKey,
+        reportWriter: OcrSmokeReportWriter(
+          repositoryRoot: repository.path,
+          runId: 'ocr-run-20260723-120003-d1e2f3a4',
+        ),
+      );
+
+      expect(exitCode, 1);
+      expect(args, isNot(contains(fixtureKey)));
+      expect(output.join(), isNot(contains(fixtureKey)));
+      final files = repository
+          .listSync(recursive: true)
+          .whereType<File>()
+          .toList(growable: false);
+      expect(files, isNotEmpty);
+      expect(
+        files.map((file) => file.readAsStringSync()).join(),
+        isNot(contains(fixtureKey)),
+      );
+      expect(
+        files.where((file) => file.path.toLowerCase().endsWith('.db')),
+        isEmpty,
+      );
+    });
+
     test('PowerShell launcher preserves credential and Unicode boundaries', () {
       final source = File('tool/run_ocr_smoke.ps1').readAsStringSync();
+      final dartSource = File('tool/ocr_smoke.dart').readAsStringSync();
 
       expect(
         source,
@@ -618,16 +827,32 @@ void main() {
       expect(source, contains('Read-Host'));
       expect(source, contains('-AsSecureString'));
       expect(source, contains('SHIROHA_OCR_API_KEY'));
+      expect(source, contains('SHIROHA_OCR_USE_SAVED_APP_KEY'));
       expect(source, contains('ZeroFreeBSTR'));
-      expect(source, contains("Environment['SHIROHA_OCR_API_KEY']"));
       expect(
         source,
-        contains("Environment.Remove('SHIROHA_OCR_API_KEY')"),
+        contains("EnvironmentVariables['SHIROHA_OCR_API_KEY'] = \$apiKey"),
       );
+      expect(
+        source,
+        contains(
+          "\$null = \$startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')",
+        ),
+      );
+      expect(source, isNot(contains('.Environment[')));
+      expect(source, isNot(contains('.Environment.Remove(')));
       expect(source, contains('Resolve-Path -LiteralPath'));
       expect(source, contains('ConvertTo-WindowsCommandLineArgument'));
       expect(source, contains('Join-WindowsCommandLine'));
-      expect(source, contains('saved_api_key_unavailable'));
+      expect(dartSource, contains('saved_api_key_unavailable'));
+      expect(
+        dartSource,
+        contains('AiEngineRepository.instance.getActiveOcrEngine()'),
+      );
+      expect(dartSource, contains('sqfliteFfiInit()'));
+      expect(dartSource, contains('databaseFactory = databaseFactoryFfi'));
+      expect(source, isNot(contains('shiroha_core_v1.db')));
+      expect(source, isNot(contains('sqlite')));
       expect(source, contains('taskkill.exe'));
       expect(source, isNot(contains('Kill(\$true)')));
       expect(source, isNot(contains('ToHexString')));
@@ -644,19 +869,34 @@ void main() {
       expect(source, contains('flutter_tools.dart'));
       expect(source, contains(r'$startInfo.FileName = $executablePath'));
       expect(source, contains('[System.Diagnostics.Process]::Start'));
+      expect(source, contains('New-OcrSmokeReportContext'));
+      expect(source, contains('Write-OcrSmokeTerminalSummary'));
+      expect(source, contains('SHIROHA_OCR_RUN_ID'));
+      expect(source, contains('tool\\ocr_smoke_report.dart'));
+      expect(source, contains("'report'"));
+      expect(
+        source,
+        contains(r"$parsed.stage -ne 'independent_parse'"),
+      );
       expect(
         source,
         contains(
-          r"$buildStartInfo.Environment.Remove('SHIROHA_OCR_API_KEY')",
+          r"$null = $buildStartInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')",
         ),
       );
 
       final environmentCheck = source.indexOf(
         r'$env:SHIROHA_OCR_API_KEY',
       );
+      final savedKeyBranch = source.indexOf(r'elseif ($UseSavedAppKey)');
       final prompt = source.indexOf('Read-Host');
       expect(environmentCheck, greaterThanOrEqualTo(0));
+      expect(savedKeyBranch, greaterThan(environmentCheck));
       expect(environmentCheck, lessThan(prompt));
+      expect(savedKeyBranch, lessThan(prompt));
+
+      final gitignore = File('.gitignore').readAsStringSync();
+      expect(gitignore, contains('scratch/ocr_reports/'));
     });
   });
 }

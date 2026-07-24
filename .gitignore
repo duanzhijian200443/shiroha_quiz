@@ -47,4 +47,5 @@ app.*.map.json
 # Antigravity / Scratch / Local test assets
 .gemini/
 /scratch/test_pdfs/
+scratch/ocr_reports/
 /scratch/review_diff.txt

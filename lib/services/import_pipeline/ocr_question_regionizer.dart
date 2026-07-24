@@ -152,6 +152,10 @@ class OcrQuestionRegionizer {
     r'^\s*([0-9０-９]{1,3})\s*$',
   );
 
+  static final RegExp _leadingDigitProbeRegex = RegExp(
+    r'^\s*(?:第\s*)?([0-9０-９]{1,3})(?![0-9０-９])([\s\S]*)$',
+  );
+
   static final RegExp _parenthesizedArabicMarkerRegex = RegExp(
     r'^\s*(?:（([0-9０-９]{1,3})）|\(([0-9０-９]{1,3})\))\s*([\s\S]*)$',
   );
@@ -198,6 +202,7 @@ class OcrQuestionRegionizer {
     final rejectedQuestionStarts = <String>[];
     final numberedFieldCandidates = <_NumberedFieldCandidate>[];
     final sections = <_SectionHeadingInfo>[];
+    final officialSections = <_SectionHeadingInfo>[];
     final pageCandidateCounts = <String, int>{};
     var splitCount = 0;
     var markdownPrefixedCandidateCount = 0;
@@ -221,6 +226,8 @@ class OcrQuestionRegionizer {
 
     final questionCandidateTrace = <Map<String, dynamic>>[];
     var questionCandidateTraceTruncated = false;
+    final markerProbeTrace = <Map<String, dynamic>>[];
+    var markerProbeTraceTruncated = false;
     var currentSectionIndex = 0;
 
     void addTrace({
@@ -246,6 +253,53 @@ class OcrQuestionRegionizer {
         'sectionIndex': sectionIndex,
         'blockOrder': unit.block.readingOrder,
       });
+    }
+
+    void addMarkerProbe({
+      required _OcrTextUnit unit,
+      required String text,
+      required bool startsAtBlockStart,
+      required String probeReason,
+      bool onlyUnrecognizedShape = false,
+    }) {
+      if (currentSectionKind == TextQuestionKind.unknown ||
+          currentSectionIsReference) {
+        return;
+      }
+      final probe = _readMarkerProbe(text);
+      if (probe == null ||
+          (onlyUnrecognizedShape &&
+              probe.markerShape != 'digit_prefix_unrecognized')) {
+        return;
+      }
+      if (markerProbeTrace.length >= 100) {
+        markerProbeTraceTruncated = true;
+        return;
+      }
+      markerProbeTrace.add({
+        'pageIndex': unit.block.pageIndex,
+        'blockOrder': unit.block.readingOrder,
+        'sectionIndex': currentSectionIndex,
+        'startsAtBlockStart': startsAtBlockStart,
+        'startsAtLineBoundary': true,
+        'markerShape': probe.markerShape,
+        'parsedNumber': probe.parsedNumber,
+        'followerClass': probe.followerClass,
+        'probeReason': probeReason,
+      });
+    }
+
+    void addUnmatchedInternalMarkerProbes(_OcrTextUnit unit) {
+      final lines =
+          unit.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+      for (var lineIndex = 1; lineIndex < lines.length; lineIndex++) {
+        addMarkerProbe(
+          unit: unit,
+          text: lines[lineIndex],
+          startsAtBlockStart: false,
+          probeReason: 'internal_line_not_split',
+        );
+      }
     }
 
     void recordQuestionCandidate(_OcrTextUnit unit) {
@@ -388,9 +442,14 @@ class OcrQuestionRegionizer {
         }
         currentSectionKind = section.kind;
         sections.add(section);
+        if (!currentSectionIsReference) {
+          officialSections.add(section);
+        }
         ignoredBlocks.add(unit.block.blockId);
         continue;
       }
+
+      addUnmatchedInternalMarkerProbes(unit);
 
       final numberedField = _readNumberedFieldTransition(text);
       if (numberedField != null) {
@@ -525,8 +584,17 @@ class OcrQuestionRegionizer {
                 unit.startsAtBlockStart &&
                 currentSectionKind != TextQuestionKind.unknown &&
                 _looksLikeFormulaLeadingStem(remainingText);
+            final previous = previousAcceptedNumber();
+            final canPromoteSequentialBareMarker = parsedNum != null &&
+                info.markerKind == 'explicit_question' &&
+                unit.startsAtBlockStart &&
+                currentSectionKind != TextQuestionKind.unknown &&
+                !currentSectionIsReference &&
+                previous != null &&
+                parsedNum == previous + 1;
 
-            if (canPromoteFormulaLeadingMarker) {
+            if (canPromoteFormulaLeadingMarker ||
+                canPromoteSequentialBareMarker) {
               recordQuestionCandidate(unit);
               final rejectionReason = candidateRejectionReason(
                 number: parsedNum,
@@ -584,6 +652,58 @@ class OcrQuestionRegionizer {
         }
       }
 
+      final recoveryProbe = _readMarkerProbe(text);
+      final recoveryNumber = recoveryProbe?.parsedNumber;
+      final previous = previousAcceptedNumber();
+      final canRecoverSequentialDigitPrefix = recoveryProbe != null &&
+          recoveryProbe.markerShape == 'digit_prefix_unrecognized' &&
+          recoveryProbe.followerClass == 'stem_keyword' &&
+          unit.startsAtBlockStart &&
+          currentSectionKind != TextQuestionKind.unknown &&
+          !currentSectionIsReference &&
+          recoveryNumber != null &&
+          previous != null &&
+          recoveryNumber == previous + 1;
+      if (canRecoverSequentialDigitPrefix) {
+        final recoveredProbe = recoveryProbe;
+        final recoveredNumber = recoveryNumber;
+        recordQuestionCandidate(unit);
+        final rejectionReason = candidateRejectionReason(
+          number: recoveredNumber,
+          requiresSectionContext: true,
+        );
+        if (rejectionReason == null) {
+          sequenceAcceptedCount++;
+          startQuestion(
+            number: recoveredNumber,
+            unit: unit,
+            markerKind: recoveredProbe.markerShape,
+            remainingText: recoveredProbe.remainingText,
+          );
+          continue;
+        }
+
+        if (rejectionReason == 'sequence_mismatch') {
+          sequenceRejectedCount++;
+        }
+        rejectQuestionCandidate(
+          number: recoveredNumber,
+          unit: unit,
+          markerKind: recoveredProbe.markerShape,
+          reason: rejectionReason,
+          text: text,
+        );
+        continue;
+      }
+
+      addMarkerProbe(
+        unit: unit,
+        text: text,
+        startsAtBlockStart: unit.startsAtBlockStart,
+        probeReason: 'block_start_not_candidate',
+        onlyUnrecognizedShape: true,
+      );
+
       if (current == null) {
         ignoredBlocks.add(unit.block.blockId);
         continue;
@@ -611,7 +731,7 @@ class OcrQuestionRegionizer {
     final acceptedNumbers =
         patchedRegions.map((region) => region.number).toList();
     final missingNumbers = _missingNumbers(acceptedNumbers);
-    final expectedQuestionCount = _expectedQuestionCount(sections);
+    final expectedQuestionCount = _expectedQuestionCount(officialSections);
     final tailMissingNumbers = _tailMissingNumbers(
       acceptedNumbers,
       expectedQuestionCount,
@@ -659,6 +779,8 @@ class OcrQuestionRegionizer {
         'questionCandidateTrace': questionCandidateTrace,
         if (questionCandidateTraceTruncated)
           'questionCandidateTraceTruncated': true,
+        'markerProbeTrace': markerProbeTrace,
+        'markerProbeTraceTruncated': markerProbeTraceTruncated,
       },
     );
   }
@@ -959,6 +1081,40 @@ class OcrQuestionRegionizer {
     }
 
     return null;
+  }
+
+  _MarkerProbeInfo? _readMarkerProbe(String text) {
+    final candidate = _normalizeQuestionCandidateText(text);
+    final markerInfo = _parseMarkerInfo(candidate);
+    if (markerInfo != null) {
+      return _MarkerProbeInfo(
+        markerShape: markerInfo.markerKind,
+        parsedNumber: markerInfo.number,
+        followerClass: _classifyMarkerProbeFollower(
+          _stripQuestionPrefix(candidate),
+        ),
+        remainingText: _stripQuestionPrefix(candidate),
+      );
+    }
+
+    final leadingDigits = _leadingDigitProbeRegex.firstMatch(candidate);
+    if (leadingDigits == null) return null;
+    final remainingText = (leadingDigits.group(2) ?? '').trim();
+    return _MarkerProbeInfo(
+      markerShape: 'digit_prefix_unrecognized',
+      parsedNumber: _parseQuestionNumber(leadingDigits.group(1) ?? ''),
+      followerClass: _classifyMarkerProbeFollower(remainingText),
+      remainingText: remainingText,
+    );
+  }
+
+  String _classifyMarkerProbeFollower(String text) {
+    final normalized = text.trimLeft();
+    if (normalized.isEmpty) return 'empty';
+    if (_looksLikeFormulaLeadingStem(normalized)) return 'formula';
+    if (_looksLikeStemStart(normalized)) return 'stem_keyword';
+    if (RegExp(r'^[0-9０-９]').hasMatch(normalized)) return 'digit';
+    return 'other';
   }
 
   String _determineMarkerKind(String text) {
@@ -1432,4 +1588,18 @@ class _MarkerInfo {
   final int? number;
   final String markerKind;
   final String? rawNumberString;
+}
+
+class _MarkerProbeInfo {
+  const _MarkerProbeInfo({
+    required this.markerShape,
+    required this.parsedNumber,
+    required this.followerClass,
+    required this.remainingText,
+  });
+
+  final String markerShape;
+  final int? parsedNumber;
+  final String followerClass;
+  final String remainingText;
 }
