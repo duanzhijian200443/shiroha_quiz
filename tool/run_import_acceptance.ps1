@@ -30,18 +30,45 @@ param(
 
     [switch]$RefreshOcr,
 
-    [switch]$UseSavedAppKey
+    [switch]$UseSavedAppKey,
+
+    [Parameter(DontShow)]
+    [string]$DartExecutableForTesting
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Write-SafeAcceptanceEvent {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Stage,
+
+        [Parameter(Mandatory)]
+        [string]$Status,
+
+        [Parameter(Mandatory)]
+        [string]$CauseType
+    )
+
+    [ordered]@{
+        stage = $Stage
+        status = $Status
+        causeType = $CauseType
+    } | ConvertTo-Json -Compress
+}
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Definition)
 
 # ── Validate case file ──────────────────────────────────────────────────
+if ([string]::IsNullOrWhiteSpace($Case) -or $Case -notmatch '^[A-Za-z0-9_-]+$') {
+    Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'invalid_case_id' -CauseType 'InvalidAcceptanceCaseId'
+    exit 2
+}
+
 $caseFile = Join-Path $repoRoot "tool\import_cases\$Case.json"
 if (-not (Test-Path $caseFile)) {
-    Write-Error "Case file not found: $caseFile"
+    Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'case_not_found' -CauseType 'CaseNotFound'
     exit 1
 }
 
@@ -49,7 +76,12 @@ if (-not (Test-Path $caseFile)) {
 if ($RefreshOcr) {
     Write-Output "--- Refreshing OCR cache via ocr_smoke ---"
 
-    $caseJson = Get-Content $caseFile -Raw | ConvertFrom-Json
+    try {
+        $caseJson = Get-Content $caseFile -Raw | ConvertFrom-Json
+    } catch {
+        Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'case_config_invalid' -CauseType ($_.Exception.GetType().Name)
+        exit 1
+    }
     $pdfRelative = $caseJson.pdf
 
     $smokeArgs = @(
@@ -62,27 +94,41 @@ if ($RefreshOcr) {
     if ($UseSavedAppKey) { $smokeArgs += '-UseSavedAppKey' }
 
     $smokeExit = 0
+    $replayCacheWritten = $false
     try {
-        & powershell.exe @smokeArgs
+        & powershell.exe @smokeArgs 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            try {
+                $evt = $line | ConvertFrom-Json -ErrorAction Stop
+                if ($evt.stage -eq 'replay_cache' -and $evt.status -eq 'written') {
+                    $replayCacheWritten = $true
+                }
+                if ($evt.stage -in @('launcher', 'preflight', 'provider', 'replay_cache', 'credential_probe', 'completed')) {
+                    Write-Output $line
+                }
+            } catch {
+                # Suppress non-JSON line to avoid leaking secrets
+            }
+        }
         $smokeExit = $LASTEXITCODE
     } catch {
-        Write-Warning "OCR smoke failed: $_"
-        $smokeExit = 1
+        Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'refresh_runner_failed' -CauseType ($_.Exception.GetType().Name)
+        exit 1
     }
 
-    if ($smokeExit -ne 0) {
-        Write-Error "OCR refresh failed (exit $smokeExit). Cannot generate replay cache."
+    if ($smokeExit -ne 0 -or -not $replayCacheWritten) {
+        Write-SafeAcceptanceEvent -Stage 'replay_cache' -Status 'refresh_failed' -CauseType 'OcrRefreshFailed'
         exit 1
     }
     Write-Output "--- OCR cache refreshed ---"
 }
 
 # ── Locate Dart executable ──────────────────────────────────────────────
-$dartExe = $null
+$dartExe = $DartExecutableForTesting
 $flutterRoot = $env:FLUTTER_ROOT
-if ($flutterRoot -and (Test-Path (Join-Path $flutterRoot 'bin\cache\dart-sdk\bin\dart.exe'))) {
+if (-not $dartExe -and $flutterRoot -and (Test-Path (Join-Path $flutterRoot 'bin\cache\dart-sdk\bin\dart.exe'))) {
     $dartExe = Join-Path $flutterRoot 'bin\cache\dart-sdk\bin\dart.exe'
-} else {
+} elseif (-not $dartExe) {
     $dartExe = Get-Command 'dart' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 }
 if (-not $dartExe) {
@@ -94,13 +140,13 @@ if (-not $dartExe) {
     }
 }
 if (-not $dartExe) {
-    Write-Error "Cannot find dart executable. Ensure Flutter/Dart is on PATH."
+    Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'runner_unavailable' -CauseType 'DartExecutableUnavailable'
     exit 1
 }
 
 # ── Run acceptance tool ─────────────────────────────────────────────────
 $toolScript = Join-Path $repoRoot 'tool\import_acceptance.dart'
-$dartArgs = @('run', $toolScript, "--case=$Case")
+$dartArgs = @('run', $toolScript, "--case=$Case", "--repository-root=$repoRoot")
 
 Write-Output "--- Running import acceptance (case=$Case) ---"
 
@@ -141,8 +187,8 @@ try {
     }
     $exitCode = $LASTEXITCODE
 } catch {
-    Write-Error "Acceptance runner failed: $_"
-    $exitCode = 1
+    Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'runner_start_failed' -CauseType ($_.Exception.GetType().Name)
+    exit 1
 }
 
 if ($exitCode -eq 0) {

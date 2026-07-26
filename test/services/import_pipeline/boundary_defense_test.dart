@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
@@ -14,8 +15,7 @@ import 'package:shiroha_quiz/services/llm_api_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_quality_gate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/answer_block_matcher.dart';
-import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
-import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+
 
 void main() {
   group('Boundary Defense Tests - LocalQuestionAssembler', () {
@@ -328,6 +328,44 @@ B. 选项B
 
       expect(
           result.diagnostics.any((d) => d.contains('repair_failed')), isTrue);
+    });
+
+    test('9. 修复异常仅保留固定错误码与异常类型，不泄露异常消息', () async {
+      const sensitiveMarker = 'SENSITIVE_PROVIDER_RESPONSE_MARKER_7F91';
+      final repairService = SingleQuestionRepairService(
+        apiClient: ThrowingLlmApiClient(
+          const FormatException(sensitiveMarker),
+        ),
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. 原始破损题干...',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+      final printed = <String>[];
+
+      final result = await runZoned(
+        () => repairService.repair(
+          region: region,
+          localResult: localResult,
+        ),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => printed.add(line),
+        ),
+      );
+
+      expect(result.diagnostics, contains('repair_failed'));
+      expect(
+          result.diagnostics, contains('repair_failure_type:FormatException'));
+      expect(jsonEncode(result.question), isNot(contains(sensitiveMarker)));
+      expect(jsonEncode(result.diagnostics), isNot(contains(sensitiveMarker)));
+      expect(printed.join(), isNot(contains(sensitiveMarker)));
+      expect(printed, isEmpty);
     });
   });
 
@@ -750,6 +788,26 @@ class MockLlmApiClient extends LlmApiClient {
     Duration timeout = const Duration(minutes: 5),
   }) async {
     return responseText;
+  }
+}
+
+class ThrowingLlmApiClient extends LlmApiClient {
+  ThrowingLlmApiClient(this.error);
+
+  final Object error;
+
+  @override
+  Future<String> callText({
+    required AiEngineProfile profile,
+    required String prompt,
+    String? systemPrompt,
+    double? temperature,
+    String? reasoningEffort,
+    int maxTokens = 8192,
+    bool jsonResponse = false,
+    Duration timeout = const Duration(minutes: 5),
+  }) async {
+    throw error;
   }
 }
 

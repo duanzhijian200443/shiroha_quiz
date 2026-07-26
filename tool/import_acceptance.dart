@@ -2,9 +2,9 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -14,12 +14,14 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_final_sort
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/vision_question_quality_gate.dart';
-import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
 import 'import_acceptance_report.dart';
+
+const supportedReplayOcrModelId = 'glm-ocr';
 
 // ---------------------------------------------------------------------------
 // Test case configuration
@@ -54,23 +56,34 @@ class ImportAcceptanceCase {
       caseId: json['caseId'] as String,
       pdf: json['pdf'] as String,
       expectedQuestionCount: json['expectedQuestionCount'] as int,
-      expectedNumbers:
-          (json['expectedNumbers'] as List).cast<int>().toList(),
+      expectedNumbers: (json['expectedNumbers'] as List).cast<int>().toList(),
       allowDuplicateNumbers: json['allowDuplicateNumbers'] as bool? ?? false,
     );
   }
+}
+
+bool isValidAcceptanceCaseId(String caseId) {
+  return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(caseId);
+}
+
+class InvalidAcceptanceCaseIdException implements Exception {
+  const InvalidAcceptanceCaseIdException();
 }
 
 ImportAcceptanceCase loadAcceptanceCase({
   required String caseId,
   required String repositoryRoot,
 }) {
-  final casePath = p.join(
-    repositoryRoot,
-    'tool',
-    'import_cases',
-    '$caseId.json',
+  if (!isValidAcceptanceCaseId(caseId)) {
+    throw const InvalidAcceptanceCaseIdException();
+  }
+  final casesRoot = p.normalize(
+    p.absolute(p.join(repositoryRoot, 'tool', 'import_cases')),
   );
+  final casePath = p.normalize(p.join(casesRoot, '$caseId.json'));
+  if (!p.isWithin(casesRoot, casePath)) {
+    throw const InvalidAcceptanceCaseIdException();
+  }
   final file = File(casePath);
   if (!file.existsSync()) {
     throw ArgumentError('Case file not found: $caseId');
@@ -96,108 +109,418 @@ String computeReplayCacheFingerprint({
   return hash.toString().substring(0, 16);
 }
 
-class ReplayCacheResult {
-  const ReplayCacheResult({
-    required this.document,
-    required this.sourceMode,
-    required this.fingerprint,
-    required this.cacheDirectory,
-  });
-
-  final OcrDocument document;
-  final String sourceMode;
-  final String fingerprint;
-  final String cacheDirectory;
+enum ReplayCacheLoadStatus {
+  loaded,
+  missing,
+  invalid,
 }
 
-ReplayCacheResult? loadReplayCache({
+class ReplayCacheResult {
+  const ReplayCacheResult({
+    required this.status,
+    this.document,
+    this.fingerprint,
+    this.cacheDirectory,
+    this.causeType,
+  });
+
+  final ReplayCacheLoadStatus status;
+  final OcrDocument? document;
+  final String? fingerprint;
+  final String? cacheDirectory;
+  final String? causeType;
+
+  bool get isLoaded => status == ReplayCacheLoadStatus.loaded;
+  bool get isMissing => status == ReplayCacheLoadStatus.missing;
+  bool get isInvalid => status == ReplayCacheLoadStatus.invalid;
+
+  String get sourceMode => 'replay';
+}
+
+class ReplayCacheWriteResult {
+  const ReplayCacheWriteResult({
+    required this.caseId,
+    required this.fingerprint,
+    required this.documentHash,
+    required this.reusedExistingDirectory,
+  });
+
+  final String caseId;
+  final String fingerprint;
+  final String documentHash;
+  final bool reusedExistingDirectory;
+}
+
+ReplayCacheResult loadReplayCache({
   required String caseId,
   required String repositoryRoot,
 }) {
-  final replayRoot = p.join(repositoryRoot, 'scratch', 'ocr_replay', caseId);
-  final dir = Directory(replayRoot);
-  if (!dir.existsSync()) return null;
-
-  final subdirs = dir
-      .listSync()
-      .whereType<Directory>()
-      .toList()
-    ..sort((a, b) => b.path.compareTo(a.path));
-
-  for (final subdir in subdirs) {
-    final manifestFile = File(p.join(subdir.path, 'manifest.json'));
-    final docFile =
-        File(p.join(subdir.path, 'ocr_document.private.json'));
-    if (!manifestFile.existsSync() || !docFile.existsSync()) continue;
-
-    try {
-      final manifestJson =
-          jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
-      if (manifestJson['caseId'] != caseId) continue;
-
-      final docJson =
-          jsonDecode(docFile.readAsStringSync()) as Map<String, dynamic>;
-      final document = OcrDocument.fromReplayJson(docJson);
-      final fingerprint = p.basename(subdir.path);
-
-      return ReplayCacheResult(
-        document: document,
-        sourceMode: 'replay',
-        fingerprint: fingerprint,
-        cacheDirectory: subdir.path,
-      );
-    } on FormatException {
-      continue;
-    } catch (_) {
-      continue;
-    }
+  if (caseId.trim().isEmpty || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(caseId)) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerMismatch',
+    );
   }
-  return null;
+
+  final caseRoot = p.join(repositoryRoot, 'scratch', 'ocr_replay', caseId);
+  final caseRootDir = Directory(caseRoot);
+  if (!caseRootDir.existsSync()) {
+    return const ReplayCacheResult(status: ReplayCacheLoadStatus.missing);
+  }
+
+  final currentFile = File(p.join(caseRoot, 'current.json'));
+  if (!currentFile.existsSync()) {
+    return const ReplayCacheResult(status: ReplayCacheLoadStatus.missing);
+  }
+
+  // Parse current.json
+  Map<String, dynamic> currentJson;
+  try {
+    final rawCurrent = currentFile.readAsStringSync();
+    final decoded = jsonDecode(rawCurrent);
+    if (decoded is! Map<String, dynamic>) {
+      return const ReplayCacheResult(
+        status: ReplayCacheLoadStatus.invalid,
+        causeType: 'CurrentPointerFormatException',
+      );
+    }
+    currentJson = decoded;
+  } catch (_) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerFormatException',
+    );
+  }
+
+  if (currentJson['schemaVersion'] != 1) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplaySchemaMismatch',
+    );
+  }
+
+  final currentCaseId = currentJson['caseId'];
+  if (currentCaseId != caseId) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerMismatch',
+    );
+  }
+
+  final fingerprint = currentJson['fingerprint'];
+  if (fingerprint is! String ||
+      !RegExp(r'^[a-f0-9]{16}$').hasMatch(fingerprint)) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerFormatException',
+    );
+  }
+
+  final updatedAtRaw = currentJson['updatedAtUtc'];
+  if (updatedAtRaw is! String || DateTime.tryParse(updatedAtRaw) == null) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerFormatException',
+    );
+  }
+
+  final fingerprintDir = p.join(caseRoot, fingerprint);
+  final relativeToCaseRoot = p.relative(fingerprintDir, from: caseRoot);
+  if (relativeToCaseRoot.startsWith('..') ||
+      p.isAbsolute(relativeToCaseRoot) ||
+      relativeToCaseRoot.contains('/') ||
+      relativeToCaseRoot.contains(r'\')) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerMismatch',
+    );
+  }
+
+  final targetDir = Directory(fingerprintDir);
+  if (!targetDir.existsSync()) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayTargetMissing',
+    );
+  }
+
+  // Parse and validate manifest.json
+  final manifestFile = File(p.join(fingerprintDir, 'manifest.json'));
+  if (!manifestFile.existsSync()) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayTargetMissing',
+    );
+  }
+
+  Map<String, dynamic> manifestJson;
+  try {
+    final rawManifest = manifestFile.readAsStringSync();
+    final decoded = jsonDecode(rawManifest);
+    if (decoded is! Map<String, dynamic>) {
+      return const ReplayCacheResult(
+        status: ReplayCacheLoadStatus.invalid,
+        causeType: 'ReplayManifestFormatException',
+      );
+    }
+    manifestJson = decoded;
+  } catch (_) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayManifestFormatException',
+    );
+  }
+
+  if (manifestJson['schemaVersion'] != 1 ||
+      manifestJson['ocrDocumentSchemaVersion'] != 1) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplaySchemaMismatch',
+    );
+  }
+
+  if (manifestJson['caseId'] != caseId ||
+      manifestJson['fingerprint'] != fingerprint) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayManifestMismatch',
+    );
+  }
+
+  if (manifestJson['ocrModelId'] != supportedReplayOcrModelId) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayModelMismatch',
+    );
+  }
+
+  final pdfContentHash = manifestJson['pdfContentHash'];
+  final documentHash = manifestJson['documentHash'];
+  if (pdfContentHash is! String ||
+      !RegExp(r'^[a-f0-9]{64}$').hasMatch(pdfContentHash) ||
+      documentHash is! String ||
+      !RegExp(r'^[a-f0-9]{64}$').hasMatch(documentHash)) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayManifestMismatch',
+    );
+  }
+
+  final createdAtRaw =
+      manifestJson['createdAtUtc'] ?? manifestJson['createdAt'];
+  if (createdAtRaw is! String || DateTime.tryParse(createdAtRaw) == null) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayManifestMismatch',
+    );
+  }
+
+  // Parse and validate ocr_document.private.json
+  final docFile = File(p.join(fingerprintDir, 'ocr_document.private.json'));
+  if (!docFile.existsSync()) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayDocumentMissing',
+    );
+  }
+
+  List<int> docBytes;
+  try {
+    docBytes = docFile.readAsBytesSync();
+  } catch (_) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayDocumentMissing',
+    );
+  }
+
+  final computedHash = sha256.convert(docBytes).toString();
+  if (computedHash != documentHash) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayDocumentHashMismatch',
+    );
+  }
+
+  OcrDocument document;
+  try {
+    final docText = utf8.decode(docBytes);
+    final docJson = jsonDecode(docText) as Map<String, dynamic>;
+    document = OcrDocument.fromReplayJson(docJson);
+  } catch (_) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayDocumentFormatException',
+    );
+  }
+
+  final hasUsableBlocks = document.pages.isNotEmpty &&
+      document.pages.any((p) => p.blocks.any((b) => b.text.trim().isNotEmpty));
+  if (!hasUsableBlocks) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayDocumentEmpty',
+    );
+  }
+
+  return ReplayCacheResult(
+    status: ReplayCacheLoadStatus.loaded,
+    document: document,
+    fingerprint: fingerprint,
+    cacheDirectory: fingerprintDir,
+  );
 }
 
-void writeReplayCache({
+ReplayCacheWriteResult writeReplayCache({
   required String caseId,
   required String repositoryRoot,
   required OcrDocument document,
   required String fingerprint,
   required String pdfContentHash,
 }) {
-  final cacheDir = p.join(
-    repositoryRoot,
-    'scratch',
-    'ocr_replay',
-    caseId,
-    fingerprint,
-  );
-  final tempDir = '${cacheDir}_tmp_${DateTime.now().millisecondsSinceEpoch}';
+  if (caseId.trim().isEmpty || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(caseId)) {
+    throw ArgumentError('Invalid caseId format: $caseId');
+  }
+  if (!RegExp(r'^[a-f0-9]{16}$').hasMatch(fingerprint)) {
+    throw ArgumentError('Invalid fingerprint format: $fingerprint');
+  }
+  if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(pdfContentHash)) {
+    throw ArgumentError('Invalid pdfContentHash format: $pdfContentHash');
+  }
 
-  Directory(tempDir).createSync(recursive: true);
+  final caseRoot = p.join(repositoryRoot, 'scratch', 'ocr_replay', caseId);
+  Directory(caseRoot).createSync(recursive: true);
+
+  final stagingDirName =
+      '.staging-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(10000)}';
+  final stagingPath = p.join(caseRoot, stagingDirName);
+  final stagingDir = Directory(stagingPath);
+  stagingDir.createSync(recursive: true);
+
+  String? tmpCurrentPath;
 
   try {
-    final docJson = jsonEncode(document.toReplayJson());
-    // Validate round-trip before writing
-    jsonDecode(docJson);
+    const encoder = JsonEncoder.withIndent('  ');
+    final docJsonText = encoder.convert(document.toReplayJson());
+    final docBytes = utf8.encode(docJsonText);
+    final documentHash = sha256.convert(docBytes).toString();
 
-    File(p.join(tempDir, 'ocr_document.private.json'))
-        .writeAsStringSync(docJson);
-    File(p.join(tempDir, 'manifest.json')).writeAsStringSync(jsonEncode({
+    File(p.join(stagingPath, 'ocr_document.private.json'))
+        .writeAsBytesSync(docBytes, flush: true);
+
+    final createdAtUtc = DateTime.now().toUtc().toIso8601String();
+    final manifestJson = {
       'schemaVersion': 1,
       'caseId': caseId,
+      'fingerprint': fingerprint,
+      'ocrDocumentSchemaVersion': 1,
+      'ocrModelId': supportedReplayOcrModelId,
       'pdfContentHash': pdfContentHash,
-      'ocrModelId': ZhipuOcrClient.model,
-      'createdAt': DateTime.now().toUtc().toIso8601String(),
-      'documentHash': sha256.convert(utf8.encode(docJson)).toString(),
-    }));
+      'documentHash': documentHash,
+      'createdAtUtc': createdAtUtc,
+    };
+    File(p.join(stagingPath, 'manifest.json'))
+        .writeAsStringSync(encoder.convert(manifestJson), flush: true);
 
-    final target = Directory(cacheDir);
-    if (target.existsSync()) {
-      target.deleteSync(recursive: true);
+    // Staging Self-Check
+    final checkDocBytes = File(p.join(stagingPath, 'ocr_document.private.json'))
+        .readAsBytesSync();
+    if (sha256.convert(checkDocBytes).toString() != documentHash) {
+      throw StateError('Staging documentHash self-check failed');
     }
-    Directory(tempDir).renameSync(cacheDir);
+    final checkDocJson =
+        jsonDecode(utf8.decode(checkDocBytes)) as Map<String, dynamic>;
+    final checkDocument = OcrDocument.fromReplayJson(checkDocJson);
+    if (checkDocument.pages.isEmpty ||
+        !checkDocument.pages
+            .any((p) => p.blocks.any((b) => b.text.trim().isNotEmpty))) {
+      throw StateError('Staging document self-check empty');
+    }
+
+    final targetPath = p.join(caseRoot, fingerprint);
+    final targetDir = Directory(targetPath);
+    bool reusedExisting = false;
+
+    if (targetDir.existsSync()) {
+      final existingDocFile =
+          File(p.join(targetPath, 'ocr_document.private.json'));
+      final existingManifestFile = File(p.join(targetPath, 'manifest.json'));
+      bool isExistingValid = false;
+      if (existingDocFile.existsSync() && existingManifestFile.existsSync()) {
+        try {
+          final exBytes = existingDocFile.readAsBytesSync();
+          final exHash = sha256.convert(exBytes).toString();
+          if (exHash == documentHash) {
+            isExistingValid = true;
+          }
+        } catch (_) {}
+      }
+
+      if (isExistingValid) {
+        stagingDir.deleteSync(recursive: true);
+        reusedExisting = true;
+      } else {
+        targetDir.deleteSync(recursive: true);
+        stagingDir.renameSync(targetPath);
+        reusedExisting = false;
+      }
+    } else {
+      stagingDir.renameSync(targetPath);
+      reusedExisting = false;
+    }
+
+    // Write current.json.tmp and rename
+    final updatedAtUtc = DateTime.now().toUtc().toIso8601String();
+    final currentJson = {
+      'schemaVersion': 1,
+      'caseId': caseId,
+      'fingerprint': fingerprint,
+      'updatedAtUtc': updatedAtUtc,
+    };
+    final tmpCurrentName =
+        'current.json.tmp-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(10000)}';
+    tmpCurrentPath = p.join(caseRoot, tmpCurrentName);
+    final tmpCurrentFile = File(tmpCurrentPath);
+    tmpCurrentFile.writeAsStringSync(encoder.convert(currentJson), flush: true);
+
+    // Verify temp current pointer
+    final checkCurrentJson =
+        jsonDecode(tmpCurrentFile.readAsStringSync()) as Map<String, dynamic>;
+    if (checkCurrentJson['fingerprint'] != fingerprint) {
+      throw StateError('Temp current pointer verification failed');
+    }
+
+    tmpCurrentFile.renameSync(p.join(caseRoot, 'current.json'));
+
+    // Production loader self-test
+    final postWriteLoad = loadReplayCache(
+      caseId: caseId,
+      repositoryRoot: repositoryRoot,
+    );
+    if (!postWriteLoad.isLoaded || postWriteLoad.fingerprint != fingerprint) {
+      throw StateError('Post-write load self-test failed');
+    }
+
+    return ReplayCacheWriteResult(
+      caseId: caseId,
+      fingerprint: fingerprint,
+      documentHash: documentHash,
+      reusedExistingDirectory: reusedExisting,
+    );
   } catch (_) {
-    try {
-      Directory(tempDir).deleteSync(recursive: true);
-    } catch (_) {}
+    if (stagingDir.existsSync()) {
+      try {
+        stagingDir.deleteSync(recursive: true);
+      } catch (_) {}
+    }
+    if (tmpCurrentPath != null) {
+      final tmpFile = File(tmpCurrentPath);
+      if (tmpFile.existsSync()) {
+        try {
+          tmpFile.deleteSync();
+        } catch (_) {}
+      }
+    }
     rethrow;
   }
 }
@@ -206,11 +529,14 @@ void writeReplayCache({
 // Stub OCR client for replay (returns cached OcrDocument)
 // ---------------------------------------------------------------------------
 
-class _ReplayOcrClient extends ZhipuOcrClient {
+class _ReplayOcrClient implements OcrDocumentClient {
   _ReplayOcrClient(this._document);
 
   final OcrDocument _document;
   int callCount = 0;
+
+  @override
+  String get modelId => supportedReplayOcrModelId;
 
   @override
   Future<OcrDocument> parseFile({
@@ -337,8 +663,7 @@ AcceptanceQualityResult runAcceptanceQualityChecks({
     final rawExplanation = _readStr(q['raw_explanation']);
     final hasContent = content.isNotEmpty;
     final hasAnswer = answer.isNotEmpty;
-    final hasExplanation =
-        explanation.isNotEmpty || rawExplanation.isNotEmpty;
+    final hasExplanation = explanation.isNotEmpty || rawExplanation.isNotEmpty;
     final issues = <AcceptanceQuestionIssue>[];
     final allText = '$content $answer $explanation';
 
@@ -528,8 +853,7 @@ AcceptanceVerdict computeVerdict({
     return const AcceptanceVerdict(verdict: 'FAIL', exitCode: 1);
   }
 
-  final hasHardIssue =
-      quality.questionReports.any((r) => r.hasHardIssue);
+  final hasHardIssue = quality.questionReports.any((r) => r.hasHardIssue);
   if (hasHardIssue) {
     return const AcceptanceVerdict(verdict: 'FAIL', exitCode: 1);
   }
@@ -539,8 +863,7 @@ AcceptanceVerdict computeVerdict({
     return const AcceptanceVerdict(verdict: 'REVIEW', exitCode: 2);
   }
 
-  final hasReviewIssue =
-      quality.questionReports.any((r) => r.hasReviewIssue);
+  final hasReviewIssue = quality.questionReports.any((r) => r.hasReviewIssue);
   if (hasReviewIssue) {
     return const AcceptanceVerdict(verdict: 'REVIEW', exitCode: 2);
   }
@@ -558,16 +881,20 @@ Future<int> runImportAcceptance({
   required String caseId,
   required String repositoryRoot,
   required AcceptanceEventEmitter emitEvent,
-  bool refreshOcr = false,
-  SavedApiKeyLoader? loadSavedApiKey,
-  Map<String, String>? environment,
   AcceptanceReportWriter? reportWriter,
 }) async {
   final stopwatch = Stopwatch()..start();
-  final env = environment ?? Platform.environment;
 
   // 1. Load test case
   final ImportAcceptanceCase testCase;
+  if (!isValidAcceptanceCaseId(caseId)) {
+    emitEvent({
+      'stage': 'launcher',
+      'status': 'invalid_case_id',
+      'causeType': 'InvalidAcceptanceCaseId',
+    });
+    return 2;
+  }
   try {
     testCase = loadAcceptanceCase(
       caseId: caseId,
@@ -594,129 +921,36 @@ Future<int> runImportAcceptance({
   final String sourceMode;
   String cacheFingerprint = '';
 
-  if (refreshOcr) {
-    // Live OCR — need API key
-    var apiKey = env['SHIROHA_OCR_API_KEY'];
-    final useSavedAppKey = env['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true';
-
-    if ((apiKey == null || apiKey.trim().isEmpty) && useSavedAppKey) {
-      try {
-        apiKey = await loadSavedApiKey?.call();
-      } catch (_) {
-        apiKey = null;
-      }
-    }
-
-    if (apiKey == null || apiKey.trim().isEmpty) {
-      emitEvent({
-        'stage': 'preflight',
-        'status': 'missing_api_key',
-      });
-      return 1;
-    }
-
-    // Resolve PDF
-    final pdfRelative = testCase.pdf;
-    final pdfPath = p.join(
-      repositoryRoot,
-      'scratch',
-      'test_pdfs',
-      pdfRelative,
-    );
-    final pdfFile = File(pdfPath);
-    if (!pdfFile.existsSync()) {
-      emitEvent({
-        'stage': 'preflight',
-        'status': 'pdf_not_found',
-      });
-      return 1;
-    }
-
-    final baseUrl = env['SHIROHA_OCR_BASE_URL'] ??
-        'https://open.bigmodel.cn/api/paas';
-    final profile = AiEngineProfile(
-      id: 'acceptance-ocr',
-      engineType: AiEngineType.ocr,
-      name: 'acceptance-zhipu',
-      apiKey: apiKey,
-      baseUrl: baseUrl,
-      modelName: ZhipuOcrClient.model,
-      temperature: 0.0,
-      reasoningEffort: '',
-      isActive: true,
-    );
-
-    emitEvent({
-      'stage': 'ocr',
-      'status': 'live_ocr_started',
-    });
-
-    try {
-      final ocrClient = const ZhipuOcrClient();
-      document = await ocrClient.parseFile(
-        profile: profile,
-        filePath: pdfPath,
-        sourceName: p.basename(pdfPath),
-      );
-    } catch (e) {
-      emitEvent({
-        'stage': 'ocr',
-        'status': 'live_ocr_failed',
-        'causeType': e.runtimeType.toString(),
-      });
-      return 1;
-    }
-
-    // Write replay cache atomically
-    final pdfBytes = pdfFile.readAsBytesSync();
-    cacheFingerprint = computeReplayCacheFingerprint(
-      pdfBytes: pdfBytes,
-      documentSchemaVersion: 1,
-      ocrModelId: ZhipuOcrClient.model,
-    );
-    final pdfHash = sha256.convert(pdfBytes).toString();
-
-    try {
-      writeReplayCache(
-        caseId: caseId,
-        repositoryRoot: repositoryRoot,
-        document: document,
-        fingerprint: cacheFingerprint,
-        pdfContentHash: pdfHash,
-      );
-    } catch (_) {
-      // Cache write failure is non-fatal
-    }
-
-    sourceMode = 'live';
-    emitEvent({
-      'stage': 'ocr',
-      'status': 'live_ocr_completed',
-      'fingerprint': cacheFingerprint,
-    });
-  } else {
-    // Replay from cache
-    final cached = loadReplayCache(
-      caseId: caseId,
-      repositoryRoot: repositoryRoot,
-    );
-    if (cached == null) {
-      emitEvent({
-        'stage': 'cache',
-        'status': 'replay_cache_missing',
-        'caseId': caseId,
-      });
-      return 1;
-    }
-    document = cached.document;
-    sourceMode = cached.sourceMode;
-    cacheFingerprint = cached.fingerprint;
+  final cached = loadReplayCache(
+    caseId: caseId,
+    repositoryRoot: repositoryRoot,
+  );
+  if (cached.isMissing) {
     emitEvent({
       'stage': 'cache',
-      'status': 'replay_cache_loaded',
-      'fingerprint': cacheFingerprint,
+      'status': 'replay_cache_missing',
+      'caseId': caseId,
     });
+    return 1;
   }
+  if (cached.isInvalid) {
+    emitEvent({
+      'stage': 'cache',
+      'status': 'replay_cache_invalid',
+      'caseId': caseId,
+      'causeType': cached.causeType ?? 'ReplayCacheInvalid',
+    });
+    return 1;
+  }
+  document = cached.document!;
+  sourceMode = cached.sourceMode;
+  cacheFingerprint = cached.fingerprint!;
+  emitEvent({
+    'stage': 'cache',
+    'status': 'replay_cache_loaded',
+    'caseId': caseId,
+    'fingerprint': cacheFingerprint,
+  });
 
   // 3. Run production parsing pipeline via OcrImportService
   final replayClient = _ReplayOcrClient(document);
@@ -729,7 +963,7 @@ Future<int> runImportAcceptance({
     name: 'acceptance-replay',
     apiKey: 'replay-no-network',
     baseUrl: 'https://open.bigmodel.cn/api/paas',
-    modelName: ZhipuOcrClient.model,
+    modelName: supportedReplayOcrModelId,
     temperature: 0.0,
     reasoningEffort: '',
     isActive: true,
@@ -778,14 +1012,13 @@ Future<int> runImportAcceptance({
   );
   final finalQuestions = sorted.questions;
 
-  final providerCallCount = refreshOcr ? 1 : 0;
   emitEvent({
     'stage': 'pipeline',
     'status': 'completed',
     'questionCount': finalQuestions.length,
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
-    'providerCallCount': providerCallCount,
+    'providerCallCount': 0,
   });
 
   // 4. Acceptance quality checks
@@ -829,8 +1062,7 @@ Future<int> runImportAcceptance({
 
   // 7. Write reports
   if (reportWriter != null) {
-    final regionizerDiagnostics =
-        ocrResult.diagnostics['regionizer'] as Map?;
+    final regionizerDiagnostics = ocrResult.diagnostics['regionizer'] as Map?;
     final candidateTrace =
         regionizerDiagnostics?['questionCandidateTrace'] as List?;
 
@@ -875,51 +1107,129 @@ class _ReplayEngineRepository extends AiEngineRepository {
   Future<AiEngineProfile?> getActiveTextEngine() async => null;
 }
 
-typedef SavedApiKeyLoader = Future<String?> Function();
-
-Future<String?> loadSavedOcrApiKey() async {
-  final profile = await AiEngineRepository.instance.getActiveOcrEngine();
-  return profile?.apiKey;
-}
-
 // ---------------------------------------------------------------------------
 // CLI main
 // ---------------------------------------------------------------------------
 
+class ImportAcceptanceCliArguments {
+  const ImportAcceptanceCliArguments({
+    required this.showHelp,
+    this.caseId,
+    this.repositoryRoot,
+  });
+
+  final bool showHelp;
+  final String? caseId;
+  final String? repositoryRoot;
+}
+
+class ImportAcceptanceCliArgumentException implements Exception {
+  const ImportAcceptanceCliArgumentException();
+}
+
+ImportAcceptanceCliArguments parseImportAcceptanceCliArguments(
+  List<String> args,
+) {
+  var showHelp = false;
+  String? caseId;
+  String? repositoryRoot;
+
+  for (final arg in args) {
+    if (arg == '--help') {
+      if (showHelp) throw const ImportAcceptanceCliArgumentException();
+      showHelp = true;
+      continue;
+    }
+    if (arg.startsWith('--case=')) {
+      if (caseId != null) throw const ImportAcceptanceCliArgumentException();
+      caseId = arg.substring('--case='.length);
+      if (caseId.isEmpty) {
+        throw const ImportAcceptanceCliArgumentException();
+      }
+      continue;
+    }
+    if (arg.startsWith('--repository-root=')) {
+      if (repositoryRoot != null) {
+        throw const ImportAcceptanceCliArgumentException();
+      }
+      repositoryRoot = arg.substring('--repository-root='.length);
+      if (repositoryRoot.isEmpty) {
+        throw const ImportAcceptanceCliArgumentException();
+      }
+      continue;
+    }
+    throw const ImportAcceptanceCliArgumentException();
+  }
+
+  if (showHelp) {
+    if (args.length != 1) {
+      throw const ImportAcceptanceCliArgumentException();
+    }
+    return const ImportAcceptanceCliArguments(showHelp: true);
+  }
+  if (caseId == null) {
+    throw const ImportAcceptanceCliArgumentException();
+  }
+  return ImportAcceptanceCliArguments(
+    showHelp: false,
+    caseId: caseId,
+    repositoryRoot: repositoryRoot,
+  );
+}
+
+void _emitCliEvent(Map<String, dynamic> event) {
+  stdout.writeln(jsonEncode(event));
+}
+
 Future<void> main(List<String> args) async {
   final environment = Platform.environment;
-  final useSavedAppKey =
-      environment['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true';
-  if (useSavedAppKey && (Platform.isWindows || Platform.isLinux)) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  final ImportAcceptanceCliArguments parsed;
+  try {
+    parsed = parseImportAcceptanceCliArguments(args);
+  } on ImportAcceptanceCliArgumentException {
+    _emitCliEvent({
+      'stage': 'launcher',
+      'status': 'invalid_arguments',
+      'causeType': 'InvalidArguments',
+    });
+    exit(2);
   }
 
-  String? caseId;
-  bool refreshOcr = false;
-  for (final arg in args) {
-    if (arg.startsWith('--case=')) {
-      caseId = arg.substring(7);
-    } else if (arg == '--refresh-ocr') {
-      refreshOcr = true;
-    }
+  if (parsed.showHelp) {
+    stdout.writeln(
+      'Usage: --case=<caseId> [--repository-root=<path>]',
+    );
+    exit(0);
   }
 
-  if (caseId == null || caseId.isEmpty) {
-    stderr.writeln('Usage: --case=<caseId> [--refresh-ocr]');
+  final caseId = parsed.caseId!;
+  if (!isValidAcceptanceCaseId(caseId)) {
+    _emitCliEvent({
+      'stage': 'launcher',
+      'status': 'invalid_case_id',
+      'causeType': 'InvalidAcceptanceCaseId',
+    });
+    exit(2);
+  }
+
+  final repoRoot = parsed.repositoryRoot ??
+      environment['SHIROHA_REPOSITORY_ROOT'] ??
+      Directory.current.path;
+  final rootDir = Directory(repoRoot).absolute;
+  if (!File(p.join(rootDir.path, 'pubspec.yaml')).existsSync()) {
+    _emitCliEvent({
+      'stage': 'launcher',
+      'status': 'repository_root_invalid',
+      'causeType': 'InvalidRepositoryRoot',
+    });
     exit(1);
   }
 
-  final repoRoot = Directory.current.path;
-
   final exitCode = await runImportAcceptance(
     caseId: caseId,
-    repositoryRoot: repoRoot,
-    emitEvent: (event) => stdout.writeln(jsonEncode(event)),
-    refreshOcr: refreshOcr,
-    environment: environment,
-    loadSavedApiKey: useSavedAppKey ? loadSavedOcrApiKey : null,
-    reportWriter: AcceptanceReportWriter(repositoryRoot: repoRoot),
+    repositoryRoot: rootDir.path,
+    emitEvent: _emitCliEvent,
+    reportWriter: AcceptanceReportWriter(repositoryRoot: rootDir.path),
   );
   exit(exitCode);
 }

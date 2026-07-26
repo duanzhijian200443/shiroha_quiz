@@ -66,9 +66,13 @@ class SingleQuestionRepairService {
         rejected: false,
       );
     } catch (e) {
-      // ignore: avoid_print
-      print('SingleQuestionRepairService: repair failed: $e');
-      return _appendDiagnostic(localResult, 'repair_failed:$e');
+      return _appendDiagnostics(
+        localResult,
+        [
+          'repair_failed',
+          'repair_failure_type:${e.runtimeType}',
+        ],
+      );
     }
   }
 
@@ -201,18 +205,24 @@ ${region.rawText}
   LocalAssemblyResult _appendDiagnostic(
     LocalAssemblyResult result,
     String diagnostic,
+  ) =>
+      _appendDiagnostics(result, [diagnostic]);
+
+  LocalAssemblyResult _appendDiagnostics(
+    LocalAssemblyResult result,
+    List<String> diagnostics,
   ) {
     final question = Map<String, dynamic>.from(result.question);
     final oldDiagnostics = question['diagnostics'];
 
     question['diagnostics'] = [
       if (oldDiagnostics is List) ...oldDiagnostics.map((e) => e.toString()),
-      diagnostic,
+      ...diagnostics,
     ];
 
     return LocalAssemblyResult(
       question: question,
-      diagnostics: [...result.diagnostics, diagnostic],
+      diagnostics: [...result.diagnostics, ...diagnostics],
       repairRecommended: false,
       rejected: result.rejected,
     );

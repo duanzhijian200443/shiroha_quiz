@@ -1,10 +1,10 @@
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_providers/llm_provider_registry.dart';
-import '../llm_providers/zhipu_ocr_client.dart';
 import 'import_document_role.dart';
 import 'import_format.dart';
 import 'local_question_assembler.dart';
 import 'ocr_document.dart';
+import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
 import 'single_question_repair_service.dart';
@@ -25,20 +25,20 @@ class OcrImportResult {
 
 class OcrImportService {
   const OcrImportService({
+    required OcrDocumentClient ocrClient,
     AiEngineRepository? engineRepository,
-    ZhipuOcrClient ocrClient = const ZhipuOcrClient(),
     OcrQuestionRegionizer regionizer = const OcrQuestionRegionizer(),
     OcrQuestionAssembler assembler = const OcrQuestionAssembler(),
     SingleQuestionRepairService repairService =
         const SingleQuestionRepairService(),
-  })  : _engineRepository = engineRepository,
-        _ocrClient = ocrClient,
+  })  : _ocrClient = ocrClient,
+        _engineRepository = engineRepository,
         _regionizer = regionizer,
         _assembler = assembler,
         _repairService = repairService;
 
+  final OcrDocumentClient _ocrClient;
   final AiEngineRepository? _engineRepository;
-  final ZhipuOcrClient _ocrClient;
   final OcrQuestionRegionizer _regionizer;
   final OcrQuestionAssembler _assembler;
   final SingleQuestionRepairService _repairService;
@@ -71,7 +71,7 @@ class OcrImportService {
       'sourceName': sourceName,
       'format': format.name,
       'provider': 'zhipu',
-      'model': ZhipuOcrClient.model,
+      'model': _ocrClient.modelId,
       'status': 'attempted',
     };
 

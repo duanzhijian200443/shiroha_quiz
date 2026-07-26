@@ -5,9 +5,9 @@ import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_ser
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
-import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
-import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
 class FakeAiEngineRepository extends AiEngineRepository {
   FakeAiEngineRepository(this.profile) : super();
@@ -18,10 +18,15 @@ class FakeAiEngineRepository extends AiEngineRepository {
   Future<AiEngineProfile?> getActiveOcrEngine() async => profile;
 }
 
-class FakeZhipuOcrClient extends ZhipuOcrClient {
-  FakeZhipuOcrClient(this.document);
+class FakeOcrDocumentClient implements OcrDocumentClient {
+  FakeOcrDocumentClient(this.document, {this.model = 'fake-ocr-model'});
 
   final OcrDocument document;
+  final String model;
+  int callCount = 0;
+
+  @override
+  String get modelId => model;
 
   @override
   Future<OcrDocument> parseFile({
@@ -30,6 +35,7 @@ class FakeZhipuOcrClient extends ZhipuOcrClient {
     required String sourceName,
     Duration timeout = const Duration(minutes: 8),
   }) async {
+    callCount++;
     return document;
   }
 }
@@ -102,7 +108,7 @@ void main() {
 
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: FakeZhipuOcrClient(document),
+        ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
       );
 
@@ -182,7 +188,7 @@ void main() {
 
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: FakeZhipuOcrClient(document),
+        ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
       );
 
@@ -281,7 +287,7 @@ void main() {
 
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: FakeZhipuOcrClient(
+        ocrClient: FakeOcrDocumentClient(
           OcrDocument(
             sourceName: 'parenthesized-sequence.pdf',
             markdown: '',
@@ -416,7 +422,7 @@ void main() {
 
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: FakeZhipuOcrClient(
+        ocrClient: FakeOcrDocumentClient(
           OcrDocument(
             sourceName: 'markdown-four-pages.pdf',
             markdown: 'present',
@@ -498,7 +504,7 @@ void main() {
 
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: FakeZhipuOcrClient(document),
+        ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
       );
 
@@ -547,7 +553,7 @@ void main() {
 
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: FakeZhipuOcrClient(document),
+        ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
       );
 
@@ -568,6 +574,15 @@ void main() {
     test('fails explicitly when OCR is not configured', () async {
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(null),
+        ocrClient: FakeOcrDocumentClient(
+          const OcrDocument(
+            sourceName: 'unconfigured.pdf',
+            markdown: '',
+            rawResponses: [],
+            usage: {},
+            pages: [],
+          ),
+        ),
       );
 
       final result = await service.tryParse(
@@ -598,7 +613,7 @@ void main() {
       );
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
-        ocrClient: ThrowingZhipuOcrClient(),
+        ocrClient: ThrowingOcrDocumentClient(),
       );
 
       final result = await service.tryParse(
@@ -617,7 +632,10 @@ void main() {
   });
 }
 
-class ThrowingZhipuOcrClient extends ZhipuOcrClient {
+class ThrowingOcrDocumentClient implements OcrDocumentClient {
+  @override
+  String get modelId => 'throwing-ocr-model';
+
   @override
   Future<OcrDocument> parseFile({
     required AiEngineProfile profile,

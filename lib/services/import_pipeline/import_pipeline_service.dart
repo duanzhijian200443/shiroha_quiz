@@ -17,6 +17,7 @@ import 'docx_text_first_parse_service.dart';
 import 'parsed_document.dart';
 import 'adapters/txt_document_adapter.dart';
 import 'adapters/markdown_document_adapter.dart';
+import '../llm_providers/zhipu_ocr_client.dart';
 import 'adapters/zip_document_adapter.dart';
 import 'import_question_final_sorter.dart';
 import 'ocr_import_service.dart';
@@ -69,7 +70,7 @@ Future<OcrImportResult?> _defaultOcrParser({
   required String sourceName,
   required ImportFormat format,
 }) {
-  return const OcrImportService().tryParse(
+  return const OcrImportService(ocrClient: ZhipuOcrClient()).tryParse(
     filePath: filePath,
     sourceName: sourceName,
     format: format,
