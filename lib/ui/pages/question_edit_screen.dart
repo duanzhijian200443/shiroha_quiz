@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../../data/repositories/question_repository.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../../utils/ai_data_sanitizer.dart';
 import '../widgets/markdown_extensions.dart';
 
@@ -114,7 +114,9 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
         updatedQ['options'] = jsonEncode(optsList);
       }
 
-      final res = await AiService.instance.answerSingleQuestion(updatedQ);
+      final res = await AiDependenciesScope.of(context)
+          .aiService
+          .answerSingleQuestion(updatedQ);
 
       if (mounted) {
         _answerCtrl.text = res['standard_answer'] ?? '';

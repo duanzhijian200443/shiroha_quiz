@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 
@@ -905,7 +906,7 @@ void main() {
     });
 
     test(
-        'loadSavedOcrApiKey resolves saved profile using AiEngineRepository.instance',
+        'loadSavedOcrApiKey resolves saved profile using an explicit repository',
         () async {
       final fakeProfile = AiEngineProfile(
         id: 'test-id',
@@ -920,7 +921,7 @@ void main() {
       );
 
       final explicitRepo =
-          AiEngineRepository(databaseHelper: _FakeDatabaseHelper(fakeProfile));
+          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
       final key = await loadSavedOcrApiKey(repository: explicitRepo);
       expect(key, equals('fake-saved-key-12345'));
     });
@@ -940,7 +941,7 @@ void main() {
           isActive: true,
         );
         final explicitRepo = AiEngineRepository(
-            databaseHelper: _FakeDatabaseHelper(fakeProfile));
+            store: _FakeAiEngineStore(fakeProfile));
 
         // Standard mode
         final eventsNormal = <Map<String, dynamic>>[];
@@ -971,20 +972,18 @@ void main() {
       },
     );
 
-    test(
-        'DatabaseHelper.instance binds defaultDatabaseHelperProvider eagerly without top-level lazy variable evaluation',
+    test('DatabaseHelper does not configure mutable Repository provider state',
         () {
-      final originalProvider = AiEngineRepository.defaultDatabaseHelperProvider;
-      try {
-        AiEngineRepository.defaultDatabaseHelperProvider = null;
-        // Accessing DatabaseHelper.instance must eagerly set defaultDatabaseHelperProvider
-        final helper = DatabaseHelper.instance;
-        expect(AiEngineRepository.defaultDatabaseHelperProvider, isNotNull);
-        expect(
-            AiEngineRepository.defaultDatabaseHelperProvider!(), same(helper));
-      } finally {
-        AiEngineRepository.defaultDatabaseHelperProvider = originalProvider;
-      }
+      final databaseSource =
+          File('lib/core/database/database_helper.dart').readAsStringSync();
+      final repositorySource =
+          File('lib/data/repositories/ai_engine_repository.dart')
+              .readAsStringSync();
+
+      expect(databaseSource, isNot(contains('AiEngineRepository')));
+      expect(
+          repositorySource, isNot(contains('defaultDatabaseHelperProvider')));
+      expect(repositorySource, isNot(contains('static AiEngineRepository')));
     });
 
     test('loadSavedOcrApiKey supports explicit repository injection', () async {
@@ -1000,7 +999,7 @@ void main() {
         isActive: true,
       );
       final explicitRepo =
-          AiEngineRepository(databaseHelper: _FakeDatabaseHelper(fakeProfile));
+          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
 
       final key = await loadSavedOcrApiKey(repository: explicitRepo);
       expect(key, equals('explicit-injected-key-secret'));
@@ -1022,7 +1021,7 @@ void main() {
         isActive: true,
       );
       final explicitRepo =
-          AiEngineRepository(databaseHelper: _FakeDatabaseHelper(fakeProfile));
+          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
 
       // Available state
       final eventsAvailable = <Map<String, dynamic>>[];
@@ -1233,22 +1232,33 @@ void main() {
   });
 }
 
-class _FakeDatabaseHelper {
-  _FakeDatabaseHelper(this._profile);
+class _FakeAiEngineStore implements AiEngineStore {
+  _FakeAiEngineStore(this._profile);
 
   final AiEngineProfile _profile;
 
-  Future<Map<String, dynamic>?> getActiveAiEngine(String dbValue) async {
-    if (dbValue == AiEngineType.ocr.dbValue) {
-      return _profile.toMap();
-    }
-    return null;
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    return type == AiEngineType.ocr ? _profile : null;
   }
 
-  Future<List<Map<String, dynamic>>> getAiEngines(String dbValue) async {
-    if (dbValue == AiEngineType.ocr.dbValue) {
-      return [_profile.toMap()];
-    }
-    return [];
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
+    return type == AiEngineType.ocr ? <AiEngineProfile>[_profile] : const [];
+  }
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    throw UnsupportedError('Read-only fake AI engine store');
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    throw UnsupportedError('Read-only fake AI engine store');
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    throw UnsupportedError('Read-only fake AI engine store');
   }
 }

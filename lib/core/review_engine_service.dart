@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -117,8 +118,15 @@ class _PendingWrite {
   final int durationMs;
   final String? userAnswer;
   final String? aiEvaluation;
-  _PendingWrite(this.questionId, this.grade, this.durationMs, this.userAnswer,
-      this.aiEvaluation);
+  final AiEngineRepository engineRepository;
+  _PendingWrite(
+    this.questionId,
+    this.grade,
+    this.durationMs,
+    this.userAnswer,
+    this.aiEvaluation,
+    this.engineRepository,
+  );
 }
 
 // ================================================================
@@ -174,11 +182,18 @@ class ReviewEngineService with WidgetsBindingObserver {
     String questionId,
     int grade,
     int durationMs, {
+    required AiEngineRepository engineRepository,
     String? userAnswer,
     String? aiEvaluation,
   }) async {
-    _queue.add(
-        _PendingWrite(questionId, grade, durationMs, userAnswer, aiEvaluation));
+    _queue.add(_PendingWrite(
+      questionId,
+      grade,
+      durationMs,
+      userAnswer,
+      aiEvaluation,
+      engineRepository,
+    ));
 
     if (_queue.length >= _batchSize) {
       _debounceTimer?.cancel();
@@ -495,7 +510,9 @@ class ReviewEngineService with WidgetsBindingObserver {
         // isLapse(答错了) == false && grade(评分) >= 3 && currentLapses(之前错过) > 0
         if (item.grade >= 3 && fsrs.lapses > 0 && originalQuestion != null) {
           // Fire and Forget
-          LLMService().generateVariantQuestion(originalQuestion);
+          LLMService(
+            engineRepository: item.engineRepository,
+          ).generateVariantQuestion(originalQuestion);
           debugPrint(
               "Variant generation triggered for question ${item.questionId}");
         }

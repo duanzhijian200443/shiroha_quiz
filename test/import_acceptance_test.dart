@@ -1240,6 +1240,16 @@ void main() {
       expect(content.contains('syncfusion_flutter_pdf'), isFalse);
       expect(content.contains('zhipu_ocr_client.dart'), isFalse);
     });
+
+    test('offline acceptance does not initialize DatabaseHelper', () {
+      final content =
+          File('tool/import_acceptance.dart').readAsStringSync();
+
+      expect(content, isNot(contains('database_helper.dart')));
+      expect(content, isNot(contains('DatabaseHelper')));
+      expect(content, isNot(contains('sqflite')));
+      expect(content, isNot(contains('AiEngineRepository.instance')));
+    });
   });
 }
 

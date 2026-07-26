@@ -17,8 +17,10 @@ import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart'
 import 'package:shiroha_quiz/services/import_pipeline/vision_question_quality_gate.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
+import 'support/unsupported_ai_engine_store.dart';
+
 class _EngineRepository extends AiEngineRepository {
-  _EngineRepository() : super();
+  _EngineRepository() : super(store: const UnsupportedAiEngineStore());
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => const AiEngineProfile(

@@ -3,14 +3,15 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import '../../data/repositories/ai_engine_repository.dart';
+import '../../data/models/ai_engine_profile.dart';
+import '../../data/persistence/ai_engine_store.dart';
 
 enum DatabaseRuntimeProfile {
   production,
   isolatedSmokeInMemory,
 }
 
-class DatabaseHelper {
+class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
@@ -41,16 +42,7 @@ class DatabaseHelper {
     _runtimeProfileConfigured = true;
   }
 
-  static DatabaseHelper get instance {
-    AiEngineRepository.defaultDatabaseHelperProvider ??=
-        () => DatabaseHelper.instance;
-    if (_instance == null) {
-      final helper = DatabaseHelper._();
-      _instance = helper;
-      AiEngineRepository.instance = AiEngineRepository(databaseHelper: helper);
-    }
-    return _instance!;
-  }
+  static DatabaseHelper get instance => _instance ??= DatabaseHelper._();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -549,54 +541,75 @@ class DatabaseHelper {
     return null;
   }
 
-  Future<List<Map<String, dynamic>>> getAiEngines(String type) async {
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
     final db = await database;
     // 打通文本与视觉的模型列表，共享所有已配置引擎
-    return await db.query('ai_engines', orderBy: 'name ASC');
+    final rows = await db.query('ai_engines', orderBy: 'name ASC');
+    return rows
+        .map(
+          (row) => AiEngineProfile.fromMap(
+            row,
+            fallbackType: type,
+          ),
+        )
+        .toList(growable: false);
   }
 
-  Future<Map<String, dynamic>?> getActiveAiEngine(String type) async {
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
     final db = await database;
+    final dbValue = type.dbValue;
     // 优先从设置表独立获取该类型激活的引擎 ID
-    final activeId = await getSetting('active_${type}_engine_id');
+    final activeId = await getSetting('active_${dbValue}_engine_id');
     if (activeId != null) {
       final res = await db.query('ai_engines',
           where: 'id = ?', whereArgs: [activeId], limit: 1);
-      if (res.isNotEmpty) return res.first;
+      if (res.isNotEmpty) {
+        return AiEngineProfile.fromMap(res.first, fallbackType: type);
+      }
     }
     // 兼容老版本逻辑
     final res = await db.query('ai_engines',
         where: 'engine_type = ? AND is_active = 1',
-        whereArgs: [type],
+        whereArgs: [dbValue],
         limit: 1);
-    if (res.isNotEmpty) return res.first;
+    if (res.isNotEmpty) {
+      return AiEngineProfile.fromMap(res.first, fallbackType: type);
+    }
 
     // 如果都没有，尝试找全局任意一个 is_active = 1 的
     final resGlobal =
         await db.query('ai_engines', where: 'is_active = 1', limit: 1);
-    return resGlobal.isNotEmpty ? resGlobal.first : null;
+    return resGlobal.isNotEmpty
+        ? AiEngineProfile.fromMap(resGlobal.first, fallbackType: type)
+        : null;
   }
 
-  Future<void> saveAiEngine(Map<String, dynamic> engine) async {
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
     final db = await database;
-    await db.insert('ai_engines', engine,
+    await db.insert('ai_engines', profile.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<void> setActiveAiEngine(String id, String type) async {
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    final dbValue = type.dbValue;
     // 使用设置表独立保存各自激活的引擎，不再互相干扰
-    await saveSetting('active_${type}_engine_id', id);
+    await saveSetting('active_${dbValue}_engine_id', id);
 
     // 为了向前兼容，依然更新一下 is_active
     final db = await database;
     await db.transaction((txn) async {
       await txn.update('ai_engines', {'is_active': 0},
-          where: 'engine_type = ?', whereArgs: [type]);
+          where: 'engine_type = ?', whereArgs: [dbValue]);
       await txn.update('ai_engines', {'is_active': 1},
           where: 'id = ?', whereArgs: [id]);
     });
   }
 
+  @override
   Future<void> deleteAiEngine(String id) async {
     final db = await database;
     await db.delete('ai_engines', where: 'id = ?', whereArgs: [id]);

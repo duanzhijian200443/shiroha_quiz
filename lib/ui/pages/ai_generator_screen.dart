@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/models/question_draft.dart';
 import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/question_repository.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
 
 /// AI 智能组卷页面
@@ -92,7 +92,8 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     _beginLoading();
 
     try {
-      final drafts = await AiService.instance.generateQuestions(
+      final drafts =
+          await AiDependenciesScope.of(context).aiService.generateQuestions(
         _topicController.text.trim(),
         count: _selectedCount,
         type: _selectedType,
@@ -852,7 +853,8 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     _beginLoading();
 
     try {
-      final result = await AiService.instance.generateExamPaper(
+      final result =
+          await AiDependenciesScope.of(context).aiService.generateExamPaper(
         topic: _topicController.text.trim(),
         singleCount: s,
         fillCount: f,

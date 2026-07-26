@@ -8,11 +8,14 @@ import 'llm_api_client.dart';
 /// LaTeX 历史数据迁移服务（一次性使用）
 /// 扫描题库中的裸 LaTeX 字段，通过 AI 引擎统一添加 \( \) 或 \[ \] 定界符。
 class LatexMigrationService {
-  LatexMigrationService._();
-  static final instance = LatexMigrationService._();
+  LatexMigrationService({
+    required AiEngineRepository engineRepository,
+    LlmApiClient apiClient = const LlmApiClient(),
+  })  : _engineRepository = engineRepository,
+        _apiClient = apiClient;
 
-  final AiEngineRepository _engineRepository = AiEngineRepository.instance;
-  final LlmApiClient _apiClient = const LlmApiClient();
+  final AiEngineRepository _engineRepository;
+  final LlmApiClient _apiClient;
 
   /// 检测字段是否含有裸 LaTeX
   static bool _hasBareLatex(String? text) {

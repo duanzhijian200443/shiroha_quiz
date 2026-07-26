@@ -7,11 +7,12 @@ import 'llm_api_client.dart';
 class AiDirectCallService {
   AiDirectCallService({
     LlmApiClient apiClient = const LlmApiClient(),
-    AiEngineRepository? engineRepository,
+    required AiEngineRepository engineRepository,
     AiVisionParseService? visionParseService,
   })  : _apiClient = apiClient,
-        _engineRepository = engineRepository ?? AiEngineRepository.instance,
-        _visionParseService = visionParseService ?? AiVisionParseService();
+        _engineRepository = engineRepository,
+        _visionParseService = visionParseService ??
+            AiVisionParseService(engineRepository: engineRepository);
 
   final LlmApiClient _apiClient;
   final AiEngineRepository _engineRepository;

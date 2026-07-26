@@ -7,8 +7,13 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
+import 'data/repositories/ai_engine_repository.dart';
 import 'data/repositories/settings_repository.dart';
+import 'services/ai_service.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
+import 'services/import_pipeline/import_pipeline_service.dart';
+import 'services/task_manager.dart';
+import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/pages/main_screen.dart';
@@ -71,6 +76,19 @@ void main() {
       databaseFactory = databaseFactoryFfi;
     }
 
+    final databaseHelper = DatabaseHelper.instance;
+    final engineRepository = AiEngineRepository(store: databaseHelper);
+    final taskManager = TaskManager.instance;
+    final aiService = AiService(
+      engineRepository: engineRepository,
+      taskManager: taskManager,
+    );
+    final importPipelineService = ImportPipelineService(
+      aiService: aiService,
+      engineRepository: engineRepository,
+      taskManager: taskManager,
+    );
+
     final savedTheme = await SettingsRepository.instance.getAppTheme();
     if (savedTheme.isNotEmpty) {
       globalThemeNotifier.value = savedTheme;
@@ -83,7 +101,11 @@ void main() {
     }
 
     AppLogger.info('Application started', module: 'Application');
-    runApp(const ShirohaQuizApp());
+    runApp(ShirohaQuizApp(
+      engineRepository: engineRepository,
+      aiService: aiService,
+      importPipelineService: importPipelineService,
+    ));
   }, (error, stackTrace) {
     AppLogger.error(
       'Unhandled root-zone error',
@@ -96,20 +118,34 @@ void main() {
 }
 
 class ShirohaQuizApp extends StatelessWidget {
-  const ShirohaQuizApp({super.key});
+  const ShirohaQuizApp({
+    super.key,
+    required this.engineRepository,
+    required this.aiService,
+    required this.importPipelineService,
+  });
+
+  final AiEngineRepository engineRepository;
+  final AiService aiService;
+  final ImportPipelineService importPipelineService;
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<String>(
       valueListenable: globalThemeNotifier,
       builder: (context, themeName, _) {
-        return MaterialApp(
-          title: 'Shiroha Quiz',
-          navigatorKey: globalNavigatorKey, // 核心新增：挂载全局路由引擎
-          scaffoldMessengerKey: rootScaffoldMessengerKey, // 挂载全局钥匙
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.getTheme(themeName),
-          home: const MainScreen(),
+        return AiDependenciesScope(
+          engineRepository: engineRepository,
+          aiService: aiService,
+          importPipelineService: importPipelineService,
+          child: MaterialApp(
+            title: 'Shiroha Quiz',
+            navigatorKey: globalNavigatorKey, // 核心新增：挂载全局路由引擎
+            scaffoldMessengerKey: rootScaffoldMessengerKey, // 挂载全局钥匙
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.getTheme(themeName),
+            home: const MainScreen(),
+          ),
         );
       },
     );

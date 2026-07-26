@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
 import '../../data/models/question.dart';
 import 'review_engine_service.dart';
@@ -22,7 +23,12 @@ import 'review_engine_service.dart';
 // ================================================================
 
 class QuizSessionController extends ChangeNotifier {
+  QuizSessionController({
+    required AiEngineRepository engineRepository,
+  }) : _engineRepository = engineRepository;
+
   final ReviewEngineService _engine = ReviewEngineService();
+  final AiEngineRepository _engineRepository;
 
   // ---- 对外只读状态 ----
   List<Question> _questions = [];
@@ -113,7 +119,12 @@ class QuizSessionController extends ChangeNotifier {
     if (q == null || q.id == null) return;
 
     // 1) 异步写库（不阻塞）
-    _engine.submitReviewResult(q.id.toString(), grade, durationMs);
+    _engine.submitReviewResult(
+      q.id.toString(),
+      grade,
+      durationMs,
+      engineRepository: _engineRepository,
+    );
 
     if (autoNext) {
       goToNext();

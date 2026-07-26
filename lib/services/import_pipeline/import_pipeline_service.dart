@@ -4,6 +4,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
+import '../../data/repositories/ai_engine_repository.dart';
 import '../ai_service.dart';
 import '../task_manager.dart';
 import 'import_document_role.dart';
@@ -22,6 +23,7 @@ import 'adapters/zip_document_adapter.dart';
 import 'import_question_final_sorter.dart';
 import 'ocr_import_service.dart';
 import 'pdf_page_image_renderer.dart';
+import 'single_question_repair_service.dart';
 import 'vision_batch_parse_coordinator.dart';
 import 'vision_question_quality_gate.dart';
 import 'vision_import_quality_summary.dart';
@@ -42,65 +44,87 @@ typedef ImportOcrParser = Future<OcrImportResult?> Function({
   required ImportFormat format,
 });
 
-Future<List<Map<String, dynamic>>> _defaultTextParser(
-  String rawText, {
-  required String taskId,
-  required bool isMarkdown,
-}) {
-  return AiService.instance.parseTextToQuestions(
-    rawText,
-    taskId: taskId,
-    isMarkdown: isMarkdown,
-  );
-}
-
-Future<List<Map<String, dynamic>>> _defaultVisionParser(
-  List<String> imagePaths,
-) {
-  return AiService.instance.parseImagesWithVision(
-    imagePaths,
-    // TEMP: PDF LaTeX repair remains disabled until offline replay proves
-    // repairAll does not change import structure or renderer behavior.
-    repairLatex: false,
-  );
-}
-
-Future<OcrImportResult?> _defaultOcrParser({
-  required String filePath,
-  required String sourceName,
-  required ImportFormat format,
-}) {
-  return const OcrImportService(ocrClient: ZhipuOcrClient()).tryParse(
-    filePath: filePath,
-    sourceName: sourceName,
-    format: format,
-  );
-}
+typedef ImportQuestionMerger = Future<List<Map<String, dynamic>>> Function(
+  List<List<Map<String, dynamic>>> fileResults,
+);
 
 class ImportPipelineService {
-  static final ImportPipelineService instance = ImportPipelineService._();
+  ImportPipelineService({
+    required AiService aiService,
+    required AiEngineRepository engineRepository,
+    required TaskManager taskManager,
+  }) : this._(
+          textParser: (
+            rawText, {
+            required taskId,
+            required isMarkdown,
+          }) =>
+              aiService.parseTextToQuestions(
+            rawText,
+            taskId: taskId,
+            isMarkdown: isMarkdown,
+          ),
+          visionParser: (imagePaths) => aiService.parseImagesWithVision(
+            imagePaths,
+            repairLatex: false,
+          ),
+          ocrParser: OcrImportService(
+            ocrClient: const ZhipuOcrClient(),
+            engineRepository: engineRepository,
+          ).tryParse,
+          questionMerger: aiService.mergeStructuredQuestions,
+          taskManager: taskManager,
+          docxTextFirstParseService: DocxTextFirstParseService(
+            repairService: SingleQuestionRepairService(
+              engineRepository: engineRepository,
+            ),
+          ),
+        );
+
   ImportPipelineService._({
-    ImportTextParser? textParser,
-    ImportVisionParser? visionParser,
-    ImportOcrParser? ocrParser,
-  })  : _textParser = textParser ?? _defaultTextParser,
-        _visionParser = visionParser ?? _defaultVisionParser,
-        _ocrParser = ocrParser ?? _defaultOcrParser;
+    required ImportTextParser textParser,
+    required ImportVisionParser visionParser,
+    required ImportOcrParser ocrParser,
+    required ImportQuestionMerger questionMerger,
+    required TaskManager taskManager,
+    required DocxTextFirstParseService docxTextFirstParseService,
+  })  : _textParser = textParser,
+        _visionParser = visionParser,
+        _ocrParser = ocrParser,
+        _questionMerger = questionMerger,
+        _taskManager = taskManager,
+        _docxTextFirstParseService = docxTextFirstParseService;
 
   @visibleForTesting
   ImportPipelineService.forTesting({
     required ImportTextParser textParser,
     required ImportVisionParser visionParser,
     required ImportOcrParser ocrParser,
+    ImportQuestionMerger? questionMerger,
+    TaskManager? taskManager,
+    DocxTextFirstParseService docxTextFirstParseService =
+        const DocxTextFirstParseService(),
   }) : this._(
           textParser: textParser,
           visionParser: visionParser,
           ocrParser: ocrParser,
+          questionMerger: questionMerger ?? _mergeQuestionsForTesting,
+          taskManager: taskManager ?? TaskManager.instance,
+          docxTextFirstParseService: docxTextFirstParseService,
         );
 
   final ImportTextParser _textParser;
   final ImportVisionParser _visionParser;
   final ImportOcrParser _ocrParser;
+  final ImportQuestionMerger _questionMerger;
+  final TaskManager _taskManager;
+  final DocxTextFirstParseService _docxTextFirstParseService;
+
+  static Future<List<Map<String, dynamic>>> _mergeQuestionsForTesting(
+    List<List<Map<String, dynamic>>> fileResults,
+  ) async {
+    return fileResults.expand((questions) => questions).toList(growable: false);
+  }
 
   Future<ImportParseResult> parseFiles(ImportParseRequest request) {
     Future<ImportParseResult> runPipeline() => AppLogger.span(
@@ -137,7 +161,7 @@ class ImportPipelineService {
       final format = ImportFileDetector.detect(filePath);
       List<Map<String, dynamic>> singleFileQuestions = [];
 
-      TaskManager.instance.updateProgress(
+      _taskManager.updateProgress(
         taskId,
         '正在解析第 ${fileIdx + 1}/${request.filePaths.length} 个文件...',
         0.1 + (fileIdx / request.filePaths.length) * 0.7,
@@ -177,7 +201,7 @@ class ImportPipelineService {
             }
 
             final docxParseRes =
-                await DocxTextFirstParseService().parseDocxText(
+                await _docxTextFirstParseService.parseDocxText(
               rawText: rawText,
               sourceName: sourceName,
               taskId: taskId,
@@ -400,9 +424,8 @@ class ImportPipelineService {
     }
 
     if (fileResults.length > 1 && !hasStrictDocxRoute && !hasBlockedParse) {
-      TaskManager.instance.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
-      final merged =
-          await AiService.instance.mergeStructuredQuestions(fileResults);
+      _taskManager.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
+      final merged = await _questionMerger(fileResults);
       final sorted = const ImportQuestionFinalSorter().sort(merged);
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);

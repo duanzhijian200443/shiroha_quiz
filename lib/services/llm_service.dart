@@ -7,12 +7,14 @@ import 'package:shiroha_quiz/services/llm_providers/llm_provider_client.dart';
 import 'package:shiroha_quiz/services/llm_providers/llm_provider_registry.dart';
 
 class LLMService {
-  static final LLMService _instance = LLMService._internal();
-  factory LLMService() => _instance;
-  LLMService._internal();
+  LLMService({
+    required AiEngineRepository engineRepository,
+    LlmApiClient apiClient = const LlmApiClient(),
+  })  : _engineRepository = engineRepository,
+        _apiClient = apiClient;
 
-  final AiEngineRepository _engineRepository = AiEngineRepository.instance;
-  final LlmApiClient _apiClient = const LlmApiClient();
+  final AiEngineRepository _engineRepository;
+  final LlmApiClient _apiClient;
 
   Future<String> _fetchCompletion(
       String systemPrompt, String userPrompt) async {

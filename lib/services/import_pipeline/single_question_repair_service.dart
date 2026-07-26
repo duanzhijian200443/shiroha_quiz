@@ -16,7 +16,7 @@ class SingleQuestionRepairService {
   final AiEngineRepository? _engineRepository;
 
   AiEngineRepository get engineRepository =>
-      _engineRepository ?? AiEngineRepository.instance;
+      _engineRepository ?? (throw const AiEngineDependencyException());
 
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,

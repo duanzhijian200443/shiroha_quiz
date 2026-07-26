@@ -13,6 +13,8 @@ import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/services/ai_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
@@ -165,6 +167,26 @@ class OcrUiSmokeConfig {
 
 bool isOcrUiSmokeApiKeyPresent(Map<String, String> environment) {
   return environment[_apiKeyEnvironmentName]?.trim().isNotEmpty == true;
+}
+
+class OcrUiSmokeEngineConfigurationException implements Exception {
+  const OcrUiSmokeEngineConfigurationException();
+
+  @override
+  String toString() => 'OcrUiSmokeEngineConfigurationException';
+}
+
+Future<AiEngineProfile> configureOcrUiSmokeEngine({
+  required AiEngineRepository repository,
+  required AiEngineProfile profile,
+}) async {
+  await repository.saveEngine(profile);
+  await repository.setActiveEngine(profile.id, AiEngineType.ocr);
+  final activeProfile = await repository.getActiveOcrEngine();
+  if (activeProfile == null || activeProfile.id != profile.id) {
+    throw const OcrUiSmokeEngineConfigurationException();
+  }
+  return activeProfile;
 }
 
 class OcrUiSmokeEvent {
@@ -353,7 +375,8 @@ Future<void> main(List<String> args) async {
     );
     await AppLogger.initialize(directory: Directory(runtimePath));
 
-    final engineRepository = AiEngineRepository.instance;
+    final databaseHelper = DatabaseHelper.instance;
+    final engineRepository = AiEngineRepository(store: databaseHelper);
     final apiKey = environment[_apiKeyEnvironmentName]!.trim();
     final profile = AiEngineProfile(
       id: 'ocr-ui-smoke',
@@ -367,11 +390,22 @@ Future<void> main(List<String> args) async {
       reasoningEffort: '',
       isActive: true,
     );
-    await engineRepository.saveEngine(profile);
-    await engineRepository.setActiveEngine(profile.id, AiEngineType.ocr);
+    await configureOcrUiSmokeEngine(
+      repository: engineRepository,
+      profile: profile,
+    );
 
     final taskManager = TaskManager.instance;
     await taskManager.ready;
+    final aiService = AiService(
+      engineRepository: engineRepository,
+      taskManager: taskManager,
+    );
+    final importPipelineService = ImportPipelineService(
+      aiService: aiService,
+      engineRepository: engineRepository,
+      taskManager: taskManager,
+    );
     final questionRepository = QuestionRepository.instance;
     final commitService = ImportCommitService(
       questionRepository: questionRepository,
@@ -380,7 +414,10 @@ Future<void> main(List<String> args) async {
 
     runApp(OcrUiSmokeApp(
       config: config,
-      taskCoordinator: ImportTaskCoordinator(taskManager: taskManager),
+      taskCoordinator: ImportTaskCoordinator(
+        taskManager: taskManager,
+        parser: importPipelineService.parseFiles,
+      ),
       commitService: commitService,
       taskManager: taskManager,
       eventWriter: writer,

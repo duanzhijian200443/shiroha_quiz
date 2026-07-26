@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../../services/import_pipeline/import_parse_result.dart';
-import '../../services/import_pipeline/import_pipeline_service.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
 import '../../services/import_pipeline/import_task_coordinator.dart';
 import '../../main.dart';
@@ -98,7 +97,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           maxConcurrency: maxConcurrency,
           taskId: taskId,
         );
-        return ImportPipelineService.instance.parseFiles(request);
+        return AiDependenciesScope.of(context)
+            .importPipelineService
+            .parseFiles(request);
       }, mode: selectedMode);
     } catch (e) {
       if (mounted) {
@@ -153,7 +154,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         maxConcurrency: maxConcurrency,
         taskId: taskId,
       );
-      return ImportPipelineService.instance.parseFiles(request);
+      return AiDependenciesScope.of(context)
+          .importPipelineService
+          .parseFiles(request);
     }, mode: selectedMode);
   }
 
@@ -197,7 +200,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     if (pastedText != null && pastedText.trim().length >= 10) {
       await _dispatchBackgroundTask('剪贴板注入', (taskId) async {
         return ImportParseResult(
-          questions: await AiService.instance.parseTextToQuestions(pastedText),
+          questions: await AiDependenciesScope.of(context)
+              .aiService
+              .parseTextToQuestions(pastedText),
         );
       }, mode: ImportParseMode.text);
     }

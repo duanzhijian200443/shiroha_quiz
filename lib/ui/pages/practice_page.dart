@@ -7,7 +7,7 @@ import '../../core/review_engine_service.dart';
 import '../../data/models/question.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/llm_service.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
 
 class PracticePage extends StatefulWidget {
@@ -637,7 +637,8 @@ class _PracticePageState extends State<PracticePage> {
                         }
                         setState(() => _isAiJudging = true);
 
-                        final feedback = await AiService.instance
+                        final feedback =
+                            await AiDependenciesScope.of(context).aiService
                             .judgeAnswer(q.content, q.answer, uAnswer);
 
                         if (mounted) {
@@ -869,8 +870,10 @@ class _PracticePageState extends State<PracticePage> {
     });
 
     try {
-      final newQuestion =
-          await LLMService().generateVariantQuestion(currentQuestion);
+      final newQuestion = await LLMService(
+        engineRepository:
+            AiDependenciesScope.of(context).engineRepository,
+      ).generateVariantQuestion(currentQuestion);
       if (!mounted) return;
 
       if (newQuestion != null) {

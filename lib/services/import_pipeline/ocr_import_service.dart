@@ -24,27 +24,26 @@ class OcrImportResult {
 }
 
 class OcrImportService {
-  const OcrImportService({
+  OcrImportService({
     required OcrDocumentClient ocrClient,
-    AiEngineRepository? engineRepository,
+    required AiEngineRepository engineRepository,
     OcrQuestionRegionizer regionizer = const OcrQuestionRegionizer(),
     OcrQuestionAssembler assembler = const OcrQuestionAssembler(),
-    SingleQuestionRepairService repairService =
-        const SingleQuestionRepairService(),
+    SingleQuestionRepairService? repairService,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
         _assembler = assembler,
-        _repairService = repairService;
+        _repairService = repairService ??
+            SingleQuestionRepairService(
+              engineRepository: engineRepository,
+            );
 
   final OcrDocumentClient _ocrClient;
-  final AiEngineRepository? _engineRepository;
+  final AiEngineRepository _engineRepository;
   final OcrQuestionRegionizer _regionizer;
   final OcrQuestionAssembler _assembler;
   final SingleQuestionRepairService _repairService;
-
-  AiEngineRepository get engineRepository =>
-      _engineRepository ?? AiEngineRepository.instance;
 
   Future<OcrImportResult?> tryParse({
     required String filePath,
@@ -55,7 +54,7 @@ class OcrImportService {
       return null;
     }
 
-    final profile = await engineRepository.getActiveOcrEngine();
+    final profile = await _engineRepository.getActiveOcrEngine();
     if (profile == null ||
         LlmProviderRegistry.kindForBaseUrl(profile.baseUrl) !=
             LlmProviderKind.zhipu) {

@@ -5,7 +5,12 @@ import '../../main.dart'; // 获取 globalThemeNotifier
 import 'ai_engine_management_screen.dart';
 
 class AiSettingsScreen extends StatefulWidget {
-  const AiSettingsScreen({super.key});
+  const AiSettingsScreen({
+    super.key,
+    required this.engineRepository,
+  });
+
+  final AiEngineRepository engineRepository;
   @override
   State<AiSettingsScreen> createState() => _AiSettingsScreenState();
 }
@@ -22,10 +27,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _loadActiveSummary() async {
-    final textEngine = await AiEngineRepository.instance.getActiveTextEngine();
+    final textEngine = await widget.engineRepository.getActiveTextEngine();
     final visionEngine =
-        await AiEngineRepository.instance.getActiveVisionEngine();
-    final ocrEngine = await AiEngineRepository.instance.getActiveOcrEngine();
+        await widget.engineRepository.getActiveVisionEngine();
+    final ocrEngine = await widget.engineRepository.getActiveOcrEngine();
     if (mounted) {
       setState(() {
         _textEngineName = textEngine?.name ?? '点击去配置';
@@ -79,8 +84,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => const AiEngineManagementScreen(
-                                    engineType: 'text')))
+                                builder: (_) => AiEngineManagementScreen(
+                                      engineType: 'text',
+                                      engineRepository:
+                                          widget.engineRepository,
+                                    )))
                         .then((_) => _loadActiveSummary());
                   },
                 ),
@@ -104,8 +112,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => const AiEngineManagementScreen(
-                                    engineType: 'vision')))
+                                builder: (_) => AiEngineManagementScreen(
+                                      engineType: 'vision',
+                                      engineRepository:
+                                          widget.engineRepository,
+                                    )))
                         .then((_) => _loadActiveSummary());
                   },
                 ),
@@ -128,8 +139,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => const AiEngineManagementScreen(
-                                    engineType: 'ocr')))
+                                builder: (_) => AiEngineManagementScreen(
+                                      engineType: 'ocr',
+                                      engineRepository:
+                                          widget.engineRepository,
+                                    )))
                         .then((_) => _loadActiveSummary());
                   },
                 ),

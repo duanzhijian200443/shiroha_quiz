@@ -1,35 +1,20 @@
 import '../models/ai_engine_profile.dart';
+import '../persistence/ai_engine_store.dart';
 
-/// Pure Dart repository for managing AI engine profiles.
-///
-/// Decoupled from direct Flutter/sqflite imports to allow pure Dart CLI execution.
+class AiEngineDependencyException implements Exception {
+  const AiEngineDependencyException();
+
+  @override
+  String toString() => 'AiEngineDependencyException';
+}
+
 class AiEngineRepository {
-  AiEngineRepository({dynamic databaseHelper})
-      : _db = databaseHelper;
+  const AiEngineRepository({required AiEngineStore store}) : _store = store;
 
-  static AiEngineRepository? _instance;
-
-  /// Optional global provider for default database helper (e.g. DatabaseHelper.instance).
-  /// Set automatically when database_helper.dart is loaded.
-  static dynamic Function()? defaultDatabaseHelperProvider;
-
-  static AiEngineRepository get instance =>
-      _instance ??= AiEngineRepository();
-
-  static set instance(AiEngineRepository repo) => _instance = repo;
-
-  final dynamic _db;
-
-  dynamic get _effectiveDb => _db ?? defaultDatabaseHelperProvider?.call();
+  final AiEngineStore _store;
 
   Future<List<AiEngineProfile>> getEngines(AiEngineType type) async {
-    final db = _effectiveDb;
-    if (db == null) return const [];
-    final rows = await (db.getAiEngines(type.dbValue) as Future);
-    final profiles = (rows as List)
-        .map((row) =>
-            AiEngineProfile.fromMap(Map<String, dynamic>.from(row as Map), fallbackType: type))
-        .toList(growable: false);
+    final profiles = await _store.listAiEngines(type);
     if (type == AiEngineType.ocr) {
       return profiles
           .where((profile) => profile.engineType == AiEngineType.ocr)
@@ -41,12 +26,8 @@ class AiEngineRepository {
   }
 
   Future<AiEngineProfile?> getActiveEngine(AiEngineType type) async {
-    final db = _effectiveDb;
-    if (db == null) return null;
-    final row = await (db.getActiveAiEngine(type.dbValue) as Future);
-    if (row == null) return null;
-    final profile =
-        AiEngineProfile.fromMap(Map<String, dynamic>.from(row as Map), fallbackType: type);
+    final profile = await _store.getActiveAiEngine(type);
+    if (profile == null) return null;
     if (type == AiEngineType.ocr) {
       return profile.engineType == AiEngineType.ocr ? profile : null;
     }
@@ -69,26 +50,13 @@ class AiEngineRepository {
     return profile;
   }
 
-  Future<void> saveEngine(AiEngineProfile profile) async {
-    final db = _effectiveDb;
-    if (db != null) {
-      await db.saveAiEngine(profile.toMap());
-    }
-  }
+  Future<void> saveEngine(AiEngineProfile profile) =>
+      _store.saveAiEngine(profile);
 
-  Future<void> setActiveEngine(String id, AiEngineType type) async {
-    final db = _effectiveDb;
-    if (db != null) {
-      await db.setActiveAiEngine(id, type.dbValue);
-    }
-  }
+  Future<void> setActiveEngine(String id, AiEngineType type) =>
+      _store.setActiveAiEngine(id, type);
 
-  Future<void> deleteEngine(String id) async {
-    final db = _effectiveDb;
-    if (db != null) {
-      await db.deleteAiEngine(id);
-    }
-  }
+  Future<void> deleteEngine(String id) => _store.deleteAiEngine(id);
 
   Future<void> renameEngine(
       String id, String newName, AiEngineType type) async {

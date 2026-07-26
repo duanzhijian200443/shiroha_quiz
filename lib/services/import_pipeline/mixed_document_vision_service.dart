@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import '../ai_service.dart';
 import 'parsed_document.dart';
 
 class MixedVisionResult {
@@ -22,9 +21,10 @@ class MixedDocumentVisionService {
       parseImages;
 
   MixedDocumentVisionService({
-    Future<List<Map<String, dynamic>>> Function(List<String> imagePaths)?
-        parseImages,
-  }) : parseImages = parseImages ?? AiService.instance.parseImagesWithVision;
+    required Future<List<Map<String, dynamic>>> Function(
+      List<String> imagePaths,
+    ) parseImages,
+  }) : parseImages = parseImages;
 
   Future<MixedVisionResult> process(ParsedDocument document) async {
     final diagnostics = <String>[];

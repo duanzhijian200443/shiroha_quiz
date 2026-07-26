@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/task_manager.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_diagnostic_summary.dart';
@@ -237,7 +237,9 @@ class TaskCenterScreen extends StatelessWidget {
                                             const EdgeInsets.only(left: 8.0),
                                         child: OutlinedButton(
                                           onPressed: () {
-                                            AiService.instance.resumeTask(t.id);
+                                            AiDependenciesScope.of(context)
+                                                .aiService
+                                                .resumeTask(t.id);
                                             ScaffoldMessenger.of(context)
                                                 .showSnackBar(const SnackBar(
                                                     content:

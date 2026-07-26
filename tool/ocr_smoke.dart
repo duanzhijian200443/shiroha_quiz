@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_service.dart';
@@ -305,11 +306,9 @@ Map<String, dynamic> buildOcrSmokeTerminalEvent(Map<String, dynamic> event) {
 }
 
 Future<String?> loadSavedOcrApiKey({
-  AiEngineRepository? repository,
+  required AiEngineRepository repository,
 }) async {
-  final repo =
-      repository ?? AiEngineRepository(databaseHelper: DatabaseHelper.instance);
-  final profile = await repo.getActiveOcrEngine();
+  final profile = await repository.getActiveOcrEngine();
   return profile?.apiKey;
 }
 
@@ -337,17 +336,18 @@ Future<void> main(List<String> args) async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     final helper = DatabaseHelper.instance;
-    savedKeyRepository = AiEngineRepository(databaseHelper: helper);
+    savedKeyRepository = AiEngineRepository(store: helper);
   }
+  final resolvedSavedKeyRepository = savedKeyRepository;
 
   final exitCode = await runOcrSmoke(
     args,
     stdout.writeln,
     environment: environment,
     repositoryRoot: repoRoot,
-    loadSavedApiKey: useSavedAppKey && savedKeyRepository != null
-        ? () => loadSavedOcrApiKey(repository: savedKeyRepository)
-        : (useSavedAppKey ? () => loadSavedOcrApiKey() : null),
+    loadSavedApiKey: resolvedSavedKeyRepository != null
+        ? () => loadSavedOcrApiKey(repository: resolvedSavedKeyRepository)
+        : null,
     reportWriter: OcrSmokeReportWriter(
       repositoryRoot: repoRoot,
       runId: environment['SHIROHA_OCR_RUN_ID'],
@@ -798,12 +798,44 @@ Future<int> _runOcrSmokeCore(
 }
 
 class _StubAiEngineRepository extends AiEngineRepository {
-  _StubAiEngineRepository(this._profile);
+  _StubAiEngineRepository(this._profile)
+      : super(store: _OcrSmokeProfileStore(_profile));
 
   final AiEngineProfile _profile;
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => _profile;
+}
+
+class _OcrSmokeProfileStore implements AiEngineStore {
+  const _OcrSmokeProfileStore(this.profile);
+
+  final AiEngineProfile profile;
+
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
+    return profile.engineType == type ? <AiEngineProfile>[profile] : const [];
+  }
+
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    return profile.engineType == type ? profile : null;
+  }
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    throw UnsupportedError('Read-only OCR smoke store');
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    throw UnsupportedError('Read-only OCR smoke store');
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    throw UnsupportedError('Read-only OCR smoke store');
+  }
 }
 
 /// Wraps a ZhipuOcrClient to capture the last OcrDocument returned.

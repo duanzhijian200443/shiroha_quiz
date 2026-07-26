@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_document_role.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
@@ -570,10 +571,38 @@ class _NoOpRepairService extends SingleQuestionRepairService {
 }
 
 class _StubEngineRepository extends AiEngineRepository {
+  _StubEngineRepository() : super(store: const _EmptyAiEngineStore());
+
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => null;
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async => null;
+}
+
+class _EmptyAiEngineStore implements AiEngineStore {
+  const _EmptyAiEngineStore();
+
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async =>
+      const [];
+
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async => null;
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    throw UnsupportedError('Acceptance AI engine store is read-only');
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    throw UnsupportedError('Acceptance AI engine store is read-only');
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    throw UnsupportedError('Acceptance AI engine store is read-only');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1098,13 +1127,45 @@ Future<int> runImportAcceptance({
 // ---------------------------------------------------------------------------
 
 class _ReplayEngineRepository extends AiEngineRepository {
-  _ReplayEngineRepository(this._profile);
+  _ReplayEngineRepository(this._profile)
+      : super(store: _ReplayAiEngineStore(_profile));
   final AiEngineProfile _profile;
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => _profile;
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async => null;
+}
+
+class _ReplayAiEngineStore implements AiEngineStore {
+  const _ReplayAiEngineStore(this.profile);
+
+  final AiEngineProfile profile;
+
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
+    return profile.engineType == type ? <AiEngineProfile>[profile] : const [];
+  }
+
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    return profile.engineType == type ? profile : null;
+  }
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    throw UnsupportedError('Replay AI engine store is read-only');
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    throw UnsupportedError('Replay AI engine store is read-only');
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    throw UnsupportedError('Replay AI engine store is read-only');
+  }
 }
 
 // ---------------------------------------------------------------------------

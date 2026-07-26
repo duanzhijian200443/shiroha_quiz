@@ -16,6 +16,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_quality_gate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/answer_block_matcher.dart';
 
+import '../../support/unsupported_ai_engine_store.dart';
 
 void main() {
   group('Boundary Defense Tests - LocalQuestionAssembler', () {
@@ -813,7 +814,8 @@ class ThrowingLlmApiClient extends LlmApiClient {
 
 class MockAiEngineRepository extends AiEngineRepository {
   final AiEngineProfile? profile;
-  MockAiEngineRepository(this.profile);
+  MockAiEngineRepository(this.profile)
+      : super(store: const UnsupportedAiEngineStore());
 
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async {

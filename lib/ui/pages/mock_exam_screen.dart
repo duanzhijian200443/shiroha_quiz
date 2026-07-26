@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../data/repositories/exam_repository.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../../main.dart';
 import '../widgets/markdown_extensions.dart';
 
@@ -101,7 +101,7 @@ class _MockExamScreenState extends State<MockExamScreen> {
         Future.microtask(() async {
           for (var task in tasks) {
             try {
-              final feedback = await AiService.instance
+              final feedback = await AiDependenciesScope.of(context).aiService
                   .judgeAnswer(task['question'], task['sAns'], task['uAns']);
 
               // 智能提取 AI 打分 (0-100)，折算为 1 分满分

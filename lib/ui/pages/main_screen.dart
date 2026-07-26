@@ -3,6 +3,7 @@ import 'home_page.dart';
 import 'data_center_screen.dart';
 import 'mock_center_screen.dart';
 import 'profile_screen.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -12,25 +13,20 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
-  late final List<Widget> _pages;
-
-  @override
-  void initState() {
-    super.initState();
-    _pages = [
-      const HomePage(), // Tab 0
-      const DataCenterScreen(), // Tab 1
-      const MockCenterScreen(), // Tab 2 — 模考中心
-      const ProfileScreen(), // Tab 3
-    ];
-  }
 
   @override
   Widget build(BuildContext context) {
+    final dependencies = AiDependenciesScope.of(context);
+    final pages = <Widget>[
+      const HomePage(), // Tab 0
+      const DataCenterScreen(), // Tab 1
+      const MockCenterScreen(), // Tab 2 — 模考中心
+      ProfileScreen(engineRepository: dependencies.engineRepository), // Tab 3
+    ];
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _pages,
+        children: pages,
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,

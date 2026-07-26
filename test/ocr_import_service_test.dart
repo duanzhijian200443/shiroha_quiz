@@ -9,8 +9,11 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
+import 'support/unsupported_ai_engine_store.dart';
+
 class FakeAiEngineRepository extends AiEngineRepository {
-  FakeAiEngineRepository(this.profile) : super();
+  FakeAiEngineRepository(this.profile)
+      : super(store: const UnsupportedAiEngineStore());
 
   final AiEngineProfile? profile;
 

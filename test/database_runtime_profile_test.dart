@@ -23,7 +23,7 @@ void main() {
   test('isolated smoke profile is selected before repository database access',
       () async {
     final repository = AiEngineRepository(
-      databaseHelper: DatabaseHelper.instance,
+      store: DatabaseHelper.instance,
     );
 
     DatabaseHelper.configureRuntimeProfile(

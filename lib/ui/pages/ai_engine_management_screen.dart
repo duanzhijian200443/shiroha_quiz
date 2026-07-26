@@ -6,7 +6,13 @@ import '../../data/models/ai_engine_profile.dart';
 
 class AiEngineManagementScreen extends StatefulWidget {
   final String engineType; // 'text'、'vision' 或 'ocr'
-  const AiEngineManagementScreen({super.key, required this.engineType});
+  final AiEngineRepository engineRepository;
+
+  const AiEngineManagementScreen({
+    super.key,
+    required this.engineType,
+    required this.engineRepository,
+  });
   @override
   State<AiEngineManagementScreen> createState() =>
       _AiEngineManagementScreenState();
@@ -67,17 +73,17 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
     setState(() => _isLoading = true);
     try {
       final engineTypeEnum = AiEngineType.fromDbValue(widget.engineType);
-      final data = await AiEngineRepository.instance.getEngines(engineTypeEnum);
+      final data = await widget.engineRepository.getEngines(engineTypeEnum);
       final active = _isOcrEngine
-          ? await AiEngineRepository.instance.getActiveOcrEngine()
-          : await AiEngineRepository.instance.getActiveEngine(engineTypeEnum);
+          ? await widget.engineRepository.getActiveOcrEngine()
+          : await widget.engineRepository.getActiveEngine(engineTypeEnum);
 
       if (mounted) {
         setState(() {
           _engines = data;
           if (active == null && data.isNotEmpty) {
             _currentId = data.first.id;
-            AiEngineRepository.instance
+            widget.engineRepository
                 .setActiveEngine(_currentId!, engineTypeEnum);
           } else {
             _currentId = active?.id;
@@ -160,8 +166,8 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           reasoningEffort: _reasoningEffort,
           isActive: true,
         );
-        await AiEngineRepository.instance.saveEngine(profile);
-        await AiEngineRepository.instance
+        await widget.engineRepository.saveEngine(profile);
+        await widget.engineRepository
             .setActiveEngine(newId, engineTypeEnum);
         await _loadData();
         setState(() => _currentId = newId);
@@ -184,8 +190,8 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           reasoningEffort: _reasoningEffort,
           isActive: true,
         );
-        await AiEngineRepository.instance.saveEngine(profile);
-        await AiEngineRepository.instance
+        await widget.engineRepository.saveEngine(profile);
+        await widget.engineRepository
             .setActiveEngine(_currentId!, engineTypeEnum);
         await _loadData();
         if (mounted)
@@ -219,7 +225,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
       ),
     );
     if (confirm == true) {
-      await AiEngineRepository.instance.deleteEngine(_currentId!);
+      await widget.engineRepository.deleteEngine(_currentId!);
       _clearInputs();
       await _loadData();
       if (mounted)
@@ -255,7 +261,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
     );
     if (newName != null && newName.isNotEmpty && newName != currentName) {
       final engineTypeEnum = AiEngineType.fromDbValue(widget.engineType);
-      await AiEngineRepository.instance
+      await widget.engineRepository
           .renameEngine(_currentId!, newName, engineTypeEnum);
       await _loadData();
     }
@@ -445,7 +451,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
                               if (val != null) {
                                 final engineTypeEnum =
                                     AiEngineType.fromDbValue(widget.engineType);
-                                await AiEngineRepository.instance
+                                await widget.engineRepository
                                     .setActiveEngine(val, engineTypeEnum);
                                 await _loadData();
                               }

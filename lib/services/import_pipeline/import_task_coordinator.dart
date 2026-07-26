@@ -7,7 +7,6 @@ import '../task_manager.dart';
 import 'import_failure_classifier.dart';
 import 'import_parse_request.dart';
 import 'import_parse_result.dart';
-import 'import_pipeline_service.dart';
 
 typedef ImportRequestParser = Future<ImportParseResult> Function(
   ImportParseRequest request,
@@ -20,6 +19,13 @@ class ImportTaskHandle {
   final String traceId;
 }
 
+class ImportTaskCoordinatorDependencyException implements Exception {
+  const ImportTaskCoordinatorDependencyException();
+
+  @override
+  String toString() => 'ImportTaskCoordinatorDependencyException';
+}
+
 class ImportTaskCoordinator {
   ImportTaskCoordinator({
     TaskManager? taskManager,
@@ -30,11 +36,10 @@ class ImportTaskCoordinator {
     this.onReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
-        _parser = parser ?? ImportPipelineService.instance.parseFiles,
+        _parser = parser,
         _taskIdFactory = taskIdFactory ?? _createTaskId,
         _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId;
 
-  static final ImportTaskCoordinator instance = ImportTaskCoordinator();
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
   static const Set<String> _safeOcrStatuses = <String>{
@@ -88,7 +93,7 @@ class ImportTaskCoordinator {
 
   final TaskManager _taskManager;
   final Future<void> _readiness;
-  final ImportRequestParser _parser;
+  final ImportRequestParser? _parser;
   final String Function() _taskIdFactory;
   final String Function() _traceIdFactory;
   final void Function(String sourceDescription)? onReadyForReview;
@@ -103,10 +108,14 @@ class ImportTaskCoordinator {
     required ImportParseMode mode,
     required int maxConcurrency,
   }) {
+    final parser = _parser;
+    if (parser == null) {
+      throw const ImportTaskCoordinatorDependencyException();
+    }
     return dispatch(
       sourceDescription: sourceDescription,
       mode: mode,
-      parse: (taskId) => _parser(ImportParseRequest(
+      parse: (taskId) => parser(ImportParseRequest(
         filePaths: List<String>.unmodifiable(filePaths),
         fileNames: List<String>.unmodifiable(fileNames),
         mode: mode,

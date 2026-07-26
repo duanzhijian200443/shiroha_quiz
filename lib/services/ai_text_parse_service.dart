@@ -15,13 +15,13 @@ import 'import_pipeline/text_question_region.dart';
 class AiTextParseService {
   AiTextParseService({
     LlmApiClient apiClient = const LlmApiClient(),
-    AiEngineRepository? engineRepository,
+    required AiEngineRepository engineRepository,
     ParseBatchRunner batchRunner = const ParseBatchRunner(),
     DocumentParseRouter parseRouter = const DocumentParseRouter(),
     QuestionParsePipeline parsePipeline = const QuestionParsePipeline(),
     TaskManager? taskManager,
   })  : _apiClient = apiClient,
-        _engineRepository = engineRepository ?? AiEngineRepository.instance,
+        _engineRepository = engineRepository,
         _batchRunner = batchRunner,
         _parseRouter = parseRouter,
         _parsePipeline = parsePipeline,

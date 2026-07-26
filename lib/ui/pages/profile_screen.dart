@@ -7,7 +7,12 @@ import 'ai_engine_management_screen.dart';
 import 'knowledge_base_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({
+    super.key,
+    required this.engineRepository,
+  });
+
+  final AiEngineRepository engineRepository;
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -29,11 +34,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final textEngine =
-          await AiEngineRepository.instance.getActiveTextEngine();
+      final textEngine = await widget.engineRepository.getActiveTextEngine();
       final visionEngine =
-          await AiEngineRepository.instance.getActiveVisionEngine();
-      final ocrEngine = await AiEngineRepository.instance.getActiveOcrEngine();
+          await widget.engineRepository.getActiveVisionEngine();
+      final ocrEngine = await widget.engineRepository.getActiveOcrEngine();
       final heatmap = await QuestionRepository.instance.getHeatmapData();
 
       int total = 0;
@@ -238,9 +242,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) =>
-                                          const AiEngineManagementScreen(
-                                              engineType: 'text')))
+                                      builder: (_) => AiEngineManagementScreen(
+                                            engineType: 'text',
+                                            engineRepository:
+                                                widget.engineRepository,
+                                          )))
                               .then((_) => _loadData());
                         },
                       ),
@@ -264,9 +270,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) =>
-                                          const AiEngineManagementScreen(
-                                              engineType: 'vision')))
+                                      builder: (_) => AiEngineManagementScreen(
+                                            engineType: 'vision',
+                                            engineRepository:
+                                                widget.engineRepository,
+                                          )))
                               .then((_) => _loadData());
                         },
                       ),
@@ -290,9 +298,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) =>
-                                          const AiEngineManagementScreen(
-                                              engineType: 'ocr')))
+                                      builder: (_) => AiEngineManagementScreen(
+                                            engineType: 'ocr',
+                                            engineRepository:
+                                                widget.engineRepository,
+                                          )))
                               .then((_) => _loadData());
                         },
                       ),
