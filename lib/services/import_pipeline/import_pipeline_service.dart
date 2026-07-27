@@ -13,6 +13,7 @@ import 'import_file_detector.dart';
 import 'import_format.dart';
 import 'import_parse_request.dart';
 import 'import_parse_result.dart';
+import 'import_question_field_policy.dart';
 import 'import_question_fusion_coordinator.dart';
 import 'adapters/docx_document_adapter.dart';
 import 'docx_text_first_parse_service.dart';
@@ -43,6 +44,7 @@ typedef ImportOcrParser = Future<OcrImportResult?> Function({
   required String filePath,
   required String sourceName,
   required ImportFormat format,
+  required ExplanationRetentionMode explanationRetentionMode,
 });
 
 typedef ImportQuestionMerger = Future<List<Map<String, dynamic>>> Function(
@@ -387,6 +389,7 @@ class ImportPipelineService {
             filePath: filePath,
             sourceName: sourceName,
             format: format,
+            explanationRetentionMode: request.explanationRetentionMode,
           );
           if (ocrResult == null) {
             allWarnings.add('OCR 未能处理当前文件。');

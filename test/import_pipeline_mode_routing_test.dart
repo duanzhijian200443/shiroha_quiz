@@ -62,7 +62,8 @@ void main() {
       ocrParser: (
           {required filePath,
           required sourceName,
-          required ImportFormat format}) async {
+          required ImportFormat format,
+          required ExplanationRetentionMode explanationRetentionMode}) async {
         ocrCalls++;
         return OcrImportResult(
           usedOcr: true,
@@ -98,6 +99,7 @@ void main() {
         required filePath,
         required sourceName,
         required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
       }) async {
         fail('ocrParser must not be called in text mode');
       },
@@ -123,7 +125,9 @@ void main() {
       ocrParser: (
               {required filePath,
               required sourceName,
-              required ImportFormat format}) async =>
+              required ImportFormat format,
+              required ExplanationRetentionMode
+                  explanationRetentionMode}) async =>
           OcrImportResult(
         usedOcr: true,
         questions: questions('ocr'),
@@ -159,7 +163,8 @@ void main() {
       ocrParser: (
           {required filePath,
           required sourceName,
-          required ImportFormat format}) async {
+          required ImportFormat format,
+          required ExplanationRetentionMode explanationRetentionMode}) async {
         ocrCalls++;
         return OcrImportResult(
           usedOcr: true,
@@ -196,6 +201,7 @@ void main() {
         required filePath,
         required sourceName,
         required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
       }) async =>
           null,
     );
@@ -220,6 +226,7 @@ void main() {
         required filePath,
         required sourceName,
         required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
       }) async {
         fail('ocrParser must not be called in vision mode');
       },
@@ -248,7 +255,8 @@ void main() {
       ocrParser: (
           {required filePath,
           required sourceName,
-          required ImportFormat format}) async {
+          required ImportFormat format,
+          required ExplanationRetentionMode explanationRetentionMode}) async {
         ocrCalls++;
         return OcrImportResult(
           usedOcr: true,
@@ -282,6 +290,7 @@ void main() {
         required filePath,
         required sourceName,
         required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
       }) async =>
           OcrImportResult(
         usedOcr: true,
@@ -310,7 +319,9 @@ void main() {
       ocrParser: (
               {required filePath,
               required sourceName,
-              required ImportFormat format}) async =>
+              required ImportFormat format,
+              required ExplanationRetentionMode
+                  explanationRetentionMode}) async =>
           const OcrImportResult(
         usedOcr: false,
         questions: <Map<String, dynamic>>[],
@@ -349,7 +360,9 @@ void main() {
       ocrParser: (
               {required filePath,
               required sourceName,
-              required ImportFormat format}) async =>
+              required ImportFormat format,
+              required ExplanationRetentionMode
+                  explanationRetentionMode}) async =>
           null,
     );
 
@@ -403,6 +416,7 @@ void main() {
         required filePath,
         required sourceName,
         required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
       }) async =>
           fail('OCR parser must not run'),
     );
@@ -433,6 +447,7 @@ void main() {
       await textFile.writeAsString(
         'Synthetic source text long enough to enter the text parser.',
       );
+      ExplanationRetentionMode? observedOcrRetentionMode;
       final pipeline = ImportPipelineService.forTesting(
         textParser: (rawText, {required taskId, required isMarkdown}) async =>
             retentionQuestions(),
@@ -441,13 +456,16 @@ void main() {
           required filePath,
           required sourceName,
           required ImportFormat format,
-        }) async =>
-            OcrImportResult(
-          usedOcr: true,
-          questions: retentionQuestions(),
-          warnings: const <String>[],
-          diagnostics: const <String, dynamic>{'status': 'used_ocr'},
-        ),
+          required ExplanationRetentionMode explanationRetentionMode,
+        }) async {
+          observedOcrRetentionMode = explanationRetentionMode;
+          return OcrImportResult(
+            usedOcr: true,
+            questions: retentionQuestions(),
+            warnings: const <String>[],
+            diagnostics: const <String, dynamic>{'status': 'used_ocr'},
+          );
+        },
       );
       final path =
           mode == ImportParseMode.text ? textFile.path : 'question.png';
@@ -469,6 +487,12 @@ void main() {
         'Fill explanation',
         'Short answer explanation',
       ]);
+      if (mode == ImportParseMode.ocr) {
+        expect(
+          observedOcrRetentionMode,
+          ExplanationRetentionMode.allQuestionTypes,
+        );
+      }
     });
   }
 
@@ -501,6 +525,7 @@ void main() {
         required filePath,
         required sourceName,
         required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
       }) async =>
           fail('OCR parser must not run'),
     );

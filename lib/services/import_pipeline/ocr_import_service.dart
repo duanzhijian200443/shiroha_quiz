@@ -1,14 +1,15 @@
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_providers/llm_provider_registry.dart';
+import 'final_question_latex_audit.dart';
 import 'import_document_role.dart';
 import 'import_format.dart';
+import 'import_question_field_policy.dart';
 import 'import_question_repair_policy.dart';
 import 'local_question_assembler.dart';
 import 'ocr_document.dart';
 import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
-import 'ocr_safe_html_cleanup.dart';
 import 'single_question_repair_service.dart';
 
 class OcrImportResult {
@@ -51,6 +52,7 @@ class OcrImportService {
     required String filePath,
     required String sourceName,
     required ImportFormat format,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     if (format != ImportFormat.pdf && format != ImportFormat.image) {
       return null;
@@ -181,6 +183,23 @@ class OcrImportService {
       var repairDurationMs = 0;
       var finalizationDurationMs = 0;
 
+      LocalAssemblyResult finalizeForRepairRouting(
+        LocalAssemblyResult localResult,
+      ) {
+        final stopwatch = Stopwatch()..start();
+        try {
+          return _finalizeForRepairRouting(
+            localResult,
+            explanationRetentionMode: explanationRetentionMode,
+            requireAnswer: !isStemOnly,
+          );
+        } finally {
+          stopwatch.stop();
+          finalizationDurationMs += stopwatch.elapsedMilliseconds;
+          timing['finalizationDurationMs'] = finalizationDurationMs;
+        }
+      }
+
       for (final candidate in assembled) {
         final region = candidate.region;
         var result = candidate.result;
@@ -188,9 +207,15 @@ class OcrImportService {
           clearedAssemblerAnswerCount++;
         }
 
+        final initialRepairRecommended = result.repairRecommended;
         if (result.repairRecommended) {
           repairRecommendedCount++;
         }
+        if (isStemOnly) {
+          result = _enforceStemOnly(result);
+        }
+        result = finalizeForRepairRouting(result);
+
         final triggerCodes = const ImportQuestionRepairPolicy().candidateCodes(
           result.question,
           diagnostics: result.diagnostics,
@@ -206,6 +231,7 @@ class OcrImportService {
               region: region.toTextQuestionRegion(),
               localResult: result,
               requireAnswer: !isStemOnly,
+              explanationRetentionMode: explanationRetentionMode,
             );
             outcome = _repairOutcome(result);
             if (outcome == 'applied') {
@@ -225,26 +251,20 @@ class OcrImportService {
               'durationMs': repairStopwatch.elapsedMilliseconds,
             });
           }
-        } else if (result.repairRecommended) {
+        } else if (initialRepairRecommended || result.repairRecommended) {
           repairSkippedNonStructuralCount++;
           if (isStemOnly) {
             repairSkippedForStemOnlyCount++;
           }
         }
 
-        final finalizationStopwatch = Stopwatch()..start();
-        try {
+        if (triggerCodes.isNotEmpty) {
           if (isStemOnly) {
             result = _enforceStemOnly(result);
           }
-
-          result = _cleanupSafeHtml(result);
-          questions.add(_restoreOcrProvenance(result, region));
-        } finally {
-          finalizationStopwatch.stop();
-          finalizationDurationMs += finalizationStopwatch.elapsedMilliseconds;
-          timing['finalizationDurationMs'] = finalizationDurationMs;
+          result = finalizeForRepairRouting(result);
         }
+        questions.add(_restoreOcrProvenance(result, region));
       }
 
       if (questions.isEmpty) {
@@ -321,39 +341,41 @@ class OcrImportService {
     return question;
   }
 
-  LocalAssemblyResult _cleanupSafeHtml(LocalAssemblyResult result) {
-    final question = Map<String, dynamic>.from(result.question);
-    final diagnostics = <String>{...result.diagnostics};
-
-    void cleanField(String key) {
-      final value = question[key];
-      if (value is! String) return;
-      final cleaned = stripSafeHtmlWrappers(value);
-      question[key] = cleaned.text;
-      diagnostics.addAll(cleaned.diagnostics);
-    }
-
-    for (final key in const [
-      'content',
-      'standard_answer',
-      'explanation',
-    ]) {
-      cleanField(key);
-    }
-
-    final options = question['options'];
-    if (options is List) {
-      question['options'] = options.map((option) {
-        if (option is! String) return option;
-        final cleaned = stripSafeHtmlWrappers(option);
-        diagnostics.addAll(cleaned.diagnostics);
-        return cleaned.text;
-      }).toList();
-    }
+  LocalAssemblyResult _finalizeForRepairRouting(
+    LocalAssemblyResult result, {
+    required ExplanationRetentionMode explanationRetentionMode,
+    required bool requireAnswer,
+  }) {
+    final diagnostics = clearDerivedImportDiagnostics(result.diagnostics)
+      ..removeWhere(
+        (diagnostic) =>
+            explanationRetentionMode ==
+                ExplanationRetentionMode.allQuestionTypes &&
+            diagnostic == 'dropped_non_subjective_explanation',
+      );
+    final finalized = finalizeAndAuditImportQuestion(
+      <String, dynamic>{
+        ...result.question,
+        'diagnostics': diagnostics,
+      },
+      mode: explanationRetentionMode,
+    );
+    final finalizedDiagnostics = <String>{
+      ...diagnostics,
+      if (finalized['diagnostics'] is List)
+        ...(finalized['diagnostics'] as List)
+            .map((diagnostic) => diagnostic.toString()),
+    }.toList(growable: false);
+    final withCandidates =
+        const ImportQuestionRepairPolicy().syncCandidateMetadata(
+      finalized,
+      diagnostics: finalizedDiagnostics,
+      requireAnswer: requireAnswer,
+    );
 
     return LocalAssemblyResult(
-      question: question,
-      diagnostics: diagnostics.toList(),
+      question: withCandidates,
+      diagnostics: finalizedDiagnostics,
       repairRecommended: result.repairRecommended,
       rejected: result.rejected,
     );

@@ -13,6 +13,15 @@ const Set<String> _derivedDiagnosticCodes = {
   'unsupported_html_tag_preserved',
 };
 
+List<String> clearDerivedImportDiagnostics(
+  Iterable<String> diagnostics,
+) {
+  return diagnostics
+      .where((diagnostic) => !_derivedDiagnosticCodes.contains(diagnostic))
+      .toSet()
+      .toList();
+}
+
 class FinalQuestionLatexAuditResult {
   const FinalQuestionLatexAuditResult({
     required this.question,

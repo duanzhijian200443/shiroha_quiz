@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_ser
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -52,7 +53,8 @@ class FakeRepairService extends SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
-    bool requireAnswer = true,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     return localResult;
   }
@@ -63,15 +65,18 @@ class RecordingRepairService extends SingleQuestionRepairService {
   int inFlight = 0;
   int maxInFlight = 0;
   final List<int> questionNumbers = [];
+  final List<ExplanationRetentionMode> retentionModes = [];
 
   @override
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
-    bool requireAnswer = true,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     callCount++;
     questionNumbers.add(region.number);
+    retentionModes.add(explanationRetentionMode);
     inFlight++;
     if (inFlight > maxInFlight) maxInFlight = inFlight;
     await Future<void>.delayed(Duration.zero);
@@ -83,7 +88,10 @@ class RecordingRepairService extends SingleQuestionRepairService {
     final type = question['type'];
     if (type == 0 || type == 1) {
       question['options'] = const <String>['A. First', 'B. Second'];
-      if (requireAnswer) question['standard_answer'] = 'A';
+      if (requireAnswer &&
+          (question['standard_answer']?.toString().trim().isEmpty ?? true)) {
+        question['standard_answer'] = 'A';
+      }
     }
     return LocalAssemblyResult(
       question: question,
@@ -92,6 +100,60 @@ class RecordingRepairService extends SingleQuestionRepairService {
       rejected: false,
     );
   }
+}
+
+OcrDocument objectiveExplanationDocument({
+  required String explanation,
+  String section = '一、选择题（共 1 题）',
+  String question = '1. Valid stem (A) one (B) two (C) three (D) four',
+  String? answer,
+}) {
+  return OcrDocument(
+    sourceName: 'objective-explanation.pdf',
+    markdown: '',
+    rawResponses: const [],
+    usage: const {},
+    pages: [
+      OcrPage(
+        pageIndex: 1,
+        blocks: [
+          OcrBlock(
+            blockId: 'section',
+            pageIndex: 1,
+            type: 'text',
+            text: section,
+            bbox: const [],
+            readingOrder: 0,
+          ),
+          OcrBlock(
+            blockId: 'question',
+            pageIndex: 1,
+            type: 'text',
+            text: question,
+            bbox: const [],
+            readingOrder: 1,
+          ),
+          if (answer != null)
+            OcrBlock(
+              blockId: 'answer',
+              pageIndex: 1,
+              type: 'text',
+              text: answer,
+              bbox: const [],
+              readingOrder: 2,
+            ),
+          OcrBlock(
+            blockId: 'explanation',
+            pageIndex: 1,
+            type: 'text',
+            text: explanation,
+            bbox: const [],
+            readingOrder: answer == null ? 2 : 3,
+          ),
+        ],
+      ),
+    ],
+  );
 }
 
 void main() {
@@ -158,6 +220,7 @@ void main() {
         filePath: 'C:\\tmp\\sample.pdf',
         sourceName: 'sample.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -236,6 +299,7 @@ void main() {
         filePath: r'C:\tmp\cross-page.pdf',
         sourceName: 'cross-page.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -275,50 +339,8 @@ void main() {
       final service = OcrImportService(
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
-          const OcrDocument(
-            sourceName: 'hidden-explanation.pdf',
-            markdown: '',
-            rawResponses: [],
-            usage: {},
-            pages: [
-              OcrPage(
-                pageIndex: 1,
-                blocks: [
-                  OcrBlock(
-                    blockId: 'section',
-                    pageIndex: 1,
-                    type: 'text',
-                    text: '一、选择题（共 1 题）',
-                    bbox: [],
-                    readingOrder: 0,
-                  ),
-                  OcrBlock(
-                    blockId: 'question',
-                    pageIndex: 1,
-                    type: 'text',
-                    text: '1. Valid stem (A) one (B) two (C) three (D) four',
-                    bbox: [],
-                    readingOrder: 1,
-                  ),
-                  OcrBlock(
-                    blockId: 'answer',
-                    pageIndex: 1,
-                    type: 'text',
-                    text: '答案：A',
-                    bbox: [],
-                    readingOrder: 2,
-                  ),
-                  OcrBlock(
-                    blockId: 'explanation',
-                    pageIndex: 1,
-                    type: 'text',
-                    text: r'解析：Hidden broken formula \(x',
-                    bbox: [],
-                    readingOrder: 3,
-                  ),
-                ],
-              ),
-            ],
+          objectiveExplanationDocument(
+            explanation: r'解析：故选 B。Hidden broken formula \(x',
           ),
         ),
         repairService: repair,
@@ -328,17 +350,112 @@ void main() {
         filePath: r'C:\tmp\hidden-explanation.pdf',
         sourceName: 'hidden-explanation.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
       final question = result!.questions.single;
-      expect(question['standard_answer'], 'A');
+      expect(question['standard_answer'], 'B');
       expect(question['explanation'], isEmpty);
       expect(question['raw_explanation'], contains(r'\(x'));
       expect(question['diagnostics'], isNot(contains('dangling_latex')));
+      final metadata = question['_import_review'] as Map<String, dynamic>;
+      expect(
+        metadata['repairCandidateCodes'],
+        isNot(contains('dangling_latex')),
+      );
       expect(repair.callCount, 0);
       expect(result.diagnostics['repairEligibleCount'], 0);
       expect(result.diagnostics['repairAttemptedCount'], 0);
+    });
+
+    test('hidden fill explanation HTML does not call repair', () async {
+      final profile = AiEngineProfile(
+        id: 'ocr-hidden-fill-explanation',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final repair = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(
+          objectiveExplanationDocument(
+            section: '二、填空题（共 1 题）',
+            question: '1. Synthetic value is ____.',
+            answer: '答案：42',
+            explanation:
+                '解析：<div>Hidden explanation</div><script>unsafe()</script>',
+          ),
+        ),
+        repairService: repair,
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\hidden-fill-explanation.pdf',
+        sourceName: 'hidden-fill-explanation.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      final question = result!.questions.single;
+      expect(question['standard_answer'], '42');
+      expect(question['explanation'], isEmpty);
+      expect(question['raw_explanation'], contains('<script>'));
+      expect(question['diagnostics'], isNot(contains('raw_html_tag')));
+      expect(repair.callCount, 0);
+      expect(result.diagnostics['repairEligibleCount'], 0);
+      expect(result.diagnostics['repairAttemptedCount'], 0);
+    });
+
+    test('retained objective explanation defects enter repair routing',
+        () async {
+      final profile = AiEngineProfile(
+        id: 'ocr-retained-explanation',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final repair = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(
+          objectiveExplanationDocument(
+            explanation:
+                r'解析：故选 B。Retained broken formula \(\begin{matrix}1\end{pmatrix}\)',
+          ),
+        ),
+        repairService: repair,
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\retained-explanation.pdf',
+        sourceName: 'retained-explanation.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(result, isNotNull);
+      final question = result!.questions.single;
+      expect(question['standard_answer'], 'B');
+      expect(question['explanation'], contains(r'\begin{matrix}'));
+      expect(repair.callCount, 1);
+      expect(repair.retentionModes, [
+        ExplanationRetentionMode.allQuestionTypes,
+      ]);
+      expect(result.diagnostics['repairEligibleCount'], 1);
+      expect(result.diagnostics['repairAttemptedCount'], 1);
     });
 
     test('real structural defects repair serially with safe timing', () async {
@@ -418,6 +535,7 @@ void main() {
         filePath: r'C:\tmp\structural.pdf',
         sourceName: 'structural.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -511,6 +629,7 @@ void main() {
         filePath: r'C:\tmp\html-cleanup.pdf',
         sourceName: 'html-cleanup.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -597,6 +716,7 @@ void main() {
         filePath: 'C:\\tmp\\regionizer-regression.pdf',
         sourceName: 'regionizer-regression.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -704,6 +824,7 @@ void main() {
         filePath: 'C:\\tmp\\parenthesized-sequence.pdf',
         sourceName: 'parenthesized-sequence.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -839,6 +960,7 @@ void main() {
         filePath: 'C:\\tmp\\markdown-four-pages.pdf',
         sourceName: 'markdown-four-pages.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -913,6 +1035,7 @@ void main() {
         filePath: 'C:\\tmp\\no-question-number.pdf',
         sourceName: 'no-question-number.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -962,6 +1085,7 @@ void main() {
         filePath: 'C:\\tmp\\empty.pdf',
         sourceName: 'empty.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -990,6 +1114,7 @@ void main() {
         filePath: 'C:\\tmp\\sample.pdf',
         sourceName: 'sample.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -1021,6 +1146,7 @@ void main() {
         filePath: 'C:\\tmp\\sample.pdf',
         sourceName: 'sample.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);

@@ -12,6 +12,7 @@ import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_document_role.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_final_sorter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
@@ -732,7 +733,8 @@ class _NoOpRepairService extends SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
-    bool requireAnswer = true,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     candidateCount++;
     return localResult;
@@ -1183,6 +1185,7 @@ Future<int> runImportAcceptance({
     filePath: 'replay://acceptance/${testCase.caseId}',
     sourceName: testCase.caseId,
     format: ImportFormat.pdf,
+    explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
   );
 
   if (ocrResult == null || !ocrResult.usedOcr || ocrResult.questions.isEmpty) {
@@ -1209,7 +1212,10 @@ Future<int> runImportAcceptance({
   );
 
   // Apply the final field policy, deterministic LaTeX repair, and audit.
-  final finalQuestions = finalizeAndAuditImportQuestions(sorted.questions);
+  final finalQuestions = finalizeAndAuditImportQuestions(
+    sorted.questions,
+    mode: ExplanationRetentionMode.subjectiveOnly,
+  );
 
   emitEvent({
     'stage': 'pipeline',

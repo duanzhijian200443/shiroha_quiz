@@ -408,7 +408,9 @@ void main() {
       ocrParser: (
               {required filePath,
               required sourceName,
-              required format}) async =>
+              required format,
+              required ExplanationRetentionMode
+                  explanationRetentionMode}) async =>
           throw StateError(_sensitiveFailureText),
     );
     final coordinator = ImportTaskCoordinator(

@@ -13,6 +13,7 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_api_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_quality_gate.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/answer_block_matcher.dart';
 
@@ -274,6 +275,8 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.question['content'], equals('被修复后的题干'));
@@ -313,12 +316,97 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.question['type'], 3);
       expect(result.question['explanation'], '被修复后的主观题解析');
       expect(result.question['raw_explanation'], '原始主观题解析');
       expect(result.diagnostics, contains('ai_repair_applied'));
+    });
+
+    test('all-question-types repair preserves objective explanation fields',
+        () async {
+      final mockClient = MockLlmApiClient('''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "Repaired choice question",
+        "options": ["A. First", "B. Second"],
+        "standard_answer": "B",
+        "explanation": "Retained objective explanation",
+        "raw_explanation": "Original objective explanation"
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. Synthetic damaged choice question',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(result.question['explanation'], 'Retained objective explanation');
+      expect(
+          result.question['raw_explanation'], 'Original objective explanation');
+      expect(result.diagnostics, contains('ai_repair_applied'));
+      expect(mockClient.callCount, 1);
+    });
+
+    test('all-question-types repair rejects damaged retained explanation',
+        () async {
+      final mockClient = MockLlmApiClient(r'''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "Repaired choice question",
+        "options": ["A. First", "B. Second"],
+        "standard_answer": "B",
+        "explanation": "\\(\\begin{matrix}1\\end{pmatrix}\\)",
+        "raw_explanation": "Original objective explanation"
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. Synthetic damaged choice question',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(
+        result.diagnostics,
+        contains('repair_rejected_structural_invalid'),
+      );
+      expect(result.diagnostics, isNot(contains('ai_repair_applied')));
+      expect(mockClient.callCount, 1);
     });
 
     test('repair result with unresolved choice structure is rejected',
@@ -350,6 +438,8 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.question['content'], localResult.question['content']);
@@ -398,6 +488,8 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(
@@ -436,6 +528,8 @@ B. 选项B
       final result = await service.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.question['content'], r'Repaired content \((x + 1\)');
@@ -474,6 +568,8 @@ B. 选项B
       final result = await service.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(
@@ -514,6 +610,8 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.diagnostics,
@@ -550,6 +648,8 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(
@@ -579,6 +679,8 @@ B. 选项B
         () => repairService.repair(
           region: region,
           localResult: localResult,
+          requireAnswer: true,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
         ),
         zoneSpecification: ZoneSpecification(
           print: (_, __, ___, line) => printed.add(line),
@@ -1000,6 +1102,8 @@ B. 选项B
 
 class MockLlmApiClient extends LlmApiClient {
   final String responseText;
+  int callCount = 0;
+
   MockLlmApiClient(this.responseText);
 
   @override
@@ -1013,6 +1117,7 @@ class MockLlmApiClient extends LlmApiClient {
     bool jsonResponse = false,
     Duration timeout = const Duration(minutes: 5),
   }) async {
+    callCount++;
     return responseText;
   }
 }

@@ -25,7 +25,8 @@ class SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
-    bool requireAnswer = true,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     final profile = await engineRepository.getActiveTextEngine();
 
@@ -33,7 +34,11 @@ class SingleQuestionRepairService {
       return _appendDiagnostic(localResult, 'repair_skipped_no_active_engine');
     }
 
-    final prompt = _buildPrompt(region, localResult);
+    final prompt = _buildPrompt(
+      region,
+      localResult,
+      explanationRetentionMode,
+    );
 
     try {
       final responseText = await _apiClient.callText(
@@ -55,12 +60,13 @@ class SingleQuestionRepairService {
         );
       }
 
-      final canonical = const ImportQuestionFieldPolicy().applyToMap(
+      final canonical = finalizeAndAuditImportQuestion(
         _canonicalizeRepairedMap(
           repaired,
           fallback: localResult.question,
           regionNumber: region.number,
         ),
+        mode: explanationRetentionMode,
       );
       final latexAudit = auditFinalQuestionLatex(canonical);
       if (!_isStructurallyValidRepair(
@@ -97,9 +103,14 @@ class SingleQuestionRepairService {
   String _buildPrompt(
     TextQuestionRegion region,
     LocalAssemblyResult localResult,
+    ExplanationRetentionMode explanationRetentionMode,
   ) {
     final local =
         const JsonEncoder.withIndent('  ').convert(localResult.question);
+    final explanationRule =
+        explanationRetentionMode == ExplanationRetentionMode.allQuestionTypes
+            ? '所有题型都允许保留现有来源中的 explanation；不得凭空新增或扩写。'
+            : 'type=3 保留 explanation；type=0/1/2 的 explanation 必须为空。';
 
     return '''
 你正在修复导入流程中的【第 ${region.number} 题】。
@@ -114,7 +125,7 @@ class SingleQuestionRepairService {
 7. options 必须是字符串数组，例如 ["A. ...", "B. ..."]。
 8. 字段只能使用：
    question_number, type, content, options, standard_answer, explanation, raw_explanation
-9. type=3 保留 explanation；type=0/1/2 的 explanation 必须为空。raw_explanation 只能保留现有来源文本，不得新增或扩写。
+9. $explanationRule raw_explanation 只能保留现有来源文本，不得新增或扩写。
 
 现有本地解析结果：
 $local
