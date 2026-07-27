@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_repair_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_analyzer.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_filter.dart';
@@ -7,6 +8,55 @@ import 'package:shiroha_quiz/services/import_review/import_review_issue.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_item.dart';
 
 void main() {
+  group('LaTeX control word boundaries', () {
+    const checker = LatexSanityChecker();
+
+    test('arrow commands are not left or right delimiters', () {
+      for (final command in const [
+        r'\rightarrow',
+        r'\leftarrow',
+        r'\leftrightarrow',
+        r'\Rightarrow',
+        r'\Leftarrow',
+        r'\Leftrightarrow',
+        r'\longrightarrow',
+        r'\longleftarrow',
+        r'\Longrightarrow',
+        r'\Longleftarrow',
+      ]) {
+        expect(
+          checker.hasDanglingDelimiters(command),
+          isFalse,
+          reason: command,
+        );
+        expect(repairLatexDeterministically(command), command);
+      }
+    });
+
+    test('standalone left and right commands retain structural checks', () {
+      expect(checker.hasDanglingDelimiters(r'\left(x\right)'), isFalse);
+      expect(checker.hasDanglingDelimiters(r'\left(x'), isTrue);
+      expect(checker.hasDanglingDelimiters(r'x\right)'), isTrue);
+      expect(
+        checker.hasDanglingDelimiters(r'\left.\frac{x}{y}\right|'),
+        isFalse,
+      );
+    });
+
+    test('arrow commands produce no latex risk or repair candidate', () {
+      final result = auditFinalQuestionLatex(
+        _question(content: r'Mapping \(A \rightarrow B\)'),
+      );
+
+      expect(result.invalidFields, isEmpty);
+      expect(_riskHints(result.question), isEmpty);
+      expect(
+        const ImportQuestionRepairPolicy().candidateCodes(result.question),
+        isNot(contains(ImportQuestionRepairPolicy.danglingLatexCode)),
+      );
+    });
+  });
+
   group('auditFinalQuestionLatex', () {
     test('deterministically repairs an unpaired left command', () {
       final result = auditFinalQuestionLatex(_question(

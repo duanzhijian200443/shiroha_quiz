@@ -1,3 +1,6 @@
+final RegExp _leftControlWord = RegExp(r'\\left(?![A-Za-z])');
+final RegExp _rightControlWord = RegExp(r'\\right(?![A-Za-z])');
+
 /// Shared LaTeX structural sanity checks.
 ///
 /// These checks verify delimiter balance and structural integrity
@@ -19,8 +22,8 @@ class LatexSanityChecker {
     final blockClose = RegExp(r'\\\]').allMatches(text).length;
     if (inlineOpen != inlineClose || blockOpen != blockClose) return true;
 
-    final leftCount = RegExp(r'\\left').allMatches(text).length;
-    final rightCount = RegExp(r'\\right').allMatches(text).length;
+    final leftCount = _leftControlWord.allMatches(text).length;
+    final rightCount = _rightControlWord.allMatches(text).length;
     if (leftCount != rightCount) return true;
 
     final environments = <String>[];
@@ -67,14 +70,15 @@ String _closeSingleTrailingDelimiter(
 }
 
 String _normalizeUnbalancedLeftRight(String text) {
-  final leftCount = RegExp(r'\\left\b').allMatches(text).length;
-  final rightCount = RegExp(r'\\right\b').allMatches(text).length;
+  final leftCount = _leftControlWord.allMatches(text).length;
+  final rightCount = _rightControlWord.allMatches(text).length;
   if (leftCount == rightCount) return text;
   if (rightCount > leftCount) return text;
 
   return text
-      .replaceAll(RegExp(r'\\(?:left|right)\s*\.'), '')
-      .replaceAll(RegExp(r'\\(?:left|right)\b'), '');
+      .replaceAll(RegExp(r'\\(?:left|right)(?![A-Za-z])\s*\.'), '')
+      .replaceAll(_leftControlWord, '')
+      .replaceAll(_rightControlWord, '');
 }
 
 String _closeTrailingEnvironments(String text) {

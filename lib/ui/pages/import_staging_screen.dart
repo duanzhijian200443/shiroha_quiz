@@ -72,18 +72,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       ImportCommitService(questionRepository: _questionRepository);
   List<String> _existingFolders = [];
 
-  bool get _isBlockedByQualityGate {
-    final gate = widget.diagnostics?['qualityGate'];
-    return (gate is Map && gate['blocked'] == true) ||
-        ImportReviewBlockingPolicy.isBlocked(_reviewResult);
-  }
+  bool get _isBlockedByQualityGate =>
+      ImportReviewBlockingPolicy.isBlocked(_reviewResult);
 
   String? get _qualityGateReason {
-    final gate = widget.diagnostics?['qualityGate'];
-    if (gate is Map && gate['blocked'] == true) {
-      final reason = gate['reason'];
-      if (reason is String && reason.trim().isNotEmpty) return reason.trim();
-    }
     if (ImportReviewBlockingPolicy.isBlocked(_reviewResult)) {
       return '题目结构错误，请修正或删除后再入库';
     }
@@ -123,6 +115,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               ))
           .toList();
     }
+    final historicalGateMessage = _historicalQualityGateMessage();
+    if (historicalGateMessage != null) {
+      _diagnosticMessages = [
+        ..._diagnosticMessages,
+        historicalGateMessage,
+      ];
+    }
     _allItems = widget.parsedQuestions
         .asMap()
         .entries
@@ -131,6 +130,18 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     _reapplyExplanationPolicy();
     _refreshReviewState();
     _loadExistingFolders();
+  }
+
+  ImportDiagnosticMessage? _historicalQualityGateMessage() {
+    final gate = widget.diagnostics?['qualityGate'];
+    if (gate is! Map || gate['blocked'] != true) return null;
+    return ImportDiagnosticMessage(
+      severity: ImportDiagnosticSeverity.warning,
+      title: '初始质量门禁',
+      message: '初始解析曾被质量门禁标记为阻断；最终门禁以当前校对结果为准。',
+      source: 'quality_gate',
+      code: 'HISTORICAL_GATE_BLOCKED',
+    );
   }
 
   List<String> _readImportDiagnostics(List<Map<String, dynamic>> questions) {

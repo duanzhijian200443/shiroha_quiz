@@ -44,15 +44,6 @@ class ImportCommitService {
         ExplanationRetentionMode.subjectiveOnly,
     List<QuestionExplanationOverride>? explanationOverrides,
   }) async {
-    final gate = diagnostics['qualityGate'];
-    if (gate is Map && gate['blocked'] == true) {
-      final rawReason = gate['reason'];
-      final reason = rawReason is String && rawReason.trim().isNotEmpty
-          ? rawReason.trim()
-          : null;
-      throw ImportCommitBlockedException(reason);
-    }
-
     final finalizedMaps = finalizeAndAuditImportQuestions(
       questions.map((question) => question.toMap()),
       mode: explanationRetentionMode,

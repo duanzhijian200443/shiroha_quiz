@@ -46,29 +46,29 @@ void main() {
     manager.tasks.clear();
   });
 
-  test('hard quality gate blocks repository writes', () async {
+  test('historical blocked gate does not override legal current questions',
+      () async {
     final repository = _CommitRepository();
     final service = ImportCommitService(
       questionRepository: repository,
       taskManager: manager,
     );
 
-    await expectLater(
-      service.commit(
-        bankName: 'Smoke Bank',
-        folderName: 'Smoke',
-        questions: const [_draft],
-        diagnostics: const {
-          'qualityGate': {'blocked': true, 'reason': 'synthetic gate'},
-        },
-      ),
-      throwsA(isA<ImportCommitBlockedException>()),
+    final result = await service.commit(
+      bankName: 'Smoke Bank',
+      folderName: 'Smoke',
+      questions: const [_draft],
+      diagnostics: const {
+        'qualityGate': {'blocked': true, 'reason': 'synthetic gate'},
+      },
     );
 
-    expect(repository.saveCalls, 0);
+    expect(result.questionCount, 1);
+    expect(repository.saveCalls, 1);
   });
 
-  test('hard structural review issues block repository writes', () async {
+  test('historical blocked gate still blocks illegal current questions',
+      () async {
     final repository = _CommitRepository();
     final service = ImportCommitService(
       questionRepository: repository,
@@ -88,7 +88,9 @@ void main() {
             explanation: '',
           ),
         ],
-        diagnostics: const {},
+        diagnostics: const {
+          'qualityGate': {'blocked': true, 'reason': 'synthetic gate'},
+        },
       ),
       throwsA(isA<ImportCommitBlockedException>()),
     );
@@ -96,7 +98,8 @@ void main() {
     expect(repository.saveCalls, 0);
   });
 
-  test('blank choice options are blocked before repository writes', () async {
+  test('historical clear gate cannot allow illegal current questions',
+      () async {
     final repository = _CommitRepository();
     final service = ImportCommitService(
       questionRepository: repository,
@@ -116,12 +119,57 @@ void main() {
             explanation: '',
           ),
         ],
-        diagnostics: const {},
+        diagnostics: const {
+          'qualityGate': {'blocked': false},
+        },
       ),
       throwsA(isA<ImportCommitBlockedException>()),
     );
 
     expect(repository.saveCalls, 0);
+  });
+
+  test('all current hard structural errors remain blocked', () async {
+    for (final draft in const [
+      QuestionDraft(
+        type: QuestionType.shortAnswer,
+        content: '',
+        options: [],
+        standardAnswer: 'Answer',
+        explanation: '',
+      ),
+      QuestionDraft(
+        type: QuestionType.singleChoice,
+        content: 'Choice answer outside options',
+        options: ['A', 'B'],
+        standardAnswer: 'C',
+        explanation: '',
+      ),
+      QuestionDraft(
+        type: QuestionType.shortAnswer,
+        content: 'Subjective question with choice options',
+        options: ['A', 'B'],
+        standardAnswer: 'Answer',
+        explanation: '',
+      ),
+    ]) {
+      final repository = _CommitRepository();
+      final service = ImportCommitService(
+        questionRepository: repository,
+        taskManager: manager,
+      );
+
+      await expectLater(
+        service.commit(
+          bankName: 'Smoke Bank',
+          folderName: 'Smoke',
+          questions: [draft],
+          diagnostics: const {},
+        ),
+        throwsA(isA<ImportCommitBlockedException>()),
+      );
+      expect(repository.saveCalls, 0);
+    }
   });
 
   test('unparseable meaningful answer remains reviewable and committable',
