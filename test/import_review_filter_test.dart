@@ -146,6 +146,56 @@ void main() {
       expect(res.first.canonicalIndex, 3);
     });
 
+    test('type options mismatch is locatable and prioritized as choice issue',
+        () {
+      final items = [
+        ImportReviewItem(
+          draft: const QuestionDraft(
+            content: 'Clean question',
+            type: QuestionType.shortAnswer,
+            options: [],
+            explanation: '',
+            standardAnswer: 'Answer',
+          ),
+          metadata: ImportReviewMetadata.empty(),
+          originalIndex: 0,
+        ),
+        ImportReviewItem(
+          draft: const QuestionDraft(
+            content: 'Mismatched question',
+            type: QuestionType.fillBlank,
+            options: ['A', 'B'],
+            explanation: '',
+            standardAnswer: 'Answer',
+          ),
+          metadata: ImportReviewMetadata.empty(),
+          originalIndex: 1,
+        ),
+      ];
+      final result = ImportReviewAnalyzer.analyzeItems(items);
+
+      final filtered = ImportReviewFilterService.apply(
+        items: items,
+        analysis: result,
+        filter: ImportReviewFilter.choiceIssues,
+        sort: ImportReviewSort.originalOrder,
+      );
+      final counts = ImportReviewFilterService.countByFilter(
+        items: items,
+        analysis: result,
+      );
+      final sorted = ImportReviewFilterService.apply(
+        items: items,
+        analysis: result,
+        filter: ImportReviewFilter.all,
+        sort: ImportReviewSort.missingFieldsFirst,
+      );
+
+      expect(filtered.map((item) => item.canonicalIndex), [1]);
+      expect(counts[ImportReviewFilter.choiceIssues], 1);
+      expect(sorted.first.canonicalIndex, 1);
+    });
+
     test('fusionRisks returns correct fusion issue items', () {
       final res = ImportReviewFilterService.apply(
         items: testItems,

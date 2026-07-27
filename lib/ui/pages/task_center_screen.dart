@@ -367,11 +367,7 @@ class _ImportTaskDiagnosticSheetState
         TaskStatus.error => '解析失败',
       };
 
-  Duration get _taskElapsed {
-    final end = widget.task.completedAt ??
-        DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    return Duration(seconds: (end - widget.task.createdAt).clamp(0, 1 << 31));
-  }
+  Duration get _taskElapsed => widget.task.elapsed;
 
   Future<void> _copyTraceId(String traceId) async {
     await Clipboard.setData(ClipboardData(text: traceId));

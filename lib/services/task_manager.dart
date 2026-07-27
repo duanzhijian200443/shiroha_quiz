@@ -36,9 +36,13 @@ class ImportTask {
   // 诊断元数据快捷获取
   String? get traceId => diagnostics?[TaskManager.keyTraceId]?.toString();
   String? get parseMode => diagnostics?[TaskManager.keyParseMode]?.toString();
-  Duration? get elapsed {
-    if (completedAt == null) return null;
-    return Duration(seconds: completedAt! - createdAt);
+  Duration get elapsed {
+    if (status == TaskStatus.processing) {
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return Duration(seconds: (now - createdAt).clamp(0, 1 << 31));
+    }
+    final end = completedAt ?? createdAt;
+    return Duration(seconds: (end - createdAt).clamp(0, 1 << 31));
   }
 
   final int createdAt;
@@ -253,6 +257,7 @@ class TaskManager extends ChangeNotifier {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].status = TaskStatus.pendingReview;
+      tasks[idx].completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
       tasks[idx].progressText = text;
       tasks[idx].parsedData = _deduplicateQuestions(data);
       tasks[idx].bankName = bank;
@@ -368,7 +373,7 @@ class TaskManager extends ChangeNotifier {
     if (idx != -1) {
       tasks[idx].status = TaskStatus.completed;
       tasks[idx].progressText = text;
-      tasks[idx].completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      tasks[idx].completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
       tasks[idx].parsedData = null;
       _saveTask(tasks[idx]);
       notifyListeners();
@@ -408,7 +413,7 @@ class TaskManager extends ChangeNotifier {
       }
       task.status = TaskStatus.error;
       task.errorMsg = error;
-      task.completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      task.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
       _saveTask(task);
       notifyListeners();
     }

@@ -20,6 +20,48 @@ void main() {
       expect(draft.explanation, 'because');
     });
 
+    test('answer placeholders are not meaningful without explanation', () {
+      for (final placeholder in const ['无', '暂无', '未知', '未提供', '未给出']) {
+        final draft = QuestionDraft(
+          type: QuestionType.shortAnswer,
+          content: 'Question',
+          options: const [],
+          standardAnswer: placeholder,
+          explanation: '',
+        );
+
+        expect(draft.hasAnswerOrExplanation, isFalse, reason: placeholder);
+      }
+    });
+
+    test('explanation remains meaningful when standalone answer is missing',
+        () {
+      const draft = QuestionDraft(
+        type: QuestionType.shortAnswer,
+        content: 'Question',
+        options: [],
+        standardAnswer: '',
+        explanation: 'Retained explanation',
+      );
+
+      expect(draft.hasAnswerOrExplanation, isTrue);
+    });
+
+    test('keeps raw and final explanation as distinct staging fields', () {
+      final draft = QuestionDraft.fromMap({
+        'type': 0,
+        'content': 'Question',
+        'options': const ['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+        'raw_explanation': 'Extracted provenance',
+      });
+
+      expect(draft.explanation, isEmpty);
+      expect(draft.rawExplanation, 'Extracted provenance');
+      expect(draft.hasAnswerOrExplanation, isTrue);
+    });
+
     test('falls back defensively for malformed fields', () {
       final draft = QuestionDraft.fromMap({
         'type': 99,

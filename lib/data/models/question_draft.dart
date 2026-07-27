@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'import_question_validation.dart';
+
 enum QuestionType {
   singleChoice(0, '选择题'),
   fillBlank(2, '填空题'),
@@ -62,7 +64,7 @@ class QuestionDraft {
   }
 
   bool get hasAnswerOrExplanation =>
-      standardAnswer.trim().isNotEmpty || explanation.trim().isNotEmpty;
+      isMeaningfulAnswer(standardAnswer) || explanation.trim().isNotEmpty;
 
   factory QuestionDraft.fromMap(Map<String, dynamic> map) {
     return QuestionDraft(

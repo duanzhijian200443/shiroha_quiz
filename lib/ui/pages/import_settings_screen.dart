@@ -24,11 +24,15 @@ class ImportSettingsScreen extends StatefulWidget {
     this.pickFiles,
     this.pickImage,
     this.taskDispatcher,
+    this.retainObjectiveExplanations = false,
+    this.onRetainObjectiveExplanationsChanged,
   }) : super(key: key);
 
   final ImportFilePicker? pickFiles;
   final ImportImagePicker? pickImage;
   final ImportTaskDispatcher? taskDispatcher;
+  final bool retainObjectiveExplanations;
+  final ValueChanged<bool>? onRetainObjectiveExplanationsChanged;
 
   @override
   State<ImportSettingsScreen> createState() => _ImportSettingsScreenState();
@@ -36,12 +40,29 @@ class ImportSettingsScreen extends StatefulWidget {
 
 class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   ImportParseMode _selectedMode = ImportParseMode.vision;
+  late bool _retainObjectiveExplanations;
   double _maxConcurrency = 3.0; // 默认多图并发线程
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
+    _retainObjectiveExplanations = widget.retainObjectiveExplanations;
+  }
+
+  @override
+  void didUpdateWidget(covariant ImportSettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.retainObjectiveExplanations !=
+        widget.retainObjectiveExplanations) {
+      _retainObjectiveExplanations = widget.retainObjectiveExplanations;
+    }
+  }
+
+  void _setRetainObjectiveExplanations(bool value) {
+    if (_retainObjectiveExplanations == value) return;
+    setState(() => _retainObjectiveExplanations = value);
+    widget.onRetainObjectiveExplanationsChanged?.call(value);
   }
 
   Future<void> _dispatchBackgroundTask(
@@ -299,6 +320,16 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                         () => _selectedMode = ImportParseMode.ocr,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                    ),
+                    _ObjectiveExplanationRetentionSetting(
+                      value: _retainObjectiveExplanations,
+                      onChanged: _setRetainObjectiveExplanations,
+                    ),
                   ],
                 ),
               ),
@@ -420,6 +451,117 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               onPressed: clipboardEnabled ? _pasteAndParse : null,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ObjectiveExplanationRetentionSetting extends StatelessWidget {
+  const _ObjectiveExplanationRetentionSetting({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Semantics(
+      container: true,
+      button: true,
+      toggled: value,
+      label: '保留选择题与填空题解析',
+      hint: '关闭时仅导入题干、选项和标准答案',
+      child: InkWell(
+        key: const ValueKey<String>('retain-objective-explanations-row'),
+        onTap: () => onChanged(!value),
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 80,
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '保留选择题与填空题解析',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '推荐关闭',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colorScheme.primary,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '关闭时仅导入题干、选项和标准答案',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '开启后会保留详细解析，可能增加处理时间和校对问题',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              ExcludeSemantics(
+                child: Switch(
+                  key: const ValueKey<String>(
+                    'retain-objective-explanations-switch',
+                  ),
+                  value: value,
+                  onChanged: onChanged,
+                  activeThumbColor: colorScheme.onPrimary,
+                  activeTrackColor: colorScheme.primary,
+                  inactiveThumbColor: colorScheme.outline,
+                  inactiveTrackColor: colorScheme.surfaceContainerHighest,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

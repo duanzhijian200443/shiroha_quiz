@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+
 import '../../data/repositories/ai_engine_repository.dart';
-import '../../data/repositories/settings_repository.dart';
-import '../../main.dart'; // 获取 globalThemeNotifier
 import 'ai_engine_management_screen.dart';
 
 class AiSettingsScreen extends StatefulWidget {
@@ -11,11 +10,18 @@ class AiSettingsScreen extends StatefulWidget {
   });
 
   final AiEngineRepository engineRepository;
+
   @override
   State<AiSettingsScreen> createState() => _AiSettingsScreenState();
 }
 
 class _AiSettingsScreenState extends State<AiSettingsScreen> {
+  static const Color _pageBackground = Color(0xFFF4F7FB);
+  static const Color _primaryText = Color(0xFF17233D);
+  static const Color _secondaryText = Color(0xFF73809A);
+  static const Color _brandBlue = Color(0xFF4C6ED7);
+  static const Color _divider = Color(0xFFE8EEF7);
+
   String _textEngineName = '未配置';
   String _visionEngineName = '未配置';
   String _ocrEngineName = '未配置';
@@ -28,177 +34,184 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
 
   Future<void> _loadActiveSummary() async {
     final textEngine = await widget.engineRepository.getActiveTextEngine();
-    final visionEngine =
-        await widget.engineRepository.getActiveVisionEngine();
+    final visionEngine = await widget.engineRepository.getActiveVisionEngine();
     final ocrEngine = await widget.engineRepository.getActiveOcrEngine();
-    if (mounted) {
-      setState(() {
-        _textEngineName = textEngine?.name ?? '点击去配置';
-        _visionEngineName = visionEngine?.name ?? '点击去配置';
-        _ocrEngineName = ocrEngine?.name ?? '点击去配置';
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _textEngineName = textEngine?.name ?? '点击配置';
+      _visionEngineName = visionEngine?.name ?? '点击配置';
+      _ocrEngineName = ocrEngine?.name ?? '点击配置';
+    });
+  }
+
+  void _openEngine(String engineType) {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => AiEngineManagementScreen(
+              engineType: engineType,
+              engineRepository: widget.engineRepository,
+            ),
+          ),
+        )
+        .then((_) => _loadActiveSummary());
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: isDark ? theme.scaffoldBackgroundColor : _pageBackground,
       appBar: AppBar(
-          title: const Text('系统偏好与 AI 引擎',
-              style: TextStyle(fontWeight: FontWeight.bold))),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          const Padding(
-              padding: EdgeInsets.only(left: 8, bottom: 8),
-              child: Text('AI 分布式核心配置',
-                  style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold))),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Colors.grey.withValues(alpha: 0.1))),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.text_fields_rounded,
-                          color: Colors.blueAccent)),
-                  title: const Text('文本与逻辑中枢',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(_textEngineName,
-                      style: const TextStyle(
-                          fontSize: 12, color: Colors.blueAccent)),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                      size: 14, color: Colors.grey),
-                  onTap: () {
-                    Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => AiEngineManagementScreen(
-                                      engineType: 'text',
-                                      engineRepository:
-                                          widget.engineRepository,
-                                    )))
-                        .then((_) => _loadActiveSummary());
-                  },
-                ),
-                const Divider(height: 1, indent: 64),
-                ListTile(
-                  leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.remove_red_eye_rounded,
-                          color: Colors.orangeAccent)),
-                  title: const Text('视觉与多模态矩阵',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(_visionEngineName,
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.orange)),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                      size: 14, color: Colors.grey),
-                  onTap: () {
-                    Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => AiEngineManagementScreen(
-                                      engineType: 'vision',
-                                      engineRepository:
-                                          widget.engineRepository,
-                                    )))
-                        .then((_) => _loadActiveSummary());
-                  },
-                ),
-                const Divider(height: 1, indent: 64),
-                ListTile(
-                  leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                          color: Colors.teal.shade50,
-                          borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.document_scanner_rounded,
-                          color: Colors.teal)),
-                  title: const Text('文档 OCR 解析引擎',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(_ocrEngineName,
-                      style: const TextStyle(fontSize: 12, color: Colors.teal)),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                      size: 14, color: Colors.grey),
-                  onTap: () {
-                    Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => AiEngineManagementScreen(
-                                      engineType: 'ocr',
-                                      engineRepository:
-                                          widget.engineRepository,
-                                    )))
-                        .then((_) => _loadActiveSummary());
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          const Padding(
-              padding: EdgeInsets.only(left: 8, bottom: 8),
-              child: Text('个性化装扮',
-                  style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold))),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Colors.grey.withValues(alpha: 0.1))),
-            child: ValueListenableBuilder<String>(
-              valueListenable: globalThemeNotifier,
-              builder: (context, currentTheme, child) {
-                return ListTile(
-                  leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                          color: Colors.purple.shade50,
-                          borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.palette_rounded,
-                          color: Colors.purpleAccent)),
-                  title: const Text('界面皮肤引擎',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: DropdownButton<String>(
-                    value: currentTheme,
-                    underline: const SizedBox(),
-                    icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                        color: Colors.purpleAccent),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'light', child: Text('极简白板 / 日间')),
-                      DropdownMenuItem(value: 'dark', child: Text('深空极客 / 暗黑')),
-                    ],
-                    onChanged: (value) async {
-                      if (value != null) {
-                        globalThemeNotifier.value = value;
-                        await SettingsRepository.instance.setAppTheme(value);
-                      }
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+        centerTitle: true,
+        title: const Text(
+          'AI 服务',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
       ),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+              child: Text(
+                '配置用于学习辅助的 AI 服务',
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : _secondaryText,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : const Color(0xFFE9EEF6),
+                ),
+                boxShadow: isDark
+                    ? const []
+                    : [
+                        BoxShadow(
+                          color:
+                              const Color(0xFF375078).withValues(alpha: 0.06),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Column(
+                  children: [
+                    _AiServiceRow(
+                      icon: Icons.text_fields_rounded,
+                      title: '文本解答模型',
+                      subtitle: _textEngineName,
+                      onTap: () => _openEngine('text'),
+                    ),
+                    const Divider(
+                      height: 1,
+                      thickness: 1,
+                      indent: 64,
+                      color: _divider,
+                    ),
+                    _AiServiceRow(
+                      icon: Icons.image_outlined,
+                      title: '图片理解模型',
+                      subtitle: _visionEngineName,
+                      onTap: () => _openEngine('vision'),
+                    ),
+                    const Divider(
+                      height: 1,
+                      thickness: 1,
+                      indent: 64,
+                      color: _divider,
+                    ),
+                    _AiServiceRow(
+                      icon: Icons.document_scanner_outlined,
+                      title: '文档识别服务',
+                      subtitle: _ocrEngineName,
+                      onTap: () => _openEngine('ocr'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AiServiceRow extends StatelessWidget {
+  const _AiServiceRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ListTile(
+      minVerticalPadding: 10,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: isDark
+              ? _AiSettingsScreenState._brandBlue.withValues(alpha: 0.18)
+              : const Color(0xFFEEF3FF),
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Icon(
+          icon,
+          size: 21,
+          color: isDark
+              ? Theme.of(context).colorScheme.primary
+              : _AiSettingsScreenState._brandBlue,
+        ),
+      ),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: isDark ? Colors.white : _AiSettingsScreenState._primaryText,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color:
+              isDark ? Colors.white60 : _AiSettingsScreenState._secondaryText,
+          fontSize: 12,
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: isDark ? Colors.white38 : const Color(0xFFA5AFC0),
+      ),
+      onTap: onTap,
     );
   }
 }

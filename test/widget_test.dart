@@ -5,7 +5,7 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-// import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shiroha_quiz/core/database/database_helper.dart';
@@ -25,10 +25,9 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('App starts and shows splash screen',
+  testWidgets('App starts and highlights the selected profile navigation item',
       (WidgetTester tester) async {
-    final engineRepository =
-        AiEngineRepository(store: DatabaseHelper.instance);
+    final engineRepository = AiEngineRepository(store: DatabaseHelper.instance);
     final taskManager = TaskManager.forTesting();
     final aiService = AiService(
       engineRepository: engineRepository,
@@ -49,5 +48,21 @@ void main() {
 
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
+
+    await tester.tap(find.text('我的'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .currentIndex,
+      3,
+    );
+    final selectedProfileIcon = tester.widget<Container>(
+      find.byKey(const ValueKey<String>('main-nav-selected-profile')),
+    );
+    final decoration = selectedProfileIcon.decoration! as BoxDecoration;
+    expect(decoration.color, const Color(0xFFEAF1FF));
+    expect(decoration.borderRadius, BorderRadius.circular(12));
   });
 }

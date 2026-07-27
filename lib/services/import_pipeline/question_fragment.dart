@@ -1,4 +1,5 @@
 import '../../data/models/question_identity.dart';
+import '../../data/models/import_question_validation.dart';
 
 enum QuestionFragmentSource {
   text,
@@ -99,22 +100,7 @@ class QuestionFragment {
   }
 
   static bool _isValidAnswer(dynamic ans) {
-    final str = ans?.toString().trim() ?? '';
-    final lowerAns = str.toLowerCase();
-    const invalidAnswers = {
-      'null',
-      'none',
-      '无',
-      '未提供',
-      '未见答案',
-      '暂无',
-    };
-
-    return str.isNotEmpty &&
-        !invalidAnswers.contains(lowerAns) &&
-        !invalidAnswers.contains(str) &&
-        !str.contains('未见答案') &&
-        !str.contains('暂无');
+    return isMeaningfulAnswer(ans?.toString());
   }
 
   bool get hasQuestionNumber => identity.hasQuestionNumber;

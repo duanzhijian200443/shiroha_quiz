@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_document_role.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_final_sorter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
@@ -18,6 +19,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/services/import_pipeline/vision_question_quality_gate.dart';
 
 import 'import_acceptance_report.dart';
@@ -121,6 +123,7 @@ class ReplayCacheResult {
     required this.status,
     this.document,
     this.fingerprint,
+    this.documentHash,
     this.cacheDirectory,
     this.causeType,
   });
@@ -128,6 +131,7 @@ class ReplayCacheResult {
   final ReplayCacheLoadStatus status;
   final OcrDocument? document;
   final String? fingerprint;
+  final String? documentHash;
   final String? cacheDirectory;
   final String? causeType;
 
@@ -152,9 +156,64 @@ class ReplayCacheWriteResult {
   final bool reusedExistingDirectory;
 }
 
+class ReplayCacheWriteHooks {
+  const ReplayCacheWriteHooks({
+    this.beforeStagingWrite,
+    this.beforeTargetRename,
+    this.beforeCurrentReplace,
+    this.beforePostWriteVerification,
+    this.afterTargetPublished,
+    this.afterCurrentPublished,
+  });
+
+  final void Function()? beforeStagingWrite;
+  final void Function()? beforeTargetRename;
+  final void Function()? beforeCurrentReplace;
+  final void Function()? beforePostWriteVerification;
+  final void Function()? afterTargetPublished;
+  final void Function()? afterCurrentPublished;
+}
+
+class ReplayCacheLoadHooks {
+  const ReplayCacheLoadHooks({
+    this.afterCurrentResolved,
+  });
+
+  final void Function(String targetPath)? afterCurrentResolved;
+}
+
+abstract interface class ReplayCacheWriteLock {
+  void lockSync();
+
+  void unlockSync();
+
+  void closeSync();
+}
+
+class _FileReplayCacheWriteLock implements ReplayCacheWriteLock {
+  _FileReplayCacheWriteLock(String path)
+      : _file = File(path).openSync(mode: FileMode.append);
+
+  final RandomAccessFile _file;
+
+  @override
+  void lockSync() => _file.lockSync(FileLock.blockingExclusive);
+
+  @override
+  void unlockSync() => _file.unlockSync();
+
+  @override
+  void closeSync() => _file.closeSync();
+}
+
+ReplayCacheWriteLock _openReplayCacheWriteLock(String path) {
+  return _FileReplayCacheWriteLock(path);
+}
+
 ReplayCacheResult loadReplayCache({
   required String caseId,
   required String repositoryRoot,
+  ReplayCacheLoadHooks hooks = const ReplayCacheLoadHooks(),
 }) {
   if (caseId.trim().isEmpty || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(caseId)) {
     return const ReplayCacheResult(
@@ -225,19 +284,54 @@ ReplayCacheResult loadReplayCache({
     );
   }
 
-  final fingerprintDir = p.join(caseRoot, fingerprint);
-  final relativeToCaseRoot = p.relative(fingerprintDir, from: caseRoot);
-  if (relativeToCaseRoot.startsWith('..') ||
-      p.isAbsolute(relativeToCaseRoot) ||
-      relativeToCaseRoot.contains('/') ||
-      relativeToCaseRoot.contains(r'\')) {
+  final currentDocumentHash = currentJson['documentHash'];
+  if (currentDocumentHash != null &&
+      (currentDocumentHash is! String ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(currentDocumentHash))) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerFormatException',
+    );
+  }
+
+  final version = currentJson['version'];
+  if (version != null &&
+      (version is! String ||
+          !RegExp(r'^[a-f0-9]{16}-[a-f0-9]{12}-[A-Za-z0-9_-]+$')
+              .hasMatch(version))) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'CurrentPointerFormatException',
+    );
+  }
+
+  final targetPath = version == null
+      ? p.join(caseRoot, fingerprint)
+      : p.join(caseRoot, 'versions', version);
+  final relativeToCaseRoot = p.relative(targetPath, from: caseRoot);
+  if (relativeToCaseRoot.startsWith('..') || p.isAbsolute(relativeToCaseRoot)) {
     return const ReplayCacheResult(
       status: ReplayCacheLoadStatus.invalid,
       causeType: 'CurrentPointerMismatch',
     );
   }
 
-  final targetDir = Directory(fingerprintDir);
+  hooks.afterCurrentResolved?.call(targetPath);
+  return _loadReplayCacheDirectory(
+    caseId: caseId,
+    fingerprint: fingerprint,
+    expectedDocumentHash: currentDocumentHash as String?,
+    targetPath: targetPath,
+  );
+}
+
+ReplayCacheResult _loadReplayCacheDirectory({
+  required String caseId,
+  required String fingerprint,
+  required String? expectedDocumentHash,
+  required String targetPath,
+}) {
+  final targetDir = Directory(targetPath);
   if (!targetDir.existsSync()) {
     return const ReplayCacheResult(
       status: ReplayCacheLoadStatus.invalid,
@@ -246,7 +340,7 @@ ReplayCacheResult loadReplayCache({
   }
 
   // Parse and validate manifest.json
-  final manifestFile = File(p.join(fingerprintDir, 'manifest.json'));
+  final manifestFile = File(p.join(targetPath, 'manifest.json'));
   if (!manifestFile.existsSync()) {
     return const ReplayCacheResult(
       status: ReplayCacheLoadStatus.invalid,
@@ -306,6 +400,12 @@ ReplayCacheResult loadReplayCache({
       causeType: 'ReplayManifestMismatch',
     );
   }
+  if (expectedDocumentHash != null && documentHash != expectedDocumentHash) {
+    return const ReplayCacheResult(
+      status: ReplayCacheLoadStatus.invalid,
+      causeType: 'ReplayManifestMismatch',
+    );
+  }
 
   final createdAtRaw =
       manifestJson['createdAtUtc'] ?? manifestJson['createdAt'];
@@ -317,7 +417,7 @@ ReplayCacheResult loadReplayCache({
   }
 
   // Parse and validate ocr_document.private.json
-  final docFile = File(p.join(fingerprintDir, 'ocr_document.private.json'));
+  final docFile = File(p.join(targetPath, 'ocr_document.private.json'));
   if (!docFile.existsSync()) {
     return const ReplayCacheResult(
       status: ReplayCacheLoadStatus.invalid,
@@ -368,7 +468,8 @@ ReplayCacheResult loadReplayCache({
     status: ReplayCacheLoadStatus.loaded,
     document: document,
     fingerprint: fingerprint,
-    cacheDirectory: fingerprintDir,
+    documentHash: documentHash,
+    cacheDirectory: targetPath,
   );
 }
 
@@ -378,6 +479,9 @@ ReplayCacheWriteResult writeReplayCache({
   required OcrDocument document,
   required String fingerprint,
   required String pdfContentHash,
+  ReplayCacheWriteHooks hooks = const ReplayCacheWriteHooks(),
+  ReplayCacheWriteLock Function(String path) lockFactory =
+      _openReplayCacheWriteLock,
 }) {
   if (caseId.trim().isEmpty || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(caseId)) {
     throw ArgumentError('Invalid caseId format: $caseId');
@@ -391,21 +495,49 @@ ReplayCacheWriteResult writeReplayCache({
 
   final caseRoot = p.join(repositoryRoot, 'scratch', 'ocr_replay', caseId);
   Directory(caseRoot).createSync(recursive: true);
-
-  final stagingDirName =
-      '.staging-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(10000)}';
-  final stagingPath = p.join(caseRoot, stagingDirName);
+  final uniqueSuffix =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 32)}';
+  final stagingPath = p.join(caseRoot, 'versions', '.staging-$uniqueSuffix');
   final stagingDir = Directory(stagingPath);
-  stagingDir.createSync(recursive: true);
+  final lockFile = lockFactory(p.join(caseRoot, '.write.lock'));
+  var locked = false;
 
   String? tmpCurrentPath;
+  String? publishedTargetPath;
+  List<int>? oldCurrentBytes;
+  bool currentPublished = false;
 
   try {
+    lockFile.lockSync();
+    locked = true;
+
     const encoder = JsonEncoder.withIndent('  ');
     final docJsonText = encoder.convert(document.toReplayJson());
     final docBytes = utf8.encode(docJsonText);
     final documentHash = sha256.convert(docBytes).toString();
 
+    final existing = loadReplayCache(
+      caseId: caseId,
+      repositoryRoot: repositoryRoot,
+    );
+    if (existing.isLoaded &&
+        existing.fingerprint == fingerprint &&
+        existing.documentHash == documentHash) {
+      return ReplayCacheWriteResult(
+        caseId: caseId,
+        fingerprint: fingerprint,
+        documentHash: documentHash,
+        reusedExistingDirectory: true,
+      );
+    }
+
+    final oldCurrentFile = File(p.join(caseRoot, 'current.json'));
+    if (oldCurrentFile.existsSync()) {
+      oldCurrentBytes = oldCurrentFile.readAsBytesSync();
+    }
+
+    stagingDir.createSync(recursive: true);
+    hooks.beforeStagingWrite?.call();
     File(p.join(stagingPath, 'ocr_document.private.json'))
         .writeAsBytesSync(docBytes, flush: true);
 
@@ -423,59 +555,41 @@ ReplayCacheWriteResult writeReplayCache({
     File(p.join(stagingPath, 'manifest.json'))
         .writeAsStringSync(encoder.convert(manifestJson), flush: true);
 
-    // Staging Self-Check
-    final checkDocBytes = File(p.join(stagingPath, 'ocr_document.private.json'))
-        .readAsBytesSync();
-    if (sha256.convert(checkDocBytes).toString() != documentHash) {
-      throw StateError('Staging documentHash self-check failed');
-    }
-    final checkDocJson =
-        jsonDecode(utf8.decode(checkDocBytes)) as Map<String, dynamic>;
-    final checkDocument = OcrDocument.fromReplayJson(checkDocJson);
-    if (checkDocument.pages.isEmpty ||
-        !checkDocument.pages
-            .any((p) => p.blocks.any((b) => b.text.trim().isNotEmpty))) {
-      throw StateError('Staging document self-check empty');
+    final stagingCheck = _loadReplayCacheDirectory(
+      caseId: caseId,
+      fingerprint: fingerprint,
+      expectedDocumentHash: documentHash,
+      targetPath: stagingPath,
+    );
+    if (!stagingCheck.isLoaded) {
+      throw StateError('Staging replay cache verification failed');
     }
 
-    final targetPath = p.join(caseRoot, fingerprint);
-    final targetDir = Directory(targetPath);
-    bool reusedExisting = false;
+    final version =
+        '$fingerprint-${documentHash.substring(0, 12)}-$uniqueSuffix';
+    final targetPath = p.join(caseRoot, 'versions', version);
+    hooks.beforeTargetRename?.call();
+    stagingDir.renameSync(targetPath);
+    publishedTargetPath = targetPath;
+    hooks.afterTargetPublished?.call();
 
-    if (targetDir.existsSync()) {
-      final existingDocFile =
-          File(p.join(targetPath, 'ocr_document.private.json'));
-      final existingManifestFile = File(p.join(targetPath, 'manifest.json'));
-      bool isExistingValid = false;
-      if (existingDocFile.existsSync() && existingManifestFile.existsSync()) {
-        try {
-          final exBytes = existingDocFile.readAsBytesSync();
-          final exHash = sha256.convert(exBytes).toString();
-          if (exHash == documentHash) {
-            isExistingValid = true;
-          }
-        } catch (_) {}
-      }
-
-      if (isExistingValid) {
-        stagingDir.deleteSync(recursive: true);
-        reusedExisting = true;
-      } else {
-        targetDir.deleteSync(recursive: true);
-        stagingDir.renameSync(targetPath);
-        reusedExisting = false;
-      }
-    } else {
-      stagingDir.renameSync(targetPath);
-      reusedExisting = false;
+    final targetCheck = _loadReplayCacheDirectory(
+      caseId: caseId,
+      fingerprint: fingerprint,
+      expectedDocumentHash: documentHash,
+      targetPath: targetPath,
+    );
+    if (!targetCheck.isLoaded) {
+      throw StateError('Published replay cache verification failed');
     }
 
-    // Write current.json.tmp and rename
     final updatedAtUtc = DateTime.now().toUtc().toIso8601String();
     final currentJson = {
       'schemaVersion': 1,
       'caseId': caseId,
       'fingerprint': fingerprint,
+      'documentHash': documentHash,
+      'version': version,
       'updatedAtUtc': updatedAtUtc,
     };
     final tmpCurrentName =
@@ -491,24 +605,38 @@ ReplayCacheWriteResult writeReplayCache({
       throw StateError('Temp current pointer verification failed');
     }
 
+    hooks.beforeCurrentReplace?.call();
     tmpCurrentFile.renameSync(p.join(caseRoot, 'current.json'));
+    currentPublished = true;
+    hooks.afterCurrentPublished?.call();
 
-    // Production loader self-test
+    hooks.beforePostWriteVerification?.call();
     final postWriteLoad = loadReplayCache(
       caseId: caseId,
       repositoryRoot: repositoryRoot,
     );
-    if (!postWriteLoad.isLoaded || postWriteLoad.fingerprint != fingerprint) {
+    if (!postWriteLoad.isLoaded ||
+        postWriteLoad.fingerprint != fingerprint ||
+        postWriteLoad.documentHash != documentHash ||
+        postWriteLoad.cacheDirectory != targetPath) {
       throw StateError('Post-write load self-test failed');
     }
+
+    _cleanupReplayTransientDirectories(caseRoot);
 
     return ReplayCacheWriteResult(
       caseId: caseId,
       fingerprint: fingerprint,
       documentHash: documentHash,
-      reusedExistingDirectory: reusedExisting,
+      reusedExistingDirectory: false,
     );
   } catch (_) {
+    if (currentPublished) {
+      _restoreReplayCurrentPointer(
+        caseRoot: caseRoot,
+        oldCurrentBytes: oldCurrentBytes,
+      );
+    }
     if (stagingDir.existsSync()) {
       try {
         stagingDir.deleteSync(recursive: true);
@@ -522,7 +650,47 @@ ReplayCacheWriteResult writeReplayCache({
         } catch (_) {}
       }
     }
+    if (publishedTargetPath != null) {
+      final publishedTarget = Directory(publishedTargetPath);
+      if (publishedTarget.existsSync()) {
+        try {
+          publishedTarget.deleteSync(recursive: true);
+        } catch (_) {}
+      }
+    }
     rethrow;
+  } finally {
+    if (locked) {
+      lockFile.unlockSync();
+    }
+    lockFile.closeSync();
+  }
+}
+
+void _restoreReplayCurrentPointer({
+  required String caseRoot,
+  required List<int>? oldCurrentBytes,
+}) {
+  final currentPath = p.join(caseRoot, 'current.json');
+  if (oldCurrentBytes == null) {
+    final currentFile = File(currentPath);
+    if (currentFile.existsSync()) currentFile.deleteSync();
+    return;
+  }
+  final restorePath = p.join(caseRoot,
+      'current.json.restore-${DateTime.now().microsecondsSinceEpoch}');
+  final restoreFile = File(restorePath)
+    ..writeAsBytesSync(oldCurrentBytes, flush: true);
+  restoreFile.renameSync(currentPath);
+}
+
+void _cleanupReplayTransientDirectories(String caseRoot) {
+  final versionsDir = Directory(p.join(caseRoot, 'versions'));
+  if (!versionsDir.existsSync()) return;
+  for (final entry in versionsDir.listSync().whereType<Directory>()) {
+    if (p.basename(entry.path).startsWith('.staging-')) {
+      entry.deleteSync(recursive: true);
+    }
   }
 }
 
@@ -562,8 +730,9 @@ class _NoOpRepairService extends SingleQuestionRepairService {
 
   @override
   Future<LocalAssemblyResult> repair({
-    required dynamic region,
+    required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
+    bool requireAnswer = true,
   }) async {
     candidateCount++;
     return localResult;
@@ -689,10 +858,9 @@ AcceptanceQualityResult runAcceptanceQualityChecks({
     final optionCount = options is List ? options.length : 0;
     final answer = _readStr(q['standard_answer']);
     final explanation = _readStr(q['explanation']);
-    final rawExplanation = _readStr(q['raw_explanation']);
     final hasContent = content.isNotEmpty;
     final hasAnswer = answer.isNotEmpty;
-    final hasExplanation = explanation.isNotEmpty || rawExplanation.isNotEmpty;
+    final hasExplanation = explanation.isNotEmpty;
     final issues = <AcceptanceQuestionIssue>[];
     final allText = '$content $answer $explanation';
 
@@ -1039,7 +1207,9 @@ Future<int> runImportAcceptance({
   final sorted = const ImportQuestionFinalSorter().sort(
     qualityGate.questions,
   );
-  final finalQuestions = sorted.questions;
+
+  // Apply the final field policy, deterministic LaTeX repair, and audit.
+  final finalQuestions = finalizeAndAuditImportQuestions(sorted.questions);
 
   emitEvent({
     'stage': 'pipeline',

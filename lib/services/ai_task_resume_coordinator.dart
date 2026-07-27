@@ -25,6 +25,7 @@ class AiTaskResumeCoordinator {
   Future<void> resume(String taskId) async {
     final task = _taskManager.tasks.firstWhere((task) => task.id == taskId);
     task.status = TaskStatus.processing;
+    task.completedAt = null;
     _taskManager.updateProgress(taskId, '正在继续执行断点重传...', task.percent);
 
     switch (task.sourceType) {

@@ -36,14 +36,6 @@ class VisionQuestionQualityGate {
     for (var i = 0; i < questions.length; i++) {
       final question = Map<String, dynamic>.from(questions[i]);
       final hints = _readRiskHints(question);
-      _sanitizeQuestionByType(
-        question,
-        hints,
-        record: record,
-        isOcrSource: sourceName.contains('ocr') ||
-            _readString(question['source']).contains('ocr'),
-      );
-
       final content = _readString(question['content']);
       final answer = _readString(question['standard_answer']);
       final explanation = _readString(question['explanation']);
@@ -196,36 +188,6 @@ class VisionQuestionQualityGate {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value.trim());
     return null;
-  }
-
-  void _sanitizeQuestionByType(
-    Map<String, dynamic> question,
-    Set<String> hints, {
-    required void Function(String hint) record,
-    required bool isOcrSource,
-  }) {
-    final type = _readType(question['type']);
-    if (type == null) return;
-
-    final isChoice = type == 0 || type == 1;
-    final isFillBlank = type == 2;
-    if (isChoice || isFillBlank) {
-      final explanation = _readString(question['explanation']);
-      final rawExplanation = _readString(question['raw_explanation']);
-      if (explanation.isNotEmpty || rawExplanation.isNotEmpty) {
-        question['explanation'] = '';
-        question['raw_explanation'] = null;
-        hints.add('dropped_non_subjective_explanation');
-        record('dropped_non_subjective_explanation');
-      }
-    }
-
-    final options = question['options'];
-    if (isOcrSource && !isChoice && options is List && options.isNotEmpty) {
-      question['options'] = const <String>[];
-      hints.add('cleared_non_choice_options');
-      record('cleared_non_choice_options');
-    }
   }
 }
 

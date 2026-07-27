@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
+import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
+import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_review/import_review_analyzer.dart';
+import '../../services/import_review/import_review_blocking_policy.dart';
 import '../../services/import_review/import_review_item.dart';
 import '../../services/import_review/import_review_issue.dart';
 import '../../services/import_review/import_review_badge_formatter.dart';
@@ -51,6 +54,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   bool _isSaving = false;
   bool _selectionMode = false;
   final Set<int> _selectedOriginalIndices = {};
+  ExplanationRetentionMode _explanationRetentionMode =
+      ExplanationRetentionMode.subjectiveOnly;
+  final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
 
   String? get _traceId {
     final value =
@@ -68,15 +74,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   bool get _isBlockedByQualityGate {
     final gate = widget.diagnostics?['qualityGate'];
-    return gate is Map && gate['blocked'] == true;
+    return (gate is Map && gate['blocked'] == true) ||
+        ImportReviewBlockingPolicy.isBlocked(_reviewResult);
   }
 
   String? get _qualityGateReason {
     final gate = widget.diagnostics?['qualityGate'];
-    if (gate is! Map) return null;
-    if (gate['blocked'] != true) return null;
-    final reason = gate['reason'];
-    if (reason is String && reason.trim().isNotEmpty) return reason.trim();
+    if (gate is Map && gate['blocked'] == true) {
+      final reason = gate['reason'];
+      if (reason is String && reason.trim().isNotEmpty) return reason.trim();
+    }
+    if (ImportReviewBlockingPolicy.isBlocked(_reviewResult)) {
+      return '题目结构错误，请修正或删除后再入库';
+    }
     return null;
   }
 
@@ -118,6 +128,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         .entries
         .map((e) => ImportReviewItem.fromMap(e.value, e.key))
         .toList();
+    _reapplyExplanationPolicy();
     _refreshReviewState();
     _loadExistingFolders();
   }
@@ -319,6 +330,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   void _applyBatchResult(List<ImportReviewItem> nextItems) {
     setState(() {
       _allItems = nextItems;
+      _reapplyExplanationPolicy();
       _selectedOriginalIndices.clear();
       _selectionMode = false;
       _refreshReviewState();
@@ -510,6 +522,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         questions: _allItems.map((item) => item.draft).toList(),
         taskId: widget.taskId,
         diagnostics: widget.diagnostics ?? const <String, dynamic>{},
+        explanationRetentionMode: _explanationRetentionMode,
+        explanationOverrides: _allItems
+            .map(
+              (item) =>
+                  _explanationOverrides[item.originalIndex] ??
+                  QuestionExplanationOverride.inherit,
+            )
+            .toList(growable: false),
       );
 
       // 触发全局题库刷新事件
@@ -571,6 +591,54 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   void _refreshReviewState() {
     _reviewResult = ImportReviewAnalyzer.analyzeItems(_allItems);
     _refreshVisibleItems();
+  }
+
+  void _reapplyExplanationPolicy() {
+    _allItems = _allItems.map((item) {
+      final question = <String, dynamic>{
+        ...item.draft.toMap(),
+        '_import_review': item.metadata.toMap(),
+      };
+      final finalized = finalizeAndAuditImportQuestion(
+        question,
+        mode: _explanationRetentionMode,
+        override: _explanationOverrides[item.originalIndex] ??
+            QuestionExplanationOverride.inherit,
+      );
+      return ImportReviewItem.fromMap(finalized, item.originalIndex);
+    }).toList(growable: false);
+  }
+
+  void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {
+    setState(() {
+      _explanationRetentionMode = retainObjectiveExplanations
+          ? ExplanationRetentionMode.allQuestionTypes
+          : ExplanationRetentionMode.subjectiveOnly;
+      _reapplyExplanationPolicy();
+      _refreshReviewState();
+    });
+  }
+
+  void _setQuestionExplanationRetention(
+    ImportReviewItem item,
+    bool retain,
+  ) {
+    setState(() {
+      _explanationOverrides[item.originalIndex] = retain
+          ? QuestionExplanationOverride.keep
+          : QuestionExplanationOverride.discard;
+      _reapplyExplanationPolicy();
+      _refreshReviewState();
+    });
+  }
+
+  bool _isQuestionExplanationRetained(ImportReviewItem item) {
+    return const ImportQuestionFieldPolicy().shouldRetainExplanation(
+      type: item.draft.type.code,
+      mode: _explanationRetentionMode,
+      override: _explanationOverrides[item.originalIndex] ??
+          QuestionExplanationOverride.inherit,
+    );
   }
 
   void _refreshVisibleItems() {
@@ -901,6 +969,24 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  Widget _buildExplanationRetentionControl() {
+    return SwitchListTile.adaptive(
+      key: const ValueKey('objective-explanation-document-switch'),
+      value: _explanationRetentionMode ==
+          ExplanationRetentionMode.allQuestionTypes,
+      onChanged: _setDocumentExplanationRetention,
+      title: const Text(
+        '同时导入选择题、填空题解析',
+        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+      ),
+      subtitle: const Text(
+        '开启后会保留详细解析，但可能增加校对问题和 AI 处理时间。',
+        style: TextStyle(fontSize: 12),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -949,6 +1035,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             _buildDiagnosticBanner(),
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
+          _buildExplanationRetentionControl(),
           const Divider(height: 1),
           _buildSummaryBar(),
           const Divider(height: 1),
@@ -1041,6 +1128,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       item: item,
                                       index: visibleItem.canonicalIndex,
                                       issues: visibleItem.issues,
+                                      explanationRetained:
+                                          _isQuestionExplanationRetained(item),
+                                      onExplanationRetentionChanged:
+                                          _selectionMode
+                                              ? null
+                                              : (retain) =>
+                                                  _setQuestionExplanationRetention(
+                                                    item,
+                                                    retain,
+                                                  ),
                                     ),
                                   ),
                                 ),
@@ -1428,11 +1525,15 @@ class _QuestionCard extends StatelessWidget {
     required this.item,
     required this.index,
     required this.issues,
+    required this.explanationRetained,
+    required this.onExplanationRetentionChanged,
   });
 
   final ImportReviewItem item;
   final int index;
   final List<ImportReviewIssue> issues;
+  final bool explanationRetained;
+  final ValueChanged<bool>? onExplanationRetentionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1507,6 +1608,46 @@ class _QuestionCard extends StatelessWidget {
             if (issues.isNotEmpty) ...[
               const SizedBox(height: 8),
               _IssueSummary(issues: issues),
+            ],
+            if (item.metadata.repairCandidateCodes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Chip(
+                key: ValueKey(
+                  'question-repair-candidate-${item.originalIndex}',
+                ),
+                avatar: const Icon(Icons.auto_fix_high, size: 16),
+                label: const Text('需要结构修复'),
+              ),
+            ],
+            if ((question.type == QuestionType.singleChoice ||
+                    question.type == QuestionType.fillBlank) &&
+                (question.rawExplanation?.trim().isNotEmpty ?? false)) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  FilterChip(
+                    key: ValueKey(
+                      'question-explanation-keep-${item.originalIndex}',
+                    ),
+                    label: const Text('保留解析'),
+                    selected: explanationRetained,
+                    onSelected: onExplanationRetentionChanged == null
+                        ? null
+                        : (_) => onExplanationRetentionChanged!(true),
+                  ),
+                  FilterChip(
+                    key: ValueKey(
+                      'question-explanation-discard-${item.originalIndex}',
+                    ),
+                    label: const Text('忽略解析'),
+                    selected: !explanationRetained,
+                    onSelected: onExplanationRetentionChanged == null
+                        ? null
+                        : (_) => onExplanationRetentionChanged!(false),
+                  ),
+                ],
+              ),
             ],
             const SizedBox(height: 12),
             _buildMarkdown(context, question.content),

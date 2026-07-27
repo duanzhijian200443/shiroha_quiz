@@ -173,6 +173,35 @@ void main() {
     expect(ocrCalls, 0);
   });
 
+  test('vision mode audits LaTeX after final question processing', () async {
+    final pipeline = ImportPipelineService.forTesting(
+      textParser: (rawText, {required taskId, required isMarkdown}) async =>
+          questions('text'),
+      visionParser: (imagePaths) async => <Map<String, dynamic>>[
+        <String, dynamic>{
+          'content': 'Synthetic vision question',
+          'standard_answer': 'A',
+          'explanation': r'Explanation \(\begin{matrix}1 & 2\end{pmatrix}\)',
+          'type': 3,
+        },
+      ],
+      ocrParser: ({
+        required filePath,
+        required sourceName,
+        required ImportFormat format,
+      }) async =>
+          null,
+    );
+
+    final result = await pipeline.parseFiles(
+      requestFor('question.png', ImportParseMode.vision),
+    );
+
+    final metadata =
+        result.questions.single['_import_review'] as Map<String, dynamic>;
+    expect(metadata['riskHints'], contains('latex_unrenderable'));
+  });
+
   test('vision mode: non-expected parsers throw to fail immediately if called',
       () async {
     final pipeline = ImportPipelineService.forTesting(

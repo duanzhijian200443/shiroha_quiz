@@ -103,7 +103,7 @@ void main() {
       }
     });
 
-    test('drops explanation for choice and fill questions before review', () {
+    test('annotates mismatches without deleting parsed fields', () {
       final result = gate.evaluate(
         [
           {
@@ -111,8 +111,8 @@ void main() {
             'type': 2,
             'content': '已知级数收敛域为 (a,+∞)，则 a=____。',
             'standard_answer': '-1',
-            'explanation': '这段解析不应进入填空题。',
-            'raw_explanation': 'raw explanation',
+            'explanation': '合法填空题解析。',
+            'raw_explanation': '合法原始解析。',
             'options': ['A. noise'],
             'source': 'glm_ocr_intermediate',
           },
@@ -123,14 +123,10 @@ void main() {
       final question = result.questions.single;
       final meta = question['_import_review'] as Map<String, dynamic>;
 
-      expect(question['explanation'], '');
-      expect(question['raw_explanation'], isNull);
-      expect(question['options'], isEmpty);
-      expect(
-        meta['riskHints'],
-        contains('dropped_non_subjective_explanation'),
-      );
-      expect(meta['riskHints'], contains('cleared_non_choice_options'));
+      expect(question['explanation'], '合法填空题解析。');
+      expect(question['raw_explanation'], '合法原始解析。');
+      expect(question['options'], ['A. noise']);
+      expect(meta['riskHints'], contains('type_options_mismatch'));
       expect(
         meta['riskHints'],
         isNot(contains('missing_answer_or_explanation')),

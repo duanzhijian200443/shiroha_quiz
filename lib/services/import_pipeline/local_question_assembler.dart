@@ -1,3 +1,4 @@
+import 'import_question_field_policy.dart';
 import 'text_question_region.dart';
 
 class LocalAssemblyResult {
@@ -53,24 +54,8 @@ class LocalQuestionAssembler {
       diagnostics.add('choice_options_less_than_2');
     }
 
-    if (_hasDanglingLatex(region.rawText)) {
-      diagnostics.add('dangling_latex');
-    }
-
-    final repairRecommended = region.health == RegionHealth.repairable ||
-        _shouldRecommendRepair(
-          type: type,
-          content: content,
-          options: optionExtract.options,
-          answer: answer,
-          diagnostics: diagnostics,
-          rawTextLength: region.rawText.length,
-        );
-
-    final rejected = content.isEmpty && region.rawText.trim().length < 8;
-
-    return LocalAssemblyResult(
-      question: {
+    var question = const ImportQuestionFieldPolicy().applyToMap(
+      {
         'question_number': region.number,
         'type': type,
         'content': content.isEmpty ? region.rawText.trim() : content,
@@ -81,6 +66,28 @@ class LocalQuestionAssembler {
         'source': 'docx_text_deterministic',
         'diagnostics': diagnostics,
       },
+    );
+    if (_hasDanglingLatexInFinalFields(question)) {
+      diagnostics.add('dangling_latex');
+    }
+
+    final repairRecommended = _shouldRecommendRepair(
+      type: type,
+      content: content,
+      options: optionExtract.options,
+      answer: answer,
+      diagnostics: diagnostics,
+      rawTextLength: region.rawText.length,
+    );
+
+    final rejected = content.isEmpty && region.rawText.trim().length < 8;
+    question = <String, dynamic>{
+      ...question,
+      'diagnostics': diagnostics.toSet().toList(),
+    };
+
+    return LocalAssemblyResult(
+      question: question,
       diagnostics: diagnostics,
       repairRecommended: repairRecommended,
       rejected: rejected,
@@ -240,6 +247,16 @@ class LocalQuestionAssembler {
     final rightCount = RegExp(r'\\right').allMatches(text).length;
 
     return leftCount != rightCount;
+  }
+
+  bool _hasDanglingLatexInFinalFields(Map<String, dynamic> question) {
+    for (final key in const ['content', 'standard_answer', 'explanation']) {
+      final value = question[key];
+      if (value is String && _hasDanglingLatex(value)) return true;
+    }
+    final options = question['options'];
+    return options is List &&
+        options.whereType<String>().any(_hasDanglingLatex);
   }
 
   bool _shouldRecommendRepair({

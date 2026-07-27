@@ -7,6 +7,7 @@ import '../../core/observability/trace_context.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../ai_service.dart';
 import '../task_manager.dart';
+import 'final_question_latex_audit.dart';
 import 'import_document_role.dart';
 import 'import_file_detector.dart';
 import 'import_format.dart';
@@ -200,8 +201,7 @@ class ImportPipelineService {
                   '检测到 ${parsedDoc.signals.tableCount} 个表格、${parsedDoc.signals.imageCount} 张图片。图片仅记录，不再触发题干补充融合。';
             }
 
-            final docxParseRes =
-                await _docxTextFirstParseService.parseDocxText(
+            final docxParseRes = await _docxTextFirstParseService.parseDocxText(
               rawText: rawText,
               sourceName: sourceName,
               taskId: taskId,
@@ -430,7 +430,7 @@ class ImportPipelineService {
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);
       return ImportParseResult(
-        questions: sorted.questions,
+        questions: finalizeAndAuditImportQuestions(sorted.questions),
         warnings: allWarnings,
         diagnostics: allDiagnostics,
       );
@@ -440,7 +440,7 @@ class ImportPipelineService {
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);
       return ImportParseResult(
-        questions: sorted.questions,
+        questions: finalizeAndAuditImportQuestions(sorted.questions),
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,

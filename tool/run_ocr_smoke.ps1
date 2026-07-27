@@ -543,7 +543,7 @@ try {
     $startInfo.EnvironmentVariables['SHIROHA_REPOSITORY_ROOT'] = $repoRoot
 
     $toolArguments = @(
-        '--repository-root', $repoRoot
+        "--repository-root=$repoRoot"
     )
     if ($SavedKeyProbe) {
         $startInfo.EnvironmentVariables['SHIROHA_SAVED_KEY_PROBE'] = 'true'

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
@@ -50,8 +52,45 @@ class FakeRepairService extends SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
+    bool requireAnswer = true,
   }) async {
     return localResult;
+  }
+}
+
+class RecordingRepairService extends SingleQuestionRepairService {
+  int callCount = 0;
+  int inFlight = 0;
+  int maxInFlight = 0;
+  final List<int> questionNumbers = [];
+
+  @override
+  Future<LocalAssemblyResult> repair({
+    required TextQuestionRegion region,
+    required LocalAssemblyResult localResult,
+    bool requireAnswer = true,
+  }) async {
+    callCount++;
+    questionNumbers.add(region.number);
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    await Future<void>.delayed(Duration.zero);
+    inFlight--;
+    final question = Map<String, dynamic>.from(localResult.question);
+    if ((question['content']?.toString().trim() ?? '').isEmpty) {
+      question['content'] = 'Synthetic repaired question ${region.number}';
+    }
+    final type = question['type'];
+    if (type == 0 || type == 1) {
+      question['options'] = const <String>['A. First', 'B. Second'];
+      if (requireAnswer) question['standard_answer'] = 'A';
+    }
+    return LocalAssemblyResult(
+      question: question,
+      diagnostics: [...localResult.diagnostics, 'ai_repair_applied'],
+      repairRecommended: false,
+      rejected: false,
+    );
   }
 }
 
@@ -127,6 +166,365 @@ void main() {
       expect(result.questions.first['q_num'], '1');
       expect(result.questions.first['source'], 'glm_ocr_intermediate');
       expect(result.diagnostics['status'], 'used_ocr');
+    });
+
+    test('healthy cross-page question preserves provenance without repair',
+        () async {
+      final profile = AiEngineProfile(
+        id: 'ocr-cross-page',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final repair = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(
+          const OcrDocument(
+            sourceName: 'cross-page.pdf',
+            markdown: '',
+            rawResponses: [],
+            usage: {},
+            pages: [
+              OcrPage(
+                pageIndex: 1,
+                blocks: [
+                  OcrBlock(
+                    blockId: 'section',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '一、选择题（共 1 题）',
+                    bbox: [],
+                    readingOrder: 0,
+                  ),
+                  OcrBlock(
+                    blockId: 'question',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '1. Safe cross-page stem\n'
+                        '(A) one (B) two (C) three (D) four',
+                    bbox: [],
+                    readingOrder: 1,
+                  ),
+                ],
+              ),
+              OcrPage(
+                pageIndex: 2,
+                blocks: [
+                  OcrBlock(
+                    blockId: 'answer',
+                    pageIndex: 2,
+                    type: 'text',
+                    text: '答案：A',
+                    bbox: [],
+                    readingOrder: 0,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        repairService: repair,
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\cross-page.pdf',
+        sourceName: 'cross-page.pdf',
+        format: ImportFormat.pdf,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.questions, hasLength(1));
+      expect(repair.callCount, 0);
+      expect(result.diagnostics['repairRecommendedCount'], 1);
+      expect(result.diagnostics['repairEligibleCount'], 0);
+      expect(result.diagnostics['repairAttemptedCount'], 0);
+      expect(result.diagnostics['repairSkippedNonStructuralCount'], 1);
+      expect(
+        result.questions.single['diagnostics'],
+        contains('cross_page_region'),
+      );
+      expect(result.questions.single['source_page_indices'], [1, 2]);
+      expect(
+        result.questions.single['source_block_ids'],
+        containsAll(<String>['question', 'answer']),
+      );
+      final timing = result.diagnostics['timing'] as Map<String, dynamic>;
+      expect(timing['repairAttempts'], isEmpty);
+      expect(timing['totalDurationMs'], isA<int>());
+    });
+
+    test('hidden objective explanation defects do not call repair', () async {
+      final profile = AiEngineProfile(
+        id: 'ocr-hidden-explanation',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final repair = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(
+          const OcrDocument(
+            sourceName: 'hidden-explanation.pdf',
+            markdown: '',
+            rawResponses: [],
+            usage: {},
+            pages: [
+              OcrPage(
+                pageIndex: 1,
+                blocks: [
+                  OcrBlock(
+                    blockId: 'section',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '一、选择题（共 1 题）',
+                    bbox: [],
+                    readingOrder: 0,
+                  ),
+                  OcrBlock(
+                    blockId: 'question',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '1. Valid stem (A) one (B) two (C) three (D) four',
+                    bbox: [],
+                    readingOrder: 1,
+                  ),
+                  OcrBlock(
+                    blockId: 'answer',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '答案：A',
+                    bbox: [],
+                    readingOrder: 2,
+                  ),
+                  OcrBlock(
+                    blockId: 'explanation',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: r'解析：Hidden broken formula \(x',
+                    bbox: [],
+                    readingOrder: 3,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        repairService: repair,
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\hidden-explanation.pdf',
+        sourceName: 'hidden-explanation.pdf',
+        format: ImportFormat.pdf,
+      );
+
+      expect(result, isNotNull);
+      final question = result!.questions.single;
+      expect(question['standard_answer'], 'A');
+      expect(question['explanation'], isEmpty);
+      expect(question['raw_explanation'], contains(r'\(x'));
+      expect(question['diagnostics'], isNot(contains('dangling_latex')));
+      expect(repair.callCount, 0);
+      expect(result.diagnostics['repairEligibleCount'], 0);
+      expect(result.diagnostics['repairAttemptedCount'], 0);
+    });
+
+    test('real structural defects repair serially with safe timing', () async {
+      final profile = AiEngineProfile(
+        id: 'ocr-structural-repair',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final repair = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(
+          const OcrDocument(
+            sourceName: 'structural.pdf',
+            markdown: '',
+            rawResponses: [],
+            usage: {},
+            pages: [
+              OcrPage(
+                pageIndex: 1,
+                blocks: [
+                  OcrBlock(
+                    blockId: 'section',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '一、选择题（共 2 题）',
+                    bbox: [],
+                    readingOrder: 0,
+                  ),
+                  OcrBlock(
+                    blockId: 'q1',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '1. SENSITIVE_FIXTURE_BODY_ONE',
+                    bbox: [],
+                    readingOrder: 1,
+                  ),
+                  OcrBlock(
+                    blockId: 'a1',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '答案：A',
+                    bbox: [],
+                    readingOrder: 2,
+                  ),
+                  OcrBlock(
+                    blockId: 'q2',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '2. SENSITIVE_FIXTURE_BODY_TWO',
+                    bbox: [],
+                    readingOrder: 3,
+                  ),
+                  OcrBlock(
+                    blockId: 'a2',
+                    pageIndex: 1,
+                    type: 'text',
+                    text: '答案：B',
+                    bbox: [],
+                    readingOrder: 4,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        repairService: repair,
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\structural.pdf',
+        sourceName: 'structural.pdf',
+        format: ImportFormat.pdf,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.questions, hasLength(2));
+      expect(repair.callCount, 2);
+      expect(repair.questionNumbers, [1, 2]);
+      expect(repair.maxInFlight, 1);
+      expect(result.diagnostics['repairEligibleCount'], 2);
+      expect(result.diagnostics['repairAttemptedCount'], 2);
+      expect(result.diagnostics['repairAppliedCount'], 2);
+      final timing = result.diagnostics['timing'] as Map<String, dynamic>;
+      final attempts = timing['repairAttempts'] as List<Map<String, dynamic>>;
+      expect(attempts, hasLength(2));
+      expect(
+        attempts.map((attempt) => attempt['questionNumber']),
+        [1, 2],
+      );
+      expect(
+        attempts.every(
+          (attempt) =>
+              (attempt['triggerCodes'] as List)
+                  .contains('choice_options_less_than_2') &&
+              attempt['outcome'] == 'applied' &&
+              attempt['durationMs'] is int &&
+              (attempt['durationMs'] as int) >= 0,
+        ),
+        isTrue,
+      );
+      final safeDiagnostics = jsonEncode(result.diagnostics);
+      expect(safeDiagnostics, isNot(contains('SENSITIVE_FIXTURE_BODY')));
+      expect(safeDiagnostics, isNot(contains(r'C:\tmp')));
+    });
+
+    test('cleans safe HTML wrappers before returning OCR questions', () async {
+      final profile = AiEngineProfile(
+        id: 'ocr-html-cleanup',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final document = OcrDocument(
+        sourceName: 'html-cleanup.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: const [
+              OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'text',
+                text: '1. <div>Question <span>body</span></div>',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              OcrBlock(
+                blockId: 'answer',
+                pageIndex: 1,
+                type: 'text',
+                text: '答案：<p>Answer value</p>',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              OcrBlock(
+                blockId: 'explanation',
+                pageIndex: 1,
+                type: 'text',
+                text: '解析：<div>Explanation<br>line</div>'
+                    '<script>dangerousScript()</script>',
+                bbox: [],
+                readingOrder: 2,
+              ),
+            ],
+          ),
+        ],
+      );
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(document),
+        repairService: const FakeRepairService(),
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\html-cleanup.pdf',
+        sourceName: 'html-cleanup.pdf',
+        format: ImportFormat.pdf,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue);
+      final question = result.questions.single;
+      expect(question['content'], 'Question body');
+      expect(question['standard_answer'], 'Answer value');
+      expect(question['explanation'], 'Explanation\nline');
+      expect(question['explanation'], isNot(contains('dangerousScript')));
+      expect(question['raw_explanation'], contains('<div>'));
+      expect(
+        question['diagnostics'],
+        contains('unsafe_html_content_removed'),
+      );
     });
 
     test('assembles split and inline question markers through OCR service',

@@ -1155,6 +1155,29 @@ void main() {
       expect(acceptancePsScript, contains('--repository-root='));
     });
 
+    test(
+        'launcher passes --repository-root as single = token, '
+        'never as two separate tokens',
+        () {
+      final psScript = File('tool/run_ocr_smoke.ps1').readAsStringSync();
+
+      // Must use the = form so the Dart CLI parser recognizes a single token.
+      expect(
+        psScript,
+        contains(r'"--repository-root=$repoRoot"'),
+        reason: 'launcher must join --repository-root and path with =',
+      );
+
+      // Must NOT pass the path as a second, separate array element.
+      // The old two-token form caused the path to be misidentified as a PDF.
+      expect(
+        psScript,
+        isNot(contains("'--repository-root', \$repoRoot")),
+        reason:
+            'two-token form would leak repo root as a positional PDF argument',
+      );
+    });
+
     test('acceptance PowerShell missing case is path-redacted JSON',
         () async {
       final outsideDirectory =

@@ -43,18 +43,22 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  Widget createWidget({required Map<String, dynamic>? diagnostics}) {
+  Widget createWidget({
+    required Map<String, dynamic>? diagnostics,
+    List<Map<String, dynamic>>? questions,
+  }) {
     return MaterialApp(
       home: ImportStagingScreen(
-        parsedQuestions: [
-          {
-            'q_num': 1,
-            'question_type': 0,
-            'content': 'Valid Question',
-            'options': ['A', 'B', 'C', 'D'],
-            'standard_answer': 'A',
-          }
-        ],
+        parsedQuestions: questions ??
+            [
+              {
+                'q_num': 1,
+                'type': 0,
+                'content': 'Valid Question',
+                'options': ['A', 'B', 'C', 'D'],
+                'standard_answer': 'A',
+              }
+            ],
         diagnostics: diagnostics,
         questionRepository: MockQuestionRepository(),
       ),
@@ -98,6 +102,27 @@ void main() {
     expect(find.textContaining(blockReason), findsOneWidget);
   });
 
+  testWidgets('Save button is disabled for current hard structural issues',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {},
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Broken choice question',
+          'options': <String>['', '   '],
+          'standard_answer': 'A',
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+    expect(button.onPressed, isNull);
+    expect(find.textContaining('题目结构错误'), findsOneWidget);
+  });
+
   testWidgets('review screen displays and copies the task trace ID',
       (WidgetTester tester) async {
     await tester.pumpWidget(createWidget(diagnostics: {
@@ -130,5 +155,60 @@ void main() {
     expect(find.text('private exception body'), findsNothing);
     expect(find.text(r'C:\private\import.log'), findsNothing);
     expect(find.textContaining('确认无误'), findsOneWidget);
+  });
+
+  testWidgets(
+      'document and per-question retention controls recompute quality state',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {},
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Valid choice question',
+          'options': ['A', 'B'],
+          'standard_answer': 'A',
+          'explanation': '',
+          'raw_explanation': r'Broken \(\begin{matrix}1\end{pmatrix}\)',
+          '_import_review': {
+            'riskHints': ['latex_unrenderable'],
+          },
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('警告: 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+    expect(find.text('保留解析'), findsOneWidget);
+    expect(find.text('忽略解析'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('objective-explanation-document-switch')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('警告: 1'), findsOneWidget);
+    expect(find.text('LaTeX 异常'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsOneWidget,
+    );
+
+    final discard =
+        find.byKey(const ValueKey('question-explanation-discard-0'));
+    tester.widget<FilterChip>(discard).onSelected!(true);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('警告: 0'), findsOneWidget);
+    expect(find.text('LaTeX 异常'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
   });
 }

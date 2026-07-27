@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 
@@ -653,11 +656,33 @@ void main() {
           ),
         ],
       );
+      const changedDoc = OcrDocument(
+        sourceName: 'test.pdf',
+        markdown: '1. changed fixture',
+        usage: {},
+        rawResponses: [],
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: [
+              OcrBlock(
+                blockId: 'b2',
+                pageIndex: 1,
+                type: 'text',
+                text: '1. changed fixture',
+                bbox: [],
+                readingOrder: 0,
+              ),
+            ],
+          ),
+        ],
+      );
 
       const validPdfHash =
           '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
       const fpOld = 'ffffffffffffffff';
       const fpNew = '1111111111111111';
+      const fpThird = '2222222222222222';
 
       test(
           'lexicographical regression: current.json selection overrides directory alphabetical sort',
@@ -771,8 +796,10 @@ void main() {
           pdfContentHash: validPdfHash,
         );
 
-        final manifestFile = File(p.join(tempRepo.path, 'scratch', 'ocr_replay',
-            'manifest_test', fpNew, 'manifest.json'));
+        final manifestFile = File(p.join(
+          _currentReplayVersionPath(tempRepo.path, 'manifest_test'),
+          'manifest.json',
+        ));
 
         final manifestData =
             jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
@@ -799,8 +826,10 @@ void main() {
           pdfContentHash: validPdfHash,
         );
 
-        final docFile = File(p.join(tempRepo.path, 'scratch', 'ocr_replay',
-            'hash_mismatch_case', fpNew, 'ocr_document.private.json'));
+        final docFile = File(p.join(
+          _currentReplayVersionPath(tempRepo.path, 'hash_mismatch_case'),
+          'ocr_document.private.json',
+        ));
 
         // Tamper with document file content
         docFile.writeAsStringSync('{"tampered": true}');
@@ -846,7 +875,8 @@ void main() {
         // Proves it NEVER fell back to fpOld!
       });
 
-      test('same fingerprint write reuses existing directory', () {
+      test('same fingerprint and document reuse the fully validated version',
+          () {
         final res1 = writeReplayCache(
           caseId: 'reuse_test',
           repositoryRoot: tempRepo.path,
@@ -868,13 +898,17 @@ void main() {
         expect(res2.reusedExistingDirectory, isTrue);
       });
 
-      test('corrupted same fingerprint directory is replaced/repaired on write',
-          () {
-        final corruptDir = Directory(p.join(
-            tempRepo.path, 'scratch', 'ocr_replay', 'repair_test', fpNew))
-          ..createSync(recursive: true);
-        File(p.join(corruptDir.path, 'manifest.json'))
-            .writeAsStringSync('corrupt');
+      test('same document with corrupted manifest is not reused', () {
+        writeReplayCache(
+          caseId: 'repair_test',
+          repositoryRoot: tempRepo.path,
+          document: sampleDoc,
+          fingerprint: fpNew,
+          pdfContentHash: validPdfHash,
+        );
+        final oldVersion =
+            _currentReplayVersionPath(tempRepo.path, 'repair_test');
+        File(p.join(oldVersion, 'manifest.json')).writeAsStringSync('corrupt');
 
         final res = writeReplayCache(
           caseId: 'repair_test',
@@ -885,6 +919,10 @@ void main() {
         );
 
         expect(res.reusedExistingDirectory, isFalse);
+        expect(
+          _currentReplayVersionPath(tempRepo.path, 'repair_test'),
+          isNot(oldVersion),
+        );
 
         final loaderRes = loadReplayCache(
           caseId: 'repair_test',
@@ -911,6 +949,294 @@ void main() {
             .where((d) => p.basename(d.path).startsWith('.staging'));
 
         expect(stagings, isEmpty);
+      });
+
+      test(
+          'same fingerprint with different document hashes keeps old and new versions',
+          () {
+        writeReplayCache(
+          caseId: 'versioned_replace',
+          repositoryRoot: tempRepo.path,
+          document: sampleDoc,
+          fingerprint: fpNew,
+          pdfContentHash: validPdfHash,
+        );
+        final oldVersion =
+            _currentReplayVersionPath(tempRepo.path, 'versioned_replace');
+
+        writeReplayCache(
+          caseId: 'versioned_replace',
+          repositoryRoot: tempRepo.path,
+          document: changedDoc,
+          fingerprint: fpNew,
+          pdfContentHash: validPdfHash,
+        );
+        final newVersion =
+            _currentReplayVersionPath(tempRepo.path, 'versioned_replace');
+        final versions = Directory(p.join(tempRepo.path, 'scratch',
+                'ocr_replay', 'versioned_replace', 'versions'))
+            .listSync()
+            .whereType<Directory>()
+            .where((entry) => !p.basename(entry.path).startsWith('.staging-'))
+            .map((entry) => entry.path)
+            .toSet();
+
+        expect(newVersion, isNot(oldVersion));
+        expect(versions, containsAll(<String>[oldVersion, newVersion]));
+        expect(
+          loadReplayCache(
+            caseId: 'versioned_replace',
+            repositoryRoot: tempRepo.path,
+          ).documentHash,
+          isNotNull,
+        );
+      });
+
+      for (final failure in <(String, ReplayCacheWriteHooks)>[
+        (
+          'staging write',
+          ReplayCacheWriteHooks(
+            beforeStagingWrite: () => throw FileSystemException('fixture'),
+          ),
+        ),
+        (
+          'staging to target',
+          ReplayCacheWriteHooks(
+            beforeTargetRename: () => throw FileSystemException('fixture'),
+          ),
+        ),
+        (
+          'current update',
+          ReplayCacheWriteHooks(
+            beforeCurrentReplace: () => throw FileSystemException('fixture'),
+          ),
+        ),
+        (
+          'post-write load verification',
+          ReplayCacheWriteHooks(
+            beforePostWriteVerification: () =>
+                throw FileSystemException('fixture'),
+          ),
+        ),
+      ]) {
+        test('${failure.$1} failure preserves the old current cache', () {
+          final caseId = 'failure_${failure.$1.replaceAll(' ', '_')}';
+          writeReplayCache(
+            caseId: caseId,
+            repositoryRoot: tempRepo.path,
+            document: sampleDoc,
+            fingerprint: fpOld,
+            pdfContentHash: validPdfHash,
+          );
+          final old = loadReplayCache(
+            caseId: caseId,
+            repositoryRoot: tempRepo.path,
+          );
+
+          expect(
+            () => writeReplayCache(
+              caseId: caseId,
+              repositoryRoot: tempRepo.path,
+              document: changedDoc,
+              fingerprint: fpNew,
+              pdfContentHash: validPdfHash,
+              hooks: failure.$2,
+            ),
+            throwsA(anything),
+          );
+
+          final loaded = loadReplayCache(
+            caseId: caseId,
+            repositoryRoot: tempRepo.path,
+          );
+          expect(loaded.isLoaded, isTrue);
+          expect(loaded.fingerprint, fpOld);
+          expect(loaded.documentHash, old.documentHash);
+          expect(loaded.cacheDirectory, old.cacheDirectory);
+        });
+      }
+
+      test(
+          'reader observes complete old then complete new cache during publish',
+          () {
+        const caseId = 'reader_writer_atomicity';
+        writeReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+          document: sampleDoc,
+          fingerprint: fpOld,
+          pdfContentHash: validPdfHash,
+        );
+        ReplayCacheResult? beforeCurrent;
+        ReplayCacheResult? afterCurrent;
+
+        writeReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+          document: changedDoc,
+          fingerprint: fpNew,
+          pdfContentHash: validPdfHash,
+          hooks: ReplayCacheWriteHooks(
+            afterTargetPublished: () {
+              beforeCurrent = loadReplayCache(
+                caseId: caseId,
+                repositoryRoot: tempRepo.path,
+              );
+            },
+            afterCurrentPublished: () {
+              afterCurrent = loadReplayCache(
+                caseId: caseId,
+                repositoryRoot: tempRepo.path,
+              );
+            },
+          ),
+        );
+
+        expect(beforeCurrent?.isLoaded, isTrue);
+        expect(beforeCurrent?.fingerprint, fpOld);
+        expect(afterCurrent?.isLoaded, isTrue);
+        expect(afterCurrent?.fingerprint, fpNew);
+      });
+
+      test('paused reader completes version A after writers publish B and C',
+          () {
+        const caseId = 'slow_reader_three_versions';
+        writeReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+          document: sampleDoc,
+          fingerprint: fpOld,
+          pdfContentHash: validPdfHash,
+        );
+        final versionA = _currentReplayVersionPath(tempRepo.path, caseId);
+        String? versionB;
+        String? versionC;
+        var resumed = false;
+
+        final slowReader = loadReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+          hooks: ReplayCacheLoadHooks(
+            afterCurrentResolved: (targetPath) {
+              expect(targetPath, versionA);
+              writeReplayCache(
+                caseId: caseId,
+                repositoryRoot: tempRepo.path,
+                document: changedDoc,
+                fingerprint: fpNew,
+                pdfContentHash: validPdfHash,
+              );
+              versionB = _currentReplayVersionPath(tempRepo.path, caseId);
+              writeReplayCache(
+                caseId: caseId,
+                repositoryRoot: tempRepo.path,
+                document: sampleDoc,
+                fingerprint: fpThird,
+                pdfContentHash: validPdfHash,
+              );
+              versionC = _currentReplayVersionPath(tempRepo.path, caseId);
+              resumed = true;
+            },
+          ),
+        );
+        final newReader = loadReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+        );
+
+        expect(resumed, isTrue);
+        expect(slowReader.isLoaded, isTrue);
+        expect(slowReader.fingerprint, fpOld);
+        expect(slowReader.causeType, isNot('ReplayTargetMissing'));
+        expect(newReader.isLoaded, isTrue);
+        expect(newReader.fingerprint, fpThird);
+        expect(
+          <String>[versionA, versionB!, versionC!]
+              .every((path) => Directory(path).existsSync()),
+          isTrue,
+        );
+      });
+
+      test('lock failure closes its handle and preserves the old cache', () {
+        const caseId = 'lock_failure_cleanup';
+        writeReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+          document: sampleDoc,
+          fingerprint: fpOld,
+          pdfContentHash: validPdfHash,
+        );
+        final old = loadReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+        );
+        final lockProbe = Directory(p.join(tempRepo.path, 'lock-probe'))
+          ..createSync();
+        final throwingLock = _ThrowingReplayCacheWriteLock(
+          p.join(lockProbe.path, 'writer.lock'),
+        );
+
+        expect(
+          () => writeReplayCache(
+            caseId: caseId,
+            repositoryRoot: tempRepo.path,
+            document: changedDoc,
+            fingerprint: fpNew,
+            pdfContentHash: validPdfHash,
+            lockFactory: (_) => throwingLock,
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+
+        expect(throwingLock.closed, isTrue);
+        expect(throwingLock.unlockCalls, 0);
+        expect(() => lockProbe.deleteSync(recursive: true), returnsNormally);
+        final loaded = loadReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+        );
+        expect(loaded.isLoaded, isTrue);
+        expect(loaded.fingerprint, fpOld);
+        expect(loaded.documentHash, old.documentHash);
+        expect(loaded.cacheDirectory, old.cacheDirectory);
+      });
+
+      test('two concurrent writers leave one complete current version',
+          () async {
+        const caseId = 'concurrent_writers';
+        await Future.wait([
+          Isolate.run(() {
+            writeReplayCache(
+              caseId: caseId,
+              repositoryRoot: tempRepo.path,
+              document: sampleDoc,
+              fingerprint: fpOld,
+              pdfContentHash: validPdfHash,
+            );
+          }),
+          Isolate.run(() {
+            writeReplayCache(
+              caseId: caseId,
+              repositoryRoot: tempRepo.path,
+              document: changedDoc,
+              fingerprint: fpNew,
+              pdfContentHash: validPdfHash,
+            );
+          }),
+        ]);
+
+        final loaded = loadReplayCache(
+          caseId: caseId,
+          repositoryRoot: tempRepo.path,
+        );
+        expect(loaded.isLoaded, isTrue);
+        expect(loaded.fingerprint, anyOf(fpOld, fpNew));
+        expect(
+          jsonDecode(File(p.join(tempRepo.path, 'scratch', 'ocr_replay', caseId,
+                  'current.json'))
+              .readAsStringSync()),
+          isA<Map<String, dynamic>>(),
+        );
       });
 
       test(
@@ -954,8 +1280,9 @@ void main() {
         final currentText = File(p.join(tempRepo.path, 'scratch', 'ocr_replay',
                 'security_test', 'current.json'))
             .readAsStringSync();
-        final manifestText = File(p.join(tempRepo.path, 'scratch', 'ocr_replay',
-                'security_test', fpNew, 'manifest.json'))
+        final manifestText = File(p.join(
+                _currentReplayVersionPath(tempRepo.path, 'security_test'),
+                'manifest.json'))
             .readAsStringSync();
 
         expect(currentText, isNot(contains('fixture-api-key-sensitive')));
@@ -1171,10 +1498,9 @@ void main() {
           syntheticDir.deleteSync(recursive: true);
         }
       });
-      final outsideFixture =
-          File(p.join(syntheticDir.path, 'tool', 'bad.json'))
-            ..createSync(recursive: true)
-            ..writeAsStringSync('OUTSIDE_CASE_FIXTURE_MARKER_31E2');
+      final outsideFixture = File(p.join(syntheticDir.path, 'tool', 'bad.json'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('OUTSIDE_CASE_FIXTURE_MARKER_31E2');
 
       final result = await _runImportAcceptanceCli(
         ['--case=../bad', '--repository-root=${syntheticDir.path}'],
@@ -1183,8 +1509,8 @@ void main() {
       expect(result.exitCode, 2);
       expect(result.stdout, contains('"status":"invalid_case_id"'));
       expect(result.stdout, isNot(contains(syntheticDir.path)));
-      expect(result.stdout,
-          isNot(contains('OUTSIDE_CASE_FIXTURE_MARKER_31E2')));
+      expect(
+          result.stdout, isNot(contains('OUTSIDE_CASE_FIXTURE_MARKER_31E2')));
       expect(result.stderr, isEmpty);
       expect(outsideFixture.existsSync(), isTrue);
     });
@@ -1197,8 +1523,7 @@ void main() {
         expect(result.exitCode, 2, reason: arg);
         expect(result.stdout, contains('"status":"invalid_arguments"'),
             reason: arg);
-        expect(result.stdout, isNot(contains('live_ocr_started')),
-            reason: arg);
+        expect(result.stdout, isNot(contains('live_ocr_started')), reason: arg);
         expect(result.stderr, isEmpty, reason: arg);
       }
     });
@@ -1242,15 +1567,355 @@ void main() {
     });
 
     test('offline acceptance does not initialize DatabaseHelper', () {
-      final content =
-          File('tool/import_acceptance.dart').readAsStringSync();
+      final content = File('tool/import_acceptance.dart').readAsStringSync();
 
       expect(content, isNot(contains('database_helper.dart')));
       expect(content, isNot(contains('DatabaseHelper')));
       expect(content, isNot(contains('sqflite')));
       expect(content, isNot(contains('AiEngineRepository.instance')));
     });
+
+    test(
+        '_NoOpRepairService.repair override signature matches SingleQuestionRepairService.repair',
+        () {
+      final acceptanceContent =
+          File('tool/import_acceptance.dart').readAsStringSync();
+      final serviceContent = File(
+              'lib/services/import_pipeline/single_question_repair_service.dart')
+          .readAsStringSync();
+
+      // Extracts the repair parameter block from SingleQuestionRepairService
+      final serviceMatch =
+          RegExp(r'Future<LocalAssemblyResult>\s+repair\s*\(([^)]+)\)')
+              .firstMatch(serviceContent);
+      expect(serviceMatch, isNotNull,
+          reason: 'SingleQuestionRepairService must define a repair method');
+
+      final serviceParams = serviceMatch!.group(1)!;
+
+      // Extract each parameter name from SingleQuestionRepairService.repair
+      final paramNames = RegExp(r'(\w+)\s*[,=)]')
+          .allMatches(serviceParams)
+          .map((m) => m.group(1)!)
+          .where((name) =>
+              name != 'required' &&
+              name != 'bool' &&
+              name != 'true' &&
+              name != 'false')
+          .toList();
+
+      // Ensure _NoOpRepairService in tool/import_acceptance.dart contains all parameter names
+      for (final param in paramNames) {
+        expect(
+          acceptanceContent,
+          contains(param),
+          reason:
+              '_NoOpRepairService.repair must include parameter "$param" from SingleQuestionRepairService.repair',
+        );
+      }
+    });
   });
+
+  group('Phase 3B.1 Final LaTeX Audit Integration Tests', () {
+    test(
+        'acceptance pipeline calls finalizeAndAuditImportQuestions (static import check)',
+        () {
+      final content = File('tool/import_acceptance.dart').readAsStringSync();
+      expect(
+        content,
+        contains('finalizeAndAuditImportQuestions'),
+        reason:
+            'tool/import_acceptance.dart must call finalizeAndAuditImportQuestions to match production pipeline',
+      );
+      expect(
+        content,
+        contains('final_question_latex_audit.dart'),
+        reason:
+            'tool/import_acceptance.dart must import final_question_latex_audit.dart',
+      );
+    });
+
+    test(
+        'deterministically repairable LaTeX does not produce latex_unrenderable',
+        () {
+      // A trailing unclosed \( is deterministically repairable
+      final questions = <Map<String, dynamic>>[
+        {
+          'question_number': 1,
+          'type': 0,
+          'content': r'Find \(x + 1',
+          'options': ['A. 1', 'B. 2', 'C. 3', 'D. 4'],
+          'standard_answer': 'A',
+          'explanation': '',
+        },
+      ];
+
+      final audited = finalizeAndAuditImportQuestions(questions);
+      final quality = runAcceptanceQualityChecks(
+        questions: audited,
+        testCase: const ImportAcceptanceCase(
+          schemaVersion: 1,
+          caseId: 'synthetic_repairable',
+          pdf: 'synthetic.pdf',
+          expectedQuestionCount: 1,
+          expectedNumbers: [1],
+          allowDuplicateNumbers: false,
+        ),
+      );
+
+      expect(quality.questionReports.length, 1);
+      final issues = quality.questionReports.first.issues;
+      expect(
+        issues.map((i) => i.code),
+        isNot(contains('latex_unrenderable')),
+        reason:
+            'Deterministically repairable LaTeX must not produce latex_unrenderable after audit',
+      );
+    });
+
+    test('unrepairable LaTeX still produces latex_unrenderable', () {
+      // Mismatched environment: \begin{matrix}...\end{pmatrix} is not repairable
+      final questions = <Map<String, dynamic>>[
+        {
+          'question_number': 1,
+          'type': 0,
+          'content': r'Compute \(\begin{matrix}1\end{pmatrix}\)',
+          'options': ['A. 1', 'B. 2', 'C. 3', 'D. 4'],
+          'standard_answer': 'A',
+          'explanation': '',
+        },
+      ];
+
+      final audited = finalizeAndAuditImportQuestions(questions);
+      final quality = runAcceptanceQualityChecks(
+        questions: audited,
+        testCase: const ImportAcceptanceCase(
+          schemaVersion: 1,
+          caseId: 'synthetic_unrepairable',
+          pdf: 'synthetic.pdf',
+          expectedQuestionCount: 1,
+          expectedNumbers: [1],
+          allowDuplicateNumbers: false,
+        ),
+      );
+
+      expect(quality.questionReports.length, 1);
+      final issues = quality.questionReports.first.issues;
+      expect(
+        issues.map((i) => i.code),
+        contains('latex_unrenderable'),
+        reason: 'Unrepairable LaTeX must still produce latex_unrenderable',
+      );
+    });
+
+    test('acceptance applies final field policy before LaTeX audit', () {
+      final questions = <Map<String, dynamic>>[
+        {
+          'question_number': 1,
+          'type': 2,
+          'content': r'Solve \(x^2 + 1',
+          'options': <String>[],
+          'standard_answer': '2',
+          'explanation': r'Because \[a + b',
+        },
+        {
+          'question_number': 2,
+          'type': 0,
+          'content': r'Normal \(x\) question',
+          'options': ['A', 'B', 'C', 'D'],
+          'standard_answer': 'A',
+          'explanation': '',
+        },
+      ];
+
+      // Acceptance and production share this finalization function.
+      final audited = finalizeAndAuditImportQuestions(questions);
+
+      // Persisted content is repaired, while type=2 explanation is discarded
+      // before audit because it is not a final saved/displayed field.
+      expect(audited[0]['content'], r'Solve \(x^2 + 1\)');
+      expect(audited[0]['explanation'], isEmpty);
+      // Normal question unchanged
+      expect(audited[1]['content'], r'Normal \(x\) question');
+    });
+
+    test('raw objective explanation is excluded unless retention is enabled',
+        () {
+      final questions = <Map<String, dynamic>>[
+        {
+          'question_number': 1,
+          'type': 0,
+          'content': 'Valid question',
+          'options': ['A', 'B'],
+          'standard_answer': 'A',
+          'explanation': '',
+          'raw_explanation':
+              r'Broken \(\begin{matrix}1\end{pmatrix}\) <table>x</table>',
+        },
+      ];
+      const testCase = ImportAcceptanceCase(
+        schemaVersion: 1,
+        caseId: 'retention_contract',
+        pdf: 'synthetic.pdf',
+        expectedQuestionCount: 1,
+        expectedNumbers: [1],
+        allowDuplicateNumbers: false,
+      );
+
+      final defaultQuestions = finalizeAndAuditImportQuestions(questions);
+      final defaultQuality = runAcceptanceQualityChecks(
+        questions: defaultQuestions,
+        testCase: testCase,
+      );
+      expect(defaultQuestions.single['explanation'], isEmpty);
+      expect(defaultQuality.questionReports.single.hasExplanation, isFalse);
+      expect(defaultQuality.questionReports.single.issues, isEmpty);
+
+      final enabledQuestions = finalizeAndAuditImportQuestions(
+        questions,
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+      final enabledQuality = runAcceptanceQualityChecks(
+        questions: enabledQuestions,
+        testCase: testCase,
+      );
+      expect(enabledQuestions.single['explanation'], isNotEmpty);
+      expect(
+        enabledQuality.questionReports.single.issues.map((issue) => issue.code),
+        containsAll(['latex_unrenderable', 'raw_html_tag']),
+      );
+    });
+
+    test('audited questions are used for issue and repair candidate statistics',
+        () {
+      // Build a question with repairable trailing \( that after audit is clean
+      final questions = <Map<String, dynamic>>[
+        {
+          'question_number': 1,
+          'type': 0,
+          'content': r'Compute \(x + 1',
+          'options': ['A. 1', 'B. 2', 'C. 3', 'D. 4'],
+          'standard_answer': 'A',
+          'explanation': '',
+        },
+        {
+          'question_number': 2,
+          'type': 0,
+          'content': r'Compute \(\begin{matrix}1\end{pmatrix}\)',
+          'options': ['A. 1', 'B. 2', 'C. 3', 'D. 4'],
+          'standard_answer': 'A',
+          'explanation': '',
+        },
+      ];
+
+      // Without audit: both would have dangling delimiters
+      final preAuditQuality = runAcceptanceQualityChecks(
+        questions: questions,
+        testCase: const ImportAcceptanceCase(
+          schemaVersion: 1,
+          caseId: 'pre_audit',
+          pdf: 'synthetic.pdf',
+          expectedQuestionCount: 2,
+          expectedNumbers: [1, 2],
+          allowDuplicateNumbers: false,
+        ),
+      );
+      final preAuditLatex = preAuditQuality.questionReports
+          .where((r) => r.issues.any((i) => i.code == 'latex_unrenderable'))
+          .length;
+
+      // With audit: repairable one is fixed
+      final audited = finalizeAndAuditImportQuestions(questions);
+      final postAuditQuality = runAcceptanceQualityChecks(
+        questions: audited,
+        testCase: const ImportAcceptanceCase(
+          schemaVersion: 1,
+          caseId: 'post_audit',
+          pdf: 'synthetic.pdf',
+          expectedQuestionCount: 2,
+          expectedNumbers: [1, 2],
+          allowDuplicateNumbers: false,
+        ),
+      );
+      final postAuditLatex = postAuditQuality.questionReports
+          .where((r) => r.issues.any((i) => i.code == 'latex_unrenderable'))
+          .length;
+
+      expect(preAuditLatex, 2,
+          reason: 'Without audit both questions have dangling LaTeX');
+      expect(postAuditLatex, 1,
+          reason: 'After audit only unrepairable question has dangling LaTeX');
+    });
+
+    test('22-question synthetic sequence preserves count and order after audit',
+        () {
+      final questions = List.generate(22, (i) {
+        final num = i + 1;
+        return <String, dynamic>{
+          'question_number': num,
+          'type': num <= 10 ? 0 : (num <= 16 ? 2 : 3),
+          'content': 'Question $num content \\(x^$num\\)',
+          'options': num <= 10 ? ['A. a', 'B. b', 'C. c', 'D. d'] : <String>[],
+          'standard_answer': num <= 16 ? 'A' : '',
+          'explanation': 'Explanation $num',
+        };
+      });
+
+      final audited = finalizeAndAuditImportQuestions(questions);
+
+      expect(audited.length, 22);
+      for (var i = 0; i < 22; i++) {
+        expect(audited[i]['question_number'], i + 1);
+      }
+    });
+
+    test('providerCallCount remains 0 in offline audit path', () {
+      // The audit is purely deterministic; verify no network/provider
+      // dependency by checking the acceptance pipeline source
+      final content = File('tool/import_acceptance.dart').readAsStringSync();
+      // The providerCallCount: 0 must come after finalization and audit
+      final auditIndex = content.indexOf('finalizeAndAuditImportQuestions');
+      final providerIndex = content.indexOf("'providerCallCount': 0");
+      expect(auditIndex, greaterThan(-1));
+      expect(providerIndex, greaterThan(auditIndex),
+          reason:
+              'providerCallCount: 0 must appear after finalizeAndAuditImportQuestions call');
+    });
+  });
+}
+
+String _currentReplayVersionPath(String repositoryRoot, String caseId) {
+  final caseRoot = p.join(repositoryRoot, 'scratch', 'ocr_replay', caseId);
+  final current = jsonDecode(
+    File(p.join(caseRoot, 'current.json')).readAsStringSync(),
+  ) as Map<String, dynamic>;
+  return p.join(caseRoot, 'versions', current['version'] as String);
+}
+
+class _ThrowingReplayCacheWriteLock implements ReplayCacheWriteLock {
+  _ThrowingReplayCacheWriteLock(String path)
+      : _file = File(path).openSync(mode: FileMode.append);
+
+  final RandomAccessFile _file;
+  bool closed = false;
+  int unlockCalls = 0;
+
+  @override
+  void lockSync() {
+    throw const FileSystemException('fixture lock failure');
+  }
+
+  @override
+  void unlockSync() {
+    unlockCalls++;
+    _file.unlockSync();
+  }
+
+  @override
+  void closeSync() {
+    _file.closeSync();
+    closed = true;
+  }
 }
 
 Future<ProcessResult> _runImportAcceptanceCli(List<String> args) {

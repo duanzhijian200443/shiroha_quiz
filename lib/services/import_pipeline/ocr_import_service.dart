@@ -2,11 +2,13 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import 'import_document_role.dart';
 import 'import_format.dart';
+import 'import_question_repair_policy.dart';
 import 'local_question_assembler.dart';
 import 'ocr_document.dart';
 import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
+import 'ocr_safe_html_cleanup.dart';
 import 'single_question_repair_service.dart';
 
 class OcrImportResult {
@@ -73,12 +75,49 @@ class OcrImportService {
       'model': _ocrClient.modelId,
       'status': 'attempted',
     };
+    final repairAttempts = <Map<String, dynamic>>[];
+    final timing = <String, dynamic>{
+      'ocrDurationMs': 0,
+      'regionizerDurationMs': 0,
+      'assemblyDurationMs': 0,
+      'repairDurationMs': 0,
+      'finalizationDurationMs': 0,
+      'repairAttempts': repairAttempts,
+    };
+    diagnostics['timing'] = timing;
+    final totalStopwatch = Stopwatch()..start();
+
+    T measureStage<T>(String key, T Function() action) {
+      final stopwatch = Stopwatch()..start();
+      try {
+        return action();
+      } finally {
+        stopwatch.stop();
+        timing[key] = stopwatch.elapsedMilliseconds;
+      }
+    }
+
+    Future<T> measureAsyncStage<T>(
+      String key,
+      Future<T> Function() action,
+    ) async {
+      final stopwatch = Stopwatch()..start();
+      try {
+        return await action();
+      } finally {
+        stopwatch.stop();
+        timing[key] = stopwatch.elapsedMilliseconds;
+      }
+    }
 
     try {
-      final document = await _ocrClient.parseFile(
-        profile: profile,
-        filePath: filePath,
-        sourceName: sourceName,
+      final document = await measureAsyncStage(
+        'ocrDurationMs',
+        () => _ocrClient.parseFile(
+          profile: profile,
+          filePath: filePath,
+          sourceName: sourceName,
+        ),
       );
       diagnostics['document'] = document.toDiagnostics();
 
@@ -92,7 +131,10 @@ class OcrImportService {
         );
       }
 
-      final regionized = _regionizer.regionize(document);
+      final regionized = measureStage(
+        'regionizerDurationMs',
+        () => _regionizer.regionize(document),
+      );
       diagnostics['regionizer'] = regionized.diagnostics;
       if (regionized.regions.isEmpty) {
         diagnostics['status'] = 'failed_no_question_regions';
@@ -104,32 +146,40 @@ class OcrImportService {
         );
       }
 
-      final assembled = <_OcrAssemblyCandidate>[];
       var repairRecommendedCount = 0;
       var repairAttemptedCount = 0;
       var repairAppliedCount = 0;
       var rejectedCount = 0;
 
-      for (final region in regionized.regions) {
-        final result = _assembler.assemble(region);
-        if (result.rejected) {
-          rejectedCount++;
-          continue;
+      final assembly = measureStage('assemblyDurationMs', () {
+        final assembled = <_OcrAssemblyCandidate>[];
+        for (final region in regionized.regions) {
+          final result = _assembler.assemble(region);
+          if (result.rejected) {
+            rejectedCount++;
+            continue;
+          }
+          assembled.add(_OcrAssemblyCandidate(region: region, result: result));
         }
-        assembled.add(_OcrAssemblyCandidate(region: region, result: result));
-      }
-
-      final roleAssessment = _assessDocumentRole(
-        document: document,
-        assembled: assembled,
-        sectionHeadingCount:
-            _readInt(regionized.diagnostics['sectionHeadingCount']),
-      );
+        final roleAssessment = _assessDocumentRole(
+          document: document,
+          assembled: assembled,
+          sectionHeadingCount:
+              _readInt(regionized.diagnostics['sectionHeadingCount']),
+        );
+        return (candidates: assembled, roleAssessment: roleAssessment);
+      });
+      final assembled = assembly.candidates;
+      final roleAssessment = assembly.roleAssessment;
       final isStemOnly = roleAssessment.role == ImportDocumentRole.stemOnly;
       final questions = <Map<String, dynamic>>[];
       var repairSkippedForStemOnlyCount = 0;
+      var repairEligibleCount = 0;
+      var repairSkippedNonStructuralCount = 0;
       var discardedAnswerFromRepairCount = 0;
       var clearedAssemblerAnswerCount = 0;
+      var repairDurationMs = 0;
+      var finalizationDurationMs = 0;
 
       for (final candidate in assembled) {
         final region = candidate.region;
@@ -138,30 +188,63 @@ class OcrImportService {
           clearedAssemblerAnswerCount++;
         }
 
-        if (result.repairRecommended && !result.rejected) {
+        if (result.repairRecommended) {
           repairRecommendedCount++;
-          if (isStemOnly && !_requiresStructuralRepair(region, result)) {
-            repairSkippedForStemOnlyCount++;
-          } else {
-            repairAttemptedCount++;
+        }
+        final triggerCodes = const ImportQuestionRepairPolicy().candidateCodes(
+          result.question,
+          diagnostics: result.diagnostics,
+          requireAnswer: roleAssessment.role != ImportDocumentRole.stemOnly,
+        );
+        if (triggerCodes.isNotEmpty) {
+          repairEligibleCount++;
+          repairAttemptedCount++;
+          final repairStopwatch = Stopwatch()..start();
+          var outcome = 'threw';
+          try {
             result = await _repairService.repair(
               region: region.toTextQuestionRegion(),
               localResult: result,
+              requireAnswer: !isStemOnly,
             );
-            if (result.diagnostics.contains('ai_repair_applied')) {
+            outcome = _repairOutcome(result);
+            if (outcome == 'applied') {
               repairAppliedCount++;
               if (isStemOnly && _hasAnswerOrExplanation(result.question)) {
                 discardedAnswerFromRepairCount++;
               }
             }
+          } finally {
+            repairStopwatch.stop();
+            repairDurationMs += repairStopwatch.elapsedMilliseconds;
+            timing['repairDurationMs'] = repairDurationMs;
+            repairAttempts.add({
+              'questionNumber': region.number,
+              'triggerCodes': triggerCodes,
+              'outcome': outcome,
+              'durationMs': repairStopwatch.elapsedMilliseconds,
+            });
+          }
+        } else if (result.repairRecommended) {
+          repairSkippedNonStructuralCount++;
+          if (isStemOnly) {
+            repairSkippedForStemOnlyCount++;
           }
         }
 
-        if (isStemOnly) {
-          result = _enforceStemOnly(result);
-        }
+        final finalizationStopwatch = Stopwatch()..start();
+        try {
+          if (isStemOnly) {
+            result = _enforceStemOnly(result);
+          }
 
-        questions.add(_restoreOcrProvenance(result, region));
+          result = _cleanupSafeHtml(result);
+          questions.add(_restoreOcrProvenance(result, region));
+        } finally {
+          finalizationStopwatch.stop();
+          finalizationDurationMs += finalizationStopwatch.elapsedMilliseconds;
+          timing['finalizationDurationMs'] = finalizationDurationMs;
+        }
       }
 
       if (questions.isEmpty) {
@@ -183,6 +266,8 @@ class OcrImportService {
         'repairAttemptCount': repairAttemptedCount,
         'repairAttemptedCount': repairAttemptedCount,
         'repairAppliedCount': repairAppliedCount,
+        'repairEligibleCount': repairEligibleCount,
+        'repairSkippedNonStructuralCount': repairSkippedNonStructuralCount,
         'repairSkippedForStemOnlyCount': repairSkippedForStemOnlyCount,
         'discardedAnswerFromRepairCount': discardedAnswerFromRepairCount,
         'clearedAssemblerAnswerCount': clearedAssemblerAnswerCount,
@@ -209,6 +294,9 @@ class OcrImportService {
         warnings: const ['OCR 请求失败，请检查 OCR 配置或网络后重试。'],
         diagnostics: diagnostics,
       );
+    } finally {
+      totalStopwatch.stop();
+      timing['totalDurationMs'] = totalStopwatch.elapsedMilliseconds;
     }
   }
 
@@ -231,6 +319,44 @@ class OcrImportService {
     question['source_block_ids'] = region.sourceBlockIds;
     question['diagnostics'] = diagnostics;
     return question;
+  }
+
+  LocalAssemblyResult _cleanupSafeHtml(LocalAssemblyResult result) {
+    final question = Map<String, dynamic>.from(result.question);
+    final diagnostics = <String>{...result.diagnostics};
+
+    void cleanField(String key) {
+      final value = question[key];
+      if (value is! String) return;
+      final cleaned = stripSafeHtmlWrappers(value);
+      question[key] = cleaned.text;
+      diagnostics.addAll(cleaned.diagnostics);
+    }
+
+    for (final key in const [
+      'content',
+      'standard_answer',
+      'explanation',
+    ]) {
+      cleanField(key);
+    }
+
+    final options = question['options'];
+    if (options is List) {
+      question['options'] = options.map((option) {
+        if (option is! String) return option;
+        final cleaned = stripSafeHtmlWrappers(option);
+        diagnostics.addAll(cleaned.diagnostics);
+        return cleaned.text;
+      }).toList();
+    }
+
+    return LocalAssemblyResult(
+      question: question,
+      diagnostics: diagnostics.toList(),
+      repairRecommended: result.repairRecommended,
+      rejected: result.rejected,
+    );
   }
 
   _OcrDocumentRoleAssessment _assessDocumentRole({
@@ -314,20 +440,13 @@ class OcrImportService {
     return _ExplicitMarkerCounts(answer: answer, explanation: explanation);
   }
 
-  bool _requiresStructuralRepair(
-    OcrQuestionRegion region,
-    LocalAssemblyResult result,
-  ) {
-    final question = result.question;
-    final type = _readInt(question['type']);
-    final options = question['options'];
-    final optionCount = options is List ? options.length : 0;
-    return region.isCrossPage ||
-        _readString(question['content']).isEmpty ||
-        ((type == 0 || type == 1) && optionCount < 2) ||
-        result.diagnostics.contains('dangling_latex') ||
-        result.diagnostics.contains('empty_content') ||
-        result.diagnostics.contains('choice_options_less_than_2');
+  String _repairOutcome(LocalAssemblyResult result) {
+    if (result.diagnostics.contains('ai_repair_applied')) return 'applied';
+    if (result.diagnostics.contains('repair_failed')) return 'failed';
+    if (result.diagnostics.contains('repair_skipped_no_active_engine')) {
+      return 'skipped_no_engine';
+    }
+    return 'unchanged';
   }
 
   LocalAssemblyResult _enforceStemOnly(LocalAssemblyResult result) {

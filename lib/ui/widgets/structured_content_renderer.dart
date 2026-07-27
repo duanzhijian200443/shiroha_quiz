@@ -324,7 +324,7 @@ class _MathTexView extends StatelessWidget {
     final safeTex = _MathTexSanitizer.sanitize(tex);
     if (_MathTexSanitizer.isStructurallyUnsafe(safeTex)) {
       if (kDebugMode) {
-        debugPrint('Structured LaTeX skipped unsafe formula: $safeTex');
+        debugPrint('Structured LaTeX render fallback: structurally_unsafe');
       }
       return _LatexErrorChip(
         tex: tex,
@@ -340,9 +340,7 @@ class _MathTexView extends StatelessWidget {
       settings: const TexParserSettings(strict: Strict.ignore),
       onErrorFallback: (err) {
         if (kDebugMode) {
-          debugPrint(
-            'Structured LaTeX ParseException: $err\nFormula: $safeTex',
-          );
+          debugPrint('Structured LaTeX render fallback: parse_error');
         }
         return _LatexErrorChip(
           tex: tex,

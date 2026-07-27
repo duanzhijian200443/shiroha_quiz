@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/ui/widgets/markdown_extensions.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 import 'package:shiroha_quiz/utils/ai_data_sanitizer.dart';
@@ -244,20 +245,62 @@ void main() {
   testWidgets('buildLatexWidget skips structurally unsafe left right formulas',
       (tester) async {
     const text = r'\(\left[\int\)';
+    final debugMessages = <String>[];
+    final previousDebugPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      if (message != null) debugMessages.add(message);
+    };
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => buildLatexWidget(context, text),
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => buildLatexWidget(context, text),
+            ),
           ),
         ),
+      );
+
+      expect(find.byType(Math), findsNothing);
+      expect(find.textContaining(r'\left[\int', findRichText: true),
+          findsOneWidget);
+      expect(
+        debugMessages,
+        contains('Structured LaTeX render fallback: structurally_unsafe'),
+      );
+      expect(debugMessages.join('\n'), isNot(contains(r'\left[\int')));
+    } finally {
+      debugPrint = previousDebugPrint;
+    }
+  });
+
+  testWidgets('renderer and final audit reject the same mismatched environment',
+      (tester) async {
+    const text = r'\(\begin{matrix}1\end{pmatrix}\)';
+    final audited = auditFinalQuestionLatex({
+      'content': text,
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': '',
+    });
+
+    expect(audited.invalidFields, ['content']);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
       ),
     );
 
     expect(find.byType(Math), findsNothing);
     expect(
-        find.textContaining(r'\left[\int', findRichText: true), findsOneWidget);
+      find.textContaining(
+        r'\begin{matrix}1\end{pmatrix}',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('buildLatexWidget promotes complex inline math to block view',

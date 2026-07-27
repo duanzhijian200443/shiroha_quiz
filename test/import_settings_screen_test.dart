@@ -41,7 +41,79 @@ void main() {
     expect(find.text('适合可提取文字的 PDF 与剪贴板文本'), findsOneWidget);
     expect(find.text('OCR（扫描）'), findsOneWidget);
     expect(find.text('先识别文字再解析，适合扫描文档'), findsOneWidget);
+    expect(find.text('保留选择题与填空题解析'), findsOneWidget);
+    expect(find.text('关闭时仅导入题干、选项和标准答案'), findsOneWidget);
+    expect(
+      find.text('开启后会保留详细解析，可能增加处理时间和校对问题'),
+      findsOneWidget,
+    );
+    expect(find.text('推荐关闭'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
     expect(find.byType(SwitchListTile), findsNothing);
+  });
+
+  testWidgets('retention setting defaults off and exposes row and switch taps',
+      (tester) async {
+    final changes = <bool>[];
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        onRetainObjectiveExplanationsChanged: changes.add,
+      ),
+    );
+
+    final row =
+        find.byKey(const ValueKey<String>('retain-objective-explanations-row'));
+    final switchFinder = find.byKey(
+      const ValueKey<String>('retain-objective-explanations-switch'),
+    );
+    expect(tester.getSize(row).height, inInclusiveRange(76, 88));
+    expect(tester.widget<Switch>(switchFinder).value, isFalse);
+
+    await tester.tap(row);
+    await tester.pump();
+
+    expect(tester.widget<Switch>(switchFinder).value, isTrue);
+    expect(changes, [true]);
+    expect(
+      tester
+              .getSemantics(
+                find.byKey(
+                  const ValueKey<String>('import-parse-mode-vision'),
+                ),
+              )
+              .flagsCollection
+              .isSelected ==
+          ui.Tristate.isTrue,
+      isTrue,
+    );
+
+    await tester.tap(switchFinder);
+    await tester.pump();
+
+    expect(tester.widget<Switch>(switchFinder).value, isFalse);
+    expect(changes, [true, false]);
+  });
+
+  testWidgets('retention setting accepts an enabled initial value',
+      (tester) async {
+    await pumpScreen(
+      tester,
+      screen: const ImportSettingsScreen(
+        retainObjectiveExplanations: true,
+      ),
+    );
+
+    expect(
+      tester
+          .widget<Switch>(
+            find.byKey(
+              const ValueKey<String>('retain-objective-explanations-switch'),
+            ),
+          )
+          .value,
+      isTrue,
+    );
   });
 
   testWidgets('defaults to vision and exposes radio selection semantics',

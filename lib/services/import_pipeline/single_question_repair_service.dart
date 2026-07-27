@@ -1,7 +1,11 @@
 import 'dart:convert';
 
+import '../../data/models/import_question_validation.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_api_client.dart';
+import 'final_question_latex_audit.dart';
+import 'import_question_field_policy.dart';
+import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
 import 'text_question_region.dart';
 
@@ -21,6 +25,7 @@ class SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
+    bool requireAnswer = true,
   }) async {
     final profile = await engineRepository.getActiveTextEngine();
 
@@ -50,14 +55,27 @@ class SingleQuestionRepairService {
         );
       }
 
-      final canonical = _canonicalizeRepairedMap(
-        repaired,
-        fallback: localResult.question,
-        regionNumber: region.number,
+      final canonical = const ImportQuestionFieldPolicy().applyToMap(
+        _canonicalizeRepairedMap(
+          repaired,
+          fallback: localResult.question,
+          regionNumber: region.number,
+        ),
       );
+      final latexAudit = auditFinalQuestionLatex(canonical);
+      if (!_isStructurallyValidRepair(
+            latexAudit.question,
+            requireAnswer: requireAnswer,
+          ) ||
+          latexAudit.hasUnrenderableLatex) {
+        return _appendDiagnostic(
+          localResult,
+          'repair_rejected_structural_invalid',
+        );
+      }
 
       return LocalAssemblyResult(
-        question: canonical,
+        question: latexAudit.question,
         diagnostics: [
           ...localResult.diagnostics,
           'ai_repair_applied',
@@ -96,7 +114,7 @@ class SingleQuestionRepairService {
 7. options 必须是字符串数组，例如 ["A. ...", "B. ..."]。
 8. 字段只能使用：
    question_number, type, content, options, standard_answer, explanation, raw_explanation
-9. 只有 type=3 的解答题/证明题允许输出 explanation/raw_explanation；type=0/1/2 必须设为空。
+9. type=3 保留 explanation；type=0/1/2 的 explanation 必须为空。raw_explanation 只能保留现有来源文本，不得新增或扩写。
 
 现有本地解析结果：
 $local
@@ -161,18 +179,14 @@ ${region.rawText}
         ? fallbackType
         : repairedType;
     final options = repaired['options'];
-    final explanation = type == 3
-        ? _readString(
-            repaired['explanation'],
-            fallback: fallback['explanation'],
-          )
-        : '';
-    final rawExplanation = type == 3
-        ? _readNullableString(
-            repaired['raw_explanation'],
-            fallback: repaired['explanation'] ?? fallback['raw_explanation'],
-          )
-        : null;
+    final explanation = _readString(
+      repaired['explanation'],
+      fallback: fallback['explanation'],
+    );
+    final rawExplanation = _readNullableString(
+      repaired['raw_explanation'],
+      fallback: repaired['explanation'] ?? fallback['raw_explanation'],
+    );
 
     return {
       'question_number': regionNumber,
@@ -200,6 +214,35 @@ ${region.rawText}
         'ai_repair_applied',
       ],
     };
+  }
+
+  bool _isStructurallyValidRepair(
+    Map<String, dynamic> question, {
+    required bool requireAnswer,
+  }) {
+    if (_readString(question['content']).isEmpty) return false;
+
+    final type = _readInt(question['type']);
+    final options = question['options'];
+    if ((type == 0 || type == 1) &&
+        !hasAtLeastTwoMeaningfulOptions(options is List ? options : null)) {
+      return false;
+    }
+
+    if (requireAnswer &&
+        (type == 0 || type == 1) &&
+        !isMeaningfulAnswer(_readString(question['standard_answer']))) {
+      return false;
+    }
+
+    const checker = LatexSanityChecker();
+    final values = <String>[
+      _readString(question['content']),
+      _readString(question['standard_answer']),
+      _readString(question['explanation']),
+      if (options is List) ...options.map((value) => value.toString()),
+    ];
+    return !values.any(checker.hasDanglingDelimiters);
   }
 
   LocalAssemblyResult _appendDiagnostic(

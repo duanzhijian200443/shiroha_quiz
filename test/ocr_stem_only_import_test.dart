@@ -74,6 +74,7 @@ class _RecordingRepairService extends SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
+    bool requireAnswer = true,
   }) async {
     callCount++;
     final question = Map<String, dynamic>.from(localResult.question)

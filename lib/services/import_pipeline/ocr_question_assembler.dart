@@ -1,3 +1,4 @@
+import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
@@ -29,14 +30,13 @@ class OcrQuestionAssembler {
       type: type,
       explanation: region.explanationText,
     );
-    final explanation =
-        type == 3 ? _stripFieldLabels(region.explanationText) : '';
-    if (type != 3 && region.explanationText.trim().isNotEmpty) {
-      diagnostics.add('dropped_non_subjective_explanation');
-    }
+    final explanation = _stripFieldLabels(region.explanationText);
 
     if (content.trim().isEmpty) diagnostics.add('empty_content');
     if (answer.trim().isEmpty) diagnostics.add('missing_answer');
+    if (type != 3 && explanation.isNotEmpty) {
+      diagnostics.add('dropped_non_subjective_explanation');
+    }
     if (region.declaredKind != TextQuestionKind.unknown) {
       diagnostics.add('type_constrained_by_region:${region.declaredKind.name}');
     }
@@ -48,18 +48,8 @@ class OcrQuestionAssembler {
     if (type == 0 && optionExtract.options.length < 2) {
       diagnostics.add('choice_options_less_than_2');
     }
-    if (_hasDanglingLatex(region.rawText)) {
-      diagnostics.add('dangling_latex');
-    }
-
-    final repairRecommended = region.isCrossPage ||
-        content.trim().isEmpty ||
-        (type == 0 && optionExtract.options.length < 2) ||
-        (type == 0 && answer.trim().isEmpty) ||
-        diagnostics.contains('dangling_latex');
-
-    return LocalAssemblyResult(
-      question: {
+    var question = const ImportQuestionFieldPolicy().applyToMap(
+      {
         'q_num': region.number.toString(),
         'question_number': region.number,
         'type': type,
@@ -73,6 +63,23 @@ class OcrQuestionAssembler {
         'source_block_ids': region.sourceBlockIds,
         'diagnostics': diagnostics.toSet().toList(),
       },
+    );
+    if (_hasDanglingLatexInFinalFields(question)) {
+      diagnostics.add('dangling_latex');
+    }
+
+    final repairRecommended = region.isCrossPage ||
+        content.trim().isEmpty ||
+        (type == 0 && optionExtract.options.length < 2) ||
+        (type == 0 && answer.trim().isEmpty) ||
+        diagnostics.contains('dangling_latex');
+    question = <String, dynamic>{
+      ...question,
+      'diagnostics': diagnostics.toSet().toList(),
+    };
+
+    return LocalAssemblyResult(
+      question: question,
       diagnostics: diagnostics.toSet().toList(),
       repairRecommended: repairRecommended,
       rejected: content.trim().isEmpty && region.rawText.trim().length < 8,
@@ -98,11 +105,16 @@ class OcrQuestionAssembler {
 
   _OptionExtract _extractOptions(String text) {
     final markerRegex = RegExp(
-      r'(^|\n)\s*(?:[（(]\s*([A-D])\s*[）)]|([A-D])\s*[\.．、])\s*',
+      r'(?:[（(]\s*([A-D])\s*[）)]|(?:^|\n)[ \t]*([A-D])\s*[\.．、])[ \t\r\n]*',
       multiLine: true,
     );
     final matches = markerRegex.allMatches(text).toList();
-    if (matches.length < 2) {
+    const expectedKeys = ['A', 'B', 'C', 'D'];
+    final keys = matches
+        .map((match) => (match.group(1) ?? match.group(2) ?? '').toUpperCase())
+        .toList();
+    if (keys.length != expectedKeys.length ||
+        !_hasExpectedOptionSequence(keys, expectedKeys)) {
       return _OptionExtract(stem: text.trim(), options: const []);
     }
 
@@ -110,17 +122,26 @@ class OcrQuestionAssembler {
     final options = <String>[];
     for (var i = 0; i < matches.length; i++) {
       final match = matches[i];
-      final key = (match.group(1) ?? match.group(2) ?? '').toUpperCase();
-      if (key.isEmpty) continue;
-
       final start = match.end;
       final end = i + 1 < matches.length ? matches[i + 1].start : text.length;
       final optionText = text.substring(start, end).trim();
-      if (optionText.isEmpty) continue;
-      options.add('$key. $optionText');
+      if (optionText.isEmpty) {
+        return _OptionExtract(stem: text.trim(), options: const []);
+      }
+      options.add('${keys[i]}. $optionText');
     }
 
     return _OptionExtract(stem: stem, options: options);
+  }
+
+  bool _hasExpectedOptionSequence(
+    List<String> actual,
+    List<String> expected,
+  ) {
+    for (var i = 0; i < expected.length; i++) {
+      if (actual[i] != expected[i]) return false;
+    }
+    return true;
   }
 
   int _classifyType({
@@ -184,6 +205,16 @@ class OcrQuestionAssembler {
 
   bool _hasDanglingLatex(String text) {
     return const LatexSanityChecker().hasDanglingDelimiters(text);
+  }
+
+  bool _hasDanglingLatexInFinalFields(Map<String, dynamic> question) {
+    for (final key in const ['content', 'standard_answer', 'explanation']) {
+      final value = question[key];
+      if (value is String && _hasDanglingLatex(value)) return true;
+    }
+    final options = question['options'];
+    return options is List &&
+        options.whereType<String>().any(_hasDanglingLatex);
   }
 }
 

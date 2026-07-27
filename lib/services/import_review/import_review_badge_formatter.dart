@@ -102,6 +102,20 @@ class ImportReviewBadgeFormatter {
             textColor: Colors.redAccent,
           ));
           break;
+        case 'latex_unrenderable':
+          badges.add(const ImportReviewBadge(
+            label: 'LaTeX 异常',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
+        case 'raw_html_tag':
+          badges.add(const ImportReviewBadge(
+            label: 'HTML 残留',
+            backgroundColor: Color(0xFFFFF3E0),
+            textColor: Colors.orange,
+          ));
+          break;
         default:
           badges.add(ImportReviewBadge(
             label: hint,
