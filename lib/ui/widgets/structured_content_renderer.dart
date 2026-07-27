@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
+import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
+import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
 import '../../utils/content_tokenizer.dart';
 import '../../utils/latex_complexity_classifier.dart';
@@ -41,7 +43,20 @@ class StructuredContentRenderer extends StatelessWidget {
       fontWeight: fontWeight,
       height: 1.65,
     );
-    final normalized = ContentNormalizer.normalizeForRender(text);
+    final blockNormalized =
+        const LatexBlockEnvironmentNormalizer().normalize(text);
+    if (!blockNormalized.renderability.isRenderable) {
+      if (kDebugMode) {
+        debugPrint('Structured LaTeX render fallback: structurally_unsafe');
+      }
+      return _LatexErrorChip(
+        tex: text,
+        style: style,
+        inline: false,
+      );
+    }
+    final normalized =
+        ContentNormalizer.normalizeForRender(blockNormalized.text);
     final tokens = ContentTokenizer.tokenize(normalized);
     if (tokens.isEmpty) return const SizedBox.shrink();
 
@@ -322,7 +337,12 @@ class _MathTexView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final safeTex = _MathTexSanitizer.sanitize(tex);
-    if (_MathTexSanitizer.isStructurallyUnsafe(safeTex)) {
+    final renderability = const LatexRenderabilityChecker().check(
+      safeTex,
+      requireMathContext: false,
+      assumeMathContext: true,
+    );
+    if (!renderability.isRenderable) {
       if (kDebugMode) {
         debugPrint('Structured LaTeX render fallback: structurally_unsafe');
       }
@@ -465,32 +485,6 @@ class _MathTexSanitizer {
           .replaceAll(r'\]}', '}');
       if (result == old) return result;
     }
-  }
-
-  static bool isStructurallyUnsafe(String tex) {
-    if (_commandCount(tex, 'left') != _commandCount(tex, 'right')) {
-      return true;
-    }
-    return !_hasBalancedEnvironments(tex);
-  }
-
-  static int _commandCount(String tex, String command) {
-    return RegExp('\\\\$command\\b').allMatches(tex).length;
-  }
-
-  static bool _hasBalancedEnvironments(String tex) {
-    final stack = <String>[];
-    final pattern = RegExp(r'\\(begin|end)\{([^{}]+)\}');
-    for (final match in pattern.allMatches(tex)) {
-      final kind = match.group(1);
-      final env = match.group(2)!;
-      if (kind == 'begin') {
-        stack.add(env);
-      } else if (stack.isEmpty || stack.removeLast() != env) {
-        return false;
-      }
-    }
-    return stack.isEmpty;
   }
 
   static String _replaceUnsupportedCommands(String tex) {

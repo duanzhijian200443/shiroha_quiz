@@ -1674,6 +1674,36 @@ void main() {
       );
     });
 
+    test('safe bare array is normalized before acceptance quality checks', () {
+      final audited = finalizeAndAuditImportQuestions([
+        {
+          'question_number': 1,
+          'type': 3,
+          'content': 'Question',
+          'options': <String>[],
+          'standard_answer': 'Answer',
+          'explanation': r'Before \{\begin{array}{l}x=1\\y=2\end{array} after',
+        },
+      ]);
+      final quality = runAcceptanceQualityChecks(
+        questions: audited,
+        testCase: const ImportAcceptanceCase(
+          schemaVersion: 1,
+          caseId: 'synthetic_bare_array',
+          pdf: 'synthetic.pdf',
+          expectedQuestionCount: 1,
+          expectedNumbers: [1],
+          allowDuplicateNumbers: false,
+        ),
+      );
+
+      expect(
+        quality.questionReports.single.issues.map((issue) => issue.code),
+        isNot(contains('latex_unrenderable')),
+      );
+      expect(audited.single['explanation'], contains(r'\[\{\begin{array}'));
+    });
+
     test('unrepairable LaTeX still produces latex_unrenderable', () {
       // Mismatched environment: \begin{matrix}...\end{pmatrix} is not repairable
       final questions = <Map<String, dynamic>>[

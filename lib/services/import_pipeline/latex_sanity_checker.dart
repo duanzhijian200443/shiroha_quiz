@@ -1,5 +1,4 @@
-final RegExp _leftControlWord = RegExp(r'\\left(?![A-Za-z])');
-final RegExp _rightControlWord = RegExp(r'\\right(?![A-Za-z])');
+import 'latex_renderability_checker.dart';
 
 /// Shared LaTeX structural sanity checks.
 ///
@@ -7,6 +6,8 @@ final RegExp _rightControlWord = RegExp(r'\\right(?![A-Za-z])');
 /// without requiring a real Flutter LaTeX rendering widget.
 class LatexSanityChecker {
   const LatexSanityChecker();
+
+  static const _renderabilityChecker = LatexRenderabilityChecker();
 
   /// Returns true if the text contains unbalanced LaTeX delimiters.
   ///
@@ -16,29 +17,19 @@ class LatexSanityChecker {
   /// - \left / \right count match
   /// - \begin{...} / \end{...} nesting and names match
   bool hasDanglingDelimiters(String text) {
-    final inlineOpen = RegExp(r'\\\(').allMatches(text).length;
-    final inlineClose = RegExp(r'\\\)').allMatches(text).length;
-    final blockOpen = RegExp(r'\\\[').allMatches(text).length;
-    final blockClose = RegExp(r'\\\]').allMatches(text).length;
-    if (inlineOpen != inlineClose || blockOpen != blockClose) return true;
+    return !_renderabilityChecker
+        .check(text, requireMathContext: false)
+        .isRenderable;
+  }
 
-    final leftCount = _leftControlWord.allMatches(text).length;
-    final rightCount = _rightControlWord.allMatches(text).length;
-    if (leftCount != rightCount) return true;
-
-    final environments = <String>[];
-    final environmentToken = RegExp(r'\\(begin|end)\{([^{}]+)\}');
-    for (final match in environmentToken.allMatches(text)) {
-      final operation = match.group(1);
-      final name = match.group(2);
-      if (name == null) return true;
-      if (operation == 'begin') {
-        environments.add(name);
-      } else if (environments.isEmpty || environments.removeLast() != name) {
-        return true;
-      }
-    }
-    return environments.isNotEmpty;
+  LatexRenderabilityResult checkRenderability(
+    String text, {
+    bool assumeMathContext = false,
+  }) {
+    return _renderabilityChecker.check(
+      text,
+      assumeMathContext: assumeMathContext,
+    );
   }
 }
 
@@ -48,7 +39,6 @@ String repairLatexDeterministically(String text) {
   var repaired = _closeSingleTrailingDelimiter(text, r'\(', r'\)');
   repaired = _closeSingleTrailingDelimiter(repaired, r'\[', r'\]');
   repaired = _normalizeUnbalancedLeftRight(repaired);
-  repaired = _closeTrailingEnvironments(repaired);
   return repaired;
 }
 
@@ -70,41 +60,15 @@ String _closeSingleTrailingDelimiter(
 }
 
 String _normalizeUnbalancedLeftRight(String text) {
-  final leftCount = _leftControlWord.allMatches(text).length;
-  final rightCount = _rightControlWord.allMatches(text).length;
+  final leftCount = latexLeftControlWordPattern.allMatches(text).length;
+  final rightCount = latexRightControlWordPattern.allMatches(text).length;
   if (leftCount == rightCount) return text;
   if (rightCount > leftCount) return text;
 
   return text
       .replaceAll(RegExp(r'\\(?:left|right)(?![A-Za-z])\s*\.'), '')
-      .replaceAll(_leftControlWord, '')
-      .replaceAll(_rightControlWord, '');
-}
-
-String _closeTrailingEnvironments(String text) {
-  final environments = <String>[];
-  final environmentToken = RegExp(r'\\(begin|end)\{([^{}]+)\}');
-  for (final match in environmentToken.allMatches(text)) {
-    final operation = match.group(1);
-    final name = match.group(2)!;
-    if (operation == 'begin') {
-      environments.add(name);
-    } else if (environments.isEmpty || environments.removeLast() != name) {
-      return text;
-    }
-  }
-  if (environments.isEmpty) return text;
-
-  final closingTokens =
-      environments.reversed.map((environment) => '\\end{$environment}').join();
-  final trailingWhitespace = RegExp(r'\s*$').firstMatch(text)!.group(0)!;
-  final contentEnd = text.length - trailingWhitespace.length;
-  final body = text.substring(0, contentEnd);
-  final insertionOffset = body.endsWith(r'\)') || body.endsWith(r'\]')
-      ? body.length - 2
-      : body.length;
-  return '${body.substring(0, insertionOffset)}'
-      '$closingTokens${body.substring(insertionOffset)}$trailingWhitespace';
+      .replaceAll(latexLeftControlWordPattern, '')
+      .replaceAll(latexRightControlWordPattern, '');
 }
 
 extension on String {

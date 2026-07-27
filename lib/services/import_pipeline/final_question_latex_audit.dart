@@ -1,9 +1,11 @@
 import 'import_question_field_policy.dart';
 import 'import_question_repair_policy.dart';
+import 'latex_block_environment_normalizer.dart';
 import 'latex_sanity_checker.dart';
 import 'ocr_safe_html_cleanup.dart';
 
 const String latexUnrenderableIssue = 'latex_unrenderable';
+const String latexInvalidFieldsKey = 'latexInvalidFields';
 const String rawHtmlTagIssue = 'raw_html_tag';
 const Set<String> _derivedDiagnosticCodes = {
   latexUnrenderableIssue,
@@ -37,13 +39,16 @@ class FinalQuestionLatexAuditResult {
 FinalQuestionLatexAuditResult auditFinalQuestionLatex(
   Map<String, dynamic> question, {
   LatexSanityChecker checker = const LatexSanityChecker(),
+  LatexBlockEnvironmentNormalizer normalizer =
+      const LatexBlockEnvironmentNormalizer(),
 }) {
   Map<String, dynamic>? repairedQuestion;
 
   void repairStringField(String key) {
     final value = question[key];
     if (value is! String) return;
-    final repaired = repairLatexDeterministically(value);
+    final repaired =
+        normalizer.normalize(repairLatexDeterministically(value)).text;
     if (repaired == value) return;
     repairedQuestion ??= Map<String, dynamic>.from(question);
     repairedQuestion![key] = repaired;
@@ -57,8 +62,9 @@ FinalQuestionLatexAuditResult auditFinalQuestionLatex(
   if (originalOptions is List) {
     final repairedOptions = originalOptions
         .map(
-          (option) =>
-              option is String ? repairLatexDeterministically(option) : option,
+          (option) => option is String
+              ? normalizer.normalize(repairLatexDeterministically(option)).text
+              : option,
         )
         .toList(growable: false);
     for (var index = 0; index < originalOptions.length; index++) {
@@ -75,7 +81,7 @@ FinalQuestionLatexAuditResult auditFinalQuestionLatex(
 
   void auditStringField(String key) {
     final value = candidate[key];
-    if (value is String && checker.hasDanglingDelimiters(value)) {
+    if (value is String && !checker.checkRenderability(value).isRenderable) {
       invalidFields.add(key);
     }
   }
@@ -84,7 +90,9 @@ FinalQuestionLatexAuditResult auditFinalQuestionLatex(
 
   final options = candidate['options'];
   if (options is List &&
-      options.whereType<String>().any(checker.hasDanglingDelimiters)) {
+      options
+          .whereType<String>()
+          .any((option) => !checker.checkRenderability(option).isRenderable)) {
     invalidFields.add('options');
   }
 
@@ -113,6 +121,7 @@ FinalQuestionLatexAuditResult auditFinalQuestionLatex(
       : <String>{};
   riskHints.add(latexUnrenderableIssue);
   metadata['riskHints'] = riskHints.toList()..sort();
+  metadata[latexInvalidFieldsKey] = invalidFields;
   auditedQuestion['_import_review'] = metadata;
 
   return FinalQuestionLatexAuditResult(
@@ -207,18 +216,22 @@ Map<String, dynamic> _clearDerivedDiagnostics(
       (entry) => MapEntry(entry.key.toString(), entry.value),
     ),
   );
+  final removedInvalidFields = metadata.remove(latexInvalidFieldsKey) != null;
   final rawHints = metadata['riskHints'];
-  if (rawHints is! List) return source;
-  final hints = rawHints
-      .map((hint) => hint.toString())
-      .where((hint) => !_derivedDiagnosticCodes.contains(hint))
-      .toSet()
-      .toList()
-    ..sort();
-  if (hints.length == rawHints.length) return source;
+  var hintsChanged = false;
+  if (rawHints is List) {
+    final hints = rawHints
+        .map((hint) => hint.toString())
+        .where((hint) => !_derivedDiagnosticCodes.contains(hint))
+        .toSet()
+        .toList()
+      ..sort();
+    hintsChanged = hints.length != rawHints.length;
+    if (hintsChanged) metadata['riskHints'] = hints;
+  }
+  if (!removedInvalidFields && !hintsChanged) return source;
 
   next ??= Map<String, dynamic>.from(question);
-  metadata['riskHints'] = hints;
   next['_import_review'] = metadata;
   return next;
 }

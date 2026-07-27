@@ -291,6 +291,38 @@ void main() {
       expect(ImportReviewBlockingPolicy.isBlocked(result), isFalse);
     });
 
+    test('proof explanation satisfies answer expectation without fake answer',
+        () {
+      final result = ImportReviewAnalyzer.analyze([
+        const QuestionDraft(
+          content: '证明该命题成立',
+          type: QuestionType.shortAnswer,
+          options: [],
+          explanation: 'Synthetic complete proof steps.',
+          standardAnswer: '',
+        ),
+      ]);
+
+      expect(result.summary.missingAnswerCount, 0);
+      expect(result.summary.warningCount, 0);
+      expect(result.issues, isEmpty);
+    });
+
+    test('proof instruction without explanation remains reviewable', () {
+      final result = ImportReviewAnalyzer.analyze([
+        const QuestionDraft(
+          content: '试证明该命题',
+          type: QuestionType.shortAnswer,
+          options: [],
+          explanation: '',
+          standardAnswer: '',
+        ),
+      ]);
+
+      expect(result.summary.missingAnswerCount, 1);
+      expect(result.summary.errorCount, 1);
+    });
+
     test('analyzeItems correctly handles risk hints from metadata', () {
       final items = [
         ImportReviewItem(

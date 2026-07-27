@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 
 void main() {
@@ -89,6 +90,170 @@ void main() {
 
       // Clean up task so it doesn't pollute database
       taskManager.deleteTask('test_task_4');
+    });
+
+    test('review draft replaces parsed data and preserves retention metadata',
+        () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'review-draft',
+          title: 'Synthetic review',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {'type': 3, 'content': 'Original', 'standard_answer': ''},
+          ],
+        ),
+      );
+
+      await taskManager.saveReviewDraft(
+        'review-draft',
+        questions: [
+          {
+            'type': 3,
+            'content': 'Edited',
+            'standard_answer': '42',
+            '_explanation_override': 'keep',
+            '_answer_distillation_status': 'local_extracted',
+          },
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      final task = taskManager.tasks.single;
+      expect(task.parsedData, hasLength(1));
+      expect(task.parsedData!.single['content'], 'Edited');
+      expect(task.parsedData!.single['standard_answer'], '42');
+      expect(task.parsedData!.single['_explanation_override'], 'keep');
+      expect(
+        task.diagnostics![TaskManager.keyExplanationRetentionMode],
+        ExplanationRetentionMode.allQuestionTypes.name,
+      );
+
+      final restored = ImportTask.fromMap(task.toMap());
+      expect(restored.parsedData!.single['standard_answer'], '42');
+      expect(
+        restored.parsedData!.single['_answer_distillation_status'],
+        'local_extracted',
+      );
+    });
+
+    test('review draft persistence failure keeps the previous snapshot',
+        () async {
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async => throw StateError('synthetic persistence error'),
+      );
+      taskManager.addTask(
+        ImportTask(
+          id: 'failed-review-draft',
+          title: 'Synthetic failed draft',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {'content': 'Original', 'standard_answer': ''},
+          ],
+        ),
+      );
+
+      final result = await taskManager.saveReviewDraft(
+        'failed-review-draft',
+        questions: [
+          {'content': 'Changed', 'standard_answer': '42'},
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.status, ReviewDraftSaveStatus.failed);
+      expect(
+        taskManager.tasks.single.parsedData!.single['content'],
+        'Original',
+      );
+    });
+
+    test('stale answer merge cannot revive a deleted review item', () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'deleted-review-item',
+          title: 'Synthetic deleted item',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {
+              TaskManager.keyReviewItemId: 'q17',
+              'content': 'Question',
+              'standard_answer': '',
+            },
+          ],
+        ),
+      );
+      final base = await taskManager.saveReviewDraft(
+        'deleted-review-item',
+        questions: taskManager.tasks.single.parsedData!,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      await taskManager.saveReviewDraft(
+        'deleted-review-item',
+        questions: const [],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      final stale = await taskManager.mergeReviewDraftAnswer(
+        'deleted-review-item',
+        reviewItemId: 'q17',
+        expectedRevision: base.revision,
+        standardAnswer: 'Stale answer',
+        status: 'ai_applied',
+      );
+
+      expect(stale.status, ReviewDraftSaveStatus.stale);
+      expect(taskManager.tasks.single.parsedData, isEmpty);
+    });
+
+    test('stale answer merge cannot overwrite a newer manual answer', () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'updated-review-item',
+          title: 'Synthetic updated item',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {
+              TaskManager.keyReviewItemId: 'q17',
+              'content': 'Question',
+              'standard_answer': '',
+            },
+          ],
+        ),
+      );
+      final base = await taskManager.saveReviewDraft(
+        'updated-review-item',
+        questions: taskManager.tasks.single.parsedData!,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      await taskManager.saveReviewDraft(
+        'updated-review-item',
+        questions: [
+          {
+            TaskManager.keyReviewItemId: 'q17',
+            'content': 'Question',
+            'standard_answer': 'Manual answer',
+          },
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      final stale = await taskManager.mergeReviewDraftAnswer(
+        'updated-review-item',
+        reviewItemId: 'q17',
+        expectedRevision: base.revision,
+        standardAnswer: 'Stale answer',
+        status: 'ai_applied',
+      );
+
+      expect(stale.status, ReviewDraftSaveStatus.stale);
+      expect(
+        taskManager.tasks.single.parsedData!.single['standard_answer'],
+        'Manual answer',
+      );
     });
   });
 }

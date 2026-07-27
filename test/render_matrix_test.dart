@@ -303,6 +303,32 @@ void main() {
     );
   });
 
+  testWidgets(
+      'renderer and final audit accept the same bare array normalization',
+      (tester) async {
+    const text = r'\{\begin{array}{l}x_1=1\\x_2=2\end{array}';
+    final audited = auditFinalQuestionLatex({
+      'content': text,
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': '',
+    });
+
+    expect(audited.invalidFields, isEmpty);
+    expect(audited.question['content'], '${r'\['}$text${r'\]'}');
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining(r'\begin{array}', findRichText: true),
+        findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('buildLatexWidget promotes complex inline math to block view',
       (tester) async {
     const text = r'Before \(\begin{pmatrix}1&2\\3&4\end{pmatrix}\) after';

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/services/task_manager.dart';
 
 class FakeQuestionRepository extends Fake implements QuestionRepository {
   @override
@@ -11,8 +12,10 @@ class FakeQuestionRepository extends Fake implements QuestionRepository {
 void main() {
   group('ImportStagingScreen Batch Actions Widget Tests', () {
     late List<Map<String, dynamic>> parsedQuestions;
+    late TaskManager taskManager;
 
     setUp(() {
+      taskManager = TaskManager.forTesting(saveTask: (_) async {});
       parsedQuestions = [
         {
           'type': 0,
@@ -20,6 +23,7 @@ void main() {
           'options': ['A', 'B'],
           'standard_answer': 'A',
           'explanation': '',
+          'raw_explanation': 'Q1 explanation',
           '_import_review': {
             'source': 'text',
             'sources': ['doc1.pdf'],
@@ -54,6 +58,14 @@ void main() {
           },
         },
       ];
+      taskManager.addTask(
+        ImportTask(
+          id: 'batch-review-task',
+          title: 'Synthetic batch review',
+          status: TaskStatus.pendingReview,
+          parsedData: parsedQuestions,
+        ),
+      );
     });
 
     Widget createWidget() {
@@ -61,9 +73,28 @@ void main() {
         home: Scaffold(
             body: ImportStagingScreen(
           parsedQuestions: parsedQuestions,
+          taskId: 'batch-review-task',
+          taskManager: taskManager,
           questionRepository: FakeQuestionRepository(),
         )),
       );
+    }
+
+    Future<void> waitForReviewDraftRevision(
+      WidgetTester tester,
+      int previousRevision,
+    ) async {
+      for (var attempt = 0; attempt < 10; attempt++) {
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        });
+        await tester.pumpAndSettle();
+        if (taskManager.reviewDraftRevision('batch-review-task') >
+            previousRevision) {
+          return;
+        }
+      }
+      fail('Review draft revision did not advance');
     }
 
     testWidgets('进入/退出多选模式，勾选单题显示已选1', (tester) async {
@@ -114,10 +145,14 @@ void main() {
       expect(find.text('将删除 3 道题，此操作仅影响本次导入暂存列表。'), findsOneWidget);
 
       // Confirm
+      final previousRevision =
+          taskManager.reviewDraftRevision('batch-review-task');
       await tester.tap(find.text('确认删除'));
       await tester.pumpAndSettle();
+      await waitForReviewDraftRevision(tester, previousRevision);
 
       expect(find.text('所有题目已被删除'), findsOneWidget);
+      expect(taskManager.tasks.single.parsedData, isEmpty);
     });
 
     testWidgets('筛选状态下，全选当前只选择当前可见题，不删除隐藏题', (tester) async {
@@ -175,8 +210,11 @@ void main() {
 
       expect(find.text('批量修改题型'), findsOneWidget);
 
+      final previousRevision =
+          taskManager.reviewDraftRevision('batch-review-task');
       await tester.tap(find.widgetWithText(ListTile, '简答题'));
       await tester.pumpAndSettle();
+      await waitForReviewDraftRevision(tester, previousRevision);
 
       // Exit selection mode automatically happens after apply
       expect(find.text('解析结果校对'), findsOneWidget);
@@ -185,6 +223,41 @@ void main() {
       // Wait, we need a way to verify it. The text '简答题' should exist for Q1 if it shows the type label.
       // Q1, Q2, Q3. So 2 简答题 (Q3 was already 简答题).
       expect(find.text('简答题'), findsNWidgets(2));
+      expect(taskManager.tasks.single.parsedData!.first['type'], 3);
+    });
+
+    testWidgets('文档与单题解析保留设置写入 review draft', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2000));
+      await tester.pumpWidget(createWidget());
+      await tester.pumpAndSettle();
+
+      var previousRevision =
+          taskManager.reviewDraftRevision('batch-review-task');
+      await tester.tap(
+        find.byKey(const ValueKey('objective-explanation-document-switch')),
+      );
+      await tester.pumpAndSettle();
+      await waitForReviewDraftRevision(tester, previousRevision);
+      expect(
+        taskManager
+            .tasks.single.diagnostics![TaskManager.keyExplanationRetentionMode],
+        'allQuestionTypes',
+      );
+
+      previousRevision = taskManager.reviewDraftRevision('batch-review-task');
+      await tester.tap(
+        find.byKey(const ValueKey('question-explanation-keep-0')),
+      );
+      await tester.pumpAndSettle();
+      await waitForReviewDraftRevision(tester, previousRevision);
+      expect(
+        taskManager.tasks.single.parsedData!.first['_explanation_override'],
+        'keep',
+      );
+      expect(
+        taskManager.tasks.single.parsedData!.first['explanation'],
+        'Q1 explanation',
+      );
     });
 
     testWidgets('切换筛选/排序会退出选择态', (tester) async {

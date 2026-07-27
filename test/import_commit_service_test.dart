@@ -316,6 +316,56 @@ void main() {
     expect(saved[1].rawExplanation, isNull);
   });
 
+  test('commit saves the latest answer restored from review snapshot',
+      () async {
+    manager.addTask(
+      ImportTask(
+        id: 'snapshot-commit',
+        title: 'Synthetic snapshot commit',
+        status: TaskStatus.pendingReview,
+        parsedData: const [
+          {
+            'type': 3,
+            'content': 'Subjective question',
+            'options': <String>[],
+            'standard_answer': '',
+            'explanation': 'Existing explanation',
+          },
+        ],
+      ),
+    );
+    await manager.saveReviewDraft(
+      'snapshot-commit',
+      questions: const [
+        {
+          'type': 3,
+          'content': 'Subjective question',
+          'options': <String>[],
+          'standard_answer': 'Restored answer',
+          'explanation': 'Existing explanation',
+        },
+      ],
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+    final repository = _CommitRepository();
+    final service = ImportCommitService(
+      questionRepository: repository,
+      taskManager: manager,
+    );
+
+    await service.commit(
+      bankName: 'Smoke Bank',
+      folderName: 'Smoke',
+      questions: QuestionDraft.listFromMaps(
+        manager.tasks.single.parsedData!,
+      ),
+      taskId: 'snapshot-commit',
+      diagnostics: const {},
+    );
+
+    expect(repository.savedQuestions!.single.standardAnswer, 'Restored answer');
+  });
+
   test('commit finalizes retained raw explanation before repository write',
       () async {
     final repository = _CommitRepository();

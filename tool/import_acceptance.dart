@@ -866,7 +866,13 @@ AcceptanceQualityResult runAcceptanceQualityChecks({
     final hasAnswer = answer.isNotEmpty;
     final hasExplanation = explanation.isNotEmpty;
     final issues = <AcceptanceQuestionIssue>[];
-    final allText = '$content $answer $explanation';
+    final latexFields = <String>[
+      content,
+      if (options is List) ...options.whereType<String>(),
+      answer,
+      explanation,
+    ];
+    final allText = latexFields.join(' ');
 
     acceptedNumbers.add(qNum);
 
@@ -919,7 +925,9 @@ AcceptanceQualityResult runAcceptanceQualityChecks({
     // LaTeX structural check (delimiter balance only)
     String latexMode = 'limited';
     if (_hasLatexContent(allText)) {
-      if (latexChecker.hasDanglingDelimiters(allText)) {
+      if (latexFields.any(
+        (field) => !latexChecker.checkRenderability(field).isRenderable,
+      )) {
         issues.add(const AcceptanceQuestionIssue(
           code: 'latex_unrenderable',
           severity: 'review',

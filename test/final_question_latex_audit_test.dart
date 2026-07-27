@@ -68,17 +68,17 @@ void main() {
       expect(_riskHints(result.question), isEmpty);
     });
 
-    test('closes one trailing math delimiter and an open environment', () {
+    test('does not invent a missing environment terminator', () {
       final result = auditFinalQuestionLatex(_question(
         explanation: r'Explanation \(\begin{matrix}1 & 2',
       ));
 
-      expect(result.invalidFields, isEmpty);
+      expect(result.invalidFields, ['explanation']);
       expect(
         result.question['explanation'],
-        r'Explanation \(\begin{matrix}1 & 2\end{matrix}\)',
+        r'Explanation \(\begin{matrix}1 & 2\)',
       );
-      expect(_riskHints(result.question), isEmpty);
+      expect(_riskHints(result.question), [latexUnrenderableIssue]);
     });
 
     test('leaves an ambiguous surplus right command for review', () {
@@ -143,6 +143,36 @@ void main() {
         expect(repairLatexDeterministically(formula), formula);
         expect(checker.hasDanglingDelimiters(formula), isFalse);
       }
+    });
+
+    test('normalizes a bare block environment before final audit', () {
+      const explanation =
+          r'展开可得，\{\begin{array}{l}x_1=1\\x_2=2\end{array}于是成立。';
+
+      final result =
+          auditFinalQuestionLatex(_question(explanation: explanation));
+
+      expect(result.invalidFields, isEmpty);
+      expect(
+        result.question['explanation'],
+        r'展开可得，\[\{\begin{array}{l}x_1=1\\x_2=2\end{array}\]于是成立。',
+      );
+      expect(_riskHints(result.question), isEmpty);
+    });
+
+    test('records only safe invalid field names for analyzer messaging', () {
+      final result = auditFinalQuestionLatex(_question(
+        explanation: r'\begin{array}{l}x',
+      ));
+      final metadata =
+          result.question['_import_review'] as Map<String, dynamic>;
+      final item = ImportReviewItem.fromMap(result.question, 0);
+      final analysis = ImportReviewAnalyzer.analyzeItems([item]);
+
+      expect(metadata[latexInvalidFieldsKey], ['explanation']);
+      expect(analysis.issues.single.message, contains('解析中的 LaTeX'));
+      expect(analysis.summary.warningCount, 1);
+      expect(analysis.summary.qualityScore, lessThan(100));
     });
 
     test('detects mismatched LaTeX environments', () {

@@ -7,6 +7,7 @@ class ImportReviewMetadata {
   final List<int> originalIndices;
   final List<String> riskHints;
   final List<String> repairCandidateCodes;
+  final List<String> latexInvalidFields;
 
   const ImportReviewMetadata({
     required this.source,
@@ -15,6 +16,7 @@ class ImportReviewMetadata {
     required this.originalIndices,
     required this.riskHints,
     this.repairCandidateCodes = const [],
+    this.latexInvalidFields = const [],
   });
 
   factory ImportReviewMetadata.fromMap(Map<String, dynamic>? map) {
@@ -27,6 +29,9 @@ class ImportReviewMetadata {
       originalIndices: _parseIntList(map['originalIndices']),
       riskHints: _parseStringList(map['riskHints']),
       repairCandidateCodes: _parseStringList(map['repairCandidateCodes']),
+      latexInvalidFields: _parseStringList(map['latexInvalidFields'])
+          .where(_isSafeLatexField)
+          .toList(growable: false),
     );
   }
 
@@ -63,6 +68,7 @@ class ImportReviewMetadata {
       originalIndices: [],
       riskHints: [],
       repairCandidateCodes: [],
+      latexInvalidFields: [],
     );
   }
 
@@ -74,6 +80,17 @@ class ImportReviewMetadata {
       'originalIndices': originalIndices,
       'riskHints': riskHints,
       'repairCandidateCodes': repairCandidateCodes,
+      if (latexInvalidFields.isNotEmpty)
+        'latexInvalidFields': latexInvalidFields,
     };
+  }
+
+  static bool _isSafeLatexField(String field) {
+    return const {
+      'content',
+      'options',
+      'standard_answer',
+      'explanation',
+    }.contains(field);
   }
 }

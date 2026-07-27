@@ -1,5 +1,24 @@
 # Development Log
 
+## [2026-07-28 03:15] - feat(import): D2A & D2B 阶段核心实现：主观题答案提炼、审查快照与 LaTeX 环境自动归一化校验
+
+- **变更类型**: feat
+- **影响模块**: import_pipeline, import_review, task_manager, ui, tests
+- **详细改动明细**:
+  - [x] **D2A 主观题提炼与快照**:
+    - 收紧主观题本地答案提取，仅接受明确标签（`答案：`、`标准答案：`等）及确定性结论。
+    - 明确识别证明题，防范虚假答案写入。
+    - 接入 AI 提炼 240 字限制与 `basis=explanation` 结构安全校验。
+    - TaskManager 支持 Review Snapshot 串行持久化、稳定 Revision 与 Provenance 保留。
+  - [x] **D2B LaTeX 归一化与校验**:
+    - 新增 `LatexBlockEnvironmentNormalizer` 与 `LatexRenderabilityChecker`。
+    - 自动识别并包含安全 `array` / `matrix` 等 Bare 环境包裹为 `\[...\]`。
+    - 完善 `auditFinalQuestionLatex` 先确定性修补、再归一化、最后 Preflight 校验流。
+    - 统一渲染层 `StructuredContentRenderer` 结构安全预检与嵌套定界符配对处理。
+  - [x] **测试与验证**:
+    - 150+ 单元 / Widget / Acceptance 测试用例 100% 通过。
+- **验证状态**: 本地 flutter analyze (0 error, 0 warning) & flutter test 全量通过。
+
 ## [2026-06-08 08:30] - fix(latex): Step 6-C — ASCII punctuation boundary in bare equation scanning
 
 - **Change type**: fix

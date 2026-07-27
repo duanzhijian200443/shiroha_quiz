@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
@@ -173,25 +174,45 @@ class ImportTask {
   }
 }
 
+enum ReviewDraftSaveStatus { saved, stale, taskMissing, itemMissing, failed }
+
+class ReviewDraftSaveResult {
+  const ReviewDraftSaveResult(this.status, {required this.revision});
+
+  final ReviewDraftSaveStatus status;
+  final int revision;
+
+  bool get saved => status == ReviewDraftSaveStatus.saved;
+}
+
 class TaskManager extends ChangeNotifier {
   static const String keyTraceId = '_traceId';
   static const String keyParseMode = '_parseMode';
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
+  static const String keyReviewDraftRevision = '_reviewDraftRevision';
+  static const String keyReviewItemId = '_reviewItemId';
 
   static final TaskManager _instance = TaskManager._internal();
   static TaskManager get instance => _instance;
 
-  TaskManager._internal() : _persistTasks = true {
+  TaskManager._internal()
+      : _persistTasks = true,
+        _saveTaskOverride = null {
     ready = _loadTasksFromDb();
   }
 
   @visibleForTesting
-  TaskManager.forTesting() : _persistTasks = false {
+  TaskManager.forTesting({
+    Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
+  })  : _persistTasks = saveTask != null,
+        _saveTaskOverride = saveTask {
     ready = Future<void>.value();
   }
 
   late final Future<void> ready;
   final bool _persistTasks;
+  final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
+  Future<void> _reviewDraftWriteTail = Future<void>.value();
 
   final List<ImportTask> tasks = [];
   int get processingCount =>
@@ -221,18 +242,32 @@ class TaskManager extends ChangeNotifier {
   Future<void> _saveTask(ImportTask task) async {
     if (!_persistTasks) return;
     try {
-      await ImportTaskRepository.instance.saveImportTask(task.toMap());
+      await _persistTask(task);
     } catch (_) {
-      AppLogger.warning(
-        'Import task persistence failed',
-        module: 'ImportTask',
-        data: const <String, Object?>{
-          'stage': 'task_persistence',
-          'status': 'failed',
-          'errorType': 'ImportTaskPersistenceFailure',
-        },
-      );
+      _logTaskPersistenceFailure();
     }
+  }
+
+  Future<void> _persistTask(ImportTask task) async {
+    if (!_persistTasks) return;
+    final override = _saveTaskOverride;
+    if (override != null) {
+      await override(task.toMap());
+      return;
+    }
+    await ImportTaskRepository.instance.saveImportTask(task.toMap());
+  }
+
+  void _logTaskPersistenceFailure() {
+    AppLogger.warning(
+      'Import task persistence failed',
+      module: 'ImportTask',
+      data: const <String, Object?>{
+        'stage': 'task_persistence',
+        'status': 'failed',
+        'errorType': 'ImportTaskPersistenceFailure',
+      },
+    );
   }
 
   void addTask(ImportTask task) {
@@ -338,6 +373,155 @@ class TaskManager extends ChangeNotifier {
       _saveTask(tasks[idx]);
       notifyListeners();
     }
+  }
+
+  int reviewDraftRevision(String id) {
+    final idx = tasks.indexWhere((task) => task.id == id);
+    if (idx < 0) return 0;
+    return _readReviewDraftRevision(tasks[idx]);
+  }
+
+  Future<ReviewDraftSaveResult> saveReviewDraft(
+    String id, {
+    required List<Map<String, dynamic>> questions,
+    required ExplanationRetentionMode explanationRetentionMode,
+  }) {
+    return _enqueueReviewDraftWrite(
+      () => _saveReviewDraftNow(
+        id,
+        questions: questions,
+        explanationRetentionMode: explanationRetentionMode,
+      ),
+    );
+  }
+
+  Future<ReviewDraftSaveResult> mergeReviewDraftAnswer(
+    String id, {
+    required String reviewItemId,
+    required int expectedRevision,
+    required String standardAnswer,
+    required String status,
+  }) {
+    return _enqueueReviewDraftWrite(() async {
+      final idx = tasks.indexWhere((task) => task.id == id);
+      if (idx < 0) {
+        return const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        );
+      }
+      final task = tasks[idx];
+      final revision = _readReviewDraftRevision(task);
+      if (revision != expectedRevision) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.stale,
+          revision: revision,
+        );
+      }
+      final questions = task.parsedData
+          ?.map((question) => Map<String, dynamic>.from(question))
+          .toList(growable: false);
+      if (questions == null) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.itemMissing,
+          revision: revision,
+        );
+      }
+      final questionIndex = questions.indexWhere(
+        (question) => question[keyReviewItemId]?.toString() == reviewItemId,
+      );
+      if (questionIndex < 0) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.itemMissing,
+          revision: revision,
+        );
+      }
+      questions[questionIndex] = <String, dynamic>{
+        ...questions[questionIndex],
+        'standard_answer': standardAnswer,
+        '_answer_distillation_status': status,
+      };
+      return _saveReviewDraftNow(
+        id,
+        questions: questions,
+        explanationRetentionMode: task.explanationRetentionMode,
+        expectedRevision: expectedRevision,
+      );
+    });
+  }
+
+  Future<ReviewDraftSaveResult> _saveReviewDraftNow(
+    String id, {
+    required List<Map<String, dynamic>> questions,
+    required ExplanationRetentionMode explanationRetentionMode,
+    int? expectedRevision,
+  }) async {
+    final idx = tasks.indexWhere((task) => task.id == id);
+    if (idx < 0) {
+      return const ReviewDraftSaveResult(
+        ReviewDraftSaveStatus.taskMissing,
+        revision: 0,
+      );
+    }
+
+    final task = tasks[idx];
+    final currentRevision = _readReviewDraftRevision(task);
+    if (expectedRevision != null && currentRevision != expectedRevision) {
+      return ReviewDraftSaveResult(
+        ReviewDraftSaveStatus.stale,
+        revision: currentRevision,
+      );
+    }
+    final nextRevision = currentRevision + 1;
+    final nextTask = ImportTask.fromMap(task.toMap());
+    nextTask.parsedData = questions
+        .map((question) => Map<String, dynamic>.from(question))
+        .toList(growable: false);
+    nextTask.diagnostics = <String, dynamic>{
+      ...?nextTask.diagnostics,
+      keyExplanationRetentionMode: explanationRetentionMode.name,
+      keyReviewDraftRevision: nextRevision,
+    };
+    try {
+      await _persistTask(nextTask);
+    } catch (_) {
+      _logTaskPersistenceFailure();
+      return ReviewDraftSaveResult(
+        ReviewDraftSaveStatus.failed,
+        revision: currentRevision,
+      );
+    }
+    task.parsedData = nextTask.parsedData;
+    task.diagnostics = nextTask.diagnostics;
+    notifyListeners();
+    return ReviewDraftSaveResult(
+      ReviewDraftSaveStatus.saved,
+      revision: nextRevision,
+    );
+  }
+
+  Future<ReviewDraftSaveResult> _enqueueReviewDraftWrite(
+    Future<ReviewDraftSaveResult> Function() action,
+  ) {
+    final completer = Completer<ReviewDraftSaveResult>();
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  int _readReviewDraftRevision(ImportTask task) {
+    final raw = task.diagnostics?[keyReviewDraftRevision];
+    return switch (raw) {
+      final int value => value,
+      final num value => value.toInt(),
+      final String value => int.tryParse(value) ?? 0,
+      _ => 0,
+    };
   }
 
   List<Map<String, dynamic>> _deduplicateQuestions(

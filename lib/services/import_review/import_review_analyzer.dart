@@ -5,6 +5,7 @@ import 'import_review_summary.dart';
 import 'import_review_item.dart';
 import 'import_review_metadata.dart';
 import '../import_pipeline/question_fragment.dart';
+import '../import_pipeline/subjective_answer_expectation.dart';
 
 class ImportReviewAnalyzerResult {
   final ImportReviewSummary summary;
@@ -124,7 +125,7 @@ class ImportReviewAnalyzer {
             severity: ImportReviewSeverity.warning,
             code: ImportReviewIssueCode.latexUnrenderable,
             questionIndex: i,
-            message: '题目包含无法可靠渲染的 LaTeX，请人工核对',
+            message: _latexIssueMessage(item.metadata.latexInvalidFields),
           ));
           warningCount++;
         } else if (hint == 'raw_html_tag') {
@@ -169,7 +170,12 @@ class ImportReviewAnalyzer {
       final stdAns = draft.standardAnswer.trim();
       final expl = draft.explanation.trim();
       final hasMeaningfulAnswer = isMeaningfulAnswer(stdAns);
-      if (!hasMeaningfulAnswer) {
+      final answerExpectation =
+          const SubjectiveAnswerExpectationPolicy().classify(draft);
+      final proofExplanationSatisfied =
+          answerExpectation == SubjectiveAnswerExpectation.proofExplanation &&
+              expl.isNotEmpty;
+      if (!hasMeaningfulAnswer && !proofExplanationSatisfied) {
         final hasExplanation = expl.isNotEmpty;
         issues.add(ImportReviewIssue(
           severity: hasExplanation
@@ -265,5 +271,18 @@ class ImportReviewAnalyzer {
       ),
       issues,
     );
+  }
+
+  static String _latexIssueMessage(List<String> invalidFields) {
+    if (invalidFields.length != 1) {
+      return '多个最终字段中的 LaTeX 无法可靠渲染，请人工校对';
+    }
+    return switch (invalidFields.single) {
+      'content' => '题干中的 LaTeX 无法可靠渲染，请人工校对',
+      'options' => '选项中的 LaTeX 无法可靠渲染，请人工校对',
+      'standard_answer' => '标准答案中的 LaTeX 无法可靠渲染，请人工校对',
+      'explanation' => '解析中的 LaTeX 无法可靠渲染，请人工校对',
+      _ => '题目包含无法可靠渲染的 LaTeX，请人工校对',
+    };
   }
 }
