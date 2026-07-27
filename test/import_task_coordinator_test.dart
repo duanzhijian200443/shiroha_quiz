@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_failure_classifier.
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -186,6 +187,63 @@ void main() {
     expect(task.diagnostics?['safeCount'], 1);
     expect(task.traceId, 'trace-success');
     expect(task.parsedData, hasLength(1));
+  });
+
+  test('persists and restores the request explanation retention mode',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async {
+        expect(
+          request.explanationRetentionMode,
+          ExplanationRetentionMode.allQuestionTypes,
+        );
+        return ImportParseResult(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': 'Synthetic explanation',
+            },
+          ],
+          explanationRetentionMode: request.explanationRetentionMode,
+        );
+      },
+      taskIdFactory: () => 'task-retention',
+      traceIdFactory: () => 'trace-retention',
+    );
+
+    final handle = await coordinator.dispatchRequest(
+      sourceDescription: 'fixture.pdf',
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+      mode: ImportParseMode.ocr,
+      maxConcurrency: 1,
+      explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (candidate) => candidate.status == TaskStatus.pendingReview,
+    );
+    final restored = ImportTask.fromMap(task.toMap());
+
+    expect(
+      task.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      task.diagnostics?[TaskManager.keyExplanationRetentionMode],
+      ExplanationRetentionMode.allQuestionTypes.name,
+    );
+    expect(
+      restored.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
   });
 
   test('empty result persists only allowlisted failure diagnostics', () async {

@@ -1,8 +1,13 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/ui/pages/import_settings_screen.dart';
 
 void main() {
@@ -474,6 +479,101 @@ void main() {
     );
     expect(
       textSemantics.flagsCollection.isSelected == ui.Tristate.isTrue,
+      isTrue,
+    );
+  });
+
+  testWidgets('file request carries the enabled explanation retention mode',
+      (tester) async {
+    final captured = Completer<ImportParseRequest>();
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'paper.pdf', path: 'paper.pdf', size: 0),
+        ]),
+        requestParser: (request) async {
+          captured.complete(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          unawaited(parseTask('settings-file-task'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('retain-objective-explanations-row'),
+      ),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    final request = await captured.future;
+    expect(
+      request.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+  });
+
+  testWidgets('image request carries the default retention mode',
+      (tester) async {
+    final captured = Completer<ImportParseRequest>();
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickImage: (source) async => XFile('photo.png'),
+        requestParser: (request) async {
+          captured.complete(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          unawaited(parseTask('settings-image-task'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-gallery-button')),
+    );
+    await tester.pump();
+
+    final request = await captured.future;
+    expect(
+      request.explanationRetentionMode,
+      ExplanationRetentionMode.subjectiveOnly,
+    );
+  });
+
+  testWidgets('changing parse mode preserves the retention selection',
+      (tester) async {
+    await pumpScreen(tester);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('retain-objective-explanations-row'),
+      ),
+    );
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Switch>(
+            find.byKey(
+              const ValueKey<String>('retain-objective-explanations-switch'),
+            ),
+          )
+          .value,
       isTrue,
     );
   });

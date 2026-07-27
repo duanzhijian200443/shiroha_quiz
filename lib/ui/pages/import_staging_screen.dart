@@ -28,6 +28,7 @@ class ImportStagingScreen extends StatefulWidget {
   final Map<String, dynamic>? diagnostics;
   final QuestionRepository? questionRepository;
   final ImportCommitService? commitService;
+  final ExplanationRetentionMode initialExplanationRetentionMode;
 
   const ImportStagingScreen({
     super.key,
@@ -37,6 +38,8 @@ class ImportStagingScreen extends StatefulWidget {
     this.diagnostics,
     this.questionRepository,
     this.commitService,
+    this.initialExplanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   });
 
   @override
@@ -54,8 +57,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   bool _isSaving = false;
   bool _selectionMode = false;
   final Set<int> _selectedOriginalIndices = {};
-  ExplanationRetentionMode _explanationRetentionMode =
-      ExplanationRetentionMode.subjectiveOnly;
+  late ExplanationRetentionMode _explanationRetentionMode;
   final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
 
   String? get _traceId {
@@ -98,6 +100,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
+    _explanationRetentionMode = widget.initialExplanationRetentionMode;
     final messages = ImportDiagnosticFormatter.format(
       warnings: widget.warnings,
       diagnostics: widget.diagnostics,

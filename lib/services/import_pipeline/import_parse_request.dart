@@ -1,3 +1,5 @@
+import 'import_question_field_policy.dart';
+
 enum ImportParseMode { text, vision, ocr }
 
 class ImportParseRequest {
@@ -6,6 +8,7 @@ class ImportParseRequest {
   final ImportParseMode mode;
   final int maxConcurrency;
   final String taskId;
+  final ExplanationRetentionMode explanationRetentionMode;
 
   // Phase-one compatibility bridge for the existing two-route pipeline.
   // OCR keeps the current OCR-first/vision-fallback behavior until routing is
@@ -18,5 +21,6 @@ class ImportParseRequest {
     required this.mode,
     required this.maxConcurrency,
     required this.taskId,
+    this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
   });
 }

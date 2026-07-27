@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../../services/import_pipeline/import_parse_result.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
+import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_task_coordinator.dart';
 import '../../main.dart';
 import 'paste_text_screen.dart';
@@ -24,6 +25,7 @@ class ImportSettingsScreen extends StatefulWidget {
     this.pickFiles,
     this.pickImage,
     this.taskDispatcher,
+    this.requestParser,
     this.retainObjectiveExplanations = false,
     this.onRetainObjectiveExplanationsChanged,
   }) : super(key: key);
@@ -31,6 +33,7 @@ class ImportSettingsScreen extends StatefulWidget {
   final ImportFilePicker? pickFiles;
   final ImportImagePicker? pickImage;
   final ImportTaskDispatcher? taskDispatcher;
+  final ImportRequestParser? requestParser;
   final bool retainObjectiveExplanations;
   final ValueChanged<bool>? onRetainObjectiveExplanationsChanged;
 
@@ -40,14 +43,16 @@ class ImportSettingsScreen extends StatefulWidget {
 
 class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   ImportParseMode _selectedMode = ImportParseMode.vision;
-  late bool _retainObjectiveExplanations;
+  late ExplanationRetentionMode _explanationRetentionMode;
   double _maxConcurrency = 3.0; // 默认多图并发线程
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    _retainObjectiveExplanations = widget.retainObjectiveExplanations;
+    _explanationRetentionMode = widget.retainObjectiveExplanations
+        ? ExplanationRetentionMode.allQuestionTypes
+        : ExplanationRetentionMode.subjectiveOnly;
   }
 
   @override
@@ -55,20 +60,34 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.retainObjectiveExplanations !=
         widget.retainObjectiveExplanations) {
-      _retainObjectiveExplanations = widget.retainObjectiveExplanations;
+      _explanationRetentionMode = widget.retainObjectiveExplanations
+          ? ExplanationRetentionMode.allQuestionTypes
+          : ExplanationRetentionMode.subjectiveOnly;
     }
   }
 
   void _setRetainObjectiveExplanations(bool value) {
-    if (_retainObjectiveExplanations == value) return;
-    setState(() => _retainObjectiveExplanations = value);
+    final nextMode = value
+        ? ExplanationRetentionMode.allQuestionTypes
+        : ExplanationRetentionMode.subjectiveOnly;
+    if (_explanationRetentionMode == nextMode) return;
+    setState(() => _explanationRetentionMode = nextMode);
     widget.onRetainObjectiveExplanationsChanged?.call(value);
+  }
+
+  Future<ImportParseResult> _parseRequest(ImportParseRequest request) {
+    final requestParser = widget.requestParser;
+    if (requestParser != null) return requestParser(request);
+    return AiDependenciesScope.of(context)
+        .importPipelineService
+        .parseFiles(request);
   }
 
   Future<void> _dispatchBackgroundTask(
     String sourceDesc,
     Future<ImportParseResult> Function(String taskId) parseTask, {
     required ImportParseMode mode,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     final testDispatcher = widget.taskDispatcher;
     if (testDispatcher != null) {
@@ -91,6 +110,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       sourceDescription: sourceDesc,
       mode: mode,
       parse: parseTask,
+      explanationRetentionMode: explanationRetentionMode,
     );
 
     if (!mounted) return;
@@ -105,6 +125,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
 
     final selectedMode = _selectedMode;
     final maxConcurrency = _maxConcurrency.toInt();
+    final explanationRetentionMode = _explanationRetentionMode;
     try {
       final XFile? image = widget.pickImage != null
           ? await widget.pickImage!(source)
@@ -117,11 +138,12 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           mode: selectedMode,
           maxConcurrency: maxConcurrency,
           taskId: taskId,
+          explanationRetentionMode: explanationRetentionMode,
         );
-        return AiDependenciesScope.of(context)
-            .importPipelineService
-            .parseFiles(request);
-      }, mode: selectedMode);
+        return _parseRequest(request);
+      },
+          mode: selectedMode,
+          explanationRetentionMode: explanationRetentionMode);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -133,6 +155,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   Future<void> _pickAndParseFile() async {
     final selectedMode = _selectedMode;
     final maxConcurrency = _maxConcurrency.toInt();
+    final explanationRetentionMode = _explanationRetentionMode;
     final result = widget.pickFiles != null
         ? await widget.pickFiles!()
         : await FilePicker.platform.pickFiles(
@@ -174,11 +197,10 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         mode: selectedMode,
         maxConcurrency: maxConcurrency,
         taskId: taskId,
+        explanationRetentionMode: explanationRetentionMode,
       );
-      return AiDependenciesScope.of(context)
-          .importPipelineService
-          .parseFiles(request);
-    }, mode: selectedMode);
+      return _parseRequest(request);
+    }, mode: selectedMode, explanationRetentionMode: explanationRetentionMode);
   }
 
   bool _isFileCompatible(PlatformFile file, ImportParseMode mode) {
@@ -216,6 +238,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 
   Future<void> _pasteAndParse() async {
+    final explanationRetentionMode = _explanationRetentionMode;
     final pastedText = await Navigator.push<String>(context,
         MaterialPageRoute(builder: (context) => const PasteTextScreen()));
     if (pastedText != null && pastedText.trim().length >= 10) {
@@ -224,8 +247,11 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           questions: await AiDependenciesScope.of(context)
               .aiService
               .parseTextToQuestions(pastedText),
+          explanationRetentionMode: explanationRetentionMode,
         );
-      }, mode: ImportParseMode.text);
+      },
+          mode: ImportParseMode.text,
+          explanationRetentionMode: explanationRetentionMode);
     }
   }
 
@@ -327,7 +353,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                       color: theme.colorScheme.outlineVariant.withOpacity(0.7),
                     ),
                     _ObjectiveExplanationRetentionSetting(
-                      value: _retainObjectiveExplanations,
+                      value: _explanationRetentionMode ==
+                          ExplanationRetentionMode.allQuestionTypes,
                       onChanged: _setRetainObjectiveExplanations,
                     ),
                   ],

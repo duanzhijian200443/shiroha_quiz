@@ -16,6 +16,7 @@ import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
@@ -486,6 +487,7 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
         fileNames: <String>[widget.config.fileName],
         mode: ImportParseMode.ocr,
         maxConcurrency: 1,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
       _taskId = handle.taskId;
       widget.eventWriter.emit(OcrUiSmokeEvent(
@@ -525,6 +527,7 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
       taskId: task.id,
       warnings: task.warnings,
       diagnostics: task.diagnostics,
+      initialExplanationRetentionMode: task.explanationRetentionMode,
       questionRepository: widget.questionRepository,
       commitService: widget.commitService,
     );

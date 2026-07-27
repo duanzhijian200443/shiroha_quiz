@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 
 enum TaskStatus { processing, pendingReview, completed, error }
 
@@ -36,6 +37,10 @@ class ImportTask {
   // 诊断元数据快捷获取
   String? get traceId => diagnostics?[TaskManager.keyTraceId]?.toString();
   String? get parseMode => diagnostics?[TaskManager.keyParseMode]?.toString();
+  ExplanationRetentionMode get explanationRetentionMode =>
+      parseExplanationRetentionMode(
+        diagnostics?[TaskManager.keyExplanationRetentionMode],
+      );
   Duration get elapsed {
     if (status == TaskStatus.processing) {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -171,6 +176,7 @@ class ImportTask {
 class TaskManager extends ChangeNotifier {
   static const String keyTraceId = '_traceId';
   static const String keyParseMode = '_parseMode';
+  static const String keyExplanationRetentionMode = '_explanationRetentionMode';
 
   static final TaskManager _instance = TaskManager._internal();
   static TaskManager get instance => _instance;
@@ -269,16 +275,27 @@ class TaskManager extends ChangeNotifier {
       if (diagnostics.isNotEmpty) {
         final existingTraceId = tasks[idx].traceId;
         final existingParseMode = tasks[idx].parseMode;
+        final existingExplanationRetentionMode =
+            tasks[idx].diagnostics?[keyExplanationRetentionMode]?.toString();
 
         tasks[idx].diagnostics = diagnostics;
 
         // 恢复原有元数据
-        if (existingTraceId != null || existingParseMode != null) {
+        if (existingTraceId != null ||
+            existingParseMode != null ||
+            existingExplanationRetentionMode != null) {
           tasks[idx].diagnostics ??= {};
           if (existingTraceId != null)
             tasks[idx].diagnostics![keyTraceId] = existingTraceId;
           if (existingParseMode != null)
             tasks[idx].diagnostics![keyParseMode] = existingParseMode;
+          if (existingExplanationRetentionMode != null &&
+              !tasks[idx]
+                  .diagnostics!
+                  .containsKey(keyExplanationRetentionMode)) {
+            tasks[idx].diagnostics![keyExplanationRetentionMode] =
+                existingExplanationRetentionMode;
+          }
         }
       }
       _saveTask(tasks[idx]);
@@ -297,16 +314,25 @@ class TaskManager extends ChangeNotifier {
 
       final existingTraceId = tasks[idx].traceId;
       final existingParseMode = tasks[idx].parseMode;
+      final existingExplanationRetentionMode =
+          tasks[idx].diagnostics?[keyExplanationRetentionMode]?.toString();
 
       tasks[idx].diagnostics = diagnostics;
 
       // 恢复原有元数据
-      if (existingTraceId != null || existingParseMode != null) {
+      if (existingTraceId != null ||
+          existingParseMode != null ||
+          existingExplanationRetentionMode != null) {
         tasks[idx].diagnostics ??= {};
         if (existingTraceId != null)
           tasks[idx].diagnostics![keyTraceId] = existingTraceId;
         if (existingParseMode != null)
           tasks[idx].diagnostics![keyParseMode] = existingParseMode;
+        if (existingExplanationRetentionMode != null &&
+            !tasks[idx].diagnostics!.containsKey(keyExplanationRetentionMode)) {
+          tasks[idx].diagnostics![keyExplanationRetentionMode] =
+              existingExplanationRetentionMode;
+        }
       }
 
       _saveTask(tasks[idx]);

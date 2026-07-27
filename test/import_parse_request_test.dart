@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 
 void main() {
   group('ImportParseRequest mode', () {
@@ -28,6 +29,34 @@ void main() {
       expect(requestFor(ImportParseMode.text).useVisionEngine, isFalse);
       expect(requestFor(ImportParseMode.vision).useVisionEngine, isTrue);
       expect(requestFor(ImportParseMode.ocr).useVisionEngine, isTrue);
+    });
+
+    test('uses the safe explanation retention default and preserves overrides',
+        () {
+      const defaultRequest = ImportParseRequest(
+        filePaths: <String>['exam.pdf'],
+        fileNames: <String>['exam.pdf'],
+        mode: ImportParseMode.vision,
+        maxConcurrency: 3,
+        taskId: 'task-default-retention',
+      );
+      const retainedRequest = ImportParseRequest(
+        filePaths: <String>['exam.pdf'],
+        fileNames: <String>['exam.pdf'],
+        mode: ImportParseMode.vision,
+        maxConcurrency: 3,
+        taskId: 'task-retain-all',
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(
+        defaultRequest.explanationRetentionMode,
+        ExplanationRetentionMode.subjectiveOnly,
+      );
+      expect(
+        retainedRequest.explanationRetentionMode,
+        ExplanationRetentionMode.allQuestionTypes,
+      );
     });
   });
 }

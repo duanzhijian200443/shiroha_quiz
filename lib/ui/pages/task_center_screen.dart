@@ -107,6 +107,8 @@ class TaskCenterScreen extends StatelessWidget {
                                   parsedQuestions: t.parsedData!,
                                   warnings: t.warnings,
                                   diagnostics: t.diagnostics,
+                                  initialExplanationRetentionMode:
+                                      t.explanationRetentionMode,
                                 ),
                               ),
                             );

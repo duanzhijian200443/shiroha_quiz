@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +47,8 @@ void main() {
   Widget createWidget({
     required Map<String, dynamic>? diagnostics,
     List<Map<String, dynamic>>? questions,
+    ExplanationRetentionMode initialExplanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) {
     return MaterialApp(
       home: ImportStagingScreen(
@@ -60,10 +63,71 @@ void main() {
               }
             ],
         diagnostics: diagnostics,
+        initialExplanationRetentionMode: initialExplanationRetentionMode,
         questionRepository: MockQuestionRepository(),
       ),
     );
   }
+
+  testWidgets('document retention switch restores the import task mode',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: const <String, dynamic>{},
+        initialExplanationRetentionMode:
+            ExplanationRetentionMode.allQuestionTypes,
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Retained explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final control = tester.widget<SwitchListTile>(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+    );
+    expect(control.value, isTrue);
+    expect(find.text('Retained explanation'), findsOneWidget);
+  });
+
+  testWidgets('document retention switch defaults to subjective only',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: const <String, dynamic>{},
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Hidden explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final control = tester.widget<SwitchListTile>(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+    );
+    expect(control.value, isFalse);
+    expect(find.text('Hidden explanation'), findsNothing);
+  });
 
   testWidgets('Save button is active when qualityGate is not blocked',
       (WidgetTester tester) async {

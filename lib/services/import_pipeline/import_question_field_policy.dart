@@ -5,6 +5,14 @@ enum ExplanationRetentionMode {
   allQuestionTypes,
 }
 
+ExplanationRetentionMode parseExplanationRetentionMode(Object? value) {
+  final name = value?.toString();
+  for (final mode in ExplanationRetentionMode.values) {
+    if (mode.name == name) return mode;
+  }
+  return ExplanationRetentionMode.subjectiveOnly;
+}
+
 enum QuestionExplanationOverride {
   inherit,
   keep,

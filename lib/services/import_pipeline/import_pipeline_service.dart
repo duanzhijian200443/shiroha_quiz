@@ -430,9 +430,13 @@ class ImportPipelineService {
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);
       return ImportParseResult(
-        questions: finalizeAndAuditImportQuestions(sorted.questions),
+        questions: finalizeAndAuditImportQuestions(
+          sorted.questions,
+          mode: request.explanationRetentionMode,
+        ),
         warnings: allWarnings,
         diagnostics: allDiagnostics,
+        explanationRetentionMode: request.explanationRetentionMode,
       );
     } else if (fileResults.isNotEmpty) {
       final flattenedQuestions = fileResults.expand((e) => e).toList();
@@ -440,11 +444,15 @@ class ImportPipelineService {
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);
       return ImportParseResult(
-        questions: finalizeAndAuditImportQuestions(sorted.questions),
+        questions: finalizeAndAuditImportQuestions(
+          sorted.questions,
+          mode: request.explanationRetentionMode,
+        ),
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,
         blockReason: _readBlockReason(allDiagnostics),
+        explanationRetentionMode: request.explanationRetentionMode,
       );
     } else {
       if (allWarnings.isEmpty && allDiagnostics.isNotEmpty) {
@@ -456,6 +464,7 @@ class ImportPipelineService {
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,
         blockReason: _readBlockReason(allDiagnostics),
+        explanationRetentionMode: request.explanationRetentionMode,
       );
     }
   }

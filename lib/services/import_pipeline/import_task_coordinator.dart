@@ -7,6 +7,7 @@ import '../task_manager.dart';
 import 'import_failure_classifier.dart';
 import 'import_parse_request.dart';
 import 'import_parse_result.dart';
+import 'import_question_field_policy.dart';
 
 typedef ImportRequestParser = Future<ImportParseResult> Function(
   ImportParseRequest request,
@@ -107,6 +108,8 @@ class ImportTaskCoordinator {
     required List<String> fileNames,
     required ImportParseMode mode,
     required int maxConcurrency,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) {
     final parser = _parser;
     if (parser == null) {
@@ -121,7 +124,9 @@ class ImportTaskCoordinator {
         mode: mode,
         maxConcurrency: maxConcurrency,
         taskId: taskId,
+        explanationRetentionMode: explanationRetentionMode,
       )),
+      explanationRetentionMode: explanationRetentionMode,
     );
   }
 
@@ -129,6 +134,8 @@ class ImportTaskCoordinator {
     required String sourceDescription,
     required ImportParseMode mode,
     required Future<ImportParseResult> Function(String taskId) parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) async {
     await _readiness;
 
@@ -144,6 +151,7 @@ class ImportTaskCoordinator {
       diagnostics: <String, dynamic>{
         TaskManager.keyTraceId: traceId,
         TaskManager.keyParseMode: mode.name,
+        TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
       },
     ));
 
@@ -217,6 +225,8 @@ class ImportTaskCoordinator {
 
       final questions = _attachImportDiagnostics(result);
       final diagnostics = Map<String, dynamic>.from(result.diagnostics)
+        ..[TaskManager.keyExplanationRetentionMode] =
+            result.explanationRetentionMode.name
         ..[keySourceQuestionCount] = result.questions.length
         ..[keySourceQuestionNumbers] = result.questions
             .map(
