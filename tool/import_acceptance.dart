@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_document_role.dart';
@@ -20,6 +21,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/services/import_pipeline/vision_question_quality_gate.dart';
 
@@ -1070,6 +1072,22 @@ AcceptanceVerdict computeVerdict({
   return const AcceptanceVerdict(verdict: 'PASS', exitCode: 0);
 }
 
+int countSubjectiveAnswerDistillationCandidates(
+  Iterable<Map<String, dynamic>> questions, {
+  required bool isStemOnly,
+}) {
+  const policy = SubjectiveAnswerDistillationPolicy();
+  return questions
+      .map(QuestionDraft.fromMap)
+      .where(
+        (question) => policy.isCandidate(
+          question,
+          isStemOnly: isStemOnly,
+        ),
+      )
+      .length;
+}
+
 // ---------------------------------------------------------------------------
 // Core acceptance runner
 // ---------------------------------------------------------------------------
@@ -1216,6 +1234,13 @@ Future<int> runImportAcceptance({
     sorted.questions,
     mode: ExplanationRetentionMode.subjectiveOnly,
   );
+  final answerDistillationCandidateCount =
+      countSubjectiveAnswerDistillationCandidates(
+    finalQuestions,
+    isStemOnly:
+        tryParseImportDocumentRole(ocrResult.diagnostics['documentRole']) ==
+            ImportDocumentRole.stemOnly,
+  );
 
   emitEvent({
     'stage': 'pipeline',
@@ -1223,6 +1248,7 @@ Future<int> runImportAcceptance({
     'questionCount': finalQuestions.length,
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
+    'answerDistillationCandidates': answerDistillationCandidateCount,
     'providerCallCount': 0,
   });
 
@@ -1254,6 +1280,7 @@ Future<int> runImportAcceptance({
     'duplicateNumbers': quality.duplicateNumbers,
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
+    'answerDistillationCandidates': answerDistillationCandidateCount,
     'hardFailureCount':
         quality.questionReports.where((r) => r.hasHardIssue).length,
     'reviewIssueCount':
@@ -1292,6 +1319,7 @@ Future<int> runImportAcceptance({
     'reviewIssueCount': summary['reviewIssueCount'],
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
+    'answerDistillationCandidates': answerDistillationCandidateCount,
     'durationMs': stopwatch.elapsedMilliseconds,
   });
 

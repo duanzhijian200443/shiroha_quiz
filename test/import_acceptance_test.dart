@@ -619,6 +619,7 @@ void main() {
       final pipelineEvt = events.firstWhere(
           (e) => e['stage'] == 'pipeline' && e['status'] == 'completed');
       expect(pipelineEvt['providerCallCount'], 0);
+      expect(pipelineEvt['answerDistillationCandidates'], 0);
       expect(pipelineEvt['repairMode'], 'skipped');
     });
 
@@ -1856,7 +1857,7 @@ void main() {
           'type': num <= 10 ? 0 : (num <= 16 ? 2 : 3),
           'content': 'Question $num content \\(x^$num\\)',
           'options': num <= 10 ? ['A. a', 'B. b', 'C. c', 'D. d'] : <String>[],
-          'standard_answer': num <= 16 ? 'A' : '',
+          'standard_answer': num <= 16 || num == 21 ? 'A' : '',
           'explanation': 'Explanation $num',
         };
       });
@@ -1867,6 +1868,20 @@ void main() {
       for (var i = 0; i < 22; i++) {
         expect(audited[i]['question_number'], i + 1);
       }
+      expect(
+        countSubjectiveAnswerDistillationCandidates(
+          audited,
+          isStemOnly: false,
+        ),
+        5,
+      );
+      expect(
+        countSubjectiveAnswerDistillationCandidates(
+          audited,
+          isStemOnly: true,
+        ),
+        0,
+      );
     });
 
     test('providerCallCount remains 0 in offline audit path', () {

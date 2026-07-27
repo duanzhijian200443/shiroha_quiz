@@ -534,8 +534,10 @@ class _HomePageState extends State<HomePage> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: textColor,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          height: 1.25,
+                          letterSpacing: 0.15,
                         ),
                       ),
                       const SizedBox(height: 3),

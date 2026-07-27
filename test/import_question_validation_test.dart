@@ -17,6 +17,9 @@ void main() {
       '未知',
       '未提供',
       '未给出',
+      '见解析',
+      '详见解析',
+      '答案见解析',
     ]) {
       expect(isMeaningfulAnswer(value), isFalse, reason: value);
     }

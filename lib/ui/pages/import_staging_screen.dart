@@ -6,6 +6,8 @@ import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
+import '../../services/import_pipeline/subjective_answer_distillation_policy.dart';
+import '../../services/import_pipeline/subjective_answer_distillation_service.dart';
 import '../../services/import_review/import_review_analyzer.dart';
 import '../../services/import_review/import_review_blocking_policy.dart';
 import '../../services/import_review/import_review_item.dart';
@@ -19,6 +21,7 @@ import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
 
 class ImportStagingScreen extends StatefulWidget {
@@ -28,6 +31,7 @@ class ImportStagingScreen extends StatefulWidget {
   final Map<String, dynamic>? diagnostics;
   final QuestionRepository? questionRepository;
   final ImportCommitService? commitService;
+  final SubjectiveAnswerDistiller? answerDistiller;
   final ExplanationRetentionMode initialExplanationRetentionMode;
 
   const ImportStagingScreen({
@@ -38,6 +42,7 @@ class ImportStagingScreen extends StatefulWidget {
     this.diagnostics,
     this.questionRepository,
     this.commitService,
+    this.answerDistiller,
     this.initialExplanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   });
@@ -59,6 +64,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   final Set<int> _selectedOriginalIndices = {};
   late ExplanationRetentionMode _explanationRetentionMode;
   final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
+  final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
+      const SubjectiveAnswerDistillationPolicy();
+  SubjectiveAnswerDistiller? _answerDistiller;
+  bool _isDistillingAnswers = false;
+  bool _answerDistillationCancellationRequested = false;
+  int _answerDistillationOperationId = 0;
+  int _answerDistillationCompletedCount = 0;
+  int _answerDistillationTotalCount = 0;
+  int? _activeAnswerDistillationIndex;
 
   String? get _traceId {
     final value =
@@ -76,6 +90,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   bool get _isBlockedByQualityGate =>
       ImportReviewBlockingPolicy.isBlocked(_reviewResult);
+
+  bool get _isStemOnlyDocument =>
+      widget.diagnostics?['documentRole']?.toString() == 'stemOnly';
+
+  SubjectiveAnswerDistiller get _resolvedAnswerDistiller {
+    return _answerDistiller ??= widget.answerDistiller ??
+        SubjectiveAnswerDistillationService(
+          engineRepository: AiDependenciesScope.of(context).engineRepository,
+        );
+  }
 
   String? get _qualityGateReason {
     if (ImportReviewBlockingPolicy.isBlocked(_reviewResult)) {
@@ -133,6 +157,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     _reapplyExplanationPolicy();
     _refreshReviewState();
     _loadExistingFolders();
+  }
+
+  @override
+  void dispose() {
+    _answerDistillationCancellationRequested = true;
+    _answerDistillationOperationId++;
+    super.dispose();
   }
 
   ImportDiagnosticMessage? _historicalQualityGateMessage() {
@@ -607,6 +638,166 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     _refreshVisibleItems();
   }
 
+  List<ImportReviewItem> get _answerDistillationCandidates {
+    return _allItems
+        .where(
+          (item) => _answerDistillationPolicy.isCandidate(
+            item.draft,
+            isStemOnly: _isStemOnlyDocument,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  bool _isAnswerDistillationCandidate(ImportReviewItem item) {
+    return _answerDistillationPolicy.isCandidate(
+      item.draft,
+      isStemOnly: _isStemOnlyDocument,
+    );
+  }
+
+  Future<SubjectiveAnswerDistillationResult> _distillAnswer(
+    ImportReviewItem item, {
+    required Duration timeout,
+  }) async {
+    try {
+      return await _resolvedAnswerDistiller.distill(
+        questionNumber: item.originalIndex + 1,
+        question: item.draft,
+        isStemOnly: _isStemOnlyDocument,
+        timeout: timeout,
+      );
+    } catch (error) {
+      return SubjectiveAnswerDistillationResult.rejected(
+        diagnostics: [
+          'answer_distillation_failed',
+          'answer_distillation_failure_type:${error.runtimeType}',
+        ],
+      );
+    }
+  }
+
+  bool _applyDistilledAnswer(
+    int originalIndex,
+    SubjectiveAnswerDistillationResult result,
+  ) {
+    final answer = result.standardAnswer?.trim();
+    if (!result.applied || answer == null || answer.isEmpty) return false;
+
+    final itemIndex = _allItems.indexWhere(
+      (item) => item.originalIndex == originalIndex,
+    );
+    if (itemIndex < 0) return false;
+    final current = _allItems[itemIndex];
+    _allItems[itemIndex] = current.copyWith(
+      draft: current.draft.copyWith(standardAnswer: answer),
+    );
+    return true;
+  }
+
+  Future<void> _distillSingleAnswer(ImportReviewItem item) async {
+    if (_isDistillingAnswers || !_isAnswerDistillationCandidate(item)) return;
+    final operationId = ++_answerDistillationOperationId;
+    setState(() {
+      _isDistillingAnswers = true;
+      _answerDistillationCancellationRequested = false;
+      _answerDistillationCompletedCount = 0;
+      _answerDistillationTotalCount = 1;
+      _activeAnswerDistillationIndex = item.originalIndex;
+    });
+
+    final result = await _distillAnswer(
+      item,
+      timeout: const Duration(seconds: 30),
+    );
+    if (!mounted || operationId != _answerDistillationOperationId) return;
+
+    final applied = _applyDistilledAnswer(item.originalIndex, result);
+    setState(() {
+      _answerDistillationCompletedCount = 1;
+      _isDistillingAnswers = false;
+      _activeAnswerDistillationIndex = null;
+      if (applied) _refreshReviewState();
+    });
+    _showAnswerDistillationOutcome(applied: applied);
+  }
+
+  Future<void> _distillAllAnswers() async {
+    if (_isDistillingAnswers) return;
+    final candidates = _answerDistillationCandidates;
+    if (candidates.isEmpty) return;
+
+    final operationId = ++_answerDistillationOperationId;
+    final stopwatch = Stopwatch()..start();
+    var appliedCount = 0;
+    setState(() {
+      _isDistillingAnswers = true;
+      _answerDistillationCancellationRequested = false;
+      _answerDistillationCompletedCount = 0;
+      _answerDistillationTotalCount = candidates.length;
+      _activeAnswerDistillationIndex = null;
+    });
+
+    for (var index = 0; index < candidates.length; index++) {
+      if (_answerDistillationCancellationRequested) break;
+      final remaining = const Duration(seconds: 90) - stopwatch.elapsed;
+      if (remaining <= Duration.zero) break;
+      final timeout = remaining.compareTo(const Duration(seconds: 30)) < 0
+          ? remaining
+          : const Duration(seconds: 30);
+      final candidate = candidates[index];
+      if (!mounted || operationId != _answerDistillationOperationId) return;
+      setState(() {
+        _activeAnswerDistillationIndex = candidate.originalIndex;
+      });
+
+      final result = await _distillAnswer(candidate, timeout: timeout);
+      if (!mounted || operationId != _answerDistillationOperationId) return;
+      final applied = _applyDistilledAnswer(candidate.originalIndex, result);
+      if (applied) appliedCount++;
+      setState(() {
+        _answerDistillationCompletedCount = index + 1;
+        if (applied) _refreshReviewState();
+      });
+      if (_answerDistillationCancellationRequested) break;
+    }
+    stopwatch.stop();
+    if (!mounted || operationId != _answerDistillationOperationId) return;
+    final cancelled = _answerDistillationCancellationRequested;
+    setState(() {
+      _isDistillingAnswers = false;
+      _activeAnswerDistillationIndex = null;
+    });
+    _showAnswerDistillationOutcome(
+      applied: appliedCount > 0,
+      cancelled: cancelled,
+      appliedCount: appliedCount,
+    );
+  }
+
+  void _cancelAnswerDistillation() {
+    if (!_isDistillingAnswers) return;
+    setState(() {
+      _answerDistillationCancellationRequested = true;
+    });
+  }
+
+  void _showAnswerDistillationOutcome({
+    required bool applied,
+    bool cancelled = false,
+    int? appliedCount,
+  }) {
+    if (!mounted) return;
+    final message = cancelled
+        ? '已停止生成，成功补全 ${appliedCount ?? 0} 道题'
+        : applied
+            ? (appliedCount == null ? '标准答案已生成' : '已补全 $appliedCount 道主观题标准答案')
+            : '未能生成有效标准答案，原题已保留';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   void _reapplyExplanationPolicy() {
     _allItems = _allItems.map((item) {
       final question = <String, dynamic>{
@@ -1001,6 +1192,62 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  Widget _buildAnswerDistillationControl() {
+    final candidateCount = _answerDistillationCandidates.length;
+    if (candidateCount == 0 && !_isDistillingAnswers) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: theme.primaryColor.withValues(alpha: 0.05),
+      child: Row(
+        children: [
+          Icon(Icons.auto_awesome_outlined,
+              size: 20, color: theme.primaryColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isDistillingAnswers
+                      ? '正在生成答案 $_answerDistillationCompletedCount/$_answerDistillationTotalCount'
+                      : '可补全 $candidateCount 道主观题标准答案',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Text(
+                  '仅在点击后使用现有解析生成简洁答案，不影响基础导入。',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (_isDistillingAnswers)
+            TextButton(
+              key: const ValueKey('answer-distillation-cancel'),
+              onPressed: _answerDistillationCancellationRequested
+                  ? null
+                  : _cancelAnswerDistillation,
+              child: const Text('停止生成'),
+            )
+          else
+            FilledButton(
+              key: const ValueKey('answer-distillation-batch'),
+              onPressed: _distillAllAnswers,
+              child: Text('补全 $candidateCount 道'),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1050,6 +1297,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
           _buildExplanationRetentionControl(),
+          _buildAnswerDistillationControl(),
           const Divider(height: 1),
           _buildSummaryBar(),
           const Divider(height: 1),
@@ -1152,6 +1400,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                                     item,
                                                     retain,
                                                   ),
+                                      answerDistillationCandidate:
+                                          _isAnswerDistillationCandidate(item),
+                                      answerDistillationInProgress:
+                                          _activeAnswerDistillationIndex ==
+                                              item.originalIndex,
+                                      onAnswerDistillation: _selectionMode ||
+                                              _isDistillingAnswers
+                                          ? null
+                                          : () => _distillSingleAnswer(item),
                                     ),
                                   ),
                                 ),
@@ -1541,6 +1798,9 @@ class _QuestionCard extends StatelessWidget {
     required this.issues,
     required this.explanationRetained,
     required this.onExplanationRetentionChanged,
+    required this.answerDistillationCandidate,
+    required this.answerDistillationInProgress,
+    required this.onAnswerDistillation,
   });
 
   final ImportReviewItem item;
@@ -1548,6 +1808,9 @@ class _QuestionCard extends StatelessWidget {
   final List<ImportReviewIssue> issues;
   final bool explanationRetained;
   final ValueChanged<bool>? onExplanationRetentionChanged;
+  final bool answerDistillationCandidate;
+  final bool answerDistillationInProgress;
+  final VoidCallback? onAnswerDistillation;
 
   @override
   Widget build(BuildContext context) {
@@ -1631,6 +1894,25 @@ class _QuestionCard extends StatelessWidget {
                 ),
                 avatar: const Icon(Icons.auto_fix_high, size: 16),
                 label: const Text('需要结构修复'),
+              ),
+            ],
+            if (answerDistillationCandidate) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                key: ValueKey(
+                  'answer-distillation-single-${item.originalIndex}',
+                ),
+                onPressed: onAnswerDistillation,
+                icon: answerDistillationInProgress
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_awesome_outlined, size: 16),
+                label: Text(
+                  answerDistillationInProgress ? '正在生成答案' : '生成标准答案',
+                ),
               ),
             ],
             if ((question.type == QuestionType.singleChoice ||

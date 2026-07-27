@@ -29,6 +29,9 @@ bool isMeaningfulAnswer(String? value) {
     '未提供',
     '未给出',
     '未见答案',
+    '见解析',
+    '详见解析',
+    '答案见解析',
   };
   if (placeholders.contains(lower) || placeholders.contains(text)) {
     return false;
@@ -37,7 +40,8 @@ bool isMeaningfulAnswer(String? value) {
   return !text.contains('未见答案') &&
       !text.contains('暂无') &&
       !text.contains('未提供') &&
-      !text.contains('未给出');
+      !text.contains('未给出') &&
+      !text.contains('见解析');
 }
 
 List<String> meaningfulOptions(Iterable<Object?>? options) {
