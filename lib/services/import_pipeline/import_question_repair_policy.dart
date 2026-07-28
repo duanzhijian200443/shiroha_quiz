@@ -13,7 +13,6 @@ class ImportQuestionRepairPolicy {
     bool requireAnswer = false,
   }) {
     final diagnosticSet = diagnostics.toSet();
-    final riskHints = _readRiskHints(question);
     final type = _readInt(question['type']);
     final isChoice = type == 0 || type == 1;
     final codes = <String>{};
@@ -27,8 +26,7 @@ class ImportQuestionRepairPolicy {
             diagnosticSet.contains('choice_options_less_than_2'))) {
       codes.add('choice_options_less_than_2');
     }
-    if (diagnosticSet.contains(danglingLatexCode) ||
-        riskHints.contains('latex_unrenderable')) {
+    if (diagnosticSet.contains(danglingLatexCode)) {
       codes.add(danglingLatexCode);
     }
     if (requireAnswer &&
@@ -61,14 +59,6 @@ class ImportQuestionRepairPolicy {
     );
     next['_import_review'] = metadata;
     return next;
-  }
-
-  Set<String> _readRiskHints(Map<String, dynamic> question) {
-    final metadata = question['_import_review'];
-    final rawHints = metadata is Map ? metadata['riskHints'] : null;
-    return rawHints is List
-        ? rawHints.map((item) => item.toString()).toSet()
-        : <String>{};
   }
 
   List<String> _readOptions(Object? value) {

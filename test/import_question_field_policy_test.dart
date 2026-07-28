@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_repair_policy.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_analyzer.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_filter.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_issue.dart';
@@ -129,7 +130,9 @@ void main() {
       expect(result['diagnostics'], ['unrelated']);
     });
 
-    test('enabled damaged explanation reaches analyzer and warning filter', () {
+    test(
+        'enabled damaged explanation remains review without ordinary repair',
+        () {
       final finalized = finalizeAndAuditImportQuestions(
         [
           {
@@ -141,6 +144,10 @@ void main() {
             'explanation': '',
             'raw_explanation':
                 r'Broken \(\begin{matrix}1\end{pmatrix}\) <table>x</table>',
+            'diagnostics': const ['dangling_latex'],
+            '_import_review': const {
+              'repairCandidateCodes': ['dangling_latex'],
+            },
           },
         ],
         mode: ExplanationRetentionMode.allQuestionTypes,
@@ -165,8 +172,35 @@ void main() {
       expect(analysis.summary.qualityScore, lessThan(100));
       expect(warnings, hasLength(1));
       expect(
+        finalized['diagnostics'],
+        isNot(contains('dangling_latex')),
+      );
+      expect(
         (finalized['_import_review'] as Map)['repairCandidateCodes'],
-        contains('dangling_latex'),
+        isNot(contains('dangling_latex')),
+      );
+    });
+
+    test('only an explicit current dangling diagnostic enters repair', () {
+      const policy = ImportQuestionRepairPolicy();
+      final reviewedQuestion = {
+        'type': 3,
+        'content': 'Question',
+        'options': const <String>[],
+        'standard_answer': '',
+        'explanation': '',
+        '_import_review': const {
+          'riskHints': [latexUnrenderableIssue],
+        },
+      };
+
+      expect(policy.candidateCodes(reviewedQuestion), isEmpty);
+      expect(
+        policy.candidateCodes(
+          reviewedQuestion,
+          diagnostics: const ['dangling_latex'],
+        ),
+        ['dangling_latex'],
       );
     });
 

@@ -1683,6 +1683,39 @@ void main() {
       expect(encoded, isNot(contains('durationMs')));
     });
 
+    test('final LaTeX issue summaries expose structure without field text', () {
+      final question = finalizeAndAuditImportQuestion({
+        'question_number': 21,
+        'type': 3,
+        'content': 'Synthetic question',
+        'options': const <String>[],
+        'standard_answer': '',
+        'explanation':
+            r'Synthetic \(\begin{matrix}x\end{pmatrix}\) explanation',
+      });
+
+      final summaries = buildSafeFinalLatexIssueSummaries([question]);
+
+      expect(summaries, hasLength(1));
+      expect(summaries.single, {
+        'questionNumber': 21,
+        'field': 'explanation',
+        'invalidValueCount': 1,
+        'structuralIssues': ['mismatched_environment'],
+        'leftControlWordCount': 0,
+        'rightControlWordCount': 0,
+        'environmentStackState': 'invalid',
+        'environmentIssues': ['mismatched_environment'],
+        'mathDelimiterState': 'balanced',
+        'leftRightState': 'balanced',
+        'firstProducedBy': 'assembler',
+      });
+      final encoded = jsonEncode(summaries);
+      expect(encoded, isNot(contains('Synthetic')));
+      expect(encoded, isNot(contains(r'\begin')));
+      expect(encoded, isNot(contains(r'\end')));
+    });
+
     test(
       '2022_math1 replay read-only reference-answer acceptance',
       () async {
@@ -1708,6 +1741,21 @@ void main() {
           pipeline['referenceAnswerAttachedNumbers'],
           containsAll(<int>[17, 18, 19, 20, 22]),
         );
+        expect(pipeline['latexIssueSummaries'], [
+          {
+            'questionNumber': 21,
+            'field': 'explanation',
+            'invalidValueCount': 1,
+            'structuralIssues': ['mismatched_environment'],
+            'leftControlWordCount': 0,
+            'rightControlWordCount': 0,
+            'environmentStackState': 'invalid',
+            'environmentIssues': ['mismatched_environment'],
+            'mathDelimiterState': 'balanced',
+            'leftRightState': 'balanced',
+            'firstProducedBy': 'assembler',
+          },
+        ]);
         expect(completed['missingExplicitAnswerCount'], 0);
         expect(pipeline['repairCandidates'], isEmpty);
         expect(pipeline['repairCandidateCount'], 0);
@@ -1716,6 +1764,7 @@ void main() {
         expect(completed['missingNumbers'], isEmpty);
         expect(completed['duplicateNumbers'], isEmpty);
         expect(completed['hardFailureCount'], 0);
+        expect(completed['reviewIssueCount'], 1);
         expect(completed['providerCallCount'], 0);
       },
       skip: Platform.environment['SHIROHA_RUN_REAL_REPLAY'] == '1'

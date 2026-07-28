@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_final_sorter.dart';
+import 'package:shiroha_quiz/services/import_pipeline/latex_renderability_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
@@ -1084,6 +1085,98 @@ List<Map<String, dynamic>> buildSafeRepairCandidates(
   return List.unmodifiable(candidates);
 }
 
+List<Map<String, dynamic>> buildSafeFinalLatexIssueSummaries(
+  Iterable<Map<String, dynamic>> questions,
+) {
+  const checker = LatexSanityChecker();
+  final summaries = <Map<String, dynamic>>[];
+
+  for (final question in questions) {
+    final questionNumber = _readInt(question['question_number']) ?? 0;
+
+    void inspectField(String field, Iterable<String> values) {
+      final issueCodes = <String>{};
+      var invalidValueCount = 0;
+      var leftCount = 0;
+      var rightCount = 0;
+      var assemblerProbeWouldFlag = false;
+
+      for (final value in values) {
+        final result = checker.checkRenderability(value);
+        if (result.isRenderable) continue;
+        invalidValueCount++;
+        issueCodes.addAll(result.issues.map((issue) => issue.code));
+        leftCount += latexLeftControlWordPattern.allMatches(value).length;
+        rightCount += latexRightControlWordPattern.allMatches(value).length;
+        assemblerProbeWouldFlag |= checker.hasDanglingDelimiters(value);
+      }
+
+      if (invalidValueCount == 0) return;
+      final sortedIssues = issueCodes.toList()..sort();
+      final environmentIssues = sortedIssues
+          .where(
+            (code) =>
+                code == LatexRenderabilityIssue.mismatchedEnvironment.code ||
+                code ==
+                    LatexRenderabilityIssue.environmentOutsideMathContext.code ||
+                code ==
+                    LatexRenderabilityIssue.incompleteEnvironmentArgument.code,
+          )
+          .toList(growable: false);
+      summaries.add({
+        'questionNumber': questionNumber,
+        'field': field,
+        'invalidValueCount': invalidValueCount,
+        'structuralIssues': sortedIssues,
+        'leftControlWordCount': leftCount,
+        'rightControlWordCount': rightCount,
+        'environmentStackState':
+            environmentIssues.isEmpty ? 'balanced' : 'invalid',
+        'environmentIssues': environmentIssues,
+        'mathDelimiterState': issueCodes.contains(
+          LatexRenderabilityIssue.unbalancedMathDelimiter.code,
+        )
+            ? 'unbalanced'
+            : 'balanced',
+        'leftRightState': issueCodes.contains(
+          LatexRenderabilityIssue.unbalancedLeftRight.code,
+        )
+            ? 'unbalanced'
+            : 'balanced',
+        'firstProducedBy':
+            assemblerProbeWouldFlag ? 'assembler' : 'final_latex_audit',
+      });
+    }
+
+    inspectField(
+      'content',
+      [if (question['content'] is String) question['content'] as String],
+    );
+    inspectField(
+      'options',
+      question['options'] is List
+          ? (question['options'] as List).whereType<String>()
+          : const <String>[],
+    );
+    inspectField(
+      'standard_answer',
+      [
+        if (question['standard_answer'] is String)
+          question['standard_answer'] as String,
+      ],
+    );
+    inspectField(
+      'explanation',
+      [
+        if (question['explanation'] is String)
+          question['explanation'] as String,
+      ],
+    );
+  }
+
+  return List.unmodifiable(summaries);
+}
+
 // ---------------------------------------------------------------------------
 // Verdict computation
 // ---------------------------------------------------------------------------
@@ -1315,6 +1408,8 @@ Future<int> runImportAcceptance({
             )
           : const <int>[];
   final repairCandidates = buildSafeRepairCandidates(ocrResult.diagnostics);
+  final latexIssueSummaries =
+      buildSafeFinalLatexIssueSummaries(finalQuestions);
 
   emitEvent({
     'stage': 'pipeline',
@@ -1323,6 +1418,7 @@ Future<int> runImportAcceptance({
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
     'repairCandidates': repairCandidates,
+    'latexIssueSummaries': latexIssueSummaries,
     'answerDistillationCandidates': answerDistillationCandidateCount,
     'providerCallCount': 0,
     'referenceAnswerDetectedCount': referenceAnswerDetectedCount,
@@ -1368,6 +1464,7 @@ Future<int> runImportAcceptance({
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
     'repairCandidates': repairCandidates,
+    'latexIssueSummaries': latexIssueSummaries,
     'answerDistillationCandidates': answerDistillationCandidateCount,
     'referenceAnswerDetectedCount': referenceAnswerDetectedCount,
     'referenceAnswerAttachedCount': referenceAnswerAttachedCount,
@@ -1417,6 +1514,7 @@ Future<int> runImportAcceptance({
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
     'repairCandidates': repairCandidates,
+    'latexIssueSummaries': latexIssueSummaries,
     'answerDistillationCandidates': answerDistillationCandidateCount,
     'providerCallCount': 0,
     'referenceAnswerDetectedCount': referenceAnswerDetectedCount,

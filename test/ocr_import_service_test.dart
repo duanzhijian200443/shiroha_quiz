@@ -574,7 +574,8 @@ void main() {
       expect(result.diagnostics['repairAttemptedCount'], 0);
     });
 
-    test('retained objective explanation defects enter repair routing',
+    test(
+        'retained objective explanation defects stay review-only without repair',
         () async {
       final profile = AiEngineProfile(
         id: 'ocr-retained-explanation',
@@ -610,12 +611,16 @@ void main() {
       final question = result!.questions.single;
       expect(question['standard_answer'], 'B');
       expect(question['explanation'], contains(r'\begin{matrix}'));
-      expect(repair.callCount, 1);
-      expect(repair.retentionModes, [
-        ExplanationRetentionMode.allQuestionTypes,
-      ]);
-      expect(result.diagnostics['repairEligibleCount'], 1);
-      expect(result.diagnostics['repairAttemptedCount'], 1);
+      final metadata = question['_import_review'] as Map<String, dynamic>;
+      expect(metadata['riskHints'], contains('latex_unrenderable'));
+      expect(
+        metadata['repairCandidateCodes'],
+        isNot(contains('dangling_latex')),
+      );
+      expect(repair.callCount, 0);
+      expect(repair.retentionModes, isEmpty);
+      expect(result.diagnostics['repairEligibleCount'], 0);
+      expect(result.diagnostics['repairAttemptedCount'], 0);
     });
 
     test('real structural defects repair serially with safe timing', () async {
