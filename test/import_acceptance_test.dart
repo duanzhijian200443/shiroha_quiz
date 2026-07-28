@@ -1636,6 +1636,93 @@ void main() {
       );
     });
 
+    test('acceptance exposes only safe reference-answer statistics', () {
+      final content = File('tool/import_acceptance.dart').readAsStringSync();
+
+      for (final key in const [
+        'referenceAnswerDetectedCount',
+        'referenceAnswerAttachedCount',
+        'referenceAnswerAttachedNumbers',
+        'referenceAnswerConflictCount',
+        'referenceAnswerAcceptedNumbers',
+        'missingExplicitAnswerCount',
+        'repairCandidates',
+      ]) {
+        expect(content, contains("'$key'"), reason: key);
+      }
+      expect(content, isNot(contains('referenceAnswerText')));
+      expect(content, isNot(contains('referenceAnswerBody')));
+    });
+
+    test('repair candidate statistics expose only safe fields and codes', () {
+      final candidates = buildSafeRepairCandidates({
+        'timing': {
+          'repairAttempts': [
+            {
+              'questionNumber': 22,
+              'triggerCodes': [
+                'dangling_latex',
+                'synthetic_sensitive_detail',
+              ],
+              'outcome': 'unchanged',
+              'durationMs': 5,
+            },
+          ],
+        },
+      });
+
+      expect(candidates, [
+        {
+          'questionNumber': 22,
+          'triggerCodes': ['dangling_latex', 'unknown'],
+        },
+      ]);
+      final encoded = jsonEncode(candidates);
+      expect(encoded, isNot(contains('synthetic_sensitive_detail')));
+      expect(encoded, isNot(contains('outcome')));
+      expect(encoded, isNot(contains('durationMs')));
+    });
+
+    test(
+      '2022_math1 replay read-only reference-answer acceptance',
+      () async {
+        final events = <Map<String, dynamic>>[];
+        final exitCode = await runImportAcceptance(
+          caseId: '2022_math1',
+          repositoryRoot: Directory.current.path,
+          emitEvent: events.add,
+        );
+
+        final pipeline = events.firstWhere(
+          (event) =>
+              event['stage'] == 'pipeline' && event['status'] == 'completed',
+        );
+        final completed = events.firstWhere(
+          (event) => event['stage'] == 'completed',
+        );
+
+        expect(exitCode, anyOf(0, 2));
+        expect(pipeline['questionCount'], 22);
+        expect(pipeline['providerCallCount'], 0);
+        expect(
+          pipeline['referenceAnswerAttachedNumbers'],
+          containsAll(<int>[17, 18, 19, 20, 22]),
+        );
+        expect(completed['missingExplicitAnswerCount'], 0);
+        expect(pipeline['repairCandidates'], isEmpty);
+        expect(pipeline['repairCandidateCount'], 0);
+        expect(pipeline['answerDistillationCandidates'], 0);
+        expect(completed['acceptedNumbers'], List.generate(22, (i) => i + 1));
+        expect(completed['missingNumbers'], isEmpty);
+        expect(completed['duplicateNumbers'], isEmpty);
+        expect(completed['hardFailureCount'], 0);
+        expect(completed['providerCallCount'], 0);
+      },
+      skip: Platform.environment['SHIROHA_RUN_REAL_REPLAY'] == '1'
+          ? false
+          : 'Set SHIROHA_RUN_REAL_REPLAY=1 to use the local read-only Replay.',
+    );
+
     test(
         'deterministically repairable LaTeX does not produce latex_unrenderable',
         () {

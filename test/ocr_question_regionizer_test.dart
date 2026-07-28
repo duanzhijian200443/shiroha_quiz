@@ -1879,6 +1879,124 @@ void main() {
         expect(referenceEntry['reason'], 'reference_section');
         expect(referenceEntry['previousAcceptedNumber'], 1);
       });
+
+      test('splits an embedded answer-summary heading before reference entries',
+          () {
+        final document = OcrDocument(
+          sourceName: 'embedded-answer-summary.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'section',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q1',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '1. 第一道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'embedded_summary',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '安全尾注\n'
+                      '第二行安全尾注\n'
+                      '2022 模拟试卷参考答案汇总\n'
+                      '安全说明\n'
+                      '第二行安全说明',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'reference_q2',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '2. 参考条目。',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [1]);
+        expect(result.diagnostics['referenceSectionDetected'], isTrue);
+        final trace = result.diagnostics['questionCandidateTrace'] as List;
+        final referenceEntry = trace.singleWhere(
+          (entry) => entry['number'] == 2,
+        );
+        expect(referenceEntry['decision'], 'rejected');
+        expect(referenceEntry['reason'], 'reference_section');
+      });
+
+      test('does not treat a non-terminal answer-summary phrase as a heading',
+          () {
+        final document = OcrDocument(
+          sourceName: 'answer-summary-prose.pdf',
+          markdown: '',
+          rawResponses: const [],
+          usage: const {},
+          pages: [
+            OcrPage(
+              pageIndex: 1,
+              blocks: const [
+                OcrBlock(
+                  blockId: 'section',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '一、选择题',
+                  bbox: [],
+                  readingOrder: 0,
+                ),
+                OcrBlock(
+                  blockId: 'q1',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '1. 第一道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 1,
+                ),
+                OcrBlock(
+                  blockId: 'not_summary',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '参考答案速查说明',
+                  bbox: [],
+                  readingOrder: 2,
+                ),
+                OcrBlock(
+                  blockId: 'q2',
+                  pageIndex: 1,
+                  type: 'text',
+                  text: '2. 第二道脱敏题干。',
+                  bbox: [],
+                  readingOrder: 3,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final result = const OcrQuestionRegionizer().regionize(document);
+
+        expect(result.diagnostics['acceptedNumbers'], [1, 2]);
+        expect(result.diagnostics['referenceSectionDetected'], isFalse);
+      });
     });
 
     group('Candidate Trace Tests', () {

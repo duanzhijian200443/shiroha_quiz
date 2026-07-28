@@ -1,5 +1,16 @@
 # Development Log
 
+## [2026-07-28 23:41] - feat(import): 回填卷尾参考答案索引
+
+- **变更类型**: feat
+- **影响模块**: import_pipeline, import_acceptance, tests
+- **详细改动明细**:
+  - [x] 新增卷尾参考答案索引、保守提取与冲突感知合并，在 Assembler 前回填缺失答案。
+  - [x] 统一参考答案标题边界，并支持 OCR block 内嵌卷尾标题的安全切分。
+  - [x] Acceptance 仅输出题号、计数和白名单诊断码，保持 Replay 离线且 Provider 调用为零。
+  - [x] 补充提取、合并、Regionizer、OCR Service 与只读 Replay 聚焦回归测试。
+- **验证状态**: 聚焦测试 60/60 通过，12 个相关文件 analyze 无问题；E1A 已审查通过，Q21 LaTeX 为阶段外既有失败。
+
 ## [2026-07-28 03:15] - feat(import): D2A & D2B 阶段核心实现：主观题答案提炼、审查快照与 LaTeX 环境自动归一化校验
 
 - **变更类型**: feat

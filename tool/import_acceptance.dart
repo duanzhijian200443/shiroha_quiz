@@ -1039,6 +1039,51 @@ int? _readInt(Object? value) {
   return null;
 }
 
+const _safeRepairCandidateCodes = <String>{
+  'empty_content',
+  'choice_options_less_than_2',
+  'dangling_latex',
+  'choice_missing_answer',
+};
+
+List<Map<String, dynamic>> buildSafeRepairCandidates(
+  Map<String, dynamic> diagnostics,
+) {
+  final timing = diagnostics['timing'];
+  if (timing is! Map) return const [];
+  final attempts = timing['repairAttempts'];
+  if (attempts is! List) return const [];
+
+  final candidates = <Map<String, dynamic>>[];
+  for (final attempt in attempts) {
+    if (attempt is! Map) continue;
+    final questionNumber = _readInt(attempt['questionNumber']);
+    if (questionNumber == null || questionNumber <= 0) continue;
+
+    final codes = <String>{};
+    final rawCodes = attempt['triggerCodes'];
+    if (rawCodes is List) {
+      for (final rawCode in rawCodes) {
+        final code = rawCode.toString();
+        codes.add(
+          _safeRepairCandidateCodes.contains(code) ? code : 'unknown',
+        );
+      }
+    }
+    if (codes.isEmpty) codes.add('unknown');
+    final sortedCodes = codes.toList()..sort();
+    candidates.add({
+      'questionNumber': questionNumber,
+      'triggerCodes': sortedCodes,
+    });
+  }
+  candidates.sort(
+    (a, b) =>
+        (a['questionNumber'] as int).compareTo(b['questionNumber'] as int),
+  );
+  return List.unmodifiable(candidates);
+}
+
 // ---------------------------------------------------------------------------
 // Verdict computation
 // ---------------------------------------------------------------------------
@@ -1249,6 +1294,27 @@ Future<int> runImportAcceptance({
         tryParseImportDocumentRole(ocrResult.diagnostics['documentRole']) ==
             ImportDocumentRole.stemOnly,
   );
+  final referenceAnswerDetectedCount =
+      _readInt(ocrResult.diagnostics['referenceAnswerAcceptedCount']) ?? 0;
+  final referenceAnswerAttachedCount =
+      _readInt(ocrResult.diagnostics['referenceAnswerAttachedCount']) ?? 0;
+  final referenceAnswerAttachedNumbers =
+      ocrResult.diagnostics['referenceAnswerAttachedNumbers'] is List
+          ? List<int>.unmodifiable(
+              (ocrResult.diagnostics['referenceAnswerAttachedNumbers'] as List)
+                  .whereType<int>(),
+            )
+          : const <int>[];
+  final referenceAnswerConflictCount =
+      _readInt(ocrResult.diagnostics['referenceAnswerConflictCount']) ?? 0;
+  final referenceAnswerAcceptedNumbers =
+      ocrResult.diagnostics['referenceAnswerAcceptedNumbers'] is List
+          ? List<int>.unmodifiable(
+              (ocrResult.diagnostics['referenceAnswerAcceptedNumbers'] as List)
+                  .whereType<int>(),
+            )
+          : const <int>[];
+  final repairCandidates = buildSafeRepairCandidates(ocrResult.diagnostics);
 
   emitEvent({
     'stage': 'pipeline',
@@ -1256,8 +1322,14 @@ Future<int> runImportAcceptance({
     'questionCount': finalQuestions.length,
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
+    'repairCandidates': repairCandidates,
     'answerDistillationCandidates': answerDistillationCandidateCount,
     'providerCallCount': 0,
+    'referenceAnswerDetectedCount': referenceAnswerDetectedCount,
+    'referenceAnswerAttachedCount': referenceAnswerAttachedCount,
+    'referenceAnswerAttachedNumbers': referenceAnswerAttachedNumbers,
+    'referenceAnswerConflictCount': referenceAnswerConflictCount,
+    'referenceAnswerAcceptedNumbers': referenceAnswerAcceptedNumbers,
   });
 
   // 4. Acceptance quality checks
@@ -1265,6 +1337,13 @@ Future<int> runImportAcceptance({
     questions: finalQuestions,
     testCase: testCase,
   );
+  final missingExplicitAnswerCount = quality.questionReports
+      .where(
+        (report) => report.issues.any(
+          (issue) => issue.code == 'missing_explicit_answer',
+        ),
+      )
+      .length;
 
   // 5. Compute verdict
   final verdict = computeVerdict(
@@ -1288,7 +1367,14 @@ Future<int> runImportAcceptance({
     'duplicateNumbers': quality.duplicateNumbers,
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
+    'repairCandidates': repairCandidates,
     'answerDistillationCandidates': answerDistillationCandidateCount,
+    'referenceAnswerDetectedCount': referenceAnswerDetectedCount,
+    'referenceAnswerAttachedCount': referenceAnswerAttachedCount,
+    'referenceAnswerAttachedNumbers': referenceAnswerAttachedNumbers,
+    'referenceAnswerConflictCount': referenceAnswerConflictCount,
+    'referenceAnswerAcceptedNumbers': referenceAnswerAcceptedNumbers,
+    'missingExplicitAnswerCount': missingExplicitAnswerCount,
     'hardFailureCount':
         quality.questionReports.where((r) => r.hasHardIssue).length,
     'reviewIssueCount':
@@ -1323,11 +1409,22 @@ Future<int> runImportAcceptance({
     'sourceMode': sourceMode,
     'actualQuestionCount': finalQuestions.length,
     'expectedQuestionCount': testCase.expectedQuestionCount,
+    'acceptedNumbers': quality.acceptedNumbers,
+    'missingNumbers': quality.missingNumbers,
+    'duplicateNumbers': quality.duplicateNumbers,
     'hardFailureCount': summary['hardFailureCount'],
     'reviewIssueCount': summary['reviewIssueCount'],
     'repairMode': 'skipped',
     'repairCandidateCount': noOpRepair.candidateCount,
+    'repairCandidates': repairCandidates,
     'answerDistillationCandidates': answerDistillationCandidateCount,
+    'providerCallCount': 0,
+    'referenceAnswerDetectedCount': referenceAnswerDetectedCount,
+    'referenceAnswerAttachedCount': referenceAnswerAttachedCount,
+    'referenceAnswerAttachedNumbers': referenceAnswerAttachedNumbers,
+    'referenceAnswerConflictCount': referenceAnswerConflictCount,
+    'referenceAnswerAcceptedNumbers': referenceAnswerAcceptedNumbers,
+    'missingExplicitAnswerCount': missingExplicitAnswerCount,
     'durationMs': stopwatch.elapsedMilliseconds,
   });
 

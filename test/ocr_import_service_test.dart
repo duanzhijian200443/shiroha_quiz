@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
@@ -10,6 +11,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
+import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_policy.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
 import 'support/unsupported_ai_engine_store.dart';
@@ -229,6 +231,164 @@ void main() {
       expect(result.questions.first['q_num'], '1');
       expect(result.questions.first['source'], 'glm_ocr_intermediate');
       expect(result.diagnostics['status'], 'used_ocr');
+    });
+
+    test(
+        'attaches tail reference answers when compound heading is embedded in a block',
+        () async {
+      const profile = AiEngineProfile(
+        id: 'ocr-reference-answers',
+        engineType: AiEngineType.ocr,
+        name: 'zhipu-ocr',
+        apiKey: 'test-key',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        modelName: 'glm-ocr',
+        temperature: 0.1,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      const document = OcrDocument(
+        sourceName: 'reference-answers.pdf',
+        markdown: '',
+        rawResponses: [],
+        usage: {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: [
+              OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '三、解答题（共2题）',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              OcrBlock(
+                blockId: 'q1',
+                pageIndex: 1,
+                type: 'text',
+                text: '1. Synthetic subjective question one',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              OcrBlock(
+                blockId: 'e1',
+                pageIndex: 1,
+                type: 'text',
+                text: '解析：Synthetic explanation one',
+                bbox: [],
+                readingOrder: 2,
+              ),
+              OcrBlock(
+                blockId: 'q2',
+                pageIndex: 1,
+                type: 'text',
+                text: '2. Synthetic subjective question two',
+                bbox: [],
+                readingOrder: 3,
+              ),
+              OcrBlock(
+                blockId: 'e2',
+                pageIndex: 1,
+                type: 'text',
+                text: '解析：Synthetic explanation two',
+                bbox: [],
+                readingOrder: 4,
+              ),
+              OcrBlock(
+                blockId: 'reference_title',
+                pageIndex: 1,
+                type: 'text',
+                text: '安全尾注\n'
+                    '第二行安全尾注\n'
+                    '2022 模拟试卷参考答案汇总\n'
+                    '安全说明\n'
+                    '第二行安全说明',
+                bbox: [],
+                readingOrder: 5,
+              ),
+              OcrBlock(
+                blockId: 'reference_1',
+                pageIndex: 1,
+                type: 'text',
+                text: '(1) Final answer one',
+                bbox: [],
+                readingOrder: 6,
+              ),
+              OcrBlock(
+                blockId: 'reference_2',
+                pageIndex: 1,
+                type: 'text',
+                text: '（2）Final answer two',
+                bbox: [],
+                readingOrder: 7,
+              ),
+            ],
+          ),
+        ],
+      );
+      final repair = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: FakeOcrDocumentClient(document),
+        repairService: repair,
+      );
+
+      final result = await service.tryParse(
+        filePath: r'C:\tmp\reference-answers.pdf',
+        sourceName: 'reference-answers.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.questions, hasLength(2));
+      expect(
+        result.questions.map((question) => question['question_number']),
+        [1, 2],
+      );
+      expect(
+        result.questions.map((question) => question['standard_answer']),
+        ['Final answer one', 'Final answer two'],
+      );
+      expect(
+        result.questions.map((question) => question['explanation']),
+        [
+          'Synthetic explanation one',
+          'Synthetic explanation two\n'
+              '安全尾注\n'
+              '第二行安全尾注',
+        ],
+      );
+      expect(
+        result.questions.last['explanation'],
+        isNot(contains('安全说明')),
+      );
+      expect(
+        result.questions.every(
+          (question) => (question['diagnostics'] as List)
+              .contains('reference_answer_attached'),
+        ),
+        isTrue,
+      );
+      expect(repair.callCount, 0);
+      expect(
+        result.questions.every(
+          (question) => !const SubjectiveAnswerDistillationPolicy().isCandidate(
+            QuestionDraft.fromMap(question),
+            isStemOnly: false,
+          ),
+        ),
+        isTrue,
+      );
+      expect(result.diagnostics['referenceAnswerSectionDetected'], isTrue);
+      expect(result.diagnostics['referenceAnswerAcceptedNumbers'], [1, 2]);
+      expect(result.diagnostics['referenceAnswerAttachedCount'], 2);
+      expect(result.diagnostics['referenceAnswerConflictCount'], 0);
+      final safeDiagnostics = jsonEncode(result.diagnostics);
+      expect(safeDiagnostics, isNot(contains('Final answer one')));
+      expect(safeDiagnostics, isNot(contains('Final answer two')));
     });
 
     test('healthy cross-page question preserves provenance without repair',

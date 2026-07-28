@@ -10,6 +10,8 @@ import 'ocr_document.dart';
 import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
+import 'reference_answer_extractor.dart';
+import 'reference_answer_merger.dart';
 import 'single_question_repair_service.dart';
 
 class OcrImportResult {
@@ -32,11 +34,16 @@ class OcrImportService {
     required AiEngineRepository engineRepository,
     OcrQuestionRegionizer regionizer = const OcrQuestionRegionizer(),
     OcrQuestionAssembler assembler = const OcrQuestionAssembler(),
+    ReferenceAnswerExtractor referenceAnswerExtractor =
+        const ReferenceAnswerExtractor(),
+    ReferenceAnswerMerger referenceAnswerMerger = const ReferenceAnswerMerger(),
     SingleQuestionRepairService? repairService,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
         _assembler = assembler,
+        _referenceAnswerExtractor = referenceAnswerExtractor,
+        _referenceAnswerMerger = referenceAnswerMerger,
         _repairService = repairService ??
             SingleQuestionRepairService(
               engineRepository: engineRepository,
@@ -46,6 +53,8 @@ class OcrImportService {
   final AiEngineRepository _engineRepository;
   final OcrQuestionRegionizer _regionizer;
   final OcrQuestionAssembler _assembler;
+  final ReferenceAnswerExtractor _referenceAnswerExtractor;
+  final ReferenceAnswerMerger _referenceAnswerMerger;
   final SingleQuestionRepairService _repairService;
 
   Future<OcrImportResult?> tryParse({
@@ -148,6 +157,46 @@ class OcrImportService {
         );
       }
 
+      final referenceAnswerIndex = _referenceAnswerExtractor.extract(
+        document,
+        regionized.regions,
+      );
+      final mergedRegions = _referenceAnswerMerger.merge(
+        regionized.regions,
+        referenceAnswerIndex,
+      );
+      final referenceAnswerAttachedNumbers = mergedRegions
+          .where(
+            (region) =>
+                region.diagnostics.contains('reference_answer_attached'),
+          )
+          .map((region) => region.number)
+          .toList(growable: false);
+      final referenceAnswerAttachedCount =
+          referenceAnswerAttachedNumbers.length;
+      final referenceAnswerConflictCount = mergedRegions
+          .where(
+            (region) =>
+                region.diagnostics.contains('reference_answer_conflict') ||
+                region.diagnostics
+                    .contains('reference_answer_duplicate_conflict'),
+          )
+          .length;
+      diagnostics['referenceAnswers'] = referenceAnswerIndex.diagnostics;
+      diagnostics.addAll({
+        'referenceAnswerSectionDetected':
+            referenceAnswerIndex.diagnostics['referenceSectionDetected'],
+        'referenceAnswerCandidateCount':
+            referenceAnswerIndex.diagnostics['candidateCount'],
+        'referenceAnswerAcceptedCount':
+            referenceAnswerIndex.diagnostics['acceptedCount'],
+        'referenceAnswerAttachedCount': referenceAnswerAttachedCount,
+        'referenceAnswerAttachedNumbers': referenceAnswerAttachedNumbers,
+        'referenceAnswerConflictCount': referenceAnswerConflictCount,
+        'referenceAnswerAcceptedNumbers':
+            referenceAnswerIndex.diagnostics['acceptedNumbers'],
+      });
+
       var repairRecommendedCount = 0;
       var repairAttemptedCount = 0;
       var repairAppliedCount = 0;
@@ -155,7 +204,7 @@ class OcrImportService {
 
       final assembly = measureStage('assemblyDurationMs', () {
         final assembled = <_OcrAssemblyCandidate>[];
-        for (final region in regionized.regions) {
+        for (final region in mergedRegions) {
           final result = _assembler.assemble(region);
           if (result.rejected) {
             rejectedCount++;
