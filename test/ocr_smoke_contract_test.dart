@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -853,7 +852,7 @@ void main() {
       expect(dartSource, contains('saved_api_key_unavailable'));
       expect(
         dartSource,
-        contains('repo.getActiveOcrEngine()'),
+        contains('repository.getActiveOcrEngine()'),
       );
       expect(dartSource, contains('sqfliteFfiInit()'));
       expect(dartSource, contains('databaseFactory = databaseFactoryFfi'));

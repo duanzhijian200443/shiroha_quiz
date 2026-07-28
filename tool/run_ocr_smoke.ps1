@@ -30,6 +30,18 @@ function Write-SafeJson {
     )
 
     Write-Output ($Value | ConvertTo-Json -Compress)
+    if ($Value.ContainsKey('status') -and $null -ne $Value.status) {
+        $summaryPath = Join-Path $script:reportDirectory 'summary.json'
+        if (Test-Path -LiteralPath $summaryPath -PathType Leaf) {
+            try {
+                $summaryJson = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+                $summaryJson.stage = $Value.stage
+                $summaryJson.status = $Value.status
+                Write-OcrSmokeReportJson -FileName 'summary.json' -Value $summaryJson
+            }
+            catch {}
+        }
+    }
     Update-OcrSmokeLauncherReport -Value $Value
 }
 
@@ -99,10 +111,10 @@ function New-OcrSmokeReportContext {
                 durationMs = $null
                 ocrBlockCount = $null
                 questionCandidateCount = $null
-                acceptedNumbers = const []
+                acceptedNumbers = @()
                 rejectedCandidateCount = $null
-                duplicateNumbers = const []
-                missingNumbers = const []
+                duplicateNumbers = @()
+                missingNumbers = @()
                 regionCount = $null
                 assembledQuestionCount = $null
                 finalQuestionCount = $null
@@ -115,6 +127,8 @@ function New-OcrSmokeReportContext {
                 requiresReview = $null
                 blocked = $null
             })
+        Write-OcrSmokeReportJson -FileName 'candidate_trace.json' -Value @()
+        Write-OcrSmokeReportJson -FileName 'rejected_candidates.json' -Value @()
     }
     catch {
         $script:reportReady = $false
@@ -305,16 +319,27 @@ function Write-OcrSmokeTerminalSummary {
         [PSCustomObject]$Report
     )
 
-    Write-Output ("OCR: {0}" -f $Report.status)
-    Write-Output ("Trace ID: {0}" -f $script:reportTraceId)
-    Write-Output ("Duration: {0}ms" -f $(if ($null -ne $Report.durationMs) { $Report.durationMs } else { '' }))
+    Write-Output ("OCR: {0}" -f $(if ($null -ne $Report.status) { $Report.status } elseif ($null -ne $Report.ocrStatus) { $Report.ocrStatus } else { '' }))
+    Write-Output ("Trace ID: {0}" -f $(if ($null -ne $Report.traceId) { $Report.traceId } else { $script:reportTraceId }))
+    Write-Output ("Duration: {0}" -f $(if ($null -ne $Report.durationMs) { "$($Report.durationMs) ms" } else { '' }))
     Write-Output ("OCR Blocks: {0}" -f $(if ($null -ne $Report.ocrBlockCount) { $Report.ocrBlockCount } else { '' }))
     Write-Output ("Candidates: {0}" -f $(if ($null -ne $Report.questionCandidateCount) { $Report.questionCandidateCount } else { '' }))
-    Write-Output ("Accepted Numbers: {0}" -f $(if ($null -ne $Report.acceptedNumbers) { ($Report.acceptedNumbers -join ', ') } else { 'unavailable' }))
-    Write-Output ("Missing Numbers: {0}" -f $(if ($null -ne $Report.missingNumbers) { ($Report.missingNumbers -join ', ') } else { 'unavailable' }))
+    Write-Output ("Accepted Numbers: {0}" -f $(if ($null -ne $Report.acceptedNumbers) { ($Report.acceptedNumbers -join ',') } else { 'unavailable' }))
+    Write-Output ("Missing Numbers: {0}" -f $(if ($null -ne $Report.missingNumbers) { if ($Report.missingNumbers.Count -gt 0) { ($Report.missingNumbers -join ',') } else { 'none' } } else { 'unavailable' }))
     Write-Output ("Duplicate Count: {0}" -f $(if ($null -ne $Report.duplicateNumbers) { $Report.duplicateNumbers.Count } else { 'unavailable' }))
-    Write-Output ("First Anomaly: {0}" -f $(if ($null -ne $Report.firstAnomaly) { ($Report.firstAnomaly | ConvertTo-Json -Compress) } else { 'none' }))
-    Write-Output ("Report Directory: {0}" -f $script:reportRelativeDirectory)
+    $firstAnomalyStr = 'none'
+    if ($null -ne $Report.firstAnomaly) {
+        $num = 0
+        $reason = [string]$Report.firstAnomaly.reason
+        if ([int]::TryParse([string]$Report.firstAnomaly.number, [ref]$num) -and $reason -match '^[a-z_]+$') {
+            $firstAnomalyStr = "$num / $reason"
+        }
+        else {
+            $firstAnomalyStr = $Report.firstAnomaly | ConvertTo-Json -Compress
+        }
+    }
+    Write-Output ("First Anomaly: {0}" -f $firstAnomalyStr)
+    Write-Output ("Report Directory: {0}" -f $(if ($null -ne $Report.reportDirectory) { $Report.reportDirectory } else { $script:reportRelativeDirectory }))
 }
 
 function Invoke-SmokeBuild {

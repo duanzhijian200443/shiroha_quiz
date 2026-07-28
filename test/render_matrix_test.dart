@@ -371,6 +371,75 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'renderer safely falls back for Q21-like missing array terminator',
+      (tester) async {
+    const text = r'''Before.
+$$\begin{array}{l}
+x_1=1\\
+x_2=2
+$$
+说明文字。
+$$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
+    final audited = auditFinalQuestionLatex({
+      'content': '',
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': text,
+    });
+
+    expect(audited.invalidFields, ['explanation']);
+    expect(audited.question['explanation'], text);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(
+      find.textContaining(r'\begin{array}{l}', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.textContaining('说明文字。', findRichText: true),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'renderer refuses control-word-adjacent bare environment wrapping',
+      (tester) async {
+    for (final text in const [
+      r'\text{\begin{matrix}1\end{matrix}}',
+      r'\operatorname{foo}\begin{matrix}1\end{matrix}',
+      r'\color{red}\begin{matrix}1\end{matrix}',
+      r'\text {1}\begin{matrix}2\end{matrix}',
+      r'\operatorname {+}\begin{matrix}1\end{matrix}',
+      r'\color {1}\begin{matrix}2\end{matrix}',
+    ]) {
+      final audited = auditFinalQuestionLatex({
+        'content': text,
+        'options': const <String>[],
+        'standard_answer': '',
+        'explanation': '',
+      });
+
+      expect(audited.invalidFields, ['content'], reason: text);
+      expect(audited.question['content'], text, reason: text);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: StructuredContentRenderer(text: text)),
+        ),
+      );
+
+      expect(find.byType(Math), findsNothing, reason: text);
+      expect(find.text(text), findsOneWidget, reason: text);
+      expect(tester.takeException(), isNull, reason: text);
+    }
+  });
+
   testWidgets('buildLatexWidget promotes complex inline math to block view',
       (tester) async {
     const text = r'Before \(\begin{pmatrix}1&2\\3&4\end{pmatrix}\) after';

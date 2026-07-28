@@ -1,5 +1,16 @@
 # Development Log
 
+## [2026-07-29 01:12] - fix(import): 收紧 LaTeX 与 OCR smoke 安全契约
+
+- **变更类型**: fix
+- **影响模块**: import_pipeline, ocr_smoke, tests
+- **详细改动明细**:
+  - [x] 收紧裸 LaTeX 环境前缀边界，拒绝控制词参数被误包装，并让缺失环境终止符保持原文进入 canonical Review。
+  - [x] 保持 Q21 为单一 `latex_unrenderable`，清除陈旧 `dangling_latex` 与普通 repair candidate，离线 Provider 调用保持为零。
+  - [x] OCR smoke 显式采用主观题解析保留策略，补齐安全报告初始化、状态同步和终端摘要兼容。
+  - [x] 补充 Normalizer、最终审计、Renderer、Acceptance 与 OCR smoke 聚焦回归测试。
+- **验证状态**: LaTeX/Renderer 52/52、FieldPolicy/OCR/E1A 46/46、Acceptance 63/63、真实 Replay 1/1、OCR smoke 47/47 通过；focused analyze 与 PowerShell 语法检查通过。
+
 ## [2026-07-28 23:41] - feat(import): 回填卷尾参考答案索引
 
 - **变更类型**: feat

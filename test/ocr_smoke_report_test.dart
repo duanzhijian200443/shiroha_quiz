@@ -358,8 +358,7 @@ void main() {
         '${repository.path}${Platform.pathSeparator}summary_harness.ps1',
       )..writeAsStringSync(
           '''
-${extractFunction('ConvertTo-SafeNumberList', 'Write-OcrSmokeTerminalSummary')}
-${extractFunction('Write-OcrSmokeTerminalSummary', 'ConvertTo-WindowsCommandLineArgument')}
+${extractFunction('Write-OcrSmokeTerminalSummary', 'Invoke-SmokeBuild')}
 \$report = [pscustomobject]@{
     ocrStatus = 'success'
     traceId = 'trace-20260723-120000-a1b2c3d4'

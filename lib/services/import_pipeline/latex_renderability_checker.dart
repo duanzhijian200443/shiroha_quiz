@@ -56,12 +56,7 @@ class LatexRenderabilityChecker {
 
     for (final match in _structuralToken.allMatches(text)) {
       final token = match.group(0)!;
-      if (token.startsWith(r'$') && _isEscaped(text, match.start)) {
-        continue;
-      }
-      if (token == r'$' &&
-          (mathStack.isEmpty || mathStack.last != r'$') &&
-          !_hasInlineDollarClose(text, match.end)) {
+      if (_shouldIgnoreDollarToken(text, match, mathStack)) {
         continue;
       }
 
@@ -130,17 +125,53 @@ class LatexRenderabilityChecker {
       if (match.start >= offset) break;
       if (match.group(1) != null) continue;
       final token = match.group(0)!;
-      if (token.startsWith(r'$') && _isEscaped(text, match.start)) {
-        continue;
-      }
-      if (token == r'$' &&
-          (mathStack.isEmpty || mathStack.last != r'$') &&
-          !_hasInlineDollarClose(text, match.end)) {
+      if (_shouldIgnoreDollarToken(text, match, mathStack)) {
         continue;
       }
       _updateMathStack(token, mathStack, issues);
     }
     return mathStack.isNotEmpty;
+  }
+
+  /// Returns the start offset of the explicit delimiter that closes the
+  /// innermost math context containing [offset].
+  int? findMathContextCloseOffset(String text, int offset) {
+    final issues = <LatexRenderabilityIssue>{};
+    final mathStack = <String>[];
+    final matches = _structuralToken.allMatches(text);
+
+    for (final match in matches) {
+      if (match.start >= offset) break;
+      if (match.group(1) != null) continue;
+      final token = match.group(0)!;
+      if (_shouldIgnoreDollarToken(text, match, mathStack)) continue;
+      _updateMathStack(token, mathStack, issues);
+    }
+    if (issues.isNotEmpty || mathStack.isEmpty) return null;
+
+    final containingDepth = mathStack.length;
+    for (final match in _structuralToken.allMatches(text)) {
+      if (match.start < offset || match.group(1) != null) continue;
+      final token = match.group(0)!;
+      if (_shouldIgnoreDollarToken(text, match, mathStack)) continue;
+      _updateMathStack(token, mathStack, issues);
+      if (issues.isNotEmpty) return null;
+      if (mathStack.length < containingDepth) return match.start;
+    }
+    return null;
+  }
+
+  static bool _shouldIgnoreDollarToken(
+    String text,
+    RegExpMatch match,
+    List<String> mathStack,
+  ) {
+    final token = match.group(0)!;
+    if (!token.startsWith(r'$')) return false;
+    if (_isEscaped(text, match.start)) return true;
+    return token == r'$' &&
+        (mathStack.isEmpty || mathStack.last != r'$') &&
+        !_hasInlineDollarClose(text, match.end);
   }
 
   static void _updateMathStack(

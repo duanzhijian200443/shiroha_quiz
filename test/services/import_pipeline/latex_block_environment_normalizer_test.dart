@@ -76,6 +76,46 @@ x_2=y
       expect(checker.check(result.text).isRenderable, isTrue);
     });
 
+    test(
+        'keeps a Q21-like missing array terminator unchanged for review',
+        () {
+      const input = r'''Before.
+$$\begin{array}{l}
+x_1=1\\
+x_2=2
+$$
+说明文字。
+$$\begin{array}{l}
+y_1=3\\
+y_2=4
+\end{array}$$''';
+
+      final result = normalizer.normalize(input);
+
+      expect(result.changed, isFalse);
+      expect(result.text, input);
+      expect(result.renderability.isRenderable, isFalse);
+      expect(RegExp(r'\\end\{array\}').allMatches(result.text), hasLength(1));
+    });
+
+    test('does not guess unsafe missing environment terminators', () {
+      for (final input in const [
+        r'$$\begin{array}{l}x',
+        r'$$\begin{array}{l}x$$',
+        r'\(\begin{matrix}1 & 2\)',
+        r'$$\begin{array}{l}\begin{matrix}x\end{matrix}$$',
+        r'$$\begin{array}x$$',
+        r'$$\begin{array}{l}x\begin{matrix}y$$',
+        r'$$\begin{array}{l}x\end{matrix}$$',
+      ]) {
+        final result = normalizer.normalize(input);
+
+        expect(result.changed, isFalse, reason: input);
+        expect(result.text, input, reason: input);
+        expect(result.renderability.isRenderable, isFalse, reason: input);
+      }
+    });
+
     test('rejects incomplete, mismatched, unknown, and ambiguous structures',
         () {
       for (final input in const [
@@ -86,6 +126,12 @@ x_2=y
         r'\begin{array}{l x\end{array}',
         r'ordinary text\begin{matrix}x\end{matrix}',
         r'\text{ordinary}\begin{matrix}x\end{matrix}',
+        r'\text{\begin{matrix}1\end{matrix}}',
+        r'\operatorname{foo}\begin{matrix}1\end{matrix}',
+        r'\color{red}\begin{matrix}1\end{matrix}',
+        r'\text {1}\begin{matrix}2\end{matrix}',
+        r'\operatorname {+}\begin{matrix}1\end{matrix}',
+        r'\color {1}\begin{matrix}2\end{matrix}',
       ]) {
         final result = normalizer.normalize(input);
         expect(result.changed, isFalse, reason: input);

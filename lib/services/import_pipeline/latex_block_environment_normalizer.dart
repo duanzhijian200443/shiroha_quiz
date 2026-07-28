@@ -26,11 +26,7 @@ class LatexBlockEnvironmentNormalizer {
   LatexBlockEnvironmentNormalizationResult normalize(String text) {
     final structural = checker.check(text, requireMathContext: false);
     if (!structural.isRenderable) {
-      return LatexBlockEnvironmentNormalizationResult(
-        text: text,
-        changed: false,
-        renderability: checker.check(text),
-      );
+      return _unchanged(text);
     }
 
     final replacements = <_Replacement>[];
@@ -53,6 +49,7 @@ class LatexBlockEnvironmentNormalizer {
       }
 
       final prefixStart = _safePrefixStart(text, opening.start);
+      if (_followsAsciiControlWord(text, prefixStart)) return _unchanged(text);
       if (!_hasSafeBoundary(text, prefixStart)) return _unchanged(text);
       final fragment = text.substring(prefixStart, closing.end);
       if (_containsMathDelimiter(fragment)) return _unchanged(text);
@@ -142,27 +139,41 @@ class LatexBlockEnvironmentNormalizer {
 
     var cursor = tokenEnd;
     while (cursor > 0) {
+      if (cursor >= 2 &&
+          _safeEscapedMathSymbolPrefixes
+              .contains(text.substring(cursor - 2, cursor))) {
+        cursor -= 2;
+        continue;
+      }
       final previous = text[cursor - 1];
       if (_safeMathSymbols.contains(previous) ||
           _isAsciiDigit(previous.codeUnitAt(0))) {
         cursor--;
-        if (cursor > 0 && text[cursor - 1] == r'\') cursor--;
         continue;
-      }
-      if (_isAsciiLetter(previous.codeUnitAt(0))) {
-        var wordStart = cursor - 1;
-        while (
-            wordStart > 0 && _isAsciiLetter(text.codeUnitAt(wordStart - 1))) {
-          wordStart--;
-        }
-        if (wordStart > 0 && text[wordStart - 1] == r'\') {
-          cursor = wordStart - 1;
-          continue;
-        }
       }
       break;
     }
     return cursor == tokenEnd ? beginOffset : cursor;
+  }
+
+  bool _followsAsciiControlWord(String text, int fragmentStart) {
+    var cursor = fragmentStart;
+    while (cursor > 0) {
+      final previous = text[cursor - 1];
+      if (previous != ' ' &&
+          previous != '\t' &&
+          previous != '\n' &&
+          previous != '\r') {
+        break;
+      }
+      cursor--;
+    }
+
+    final wordEnd = cursor;
+    while (cursor > 0 && _isAsciiLetter(text.codeUnitAt(cursor - 1))) {
+      cursor--;
+    }
+    return cursor < wordEnd && cursor > 0 && text[cursor - 1] == r'\';
   }
 
   bool _hasSafeBoundary(String text, int fragmentStart) {
@@ -200,6 +211,11 @@ class LatexBlockEnvironmentNormalizer {
     ',',
     ':',
     ';',
+  };
+
+  static const _safeEscapedMathSymbolPrefixes = <String>{
+    r'\{',
+    r'\}',
   };
 
   static const _safeNaturalLanguageBoundaries = <String>{

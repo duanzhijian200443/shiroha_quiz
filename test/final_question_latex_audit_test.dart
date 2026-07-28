@@ -160,6 +160,62 @@ void main() {
       expect(_riskHints(result.question), isEmpty);
     });
 
+    test(
+        'keeps Q21-like missing array terminator as canonical review',
+        () {
+      const explanation = r'''Before.
+$$\begin{array}{l}
+x_1=1\\
+x_2=2
+$$
+说明文字。
+$$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
+      final question = _question(
+        questionNumber: 21,
+        explanation: explanation,
+      );
+      question['diagnostics'] = const ['dangling_latex'];
+      final metadata =
+          question['_import_review'] as Map<String, dynamic>;
+      metadata['repairCandidateCodes'] = const ['dangling_latex'];
+
+      final result = finalizeAndAuditImportQuestion(question);
+      final finalMetadata =
+          result['_import_review'] as Map<String, dynamic>;
+
+      expect(result['explanation'], explanation);
+      expect(result['diagnostics'], isNot(contains('dangling_latex')));
+      expect(finalMetadata['riskHints'], [latexUnrenderableIssue]);
+      expect(finalMetadata[latexInvalidFieldsKey], ['explanation']);
+      expect(finalMetadata['repairCandidateCodes'], isEmpty);
+    });
+
+    test('keeps control-word-adjacent bare environments for review', () {
+      for (final explanation in const [
+        r'\text{\begin{matrix}1\end{matrix}}',
+        r'\operatorname{foo}\begin{matrix}1\end{matrix}',
+        r'\color{red}\begin{matrix}1\end{matrix}',
+        r'\text {1}\begin{matrix}2\end{matrix}',
+        r'\operatorname {+}\begin{matrix}1\end{matrix}',
+        r'\color {1}\begin{matrix}2\end{matrix}',
+      ]) {
+        final result =
+            auditFinalQuestionLatex(_question(explanation: explanation));
+
+        expect(result.invalidFields, ['explanation'], reason: explanation);
+        expect(
+          result.question['explanation'],
+          explanation,
+          reason: explanation,
+        );
+        expect(
+          _riskHints(result.question),
+          [latexUnrenderableIssue],
+          reason: explanation,
+        );
+      }
+    });
+
     test('records only safe invalid field names for analyzer messaging', () {
       final result = auditFinalQuestionLatex(_question(
         explanation: r'\begin{array}{l}x',
