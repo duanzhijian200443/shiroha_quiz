@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,10 +20,12 @@ class _FakeDistiller implements SubjectiveAnswerDistiller {
   _FakeDistiller({
     this.failure = false,
     this.pending,
+    this.result,
   });
 
   final bool failure;
   final Completer<SubjectiveAnswerDistillationResult>? pending;
+  final SubjectiveAnswerDistillationResult? result;
   int callCount = 0;
 
   @override
@@ -34,8 +37,9 @@ class _FakeDistiller implements SubjectiveAnswerDistiller {
   }) async {
     callCount++;
     if (pending != null) return pending!.future;
+    if (result != null) return result!;
     if (failure) {
-      return const SubjectiveAnswerDistillationResult.rejected(
+      return const SubjectiveAnswerDistillationResult.failed(
         diagnostics: ['answer_distillation_failed'],
       );
     }
@@ -250,9 +254,257 @@ void main() {
       isEmpty,
     );
     expect(
+      taskManager.tasks.single.parsedData!
+          .single[TaskManager.keyAnswerDistillationStatus],
+      'ai_failed',
+    );
+    expect(
+      taskManager.tasks.single.parsedData!
+          .single[TaskManager.keyAnswerDistillationReason],
+      'answer_distillation_failed',
+    );
+    expect(find.text('生成失败，可重试'), findsOneWidget);
+    expect(
       find.byKey(const ValueKey('answer-distillation-single-0')),
       findsOne,
     );
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    await tester.pumpWidget(
+      _widget(
+        distiller,
+        questions: taskManager.tasks.single.parsedData!,
+        taskManager: taskManager,
+        taskId: 'failed-review-task',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('生成失败，可重试'), findsOneWidget);
+    expect(distiller.callCount, 1);
+  });
+
+  testWidgets('rejected result remains retryable and restores its safe status',
+      (tester) async {
+    final distiller = _FakeDistiller(
+      result: const SubjectiveAnswerDistillationResult.rejected(
+        diagnostics: ['answer_distillation_rejected_basis'],
+      ),
+    );
+    final taskManager = TaskManager.forTesting();
+    final source = [_subjectiveQuestion(1)];
+    taskManager.addTask(
+      ImportTask(
+        id: 'rejected-review-task',
+        title: 'Synthetic rejected review',
+        status: TaskStatus.pendingReview,
+        parsedData: source,
+      ),
+    );
+    await tester.pumpWidget(
+      _widget(
+        distiller,
+        questions: source,
+        taskManager: taskManager,
+        taskId: 'rejected-review-task',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('answer-distillation-batch')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('未找到可安全提炼的答案'), findsOneWidget);
+    expect(
+      taskManager.tasks.single.parsedData!
+          .single[TaskManager.keyAnswerDistillationStatus],
+      'ai_rejected',
+    );
+    expect(
+      taskManager.tasks.single.parsedData!
+          .single[TaskManager.keyAnswerDistillationReason],
+      'answer_distillation_rejected_basis',
+    );
+    expect(
+      find.byKey(const ValueKey('answer-distillation-single-0')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('prefixed diagnostic payload is never persisted', (tester) async {
+    final distiller = _FakeDistiller(
+      result: const SubjectiveAnswerDistillationResult.rejected(
+        diagnostics: [
+          'answer_distillation_rejected_sensitive_provider_body',
+        ],
+      ),
+    );
+    final taskManager = TaskManager.forTesting();
+    final source = [_subjectiveQuestion(1)];
+    taskManager.addTask(
+      ImportTask(
+        id: 'unsafe-reason-review-task',
+        title: 'Synthetic unsafe reason review',
+        status: TaskStatus.pendingReview,
+        parsedData: source,
+      ),
+    );
+    await tester.pumpWidget(
+      _widget(
+        distiller,
+        questions: source,
+        taskManager: taskManager,
+        taskId: 'unsafe-reason-review-task',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('answer-distillation-batch')));
+    await tester.pumpAndSettle();
+
+    final question = taskManager.tasks.single.parsedData!.single;
+    expect(
+      question[TaskManager.keyAnswerDistillationStatus],
+      'ai_rejected',
+    );
+    expect(
+      question[TaskManager.keyAnswerDistillationReason],
+      'answer_distillation_rejected',
+    );
+    expect(question.toString(), isNot(contains('sensitive_provider_body')));
+  });
+
+  testWidgets('failed diagnostic payload is never persisted', (tester) async {
+    final distiller = _FakeDistiller(
+      result: const SubjectiveAnswerDistillationResult.failed(
+        diagnostics: [
+          'answer_distillation_failure_type:SENSITIVEPROVIDERBODY123',
+        ],
+      ),
+    );
+    final taskManager = TaskManager.forTesting();
+    final source = [_subjectiveQuestion(1)];
+    taskManager.addTask(
+      ImportTask(
+        id: 'unsafe-failure-reason-review-task',
+        title: 'Synthetic unsafe failure reason review',
+        status: TaskStatus.pendingReview,
+        parsedData: source,
+      ),
+    );
+    await tester.pumpWidget(
+      _widget(
+        distiller,
+        questions: source,
+        taskManager: taskManager,
+        taskId: 'unsafe-failure-reason-review-task',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('answer-distillation-batch')));
+    await tester.pumpAndSettle();
+
+    final question = taskManager.tasks.single.parsedData!.single;
+    expect(
+      question[TaskManager.keyAnswerDistillationStatus],
+      'ai_failed',
+    );
+    expect(
+      question[TaskManager.keyAnswerDistillationReason],
+      'answer_distillation_failed',
+    );
+    expect(
+      question.toString(),
+      isNot(contains('SENSITIVEPROVIDERBODY123')),
+    );
+  });
+
+  testWidgets(
+      'retention save queued during AI merge preserves both latest states',
+      (tester) async {
+    final pending = Completer<SubjectiveAnswerDistillationResult>();
+    final mergeWriteStarted = Completer<void>();
+    final releaseMergeWrite = Completer<void>();
+    final taskManager = TaskManager.forTesting(
+      saveTask: (taskMap) async {
+        final rawParsedData = taskMap['parsed_data'];
+        if (rawParsedData is! String) return;
+        final decoded = jsonDecode(rawParsedData);
+        if (decoded is! List || decoded.isEmpty || decoded.first is! Map) {
+          return;
+        }
+        final question = Map<String, dynamic>.from(decoded.first as Map);
+        if (question['standard_answer'] == 'Concurrent generated answer' &&
+            !mergeWriteStarted.isCompleted) {
+          mergeWriteStarted.complete();
+          await releaseMergeWrite.future;
+        }
+      },
+    );
+    final source = [_subjectiveQuestion(1)];
+    taskManager.addTask(
+      ImportTask(
+        id: 'concurrent-retention-review-task',
+        title: 'Synthetic concurrent retention review',
+        status: TaskStatus.pendingReview,
+        parsedData: source,
+      ),
+    );
+    final distiller = _FakeDistiller(pending: pending);
+    await tester.pumpWidget(
+      _widget(
+        distiller,
+        questions: source,
+        taskManager: taskManager,
+        taskId: 'concurrent-retention-review-task',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('answer-distillation-batch')));
+    await tester.pump();
+    pending.complete(
+      const SubjectiveAnswerDistillationResult.applied(
+        'Concurrent generated answer',
+      ),
+    );
+    await tester.pump();
+    await mergeWriteStarted.future;
+
+    await tester.tap(
+      find.byKey(const ValueKey('objective-explanation-document-switch')),
+    );
+    await tester.pump();
+    releaseMergeWrite.complete();
+    await tester.pumpAndSettle();
+
+    final task = taskManager.tasks.single;
+    final question = task.parsedData!.single;
+    expect(question['standard_answer'], 'Concurrent generated answer');
+    expect(
+      question[TaskManager.keyAnswerDistillationStatus],
+      'ai_applied',
+    );
+    expect(
+      task.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    await tester.pumpWidget(
+      _widget(
+        distiller,
+        questions: task.parsedData!,
+        taskManager: taskManager,
+        taskId: 'concurrent-retention-review-task',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Concurrent generated answer'), findsOneWidget);
   });
 
   testWidgets('batch can cancel before starting another question',

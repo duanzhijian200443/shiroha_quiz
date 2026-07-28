@@ -255,5 +255,192 @@ void main() {
         'Manual answer',
       );
     });
+
+    test('failed distillation persists safe status without changing the answer',
+        () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'failed-distillation',
+          title: 'Synthetic failed distillation',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {
+              TaskManager.keyReviewItemId: 'q17',
+              'content': 'Question',
+              'standard_answer': '',
+            },
+          ],
+        ),
+      );
+      final base = await taskManager.saveReviewDraft(
+        'failed-distillation',
+        questions: taskManager.tasks.single.parsedData!,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      final result = await taskManager.mergeReviewDraftAnswerDistillation(
+        'failed-distillation',
+        reviewItemId: 'q17',
+        expectedRevision: base.revision,
+        status: 'ai_failed',
+        reasonCode: 'answer_distillation_failed',
+      );
+
+      expect(result.status, ReviewDraftSaveStatus.saved);
+      final question = taskManager.tasks.single.parsedData!.single;
+      expect(question['standard_answer'], isEmpty);
+      expect(
+        question[TaskManager.keyAnswerDistillationStatus],
+        'ai_failed',
+      );
+      expect(
+        question[TaskManager.keyAnswerDistillationReason],
+        'answer_distillation_failed',
+      );
+
+      final restored = ImportTask.fromMap(taskManager.tasks.single.toMap());
+      expect(
+        restored.parsedData!.single[TaskManager.keyAnswerDistillationStatus],
+        'ai_failed',
+      );
+    });
+
+    test('full snapshot save removes unknown distillation metadata', () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'unsafe-distillation-snapshot',
+          title: 'Synthetic unsafe distillation snapshot',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {
+              TaskManager.keyReviewItemId: 'q17',
+              'content': 'Question',
+              'standard_answer': '',
+            },
+          ],
+        ),
+      );
+
+      final result = await taskManager.saveReviewDraft(
+        'unsafe-distillation-snapshot',
+        questions: [
+          {
+            TaskManager.keyReviewItemId: 'q17',
+            'content': 'Question',
+            'standard_answer': '',
+            TaskManager.keyAnswerDistillationStatus: 'ai_rejected',
+            TaskManager.keyAnswerDistillationReason:
+                'answer_distillation_rejected_sensitive_provider_body',
+          },
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.status, ReviewDraftSaveStatus.saved);
+      final question = taskManager.tasks.single.parsedData!.single;
+      expect(
+        question[TaskManager.keyAnswerDistillationStatus],
+        'ai_rejected',
+      );
+      expect(
+        question.containsKey(TaskManager.keyAnswerDistillationReason),
+        isFalse,
+      );
+      expect(question.toString(), isNot(contains('sensitive_provider_body')));
+    });
+
+    test('distillation merge rejects reason from a different outcome',
+        () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'mismatched-distillation-reason',
+          title: 'Synthetic mismatched distillation reason',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {
+              TaskManager.keyReviewItemId: 'q17',
+              'content': 'Question',
+              'standard_answer': '',
+            },
+          ],
+        ),
+      );
+      final base = await taskManager.saveReviewDraft(
+        'mismatched-distillation-reason',
+        questions: taskManager.tasks.single.parsedData!,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      final result = await taskManager.mergeReviewDraftAnswerDistillation(
+        'mismatched-distillation-reason',
+        reviewItemId: 'q17',
+        expectedRevision: base.revision,
+        status: 'ai_failed',
+        reasonCode: 'answer_distillation_rejected_basis',
+      );
+
+      expect(result.status, ReviewDraftSaveStatus.saved);
+      final question = taskManager.tasks.single.parsedData!.single;
+      expect(
+        question[TaskManager.keyAnswerDistillationStatus],
+        'ai_failed',
+      );
+      expect(
+        question.containsKey(TaskManager.keyAnswerDistillationReason),
+        isFalse,
+      );
+    });
+
+    test('full snapshot save removes caller-provided failure type payload',
+        () async {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'unsafe-failure-type-snapshot',
+          title: 'Synthetic unsafe failure type snapshot',
+          status: TaskStatus.pendingReview,
+          parsedData: [
+            {
+              TaskManager.keyReviewItemId: 'q17',
+              'content': 'Question',
+              'standard_answer': '',
+            },
+          ],
+        ),
+      );
+
+      final result = await taskManager.saveReviewDraft(
+        'unsafe-failure-type-snapshot',
+        questions: [
+          {
+            TaskManager.keyReviewItemId: 'q17',
+            'content': 'Question',
+            'standard_answer': '',
+            TaskManager.keyAnswerDistillationStatus: 'ai_failed',
+            TaskManager.keyAnswerDistillationReason:
+                'answer_distillation_failure_type:SENSITIVEPROVIDERBODY123',
+          },
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.status, ReviewDraftSaveStatus.saved);
+      final question = taskManager.tasks.single.parsedData!.single;
+      expect(
+        question[TaskManager.keyAnswerDistillationStatus],
+        'ai_failed',
+      );
+      expect(
+        question.containsKey(TaskManager.keyAnswerDistillationReason),
+        isFalse,
+      );
+      expect(
+        question.toString(),
+        isNot(contains('SENSITIVEPROVIDERBODY123')),
+      );
+    });
   });
 }

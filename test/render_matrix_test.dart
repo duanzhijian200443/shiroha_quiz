@@ -304,6 +304,48 @@ void main() {
   });
 
   testWidgets(
+      'renderer isolates one malformed math token without hiding valid neighbors',
+      (tester) async {
+    const malformed = r'\begin{array}{c}1\\2';
+    const text = 'Before \\(x=1\\).\nBroken \\[$malformed\\]\nAfter \\(y=2\\).';
+    final audited = auditFinalQuestionLatex({
+      'content': '',
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': text,
+    });
+
+    expect(audited.invalidFields, ['explanation']);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    expect(find.byType(Math), findsNWidgets(2));
+    expect(find.textContaining(malformed, findRichText: true), findsOneWidget);
+    expect(find.textContaining('Before', findRichText: true), findsOneWidget);
+    expect(find.textContaining('After', findRichText: true), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('renderer keeps whole-field fallback when damage is not isolated',
+      (tester) async {
+    const text = r'Before \begin{array}{c}1\\2 after';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    final fallback = tester.widget<Text>(find.text(text));
+    expect(fallback.style?.color, Colors.deepOrange.shade900);
+    expect(find.byType(Math), findsNothing);
+  });
+
+  testWidgets(
       'renderer and final audit accept the same bare array normalization',
       (tester) async {
     const text = r'\{\begin{array}{l}x_1=1\\x_2=2\end{array}';

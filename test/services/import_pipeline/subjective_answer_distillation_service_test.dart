@@ -86,6 +86,8 @@ void main() {
     );
 
     expect(result.applied, isTrue);
+    expect(result.outcome, SubjectiveAnswerDistillationOutcome.applied);
+    expect(result.snapshotStatus, 'ai_applied');
     expect(result.standardAnswer, 'Concise conclusion');
     expect(result.diagnostics, contains('answer_distillation_applied'));
     expect(client.callCount, 1);
@@ -124,6 +126,13 @@ void main() {
         isStemOnly: false,
       );
       expect(result.applied, isFalse, reason: entry.value);
+      expect(
+        result.outcome,
+        SubjectiveAnswerDistillationOutcome.rejected,
+        reason: entry.value,
+      );
+      expect(result.snapshotStatus, 'ai_rejected', reason: entry.value);
+      expect(result.safeReasonCode, entry.value, reason: entry.value);
       expect(result.standardAnswer, isNull, reason: entry.value);
       expect(result.diagnostics, contains(entry.value), reason: entry.value);
     }
@@ -150,11 +159,17 @@ void main() {
         isStemOnly: false,
       );
       expect(result.applied, isFalse);
+      expect(result.outcome, SubjectiveAnswerDistillationOutcome.failed);
+      expect(result.snapshotStatus, 'ai_failed');
       expect(result.standardAnswer, isNull);
       expect(result.diagnostics, contains('answer_distillation_failed'));
       expect(
         result.diagnostics.join(),
         isNot(contains('SENSITIVE_PROVIDER_BODY')),
+      );
+      expect(
+        result.safeReasonCode,
+        'answer_distillation_failed',
       );
     }
   });
@@ -177,7 +192,33 @@ void main() {
       );
 
       expect(result.applied, isFalse);
+      expect(result.outcome, SubjectiveAnswerDistillationOutcome.rejected);
       expect(client.callCount, 0);
     }
+  });
+
+  test('snapshot reasons reject prefixed payloads and outcome mismatches', () {
+    const rejected = SubjectiveAnswerDistillationResult.rejected(
+      diagnostics: [
+        'answer_distillation_rejected_sensitive_provider_body',
+      ],
+    );
+    const failed = SubjectiveAnswerDistillationResult.failed(
+      diagnostics: ['answer_distillation_rejected_basis'],
+    );
+    const failedWithPayload = SubjectiveAnswerDistillationResult.failed(
+      diagnostics: [
+        'answer_distillation_failure_type:SENSITIVEPROVIDERBODY123',
+      ],
+    );
+
+    expect(rejected.safeReasonCode, 'answer_distillation_rejected');
+    expect(rejected.safeReasonCode, isNot(contains('sensitive_provider_body')));
+    expect(failed.safeReasonCode, 'answer_distillation_failed');
+    expect(failedWithPayload.safeReasonCode, 'answer_distillation_failed');
+    expect(
+      failedWithPayload.safeReasonCode,
+      isNot(contains('SENSITIVEPROVIDERBODY123')),
+    );
   });
 }

@@ -10,6 +10,7 @@ import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/subjective_answer_distillation_policy.dart';
 import '../../services/import_pipeline/subjective_answer_distillation_service.dart';
+import '../../services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
 import '../../services/import_pipeline/subjective_answer_expectation.dart';
 import '../../services/import_pipeline/subjective_answer_extractor.dart';
 import '../../services/import_review/import_review_analyzer.dart';
@@ -59,7 +60,6 @@ class ImportStagingScreen extends StatefulWidget {
 
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _explanationOverrideKey = '_explanation_override';
-  static const _answerDistillationStatusKey = '_answer_distillation_status';
   static const _safeSnapshotProvenanceKeys = {
     'q_num',
     'question_number',
@@ -81,8 +81,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   late ExplanationRetentionMode _explanationRetentionMode;
   final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
   final Map<int, String> _answerDistillationStatuses = {};
+  final Map<int, String> _answerDistillationReasons = {};
   final Map<int, String> _reviewItemIds = {};
   final Map<int, Map<String, dynamic>> _snapshotProvenance = {};
+  Future<void> _reviewDraftOperationTail = Future<void>.value();
   final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
       const SubjectiveAnswerDistillationPolicy();
   SubjectiveAnswerDistiller? _answerDistiller;
@@ -687,10 +689,18 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           break;
         }
       }
-      final status =
-          questions[index][_answerDistillationStatusKey]?.toString().trim();
-      if (status != null && status.isNotEmpty) {
+      final status = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
+        questions[index][TaskManager.keyAnswerDistillationStatus],
+      );
+      if (status != null) {
         _answerDistillationStatuses[index] = status;
+      }
+      final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+        status: status,
+        value: questions[index][TaskManager.keyAnswerDistillationReason],
+      );
+      if (reason != null) {
+        _answerDistillationReasons[index] = reason;
       }
     }
     return normalizationNeeded;
@@ -714,6 +724,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             'proof_explanation_recognized') {
           _answerDistillationStatuses[item.originalIndex] =
               'proof_explanation_recognized';
+          _answerDistillationReasons.remove(item.originalIndex);
           changed = true;
         }
         continue;
@@ -731,43 +742,71 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         draft: question.copyWith(standardAnswer: result.answer),
       );
       _answerDistillationStatuses[item.originalIndex] = 'local_extracted';
+      _answerDistillationReasons.remove(item.originalIndex);
       changed = true;
     }
     return changed;
   }
 
-  Future<ReviewDraftSaveResult?> _persistReviewDraft() async {
-    final taskId = widget.taskId;
-    if (taskId == null || taskId.trim().isEmpty) return null;
-
-    final questions = _allItems.map((item) {
-      final question = <String, dynamic>{
-        ...?_snapshotProvenance[item.originalIndex],
-        ...item.draft.toMap(),
-        '_import_review': item.metadata.toMap(),
-        TaskManager.keyReviewItemId: _reviewItemIds[item.originalIndex],
-        _explanationOverrideKey: (_explanationOverrides[item.originalIndex] ??
-                QuestionExplanationOverride.inherit)
-            .name,
-      };
-      final status = _answerDistillationStatuses[item.originalIndex];
-      if (status != null) {
-        question[_answerDistillationStatusKey] = status;
+  Future<T> _enqueueReviewDraftOperation<T>(Future<T> Function() operation) {
+    final completer = Completer<T>();
+    _reviewDraftOperationTail = _reviewDraftOperationTail.then((_) async {
+      try {
+        completer.complete(await operation());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
       }
-      return question;
-    }).toList(growable: false);
+    });
+    return completer.future;
+  }
 
-    final result = await _taskManager.saveReviewDraft(
-      taskId,
-      questions: questions,
-      explanationRetentionMode: _explanationRetentionMode,
-    );
-    if (!result.saved && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('校对结果尚未保存，请重试')),
-      );
+  Future<ReviewDraftSaveResult?> _persistReviewDraft() {
+    final taskId = widget.taskId;
+    if (taskId == null || taskId.trim().isEmpty) {
+      return Future<ReviewDraftSaveResult?>.value();
     }
-    return result;
+
+    return _enqueueReviewDraftOperation(() async {
+      final questions = _allItems.map((item) {
+        final question = <String, dynamic>{
+          ...?_snapshotProvenance[item.originalIndex],
+          ...item.draft.toMap(),
+          '_import_review': item.metadata.toMap(),
+          TaskManager.keyReviewItemId: _reviewItemIds[item.originalIndex],
+          _explanationOverrideKey: (_explanationOverrides[item.originalIndex] ??
+                  QuestionExplanationOverride.inherit)
+              .name,
+        };
+        final status =
+            SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
+          _answerDistillationStatuses[item.originalIndex],
+        );
+        if (status != null) {
+          question[TaskManager.keyAnswerDistillationStatus] = status;
+        }
+        final reason =
+            SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+          status: status,
+          value: _answerDistillationReasons[item.originalIndex],
+        );
+        if (reason != null) {
+          question[TaskManager.keyAnswerDistillationReason] = reason;
+        }
+        return question;
+      }).toList(growable: false);
+
+      final result = await _taskManager.saveReviewDraft(
+        taskId,
+        questions: questions,
+        explanationRetentionMode: _explanationRetentionMode,
+      );
+      if (!result.saved && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('校对结果尚未保存，请重试')),
+        );
+      }
+      return result;
+    });
   }
 
   List<ImportReviewItem> get _answerDistillationCandidates {
@@ -800,7 +839,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         timeout: timeout,
       );
     } catch (error) {
-      return SubjectiveAnswerDistillationResult.rejected(
+      return SubjectiveAnswerDistillationResult.failed(
         diagnostics: [
           'answer_distillation_failed',
           'answer_distillation_failure_type:${error.runtimeType}',
@@ -809,57 +848,72 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     }
   }
 
-  bool _applyDistilledAnswer(
+  bool _applyDistillationResult(
     int originalIndex,
     SubjectiveAnswerDistillationResult result,
   ) {
     final answer = result.standardAnswer?.trim();
-    if (!result.applied || answer == null || answer.isEmpty) return false;
+    if (result.applied && (answer == null || answer.isEmpty)) return false;
 
     final itemIndex = _allItems.indexWhere(
       (item) => item.originalIndex == originalIndex,
     );
     if (itemIndex < 0) return false;
-    final current = _allItems[itemIndex];
-    _allItems[itemIndex] = current.copyWith(
-      draft: current.draft.copyWith(standardAnswer: answer),
-    );
-    _answerDistillationStatuses[originalIndex] = 'ai_applied';
+    if (result.applied) {
+      final current = _allItems[itemIndex];
+      _allItems[itemIndex] = current.copyWith(
+        draft: current.draft.copyWith(standardAnswer: answer),
+      );
+      _answerDistillationReasons.remove(originalIndex);
+    } else {
+      final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+        status: result.snapshotStatus,
+        value: result.safeReasonCode,
+      );
+      if (reason == null) {
+        _answerDistillationReasons.remove(originalIndex);
+      } else {
+        _answerDistillationReasons[originalIndex] = reason;
+      }
+    }
+    _answerDistillationStatuses[originalIndex] = result.snapshotStatus;
     return true;
   }
 
-  Future<bool> _mergeDistilledAnswer(
+  Future<bool> _mergeDistillationResult(
     ImportReviewItem item,
     SubjectiveAnswerDistillationResult result, {
     required int? expectedRevision,
   }) async {
     final answer = result.standardAnswer?.trim();
-    if (!result.applied || answer == null || answer.isEmpty) return false;
+    if (result.applied && (answer == null || answer.isEmpty)) return false;
 
     final taskId = widget.taskId;
     if (taskId == null || taskId.trim().isEmpty) {
       if (!mounted) return false;
-      return _applyDistilledAnswer(item.originalIndex, result);
+      return _applyDistillationResult(item.originalIndex, result);
     }
     if (expectedRevision == null) return false;
 
-    final saveResult = await _taskManager.mergeReviewDraftAnswer(
-      taskId,
-      reviewItemId: _reviewItemIds[item.originalIndex]!,
-      expectedRevision: expectedRevision,
-      standardAnswer: answer,
-      status: 'ai_applied',
-    );
-    if (!saveResult.saved) {
-      if (mounted && saveResult.status == ReviewDraftSaveStatus.failed) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('答案已生成，但校对快照保存失败')),
-        );
+    return _enqueueReviewDraftOperation(() async {
+      final saveResult = await _taskManager.mergeReviewDraftAnswerDistillation(
+        taskId,
+        reviewItemId: _reviewItemIds[item.originalIndex]!,
+        expectedRevision: expectedRevision,
+        standardAnswer: result.applied ? answer : null,
+        status: result.snapshotStatus,
+        reasonCode: result.safeReasonCode,
+      );
+      if (!saveResult.saved) {
+        if (mounted && saveResult.status == ReviewDraftSaveStatus.failed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('答案已生成，但校对快照保存失败')),
+          );
+        }
+        return false;
       }
-      return false;
-    }
-    if (!mounted) return true;
-    return _applyDistilledAnswer(item.originalIndex, result);
+      return _applyDistillationResult(item.originalIndex, result);
+    });
   }
 
   Future<void> _distillSingleAnswer(ImportReviewItem item) async {
@@ -888,7 +942,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
     if (mounted && operationId != _answerDistillationOperationId) return;
 
-    final applied = await _mergeDistilledAnswer(
+    final recorded = await _mergeDistillationResult(
       item,
       result,
       expectedRevision: baseSnapshot?.revision,
@@ -898,9 +952,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       _answerDistillationCompletedCount = 1;
       _isDistillingAnswers = false;
       _activeAnswerDistillationIndex = null;
-      if (applied) _refreshReviewState();
+      if (recorded && result.applied) _refreshReviewState();
     });
-    _showAnswerDistillationOutcome(applied: applied);
+    _showAnswerDistillationOutcome(
+      single: true,
+      appliedCount: recorded && result.applied ? 1 : 0,
+      rejectedCount: recorded &&
+              result.outcome == SubjectiveAnswerDistillationOutcome.rejected
+          ? 1
+          : 0,
+      failedCount: !recorded ||
+              result.outcome == SubjectiveAnswerDistillationOutcome.failed
+          ? 1
+          : 0,
+    );
   }
 
   Future<void> _distillAllAnswers() async {
@@ -911,6 +976,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     final operationId = ++_answerDistillationOperationId;
     final stopwatch = Stopwatch()..start();
     var appliedCount = 0;
+    var rejectedCount = 0;
+    var failedCount = 0;
     setState(() {
       _isDistillingAnswers = true;
       _answerDistillationCancellationRequested = false;
@@ -936,16 +1003,30 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       if (widget.taskId != null && baseSnapshot?.saved != true) break;
       final result = await _distillAnswer(candidate, timeout: timeout);
       if (mounted && operationId != _answerDistillationOperationId) return;
-      final applied = await _mergeDistilledAnswer(
+      final recorded = await _mergeDistillationResult(
         candidate,
         result,
         expectedRevision: baseSnapshot?.revision,
       );
-      if (applied) appliedCount++;
+      if (recorded) {
+        switch (result.outcome) {
+          case SubjectiveAnswerDistillationOutcome.applied:
+            appliedCount++;
+            break;
+          case SubjectiveAnswerDistillationOutcome.rejected:
+            rejectedCount++;
+            break;
+          case SubjectiveAnswerDistillationOutcome.failed:
+            failedCount++;
+            break;
+        }
+      } else {
+        failedCount++;
+      }
       if (!mounted || operationId != _answerDistillationOperationId) return;
       setState(() {
         _answerDistillationCompletedCount = index + 1;
-        if (applied) _refreshReviewState();
+        if (recorded && result.applied) _refreshReviewState();
       });
       if (_answerDistillationCancellationRequested) break;
     }
@@ -957,9 +1038,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       _activeAnswerDistillationIndex = null;
     });
     _showAnswerDistillationOutcome(
-      applied: appliedCount > 0,
       cancelled: cancelled,
       appliedCount: appliedCount,
+      rejectedCount: rejectedCount,
+      failedCount: failedCount,
     );
   }
 
@@ -971,16 +1053,22 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _showAnswerDistillationOutcome({
-    required bool applied,
+    required int appliedCount,
+    required int rejectedCount,
+    required int failedCount,
     bool cancelled = false,
-    int? appliedCount,
+    bool single = false,
   }) {
     if (!mounted) return;
     final message = cancelled
-        ? '已停止生成，成功补全 ${appliedCount ?? 0} 道题'
-        : applied
-            ? (appliedCount == null ? '标准答案已生成' : '已补全 $appliedCount 道主观题标准答案')
-            : '未能生成有效标准答案，原题已保留';
+        ? '已停止生成：补全 $appliedCount 道，未提炼 $rejectedCount 道，失败 $failedCount 道'
+        : single && appliedCount == 1
+            ? '标准答案已生成'
+            : single && rejectedCount == 1
+                ? '解析中未找到可安全提炼的明确答案'
+                : single && failedCount == 1
+                    ? '标准答案生成失败，可重试'
+                    : '处理完成：补全 $appliedCount 道，未提炼 $rejectedCount 道，失败 $failedCount 道';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -1593,6 +1681,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                                   ),
                                       answerDistillationCandidate:
                                           _isAnswerDistillationCandidate(item),
+                                      answerDistillationStatus:
+                                          _answerDistillationStatuses[
+                                              item.originalIndex],
                                       proofExplanationRecognized:
                                           _answerDistillationStatuses[
                                                   item.originalIndex] ==
@@ -1994,6 +2085,7 @@ class _QuestionCard extends StatelessWidget {
     required this.explanationRetained,
     required this.onExplanationRetentionChanged,
     required this.answerDistillationCandidate,
+    required this.answerDistillationStatus,
     required this.proofExplanationRecognized,
     required this.answerDistillationInProgress,
     required this.onAnswerDistillation,
@@ -2005,6 +2097,7 @@ class _QuestionCard extends StatelessWidget {
   final bool explanationRetained;
   final ValueChanged<bool>? onExplanationRetentionChanged;
   final bool answerDistillationCandidate;
+  final String? answerDistillationStatus;
   final bool proofExplanationRecognized;
   final bool answerDistillationInProgress;
   final VoidCallback? onAnswerDistillation;
@@ -2095,6 +2188,26 @@ class _QuestionCard extends StatelessWidget {
             ],
             if (answerDistillationCandidate) ...[
               const SizedBox(height: 8),
+              if (answerDistillationStatus == 'ai_rejected' ||
+                  answerDistillationStatus == 'ai_failed') ...[
+                Chip(
+                  key: ValueKey(
+                    'answer-distillation-status-${item.originalIndex}',
+                  ),
+                  avatar: Icon(
+                    answerDistillationStatus == 'ai_failed'
+                        ? Icons.error_outline
+                        : Icons.info_outline,
+                    size: 16,
+                  ),
+                  label: Text(
+                    answerDistillationStatus == 'ai_failed'
+                        ? '生成失败，可重试'
+                        : '未找到可安全提炼的答案',
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
               OutlinedButton.icon(
                 key: ValueKey(
                   'answer-distillation-single-${item.originalIndex}',

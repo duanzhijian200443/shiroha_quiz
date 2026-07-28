@@ -7,6 +7,7 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_api_client.dart';
 import 'subjective_answer_expectation.dart';
 import 'subjective_answer_distillation_policy.dart';
+import 'subjective_answer_distillation_snapshot_policy.dart';
 
 abstract interface class SubjectiveAnswerDistiller {
   Future<SubjectiveAnswerDistillationResult> distill({
@@ -17,21 +18,59 @@ abstract interface class SubjectiveAnswerDistiller {
   });
 }
 
+enum SubjectiveAnswerDistillationOutcome {
+  applied,
+  rejected,
+  failed,
+}
+
 class SubjectiveAnswerDistillationResult {
   const SubjectiveAnswerDistillationResult.applied(
     String answer, {
     this.diagnostics = const ['answer_distillation_applied'],
-  })  : applied = true,
+  })  : outcome = SubjectiveAnswerDistillationOutcome.applied,
         standardAnswer = answer;
 
   const SubjectiveAnswerDistillationResult.rejected({
     required this.diagnostics,
-  })  : applied = false,
+  })  : outcome = SubjectiveAnswerDistillationOutcome.rejected,
         standardAnswer = null;
 
-  final bool applied;
+  const SubjectiveAnswerDistillationResult.failed({
+    required this.diagnostics,
+  })  : outcome = SubjectiveAnswerDistillationOutcome.failed,
+        standardAnswer = null;
+
+  final SubjectiveAnswerDistillationOutcome outcome;
   final String? standardAnswer;
   final List<String> diagnostics;
+
+  bool get applied => outcome == SubjectiveAnswerDistillationOutcome.applied;
+
+  String get snapshotStatus => switch (outcome) {
+        SubjectiveAnswerDistillationOutcome.applied => 'ai_applied',
+        SubjectiveAnswerDistillationOutcome.rejected => 'ai_rejected',
+        SubjectiveAnswerDistillationOutcome.failed => 'ai_failed',
+      };
+
+  String get safeReasonCode {
+    for (final diagnostic in diagnostics) {
+      final safeReason =
+          SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+        status: snapshotStatus,
+        value: diagnostic,
+      );
+      if (safeReason != null) return safeReason;
+    }
+    return switch (outcome) {
+      SubjectiveAnswerDistillationOutcome.applied =>
+        'answer_distillation_applied',
+      SubjectiveAnswerDistillationOutcome.rejected =>
+        'answer_distillation_rejected',
+      SubjectiveAnswerDistillationOutcome.failed =>
+        'answer_distillation_failed',
+    };
+  }
 }
 
 class SubjectiveAnswerDistillationService implements SubjectiveAnswerDistiller {
@@ -61,8 +100,7 @@ class SubjectiveAnswerDistillationService implements SubjectiveAnswerDistiller {
     if (!_policy.isCandidate(question, isStemOnly: isStemOnly)) {
       return const SubjectiveAnswerDistillationResult.rejected(
         diagnostics: [
-          'answer_distillation_failed',
-          'answer_distillation_failure_type:AnswerDistillationNotCandidateException',
+          'answer_distillation_rejected_not_candidate',
         ],
       );
     }
@@ -127,7 +165,7 @@ class SubjectiveAnswerDistillationService implements SubjectiveAnswerDistiller {
 
       return SubjectiveAnswerDistillationResult.applied(answer);
     } catch (error) {
-      return SubjectiveAnswerDistillationResult.rejected(
+      return SubjectiveAnswerDistillationResult.failed(
         diagnostics: [
           'answer_distillation_failed',
           'answer_distillation_failure_type:${error.runtimeType}',

@@ -45,7 +45,11 @@ class StructuredContentRenderer extends StatelessWidget {
     );
     final blockNormalized =
         const LatexBlockEnvironmentNormalizer().normalize(text);
-    if (!blockNormalized.renderability.isRenderable) {
+    final normalized =
+        ContentNormalizer.normalizeForRender(blockNormalized.text);
+    final tokens = ContentTokenizer.tokenize(normalized);
+    if (!blockNormalized.renderability.isRenderable &&
+        !_canSafelyLocalizeStructuralFailure(tokens)) {
       if (kDebugMode) {
         debugPrint('Structured LaTeX render fallback: structurally_unsafe');
       }
@@ -55,9 +59,6 @@ class StructuredContentRenderer extends StatelessWidget {
         inline: false,
       );
     }
-    final normalized =
-        ContentNormalizer.normalizeForRender(blockNormalized.text);
-    final tokens = ContentTokenizer.tokenize(normalized);
     if (tokens.isEmpty) return const SizedBox.shrink();
 
     final widgets = <Widget>[];
@@ -117,6 +118,41 @@ class StructuredContentRenderer extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  bool _canSafelyLocalizeStructuralFailure(List<ContentToken> tokens) {
+    const checker = LatexRenderabilityChecker();
+    var foundLocalizedFailure = false;
+
+    for (final token in tokens) {
+      if (token is InlineMathToken || token is BlockMathToken) {
+        final tex = switch (token) {
+          final InlineMathToken inline => inline.tex,
+          final BlockMathToken block => block.tex,
+          _ => '',
+        };
+        if (!checker
+            .check(
+              tex,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable) {
+          foundLocalizedFailure = true;
+        }
+        continue;
+      }
+      if (token is ParseErrorToken) {
+        foundLocalizedFailure = true;
+        continue;
+      }
+      if (token is TextToken &&
+          !checker.check(token.text, requireMathContext: false).isRenderable) {
+        return false;
+      }
+    }
+
+    return foundLocalizedFailure;
   }
 
   Widget _buildImage(BuildContext context, ImageToken token) {
@@ -414,16 +450,14 @@ class _ParseErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Text(
-      token.raw,
+    final fallback = _LatexErrorChip(
+      tex: token.raw,
       style: style,
+      inline: false,
     );
-    if (!kDebugMode) return text;
+    if (!kDebugMode) return fallback;
 
-    return Tooltip(
-      message: token.reason,
-      child: text,
-    );
+    return Tooltip(message: token.reason, child: fallback);
   }
 }
 

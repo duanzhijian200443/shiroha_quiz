@@ -5,6 +5,7 @@ import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
 
 enum TaskStatus { processing, pendingReview, completed, error }
 
@@ -191,6 +192,10 @@ class TaskManager extends ChangeNotifier {
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
   static const String keyReviewDraftRevision = '_reviewDraftRevision';
   static const String keyReviewItemId = '_reviewItemId';
+  static const String keyAnswerDistillationStatus =
+      '_answer_distillation_status';
+  static const String keyAnswerDistillationReason =
+      '_answer_distillation_reason';
 
   static final TaskManager _instance = TaskManager._internal();
   static TaskManager get instance => _instance;
@@ -402,6 +407,40 @@ class TaskManager extends ChangeNotifier {
     required String standardAnswer,
     required String status,
   }) {
+    return mergeReviewDraftAnswerDistillation(
+      id,
+      reviewItemId: reviewItemId,
+      expectedRevision: expectedRevision,
+      standardAnswer: standardAnswer,
+      status: status,
+    );
+  }
+
+  Future<ReviewDraftSaveResult> mergeReviewDraftAnswerDistillation(
+    String id, {
+    required String reviewItemId,
+    required int expectedRevision,
+    required String status,
+    String? standardAnswer,
+    String? reasonCode,
+  }) {
+    if (!SubjectiveAnswerDistillationSnapshotPolicy.isAiStatus(status)) {
+      throw ArgumentError.value(status, 'status', 'unsupported status');
+    }
+    final answer = standardAnswer?.trim();
+    if (status == 'ai_applied' && (answer == null || answer.isEmpty)) {
+      throw ArgumentError.value(
+        standardAnswer,
+        'standardAnswer',
+        'must be non-empty when status is ai_applied',
+      );
+    }
+    final safeReasonCode =
+        SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+      status: status,
+      value: reasonCode,
+    );
+
     return _enqueueReviewDraftWrite(() async {
       final idx = tasks.indexWhere((task) => task.id == id);
       if (idx < 0) {
@@ -436,11 +475,19 @@ class TaskManager extends ChangeNotifier {
           revision: revision,
         );
       }
-      questions[questionIndex] = <String, dynamic>{
+      final updatedQuestion = <String, dynamic>{
         ...questions[questionIndex],
-        'standard_answer': standardAnswer,
-        '_answer_distillation_status': status,
+        keyAnswerDistillationStatus: status,
       };
+      if (status == 'ai_applied') {
+        updatedQuestion['standard_answer'] = answer;
+        updatedQuestion.remove(keyAnswerDistillationReason);
+      } else if (safeReasonCode != null) {
+        updatedQuestion[keyAnswerDistillationReason] = safeReasonCode;
+      } else {
+        updatedQuestion.remove(keyAnswerDistillationReason);
+      }
+      questions[questionIndex] = updatedQuestion;
       return _saveReviewDraftNow(
         id,
         questions: questions,
@@ -475,7 +522,7 @@ class TaskManager extends ChangeNotifier {
     final nextRevision = currentRevision + 1;
     final nextTask = ImportTask.fromMap(task.toMap());
     nextTask.parsedData = questions
-        .map((question) => Map<String, dynamic>.from(question))
+        .map(_sanitizeAnswerDistillationSnapshot)
         .toList(growable: false);
     nextTask.diagnostics = <String, dynamic>{
       ...?nextTask.diagnostics,
@@ -498,6 +545,32 @@ class TaskManager extends ChangeNotifier {
       ReviewDraftSaveStatus.saved,
       revision: nextRevision,
     );
+  }
+
+  static Map<String, dynamic> _sanitizeAnswerDistillationSnapshot(
+    Map<String, dynamic> question,
+  ) {
+    final sanitized = Map<String, dynamic>.from(question);
+    final status = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
+      sanitized[keyAnswerDistillationStatus],
+    );
+    if (status == null) {
+      sanitized.remove(keyAnswerDistillationStatus);
+      sanitized.remove(keyAnswerDistillationReason);
+      return sanitized;
+    }
+
+    sanitized[keyAnswerDistillationStatus] = status;
+    final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+      status: status,
+      value: sanitized[keyAnswerDistillationReason],
+    );
+    if (reason == null) {
+      sanitized.remove(keyAnswerDistillationReason);
+    } else {
+      sanitized[keyAnswerDistillationReason] = reason;
+    }
+    return sanitized;
   }
 
   Future<ReviewDraftSaveResult> _enqueueReviewDraftWrite(
