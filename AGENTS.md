@@ -20,13 +20,38 @@ Operate only inside this repository unless the user explicitly authorizes otherw
 Before any non-trivial task, read:
 
 - `ARCHITECTURE.md`
-- relevant files under `.agents/rules/`
+- only the files under `.agents/rules/` selected by the routing table below
 - the active role file under `docs/agents/`
 - relevant existing tests
 - the implementation surrounding the target code
 - current uncommitted changes affecting the task
 
 Do not claim a file was reviewed unless it was opened during the current task.
+
+### `.agents/rules/` routing
+
+Do not enumerate or read every file under `.agents/rules/` by default. Read
+only the files selected by this table.
+
+A rule file explicitly named as a task target may also be read to inspect,
+modify, review, diagnose, or verify that target. Reading a rule file as task
+evidence does not activate its behavioral instructions; activation still
+follows the table.
+
+| Rule file | Read when | Do not read when | Foundation |
+|---|---|---|---|
+| `architectural-discipline.md` | Every non-trivial task | Only trivial, self-contained requests that need no repository context | Yes |
+| `git_work.md` | The task concerns Git status, diffs, staging, commit preparation, branches, history, tags, or pushing | The task has no Git operation or Git-state decision | No |
+| `reviewer.md` | The first line explicitly activates `角色：审查` | Planner, Executor, Verifier, Diagnostician, or requests without the Reviewer role | No; routing shim only |
+
+Reviewer behavior is defined only by `docs/agents/reviewer.md`; the rule shim
+must not impose Reviewer write restrictions on another role.
+
+There is currently no UI-specific or import/OCR-specific file under
+`.agents/rules/`. Do not invent one or load unrelated rules for those tasks.
+Presentation/UI tasks use this file, `ARCHITECTURE.md`, and the active role.
+OCR, import, Replay, private-document, and diagnostics tasks also follow the
+applicable role's dedicated safety or Skill routing.
 
 ---
 
