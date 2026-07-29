@@ -1,5 +1,16 @@
 # Development Log
 
+## [2026-07-29 15:58] - test(import): 固化 V2 重构基线与离线审计工具
+
+- **变更类型**: test
+- **影响模块**: import, architecture, developer_tooling
+- **详细改动明细**:
+  - [x] 新增 Content Model V2 当前数据流、重复模型、兼容桥与 R0-R8 渐进迁移基线文档，不修改生产模型或数据库。
+  - [x] 用脱敏合成数据固化 2022/2019 等价导入、HTML/LaTeX 渲染、校对快照和旧题目行兼容行为。
+  - [x] 新增只读取 tracked Dart diff 的聚焦验证脚本，显式测试路径才运行测试，并传播失败 verdict。
+  - [x] 新增 `shiroha-import-audit` 项目 Skill，约束离线验收指标、Provider 调用与隐私边界。
+- **验证状态**: characterization tests 10/10、PowerShell 验证脚本契约测试、Skill validator、PowerShell AST 与 focused analyze 均通过。
+
 ## [2026-07-29 01:12] - fix(import): 收紧 LaTeX 与 OCR smoke 安全契约
 
 - **变更类型**: fix
