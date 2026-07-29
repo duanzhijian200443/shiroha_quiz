@@ -175,8 +175,7 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     );
 
     final result = await LatexMigrationService(
-      engineRepository:
-          AiDependenciesScope.of(context).engineRepository,
+      engineRepository: AiDependenciesScope.of(context).engineRepository,
     ).runMigration(
       onProgress: (processed, total, status) {
         setDialogState(() => logLines.add(status));

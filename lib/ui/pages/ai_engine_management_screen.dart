@@ -167,8 +167,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           isActive: true,
         );
         await widget.engineRepository.saveEngine(profile);
-        await widget.engineRepository
-            .setActiveEngine(newId, engineTypeEnum);
+        await widget.engineRepository.setActiveEngine(newId, engineTypeEnum);
         await _loadData();
         setState(() => _currentId = newId);
         if (mounted)

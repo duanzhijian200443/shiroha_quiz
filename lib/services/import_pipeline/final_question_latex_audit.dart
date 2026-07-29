@@ -123,7 +123,6 @@ FinalQuestionLatexAuditResult auditFinalQuestionLatex(
   metadata['riskHints'] = riskHints.toList()..sort();
   metadata[latexInvalidFieldsKey] = invalidFields;
   auditedQuestion['_import_review'] = metadata;
-
   return FinalQuestionLatexAuditResult(
     question: auditedQuestion,
     invalidFields: List.unmodifiable(invalidFields),
@@ -158,7 +157,13 @@ Map<String, dynamic> finalizeAndAuditImportQuestion(
   if (_finalFieldsContainRawHtml(audited)) {
     audited = _addRiskHint(audited, rawHtmlTagIssue);
   }
-  return const ImportQuestionRepairPolicy().syncCandidateMetadata(audited);
+  final rawDiag = audited['diagnostics'] ?? audited['_import_diagnostics'];
+  final diagList =
+      (rawDiag is List) ? rawDiag.map((e) => e.toString()) : const <String>[];
+  return const ImportQuestionRepairPolicy().syncCandidateMetadata(
+    audited,
+    diagnostics: diagList,
+  );
 }
 
 List<Map<String, dynamic>> finalizeAndAuditImportQuestions(

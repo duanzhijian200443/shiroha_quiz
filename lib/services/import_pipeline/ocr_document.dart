@@ -176,7 +176,9 @@ class OcrDocument {
       sourceName: _readString(json['sourceName']),
       markdown: _readString(json['markdown']),
       usage: _readMap(json['usage']),
-      pages: pagesRaw?.map((p) => OcrPage.fromReplayJson(_readMap(p))).toList() ?? [],
+      pages:
+          pagesRaw?.map((p) => OcrPage.fromReplayJson(_readMap(p))).toList() ??
+              [],
       rawResponses: const [],
     );
   }
@@ -219,7 +221,10 @@ class OcrPage {
       pageIndex: _readInt(json['pageIndex']) ?? 0,
       width: _readInt(json['width']),
       height: _readInt(json['height']),
-      blocks: blocksRaw?.map((b) => OcrBlock.fromReplayJson(_readMap(b))).toList() ?? [],
+      blocks: blocksRaw
+              ?.map((b) => OcrBlock.fromReplayJson(_readMap(b)))
+              .toList() ??
+          [],
     );
   }
 }

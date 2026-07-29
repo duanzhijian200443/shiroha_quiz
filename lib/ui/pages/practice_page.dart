@@ -637,8 +637,8 @@ class _PracticePageState extends State<PracticePage> {
                         }
                         setState(() => _isAiJudging = true);
 
-                        final feedback =
-                            await AiDependenciesScope.of(context).aiService
+                        final feedback = await AiDependenciesScope.of(context)
+                            .aiService
                             .judgeAnswer(q.content, q.answer, uAnswer);
 
                         if (mounted) {
@@ -871,8 +871,7 @@ class _PracticePageState extends State<PracticePage> {
 
     try {
       final newQuestion = await LLMService(
-        engineRepository:
-            AiDependenciesScope.of(context).engineRepository,
+        engineRepository: AiDependenciesScope.of(context).engineRepository,
       ).generateVariantQuestion(currentQuestion);
       if (!mounted) return;
 

@@ -130,8 +130,7 @@ void main() {
       expect(result['diagnostics'], ['unrelated']);
     });
 
-    test(
-        'enabled damaged explanation remains review without ordinary repair',
+    test('enabled damaged explanation remains review without ordinary repair',
         () {
       final finalized = finalizeAndAuditImportQuestions(
         [

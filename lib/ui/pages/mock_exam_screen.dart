@@ -101,7 +101,8 @@ class _MockExamScreenState extends State<MockExamScreen> {
         Future.microtask(() async {
           for (var task in tasks) {
             try {
-              final feedback = await AiDependenciesScope.of(context).aiService
+              final feedback = await AiDependenciesScope.of(context)
+                  .aiService
                   .judgeAnswer(task['question'], task['sAns'], task['uAns']);
 
               // 智能提取 AI 打分 (0-100)，折算为 1 分满分

@@ -30,8 +30,8 @@ void main() {
   );
 
   test('repository requires an explicit strongly typed store', () {
-    final source =
-        File('lib/data/repositories/ai_engine_repository.dart').readAsStringSync();
+    final source = File('lib/data/repositories/ai_engine_repository.dart')
+        .readAsStringSync();
 
     expect(source, contains('required AiEngineStore store'));
     expect(source, isNot(contains('dynamic')));
@@ -121,8 +121,7 @@ class _RecordingAiEngineStore implements AiEngineStore {
   final List<AiEngineType> listCalls = <AiEngineType>[];
   final List<AiEngineType> activeCalls = <AiEngineType>[];
   final List<AiEngineProfile> savedProfiles = <AiEngineProfile>[];
-  final List<(String, AiEngineType)> activations =
-      <(String, AiEngineType)>[];
+  final List<(String, AiEngineType)> activations = <(String, AiEngineType)>[];
   final List<String> deletedIds = <String>[];
 
   Never _throwFailure() => throw failure!;

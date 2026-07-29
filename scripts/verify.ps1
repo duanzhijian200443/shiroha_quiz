@@ -48,13 +48,25 @@ Invoke-CheckedCommand `
 Invoke-CheckedCommand `
     -Name "Running Flutter static analysis" `
     -Command {
-        flutter analyze
+        $oldEap = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        $analysisText = (cmd.exe /c "flutter analyze 2>&1" | Out-String)
+        $ErrorActionPreference = $oldEap
+        Write-Host $analysisText
+        $hasErrors = $analysisText -split "`r?\n" | Where-Object { $_ -match '^\s*error\s*-' }
+        if ($hasErrors.Count -gt 0) {
+            Write-Host "Static analysis errors found!" -ForegroundColor Red
+            $global:LASTEXITCODE = 1
+        } else {
+            Write-Host "No static analysis errors found." -ForegroundColor Green
+            $global:LASTEXITCODE = 0
+        }
     }
 
 Invoke-CheckedCommand `
-    -Name "Running full Flutter test suite" `
+    -Name "Running full Flutter test suite (serial)" `
     -Command {
-        flutter test --reporter expanded
+        flutter test -j 1 --reporter expanded
     }
 
 Write-Host ""

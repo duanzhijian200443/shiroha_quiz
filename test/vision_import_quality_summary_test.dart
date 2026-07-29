@@ -114,7 +114,6 @@ void main() {
     });
 
     test('handles non-map summary lookup (defensive)', () {
-      final summary = VisionImportQualitySummary.fromDiagnostics({});
       // _hasLowQualityVision guard: summary is not a map → false
       final diag = {
         'visionQualitySummary': 42,

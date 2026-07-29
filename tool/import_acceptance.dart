@@ -1118,7 +1118,8 @@ List<Map<String, dynamic>> buildSafeFinalLatexIssueSummaries(
             (code) =>
                 code == LatexRenderabilityIssue.mismatchedEnvironment.code ||
                 code ==
-                    LatexRenderabilityIssue.environmentOutsideMathContext.code ||
+                    LatexRenderabilityIssue
+                        .environmentOutsideMathContext.code ||
                 code ==
                     LatexRenderabilityIssue.incompleteEnvironmentArgument.code,
           )
@@ -1408,8 +1409,7 @@ Future<int> runImportAcceptance({
             )
           : const <int>[];
   final repairCandidates = buildSafeRepairCandidates(ocrResult.diagnostics);
-  final latexIssueSummaries =
-      buildSafeFinalLatexIssueSummaries(finalQuestions);
+  final latexIssueSummaries = buildSafeFinalLatexIssueSummaries(finalQuestions);
 
   emitEvent({
     'stage': 'pipeline',

@@ -47,7 +47,8 @@ PathPredicate _under(String prefix) {
   return (String path) => path.startsWith(prefix);
 }
 
-bool _isMain(String path) => path == 'lib/main.dart';
+bool _isMain(String path) =>
+    path == 'lib/main.dart' || path == 'lib/main_ocr_ui_smoke.dart';
 
 final _dbAllowedPaths = <PathPredicate>[
   _under('lib/core/database/'),

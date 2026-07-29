@@ -160,9 +160,7 @@ void main() {
       expect(_riskHints(result.question), isEmpty);
     });
 
-    test(
-        'keeps Q21-like missing array terminator as canonical review',
-        () {
+    test('keeps Q21-like missing array terminator as canonical review', () {
       const explanation = r'''Before.
 $$\begin{array}{l}
 x_1=1\\
@@ -175,13 +173,11 @@ $$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
         explanation: explanation,
       );
       question['diagnostics'] = const ['dangling_latex'];
-      final metadata =
-          question['_import_review'] as Map<String, dynamic>;
+      final metadata = question['_import_review'] as Map<String, dynamic>;
       metadata['repairCandidateCodes'] = const ['dangling_latex'];
 
       final result = finalizeAndAuditImportQuestion(question);
-      final finalMetadata =
-          result['_import_review'] as Map<String, dynamic>;
+      final finalMetadata = result['_import_review'] as Map<String, dynamic>;
 
       expect(result['explanation'], explanation);
       expect(result['diagnostics'], isNot(contains('dangling_latex')));

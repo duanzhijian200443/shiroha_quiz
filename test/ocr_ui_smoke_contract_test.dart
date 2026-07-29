@@ -106,7 +106,8 @@ void main() {
       expect(source, isNot(contains('AiEngineRepository.instance')));
     });
 
-    test('UI smoke saves and re-reads the active profile through one repository',
+    test(
+        'UI smoke saves and re-reads the active profile through one repository',
         () async {
       final store = _OcrUiSmokeMemoryStore();
       final repository = AiEngineRepository(store: store);
@@ -205,8 +206,7 @@ class _OcrUiSmokeMemoryStore implements AiEngineStore {
   Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
     return saved
         .where(
-          (profile) =>
-              profile.id == activeId && profile.engineType == type,
+          (profile) => profile.id == activeId && profile.engineType == type,
         )
         .firstOrNull;
   }

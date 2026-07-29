@@ -402,8 +402,7 @@ $$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
       find.textContaining(r'\begin{array}{l}', findRichText: true),
       findsOneWidget,
     );
-    expect(find.textContaining('说明文字。', findRichText: true),
-        findsOneWidget);
+    expect(find.textContaining('说明文字。', findRichText: true), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

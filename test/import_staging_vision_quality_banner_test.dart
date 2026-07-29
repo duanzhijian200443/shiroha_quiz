@@ -24,18 +24,22 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  Widget createWidget({required Map<String, dynamic>? diagnostics}) {
+  Widget createWidget({
+    required Map<String, dynamic>? diagnostics,
+    List<Map<String, dynamic>>? questions,
+  }) {
     return MaterialApp(
       home: ImportStagingScreen(
-        parsedQuestions: [
-          {
-            'q_num': 1,
-            'question_type': 0,
-            'content': 'Normal question',
-            'options': ['A', 'B'],
-            'standard_answer': 'A',
-          },
-        ],
+        parsedQuestions: questions ??
+            const [
+              {
+                'q_num': 1,
+                'question_type': 0,
+                'content': 'Normal question',
+                'options': ['A', 'B'],
+                'standard_answer': 'A',
+              },
+            ],
         diagnostics: diagnostics,
         questionRepository: _MockRepo(),
       ),
@@ -154,18 +158,27 @@ void main() {
   testWidgets(
       'qualityGate blocked still takes priority over vision quality banner',
       (WidgetTester tester) async {
-    await tester.pumpWidget(createWidget(diagnostics: {
-      'qualityGate': {
-        'blocked': true,
-        'reason': '解析丢失率过高',
+    await tester.pumpWidget(createWidget(
+      diagnostics: {
+        'qualityGate': {
+          'blocked': true,
+          'reason': '解析丢失率过高',
+        },
+        'visionQualitySummary': {
+          'hasLowQualityVisionParse': true,
+          'total': 10,
+          'riskyCount': 7,
+          'lowQualityFileCount': 1,
+        },
       },
-      'visionQualitySummary': {
-        'hasLowQualityVisionParse': true,
-        'total': 10,
-        'riskyCount': 7,
-        'lowQualityFileCount': 1,
-      },
-    }));
+      questions: const [
+        {
+          'content': '',
+          'type': 0,
+          'options': ['A', 'B'],
+        },
+      ],
+    ));
     await tester.pumpAndSettle();
 
     // Both banners should be visible

@@ -342,7 +342,7 @@ void main() {
           'options': ['A', 'B'],
           'standard_answer': 'A',
           'explanation': '',
-          'raw_explanation': r'Broken \(\begin{matrix}1\end{pmatrix}\)',
+          'raw_explanation': r'Broken \begin{matrix}1',
           '_import_review': {
             'riskHints': ['latex_unrenderable'],
           },
@@ -368,7 +368,7 @@ void main() {
     expect(find.text('LaTeX 异常'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('question-repair-candidate-0')),
-      findsOneWidget,
+      findsNothing,
     );
 
     final discard =

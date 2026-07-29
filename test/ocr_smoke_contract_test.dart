@@ -939,8 +939,8 @@ void main() {
           reasoningEffort: '',
           isActive: true,
         );
-        final explicitRepo = AiEngineRepository(
-            store: _FakeAiEngineStore(fakeProfile));
+        final explicitRepo =
+            AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
 
         // Standard mode
         final eventsNormal = <Map<String, dynamic>>[];
@@ -1156,8 +1156,7 @@ void main() {
 
     test(
         'launcher passes --repository-root as single = token, '
-        'never as two separate tokens',
-        () {
+        'never as two separate tokens', () {
       final psScript = File('tool/run_ocr_smoke.ps1').readAsStringSync();
 
       // Must use the = form so the Dart CLI parser recognizes a single token.
@@ -1177,8 +1176,7 @@ void main() {
       );
     });
 
-    test('acceptance PowerShell missing case is path-redacted JSON',
-        () async {
+    test('acceptance PowerShell missing case is path-redacted JSON', () async {
       final outsideDirectory =
           Directory.systemTemp.createTempSync('acceptance-ps-missing-');
       addTearDown(() {

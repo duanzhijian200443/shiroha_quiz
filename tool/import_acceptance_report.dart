@@ -43,8 +43,7 @@ class AcceptanceReportWriter {
 
     // summary.json
     final summaryWithPath = Map<String, dynamic>.from(summary)
-      ..['relativeReportDirectory'] =
-          'scratch/import_acceptance/$runId';
+      ..['relativeReportDirectory'] = 'scratch/import_acceptance/$runId';
     await _writeJson(runDir, 'summary.json', summaryWithPath);
 
     // question_quality.json
@@ -95,9 +94,7 @@ class AcceptanceReportWriter {
         'Repair: ${summary['repairMode']} (${summary['repairCandidateCount']} candidates)');
     buf.writeln();
 
-    final hardIssues = questionReports
-        .where((r) => r.hasHardIssue)
-        .toList();
+    final hardIssues = questionReports.where((r) => r.hasHardIssue).toList();
     final reviewIssues = questionReports
         .where((r) => r.hasReviewIssue && !r.hasHardIssue)
         .toList();
@@ -146,18 +143,15 @@ class AcceptanceReportWriter {
       }
       if (reviewIssues.any(
           (r) => r.issues.any((i) => i.code == 'missing_explicit_answer'))) {
-        buf.writeln(
-            'Improve subjective answer extraction before other fixes.');
+        buf.writeln('Improve subjective answer extraction before other fixes.');
       }
       if (reviewIssues
           .any((r) => r.issues.any((i) => i.code == 'latex_unrenderable'))) {
-        buf.writeln(
-            'Fix LaTeX delimiter balance in affected questions.');
+        buf.writeln('Fix LaTeX delimiter balance in affected questions.');
       }
       if (reviewIssues
           .any((r) => r.issues.any((i) => i.code == 'raw_html_tag'))) {
-        buf.writeln(
-            'Add HTML tag stripping to post-processing pipeline.');
+        buf.writeln('Add HTML tag stripping to post-processing pipeline.');
       }
     } else {
       buf.writeln(

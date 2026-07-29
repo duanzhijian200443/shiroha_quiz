@@ -76,9 +76,7 @@ x_2=y
       expect(checker.check(result.text).isRenderable, isTrue);
     });
 
-    test(
-        'keeps a Q21-like missing array terminator unchanged for review',
-        () {
+    test('keeps a Q21-like missing array terminator unchanged for review', () {
       const input = r'''Before.
 $$\begin{array}{l}
 x_1=1\\

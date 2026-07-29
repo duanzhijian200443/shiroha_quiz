@@ -123,10 +123,13 @@ void main() {
         'Folder',
       );
 
-      final reviewCompletedAt =
-          tm.tasks.firstWhere((t) => t.id == 't_review_then_complete').completedAt;
-      final reviewElapsed =
-          tm.tasks.firstWhere((t) => t.id == 't_review_then_complete').elapsed.inSeconds;
+      final reviewCompletedAt = tm.tasks
+          .firstWhere((t) => t.id == 't_review_then_complete')
+          .completedAt;
+      final reviewElapsed = tm.tasks
+          .firstWhere((t) => t.id == 't_review_then_complete')
+          .elapsed
+          .inSeconds;
 
       await Future<void>.delayed(const Duration(seconds: 2));
 

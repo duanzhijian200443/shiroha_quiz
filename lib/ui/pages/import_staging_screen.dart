@@ -1087,7 +1087,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             QuestionExplanationOverride.inherit,
       );
       return ImportReviewItem.fromMap(finalized, item.originalIndex);
-    }).toList(growable: false);
+    }).toList();
   }
 
   void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {

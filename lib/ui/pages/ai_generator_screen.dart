@@ -94,10 +94,10 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     try {
       final drafts =
           await AiDependenciesScope.of(context).aiService.generateQuestions(
-        _topicController.text.trim(),
-        count: _selectedCount,
-        type: _selectedType,
-      );
+                _topicController.text.trim(),
+                count: _selectedCount,
+                type: _selectedType,
+              );
       if (!mounted) return;
       setState(() {
         _questions = drafts;
@@ -855,12 +855,12 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     try {
       final result =
           await AiDependenciesScope.of(context).aiService.generateExamPaper(
-        topic: _topicController.text.trim(),
-        singleCount: s,
-        fillCount: f,
-        shortCount: sh,
-        customPrompt: customPrompt,
-      );
+                topic: _topicController.text.trim(),
+                singleCount: s,
+                fillCount: f,
+                shortCount: sh,
+                customPrompt: customPrompt,
+              );
 
       // 2. 核心合流：将 AI 生成的全新题目直接落盘为试卷 (source_type: 1)
       final paperTitle = '${_topicController.text.trim()} AI模拟卷';
