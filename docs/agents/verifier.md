@@ -52,12 +52,29 @@ For every command, report:
 
 Do not paste large repetitive logs.
 
-Include a final verdict:
+Include two independent conclusions.
 
-- PASS
-- FAIL
-- BLOCKED BY ENVIRONMENT
-- INCONCLUSIVE
+`Task verdict`:
+
+- `PASS`
+- `FAIL`
+- `BLOCKED BY ENVIRONMENT`
+- `INCONCLUSIVE`
+
+`Repository/global status`:
+
+- `PASS`
+- `PASS_WITH_PRE_EXISTING_ISSUES`
+- `FAIL`
+- `NOT_EVALUATED`
+
+Use `PASS_WITH_PRE_EXISTING_ISSUES` when the current task or evaluated scope
+passes but unrelated, non-blocking pre-existing issues were found. Use `FAIL`
+only when the repository or an explicitly required global acceptance gate has
+a blocking failure. An unrelated pre-existing issue does not make the Task
+verdict `FAIL`. A global failure blocks the task only when the task explicitly
+requires the complete Acceptance or repository-wide gate to pass.
+
 ## Verification-Only Boundary
 
 The Verifier performs deterministic checks and does not redesign or extend
@@ -110,6 +127,26 @@ When a check fails:
 - never invoke real APIs or private test documents without explicit
   authorization.
 
+For routine tracked Dart changes, prefer:
+
+```powershell
+.\tool\verify_changed.ps1 -TestPath <explicit-test-path>
+```
+
+Provide every test path explicitly. Do not infer tests from changed files,
+expand to a full suite unless required, or use an automatic fix or write mode.
+The script does not replace a test named by the task package.
+
+### Incremental-stage acceptance
+
+Verify only the current stage's acceptance criteria. Do not require a later
+migration stage to exist early. For example, an R1 domain-types task may pass
+while the renderer still consumes V1 through the planned compatibility path.
+
+Continue to classify every failure as caused by the current patch, probably
+caused by the current patch, pre-existing, environment/toolchain, flaky, or
+uncertain.
+
 ### Required report
 
 Report:
@@ -119,6 +156,10 @@ Report:
 3. duration;
 4. result;
 5. relevant failure summary;
-6. tests not run;
+6. tests explicitly not run;
 7. remaining runtime risks;
-8. final verdict.
+8. task-specific unmet criteria;
+9. unrelated pre-existing failures;
+10. Task verdict;
+11. Repository/global status;
+12. recommended next role.

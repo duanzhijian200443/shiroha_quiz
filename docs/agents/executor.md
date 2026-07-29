@@ -44,6 +44,19 @@ Do not modify that file until approval is provided.
 - Do not manually edit generated files.
 - Do not commit or push.
 
+## Import-path audit contract
+
+When a task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`,
+content auditing, answer fusion, or Import Acceptance, read:
+
+```text
+.agents/skills/shiroha-import-audit/SKILL.md
+```
+
+Follow its offline, redaction, and Provider-call boundaries. Do not substitute
+real OCR, private documents, saved keys, network access, or Replay writes for
+the bounded evidence authorized by the task package.
+
 ## Validation
 
 During implementation, run focused validation relevant to the changed files.
@@ -59,6 +72,29 @@ flutter test <relevant-test-files>
 Do not run the entire test suite unless the task package explicitly requests it.
 
 Do not hide failed commands.
+
+For routine checks of tracked Dart changes, the Executor may use:
+
+```powershell
+.\tool\verify_changed.ps1 -TestPath <explicit-test-path>
+```
+
+Always provide test paths explicitly. Do not let the script infer tests,
+expand `-TestPath` merely to obtain PASS, use it instead of a task-required
+test, or widen the implementation scope because it reports an unrelated
+historical failure.
+
+## Migration protection
+
+For an architecture migration:
+
+- preserve every compatibility bridge required by the task package;
+- do not remove the old path before its stated deletion condition;
+- do not migrate the renderer or database unless that is the task's one
+  primary migration responsibility;
+- do not create an unplanned third long-lived content model;
+- do not silently discard raw fallback, provenance, source order, tables,
+  images, formulas, or diagnostics.
 
 ## Completion report
 
@@ -77,6 +113,8 @@ Report:
 ## Bounded Execution
 
 The Executor owns implementation, not unlimited verification.
+The Executor may run one minimal focused implementation check. The Verifier
+owns independent final verification.
 
 Before editing:
 
@@ -93,6 +131,10 @@ After the requested behavior is implemented:
 4. do not run native Windows builds unless explicitly requested;
 5. produce the required handoff package;
 6. stop.
+
+Once the requested behavior is implemented, syntax is complete, and at least
+one focused check passes, stop and hand off instead of beginning an open-ended
+final audit.
 
 ### Executor retry policy
 
