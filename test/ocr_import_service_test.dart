@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,10 +9,16 @@ import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_ser
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_policy.dart';
+import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/pages/task_center_projection.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
 import 'support/unsupported_ai_engine_store.dart';
@@ -1289,6 +1296,268 @@ void main() {
       expect(result.warnings, contains('未配置可用的智谱 OCR 引擎，请先完成 OCR 配置。'));
     });
 
+    test('releases the OCR slot before downstream repair completes', () async {
+      final profile = _concurrencyProfile();
+      final client = ControlledOcrDocumentClient();
+      final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
+      final repair = BlockingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: client,
+        requestScheduler: scheduler,
+        repairService: repair,
+      );
+
+      final first = service.tryParse(
+        filePath: 'first.pdf',
+        sourceName: 'first.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      final second = service.tryParse(
+        filePath: 'second.pdf',
+        sourceName: 'second.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      final third = service.tryParse(
+        filePath: 'third.pdf',
+        sourceName: 'third.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      var firstCompleted = false;
+      unawaited(first.then<void>((_) {
+        firstCompleted = true;
+      }));
+
+      await Future.wait<void>(<Future<void>>[
+        client.waitUntilStarted('first.pdf'),
+        client.waitUntilStarted('second.pdf'),
+      ]);
+      expect(client.hasStarted('third.pdf'), isFalse);
+
+      client.complete('first.pdf', _structuralConcurrencyDocument());
+      await client.waitUntilStarted('third.pdf');
+      await repair.started.future;
+
+      expect(firstCompleted, isFalse);
+      expect(client.maxActiveCount, 2);
+
+      repair.release.complete();
+      final validDocument = objectiveExplanationDocument(
+        explanation: 'Synthetic explanation',
+        answer: '答案：A',
+      );
+      client.complete('second.pdf', validDocument);
+      client.complete('third.pdf', validDocument);
+
+      final results = await Future.wait<OcrImportResult?>(
+        <Future<OcrImportResult?>>[first, second, third],
+      );
+      expect(results.every((result) => result?.usedOcr == true), isTrue);
+      expect(client.callCount, 3);
+    });
+
+    test('releases the OCR slot when the client throws', () async {
+      final client = ControlledOcrDocumentClient();
+      final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(_concurrencyProfile()),
+        ocrClient: client,
+        requestScheduler: scheduler,
+        repairService: const FakeRepairService(),
+      );
+
+      final first = service.tryParse(
+        filePath: 'failed.pdf',
+        sourceName: 'failed.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      final second = service.tryParse(
+        filePath: 'second.pdf',
+        sourceName: 'second.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      final third = service.tryParse(
+        filePath: 'third.pdf',
+        sourceName: 'third.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      await Future.wait<void>(<Future<void>>[
+        client.waitUntilStarted('failed.pdf'),
+        client.waitUntilStarted('second.pdf'),
+      ]);
+      expect(client.hasStarted('third.pdf'), isFalse);
+
+      client.fail('failed.pdf', StateError('synthetic client failure'));
+      await client.waitUntilStarted('third.pdf');
+
+      final validDocument = objectiveExplanationDocument(
+        explanation: 'Synthetic explanation',
+        answer: '答案：A',
+      );
+      client.complete('second.pdf', validDocument);
+      client.complete('third.pdf', validDocument);
+
+      final results = await Future.wait<OcrImportResult?>(
+        <Future<OcrImportResult?>>[first, second, third],
+      );
+      expect(results.first?.usedOcr, isFalse);
+      expect(results.first?.diagnostics['status'], 'failed_request');
+      expect(results[1]?.usedOcr, isTrue);
+      expect(results[2]?.usedOcr, isTrue);
+      expect(client.callCount, 3);
+      expect(client.maxActiveCount, 2);
+    });
+
+    test(
+        'four independent tasks traverse pipeline with one shared OCR scheduler',
+        () async {
+      final manager = TaskManager.forTesting();
+      final client = ControlledOcrDocumentClient();
+      final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
+      final ocrService = OcrImportService(
+        engineRepository: FakeAiEngineRepository(_concurrencyProfile()),
+        ocrClient: client,
+        requestScheduler: scheduler,
+        repairService: const FakeRepairService(),
+      );
+      var mergerCalls = 0;
+      final pipeline = ImportPipelineService.forTesting(
+        textParser: (
+          rawText, {
+          required taskId,
+          required isMarkdown,
+        }) async =>
+            fail('text parser must not run'),
+        visionParser: (imagePaths) async => fail('vision parser must not run'),
+        ocrParser: ocrService.tryParse,
+        questionMerger: (fileResults) async {
+          mergerCalls++;
+          return fileResults.expand((questions) => questions).toList();
+        },
+        taskManager: manager,
+      );
+      var taskIndex = 0;
+      var traceIndex = 0;
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        taskIdFactory: () => 'integrated-task-${taskIndex++}',
+        traceIdFactory: () => 'integrated-trace-${traceIndex++}',
+        batchIdFactory: () => 'integrated-batch',
+      );
+
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: List<ImportTaskBatchItem>.generate(
+          4,
+          (index) => ImportTaskBatchItem(
+            sourceDescription: 'same.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (taskId) => pipeline.parseFiles(
+              ImportParseRequest(
+                filePaths: <String>['synthetic-$index.pdf'],
+                fileNames: <String>['synthetic-$index.pdf'],
+                mode: ImportParseMode.ocr,
+                maxConcurrency: 1,
+                taskId: taskId,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await Future.wait<void>(<Future<void>>[
+        client.waitUntilStarted('synthetic-0.pdf'),
+        client.waitUntilStarted('synthetic-1.pdf'),
+      ]);
+      expect(manager.tasks, hasLength(4));
+      expect(client.hasStarted('synthetic-2.pdf'), isFalse);
+      expect(client.hasStarted('synthetic-3.pdf'), isFalse);
+
+      client.fail(
+        'synthetic-1.pdf',
+        StateError('synthetic client failure'),
+      );
+      await client.waitUntilStarted('synthetic-2.pdf');
+      expect(client.hasStarted('synthetic-3.pdf'), isFalse);
+
+      final validDocument = objectiveExplanationDocument(
+        explanation: 'Synthetic explanation',
+        answer: '答案：A',
+      );
+      client.complete('synthetic-0.pdf', validDocument);
+      await client.waitUntilStarted('synthetic-3.pdf');
+
+      client.complete('synthetic-3.pdf', validDocument);
+      await _waitForImportTask(
+        manager,
+        batch.tasks[3].taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+      client.complete('synthetic-2.pdf', validDocument);
+      for (final handle in batch.tasks) {
+        await _waitForImportTask(
+          manager,
+          handle.taskId,
+          (task) => task.status != TaskStatus.processing,
+        );
+      }
+
+      expect(client.callCount, 4);
+      expect(client.maxActiveCount, 2);
+      expect(mergerCalls, 0);
+      expect(
+        manager.tasks.map((task) => task.status),
+        <TaskStatus>[
+          TaskStatus.pendingReview,
+          TaskStatus.error,
+          TaskStatus.pendingReview,
+          TaskStatus.pendingReview,
+        ],
+      );
+      expect(manager.tasks.map((task) => task.id).toSet(), hasLength(4));
+      expect(manager.tasks.map((task) => task.traceId).toSet(), hasLength(4));
+      expect(
+        manager.tasks.map((task) => task.batchId).toSet(),
+        <String?>{'integrated-batch'},
+      );
+      expect(
+        manager.tasks.map((task) => task.selectionIndex),
+        <int?>[0, 1, 2, 3],
+      );
+
+      final restored = manager.tasks
+          .map((task) => ImportTask.fromMap(task.toMap()))
+          .toList();
+      expect(
+        restored.map((task) => task.batchId).toSet(),
+        <String?>{'integrated-batch'},
+      );
+      expect(
+        restored.map((task) => task.selectionIndex),
+        <int?>[0, 1, 2, 3],
+      );
+
+      final projection = TaskCenterProjection.fromTasks(manager.tasks);
+      expect(
+        projection
+            .tasksFor(TaskCenterCategory.pendingReview)
+            .map((task) => task.selectionIndex),
+        <int?>[0, 2, 3],
+      );
+      expect(
+        projection
+            .tasksFor(TaskCenterCategory.error)
+            .map((task) => task.selectionIndex),
+        <int?>[1],
+      );
+    });
+
     test('request exception fails explicitly without Vision fallback',
         () async {
       final profile = AiEngineProfile(
@@ -1336,5 +1605,153 @@ class ThrowingOcrDocumentClient implements OcrDocumentClient {
     Duration timeout = const Duration(minutes: 8),
   }) {
     throw Exception('request failed');
+  }
+}
+
+Future<ImportTask> _waitForImportTask(
+  TaskManager manager,
+  String taskId,
+  bool Function(ImportTask task) predicate,
+) async {
+  for (var attempt = 0; attempt < 100; attempt++) {
+    final matches = manager.tasks.where((task) => task.id == taskId);
+    if (matches.isNotEmpty && predicate(matches.first)) return matches.first;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw StateError('Task did not reach the expected state.');
+}
+
+AiEngineProfile _concurrencyProfile() {
+  return const AiEngineProfile(
+    id: 'ocr-concurrency',
+    engineType: AiEngineType.ocr,
+    name: 'synthetic-ocr',
+    apiKey: 'test-key',
+    baseUrl: 'https://open.bigmodel.cn/api/paas',
+    modelName: 'glm-ocr',
+    temperature: 0,
+    reasoningEffort: '',
+    isActive: true,
+  );
+}
+
+OcrDocument _structuralConcurrencyDocument() {
+  return const OcrDocument(
+    sourceName: 'first.pdf',
+    markdown: '',
+    rawResponses: <Map<String, dynamic>>[],
+    usage: <String, dynamic>{},
+    pages: <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          OcrBlock(
+            blockId: 'section',
+            pageIndex: 1,
+            type: 'text',
+            text: '一、选择题（共 1 题）',
+            bbox: <double>[],
+            readingOrder: 0,
+          ),
+          OcrBlock(
+            blockId: 'question',
+            pageIndex: 1,
+            type: 'text',
+            text: '1. Synthetic stem',
+            bbox: <double>[],
+            readingOrder: 1,
+          ),
+          OcrBlock(
+            blockId: 'answer',
+            pageIndex: 1,
+            type: 'text',
+            text: '答案：A',
+            bbox: <double>[],
+            readingOrder: 2,
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+class ControlledOcrDocumentClient implements OcrDocumentClient {
+  final Map<String, Completer<OcrDocument>> _responses =
+      <String, Completer<OcrDocument>>{};
+  final Map<String, Completer<void>> _starts = <String, Completer<void>>{};
+
+  int callCount = 0;
+  int activeCount = 0;
+  int maxActiveCount = 0;
+
+  @override
+  String get modelId => 'controlled-ocr-model';
+
+  bool hasStarted(String sourceName) =>
+      _starts[sourceName]?.isCompleted ?? false;
+
+  Future<void> waitUntilStarted(String sourceName) {
+    return _starts.putIfAbsent(sourceName, Completer<void>.new).future;
+  }
+
+  void complete(String sourceName, OcrDocument document) {
+    _responses[sourceName]!.complete(document);
+  }
+
+  void fail(String sourceName, Object error) {
+    _responses[sourceName]!.completeError(error);
+  }
+
+  @override
+  Future<OcrDocument> parseFile({
+    required AiEngineProfile profile,
+    required String filePath,
+    required String sourceName,
+    Duration timeout = const Duration(minutes: 8),
+  }) async {
+    callCount++;
+    activeCount++;
+    maxActiveCount =
+        activeCount > maxActiveCount ? activeCount : maxActiveCount;
+    _starts.putIfAbsent(sourceName, Completer<void>.new).complete();
+    try {
+      return await _responses
+          .putIfAbsent(sourceName, Completer<OcrDocument>.new)
+          .future;
+    } finally {
+      activeCount--;
+    }
+  }
+}
+
+class BlockingRepairService extends SingleQuestionRepairService {
+  final Completer<void> started = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<LocalAssemblyResult> repair({
+    required TextQuestionRegion region,
+    required LocalAssemblyResult localResult,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
+  }) async {
+    if (!started.isCompleted) {
+      started.complete();
+    }
+    await release.future;
+    return LocalAssemblyResult(
+      question: <String, dynamic>{
+        ...localResult.question,
+        'content': 'Synthetic repaired stem',
+        'options': const <String>['A. First', 'B. Second'],
+        'standard_answer': 'A',
+      },
+      diagnostics: <String>[
+        ...localResult.diagnostics,
+        'ai_repair_applied',
+      ],
+      repairRecommended: false,
+      rejected: false,
+    );
   }
 }

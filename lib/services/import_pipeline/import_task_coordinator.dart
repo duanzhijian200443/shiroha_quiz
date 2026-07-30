@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:path/path.dart' as p;
 
 import '../../core/observability/app_logger.dart';
@@ -252,23 +254,37 @@ class ImportTaskCoordinator {
     }
 
     _taskManager.addTasksInOrder(tasks);
-    Future<void>.microtask(() async {
-      for (final item in scheduled) {
-        await TraceContext.run(
-          taskId: item.handle.taskId,
-          traceId: item.handle.traceId,
-          action: () => _runParse(
-            handle: item.handle,
-            sourceDescription: item.sourceDescription,
-            parse: item.parse,
-          ),
-        );
-      }
-    });
+    final runConcurrently =
+        items.every((item) => item.mode == ImportParseMode.ocr);
+    if (runConcurrently) {
+      unawaited(Future<void>.microtask(() {
+        for (final item in scheduled) {
+          unawaited(_runScheduledTask(item));
+        }
+      }));
+    } else {
+      unawaited(Future<void>.microtask(() async {
+        for (final item in scheduled) {
+          await _runScheduledTask(item);
+        }
+      }));
+    }
     return ImportTaskBatchHandle(
       batchId: batchId,
       tasks: List<ImportTaskHandle>.unmodifiable(
         scheduled.map((item) => item.handle),
+      ),
+    );
+  }
+
+  Future<void> _runScheduledTask(_ScheduledImportTask item) {
+    return TraceContext.run(
+      taskId: item.handle.taskId,
+      traceId: item.handle.traceId,
+      action: () => _runParse(
+        handle: item.handle,
+        sourceDescription: item.sourceDescription,
+        parse: item.parse,
       ),
     );
   }

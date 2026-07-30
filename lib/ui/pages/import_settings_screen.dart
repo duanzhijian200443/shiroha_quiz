@@ -75,12 +75,10 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     widget.onRetainObjectiveExplanationsChanged?.call(value);
   }
 
-  Future<ImportParseResult> _parseRequest(ImportParseRequest request) {
+  ImportRequestParser _resolveRequestParser() {
     final requestParser = widget.requestParser;
-    if (requestParser != null) return requestParser(request);
-    return AiDependenciesScope.of(context)
-        .importPipelineService
-        .parseFiles(request);
+    if (requestParser != null) return requestParser;
+    return AiDependenciesScope.of(context).importPipelineService.parseFiles;
   }
 
   Future<void> _dispatchBackgroundTask(
@@ -162,6 +160,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           ? await widget.pickImage!(source)
           : await _picker.pickImage(source: source, imageQuality: 85);
       if (image == null) return;
+      if (!mounted) return;
+      final parseRequest = _resolveRequestParser();
       await _dispatchBackgroundTask('图片识别', (taskId) async {
         final request = ImportParseRequest(
           filePaths: <String>[image.path],
@@ -171,7 +171,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           taskId: taskId,
           explanationRetentionMode: explanationRetentionMode,
         );
-        return _parseRequest(request);
+        return parseRequest(request);
       },
           mode: selectedMode,
           explanationRetentionMode: explanationRetentionMode);
@@ -205,16 +205,16 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           );
 
     if (result == null || result.files.isEmpty) return;
+    if (!mounted) return;
 
     final incompatibleFiles = result.files
         .where((file) => !_isFileCompatible(file, selectedMode))
         .toList();
     if (incompatibleFiles.isNotEmpty) {
-      if (mounted) {
-        _showIncompatibleFiles(selectedMode, incompatibleFiles);
-      }
+      _showIncompatibleFiles(selectedMode, incompatibleFiles);
       return;
     }
+    final parseRequest = _resolveRequestParser();
 
     final isAllPdfBatch = result.files.length > 1 &&
         result.files.every((file) => _fileExtension(file) == 'pdf');
@@ -226,7 +226,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               sourceDescription: file.name,
               mode: selectedMode,
               explanationRetentionMode: explanationRetentionMode,
-              parse: (taskId) => _parseRequest(
+              parse: (taskId) => parseRequest(
                 ImportParseRequest(
                   filePaths: <String>[file.path!],
                   fileNames: <String>[file.name],
@@ -250,7 +250,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
 
     await _dispatchBackgroundTask(
       sourceDescription,
-      (taskId) async => _parseRequest(
+      (taskId) async => parseRequest(
         ImportParseRequest(
           filePaths: result.files.map((file) => file.path!).toList(),
           fileNames: result.files.map((file) => file.name).toList(),

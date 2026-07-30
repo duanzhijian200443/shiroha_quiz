@@ -10,6 +10,16 @@ import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/ui/pages/import_settings_screen.dart';
 
+class _RecordingNavigatorObserver extends NavigatorObserver {
+  int pushCount = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushCount++;
+    super.didPush(route, previousRoute);
+  }
+}
+
 void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
@@ -17,6 +27,7 @@ void main() {
     Size size = const Size(900, 1400),
     TextScaler textScaler = TextScaler.noScaling,
     ImportSettingsScreen screen = const ImportSettingsScreen(),
+    NavigatorObserver? navigatorObserver,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -26,6 +37,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
+        navigatorObservers: <NavigatorObserver>[
+          if (navigatorObserver != null) navigatorObserver,
+        ],
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
           child: child!,
@@ -452,9 +466,11 @@ void main() {
       (tester) async {
     final sources = <String>[];
     final requests = <ImportParseRequest>[];
+    final navigatorObserver = _RecordingNavigatorObserver();
     var dispatchedTaskIndex = 0;
     await pumpScreen(
       tester,
+      navigatorObserver: navigatorObserver,
       screen: ImportSettingsScreen(
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'first.pdf', path: 'first.pdf', size: 0),
@@ -475,6 +491,7 @@ void main() {
         },
       ),
     );
+    final initialPushCount = navigatorObserver.pushCount;
 
     await tester.tap(
       find.byKey(const ValueKey<String>('import-file-button')),
@@ -506,6 +523,7 @@ void main() {
       sources.any((source) => source.contains('多文件自动拼合')),
       isFalse,
     );
+    expect(navigatorObserver.pushCount, initialPushCount);
   });
 
   testWidgets('multi-image selection dispatches one single aggregated request',

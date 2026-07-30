@@ -247,7 +247,7 @@ void main() {
   });
 
   test(
-      'independent batch creates all tasks first and parses serially after failures',
+      'independent OCR batch creates all tasks first and starts parses concurrently',
       () async {
     var taskIndex = 0;
     var traceIndex = 0;
@@ -255,6 +255,7 @@ void main() {
     var maxActiveParses = 0;
     var allTasksVisibleAtFirstStart = false;
     final starts = <int>[];
+    final allStarted = Completer<void>();
     final releaseFirst = Completer<void>();
     final coordinator = ImportTaskCoordinator(
       taskManager: manager,
@@ -266,6 +267,9 @@ void main() {
 
     Future<ImportParseResult> parseItem(int index, String taskId) async {
       starts.add(index);
+      if (starts.length == 4) {
+        allStarted.complete();
+      }
       activeParses++;
       maxActiveParses =
           activeParses > maxActiveParses ? activeParses : maxActiveParses;
@@ -333,6 +337,7 @@ void main() {
       hasLength(4),
     );
 
+    await allStarted.future;
     releaseFirst.complete();
     for (final handle in batch.tasks) {
       await _waitForTask(
@@ -344,7 +349,7 @@ void main() {
 
     expect(allTasksVisibleAtFirstStart, isTrue);
     expect(starts, <int>[0, 1, 2, 3]);
-    expect(maxActiveParses, 1);
+    expect(maxActiveParses, greaterThan(1));
     expect(
       manager.tasks.map((task) => task.status),
       <TaskStatus>[
@@ -363,6 +368,73 @@ void main() {
       <String?>{'batch-fixture'},
     );
   });
+
+  for (final mode in <ImportParseMode>[
+    ImportParseMode.vision,
+    ImportParseMode.text,
+  ]) {
+    test('independent ${mode.name} batch keeps the existing serial runner',
+        () async {
+      var taskIndex = 0;
+      var traceIndex = 0;
+      final firstStarted = Completer<void>();
+      final secondStarted = Completer<void>();
+      final releaseFirst = Completer<void>();
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => '${mode.name}-task-${taskIndex++}',
+        traceIdFactory: () => '${mode.name}-trace-${traceIndex++}',
+        batchIdFactory: () => '${mode.name}-batch',
+      );
+
+      Future<ImportParseResult> parseItem(int index) async {
+        if (index == 0) {
+          firstStarted.complete();
+          await releaseFirst.future;
+        } else if (index == 1) {
+          secondStarted.complete();
+        }
+        return ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '${index + 1}',
+              'type': 0,
+              'content': 'Synthetic question ${index + 1}',
+              'options': const <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': '',
+            },
+          ],
+        );
+      }
+
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: List<ImportTaskBatchItem>.generate(
+          3,
+          (index) => ImportTaskBatchItem(
+            sourceDescription: '${mode.name}-$index.pdf',
+            mode: mode,
+            parse: (_) => parseItem(index),
+          ),
+        ),
+      );
+
+      await firstStarted.future;
+      expect(manager.tasks, hasLength(3));
+      expect(secondStarted.isCompleted, isFalse);
+
+      releaseFirst.complete();
+      await secondStarted.future;
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+    });
+  }
 
   test('empty result persists only allowlisted failure diagnostics', () async {
     final coordinator = ImportTaskCoordinator(

@@ -12,6 +12,7 @@ import 'data/repositories/settings_repository.dart';
 import 'services/ai_service.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/import_pipeline/import_pipeline_service.dart';
+import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/task_manager.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/pages/home_page.dart';
@@ -83,10 +84,12 @@ void main() {
       engineRepository: engineRepository,
       taskManager: taskManager,
     );
+    final ocrRequestScheduler = OcrRequestScheduler();
     final importPipelineService = ImportPipelineService(
       aiService: aiService,
       engineRepository: engineRepository,
       taskManager: taskManager,
+      ocrRequestScheduler: ocrRequestScheduler,
     );
 
     final savedTheme = await SettingsRepository.instance.getAppTheme();

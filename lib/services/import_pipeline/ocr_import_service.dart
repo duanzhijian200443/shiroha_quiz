@@ -1,4 +1,5 @@
 import '../../data/repositories/ai_engine_repository.dart';
+import '../../core/observability/trace_context.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import 'final_question_latex_audit.dart';
 import 'import_document_role.dart';
@@ -10,6 +11,7 @@ import 'ocr_document.dart';
 import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
+import 'ocr_request_scheduler.dart';
 import 'reference_answer_extractor.dart';
 import 'reference_answer_merger.dart';
 import 'single_question_repair_service.dart';
@@ -38,12 +40,14 @@ class OcrImportService {
         const ReferenceAnswerExtractor(),
     ReferenceAnswerMerger referenceAnswerMerger = const ReferenceAnswerMerger(),
     SingleQuestionRepairService? repairService,
+    OcrRequestScheduler? requestScheduler,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
         _assembler = assembler,
         _referenceAnswerExtractor = referenceAnswerExtractor,
         _referenceAnswerMerger = referenceAnswerMerger,
+        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
         _repairService = repairService ??
             SingleQuestionRepairService(
               engineRepository: engineRepository,
@@ -55,6 +59,7 @@ class OcrImportService {
   final OcrQuestionAssembler _assembler;
   final ReferenceAnswerExtractor _referenceAnswerExtractor;
   final ReferenceAnswerMerger _referenceAnswerMerger;
+  final OcrRequestScheduler _requestScheduler;
   final SingleQuestionRepairService _repairService;
 
   Future<OcrImportResult?> tryParse({
@@ -124,10 +129,13 @@ class OcrImportService {
     try {
       final document = await measureAsyncStage(
         'ocrDurationMs',
-        () => _ocrClient.parseFile(
-          profile: profile,
-          filePath: filePath,
-          sourceName: sourceName,
+        () => _requestScheduler.run(
+          taskId: TraceContext.taskId ?? 'unscoped-ocr-import',
+          operation: () => _ocrClient.parseFile(
+            profile: profile,
+            filePath: filePath,
+            sourceName: sourceName,
+          ),
         ),
       );
       diagnostics['document'] = document.toDiagnostics();
