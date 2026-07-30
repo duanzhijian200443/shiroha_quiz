@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
 
@@ -39,6 +40,53 @@ class ImportTask {
   // 诊断元数据快捷获取
   String? get traceId => diagnostics?[TaskManager.keyTraceId]?.toString();
   String? get parseMode => diagnostics?[TaskManager.keyParseMode]?.toString();
+  int get attemptNumber {
+    final value = diagnostics?[TaskManager.keyAttemptNumber];
+    return switch (value) {
+      final int number when number > 0 => number,
+      final num number when number > 0 => number.toInt(),
+      final String number => int.tryParse(number) ?? 1,
+      _ => 1,
+    };
+  }
+
+  String? get attemptToken {
+    final value = diagnostics?[TaskManager.keyAttemptToken];
+    return value is String && value.trim().isNotEmpty ? value : null;
+  }
+
+  ImportAttemptState get attemptState {
+    final value = diagnostics?[TaskManager.keyAttemptState];
+    if (value is String) {
+      for (final state in ImportAttemptState.values) {
+        if (state.name == value) return state;
+      }
+    }
+    return switch (status) {
+      TaskStatus.processing => ImportAttemptState.running,
+      TaskStatus.pendingReview ||
+      TaskStatus.completed =>
+        ImportAttemptState.readyForReview,
+      TaskStatus.error => ImportAttemptState.failed,
+    };
+  }
+
+  ImportAttemptRef? get attemptRef {
+    final token = attemptToken;
+    final currentTraceId = traceId;
+    if (token == null ||
+        currentTraceId == null ||
+        currentTraceId.trim().isEmpty) {
+      return null;
+    }
+    return ImportAttemptRef(
+      taskId: id,
+      attemptNumber: attemptNumber,
+      attemptToken: token,
+      traceId: currentTraceId,
+    );
+  }
+
   String? get batchId {
     final value = diagnostics?[TaskManager.keyBatchId];
     return value is String && value.isNotEmpty ? value : null;
@@ -196,11 +244,22 @@ class ReviewDraftSaveResult {
   bool get saved => status == ReviewDraftSaveStatus.saved;
 }
 
+enum ImportAttemptWriteStatus {
+  applied,
+  stale,
+  taskMissing,
+  invalidState,
+  persistenceFailed,
+}
+
 class TaskManager extends ChangeNotifier {
   static const String keyTraceId = '_traceId';
   static const String keyParseMode = '_parseMode';
   static const String keyBatchId = '_batchId';
   static const String keySelectionIndex = '_selectionIndex';
+  static const String keyAttemptNumber = '_attemptNumber';
+  static const String keyAttemptToken = '_attemptToken';
+  static const String keyAttemptState = '_attemptState';
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
   static const String keyReviewDraftRevision = '_reviewDraftRevision';
   static const String keyReviewItemId = '_reviewItemId';
@@ -214,22 +273,27 @@ class TaskManager extends ChangeNotifier {
 
   TaskManager._internal()
       : _persistTasks = true,
-        _saveTaskOverride = null {
+        _saveTaskOverride = null,
+        _loadTasksOverride = null {
     ready = _loadTasksFromDb();
   }
 
   @visibleForTesting
   TaskManager.forTesting({
     Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
+    Future<List<Map<String, dynamic>>> Function()? loadTasks,
   })  : _persistTasks = saveTask != null,
-        _saveTaskOverride = saveTask {
-    ready = Future<void>.value();
+        _saveTaskOverride = saveTask,
+        _loadTasksOverride = loadTasks {
+    ready = loadTasks == null ? Future<void>.value() : _loadTasksFromDb();
   }
 
   late final Future<void> ready;
   final bool _persistTasks;
   final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
+  final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
   Future<void> _reviewDraftWriteTail = Future<void>.value();
+  final Map<String, Future<void>> _attemptWriteTails = <String, Future<void>>{};
 
   final List<ImportTask> tasks = [];
   int get processingCount =>
@@ -239,21 +303,50 @@ class TaskManager extends ChangeNotifier {
 
   Future<void> _loadTasksFromDb() async {
     try {
-      final threeDaysAgo = DateTime.now()
-              .subtract(const Duration(days: 3))
-              .millisecondsSinceEpoch ~/
-          1000;
-      await ImportTaskRepository.instance.deleteOldImportTasks(threeDaysAgo);
-
-      final maps = await ImportTaskRepository.instance.getAllImportTasks();
+      final loader = _loadTasksOverride;
+      final List<Map<String, dynamic>> maps;
+      if (loader != null) {
+        maps = await loader();
+      } else {
+        final threeDaysAgo = DateTime.now()
+                .subtract(const Duration(days: 3))
+                .millisecondsSinceEpoch ~/
+            1000;
+        await ImportTaskRepository.instance.deleteOldImportTasks(threeDaysAgo);
+        maps = await ImportTaskRepository.instance.getAllImportTasks();
+      }
       tasks.clear();
       for (var map in maps) {
-        tasks.add(ImportTask.fromMap(map));
+        final task = ImportTask.fromMap(map);
+        final wasInterrupted = task.status == TaskStatus.processing;
+        if (wasInterrupted) {
+          _markLoadedTaskInterrupted(task);
+        }
+        tasks.add(task);
+        if (wasInterrupted) {
+          await _saveTask(task);
+        }
       }
       notifyListeners();
-    } catch (e) {
-      debugPrint('Error loading tasks from SQLite: $e');
+    } catch (_) {
+      debugPrint('Error loading tasks from SQLite');
     }
+  }
+
+  void _markLoadedTaskInterrupted(ImportTask task) {
+    task.status = TaskStatus.error;
+    task.progressText = '任务因应用重启而中断，请重新选择文件后重试';
+    task.errorMsg = '任务因应用重启而中断';
+    task.completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    task.parsedData = null;
+    task.pendingChunks = null;
+    task.failedChunks = null;
+    task.warnings = <String>[];
+    task.diagnostics = <String, dynamic>{
+      ..._taskMetadata(task),
+      keyAttemptNumber: task.attemptNumber,
+      keyAttemptState: ImportAttemptState.interrupted.name,
+    }..remove(keyAttemptToken);
   }
 
   Future<void> _saveTask(ImportTask task) async {
@@ -298,6 +391,360 @@ class TaskManager extends ChangeNotifier {
       _saveTask(task);
     }
     notifyListeners();
+  }
+
+  Future<ImportAttemptWriteStatus> addAttemptTask(ImportTask task) async {
+    final results = await addAttemptTasksInOrder(<ImportTask>[task]);
+    return results.single;
+  }
+
+  Future<List<ImportAttemptWriteStatus>> addAttemptTasksInOrder(
+    List<ImportTask> orderedTasks,
+  ) {
+    if (orderedTasks.isEmpty) {
+      return Future<List<ImportAttemptWriteStatus>>.value(
+        <ImportAttemptWriteStatus>[],
+      );
+    }
+    tasks.insertAll(0, orderedTasks);
+    notifyListeners();
+    return Future.wait<ImportAttemptWriteStatus>(
+      orderedTasks.map((task) {
+        final attempt = task.attemptRef;
+        if (attempt == null) {
+          return Future<ImportAttemptWriteStatus>.value(
+            ImportAttemptWriteStatus.invalidState,
+          );
+        }
+        return _persistAttemptSnapshot(attempt, task);
+      }),
+    );
+  }
+
+  bool isCurrentAttempt(ImportAttemptRef attempt) {
+    return _taskForAttempt(attempt) != null;
+  }
+
+  bool isAttemptRunnable(ImportAttemptRef attempt) {
+    final task = _taskForAttempt(attempt);
+    if (task == null || task.status != TaskStatus.processing) return false;
+    return task.attemptState == ImportAttemptState.queued ||
+        task.attemptState == ImportAttemptState.running;
+  }
+
+  Future<ImportAttemptWriteStatus> markAttemptRunning(
+    ImportAttemptRef attempt,
+  ) {
+    final task = _taskForAttempt(attempt);
+    if (task == null) return _missingAttemptStatus(attempt);
+    if (task.attemptState == ImportAttemptState.running) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.applied,
+      );
+    }
+    if (task.status != TaskStatus.processing ||
+        task.attemptState != ImportAttemptState.queued) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+    task.diagnostics = <String, dynamic>{
+      ...?task.diagnostics,
+      keyAttemptState: ImportAttemptState.running.name,
+    };
+    notifyListeners();
+    return _persistAttemptSnapshot(attempt, task);
+  }
+
+  Future<ImportAttemptWriteStatus> updateAttemptProgress(
+    ImportAttemptRef attempt,
+    String text,
+    double percent,
+  ) {
+    final task = _taskForAttempt(attempt);
+    if (task == null) return _missingAttemptStatus(attempt);
+    if (!isAttemptRunnable(attempt)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+    task.progressText = text;
+    task.percent = percent;
+    notifyListeners();
+    return _persistAttemptSnapshot(attempt, task);
+  }
+
+  Future<ImportAttemptWriteStatus> requestAttemptCancellation(
+    ImportAttemptRef attempt,
+  ) {
+    final task = _taskForAttempt(attempt);
+    if (task == null) return _missingAttemptStatus(attempt);
+    switch (task.attemptState) {
+      case ImportAttemptState.queued:
+        _markAttemptCancelledInMemory(task);
+        break;
+      case ImportAttemptState.running:
+        task.diagnostics = <String, dynamic>{
+          ...?task.diagnostics,
+          keyAttemptState: ImportAttemptState.cancelRequested.name,
+        };
+        task.progressText = '正在等待当前 OCR 请求结束...';
+        break;
+      case ImportAttemptState.cancelRequested:
+      case ImportAttemptState.cancelled:
+        return Future<ImportAttemptWriteStatus>.value(
+          ImportAttemptWriteStatus.applied,
+        );
+      case ImportAttemptState.readyForReview:
+      case ImportAttemptState.failed:
+      case ImportAttemptState.interrupted:
+        return Future<ImportAttemptWriteStatus>.value(
+          ImportAttemptWriteStatus.invalidState,
+        );
+    }
+    notifyListeners();
+    return _persistAttemptSnapshot(attempt, task);
+  }
+
+  Future<ImportAttemptWriteStatus> finalizeAttemptCancelled(
+    ImportAttemptRef attempt,
+  ) {
+    final task = _taskForAttempt(attempt);
+    if (task == null) return _missingAttemptStatus(attempt);
+    if (task.attemptState == ImportAttemptState.cancelled) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.applied,
+      );
+    }
+    if (task.attemptState != ImportAttemptState.queued &&
+        task.attemptState != ImportAttemptState.running &&
+        task.attemptState != ImportAttemptState.cancelRequested) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+    _markAttemptCancelledInMemory(task);
+    notifyListeners();
+    return _persistAttemptSnapshot(attempt, task);
+  }
+
+  Future<ImportAttemptWriteStatus> requireAttemptReview(
+    ImportAttemptRef attempt,
+    String text,
+    List<Map<String, dynamic>> data,
+    String bank,
+    String folder, {
+    List<String> warnings = const <String>[],
+    Map<String, dynamic> diagnostics = const <String, dynamic>{},
+  }) {
+    final task = _taskForAttempt(attempt);
+    if (task == null) return _missingAttemptStatus(attempt);
+    if (!isAttemptRunnable(attempt)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+    task.status = TaskStatus.pendingReview;
+    task.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    task.progressText = text;
+    task.parsedData = _deduplicateQuestions(data);
+    task.bankName = bank;
+    task.folderName = folder;
+    task.percent = 1.0;
+    task.warnings = List<String>.from(warnings);
+    task.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+      task,
+      diagnostics,
+    )..[keyAttemptState] = ImportAttemptState.readyForReview.name;
+    notifyListeners();
+    return _persistAttemptSnapshot(attempt, task);
+  }
+
+  Future<ImportAttemptWriteStatus> failAttempt(
+    ImportAttemptRef attempt,
+    String error, {
+    List<String>? warnings,
+    Map<String, dynamic>? diagnostics,
+    bool clearSensitivePayload = false,
+  }) {
+    final task = _taskForAttempt(attempt);
+    if (task == null) return _missingAttemptStatus(attempt);
+    if (!isAttemptRunnable(attempt)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+    if (clearSensitivePayload) {
+      task.parsedData = null;
+      task.pendingChunks = null;
+      task.failedChunks = null;
+      task.warnings = List<String>.from(warnings ?? const <String>[]);
+    } else if (warnings != null) {
+      task.warnings = List<String>.from(warnings);
+    }
+    if (clearSensitivePayload || diagnostics != null) {
+      task.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+        task,
+        diagnostics ?? const <String, dynamic>{},
+      );
+    }
+    task.diagnostics = <String, dynamic>{
+      ...?task.diagnostics,
+      keyAttemptState: ImportAttemptState.failed.name,
+    };
+    task.status = TaskStatus.error;
+    task.errorMsg = error;
+    task.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    notifyListeners();
+    return _persistAttemptSnapshot(attempt, task);
+  }
+
+  Future<ImportAttemptWriteStatus> restartAttempt(
+    ImportAttemptRef nextAttempt, {
+    required String parseMode,
+    required ExplanationRetentionMode explanationRetentionMode,
+  }) {
+    final index = tasks.indexWhere((task) => task.id == nextAttempt.taskId);
+    if (index < 0) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
+    final task = tasks[index];
+    if (nextAttempt.attemptNumber != task.attemptNumber + 1 ||
+        nextAttempt.attemptToken.trim().isEmpty ||
+        nextAttempt.traceId.trim().isEmpty) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+    if (task.attemptState != ImportAttemptState.failed &&
+        task.attemptState != ImportAttemptState.cancelled &&
+        task.attemptState != ImportAttemptState.interrupted &&
+        task.attemptState != ImportAttemptState.cancelRequested) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.invalidState,
+      );
+    }
+
+    final stableMetadata = _taskMetadata(task);
+    task.status = TaskStatus.processing;
+    task.progressText = '已进入后台队列...';
+    task.percent = 0.1;
+    task.errorMsg = null;
+    task.parsedData = null;
+    task.bankName = null;
+    task.folderName = null;
+    task.sourceType = null;
+    task.pendingChunks = null;
+    task.failedChunks = null;
+    task.warnings = null;
+    task.completedAt = null;
+    task.diagnostics = <String, dynamic>{
+      if (stableMetadata[keyBatchId] != null)
+        keyBatchId: stableMetadata[keyBatchId],
+      if (stableMetadata[keySelectionIndex] != null)
+        keySelectionIndex: stableMetadata[keySelectionIndex],
+      keyTraceId: nextAttempt.traceId,
+      keyParseMode: parseMode,
+      keyExplanationRetentionMode: explanationRetentionMode.name,
+      keyAttemptNumber: nextAttempt.attemptNumber,
+      keyAttemptToken: nextAttempt.attemptToken,
+      keyAttemptState: ImportAttemptState.queued.name,
+    };
+    notifyListeners();
+    return _persistAttemptSnapshot(nextAttempt, task);
+  }
+
+  void _markAttemptCancelledInMemory(ImportTask task) {
+    task.status = TaskStatus.error;
+    task.progressText = '任务已取消';
+    task.errorMsg = '任务已取消';
+    task.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    task.parsedData = null;
+    task.pendingChunks = null;
+    task.failedChunks = null;
+    task.warnings = <String>[];
+    task.diagnostics = <String, dynamic>{
+      ..._taskMetadata(task),
+      keyAttemptState: ImportAttemptState.cancelled.name,
+    };
+  }
+
+  ImportTask? _taskForAttempt(ImportAttemptRef attempt) {
+    final index = tasks.indexWhere((task) => task.id == attempt.taskId);
+    if (index < 0) return null;
+    final task = tasks[index];
+    if (task.attemptNumber != attempt.attemptNumber ||
+        task.attemptToken != attempt.attemptToken ||
+        task.traceId != attempt.traceId) {
+      return null;
+    }
+    return task;
+  }
+
+  Future<ImportAttemptWriteStatus> _missingAttemptStatus(
+    ImportAttemptRef attempt,
+  ) {
+    final taskExists = tasks.any((task) => task.id == attempt.taskId);
+    return Future<ImportAttemptWriteStatus>.value(
+      taskExists
+          ? ImportAttemptWriteStatus.stale
+          : ImportAttemptWriteStatus.taskMissing,
+    );
+  }
+
+  Future<ImportAttemptWriteStatus> _persistAttemptSnapshot(
+    ImportAttemptRef attempt,
+    ImportTask task,
+  ) {
+    final snapshot = ImportTask.fromMap(task.toMap());
+    final completer = Completer<ImportAttemptWriteStatus>();
+    final previous = _attemptWriteTails[attempt.taskId] ?? Future<void>.value();
+    late final Future<void> operation;
+    operation = previous.then<void>((_) async {
+      if (_taskForAttempt(attempt) == null) {
+        completer.complete(
+          tasks.any((task) => task.id == attempt.taskId)
+              ? ImportAttemptWriteStatus.stale
+              : ImportAttemptWriteStatus.taskMissing,
+        );
+        return;
+      }
+      try {
+        await _persistTask(snapshot);
+        completer.complete(ImportAttemptWriteStatus.applied);
+      } catch (_) {
+        _logTaskPersistenceFailure();
+        completer.complete(ImportAttemptWriteStatus.persistenceFailed);
+      }
+    });
+    _attemptWriteTails[attempt.taskId] = operation;
+    unawaited(operation.whenComplete(() {
+      if (identical(_attemptWriteTails[attempt.taskId], operation)) {
+        _attemptWriteTails.remove(attempt.taskId);
+      }
+    }));
+    return completer.future;
+  }
+
+  Map<String, dynamic> _taskMetadata(ImportTask task) {
+    final existing = task.diagnostics;
+    final metadata = <String, dynamic>{};
+    for (final key in <String>[
+      keyTraceId,
+      keyParseMode,
+      keyBatchId,
+      keySelectionIndex,
+      keyExplanationRetentionMode,
+      keyAttemptNumber,
+      keyAttemptToken,
+      keyAttemptState,
+    ]) {
+      final value = existing?[key];
+      if (value != null) metadata[key] = value;
+    }
+    return metadata;
   }
 
   void updateProgress(String id, String text, double percent) {
@@ -371,6 +818,9 @@ class TaskManager extends ChangeNotifier {
       keyParseMode,
       keyBatchId,
       keySelectionIndex,
+      keyAttemptNumber,
+      keyAttemptToken,
+      keyAttemptState,
     ]) {
       final value = existing?[key];
       if (value != null) {

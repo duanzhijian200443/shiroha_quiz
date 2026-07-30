@@ -22,6 +22,7 @@ import 'adapters/txt_document_adapter.dart';
 import 'adapters/markdown_document_adapter.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
 import 'adapters/zip_document_adapter.dart';
+import 'import_attempt_context.dart';
 import 'import_question_final_sorter.dart';
 import 'ocr_import_service.dart';
 import 'ocr_request_scheduler.dart';
@@ -77,6 +78,7 @@ class ImportPipelineService {
             ocrClient: const ZhipuOcrClient(),
             engineRepository: engineRepository,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
+            taskManager: taskManager,
           ).tryParse,
           questionMerger: aiService.mergeStructuredQuestions,
           taskManager: taskManager,
@@ -167,7 +169,7 @@ class ImportPipelineService {
       final format = ImportFileDetector.detect(filePath);
       List<Map<String, dynamic>> singleFileQuestions = [];
 
-      _taskManager.updateProgress(
+      await _updateTaskProgress(
         taskId,
         '正在解析第 ${fileIdx + 1}/${request.filePaths.length} 个文件...',
         0.1 + (fileIdx / request.filePaths.length) * 0.7,
@@ -430,7 +432,11 @@ class ImportPipelineService {
     }
 
     if (fileResults.length > 1 && !hasStrictDocxRoute && !hasBlockedParse) {
-      _taskManager.updateProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
+      await _updateTaskProgress(
+        taskId,
+        '启动 AI 结构化交叉配对引擎...',
+        0.9,
+      );
       final merged = await _questionMerger(fileResults);
       final sorted = const ImportQuestionFinalSorter().sort(merged);
       allDiagnostics['final_sort'] = sorted.diagnostics;
@@ -481,6 +487,19 @@ class ImportPipelineService {
       return (gate['reason']?.toString() ?? gate['severity']?.toString());
     }
     return null;
+  }
+
+  Future<void> _updateTaskProgress(
+    String taskId,
+    String text,
+    double percent,
+  ) async {
+    final attempt = ImportAttemptContext.current;
+    if (attempt != null && attempt.taskId == taskId) {
+      await _taskManager.updateAttemptProgress(attempt, text, percent);
+      return;
+    }
+    _taskManager.updateProgress(taskId, text, percent);
   }
 
   void _attachVisionQualitySummary(Map<String, dynamic> diagnostics) {

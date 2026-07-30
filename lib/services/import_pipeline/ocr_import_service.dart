@@ -1,7 +1,9 @@
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../core/observability/trace_context.dart';
 import '../llm_providers/llm_provider_registry.dart';
+import '../task_manager.dart';
 import 'final_question_latex_audit.dart';
+import 'import_attempt_context.dart';
 import 'import_document_role.dart';
 import 'import_format.dart';
 import 'import_question_field_policy.dart';
@@ -41,6 +43,7 @@ class OcrImportService {
     ReferenceAnswerMerger referenceAnswerMerger = const ReferenceAnswerMerger(),
     SingleQuestionRepairService? repairService,
     OcrRequestScheduler? requestScheduler,
+    TaskManager? taskManager,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
@@ -48,6 +51,7 @@ class OcrImportService {
         _referenceAnswerExtractor = referenceAnswerExtractor,
         _referenceAnswerMerger = referenceAnswerMerger,
         _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
+        _taskManager = taskManager,
         _repairService = repairService ??
             SingleQuestionRepairService(
               engineRepository: engineRepository,
@@ -60,6 +64,7 @@ class OcrImportService {
   final ReferenceAnswerExtractor _referenceAnswerExtractor;
   final ReferenceAnswerMerger _referenceAnswerMerger;
   final OcrRequestScheduler _requestScheduler;
+  final TaskManager? _taskManager;
   final SingleQuestionRepairService _repairService;
 
   Future<OcrImportResult?> tryParse({
@@ -127,17 +132,41 @@ class OcrImportService {
     }
 
     try {
+      final attempt = ImportAttemptContext.current;
+      final taskManager = _taskManager;
+      if (attempt != null &&
+          taskManager != null &&
+          !taskManager.isAttemptRunnable(attempt)) {
+        throw const OcrRequestCancelledException();
+      }
       final document = await measureAsyncStage(
         'ocrDurationMs',
         () => _requestScheduler.run(
-          taskId: TraceContext.taskId ?? 'unscoped-ocr-import',
-          operation: () => _ocrClient.parseFile(
-            profile: profile,
-            filePath: filePath,
-            sourceName: sourceName,
-          ),
+          taskId:
+              attempt?.taskId ?? TraceContext.taskId ?? 'unscoped-ocr-import',
+          attemptToken: attempt?.attemptToken,
+          operation: () async {
+            if (attempt != null && taskManager != null) {
+              final runningStatus =
+                  await taskManager.markAttemptRunning(attempt);
+              if (runningStatus != ImportAttemptWriteStatus.applied ||
+                  !taskManager.isAttemptRunnable(attempt)) {
+                throw const OcrRequestCancelledException();
+              }
+            }
+            return _ocrClient.parseFile(
+              profile: profile,
+              filePath: filePath,
+              sourceName: sourceName,
+            );
+          },
         ),
       );
+      if (attempt != null &&
+          taskManager != null &&
+          !taskManager.isAttemptRunnable(attempt)) {
+        throw const OcrRequestCancelledException();
+      }
       diagnostics['document'] = document.toDiagnostics();
 
       if (!document.hasUsableBlocks) {
@@ -362,6 +391,8 @@ class OcrImportService {
             : const [],
         diagnostics: diagnostics,
       );
+    } on OcrRequestCancelledException {
+      rethrow;
     } catch (e) {
       diagnostics['status'] = 'failed_request';
       diagnostics['errorType'] = e.runtimeType.toString();

@@ -6,7 +6,6 @@ import '../../services/import_pipeline/import_parse_result.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_task_coordinator.dart';
-import '../../main.dart';
 import 'paste_text_screen.dart';
 
 typedef ImportFilePicker = Future<FilePickerResult?> Function();
@@ -96,14 +95,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       return;
     }
 
-    final coordinator = ImportTaskCoordinator(
-      onReadyForReview: (sourceDescription) {
-        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-          content: Text('$sourceDescription 解析完成，请前往传输中心校对入库'),
-          backgroundColor: Colors.orange,
-        ));
-      },
-    );
+    final coordinator = AiDependenciesScope.of(context).importTaskCoordinator;
     await coordinator.dispatch(
       sourceDescription: sourceDesc,
       mode: mode,
@@ -132,14 +124,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       return;
     }
 
-    final coordinator = ImportTaskCoordinator(
-      onReadyForReview: (sourceDescription) {
-        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-          content: Text('$sourceDescription 解析完成，请前往传输中心校对入库'),
-          backgroundColor: Colors.orange,
-        ));
-      },
-    );
+    final coordinator = AiDependenciesScope.of(context).importTaskCoordinator;
     await coordinator.dispatchIndependentBatch(items: items);
 
     if (!mounted) return;

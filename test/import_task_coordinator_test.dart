@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_failure_classifier.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
@@ -367,6 +368,79 @@ void main() {
       manager.tasks.map((task) => task.batchId).toSet(),
       <String?>{'batch-fixture'},
     );
+  });
+
+  test('cancelled old attempt cannot overwrite a successful retry', () async {
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'retry-same-task',
+      traceIdFactory: () => 'retry-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-attempt-${attemptIndex++}',
+    );
+
+    final firstHandle = await coordinator.dispatch(
+      sourceDescription: 'same.pdf',
+      mode: ImportParseMode.ocr,
+      parse: (_) async {
+        firstStarted.complete();
+        await releaseFirst.future;
+        return const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'content': 'Synthetic first attempt',
+              'standard_answer': 'A',
+            },
+          ],
+        );
+      },
+    );
+    await firstStarted.future;
+    expect(
+      await coordinator.cancelOcrTask(firstHandle.taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+
+    final secondHandle = await coordinator.retryOcrTask(
+      taskId: firstHandle.taskId,
+      sourceDescription: 'same.pdf',
+      parse: (_) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '2',
+            'content': 'Synthetic second attempt',
+            'standard_answer': 'B',
+          },
+        ],
+      ),
+    );
+    final retried = await _waitForTask(
+      manager,
+      firstHandle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    expect(secondHandle.taskId, firstHandle.taskId);
+    expect(secondHandle.attemptNumber, 2);
+    expect(secondHandle.traceId, isNot(firstHandle.traceId));
+    expect(secondHandle.attemptToken, isNot(firstHandle.attemptToken));
+    expect(retried.attemptState, ImportAttemptState.readyForReview);
+    expect(retried.parsedData?.single['q_num'], '2');
+
+    releaseFirst.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final afterOldReturn = manager.tasks.single;
+    expect(afterOldReturn.attemptNumber, 2);
+    expect(afterOldReturn.traceId, secondHandle.traceId);
+    expect(afterOldReturn.attemptToken, secondHandle.attemptToken);
+    expect(afterOldReturn.status, TaskStatus.pendingReview);
+    expect(afterOldReturn.parsedData?.single['q_num'], '2');
   });
 
   for (final mode in <ImportParseMode>[

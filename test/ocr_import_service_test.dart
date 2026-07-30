@@ -1425,6 +1425,7 @@ void main() {
         engineRepository: FakeAiEngineRepository(_concurrencyProfile()),
         ocrClient: client,
         requestScheduler: scheduler,
+        taskManager: manager,
         repairService: const FakeRepairService(),
       );
       var mergerCalls = 0;
@@ -1447,6 +1448,7 @@ void main() {
       var traceIndex = 0;
       final coordinator = ImportTaskCoordinator(
         taskManager: manager,
+        requestScheduler: scheduler,
         taskIdFactory: () => 'integrated-task-${taskIndex++}',
         traceIdFactory: () => 'integrated-trace-${traceIndex++}',
         batchIdFactory: () => 'integrated-batch',

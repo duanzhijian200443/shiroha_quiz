@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 
@@ -66,6 +69,118 @@ void main() {
       expect(decodedTask.id, 'test_task_3');
       expect(decodedTask.warnings, isNull);
       expect(decodedTask.diagnostics, isNull);
+    });
+
+    test(
+        'startup converts persisted processing tasks to safe interrupted state',
+        () async {
+      final saved = <Map<String, dynamic>>[];
+      final persisted = ImportTask(
+        id: 'interrupted-task',
+        title: 'Synthetic task',
+        status: TaskStatus.processing,
+        parsedData: <Map<String, dynamic>>[
+          <String, dynamic>{'content': 'SYNTHETIC_PRIVATE_CONTENT'},
+        ],
+        pendingChunks: <String>['SYNTHETIC_PATH_SENTINEL'],
+        failedChunks: <String>['SYNTHETIC_FAILED_PATH'],
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'trace-interrupted',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'attempt-interrupted',
+          TaskManager.keyAttemptState: 'running',
+        },
+      ).toMap();
+      final taskManager = TaskManager.forTesting(
+        loadTasks: () async => <Map<String, dynamic>>[persisted],
+        saveTask: (taskMap) async {
+          saved.add(Map<String, dynamic>.from(taskMap));
+        },
+      );
+
+      await taskManager.ready;
+
+      final task = taskManager.tasks.single;
+      expect(task.status, TaskStatus.error);
+      expect(task.attemptState, ImportAttemptState.interrupted);
+      expect(task.attemptToken, isNull);
+      expect(task.parsedData, isNull);
+      expect(task.pendingChunks, isNull);
+      expect(task.failedChunks, isNull);
+      expect(saved, hasLength(1));
+      final restored = ImportTask.fromMap(saved.single);
+      expect(restored.attemptState, ImportAttemptState.interrupted);
+      expect(restored.attemptToken, isNull);
+      expect(saved.single['parsed_data'], isNull);
+      expect(saved.single['pending_chunks'], isNull);
+      expect(saved.single['failed_chunks'], isNull);
+    });
+
+    test('new attempt persistence wins after an older write is already running',
+        () async {
+      final firstWriteStarted = Completer<void>();
+      final releaseFirstWrite = Completer<void>();
+      final saved = <Map<String, dynamic>>[];
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (taskMap) async {
+          writeCount++;
+          if (writeCount == 1) {
+            firstWriteStarted.complete();
+            await releaseFirstWrite.future;
+          }
+          saved.add(Map<String, dynamic>.from(taskMap));
+        },
+      );
+      const firstAttempt = ImportAttemptRef(
+        taskId: 'retry-task',
+        attemptNumber: 1,
+        attemptToken: 'attempt-1',
+        traceId: 'trace-1',
+      );
+      final initialWrite = taskManager.addAttemptTask(
+        ImportTask(
+          id: firstAttempt.taskId,
+          title: 'Synthetic retry task',
+          diagnostics: const <String, dynamic>{
+            TaskManager.keyTraceId: 'trace-1',
+            TaskManager.keyParseMode: 'ocr',
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: 'attempt-1',
+            TaskManager.keyAttemptState: 'queued',
+          },
+        ),
+      );
+      await firstWriteStarted.future;
+
+      final cancelled = taskManager.requestAttemptCancellation(firstAttempt);
+      const secondAttempt = ImportAttemptRef(
+        taskId: 'retry-task',
+        attemptNumber: 2,
+        attemptToken: 'attempt-2',
+        traceId: 'trace-2',
+      );
+      final retried = taskManager.restartAttempt(
+        secondAttempt,
+        parseMode: 'ocr',
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      releaseFirstWrite.complete();
+      expect(await initialWrite, ImportAttemptWriteStatus.applied);
+      expect(await cancelled, ImportAttemptWriteStatus.stale);
+      expect(await retried, ImportAttemptWriteStatus.applied);
+
+      final current = taskManager.tasks.single;
+      expect(current.id, firstAttempt.taskId);
+      expect(current.attemptNumber, 2);
+      expect(current.attemptToken, secondAttempt.attemptToken);
+      expect(current.traceId, secondAttempt.traceId);
+      expect(current.attemptState, ImportAttemptState.queued);
+      final lastPersisted = ImportTask.fromMap(saved.last);
+      expect(lastPersisted.attemptToken, secondAttempt.attemptToken);
+      expect(lastPersisted.traceId, secondAttempt.traceId);
     });
 
     test('batch insertion keeps selection order ahead of existing tasks', () {

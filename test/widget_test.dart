@@ -13,6 +13,8 @@ import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/main.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 
@@ -33,10 +35,16 @@ void main() {
       engineRepository: engineRepository,
       taskManager: taskManager,
     );
+    final ocrRequestScheduler = OcrRequestScheduler();
     final importPipelineService = ImportPipelineService(
       aiService: aiService,
       engineRepository: engineRepository,
       taskManager: taskManager,
+      ocrRequestScheduler: ocrRequestScheduler,
+    );
+    final importTaskCoordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      requestScheduler: ocrRequestScheduler,
     );
 
     // Build our app and trigger a frame.
@@ -44,6 +52,7 @@ void main() {
       engineRepository: engineRepository,
       aiService: aiService,
       importPipelineService: importPipelineService,
+      importTaskCoordinator: importTaskCoordinator,
     ));
 
     // Verify that MainScreen is shown initially.

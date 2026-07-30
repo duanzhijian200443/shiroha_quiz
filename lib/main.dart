@@ -12,6 +12,7 @@ import 'data/repositories/settings_repository.dart';
 import 'services/ai_service.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/import_pipeline/import_pipeline_service.dart';
+import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/task_manager.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
@@ -91,6 +92,16 @@ void main() {
       taskManager: taskManager,
       ocrRequestScheduler: ocrRequestScheduler,
     );
+    final importTaskCoordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      requestScheduler: ocrRequestScheduler,
+      onReadyForReview: (sourceDescription) {
+        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
+          content: Text('$sourceDescription 解析完成，请前往传输中心校对入库'),
+          backgroundColor: Colors.orange,
+        ));
+      },
+    );
 
     final savedTheme = await SettingsRepository.instance.getAppTheme();
     if (savedTheme.isNotEmpty) {
@@ -108,6 +119,7 @@ void main() {
       engineRepository: engineRepository,
       aiService: aiService,
       importPipelineService: importPipelineService,
+      importTaskCoordinator: importTaskCoordinator,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -126,11 +138,13 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.engineRepository,
     required this.aiService,
     required this.importPipelineService,
+    required this.importTaskCoordinator,
   });
 
   final AiEngineRepository engineRepository;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
+  final ImportTaskCoordinator importTaskCoordinator;
 
   @override
   Widget build(BuildContext context) {
@@ -141,6 +155,7 @@ class ShirohaQuizApp extends StatelessWidget {
           engineRepository: engineRepository,
           aiService: aiService,
           importPipelineService: importPipelineService,
+          importTaskCoordinator: importTaskCoordinator,
           child: MaterialApp(
             title: 'Shiroha Quiz',
             navigatorKey: globalNavigatorKey, // 核心新增：挂载全局路由引擎

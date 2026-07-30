@@ -275,4 +275,79 @@ void main() {
     await firstQueuedStarted.future;
     await Future.wait<void>(<Future<void>>[first, firstQueued, other]);
   });
+
+  test('cancels the exact queued attempt without starting its operation',
+      () async {
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 1);
+    final activeRelease = Completer<void>();
+    var queuedCallCount = 0;
+
+    final active = scheduler.run<void>(
+      taskId: 'active-task',
+      attemptToken: 'active-attempt',
+      operation: () => activeRelease.future,
+    );
+    final queued = scheduler.run<void>(
+      taskId: 'queued-task',
+      attemptToken: 'queued-attempt',
+      operation: () async {
+        queuedCallCount++;
+      },
+    );
+    final queuedExpectation = expectLater(
+      queued,
+      throwsA(isA<OcrRequestCancelledException>()),
+    );
+
+    expect(
+      scheduler.cancel(
+        taskId: 'queued-task',
+        attemptToken: 'queued-attempt',
+      ),
+      OcrRequestCancellation.queued,
+    );
+
+    activeRelease.complete();
+    await active;
+    await queuedExpectation;
+    expect(queuedCallCount, 0);
+  });
+
+  test('running cancellation releases its slot and discards its result',
+      () async {
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 1);
+    final runningRelease = Completer<void>();
+    final nextStarted = Completer<void>();
+
+    final running = scheduler.run<int>(
+      taskId: 'same-task',
+      attemptToken: 'attempt-1',
+      operation: () async {
+        await runningRelease.future;
+        return 42;
+      },
+    );
+    final runningExpectation = expectLater(
+      running,
+      throwsA(isA<OcrRequestCancelledException>()),
+    );
+    final next = scheduler.run<void>(
+      taskId: 'same-task',
+      attemptToken: 'attempt-2',
+      operation: () async => nextStarted.complete(),
+    );
+
+    expect(
+      scheduler.cancel(
+        taskId: 'same-task',
+        attemptToken: 'attempt-1',
+      ),
+      OcrRequestCancellation.running,
+    );
+
+    runningRelease.complete();
+    await nextStarted.future;
+    await runningExpectation;
+    await next;
+  });
 }
