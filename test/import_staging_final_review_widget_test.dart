@@ -46,22 +46,22 @@ void main() {
     testWidgets('低分保存显示最终风险确认弹窗 (qualityScore < 60)', (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 2000));
 
-      // 所有的题都没有答案和解析，触发低分（qualityScore = 0）
-      final parsedQuestions = [
-        {
-          'type': 0,
-          'content': 'Q1',
-          'options': <String>[], // error
-          'standard_answer': '', // error
+      final parsedQuestions = List.generate(
+        3,
+        (i) => {
+          'type': 2,
+          'content': 'Q${i + 1}',
+          'options': <String>[],
+          'standard_answer': '',
           'explanation': '',
           '_import_review': {
             'source': 'text',
             'sources': ['doc1.pdf'],
             'fragmentKinds': ['fullQuestion'],
-            'originalIndices': [0],
+            'originalIndices': [i],
           },
         },
-      ];
+      );
 
       await tester.pumpWidget(createWidget(parsedQuestions));
       await tester.pumpAndSettle();
@@ -86,14 +86,13 @@ void main() {
     testWidgets('有 error 但分数 >= 60 时仍提示确认 (仍有严重问题)', (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 2000));
 
-      // 一道好题 + 一道带轻微错误的题 (总分拉上去但有 error)
       final parsedQuestions = [
         {
           'type': 0,
-          'content': 'Clean question with options',
-          'options': ['A', 'B', 'C', 'D'],
+          'content': 'Q1',
+          'options': ['A', 'B'],
           'standard_answer': 'A',
-          'explanation': 'Explanation',
+          'explanation': 'Exp',
           '_import_review': {
             'source': 'text',
             'sources': ['doc1.pdf'],
@@ -103,9 +102,9 @@ void main() {
         },
         {
           'type': 0,
-          'content': '', // missingStem -> error
+          'content': 'Q2',
           'options': ['A', 'B'],
-          'standard_answer': 'A',
+          'standard_answer': '', // missing answer (soft issue)
           'explanation': 'Exp',
           '_import_review': {
             'source': 'text',

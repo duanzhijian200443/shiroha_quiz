@@ -1,5 +1,57 @@
 # Development Log
 
+## [2026-07-29 15:58] - test(import): 固化 V2 重构基线与离线审计工具
+
+- **变更类型**: test
+- **影响模块**: import, architecture, developer_tooling
+- **详细改动明细**:
+  - [x] 新增 Content Model V2 当前数据流、重复模型、兼容桥与 R0-R8 渐进迁移基线文档，不修改生产模型或数据库。
+  - [x] 用脱敏合成数据固化 2022/2019 等价导入、HTML/LaTeX 渲染、校对快照和旧题目行兼容行为。
+  - [x] 新增只读取 tracked Dart diff 的聚焦验证脚本，显式测试路径才运行测试，并传播失败 verdict。
+  - [x] 新增 `shiroha-import-audit` 项目 Skill，约束离线验收指标、Provider 调用与隐私边界。
+- **验证状态**: characterization tests 10/10、PowerShell 验证脚本契约测试、Skill validator、PowerShell AST 与 focused analyze 均通过。
+
+## [2026-07-29 01:12] - fix(import): 收紧 LaTeX 与 OCR smoke 安全契约
+
+- **变更类型**: fix
+- **影响模块**: import_pipeline, ocr_smoke, tests
+- **详细改动明细**:
+  - [x] 收紧裸 LaTeX 环境前缀边界，拒绝控制词参数被误包装，并让缺失环境终止符保持原文进入 canonical Review。
+  - [x] 保持 Q21 为单一 `latex_unrenderable`，清除陈旧 `dangling_latex` 与普通 repair candidate，离线 Provider 调用保持为零。
+  - [x] OCR smoke 显式采用主观题解析保留策略，补齐安全报告初始化、状态同步和终端摘要兼容。
+  - [x] 补充 Normalizer、最终审计、Renderer、Acceptance 与 OCR smoke 聚焦回归测试。
+- **验证状态**: LaTeX/Renderer 52/52、FieldPolicy/OCR/E1A 46/46、Acceptance 63/63、真实 Replay 1/1、OCR smoke 47/47 通过；focused analyze 与 PowerShell 语法检查通过。
+
+## [2026-07-28 23:41] - feat(import): 回填卷尾参考答案索引
+
+- **变更类型**: feat
+- **影响模块**: import_pipeline, import_acceptance, tests
+- **详细改动明细**:
+  - [x] 新增卷尾参考答案索引、保守提取与冲突感知合并，在 Assembler 前回填缺失答案。
+  - [x] 统一参考答案标题边界，并支持 OCR block 内嵌卷尾标题的安全切分。
+  - [x] Acceptance 仅输出题号、计数和白名单诊断码，保持 Replay 离线且 Provider 调用为零。
+  - [x] 补充提取、合并、Regionizer、OCR Service 与只读 Replay 聚焦回归测试。
+- **验证状态**: 聚焦测试 60/60 通过，12 个相关文件 analyze 无问题；E1A 已审查通过，Q21 LaTeX 为阶段外既有失败。
+
+## [2026-07-28 03:15] - feat(import): D2A & D2B 阶段核心实现：主观题答案提炼、审查快照与 LaTeX 环境自动归一化校验
+
+- **变更类型**: feat
+- **影响模块**: import_pipeline, import_review, task_manager, ui, tests
+- **详细改动明细**:
+  - [x] **D2A 主观题提炼与快照**:
+    - 收紧主观题本地答案提取，仅接受明确标签（`答案：`、`标准答案：`等）及确定性结论。
+    - 明确识别证明题，防范虚假答案写入。
+    - 接入 AI 提炼 240 字限制与 `basis=explanation` 结构安全校验。
+    - TaskManager 支持 Review Snapshot 串行持久化、稳定 Revision 与 Provenance 保留。
+  - [x] **D2B LaTeX 归一化与校验**:
+    - 新增 `LatexBlockEnvironmentNormalizer` 与 `LatexRenderabilityChecker`。
+    - 自动识别并包含安全 `array` / `matrix` 等 Bare 环境包裹为 `\[...\]`。
+    - 完善 `auditFinalQuestionLatex` 先确定性修补、再归一化、最后 Preflight 校验流。
+    - 统一渲染层 `StructuredContentRenderer` 结构安全预检与嵌套定界符配对处理。
+  - [x] **测试与验证**:
+    - 150+ 单元 / Widget / Acceptance 测试用例 100% 通过。
+- **验证状态**: 本地 flutter analyze (0 error, 0 warning) & flutter test 全量通过。
+
 ## [2026-06-08 08:30] - fix(latex): Step 6-C — ASCII punctuation boundary in bare equation scanning
 
 - **Change type**: fix

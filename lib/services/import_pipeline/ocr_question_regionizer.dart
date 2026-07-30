@@ -1,4 +1,5 @@
 import 'ocr_document.dart';
+import 'reference_answer_section.dart';
 import 'text_question_region.dart';
 
 enum OcrRegionField { stem, answer, explanation }
@@ -796,7 +797,7 @@ class OcrQuestionRegionizer {
       final nextLineStart = newline < 0 ? text.length : newline + 1;
       final line = text.substring(lineStart, lineEnd);
 
-      if (_isSectionHeading(line)) {
+      if (_isSectionHeading(line) || _isReferenceSummaryHeading(line)) {
         boundaries.add(lineStart);
         boundaries.add(nextLineStart);
       } else if (_isValidInlineQuestionStart(line) ||
@@ -1179,9 +1180,7 @@ class OcrQuestionRegionizer {
   }
 
   bool _isReferenceSummaryHeading(String text) {
-    final normalized =
-        _normalizeQuestionCandidateText(text).replaceAll(RegExp(r'\s+'), '');
-    return RegExp(r'(?:参考)?答案(?:速查|速览|汇总|一览)').hasMatch(normalized);
+    return hasReferenceAnswerSectionHeadingSuffix(text);
   }
 
   _SectionHeadingInfo? _readSectionHeading(String text) {

@@ -1,8 +1,15 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/pages/task_center_projection.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_screen.dart';
 
 void main() {
@@ -31,16 +38,289 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  Widget createWidgetUnderTest() {
-    return const MaterialApp(
-      home: TaskCenterScreen(),
+  Widget createWidgetUnderTest({
+    ValueChanged<ImportTask>? onOpenReview,
+    TaskReviewPageBuilder? reviewPageBuilder,
+    TaskManager? taskManager,
+    ImportTaskCoordinator? taskCoordinator,
+    TaskCenterRetryFilePicker? retryFilePicker,
+  }) {
+    return MaterialApp(
+      home: TaskCenterScreen(
+        onOpenReview: onOpenReview,
+        reviewPageBuilder: reviewPageBuilder,
+        taskManager: taskManager,
+        taskCoordinator: taskCoordinator,
+        retryFilePicker: retryFilePicker,
+      ),
+    );
+  }
+
+  Future<void> selectCategory(
+    WidgetTester tester,
+    TaskCenterCategory category,
+  ) async {
+    await tester.tap(
+      find.byKey(ValueKey<String>('task-category-${category.name}')),
+    );
+    await tester.pump();
+  }
+
+  ImportTask createOcrAttemptTask({
+    required String id,
+    required TaskStatus status,
+    required ImportAttemptState attemptState,
+    String title = 'same.pdf',
+  }) {
+    return ImportTask(
+      id: id,
+      title: title,
+      status: status,
+      progressText: '安全的合成任务状态',
+      percent: status == TaskStatus.processing ? 0.4 : 0,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyTraceId: 'trace-$id',
+        TaskManager.keyParseMode: 'ocr',
+        TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptToken: 'attempt-$id',
+        TaskManager.keyAttemptState: attemptState.name,
+      },
     );
   }
 
   testWidgets('TaskCenterScreen shows empty state when no tasks are present',
       (WidgetTester tester) async {
     await tester.pumpWidget(createWidgetUnderTest());
-    expect(find.text('当前没有后台任务'), findsOneWidget);
+    expect(find.text('进行中（0）'), findsOneWidget);
+    expect(find.text('待校对（0）'), findsOneWidget);
+    expect(find.text('已完成（0）'), findsOneWidget);
+    expect(find.text('异常（0）'), findsOneWidget);
+    expect(find.text('当前没有正在导入的文件'), findsOneWidget);
+  });
+
+  testWidgets('categories filter tasks and derive live counts',
+      (WidgetTester tester) async {
+    final processing = ImportTask(
+      id: 'category-processing',
+      title: 'processing.pdf',
+      status: TaskStatus.processing,
+    );
+    final review = ImportTask(
+      id: 'category-review',
+      title: 'review.pdf',
+      status: TaskStatus.pendingReview,
+    );
+    final completed = ImportTask(
+      id: 'category-completed',
+      title: 'completed.pdf',
+      status: TaskStatus.completed,
+    );
+    final error = ImportTask(
+      id: 'category-error',
+      title: 'error.pdf',
+      status: TaskStatus.error,
+    );
+    TaskManager.instance.tasks.addAll(
+      <ImportTask>[processing, review, completed, error],
+    );
+
+    await tester.pumpWidget(createWidgetUnderTest());
+    await tester.pump();
+
+    expect(find.text('进行中（1）'), findsOneWidget);
+    expect(find.text('待校对（1）'), findsOneWidget);
+    expect(find.text('已完成（1）'), findsOneWidget);
+    expect(find.text('异常（1）'), findsOneWidget);
+    expect(find.text('processing.pdf'), findsOneWidget);
+    expect(find.text('review.pdf'), findsNothing);
+
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
+    expect(find.text('review.pdf'), findsOneWidget);
+    expect(find.text('completed.pdf'), findsNothing);
+
+    await selectCategory(tester, TaskCenterCategory.completed);
+    expect(find.text('completed.pdf'), findsOneWidget);
+    expect(find.text('review.pdf'), findsNothing);
+    expect(find.text('processing.pdf'), findsNothing);
+
+    await selectCategory(tester, TaskCenterCategory.error);
+    expect(find.text('error.pdf'), findsOneWidget);
+    expect(find.text('review.pdf'), findsNothing);
+
+    processing.status = TaskStatus.pendingReview;
+    TaskManager.instance.notifyListeners();
+    await tester.pump();
+    expect(find.text('进行中（0）'), findsOneWidget);
+    expect(find.text('待校对（2）'), findsOneWidget);
+    expect(find.text('已完成（1）'), findsOneWidget);
+    expect(find.text('异常（1）'), findsOneWidget);
+    expect(find.text('error.pdf'), findsOneWidget);
+  });
+
+  testWidgets('each category has a distinct empty state',
+      (WidgetTester tester) async {
+    TaskManager.instance.tasks.add(
+      ImportTask(
+        id: 'only-processing',
+        title: 'processing.pdf',
+        status: TaskStatus.processing,
+      ),
+    );
+
+    await tester.pumpWidget(createWidgetUnderTest());
+    await tester.pump();
+    expect(find.text('当前没有正在导入的文件'), findsNothing);
+
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
+    expect(find.text('当前没有等待校对的任务'), findsOneWidget);
+
+    await selectCategory(tester, TaskCenterCategory.completed);
+    expect(find.text('暂无已完成的导入任务'), findsOneWidget);
+
+    await selectCategory(tester, TaskCenterCategory.error);
+    expect(find.text('没有解析失败的任务'), findsOneWidget);
+  });
+
+  testWidgets('review action is explicit and bound to the current task ID',
+      (WidgetTester tester) async {
+    final openedTaskIds = <String>[];
+    TaskManager.instance.tasks.addAll(<ImportTask>[
+      ImportTask(
+        id: 'review-action',
+        title: 'same.pdf',
+        status: TaskStatus.pendingReview,
+        parsedData: const <Map<String, dynamic>>[
+          <String, dynamic>{'q_num': '1', 'content': 'fixture'},
+        ],
+      ),
+      ImportTask(
+        id: 'completed-no-action',
+        title: 'same.pdf',
+        status: TaskStatus.completed,
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        onOpenReview: (task) => openedTaskIds.add(task.id),
+      ),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
+
+    expect(
+      find.byKey(const ValueKey<String>('task-review-review-action')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('task-review-completed-no-action')),
+      findsNothing,
+    );
+    expect(openedTaskIds, isEmpty);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('task-review-review-action')),
+    );
+    await tester.pump();
+    expect(openedTaskIds, <String>['review-action']);
+  });
+
+  testWidgets('review action performs Navigator push for the selected task ID',
+      (WidgetTester tester) async {
+    String? builtTaskId;
+    TaskManager.instance.tasks.addAll(<ImportTask>[
+      ImportTask(
+        id: 'same-name-first-review',
+        title: 'same.pdf',
+        status: TaskStatus.pendingReview,
+        parsedData: const <Map<String, dynamic>>[
+          <String, dynamic>{'q_num': '1', 'content': 'fixture one'},
+        ],
+      ),
+      ImportTask(
+        id: 'same-name-second-review',
+        title: 'same.pdf',
+        status: TaskStatus.pendingReview,
+        parsedData: const <Map<String, dynamic>>[
+          <String, dynamic>{'q_num': '2', 'content': 'fixture two'},
+        ],
+      ),
+      ImportTask(
+        id: 'completed-without-review',
+        title: 'same.pdf',
+        status: TaskStatus.completed,
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        reviewPageBuilder: (context, task) {
+          builtTaskId = task.id;
+          return Scaffold(
+            body: Text(
+              'review-target-${task.id}',
+              key: ValueKey<String>('review-target-${task.id}'),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('review-target-'), findsNothing);
+    await selectCategory(tester, TaskCenterCategory.completed);
+    expect(
+      find.byKey(
+        const ValueKey<String>('task-review-completed-without-review'),
+      ),
+      findsNothing,
+    );
+
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
+    await tester.ensureVisible(
+      find.byKey(
+        const ValueKey<String>('task-review-same-name-second-review'),
+      ),
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('task-review-same-name-second-review'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(builtTaskId, 'same-name-second-review');
+    expect(
+      find.byKey(
+        const ValueKey<String>('review-target-same-name-second-review'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('error cards never render raw error text',
+      (WidgetTester tester) async {
+    const sensitiveSentinel = 'PRIVATE_ERROR_BODY_SENTINEL';
+    TaskManager.instance.tasks.add(
+      ImportTask(
+        id: 'safe-error-summary',
+        title: 'failed.pdf',
+        status: TaskStatus.error,
+        errorMsg: sensitiveSentinel,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'trace-safe-error',
+        },
+      ),
+    );
+
+    await tester.pumpWidget(createWidgetUnderTest());
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.error);
+
+    expect(find.text(sensitiveSentinel), findsNothing);
+    expect(find.text('导入失败，请查看诊断信息'), findsOneWidget);
+    expect(find.text('Trace ID: trace-safe-error'), findsOneWidget);
+    expect(find.text('解析失败'), findsOneWidget);
   });
 
   testWidgets('TaskCenterScreen displays pendingReview warnings summary',
@@ -56,6 +336,7 @@ void main() {
 
     await tester.pumpWidget(createWidgetUnderTest());
     await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
 
     expect(find.text('Review Task 1'), findsOneWidget);
     expect(find.text('解析完成，但有 2 条注意事项'), findsOneWidget);
@@ -84,6 +365,195 @@ void main() {
   });
 
   testWidgets(
+      'OCR cancellation is task-ID bound and duplicate action stays disabled',
+      (WidgetTester tester) async {
+    final persistenceRelease = Completer<void>();
+    var persistenceWrites = 0;
+    final taskManager = TaskManager.forTesting(
+      saveTask: (_) async {
+        persistenceWrites++;
+        await persistenceRelease.future;
+      },
+    );
+    addTearDown(() {
+      if (!persistenceRelease.isCompleted) persistenceRelease.complete();
+      taskManager.dispose();
+    });
+    final first = createOcrAttemptTask(
+      id: 'cancel-first',
+      status: TaskStatus.processing,
+      attemptState: ImportAttemptState.running,
+    );
+    final second = createOcrAttemptTask(
+      id: 'cancel-second',
+      status: TaskStatus.processing,
+      attemptState: ImportAttemptState.running,
+    );
+    taskManager.tasks.addAll(<ImportTask>[first, second]);
+    final coordinator = ImportTaskCoordinator(taskManager: taskManager);
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        taskManager: taskManager,
+        taskCoordinator: coordinator,
+      ),
+    );
+    await tester.pump();
+
+    final firstCancel =
+        find.byKey(const ValueKey<String>('task-cancel-cancel-first'));
+    expect(firstCancel, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('task-delete-cancel-first')),
+      findsNothing,
+    );
+    await tester.ensureVisible(firstCancel);
+    await tester.tap(firstCancel);
+    await tester.pump();
+    await tester.pump();
+
+    expect(first.attemptState, ImportAttemptState.cancelRequested);
+    expect(second.attemptState, ImportAttemptState.running);
+    expect(persistenceWrites, 1);
+    expect(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('import-task-cancel-first'),
+        ),
+        matching: find.text('取消中'),
+      ),
+      findsNWidgets(2),
+    );
+    expect(tester.widget<OutlinedButton>(firstCancel).onPressed, isNull);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(
+              const ValueKey<String>('task-cancel-cancel-second'),
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
+
+    persistenceRelease.complete();
+    await tester.pump();
+    await tester.pump();
+  });
+
+  testWidgets('retry picker cancellation does not mutate the OCR attempt',
+      (WidgetTester tester) async {
+    final taskManager = TaskManager.forTesting();
+    addTearDown(taskManager.dispose);
+    final task = createOcrAttemptTask(
+      id: 'retry-picker-cancelled',
+      status: TaskStatus.error,
+      attemptState: ImportAttemptState.failed,
+    );
+    taskManager.tasks.add(task);
+    var parserCalls = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      parser: (_) async {
+        parserCalls++;
+        return const ImportParseResult(questions: <Map<String, dynamic>>[]);
+      },
+    );
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        taskManager: taskManager,
+        taskCoordinator: coordinator,
+        retryFilePicker: () async => null,
+      ),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.error);
+
+    final retry =
+        find.byKey(const ValueKey<String>('task-retry-retry-picker-cancelled'));
+    await tester.tap(retry);
+    await tester.pump();
+    await tester.pump();
+
+    expect(task.attemptNumber, 1);
+    expect(task.attemptState, ImportAttemptState.failed);
+    expect(task.traceId, 'trace-retry-picker-cancelled');
+    expect(parserCalls, 0);
+    expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
+  });
+
+  testWidgets(
+      'retry reselects files for the exact task without rendering the path',
+      (WidgetTester tester) async {
+    const selectedPath = r'C:\synthetic-private\replacement.pdf';
+    final taskManager = TaskManager.forTesting();
+    addTearDown(taskManager.dispose);
+    final first = createOcrAttemptTask(
+      id: 'retry-first',
+      status: TaskStatus.error,
+      attemptState: ImportAttemptState.failed,
+    );
+    final second = createOcrAttemptTask(
+      id: 'retry-second',
+      status: TaskStatus.error,
+      attemptState: ImportAttemptState.failed,
+    );
+    taskManager.tasks.addAll(<ImportTask>[first, second]);
+    List<String>? parsedPaths;
+    List<String>? parsedNames;
+    String? parsedTaskId;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      traceIdFactory: () => 'trace-retry-new',
+      attemptTokenFactory: () => 'attempt-retry-new',
+      parser: (request) async {
+        parsedPaths = request.filePaths;
+        parsedNames = request.fileNames;
+        parsedTaskId = request.taskId;
+        return const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{'q_num': '1', 'content': 'fixture'},
+          ],
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        taskManager: taskManager,
+        taskCoordinator: coordinator,
+        retryFilePicker: () async => FilePickerResult(
+          <PlatformFile>[
+            PlatformFile(
+              name: 'replacement.pdf',
+              path: selectedPath,
+              size: 0,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.error);
+
+    final retry = find.byKey(const ValueKey<String>('task-retry-retry-first'));
+    await tester.ensureVisible(retry);
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+
+    expect(parsedTaskId, 'retry-first');
+    expect(parsedPaths, const <String>[selectedPath]);
+    expect(parsedNames, const <String>['replacement.pdf']);
+    expect(first.id, 'retry-first');
+    expect(first.attemptNumber, 2);
+    expect(first.traceId, 'trace-retry-new');
+    expect(second.attemptNumber, 1);
+    expect(second.attemptState, ImportAttemptState.failed);
+    expect(find.textContaining(selectedPath), findsNothing);
+  });
+
+  testWidgets(
       'TaskCenterScreen displays diagnostics button for error tasks with diagnostics',
       (WidgetTester tester) async {
     final task = ImportTask(
@@ -100,6 +570,7 @@ void main() {
 
     await tester.pumpWidget(createWidgetUnderTest());
     await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.error);
 
     expect(find.text('Error Task 1'), findsOneWidget);
     expect(find.text('查看诊断'), findsOneWidget);
@@ -181,22 +652,39 @@ void main() {
     await tester.pumpWidget(createWidgetUnderTest());
     await tester.pump();
 
-    const expectations = <String, (String, String)>{
-      'processing-task': ('trace-processing', '正在解析'),
-      'review-task': ('trace-review', '等待用户校对'),
-      'completed-task': ('trace-completed', '成功完成'),
-      'failed-task': ('trace-failed', '解析失败'),
+    const expectations = <String, (TaskCenterCategory, String, String)>{
+      'processing-task': (
+        TaskCenterCategory.processing,
+        'trace-processing',
+        '正在解析',
+      ),
+      'review-task': (
+        TaskCenterCategory.pendingReview,
+        'trace-review',
+        '等待用户校对',
+      ),
+      'completed-task': (
+        TaskCenterCategory.completed,
+        'trace-completed',
+        '成功完成',
+      ),
+      'failed-task': (
+        TaskCenterCategory.error,
+        'trace-failed',
+        '解析失败',
+      ),
     };
 
     for (final entry in expectations.entries) {
+      await selectCategory(tester, entry.value.$1);
       final button = find.byKey(ValueKey('task-diagnostics-${entry.key}'));
       await tester.ensureVisible(button);
       await tester.tap(button);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.text(entry.value.$1), findsOneWidget);
-      expect(find.text(entry.value.$2), findsWidgets);
+      expect(find.text(entry.value.$2), findsOneWidget);
+      expect(find.text(entry.value.$3), findsWidgets);
       expect(find.text('解析模式'), findsOneWidget);
       expect(find.text('任务状态'), findsOneWidget);
       expect(find.text('导入耗时'), findsOneWidget);
@@ -247,6 +735,7 @@ void main() {
 
     await tester.pumpWidget(createWidgetUnderTest());
     await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.completed);
 
     await tester
         .tap(find.byKey(const ValueKey('task-diagnostics-same-name-first')));
@@ -258,6 +747,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.close).last);
     await tester.pumpAndSettle();
 
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
     await tester
         .tap(find.byKey(const ValueKey('task-diagnostics-same-name-second')));
     await tester.pumpAndSettle();
@@ -299,7 +789,7 @@ void main() {
     final cardA = find.byKey(const ValueKey<String>('import-task-task-a'));
     final cardB = find.byKey(const ValueKey<String>('import-task-task-b'));
     expect(cardA, findsOneWidget);
-    expect(cardB, findsOneWidget);
+    expect(cardB, findsNothing);
     final taskAElement = tester.element(cardA);
     final diagnosticsA = find.descendant(
       of: cardA,
@@ -322,8 +812,8 @@ void main() {
     TaskManager.instance.notifyListeners();
     await tester.pump();
 
-    expect(find.byKey(const ValueKey<String>('import-task-task-c')),
-        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey<String>('import-task-task-c')), findsNothing);
     expect(tester.element(cardA), same(taskAElement));
 
     taskA.status = TaskStatus.pendingReview;
@@ -331,16 +821,30 @@ void main() {
     taskA.parsedData = const <Map<String, dynamic>>[];
     TaskManager.instance.notifyListeners();
     await tester.pump();
-    expect(find.text('review-a'), findsOneWidget);
-    expect(tester.element(cardA), same(taskAElement));
+    expect(cardA, findsNothing);
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
+    expect(cardA, findsOneWidget);
+    expect(cardB, findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('task-review-task-a')),
+      findsOneWidget,
+    );
 
     taskA.status = TaskStatus.completed;
     taskA.progressText = 'completed-a';
     taskA.completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     TaskManager.instance.notifyListeners();
     await tester.pump();
-    expect(find.text('completed-a'), findsOneWidget);
-    expect(tester.element(cardA), same(taskAElement));
+    expect(cardA, findsNothing);
+    await selectCategory(tester, TaskCenterCategory.completed);
+    expect(cardA, findsOneWidget);
+    expect(cardB, findsOneWidget);
+    expect(find.text('任务已完成'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey<String>('task-review-task-a')),
+      findsNothing,
+    );
+    final completedCategoryTaskAElement = tester.element(cardA);
 
     await tester.tap(diagnosticsA);
     await tester.pump();
@@ -367,15 +871,116 @@ void main() {
     await tester.tap(find.byIcon(Icons.close).last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(tester.element(cardA), same(taskAElement));
+    expect(tester.element(cardA), same(completedCategoryTaskAElement));
 
-    await tester.tap(
-      find.descendant(of: cardB, matching: find.byIcon(Icons.close)),
-    );
+    final deleteTaskB =
+        find.byKey(const ValueKey<String>('task-delete-task-b'));
+    await tester.ensureVisible(deleteTaskB);
+    await tester.pump();
+    await tester.tap(deleteTaskB);
     await tester.pump();
     expect(cardB, findsNothing);
     expect(cardA, findsOneWidget);
-    expect(find.text('completed-a'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('task-summary-task-a')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('task center remains usable at 360 logical pixels wide',
+      (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const longProcessingTitle =
+        'very-long-processing-file-name-that-must-not-overflow.pdf';
+    const sensitiveError = 'PRIVATE_ERROR_BODY_MUST_STAY_HIDDEN';
+    TaskManager.instance.tasks.addAll(<ImportTask>[
+      ImportTask(
+        id: 'narrow-processing',
+        title: longProcessingTitle,
+        status: TaskStatus.processing,
+        progressText: '正在解析一个具有较长安全进度说明的合成文件，请耐心等待',
+        percent: 0.42,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'trace-narrow-processing',
+        },
+      ),
+      ImportTask(
+        id: 'narrow-review',
+        title: 'very-long-review-file-name-that-must-not-overflow.pdf',
+        status: TaskStatus.pendingReview,
+        parsedData: const <Map<String, dynamic>>[
+          <String, dynamic>{'q_num': '1', 'content': 'fixture'},
+        ],
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'trace-narrow-review',
+        },
+      ),
+      ImportTask(
+        id: 'narrow-completed',
+        title: 'completed.pdf',
+        status: TaskStatus.completed,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'trace-narrow-completed',
+        },
+      ),
+      ImportTask(
+        id: 'narrow-error',
+        title: 'very-long-error-file-name-that-must-not-overflow.pdf',
+        status: TaskStatus.error,
+        errorMsg: sensitiveError,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'trace-narrow-error',
+        },
+      ),
+    ]);
+
+    await tester.pumpWidget(createWidgetUnderTest());
+    await tester.pump();
+
+    expect(find.text('进行中（1）'), findsOneWidget);
+    expect(find.text('待校对（1）'), findsOneWidget);
+    expect(find.text('已完成（1）'), findsOneWidget);
+    expect(find.text('异常（1）'), findsOneWidget);
+    final title = tester.widget<Text>(find.text(longProcessingTitle));
+    expect(title.maxLines, 1);
+    expect(title.overflow, TextOverflow.ellipsis);
+    expect(find.text('42%'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(
+      find.text('Trace ID: trace-narrow-processing'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+
+    await selectCategory(tester, TaskCenterCategory.pendingReview);
+    final reviewButton = find.byKey(
+      const ValueKey<String>('task-review-narrow-review'),
+    );
+    final reviewDiagnostics = find.byKey(
+      const ValueKey<String>('task-diagnostics-narrow-review'),
+    );
+    await tester.ensureVisible(reviewButton);
+    await tester.ensureVisible(reviewDiagnostics);
+    expect(reviewButton, findsOneWidget);
+    expect(reviewDiagnostics, findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await selectCategory(tester, TaskCenterCategory.completed);
+    expect(
+      find.byKey(const ValueKey<String>('task-review-narrow-completed')),
+      findsNothing,
+    );
+
+    await selectCategory(tester, TaskCenterCategory.error);
+    expect(find.text(sensitiveError), findsNothing);
+    expect(find.text('导入失败，请查看诊断信息'), findsOneWidget);
+    final errorDiagnostics = find.byKey(
+      const ValueKey<String>('task-diagnostics-narrow-error'),
+    );
+    await tester.ensureVisible(errorDiagnostics);
+    expect(errorDiagnostics, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -391,6 +996,7 @@ void main() {
 
     await tester.pumpWidget(createWidgetUnderTest());
     await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.completed);
     await tester
         .tap(find.byKey(const ValueKey('task-diagnostics-legacy-task')));
     await tester.pumpAndSettle();
@@ -425,6 +1031,7 @@ void main() {
 
     await tester.pumpWidget(createWidgetUnderTest());
     await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.completed);
     await tester
         .tap(find.byKey(const ValueKey('task-diagnostics-sensitive-task')));
     await tester.pumpAndSettle();

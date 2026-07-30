@@ -5,10 +5,17 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-// import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/main.dart';
+import 'package:shiroha_quiz/services/ai_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
+import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -20,12 +27,51 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('App starts and shows splash screen',
+  testWidgets('App starts and highlights the selected profile navigation item',
       (WidgetTester tester) async {
+    final engineRepository = AiEngineRepository(store: DatabaseHelper.instance);
+    final taskManager = TaskManager.forTesting();
+    final aiService = AiService(
+      engineRepository: engineRepository,
+      taskManager: taskManager,
+    );
+    final ocrRequestScheduler = OcrRequestScheduler();
+    final importPipelineService = ImportPipelineService(
+      aiService: aiService,
+      engineRepository: engineRepository,
+      taskManager: taskManager,
+      ocrRequestScheduler: ocrRequestScheduler,
+    );
+    final importTaskCoordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      requestScheduler: ocrRequestScheduler,
+    );
+
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const ShirohaQuizApp());
+    await tester.pumpWidget(ShirohaQuizApp(
+      engineRepository: engineRepository,
+      aiService: aiService,
+      importPipelineService: importPipelineService,
+      importTaskCoordinator: importTaskCoordinator,
+    ));
 
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
+
+    await tester.tap(find.text('我的'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .currentIndex,
+      3,
+    );
+    final selectedProfileIcon = tester.widget<Container>(
+      find.byKey(const ValueKey<String>('main-nav-selected-profile')),
+    );
+    final decoration = selectedProfileIcon.decoration! as BoxDecoration;
+    expect(decoration.color, const Color(0xFFEAF1FF));
+    expect(decoration.borderRadius, BorderRadius.circular(12));
   });
 }

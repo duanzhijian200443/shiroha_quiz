@@ -1,26 +1,35 @@
+// ignore_for_file: depend_on_referenced_packages
+
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:crypto/crypto.dart';
 
+import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
+import 'import_acceptance.dart';
 import 'ocr_smoke_report.dart';
 
 typedef OcrSmokeSavedApiKeyLoader = Future<String?> Function();
 
 class OcrSmokePreflightException implements Exception {
-  const OcrSmokePreflightException(this.status, this.causeType);
+  const OcrSmokePreflightException(this.status, {this.causeType});
 
   final String status;
-  final String causeType;
+  final String? causeType;
 }
 
 class OcrSmokeFailure {
@@ -31,124 +40,128 @@ class OcrSmokeFailure {
 
   @override
   bool operator ==(Object other) =>
+      identical(this, other) ||
       other is OcrSmokeFailure &&
-      other.stage == stage &&
-      other.status == status;
+          runtimeType == other.runtimeType &&
+          stage == other.stage &&
+          status == other.status;
 
   @override
-  int get hashCode => Object.hash(stage, status);
+  int get hashCode => stage.hashCode ^ status.hashCode;
 }
 
 String resolveOcrSmokePdfPath(
-  String pdfArgument, {
+  String rawPath, {
   required String repositoryRoot,
 }) {
-  final rawPath = pdfArgument.trim();
-  if (rawPath.isEmpty || p.extension(rawPath).toLowerCase() != '.pdf') {
+  final trimmed = rawPath.trim();
+  if (trimmed.isEmpty) {
     throw const OcrSmokePreflightException(
       'invalid_pdf_argument',
-      'InvalidPdfArgument',
+      causeType: 'InvalidPdfArgument',
     );
   }
 
-  final allowedRoot = p.normalize(
-    p.absolute(p.join(repositoryRoot, 'scratch', 'test_pdfs')),
-  );
-  final rawSegments = p.split(p.normalize(rawPath));
-  if (rawSegments.contains('..')) {
+  final rootDir = Directory(repositoryRoot).absolute;
+  final allowedRoot = p.join(rootDir.path, 'scratch', 'test_pdfs');
+
+  final String resolved;
+  if (p.isAbsolute(trimmed)) {
+    resolved = p.normalize(trimmed);
+  } else if (trimmed.startsWith('scratch') ||
+      trimmed.startsWith(r'scratch\') ||
+      trimmed.startsWith('scratch/')) {
+    resolved = p.normalize(p.join(rootDir.path, trimmed));
+  } else {
+    resolved = p.normalize(p.join(allowedRoot, trimmed));
+  }
+
+  if (!p.extension(resolved).toLowerCase().endsWith('.pdf')) {
     throw const OcrSmokePreflightException(
-      'pdf_outside_allowed_root',
-      'PdfOutsideAllowedRoot',
+      'invalid_pdf_extension',
+      causeType: 'InvalidPdfExtension',
     );
   }
 
-  final isRepositoryRelative = rawSegments.length >= 2 &&
-      rawSegments[0].toLowerCase() == 'scratch' &&
-      rawSegments[1].toLowerCase() == 'test_pdfs';
-  final candidate = p.normalize(
-    p.isAbsolute(rawPath)
-        ? rawPath
-        : p.join(isRepositoryRelative ? repositoryRoot : allowedRoot, rawPath),
-  );
-  if (!p.isWithin(allowedRoot, candidate)) {
+  final relative = p.relative(resolved, from: allowedRoot);
+  if (relative.startsWith('..') || p.isAbsolute(relative)) {
     throw const OcrSmokePreflightException(
-      'pdf_outside_allowed_root',
-      'PdfOutsideAllowedRoot',
+      'path_outside_repository_root',
+      causeType: 'PathOutsideRepositoryRoot',
     );
   }
 
-  final entityType = FileSystemEntity.typeSync(candidate, followLinks: true);
-  if (entityType == FileSystemEntityType.notFound) {
+  final file = File(resolved);
+  if (!file.existsSync()) {
     throw const OcrSmokePreflightException(
       'pdf_not_found',
-      'FileSystemException',
+      causeType: 'PdfNotFound',
     );
   }
-  if (entityType != FileSystemEntityType.file) {
-    throw const OcrSmokePreflightException(
-      'file_read_error',
-      'FileSystemException',
-    );
-  }
-
-  try {
-    final resolvedRoot = Directory(allowedRoot).resolveSymbolicLinksSync();
-    final resolvedFile = File(candidate).resolveSymbolicLinksSync();
-    if (!p.isWithin(resolvedRoot, resolvedFile)) {
-      throw const OcrSmokePreflightException(
-        'pdf_outside_allowed_root',
-        'PdfOutsideAllowedRoot',
-      );
-    }
-    final file = File(resolvedFile);
-    if (file.lengthSync() <= 0) {
-      throw const OcrSmokePreflightException(
-        'file_read_error',
-        'FileSystemException',
-      );
-    }
-    final handle = file.openSync(mode: FileMode.read);
-    handle.closeSync();
-    return resolvedFile;
-  } on OcrSmokePreflightException {
-    rethrow;
-  } on FileSystemException {
-    throw const OcrSmokePreflightException(
-      'file_read_error',
-      'FileSystemException',
-    );
-  }
+  return file.path;
 }
 
-OcrSmokeFailure? classifyOcrSmokeResultFailure(OcrImportResult result) {
-  final status = result.diagnostics['status'];
+OcrSmokeFailure? classifyOcrSmokeResultFailure(
+  OcrImportResult result,
+) {
+  final diagnostics = result.diagnostics;
+  final status = diagnostics['status'] as String?;
+  final errorType = diagnostics['errorType'] as String?;
+  final document = diagnostics['document'] as Map?;
+  final regionizer = diagnostics['regionizer'] as Map?;
+
+  if (errorType == 'FileSystemException') {
+    return const OcrSmokeFailure('preflight', 'file_read_error');
+  }
+
+  if (errorType == 'ZhipuOcrInvalidPdfException') {
+    return const OcrSmokeFailure('preflight', 'invalid_pdf');
+  }
+
+  if (errorType == 'ZhipuOcrAuthenticationException' ||
+      status == 'auth_error') {
+    return const OcrSmokeFailure('provider', 'authentication_error');
+  }
+
+  if (errorType == 'ZhipuOcrResponseFormatException') {
+    return const OcrSmokeFailure('provider', 'response_format_error');
+  }
+
   if (status == 'failed_no_question_regions') {
     return const OcrSmokeFailure('regionizer', 'no_question_regions');
   }
-  if (status != 'failed_request') return null;
 
-  return switch (result.diagnostics['errorType']) {
-    'FileSystemException' ||
-    'PathNotFoundException' =>
-      const OcrSmokeFailure('preflight', 'file_read_error'),
-    'ZhipuOcrAuthenticationException' =>
-      const OcrSmokeFailure('provider', 'authentication_error'),
-    'ZhipuOcrResponseFormatException' ||
-    'FormatException' =>
-      const OcrSmokeFailure('provider', 'response_format_error'),
-    _ => const OcrSmokeFailure('provider', 'request_error'),
-  };
-}
+  if (status == 'provider_failed' ||
+      status == 'network_error' ||
+      status == 'auth_error' ||
+      status == 'rate_limit_error') {
+    return OcrSmokeFailure(
+      'provider',
+      status ?? 'provider_failed',
+    );
+  }
 
-class _StubAiEngineRepository extends AiEngineRepository {
-  _StubAiEngineRepository(this.profile);
-  final AiEngineProfile profile;
+  if (document != null && document['blockCount'] == 0) {
+    return const OcrSmokeFailure(
+      'provider',
+      'empty_document',
+    );
+  }
 
-  @override
-  Future<AiEngineProfile?> getActiveOcrEngine() async => profile;
+  if (regionizer != null && regionizer['regionCount'] == 0) {
+    return const OcrSmokeFailure(
+      'regionizer',
+      'empty_regionizer_output',
+    );
+  }
+  if (status == 'regionizer_failed') {
+    return const OcrSmokeFailure(
+      'regionizer',
+      'regionizer_failed',
+    );
+  }
 
-  @override
-  Future<AiEngineProfile?> getActiveTextEngine() async => null;
+  return null;
 }
 
 Map<String, dynamic> buildOcrSmokeIndependentParseReport({
@@ -156,145 +169,100 @@ Map<String, dynamic> buildOcrSmokeIndependentParseReport({
   required int durationMs,
 }) {
   final diagnostics = result.diagnostics;
-  final docDiagnostics = diagnostics['document'] as Map?;
-  final regionizerDiagnostics = diagnostics['regionizer'] as Map?;
-  final candidateTrace =
-      regionizerDiagnostics?['questionCandidateTrace'] as List?;
-  final markerProbeTrace = regionizerDiagnostics?['markerProbeTrace'] as List?;
-  final acceptedNumbers =
-      _safeIntegerList(regionizerDiagnostics?['acceptedNumbers']);
-  final missingNumbers = <int>{
-    ...?_safeIntegerList(regionizerDiagnostics?['missingNumbers']),
-    ...?_safeIntegerList(regionizerDiagnostics?['tailMissingNumbers']),
-  }.toList()
-    ..sort();
+  final document = diagnostics['document'] as Map?;
+  final regionizer = diagnostics['regionizer'] as Map?;
 
-  return {
+  final Map<String, dynamic> report = {
     'stage': 'independent_parse',
     'status': diagnostics['status'],
-    'usedOcr': result.usedOcr,
-    'pageCount': docDiagnostics?['pageCount'],
-    'blockCount': docDiagnostics?['blockCount'],
-    'unitCount': regionizerDiagnostics?['unitCount'],
-    'regionCount': regionizerDiagnostics?['regionCount'],
-    'acceptedNumbers': acceptedNumbers,
-    'duplicateNumbers': _duplicateNumbers(acceptedNumbers),
-    'missingNumbers': regionizerDiagnostics == null ? null : missingNumbers,
-    'tailMissingNumbers': regionizerDiagnostics?['tailMissingNumbers'],
-    'sectionHeadingCount': regionizerDiagnostics?['sectionHeadingCount'],
-    'numberedFieldCandidateCount':
-        regionizerDiagnostics?['numberedFieldCandidateCount'],
-    'splitUnitCount': regionizerDiagnostics?['splitUnitCount'],
-    'markdownPrefixedCandidateCount':
-        regionizerDiagnostics?['markdownPrefixedCandidateCount'],
-    'blockStartCandidateCount':
-        regionizerDiagnostics?['blockStartCandidateCount'],
-    'internalLineCandidateCount':
-        regionizerDiagnostics?['internalLineCandidateCount'],
-    'parenthesizedArabicCandidateCount':
-        regionizerDiagnostics?['parenthesizedArabicCandidateCount'],
-    'parenthesizedArabicAcceptedCount':
-        regionizerDiagnostics?['parenthesizedArabicAcceptedCount'],
-    'parenthesizedArabicRejectedCount':
-        regionizerDiagnostics?['parenthesizedArabicRejectedCount'],
-    'romanSubquestionCount': regionizerDiagnostics?['romanSubquestionCount'],
-    'sequenceAcceptedCount': regionizerDiagnostics?['sequenceAcceptedCount'],
-    'sequenceRejectedCount': regionizerDiagnostics?['sequenceRejectedCount'],
-    'questionCount': result.questions.length,
-    'questionNumbers': result.questions.map((q) => q['q_num']).toList(),
-    'assembledQuestionCount': diagnostics['assembledQuestionCount'],
-    'finalQuestionCount': diagnostics['finalQuestionCount'],
-    'warningCount': result.warnings.length,
-    'documentRole': diagnostics['documentRole'],
-    'documentRoleConfidence': diagnostics['documentRoleConfidence'],
-    'explicitAnswerMarkerCount': diagnostics['explicitAnswerMarkerCount'],
-    'explicitExplanationMarkerCount':
-        diagnostics['explicitExplanationMarkerCount'],
-    'documentQuestionCount': diagnostics['documentQuestionCount'],
-    'documentNonEmptyStemCount': diagnostics['documentNonEmptyStemCount'],
-    'documentSectionHeadingCount': diagnostics['documentSectionHeadingCount'],
-    'localNonEmptyAnswerCount': diagnostics['localNonEmptyAnswerCount'],
-    'localNonEmptyExplanationCount':
-        diagnostics['localNonEmptyExplanationCount'],
-    'finalNonEmptyAnswerCount': diagnostics['finalNonEmptyAnswerCount'],
-    'finalNonEmptyExplanationCount':
-        diagnostics['finalNonEmptyExplanationCount'],
-    'repairRecommendedCount': diagnostics['repairRecommendedCount'],
-    'repairAttemptedCount': diagnostics['repairAttemptedCount'],
-    'repairAppliedCount': diagnostics['repairAppliedCount'],
-    'repairSkippedForStemOnlyCount':
-        diagnostics['repairSkippedForStemOnlyCount'],
-    'discardedAnswerFromRepairCount':
-        diagnostics['discardedAnswerFromRepairCount'],
-    'clearedAssemblerAnswerCount': diagnostics['clearedAssemblerAnswerCount'],
-    'rejectedRegionCount': diagnostics['rejectedRegionCount'],
-    'questionCandidateTrace': candidateTrace,
-    'questionCandidateCount': candidateTrace?.length,
-    'rejectedCandidateCount': candidateTrace
-        ?.where((candidate) =>
-            candidate is Map && candidate['decision'] == 'rejected')
-        .length,
-    'referenceSectionDetected':
-        regionizerDiagnostics?['referenceSectionDetected'],
-    'referenceSectionCandidateCount':
-        regionizerDiagnostics?['referenceSectionCandidateCount'],
-    'questionCandidateTraceTruncated': regionizerDiagnostics == null
-        ? null
-        : regionizerDiagnostics['questionCandidateTraceTruncated'] == true,
-    'markerProbeTrace': markerProbeTrace,
-    'markerProbeCount': markerProbeTrace?.length,
-    'markerProbeTraceTruncated': regionizerDiagnostics == null
-        ? null
-        : regionizerDiagnostics['markerProbeTraceTruncated'] == true,
     'durationMs': durationMs,
+    if (document != null && document['blockCount'] != null) ...{
+      'blockCount': document['blockCount'],
+      'ocrBlockCount': document['blockCount'],
+    },
+    if (regionizer != null) ...{
+      for (final entry in regionizer.entries)
+        if (entry.key is String) entry.key as String: entry.value,
+      'questionCandidateTraceTruncated':
+          regionizer['questionCandidateTraceTruncated'] ??
+              diagnostics['questionCandidateTraceTruncated'] ??
+              false,
+      'markerProbeTraceTruncated': regionizer['markerProbeTraceTruncated'] ??
+          diagnostics['markerProbeTraceTruncated'] ??
+          false,
+      if (regionizer['markerProbeTrace'] != null)
+        'markerProbeCount': regionizer['markerProbeCount'] ??
+            (regionizer['markerProbeTrace'] as List).length,
+    },
+    'assembledQuestionCount': result.questions.length,
+    'finalQuestionCount': result.questions.length,
   };
-}
 
-List<int>? _safeIntegerList(Object? value) {
-  if (value is! List) return null;
-  return [
-    for (final item in value)
-      if (item is int) item else if (item is num) item.toInt(),
-  ];
-}
-
-List<int>? _duplicateNumbers(List<int>? numbers) {
-  if (numbers == null) return null;
-  final counts = <int, int>{};
-  for (final number in numbers) {
-    counts[number] = (counts[number] ?? 0) + 1;
+  for (final entry in diagnostics.entries) {
+    final key = entry.key;
+    if (key != 'document' &&
+        key != 'regionizer' &&
+        key != 'Authorization' &&
+        key != 'rawResponses' &&
+        key != 'status') {
+      report.putIfAbsent(key, () => entry.value);
+    }
   }
-  return counts.entries
-      .where((entry) => entry.value > 1)
-      .map((entry) => entry.key)
-      .toList()
-    ..sort();
+
+  return report;
 }
 
-Map<String, dynamic> buildOcrSmokeTerminalEvent(
-  Map<String, dynamic> event,
-) {
-  if (event['stage'] == 'independent_parse') {
-    final trace = event['questionCandidateTrace'];
-    final candidates = trace is List ? trace : null;
+Map<String, dynamic> buildOcrSmokeTerminalEvent(Map<String, dynamic> event) {
+  final stage = event['stage'];
+  if (stage == 'preflight') {
+    return {
+      'stage': 'preflight',
+      if (event.containsKey('apiKeyPresent'))
+        'apiKeyPresent': event['apiKeyPresent'],
+      if (event.containsKey('pdfCount')) 'pdfCount': event['pdfCount'],
+      if (event.containsKey('pdfReadable')) 'pdfReadable': event['pdfReadable'],
+      if (event.containsKey('status')) 'status': event['status'],
+      if (event.containsKey('causeType')) 'causeType': event['causeType'],
+    };
+  }
+  if (stage == 'credential_probe') {
+    return {
+      'stage': 'credential_probe',
+      'status': event['status'],
+      'apiKeyPresent': event['apiKeyPresent'],
+      if (event['causeType'] != null) 'causeType': event['causeType'],
+    };
+  }
+  if (stage == 'replay_cache') {
+    return {
+      'stage': 'replay_cache',
+      'status': event['status'],
+      if (event['caseId'] != null) 'caseId': event['caseId'],
+      if (event['fingerprint'] != null) 'fingerprint': event['fingerprint'],
+      if (event['causeType'] != null) 'causeType': event['causeType'],
+    };
+  }
+  if (stage == 'independent_parse') {
+    final candidates = event['questionCandidateTrace'] as List? ??
+        event['questionCandidates'] as List?;
     Map<String, dynamic>? firstAnomaly;
     if (candidates != null) {
-      for (final candidate in candidates) {
-        if (candidate is Map && candidate['decision'] == 'rejected') {
-          firstAnomaly = {
-            'number': candidate['number'],
-            'decision': 'rejected',
-            'reason': candidate['reason'],
-          };
-          break;
+      for (final item in candidates) {
+        if (item is Map<String, dynamic>) {
+          final decision = item['decision'] ?? item['status'];
+          if (decision == 'rejected') {
+            firstAnomaly = item;
+            break;
+          }
         }
       }
     }
+
     return {
-      'stage': event['stage'],
+      'stage': 'independent_parse',
       'status': event['status'],
       'durationMs': event['durationMs'],
-      'ocrBlockCount': event['blockCount'],
+      'ocrBlockCount': event['ocrBlockCount'] ?? event['blockCount'],
       'questionCandidateCount':
           event['questionCandidateCount'] ?? candidates?.length,
       'acceptedNumbers': event['acceptedNumbers'],
@@ -310,7 +278,13 @@ Map<String, dynamic> buildOcrSmokeTerminalEvent(
           event['questionCandidateTraceTruncated'],
       'markerProbeCount': event['markerProbeCount'],
       'markerProbeTraceTruncated': event['markerProbeTraceTruncated'],
-      'firstAnomaly': firstAnomaly,
+      'firstAnomaly': firstAnomaly != null
+          ? {
+              'number': firstAnomaly['number'],
+              'decision': firstAnomaly['decision'] ?? firstAnomaly['status'],
+              'reason': firstAnomaly['reason'],
+            }
+          : null,
     };
   }
   const safeKeys = {
@@ -323,6 +297,8 @@ Map<String, dynamic> buildOcrSmokeTerminalEvent(
     'pdfReadable',
     'requiresReview',
     'blocked',
+    'caseId',
+    'fingerprint',
   };
   return {
     for (final entry in event.entries)
@@ -330,29 +306,51 @@ Map<String, dynamic> buildOcrSmokeTerminalEvent(
   };
 }
 
-Future<String?> loadSavedOcrApiKey() async {
-  final profile = await AiEngineRepository.instance.getActiveOcrEngine();
+Future<String?> loadSavedOcrApiKey({
+  required AiEngineRepository repository,
+}) async {
+  final profile = await repository.getActiveOcrEngine();
   return profile?.apiKey;
 }
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final environment = Platform.environment;
+
+  String? repoRootArg;
+  for (final arg in args) {
+    if (arg.startsWith('--repository-root=')) {
+      repoRootArg = arg.substring(18);
+    }
+  }
+  final repoRoot = repoRootArg ??
+      environment['SHIROHA_REPOSITORY_ROOT'] ??
+      Directory.current.path;
+
   final environmentApiKey = environment['SHIROHA_OCR_API_KEY'];
   final useSavedAppKey =
       environment['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true' &&
           (environmentApiKey == null || environmentApiKey.trim().isEmpty);
+
+  AiEngineRepository? savedKeyRepository;
   if (useSavedAppKey && (Platform.isWindows || Platform.isLinux)) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    final helper = DatabaseHelper.instance;
+    savedKeyRepository = AiEngineRepository(store: helper);
   }
+  final resolvedSavedKeyRepository = savedKeyRepository;
+
   final exitCode = await runOcrSmoke(
     args,
     stdout.writeln,
     environment: environment,
-    loadSavedApiKey: useSavedAppKey ? loadSavedOcrApiKey : null,
+    repositoryRoot: repoRoot,
+    loadSavedApiKey: resolvedSavedKeyRepository != null
+        ? () => loadSavedOcrApiKey(repository: resolvedSavedKeyRepository)
+        : null,
     reportWriter: OcrSmokeReportWriter(
-      repositoryRoot: Directory.current.path,
+      repositoryRoot: repoRoot,
       runId: environment['SHIROHA_OCR_RUN_ID'],
     ),
     buildCacheHit: switch (environment['SHIROHA_OCR_BUILD_CACHE_HIT']) {
@@ -421,33 +419,66 @@ Future<int> _runOcrSmokeCore(
     return code;
   }
 
-  var apiKey = environment['SHIROHA_OCR_API_KEY'];
-  final environmentApiKeyPresent = apiKey != null && apiKey.trim().isNotEmpty;
-  final useSavedAppKey = environment['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true';
-  if (!environmentApiKeyPresent && useSavedAppKey) {
-    try {
-      apiKey = await loadSavedApiKey?.call();
-    } catch (_) {
-      apiKey = null;
+  String? effectiveRepoRoot = repositoryRoot;
+  for (final arg in args) {
+    if (arg.startsWith('--repository-root=')) {
+      effectiveRepoRoot = arg.substring(18);
     }
   }
-  final apiKeyPresent = apiKey != null && apiKey.trim().isNotEmpty;
-  printJson({
-    'stage': 'preflight',
-    'apiKeyPresent': apiKeyPresent,
-  });
+  effectiveRepoRoot ??=
+      environment['SHIROHA_REPOSITORY_ROOT'] ?? Directory.current.path;
+  final rootDir = Directory(effectiveRepoRoot).absolute;
+  if (!File(p.join(rootDir.path, 'pubspec.yaml')).existsSync()) {
+    return exitWithError(
+      'repository_root_invalid',
+      stage: 'launcher',
+      causeType: 'InvalidRepositoryRoot',
+      code: 1,
+    );
+  }
+
+  final isSavedKeyProbe = args.contains('--saved-key-probe') ||
+      environment['SHIROHA_SAVED_KEY_PROBE'] == 'true';
+  final writeReplayCacheEnabled = args.contains('--write-replay-cache') ||
+      environment['SHIROHA_WRITE_REPLAY_CACHE'] == 'true';
+
+  if (isSavedKeyProbe && writeReplayCacheEnabled) {
+    return exitWithError(
+      'invalid_arguments',
+      stage: 'launcher',
+      causeType: 'InvalidArguments',
+      code: 2,
+    );
+  }
+
+  String replayCaseId = environment['SHIROHA_REPLAY_CASE_ID'] ?? '';
+  for (final arg in args) {
+    if (arg.startsWith('--case-id=')) {
+      replayCaseId = arg.substring(10);
+    } else if (arg.startsWith('--replay-case-id=')) {
+      replayCaseId = arg.substring(17);
+    }
+  }
 
   final List<String> pdfArgs = [];
   for (int i = 0; i < args.length; i++) {
     final arg = args[i];
-    if (arg.startsWith('--pdf=')) {
+    if (arg.startsWith('--repository-root=')) {
+      continue;
+    } else if (arg == '--write-replay-cache' || arg == '--saved-key-probe') {
+      continue;
+    } else if (arg.startsWith('--case-id=') ||
+        arg.startsWith('--replay-case-id=')) {
+      continue;
+    } else if (arg.startsWith('--pdf=')) {
       pdfArgs.add(arg.substring(6));
     } else if (arg == '--pdf') {
       if (i + 1 < args.length) {
         pdfArgs.add(args[i + 1]);
         i++;
       } else {
-        return exitWithError('invalid_arguments');
+        return exitWithError('invalid_arguments',
+            stage: 'launcher', causeType: 'InvalidPdfArgument', code: 1);
       }
     } else if (arg.startsWith('-p=')) {
       pdfArgs.add(arg.substring(3));
@@ -456,29 +487,84 @@ Future<int> _runOcrSmokeCore(
         pdfArgs.add(args[i + 1]);
         i++;
       } else {
-        return exitWithError('invalid_arguments');
+        return exitWithError('invalid_arguments',
+            stage: 'launcher', causeType: 'InvalidPdfArgument', code: 1);
       }
-    } else {
-      return exitWithError('invalid_arguments');
+    } else if (!arg.startsWith('-')) {
+      pdfArgs.add(arg);
     }
   }
 
-  if (pdfArgs.isEmpty) {
-    return exitWithError(
-      'invalid_pdf_argument',
-      stage: 'launcher',
-      causeType: 'InvalidPdfArgument',
-    );
+  if (writeReplayCacheEnabled) {
+    if (pdfArgs.length != 1) {
+      return exitWithError(
+        'replay_cache_requires_single_pdf',
+        stage: 'launcher',
+        causeType: 'InvalidReplayCacheRequest',
+        code: 2,
+      );
+    }
+    if (replayCaseId.trim().isEmpty) {
+      return exitWithError(
+        'replay_case_id_required',
+        stage: 'launcher',
+        causeType: 'InvalidReplayCacheRequest',
+        code: 2,
+      );
+    }
+    if (!RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(replayCaseId)) {
+      return exitWithError(
+        'invalid_replay_case_id',
+        stage: 'launcher',
+        causeType: 'InvalidReplayCaseId',
+        code: 2,
+      );
+    }
   }
-  if (pdfArgs.length > 2) {
-    return exitWithError('invalid_arguments');
+
+  var apiKey = environment['SHIROHA_OCR_API_KEY'];
+  final environmentApiKeyPresent = apiKey != null && apiKey.trim().isNotEmpty;
+  final useSavedAppKey = environment['SHIROHA_OCR_USE_SAVED_APP_KEY'] == 'true';
+
+  if (!environmentApiKeyPresent && useSavedAppKey) {
+    try {
+      apiKey = await loadSavedApiKey?.call();
+    } catch (_) {
+      apiKey = null;
+    }
   }
+  final apiKeyPresent = apiKey != null && apiKey.trim().isNotEmpty;
+
+  if (isSavedKeyProbe) {
+    if (apiKeyPresent) {
+      printJson({
+        'stage': 'credential_probe',
+        'status': 'available',
+        'apiKeyPresent': true,
+      });
+      return 0;
+    } else {
+      printJson({
+        'stage': 'credential_probe',
+        'status': 'unavailable',
+        'apiKeyPresent': false,
+        'causeType': 'SavedApiKeyUnavailable',
+      });
+      return 1;
+    }
+  }
+
+  printJson({
+    'stage': 'preflight',
+    'apiKeyPresent': apiKeyPresent,
+  });
 
   if (!apiKeyPresent && useSavedAppKey) {
     return exitWithError(
       'saved_api_key_unavailable',
       stage: 'launcher',
       causeType: 'SavedApiKeyUnavailable',
+      code: 1,
     );
   }
   if (!apiKeyPresent) {
@@ -486,8 +572,29 @@ Future<int> _runOcrSmokeCore(
       'missing_api_key',
       stage: 'launcher',
       causeType: 'MissingApiKey',
+      code: 1,
     );
   }
+
+  if (!isSavedKeyProbe) {
+    if (pdfArgs.isEmpty) {
+      return exitWithError(
+        'invalid_pdf_argument',
+        stage: 'launcher',
+        causeType: 'InvalidPdfArgument',
+        code: 1,
+      );
+    }
+    if (pdfArgs.length > 2) {
+      return exitWithError(
+        'invalid_arguments',
+        stage: 'launcher',
+        causeType: 'InvalidArguments',
+        code: 1,
+      );
+    }
+  }
+
   final baseUrl = environment['SHIROHA_OCR_BASE_URL'] ??
       'https://open.bigmodel.cn/api/paas';
 
@@ -497,7 +604,7 @@ Future<int> _runOcrSmokeCore(
       validPaths.add(
         resolveOcrSmokePdfPath(
           pdfArg,
-          repositoryRoot: repositoryRoot ?? Directory.current.path,
+          repositoryRoot: rootDir.path,
         ),
       );
     } on OcrSmokePreflightException catch (error) {
@@ -506,6 +613,7 @@ Future<int> _runOcrSmokeCore(
         stage:
             error.status == 'invalid_pdf_argument' ? 'launcher' : 'preflight',
         causeType: error.causeType,
+        code: 1,
       );
     }
   }
@@ -530,9 +638,12 @@ Future<int> _runOcrSmokeCore(
   final repository = _StubAiEngineRepository(profile);
   final repairService =
       SingleQuestionRepairService(engineRepository: repository);
+
+  final capturingClient = _CapturingOcrClient(const ZhipuOcrClient());
+
   final ocrService = OcrImportService(
     engineRepository: repository,
-    ocrClient: const ZhipuOcrClient(),
+    ocrClient: capturingClient,
     repairService: repairService,
   );
 
@@ -549,6 +660,7 @@ Future<int> _runOcrSmokeCore(
         filePath: fullPath,
         sourceName: fileName,
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
       stopwatch.stop();
 
@@ -638,9 +750,120 @@ Future<int> _runOcrSmokeCore(
 
   if (hasFailure) return 1;
 
+  // Write replay cache if requested
+  if (writeReplayCacheEnabled) {
+    if (capturingClient.lastDocument == null) {
+      printJson({
+        'stage': 'replay_cache',
+        'status': 'document_unavailable',
+        'causeType': 'ReplayDocumentUnavailable',
+      });
+      return 1;
+    }
+    try {
+      final pdfFile = File(validPaths.first);
+      final pdfBytes = pdfFile.readAsBytesSync();
+      final fingerprint = computeReplayCacheFingerprint(
+        pdfBytes: pdfBytes,
+        documentSchemaVersion: 1,
+        ocrModelId: ZhipuOcrClient.model,
+      );
+      final pdfHash = sha256.convert(pdfBytes).toString();
+      writeReplayCache(
+        caseId: replayCaseId,
+        repositoryRoot: rootDir.path,
+        document: capturingClient.lastDocument!,
+        fingerprint: fingerprint,
+        pdfContentHash: pdfHash,
+      );
+      printJson({
+        'stage': 'replay_cache',
+        'status': 'written',
+        'caseId': replayCaseId,
+        'fingerprint': fingerprint,
+      });
+    } catch (e) {
+      printJson({
+        'stage': 'replay_cache',
+        'status': 'write_failed',
+        'causeType': e.runtimeType.toString(),
+      });
+      return 1;
+    }
+  }
+
   printJson({
     'stage': 'completed',
     'status': 'success',
   });
   return 0;
+}
+
+class _StubAiEngineRepository extends AiEngineRepository {
+  _StubAiEngineRepository(this._profile)
+      : super(store: _OcrSmokeProfileStore(_profile));
+
+  final AiEngineProfile _profile;
+
+  @override
+  Future<AiEngineProfile?> getActiveOcrEngine() async => _profile;
+}
+
+class _OcrSmokeProfileStore implements AiEngineStore {
+  const _OcrSmokeProfileStore(this.profile);
+
+  final AiEngineProfile profile;
+
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
+    return profile.engineType == type ? <AiEngineProfile>[profile] : const [];
+  }
+
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    return profile.engineType == type ? profile : null;
+  }
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    throw UnsupportedError('Read-only OCR smoke store');
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    throw UnsupportedError('Read-only OCR smoke store');
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    throw UnsupportedError('Read-only OCR smoke store');
+  }
+}
+
+/// Wraps a ZhipuOcrClient to capture the last OcrDocument returned.
+class _CapturingOcrClient extends ZhipuOcrClient {
+  _CapturingOcrClient(this._delegate);
+
+  final ZhipuOcrClient _delegate;
+  OcrDocument? lastDocument;
+
+  @override
+  String get modelId => _delegate.modelId;
+
+  @override
+  Future<OcrDocument> parseFile({
+    required AiEngineProfile profile,
+    required String filePath,
+    required String sourceName,
+    Duration timeout = const Duration(minutes: 8),
+  }) async {
+    final doc = await _delegate.parseFile(
+      profile: profile,
+      filePath: filePath,
+      sourceName: sourceName,
+      timeout: timeout,
+    );
+    lastDocument = doc;
+    return doc;
+  }
 }

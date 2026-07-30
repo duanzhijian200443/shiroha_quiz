@@ -2,6 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 
 import '../tool/ocr_smoke.dart';
@@ -253,6 +257,8 @@ void main() {
         'ocr-smoke-unicode-',
       );
       addTearDown(() => repository.deleteSync(recursive: true));
+      File('${repository.path}${Platform.pathSeparator}pubspec.yaml')
+          .writeAsStringSync('name: test\n');
       final pdf = File(
         '${repository.path}${Platform.pathSeparator}scratch'
         '${Platform.pathSeparator}test_pdfs${Platform.pathSeparator}fixture'
@@ -310,7 +316,7 @@ void main() {
           isA<OcrSmokePreflightException>().having(
             (error) => error.status,
             'status',
-            'pdf_outside_allowed_root',
+            'path_outside_repository_root',
           ),
         ),
       );
@@ -423,8 +429,8 @@ void main() {
         verify: (jsonLines) {
           expect(jsonLines, isNotEmpty);
           final json = jsonLines.last;
-          expect(json['stage'], 'failed');
-          expect(json['status'], 'invalid_arguments');
+          expect(json['stage'], 'launcher');
+          expect(json['status'], 'invalid_pdf_argument');
         },
       );
     });
@@ -594,19 +600,19 @@ void main() {
         'ocr-smoke-absolute-',
       );
       addTearDown(() => repository.deleteSync(recursive: true));
-      final pdf = File(
-        '${repository.path}${Platform.pathSeparator}scratch'
-        '${Platform.pathSeparator}test_pdfs${Platform.pathSeparator}empty.pdf',
-      )..createSync(recursive: true);
+      File('${repository.path}${Platform.pathSeparator}pubspec.yaml')
+          .writeAsStringSync('name: test\n');
+      final pdfPath = '${repository.path}${Platform.pathSeparator}scratch'
+          '${Platform.pathSeparator}test_pdfs${Platform.pathSeparator}empty.pdf';
 
       await runSmokeTest(
-        ['--pdf=${pdf.path}'],
+        ['--pdf=$pdfPath'],
         repositoryRoot: repository.path,
         expectedExitCode: 1,
         verify: (jsonLines) {
           final json = jsonLines.last;
           expect(json['stage'], 'preflight');
-          expect(json['status'], 'file_read_error');
+          expect(json['status'], 'pdf_not_found');
         },
       );
     });
@@ -617,7 +623,7 @@ void main() {
         expectedExitCode: 1,
         verify: (jsonLines) {
           final json = jsonLines.last;
-          expect(json['status'], 'pdf_outside_allowed_root');
+          expect(json['status'], 'path_outside_repository_root');
         },
       );
     });
@@ -628,8 +634,8 @@ void main() {
         expectedExitCode: 1,
         verify: (jsonLines) {
           final json = jsonLines.last;
-          expect(json['stage'], 'launcher');
-          expect(json['status'], 'invalid_pdf_argument');
+          expect(json['stage'], 'preflight');
+          expect(json['status'], 'invalid_pdf_extension');
         },
       );
     });
@@ -842,12 +848,11 @@ void main() {
       expect(source, isNot(contains('.Environment[')));
       expect(source, isNot(contains('.Environment.Remove(')));
       expect(source, contains('Resolve-Path -LiteralPath'));
-      expect(source, contains('ConvertTo-WindowsCommandLineArgument'));
       expect(source, contains('Join-WindowsCommandLine'));
       expect(dartSource, contains('saved_api_key_unavailable'));
       expect(
         dartSource,
-        contains('AiEngineRepository.instance.getActiveOcrEngine()'),
+        contains('repository.getActiveOcrEngine()'),
       );
       expect(dartSource, contains('sqfliteFfiInit()'));
       expect(dartSource, contains('databaseFactory = databaseFactoryFfi'));
@@ -866,7 +871,7 @@ void main() {
         contains(r'$startInfo.Arguments = Join-WindowsCommandLine'),
       );
       expect(source.toLowerCase(), isNot(contains('cmd.exe')));
-      expect(source, contains('flutter_tools.dart'));
+      expect(source, contains("Get-Command 'flutter'"));
       expect(source, contains(r'$startInfo.FileName = $executablePath'));
       expect(source, contains('[System.Diagnostics.Process]::Start'));
       expect(source, contains('New-OcrSmokeReportContext'));
@@ -881,14 +886,14 @@ void main() {
       expect(
         source,
         contains(
-          r"$null = $buildStartInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')",
+          r"$null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')",
         ),
       );
 
       final environmentCheck = source.indexOf(
         r'$env:SHIROHA_OCR_API_KEY',
       );
-      final savedKeyBranch = source.indexOf(r'elseif ($UseSavedAppKey)');
+      final savedKeyBranch = source.indexOf(r'elseif ($UseSavedAppKey');
       final prompt = source.indexOf('Read-Host');
       expect(environmentCheck, greaterThanOrEqualTo(0));
       expect(savedKeyBranch, greaterThan(environmentCheck));
@@ -898,5 +903,382 @@ void main() {
       final gitignore = File('.gitignore').readAsStringSync();
       expect(gitignore, contains('scratch/ocr_reports/'));
     });
+
+    test(
+        'loadSavedOcrApiKey resolves saved profile using an explicit repository',
+        () async {
+      final fakeProfile = AiEngineProfile(
+        id: 'test-id',
+        engineType: AiEngineType.ocr,
+        name: 'test-ocr',
+        apiKey: 'fake-saved-key-12345',
+        baseUrl: 'https://fake.url',
+        modelName: 'glm-4v',
+        temperature: 0.0,
+        reasoningEffort: '',
+        isActive: true,
+      );
+
+      final explicitRepo =
+          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+      final key = await loadSavedOcrApiKey(repository: explicitRepo);
+      expect(key, equals('fake-saved-key-12345'));
+    });
+
+    test(
+      'runOcrSmoke under both normal and WriteReplayCache modes resolve the same saved credential loader',
+      () async {
+        final fakeProfile = AiEngineProfile(
+          id: 'test-id',
+          engineType: AiEngineType.ocr,
+          name: 'test-ocr',
+          apiKey: 'fake-saved-key-12345',
+          baseUrl: 'https://fake.url',
+          modelName: 'glm-4v',
+          temperature: 0.0,
+          reasoningEffort: '',
+          isActive: true,
+        );
+        final explicitRepo =
+            AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+
+        // Standard mode
+        final eventsNormal = <Map<String, dynamic>>[];
+        await runOcrSmoke(
+          ['--pdf=non_existent.pdf'],
+          (line) => eventsNormal.add(jsonDecode(line) as Map<String, dynamic>),
+          environment: {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+          loadSavedApiKey: () => loadSavedOcrApiKey(repository: explicitRepo),
+        );
+
+        // WriteReplayCache mode
+        final eventsCache = <Map<String, dynamic>>[];
+        await runOcrSmoke(
+          ['--pdf=non_existent.pdf'],
+          (line) => eventsCache.add(jsonDecode(line) as Map<String, dynamic>),
+          environment: {
+            'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true',
+            'SHIROHA_WRITE_REPLAY_CACHE': 'true',
+            'SHIROHA_REPLAY_CASE_ID': 'test_case',
+          },
+          loadSavedApiKey: () => loadSavedOcrApiKey(repository: explicitRepo),
+        );
+
+        expect(eventsNormal.first['apiKeyPresent'], isTrue);
+        expect(eventsCache.first['apiKeyPresent'], isTrue);
+        expect(eventsNormal.first['stage'], 'preflight');
+        expect(eventsCache.first['stage'], 'preflight');
+      },
+    );
+
+    test('DatabaseHelper does not configure mutable Repository provider state',
+        () {
+      final databaseSource =
+          File('lib/core/database/database_helper.dart').readAsStringSync();
+      final repositorySource =
+          File('lib/data/repositories/ai_engine_repository.dart')
+              .readAsStringSync();
+
+      expect(databaseSource, isNot(contains('AiEngineRepository')));
+      expect(
+          repositorySource, isNot(contains('defaultDatabaseHelperProvider')));
+      expect(repositorySource, isNot(contains('static AiEngineRepository')));
+    });
+
+    test('loadSavedOcrApiKey supports explicit repository injection', () async {
+      final fakeProfile = AiEngineProfile(
+        id: 'test-id',
+        engineType: AiEngineType.ocr,
+        name: 'test-ocr',
+        apiKey: 'explicit-injected-key-secret',
+        baseUrl: 'https://fake.url',
+        modelName: 'glm-4v',
+        temperature: 0.0,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final explicitRepo =
+          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+
+      final key = await loadSavedOcrApiKey(repository: explicitRepo);
+      expect(key, equals('explicit-injected-key-secret'));
+    });
+
+    test(
+        'SavedKeyProbe contract tests for available, unavailable, and exception states without making network calls',
+        () async {
+      const fixtureKey = 'fixture-saved-key-sensitive';
+      final fakeProfile = AiEngineProfile(
+        id: 'test-id',
+        engineType: AiEngineType.ocr,
+        name: 'test-ocr',
+        apiKey: fixtureKey,
+        baseUrl: 'https://fake.url',
+        modelName: 'glm-4v',
+        temperature: 0.0,
+        reasoningEffort: '',
+        isActive: true,
+      );
+      final explicitRepo =
+          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+
+      // Available state
+      final eventsAvailable = <Map<String, dynamic>>[];
+      final exitCodeAvailable = await runOcrSmoke(
+        ['--saved-key-probe'],
+        (line) => eventsAvailable.add(jsonDecode(line) as Map<String, dynamic>),
+        environment: {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+        loadSavedApiKey: () => loadSavedOcrApiKey(repository: explicitRepo),
+      );
+
+      expect(exitCodeAvailable, equals(0));
+      expect(eventsAvailable.first, {
+        'stage': 'credential_probe',
+        'status': 'available',
+        'apiKeyPresent': true,
+      });
+      final jsonOutputAvailable = jsonEncode(eventsAvailable);
+      expect(jsonOutputAvailable, isNot(contains(fixtureKey)));
+
+      // Unavailable state
+      final eventsUnavailable = <Map<String, dynamic>>[];
+      final exitCodeUnavailable = await runOcrSmoke(
+        ['--saved-key-probe'],
+        (line) =>
+            eventsUnavailable.add(jsonDecode(line) as Map<String, dynamic>),
+        environment: {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+        loadSavedApiKey: () async => null,
+      );
+
+      expect(exitCodeUnavailable, equals(1));
+      expect(eventsUnavailable.first, {
+        'stage': 'credential_probe',
+        'status': 'unavailable',
+        'apiKeyPresent': false,
+        'causeType': 'SavedApiKeyUnavailable',
+      });
+
+      // Exception state
+      final eventsException = <Map<String, dynamic>>[];
+      final exitCodeException = await runOcrSmoke(
+        ['--saved-key-probe'],
+        (line) => eventsException.add(jsonDecode(line) as Map<String, dynamic>),
+        environment: {'SHIROHA_OCR_USE_SAVED_APP_KEY': 'true'},
+        loadSavedApiKey: () async {
+          throw StateError('DB error');
+        },
+      );
+
+      expect(exitCodeException, equals(1));
+      expect(eventsException.first, {
+        'stage': 'credential_probe',
+        'status': 'unavailable',
+        'apiKeyPresent': false,
+        'causeType': 'SavedApiKeyUnavailable',
+      });
+    });
+
+    test(
+        'Replay Cache parameter validation checks exit code 2 before OCR execution',
+        () async {
+      final cases = [
+        (
+          args: ['--write-replay-cache'],
+          status: 'replay_cache_requires_single_pdf',
+          cause: 'InvalidReplayCacheRequest'
+        ),
+        (
+          args: [
+            '--write-replay-cache',
+            '--pdf=a.pdf',
+            '--pdf=b.pdf',
+            '--case-id=2022_math1'
+          ],
+          status: 'replay_cache_requires_single_pdf',
+          cause: 'InvalidReplayCacheRequest'
+        ),
+        (
+          args: ['--write-replay-cache', '--pdf=a.pdf', '--case-id='],
+          status: 'replay_case_id_required',
+          cause: 'InvalidReplayCacheRequest'
+        ),
+        (
+          args: ['--write-replay-cache', '--pdf=a.pdf', '--case-id=../bad'],
+          status: 'invalid_replay_case_id',
+          cause: 'InvalidReplayCaseId'
+        ),
+        (
+          args: ['--write-replay-cache', '--pdf=a.pdf', '--case-id=2022/math1'],
+          status: 'invalid_replay_case_id',
+          cause: 'InvalidReplayCaseId'
+        ),
+        (
+          args: ['--saved-key-probe', '--write-replay-cache'],
+          status: 'invalid_arguments',
+          cause: 'InvalidArguments'
+        ),
+      ];
+
+      for (final testCase in cases) {
+        final events = <Map<String, dynamic>>[];
+        final exitCode = await runOcrSmoke(
+          testCase.args,
+          (line) => events.add(jsonDecode(line) as Map<String, dynamic>),
+          environment: {},
+        );
+        expect(exitCode, equals(2), reason: 'Args: ${testCase.args}');
+        expect(events.first['stage'], equals('launcher'));
+        expect(events.first['status'], equals(testCase.status));
+        expect(events.first['causeType'], equals(testCase.cause));
+      }
+    });
+
+    test(
+        'PowerShell launcher script updated safeStages and replayCacheWritten contract checks',
+        () {
+      final psScript = File('tool/run_ocr_smoke.ps1').readAsStringSync();
+      expect(psScript, contains("'replay_cache'"));
+      expect(psScript, contains("'credential_probe'"));
+      expect(psScript, contains(r'$replayCacheWritten = $true'));
+      expect(psScript,
+          contains(r'$WriteReplayCache -and -not $replayCacheWritten'));
+
+      final acceptancePsScript =
+          File('tool/run_import_acceptance.ps1').readAsStringSync();
+      expect(
+          acceptancePsScript,
+          contains(
+              r"$evt.stage -eq 'replay_cache' -and $evt.status -eq 'written'"));
+      expect(acceptancePsScript,
+          contains(r'$smokeExit -ne 0 -or -not $replayCacheWritten'));
+      expect(acceptancePsScript, contains('--repository-root='));
+    });
+
+    test(
+        'launcher passes --repository-root as single = token, '
+        'never as two separate tokens', () {
+      final psScript = File('tool/run_ocr_smoke.ps1').readAsStringSync();
+
+      // Must use the = form so the Dart CLI parser recognizes a single token.
+      expect(
+        psScript,
+        contains(r'"--repository-root=$repoRoot"'),
+        reason: 'launcher must join --repository-root and path with =',
+      );
+
+      // Must NOT pass the path as a second, separate array element.
+      // The old two-token form caused the path to be misidentified as a PDF.
+      expect(
+        psScript,
+        isNot(contains("'--repository-root', \$repoRoot")),
+        reason:
+            'two-token form would leak repo root as a positional PDF argument',
+      );
+    });
+
+    test('acceptance PowerShell missing case is path-redacted JSON', () async {
+      final outsideDirectory =
+          Directory.systemTemp.createTempSync('acceptance-ps-missing-');
+      addTearDown(() {
+        if (outsideDirectory.existsSync()) {
+          outsideDirectory.deleteSync(recursive: true);
+        }
+      });
+      final script = p.join(
+        Directory.current.path,
+        'tool',
+        'run_import_acceptance.ps1',
+      );
+
+      final result = await Process.run(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          script,
+          '-Case',
+          'definitely_missing_case',
+        ],
+        workingDirectory: outsideDirectory.path,
+      );
+
+      expect(result.exitCode, 1);
+      expect(result.stdout, contains('"status":"case_not_found"'));
+      expect(result.stdout, isNot(contains(Directory.current.path)));
+      expect(result.stdout, isNot(contains(outsideDirectory.path)));
+      expect(result.stderr, isEmpty);
+    }, skip: !Platform.isWindows);
+
+    test('acceptance PowerShell runner failure redacts exception and paths',
+        () async {
+      final outsideDirectory =
+          Directory.systemTemp.createTempSync('acceptance-ps-runner-');
+      addTearDown(() {
+        if (outsideDirectory.existsSync()) {
+          outsideDirectory.deleteSync(recursive: true);
+        }
+      });
+      final script = p.join(
+        Directory.current.path,
+        'tool',
+        'run_import_acceptance.ps1',
+      );
+      const missingRunner = r'Z:\SENSITIVE_RUNNER_PATH_5E20\dart.exe';
+
+      final result = await Process.run(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          script,
+          '-Case',
+          '2022_math1',
+          '-DartExecutableForTesting',
+          missingRunner,
+        ],
+        workingDirectory: outsideDirectory.path,
+      );
+
+      expect(result.exitCode, 1);
+      expect(result.stdout, contains('"status":"runner_start_failed"'));
+      expect(result.stdout, isNot(contains(missingRunner)));
+      expect(result.stdout, isNot(contains(Directory.current.path)));
+      expect(result.stderr, isEmpty);
+    }, skip: !Platform.isWindows);
   });
+}
+
+class _FakeAiEngineStore implements AiEngineStore {
+  _FakeAiEngineStore(this._profile);
+
+  final AiEngineProfile _profile;
+
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    return type == AiEngineType.ocr ? _profile : null;
+  }
+
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
+    return type == AiEngineType.ocr ? <AiEngineProfile>[_profile] : const [];
+  }
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    throw UnsupportedError('Read-only fake AI engine store');
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    throw UnsupportedError('Read-only fake AI engine store');
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    throw UnsupportedError('Read-only fake AI engine store');
+  }
 }

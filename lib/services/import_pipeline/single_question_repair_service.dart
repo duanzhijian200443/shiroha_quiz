@@ -1,9 +1,11 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-
+import '../../data/models/import_question_validation.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../llm_api_client.dart';
+import 'final_question_latex_audit.dart';
+import 'import_question_field_policy.dart';
+import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
 import 'text_question_region.dart';
 
@@ -18,11 +20,13 @@ class SingleQuestionRepairService {
   final AiEngineRepository? _engineRepository;
 
   AiEngineRepository get engineRepository =>
-      _engineRepository ?? AiEngineRepository.instance;
+      _engineRepository ?? (throw const AiEngineDependencyException());
 
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     final profile = await engineRepository.getActiveTextEngine();
 
@@ -30,7 +34,11 @@ class SingleQuestionRepairService {
       return _appendDiagnostic(localResult, 'repair_skipped_no_active_engine');
     }
 
-    final prompt = _buildPrompt(region, localResult);
+    final prompt = _buildPrompt(
+      region,
+      localResult,
+      explanationRetentionMode,
+    );
 
     try {
       final responseText = await _apiClient.callText(
@@ -52,14 +60,28 @@ class SingleQuestionRepairService {
         );
       }
 
-      final canonical = _canonicalizeRepairedMap(
-        repaired,
-        fallback: localResult.question,
-        regionNumber: region.number,
+      final canonical = finalizeAndAuditImportQuestion(
+        _canonicalizeRepairedMap(
+          repaired,
+          fallback: localResult.question,
+          regionNumber: region.number,
+        ),
+        mode: explanationRetentionMode,
       );
+      final latexAudit = auditFinalQuestionLatex(canonical);
+      if (!_isStructurallyValidRepair(
+            latexAudit.question,
+            requireAnswer: requireAnswer,
+          ) ||
+          latexAudit.hasUnrenderableLatex) {
+        return _appendDiagnostic(
+          localResult,
+          'repair_rejected_structural_invalid',
+        );
+      }
 
       return LocalAssemblyResult(
-        question: canonical,
+        question: latexAudit.question,
         diagnostics: [
           ...localResult.diagnostics,
           'ai_repair_applied',
@@ -68,17 +90,27 @@ class SingleQuestionRepairService {
         rejected: false,
       );
     } catch (e) {
-      debugPrint('SingleQuestionRepairService: repair failed: $e');
-      return _appendDiagnostic(localResult, 'repair_failed:$e');
+      return _appendDiagnostics(
+        localResult,
+        [
+          'repair_failed',
+          'repair_failure_type:${e.runtimeType}',
+        ],
+      );
     }
   }
 
   String _buildPrompt(
     TextQuestionRegion region,
     LocalAssemblyResult localResult,
+    ExplanationRetentionMode explanationRetentionMode,
   ) {
     final local =
         const JsonEncoder.withIndent('  ').convert(localResult.question);
+    final explanationRule =
+        explanationRetentionMode == ExplanationRetentionMode.allQuestionTypes
+            ? '所有题型都允许保留现有来源中的 explanation；不得凭空新增或扩写。'
+            : 'type=3 保留 explanation；type=0/1/2 的 explanation 必须为空。';
 
     return '''
 你正在修复导入流程中的【第 ${region.number} 题】。
@@ -93,7 +125,7 @@ class SingleQuestionRepairService {
 7. options 必须是字符串数组，例如 ["A. ...", "B. ..."]。
 8. 字段只能使用：
    question_number, type, content, options, standard_answer, explanation, raw_explanation
-9. 只有 type=3 的解答题/证明题允许输出 explanation/raw_explanation；type=0/1/2 必须设为空。
+9. $explanationRule raw_explanation 只能保留现有来源文本，不得新增或扩写。
 
 现有本地解析结果：
 $local
@@ -158,18 +190,14 @@ ${region.rawText}
         ? fallbackType
         : repairedType;
     final options = repaired['options'];
-    final explanation = type == 3
-        ? _readString(
-            repaired['explanation'],
-            fallback: fallback['explanation'],
-          )
-        : '';
-    final rawExplanation = type == 3
-        ? _readNullableString(
-            repaired['raw_explanation'],
-            fallback: repaired['explanation'] ?? fallback['raw_explanation'],
-          )
-        : null;
+    final explanation = _readString(
+      repaired['explanation'],
+      fallback: fallback['explanation'],
+    );
+    final rawExplanation = _readNullableString(
+      repaired['raw_explanation'],
+      fallback: repaired['explanation'] ?? fallback['raw_explanation'],
+    );
 
     return {
       'question_number': regionNumber,
@@ -199,21 +227,56 @@ ${region.rawText}
     };
   }
 
+  bool _isStructurallyValidRepair(
+    Map<String, dynamic> question, {
+    required bool requireAnswer,
+  }) {
+    if (_readString(question['content']).isEmpty) return false;
+
+    final type = _readInt(question['type']);
+    final options = question['options'];
+    if ((type == 0 || type == 1) &&
+        !hasAtLeastTwoMeaningfulOptions(options is List ? options : null)) {
+      return false;
+    }
+
+    if (requireAnswer &&
+        (type == 0 || type == 1) &&
+        !isMeaningfulAnswer(_readString(question['standard_answer']))) {
+      return false;
+    }
+
+    const checker = LatexSanityChecker();
+    final values = <String>[
+      _readString(question['content']),
+      _readString(question['standard_answer']),
+      _readString(question['explanation']),
+      if (options is List) ...options.map((value) => value.toString()),
+    ];
+    return !values.any(checker.hasDanglingDelimiters);
+  }
+
   LocalAssemblyResult _appendDiagnostic(
     LocalAssemblyResult result,
     String diagnostic,
+  ) =>
+      _appendDiagnostics(result, [diagnostic]);
+
+  LocalAssemblyResult _appendDiagnostics(
+    LocalAssemblyResult result,
+    List<String> diagnostics,
   ) {
     final question = Map<String, dynamic>.from(result.question);
     final oldDiagnostics = question['diagnostics'];
 
     question['diagnostics'] = [
       if (oldDiagnostics is List) ...oldDiagnostics.map((e) => e.toString()),
-      diagnostic,
+      ...diagnostics,
     ];
 
     return LocalAssemblyResult(
       question: question,
-      diagnostics: [...result.diagnostics, diagnostic],
+      diagnostics: [...result.diagnostics, ...diagnostics],
       repairRecommended: false,
       rejected: result.rejected,
     );

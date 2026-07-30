@@ -1,9 +1,11 @@
 import '../../data/models/question_draft.dart';
+import '../../data/models/import_question_validation.dart';
 import 'import_review_issue.dart';
 import 'import_review_summary.dart';
 import 'import_review_item.dart';
 import 'import_review_metadata.dart';
 import '../import_pipeline/question_fragment.dart';
+import '../import_pipeline/subjective_answer_expectation.dart';
 
 class ImportReviewAnalyzerResult {
   final ImportReviewSummary summary;
@@ -94,22 +96,6 @@ class ImportReviewAnalyzer {
             message: '题干疑似混入答案或解析，请核对字段归属',
           ));
           warningCount++;
-        } else if (hint == 'missing_answer_or_explanation') {
-          issues.add(ImportReviewIssue(
-            severity: ImportReviewSeverity.warning,
-            code: ImportReviewIssueCode.missingAnswerOrExplanation,
-            questionIndex: i,
-            message: '视觉结构审计发现答案与解析同时缺失',
-          ));
-          warningCount++;
-        } else if (hint == 'type_options_mismatch') {
-          issues.add(ImportReviewIssue(
-            severity: ImportReviewSeverity.warning,
-            code: ImportReviewIssueCode.typeOptionsMismatch,
-            questionIndex: i,
-            message: '题型与选项结构不一致',
-          ));
-          warningCount++;
         } else if (hint == 'duplicate_q_num') {
           issues.add(ImportReviewIssue(
             severity: ImportReviewSeverity.warning,
@@ -132,6 +118,22 @@ class ImportReviewAnalyzer {
             code: ImportReviewIssueCode.lowQualityVisionParse,
             questionIndex: i,
             message: '本批次视觉结构质量偏低，建议重点复核',
+          ));
+          warningCount++;
+        } else if (hint == 'latex_unrenderable') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.latexUnrenderable,
+            questionIndex: i,
+            message: _latexIssueMessage(item.metadata.latexInvalidFields),
+          ));
+          warningCount++;
+        } else if (hint == 'raw_html_tag') {
+          issues.add(ImportReviewIssue(
+            severity: ImportReviewSeverity.warning,
+            code: ImportReviewIssueCode.rawHtmlTag,
+            questionIndex: i,
+            message: '最终字段仍包含无法安全清理的 HTML 标签，请人工核对',
           ));
           warningCount++;
         }
@@ -167,22 +169,35 @@ class ImportReviewAnalyzer {
       // Check missing answer
       final stdAns = draft.standardAnswer.trim();
       final expl = draft.explanation.trim();
-      if (stdAns.isEmpty && expl.isEmpty) {
+      final hasMeaningfulAnswer = isMeaningfulAnswer(stdAns);
+      final answerExpectation =
+          const SubjectiveAnswerExpectationPolicy().classify(draft);
+      final proofExplanationSatisfied =
+          answerExpectation == SubjectiveAnswerExpectation.proofExplanation &&
+              expl.isNotEmpty;
+      if (!hasMeaningfulAnswer && !proofExplanationSatisfied) {
+        final hasExplanation = expl.isNotEmpty;
         issues.add(ImportReviewIssue(
-          severity: ImportReviewSeverity.error,
+          severity: hasExplanation
+              ? ImportReviewSeverity.warning
+              : ImportReviewSeverity.error,
           code: ImportReviewIssueCode.missingAnswer,
           questionIndex: i,
-          message: '缺失标准答案与解析',
+          message: hasExplanation ? '缺少单列标准答案，已保留解析供复核' : '缺失标准答案与解析',
         ));
-        errorCount++;
+        if (hasExplanation) {
+          warningCount++;
+        } else {
+          errorCount++;
+        }
         missingAnswerCount++;
       }
 
       // Check choice options
       if (draft.type == QuestionType.singleChoice) {
         // single choice
-        final opts = draft.options;
-        if (opts.isEmpty) {
+        final opts = meaningfulOptions(draft.options);
+        if (opts.length < 2) {
           issues.add(ImportReviewIssue(
             severity: ImportReviewSeverity.error,
             code: ImportReviewIssueCode.choiceWithoutOptions,
@@ -191,24 +206,12 @@ class ImportReviewAnalyzer {
           ));
           errorCount++;
           choiceIssueCount++;
-        } else if (stdAns.isNotEmpty) {
-          // simple check: if answer letters (A,B,C,D) are not matching options count or content
-          // In standard format, stdAns might be "A" or "A,B".
-          // Just do a basic check for out-of-bounds letters if stdAns is purely alphabetic.
-          final cleanAns =
-              stdAns.replaceAll(',', '').replaceAll(' ', '').toUpperCase();
-          bool outOfBounds = false;
-          for (int j = 0; j < cleanAns.length; j++) {
-            final char = cleanAns[j];
-            if (char.codeUnitAt(0) >= 65 && char.codeUnitAt(0) <= 90) {
-              // A-Z
-              final idx = char.codeUnitAt(0) - 65;
-              if (idx >= opts.length) {
-                outOfBounds = true;
-                break;
-              }
-            }
-          }
+        } else if (hasMeaningfulAnswer) {
+          final parsedAnswer = parseChoiceAnswerLabels(stdAns);
+          final outOfBounds = parsedAnswer.parsed &&
+              parsedAnswer.labels.any(
+                (label) => label.codeUnitAt(0) - 65 >= opts.length,
+              );
           if (outOfBounds) {
             issues.add(ImportReviewIssue(
               severity: ImportReviewSeverity.error,
@@ -218,8 +221,26 @@ class ImportReviewAnalyzer {
             ));
             errorCount++;
             choiceIssueCount++;
+          } else if (!parsedAnswer.parsed) {
+            issues.add(ImportReviewIssue(
+              severity: ImportReviewSeverity.warning,
+              code: ImportReviewIssueCode.choiceAnswerNeedsReview,
+              questionIndex: i,
+              message: '选择题答案无法安全解析为选项标签，请人工复核',
+            ));
+            warningCount++;
+            choiceIssueCount++;
           }
         }
+      } else if (meaningfulOptions(draft.options).isNotEmpty) {
+        issues.add(ImportReviewIssue(
+          severity: ImportReviewSeverity.error,
+          code: ImportReviewIssueCode.typeOptionsMismatch,
+          questionIndex: i,
+          message: '非选择题包含选项，请核对题型',
+        ));
+        errorCount++;
+        choiceIssueCount++;
       }
     }
 
@@ -250,5 +271,18 @@ class ImportReviewAnalyzer {
       ),
       issues,
     );
+  }
+
+  static String _latexIssueMessage(List<String> invalidFields) {
+    if (invalidFields.length != 1) {
+      return '多个最终字段中的 LaTeX 无法可靠渲染，请人工校对';
+    }
+    return switch (invalidFields.single) {
+      'content' => '题干中的 LaTeX 无法可靠渲染，请人工校对',
+      'options' => '选项中的 LaTeX 无法可靠渲染，请人工校对',
+      'standard_answer' => '标准答案中的 LaTeX 无法可靠渲染，请人工校对',
+      'explanation' => '解析中的 LaTeX 无法可靠渲染，请人工校对',
+      _ => '题目包含无法可靠渲染的 LaTeX，请人工校对',
+    };
   }
 }

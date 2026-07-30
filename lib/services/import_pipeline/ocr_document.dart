@@ -156,6 +156,32 @@ class OcrDocument {
 
     return OcrPage(pageIndex: pageIndex, blocks: blocks);
   }
+
+  Map<String, dynamic> toReplayJson() {
+    return {
+      'schemaVersion': 1,
+      'sourceName': sourceName,
+      'markdown': markdown,
+      'usage': usage,
+      'pages': pages.map((p) => p.toReplayJson()).toList(),
+    };
+  }
+
+  static OcrDocument fromReplayJson(Map<String, dynamic> json) {
+    if (_readInt(json['schemaVersion']) != 1) {
+      throw FormatException('Invalid or missing schemaVersion in Replay JSON');
+    }
+    final pagesRaw = json['pages'] as List?;
+    return OcrDocument(
+      sourceName: _readString(json['sourceName']),
+      markdown: _readString(json['markdown']),
+      usage: _readMap(json['usage']),
+      pages:
+          pagesRaw?.map((p) => OcrPage.fromReplayJson(_readMap(p))).toList() ??
+              [],
+      rawResponses: const [],
+    );
+  }
 }
 
 class OcrPage {
@@ -178,6 +204,28 @@ class OcrPage {
       if (height != null) 'height': height,
       'blockCount': blocks.length,
     };
+  }
+
+  Map<String, dynamic> toReplayJson() {
+    return {
+      'pageIndex': pageIndex,
+      'width': width,
+      'height': height,
+      'blocks': blocks.map((b) => b.toReplayJson()).toList(),
+    };
+  }
+
+  static OcrPage fromReplayJson(Map<String, dynamic> json) {
+    final blocksRaw = json['blocks'] as List?;
+    return OcrPage(
+      pageIndex: _readInt(json['pageIndex']) ?? 0,
+      width: _readInt(json['width']),
+      height: _readInt(json['height']),
+      blocks: blocksRaw
+              ?.map((b) => OcrBlock.fromReplayJson(_readMap(b)))
+              .toList() ??
+          [],
+    );
   }
 }
 
@@ -223,6 +271,31 @@ class OcrBlock {
       width: width,
       height: height,
       raw: raw ?? this.raw,
+    );
+  }
+
+  Map<String, dynamic> toReplayJson() {
+    return {
+      'blockId': blockId,
+      'pageIndex': pageIndex,
+      'type': type,
+      'text': text,
+      'readingOrder': readingOrder,
+    };
+  }
+
+  static OcrBlock fromReplayJson(Map<String, dynamic> json) {
+    return OcrBlock(
+      blockId: _readString(json['blockId']),
+      pageIndex: _readInt(json['pageIndex']) ?? 0,
+      type: _readString(json['type'], fallback: 'text'),
+      text: _readString(json['text']),
+      readingOrder: _readInt(json['readingOrder']) ?? 0,
+      bbox: const [],
+      confidence: null,
+      width: null,
+      height: null,
+      raw: const {},
     );
   }
 }

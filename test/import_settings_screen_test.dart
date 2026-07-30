@@ -1,9 +1,24 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/ui/pages/import_settings_screen.dart';
+
+class _RecordingNavigatorObserver extends NavigatorObserver {
+  int pushCount = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushCount++;
+    super.didPush(route, previousRoute);
+  }
+}
 
 void main() {
   Future<void> pumpScreen(
@@ -12,6 +27,7 @@ void main() {
     Size size = const Size(900, 1400),
     TextScaler textScaler = TextScaler.noScaling,
     ImportSettingsScreen screen = const ImportSettingsScreen(),
+    NavigatorObserver? navigatorObserver,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -21,6 +37,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
+        navigatorObservers: <NavigatorObserver>[
+          if (navigatorObserver != null) navigatorObserver,
+        ],
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
           child: child!,
@@ -41,7 +60,79 @@ void main() {
     expect(find.text('适合可提取文字的 PDF 与剪贴板文本'), findsOneWidget);
     expect(find.text('OCR（扫描）'), findsOneWidget);
     expect(find.text('先识别文字再解析，适合扫描文档'), findsOneWidget);
+    expect(find.text('保留选择题与填空题解析'), findsOneWidget);
+    expect(find.text('关闭时仅导入题干、选项和标准答案'), findsOneWidget);
+    expect(
+      find.text('开启后会保留详细解析，可能增加处理时间和校对问题'),
+      findsOneWidget,
+    );
+    expect(find.text('推荐关闭'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
     expect(find.byType(SwitchListTile), findsNothing);
+  });
+
+  testWidgets('retention setting defaults off and exposes row and switch taps',
+      (tester) async {
+    final changes = <bool>[];
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        onRetainObjectiveExplanationsChanged: changes.add,
+      ),
+    );
+
+    final row =
+        find.byKey(const ValueKey<String>('retain-objective-explanations-row'));
+    final switchFinder = find.byKey(
+      const ValueKey<String>('retain-objective-explanations-switch'),
+    );
+    expect(tester.getSize(row).height, inInclusiveRange(76, 88));
+    expect(tester.widget<Switch>(switchFinder).value, isFalse);
+
+    await tester.tap(row);
+    await tester.pump();
+
+    expect(tester.widget<Switch>(switchFinder).value, isTrue);
+    expect(changes, [true]);
+    expect(
+      tester
+              .getSemantics(
+                find.byKey(
+                  const ValueKey<String>('import-parse-mode-vision'),
+                ),
+              )
+              .flagsCollection
+              .isSelected ==
+          ui.Tristate.isTrue,
+      isTrue,
+    );
+
+    await tester.tap(switchFinder);
+    await tester.pump();
+
+    expect(tester.widget<Switch>(switchFinder).value, isFalse);
+    expect(changes, [true, false]);
+  });
+
+  testWidgets('retention setting accepts an enabled initial value',
+      (tester) async {
+    await pumpScreen(
+      tester,
+      screen: const ImportSettingsScreen(
+        retainObjectiveExplanations: true,
+      ),
+    );
+
+    expect(
+      tester
+          .widget<Switch>(
+            find.byKey(
+              const ValueKey<String>('retain-objective-explanations-switch'),
+            ),
+          )
+          .value,
+      isTrue,
+    );
   });
 
   testWidgets('defaults to vision and exposes radio selection semantics',
@@ -370,6 +461,195 @@ void main() {
     expect(find.textContaining('notes.txt'), findsOneWidget);
   });
 
+  testWidgets(
+      'multi-file selection dispatches one single-file request per file in selection order',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    final navigatorObserver = _RecordingNavigatorObserver();
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      navigatorObserver: navigatorObserver,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'first.pdf', path: 'first.pdf', size: 0),
+          PlatformFile(name: 'same.pdf', path: 'second.pdf', size: 0),
+          PlatformFile(name: 'same.pdf', path: 'third.pdf', size: 0),
+          PlatformFile(name: 'fourth.pdf', path: 'fourth.pdf', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+    final initialPushCount = navigatorObserver.pushCount;
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(
+        sources, <String>['first.pdf', 'same.pdf', 'same.pdf', 'fourth.pdf']);
+    expect(requests, hasLength(4));
+    expect(
+      requests.map((request) => request.filePaths.single),
+      <String>['first.pdf', 'second.pdf', 'third.pdf', 'fourth.pdf'],
+    );
+    expect(
+      requests.map((request) => request.fileNames.single),
+      <String>['first.pdf', 'same.pdf', 'same.pdf', 'fourth.pdf'],
+    );
+    expect(
+      requests.map((request) => request.taskId),
+      <String>[
+        'settings-task-0',
+        'settings-task-1',
+        'settings-task-2',
+        'settings-task-3',
+      ],
+    );
+    expect(requests.every((request) => request.filePaths.length == 1), isTrue);
+    expect(
+      sources.any((source) => source.contains('多文件自动拼合')),
+      isFalse,
+    );
+    expect(navigatorObserver.pushCount, initialPushCount);
+  });
+
+  testWidgets('multi-image selection dispatches one single aggregated request',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'img1.png', path: 'img1.png', size: 0),
+          PlatformFile(name: 'img2.png', path: 'img2.png', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(sources, <String>['img1.png 等 2 个文件']);
+    expect(requests, hasLength(1));
+    expect(requests.single.filePaths, <String>['img1.png', 'img2.png']);
+    expect(requests.single.fileNames, <String>['img1.png', 'img2.png']);
+    expect(requests.single.taskId, 'settings-task-0');
+  });
+
+  testWidgets(
+      'TXT Markdown and DOCX selection dispatches one aggregated request',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'notes1.txt', path: 'notes1.txt', size: 0),
+          PlatformFile(name: 'notes2.md', path: 'notes2.md', size: 0),
+          PlatformFile(name: 'notes3.docx', path: 'notes3.docx', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(sources, <String>['notes1.txt 等 3 个文件']);
+    expect(requests, hasLength(1));
+    expect(
+      requests.single.filePaths,
+      <String>['notes1.txt', 'notes2.md', 'notes3.docx'],
+    );
+    expect(
+      requests.single.fileNames,
+      <String>['notes1.txt', 'notes2.md', 'notes3.docx'],
+    );
+  });
+
+  testWidgets(
+      'mixed PDF and image selection dispatches one single aggregated request',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'paper.pdf', path: 'paper.pdf', size: 0),
+          PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(sources, <String>['paper.pdf 等 2 个文件']);
+    expect(requests, hasLength(1));
+    expect(requests.single.filePaths, <String>['paper.pdf', 'photo.png']);
+    expect(requests.single.fileNames, <String>['paper.pdf', 'photo.png']);
+  });
+
   testWidgets('text mode rejects images without changing the selected mode',
       (tester) async {
     var dispatchCalls = 0;
@@ -402,6 +682,101 @@ void main() {
     );
     expect(
       textSemantics.flagsCollection.isSelected == ui.Tristate.isTrue,
+      isTrue,
+    );
+  });
+
+  testWidgets('file request carries the enabled explanation retention mode',
+      (tester) async {
+    final captured = Completer<ImportParseRequest>();
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'paper.pdf', path: 'paper.pdf', size: 0),
+        ]),
+        requestParser: (request) async {
+          captured.complete(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          unawaited(parseTask('settings-file-task'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('retain-objective-explanations-row'),
+      ),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    final request = await captured.future;
+    expect(
+      request.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+  });
+
+  testWidgets('image request carries the default retention mode',
+      (tester) async {
+    final captured = Completer<ImportParseRequest>();
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickImage: (source) async => XFile('photo.png'),
+        requestParser: (request) async {
+          captured.complete(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          unawaited(parseTask('settings-image-task'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-gallery-button')),
+    );
+    await tester.pump();
+
+    final request = await captured.future;
+    expect(
+      request.explanationRetentionMode,
+      ExplanationRetentionMode.subjectiveOnly,
+    );
+  });
+
+  testWidgets('changing parse mode preserves the retention selection',
+      (tester) async {
+    await pumpScreen(tester);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('retain-objective-explanations-row'),
+      ),
+    );
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Switch>(
+            find.byKey(
+              const ValueKey<String>('retain-objective-explanations-switch'),
+            ),
+          )
+          .value,
       isTrue,
     );
   });

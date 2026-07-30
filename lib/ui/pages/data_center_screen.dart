@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/models/subject_tree_index.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/latex_migration_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 
@@ -173,7 +174,9 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
       ),
     );
 
-    final result = await LatexMigrationService.instance.runMigration(
+    final result = await LatexMigrationService(
+      engineRepository: AiDependenciesScope.of(context).engineRepository,
+    ).runMigration(
       onProgress: (processed, total, status) {
         setDialogState(() => logLines.add(status));
       },

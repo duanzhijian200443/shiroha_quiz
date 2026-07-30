@@ -11,10 +11,10 @@ import 'llm_api_client.dart';
 class AiTextGenerationService {
   AiTextGenerationService({
     LlmApiClient apiClient = const LlmApiClient(),
-    AiEngineRepository? engineRepository,
+    required AiEngineRepository engineRepository,
     QuestionRepository? questionRepository,
   })  : _apiClient = apiClient,
-        _engineRepository = engineRepository ?? AiEngineRepository.instance,
+        _engineRepository = engineRepository,
         _questionRepository = questionRepository ?? QuestionRepository.instance;
 
   final LlmApiClient _apiClient;

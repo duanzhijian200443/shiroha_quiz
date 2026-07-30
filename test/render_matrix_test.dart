@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/ui/widgets/markdown_extensions.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 import 'package:shiroha_quiz/utils/ai_data_sanitizer.dart';
@@ -244,20 +245,198 @@ void main() {
   testWidgets('buildLatexWidget skips structurally unsafe left right formulas',
       (tester) async {
     const text = r'\(\left[\int\)';
+    final debugMessages = <String>[];
+    final previousDebugPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      if (message != null) debugMessages.add(message);
+    };
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => buildLatexWidget(context, text),
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => buildLatexWidget(context, text),
+            ),
           ),
         ),
+      );
+
+      expect(find.byType(Math), findsNothing);
+      expect(find.textContaining(r'\left[\int', findRichText: true),
+          findsOneWidget);
+      expect(
+        debugMessages,
+        contains('Structured LaTeX render fallback: structurally_unsafe'),
+      );
+      expect(debugMessages.join('\n'), isNot(contains(r'\left[\int')));
+    } finally {
+      debugPrint = previousDebugPrint;
+    }
+  });
+
+  testWidgets('renderer and final audit reject the same mismatched environment',
+      (tester) async {
+    const text = r'\(\begin{matrix}1\end{pmatrix}\)';
+    final audited = auditFinalQuestionLatex({
+      'content': text,
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': '',
+    });
+
+    expect(audited.invalidFields, ['content']);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
       ),
     );
 
     expect(find.byType(Math), findsNothing);
     expect(
-        find.textContaining(r'\left[\int', findRichText: true), findsOneWidget);
+      find.textContaining(
+        r'\begin{matrix}1\end{pmatrix}',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'renderer isolates one malformed math token without hiding valid neighbors',
+      (tester) async {
+    const malformed = r'\begin{array}{c}1\\2';
+    const text = 'Before \\(x=1\\).\nBroken \\[$malformed\\]\nAfter \\(y=2\\).';
+    final audited = auditFinalQuestionLatex({
+      'content': '',
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': text,
+    });
+
+    expect(audited.invalidFields, ['explanation']);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    expect(find.byType(Math), findsNWidgets(2));
+    expect(find.textContaining(malformed, findRichText: true), findsOneWidget);
+    expect(find.textContaining('Before', findRichText: true), findsOneWidget);
+    expect(find.textContaining('After', findRichText: true), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('renderer keeps whole-field fallback when damage is not isolated',
+      (tester) async {
+    const text = r'Before \begin{array}{c}1\\2 after';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    final fallback = tester.widget<Text>(find.text(text));
+    expect(fallback.style?.color, Colors.deepOrange.shade900);
+    expect(find.byType(Math), findsNothing);
+  });
+
+  testWidgets(
+      'renderer and final audit accept the same bare array normalization',
+      (tester) async {
+    const text = r'\{\begin{array}{l}x_1=1\\x_2=2\end{array}';
+    final audited = auditFinalQuestionLatex({
+      'content': text,
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': '',
+    });
+
+    expect(audited.invalidFields, isEmpty);
+    expect(audited.question['content'], '${r'\['}$text${r'\]'}');
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining(r'\begin{array}', findRichText: true),
+        findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'renderer safely falls back for Q21-like missing array terminator',
+      (tester) async {
+    const text = r'''Before.
+$$\begin{array}{l}
+x_1=1\\
+x_2=2
+$$
+说明文字。
+$$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
+    final audited = auditFinalQuestionLatex({
+      'content': '',
+      'options': const <String>[],
+      'standard_answer': '',
+      'explanation': text,
+    });
+
+    expect(audited.invalidFields, ['explanation']);
+    expect(audited.question['explanation'], text);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: StructuredContentRenderer(text: text)),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(
+      find.textContaining(r'\begin{array}{l}', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.textContaining('说明文字。', findRichText: true), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'renderer refuses control-word-adjacent bare environment wrapping',
+      (tester) async {
+    for (final text in const [
+      r'\text{\begin{matrix}1\end{matrix}}',
+      r'\operatorname{foo}\begin{matrix}1\end{matrix}',
+      r'\color{red}\begin{matrix}1\end{matrix}',
+      r'\text {1}\begin{matrix}2\end{matrix}',
+      r'\operatorname {+}\begin{matrix}1\end{matrix}',
+      r'\color {1}\begin{matrix}2\end{matrix}',
+    ]) {
+      final audited = auditFinalQuestionLatex({
+        'content': text,
+        'options': const <String>[],
+        'standard_answer': '',
+        'explanation': '',
+      });
+
+      expect(audited.invalidFields, ['content'], reason: text);
+      expect(audited.question['content'], text, reason: text);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: StructuredContentRenderer(text: text)),
+        ),
+      );
+
+      expect(find.byType(Math), findsNothing, reason: text);
+      expect(find.text(text), findsOneWidget, reason: text);
+      expect(tester.takeException(), isNull, reason: text);
+    }
   });
 
   testWidgets('buildLatexWidget promotes complex inline math to block view',

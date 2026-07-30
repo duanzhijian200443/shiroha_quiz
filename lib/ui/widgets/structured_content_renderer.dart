@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
+import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
+import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
 import '../../utils/content_tokenizer.dart';
 import '../../utils/latex_complexity_classifier.dart';
@@ -41,8 +43,22 @@ class StructuredContentRenderer extends StatelessWidget {
       fontWeight: fontWeight,
       height: 1.65,
     );
-    final normalized = ContentNormalizer.normalizeForRender(text);
+    final blockNormalized =
+        const LatexBlockEnvironmentNormalizer().normalize(text);
+    final normalized =
+        ContentNormalizer.normalizeForRender(blockNormalized.text);
     final tokens = ContentTokenizer.tokenize(normalized);
+    if (!blockNormalized.renderability.isRenderable &&
+        !_canSafelyLocalizeStructuralFailure(tokens)) {
+      if (kDebugMode) {
+        debugPrint('Structured LaTeX render fallback: structurally_unsafe');
+      }
+      return _LatexErrorChip(
+        tex: text,
+        style: style,
+        inline: false,
+      );
+    }
     if (tokens.isEmpty) return const SizedBox.shrink();
 
     final widgets = <Widget>[];
@@ -102,6 +118,41 @@ class StructuredContentRenderer extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  bool _canSafelyLocalizeStructuralFailure(List<ContentToken> tokens) {
+    const checker = LatexRenderabilityChecker();
+    var foundLocalizedFailure = false;
+
+    for (final token in tokens) {
+      if (token is InlineMathToken || token is BlockMathToken) {
+        final tex = switch (token) {
+          final InlineMathToken inline => inline.tex,
+          final BlockMathToken block => block.tex,
+          _ => '',
+        };
+        if (!checker
+            .check(
+              tex,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable) {
+          foundLocalizedFailure = true;
+        }
+        continue;
+      }
+      if (token is ParseErrorToken) {
+        foundLocalizedFailure = true;
+        continue;
+      }
+      if (token is TextToken &&
+          !checker.check(token.text, requireMathContext: false).isRenderable) {
+        return false;
+      }
+    }
+
+    return foundLocalizedFailure;
   }
 
   Widget _buildImage(BuildContext context, ImageToken token) {
@@ -322,9 +373,14 @@ class _MathTexView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final safeTex = _MathTexSanitizer.sanitize(tex);
-    if (_MathTexSanitizer.isStructurallyUnsafe(safeTex)) {
+    final renderability = const LatexRenderabilityChecker().check(
+      safeTex,
+      requireMathContext: false,
+      assumeMathContext: true,
+    );
+    if (!renderability.isRenderable) {
       if (kDebugMode) {
-        debugPrint('Structured LaTeX skipped unsafe formula: $safeTex');
+        debugPrint('Structured LaTeX render fallback: structurally_unsafe');
       }
       return _LatexErrorChip(
         tex: tex,
@@ -340,9 +396,7 @@ class _MathTexView extends StatelessWidget {
       settings: const TexParserSettings(strict: Strict.ignore),
       onErrorFallback: (err) {
         if (kDebugMode) {
-          debugPrint(
-            'Structured LaTeX ParseException: $err\nFormula: $safeTex',
-          );
+          debugPrint('Structured LaTeX render fallback: parse_error');
         }
         return _LatexErrorChip(
           tex: tex,
@@ -396,16 +450,14 @@ class _ParseErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Text(
-      token.raw,
+    final fallback = _LatexErrorChip(
+      tex: token.raw,
       style: style,
+      inline: false,
     );
-    if (!kDebugMode) return text;
+    if (!kDebugMode) return fallback;
 
-    return Tooltip(
-      message: token.reason,
-      child: text,
-    );
+    return Tooltip(message: token.reason, child: fallback);
   }
 }
 
@@ -467,32 +519,6 @@ class _MathTexSanitizer {
           .replaceAll(r'\]}', '}');
       if (result == old) return result;
     }
-  }
-
-  static bool isStructurallyUnsafe(String tex) {
-    if (_commandCount(tex, 'left') != _commandCount(tex, 'right')) {
-      return true;
-    }
-    return !_hasBalancedEnvironments(tex);
-  }
-
-  static int _commandCount(String tex, String command) {
-    return RegExp('\\\\$command\\b').allMatches(tex).length;
-  }
-
-  static bool _hasBalancedEnvironments(String tex) {
-    final stack = <String>[];
-    final pattern = RegExp(r'\\(begin|end)\{([^{}]+)\}');
-    for (final match in pattern.allMatches(tex)) {
-      final kind = match.group(1);
-      final env = match.group(2)!;
-      if (kind == 'begin') {
-        stack.add(env);
-      } else if (stack.isEmpty || stack.removeLast() != env) {
-        return false;
-      }
-    }
-    return stack.isEmpty;
   }
 
   static String _replaceUnsupportedCommands(String tex) {

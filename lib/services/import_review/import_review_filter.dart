@@ -58,9 +58,7 @@ class ImportReviewFilterService {
           return vi.issues.any(
               (issue) => issue.code == ImportReviewIssueCode.missingAnswer);
         case ImportReviewFilter.choiceIssues:
-          return vi.issues.any((issue) =>
-              issue.code == ImportReviewIssueCode.choiceWithoutOptions ||
-              issue.code == ImportReviewIssueCode.choiceAnswerNotInOptions);
+          return vi.issues.any((issue) => _isChoiceIssue(issue.code));
         case ImportReviewFilter.fusionRisks:
           return vi.issues.any((issue) =>
               issue.code == ImportReviewIssueCode.answerConflict ||
@@ -141,9 +139,7 @@ class ImportReviewFilterService {
     if (issues.any((i) => i.code == ImportReviewIssueCode.missingAnswer)) {
       rank += 2;
     }
-    if (issues.any((i) =>
-        i.code == ImportReviewIssueCode.choiceWithoutOptions ||
-        i.code == ImportReviewIssueCode.choiceAnswerNotInOptions)) {
+    if (issues.any((issue) => _isChoiceIssue(issue.code))) {
       rank += 1;
     }
     return rank;
@@ -168,6 +164,13 @@ class ImportReviewFilterService {
     if (riskHints.contains('vision_only')) return 2;
     if (riskHints.contains('fused_from_text_vision')) return 1;
     return 0;
+  }
+
+  static bool _isChoiceIssue(ImportReviewIssueCode code) {
+    return code == ImportReviewIssueCode.choiceWithoutOptions ||
+        code == ImportReviewIssueCode.choiceAnswerNotInOptions ||
+        code == ImportReviewIssueCode.choiceAnswerNeedsReview ||
+        code == ImportReviewIssueCode.typeOptionsMismatch;
   }
 
   static Map<ImportReviewFilter, int> countByFilter({

@@ -1,23 +1,92 @@
+import 'dart:async';
+
 import 'package:path/path.dart' as p;
 
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/models/question_identity.dart';
 import '../task_manager.dart';
+import 'import_attempt_context.dart';
 import 'import_failure_classifier.dart';
+import 'import_file_detector.dart';
+import 'import_format.dart';
 import 'import_parse_request.dart';
 import 'import_parse_result.dart';
-import 'import_pipeline_service.dart';
+import 'import_question_field_policy.dart';
+import 'ocr_request_scheduler.dart';
 
 typedef ImportRequestParser = Future<ImportParseResult> Function(
   ImportParseRequest request,
 );
 
+typedef ImportTaskParseAction = Future<ImportParseResult> Function(
+  String taskId,
+);
+
 class ImportTaskHandle {
-  const ImportTaskHandle({required this.taskId, required this.traceId});
+  const ImportTaskHandle({
+    required this.taskId,
+    required this.traceId,
+    required this.attemptNumber,
+    required this.attemptToken,
+  });
 
   final String taskId;
   final String traceId;
+  final int attemptNumber;
+  final String attemptToken;
+
+  ImportAttemptRef get attempt => ImportAttemptRef(
+        taskId: taskId,
+        attemptNumber: attemptNumber,
+        attemptToken: attemptToken,
+        traceId: traceId,
+      );
+}
+
+class ImportTaskBatchItem {
+  const ImportTaskBatchItem({
+    required this.sourceDescription,
+    required this.mode,
+    required this.parse,
+    this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
+  });
+
+  final String sourceDescription;
+  final ImportParseMode mode;
+  final ImportTaskParseAction parse;
+  final ExplanationRetentionMode explanationRetentionMode;
+}
+
+class ImportTaskBatchHandle {
+  const ImportTaskBatchHandle({
+    required this.batchId,
+    required this.tasks,
+  });
+
+  final String batchId;
+  final List<ImportTaskHandle> tasks;
+}
+
+class ImportTaskCoordinatorDependencyException implements Exception {
+  const ImportTaskCoordinatorDependencyException();
+
+  @override
+  String toString() => 'ImportTaskCoordinatorDependencyException';
+}
+
+class ImportTaskAttemptPersistenceException implements Exception {
+  const ImportTaskAttemptPersistenceException();
+
+  @override
+  String toString() => 'ImportTaskAttemptPersistenceException';
+}
+
+class ImportTaskRetryRejectedException implements Exception {
+  const ImportTaskRetryRejectedException();
+
+  @override
+  String toString() => 'ImportTaskRetryRejectedException';
 }
 
 class ImportTaskCoordinator {
@@ -25,16 +94,21 @@ class ImportTaskCoordinator {
     TaskManager? taskManager,
     Future<void>? readiness,
     ImportRequestParser? parser,
+    OcrRequestScheduler? requestScheduler,
     String Function()? taskIdFactory,
     String Function()? traceIdFactory,
+    String Function()? attemptTokenFactory,
+    String Function()? batchIdFactory,
     this.onReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
-        _parser = parser ?? ImportPipelineService.instance.parseFiles,
+        _parser = parser,
+        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
         _taskIdFactory = taskIdFactory ?? _createTaskId,
-        _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId;
+        _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId,
+        _attemptTokenFactory = attemptTokenFactory ?? ImportAttemptToken.create,
+        _batchIdFactory = batchIdFactory ?? _createBatchId;
 
-  static final ImportTaskCoordinator instance = ImportTaskCoordinator();
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
   static const Set<String> _safeOcrStatuses = <String>{
@@ -88,13 +162,18 @@ class ImportTaskCoordinator {
 
   final TaskManager _taskManager;
   final Future<void> _readiness;
-  final ImportRequestParser _parser;
+  final ImportRequestParser? _parser;
+  final OcrRequestScheduler _requestScheduler;
   final String Function() _taskIdFactory;
   final String Function() _traceIdFactory;
+  final String Function() _attemptTokenFactory;
+  final String Function() _batchIdFactory;
   final void Function(String sourceDescription)? onReadyForReview;
 
   static String _createTaskId() =>
-      'task_${DateTime.now().millisecondsSinceEpoch}';
+      'task_${DateTime.now().microsecondsSinceEpoch}';
+  static String _createBatchId() =>
+      'batch_${DateTime.now().microsecondsSinceEpoch}';
 
   Future<ImportTaskHandle> dispatchRequest({
     required String sourceDescription,
@@ -102,17 +181,25 @@ class ImportTaskCoordinator {
     required List<String> fileNames,
     required ImportParseMode mode,
     required int maxConcurrency,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) {
+    final parser = _parser;
+    if (parser == null) {
+      throw const ImportTaskCoordinatorDependencyException();
+    }
     return dispatch(
       sourceDescription: sourceDescription,
       mode: mode,
-      parse: (taskId) => _parser(ImportParseRequest(
+      parse: (taskId) => parser(ImportParseRequest(
         filePaths: List<String>.unmodifiable(filePaths),
         fileNames: List<String>.unmodifiable(fileNames),
         mode: mode,
         maxConcurrency: maxConcurrency,
         taskId: taskId,
+        explanationRetentionMode: explanationRetentionMode,
       )),
+      explanationRetentionMode: explanationRetentionMode,
     );
   }
 
@@ -120,14 +207,22 @@ class ImportTaskCoordinator {
     required String sourceDescription,
     required ImportParseMode mode,
     required Future<ImportParseResult> Function(String taskId) parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) async {
     await _readiness;
 
     final taskId = _taskIdFactory();
     final traceId = _traceIdFactory();
-    final handle = ImportTaskHandle(taskId: taskId, traceId: traceId);
+    final attemptToken = _attemptTokenFactory();
+    final handle = ImportTaskHandle(
+      taskId: taskId,
+      traceId: traceId,
+      attemptNumber: 1,
+      attemptToken: attemptToken,
+    );
     final safeSourceDescription = _safeSourceDescription(sourceDescription);
-    _taskManager.addTask(ImportTask(
+    final writeStatus = await _taskManager.addAttemptTask(ImportTask(
       id: taskId,
       title: '文档解析任务: $safeSourceDescription',
       progressText: '已进入后台队列...',
@@ -135,25 +230,295 @@ class ImportTaskCoordinator {
       diagnostics: <String, dynamic>{
         TaskManager.keyTraceId: traceId,
         TaskManager.keyParseMode: mode.name,
+        TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
+        TaskManager.keyAttemptNumber: handle.attemptNumber,
+        TaskManager.keyAttemptToken: handle.attemptToken,
+        TaskManager.keyAttemptState: ImportAttemptState.queued.name,
       },
     ));
+    if (writeStatus != ImportAttemptWriteStatus.applied) {
+      await _taskManager.failAttempt(
+        handle.attempt,
+        '任务状态保存失败，请稍后重试',
+        clearSensitivePayload: true,
+        diagnostics: const <String, dynamic>{
+          'failedStage': 'task_persistence',
+          'errorType': 'ImportTaskPersistenceFailure',
+          'status': 'failed',
+        },
+      );
+      throw const ImportTaskAttemptPersistenceException();
+    }
 
-    Future<void>.microtask(() => TraceContext.run(
-          taskId: taskId,
-          traceId: traceId,
-          action: () => _runParse(
+    unawaited(Future<void>.microtask(() => _runScheduledTask(
+          _ScheduledImportTask(
             handle: handle,
             sourceDescription: safeSourceDescription,
             parse: parse,
           ),
-        ));
+        )));
     return handle;
+  }
+
+  Future<ImportTaskBatchHandle> dispatchIndependentBatch({
+    required List<ImportTaskBatchItem> items,
+  }) async {
+    if (items.isEmpty) {
+      throw ArgumentError.value(items, 'items', 'must not be empty');
+    }
+    await _readiness;
+
+    final existingBatchIds = _taskManager.tasks
+        .map((task) => task.batchId)
+        .whereType<String>()
+        .toSet();
+    final batchId = _uniqueValue(_batchIdFactory(), existingBatchIds);
+    final reservedTaskIds = _taskManager.tasks.map((task) => task.id).toSet();
+    final reservedTraceIds = _taskManager.tasks
+        .map((task) => task.traceId)
+        .whereType<String>()
+        .toSet();
+    final reservedAttemptTokens = _taskManager.tasks
+        .map((task) => task.attemptToken)
+        .whereType<String>()
+        .toSet();
+    final scheduled = <_ScheduledImportTask>[];
+    final tasks = <ImportTask>[];
+
+    for (var index = 0; index < items.length; index++) {
+      final item = items[index];
+      final taskId = _uniqueValue(_taskIdFactory(), reservedTaskIds);
+      reservedTaskIds.add(taskId);
+      final traceId = _uniqueValue(_traceIdFactory(), reservedTraceIds);
+      reservedTraceIds.add(traceId);
+      final attemptToken =
+          _uniqueValue(_attemptTokenFactory(), reservedAttemptTokens);
+      reservedAttemptTokens.add(attemptToken);
+      final handle = ImportTaskHandle(
+        taskId: taskId,
+        traceId: traceId,
+        attemptNumber: 1,
+        attemptToken: attemptToken,
+      );
+      final safeSourceDescription =
+          _safeSourceDescription(item.sourceDescription);
+      tasks.add(ImportTask(
+        id: taskId,
+        title: '文档解析任务: $safeSourceDescription',
+        progressText: '已进入后台队列...',
+        percent: 0.1,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyTraceId: traceId,
+          TaskManager.keyParseMode: item.mode.name,
+          TaskManager.keyExplanationRetentionMode:
+              item.explanationRetentionMode.name,
+          TaskManager.keyBatchId: batchId,
+          TaskManager.keySelectionIndex: index,
+          TaskManager.keyAttemptNumber: handle.attemptNumber,
+          TaskManager.keyAttemptToken: handle.attemptToken,
+          TaskManager.keyAttemptState: ImportAttemptState.queued.name,
+        },
+      ));
+      scheduled.add(_ScheduledImportTask(
+        handle: handle,
+        sourceDescription: safeSourceDescription,
+        parse: item.parse,
+      ));
+    }
+
+    final writes = await _taskManager.addAttemptTasksInOrder(tasks);
+    if (writes.any((status) => status != ImportAttemptWriteStatus.applied)) {
+      for (final item in scheduled) {
+        await _taskManager.failAttempt(
+          item.handle.attempt,
+          '任务状态保存失败，请稍后重试',
+          clearSensitivePayload: true,
+          diagnostics: const <String, dynamic>{
+            'failedStage': 'task_persistence',
+            'errorType': 'ImportTaskPersistenceFailure',
+            'status': 'failed',
+          },
+        );
+      }
+      throw const ImportTaskAttemptPersistenceException();
+    }
+    final runConcurrently =
+        items.every((item) => item.mode == ImportParseMode.ocr);
+    if (runConcurrently) {
+      unawaited(Future<void>.microtask(() {
+        for (final item in scheduled) {
+          unawaited(_runScheduledTask(item));
+        }
+      }));
+    } else {
+      unawaited(Future<void>.microtask(() async {
+        for (final item in scheduled) {
+          await _runScheduledTask(item);
+        }
+      }));
+    }
+    return ImportTaskBatchHandle(
+      batchId: batchId,
+      tasks: List<ImportTaskHandle>.unmodifiable(
+        scheduled.map((item) => item.handle),
+      ),
+    );
+  }
+
+  Future<ImportAttemptWriteStatus> cancelOcrTask(String taskId) async {
+    await _readiness;
+    final matches = _taskManager.tasks.where((task) => task.id == taskId);
+    if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
+    final task = matches.first;
+    if (task.parseMode != ImportParseMode.ocr.name) {
+      return ImportAttemptWriteStatus.invalidState;
+    }
+    final attempt = task.attemptRef;
+    if (attempt == null) return ImportAttemptWriteStatus.invalidState;
+
+    final persistence = _taskManager.requestAttemptCancellation(attempt);
+    _requestScheduler.cancel(
+      taskId: attempt.taskId,
+      attemptToken: attempt.attemptToken,
+    );
+    return persistence;
+  }
+
+  Future<ImportTaskHandle> retryOcrRequest({
+    required String taskId,
+    required List<String> filePaths,
+    required List<String> fileNames,
+  }) async {
+    final parser = _parser;
+    if (parser == null) {
+      throw const ImportTaskCoordinatorDependencyException();
+    }
+    if (filePaths.isEmpty || filePaths.length != fileNames.length) {
+      throw const ImportTaskRetryRejectedException();
+    }
+
+    final selectedPaths =
+        filePaths.map((path) => path.trim()).toList(growable: false);
+    final selectedNames = fileNames
+        .map((name) => p.basename(name.trim()))
+        .toList(growable: false);
+    if (selectedPaths.any((path) => path.isEmpty) ||
+        selectedNames.any((name) => name.isEmpty) ||
+        selectedPaths.any((path) {
+          final format = ImportFileDetector.detect(path);
+          return format != ImportFormat.pdf && format != ImportFormat.image;
+        })) {
+      throw const ImportTaskRetryRejectedException();
+    }
+
+    await _readiness;
+    final matches = _taskManager.tasks.where((task) => task.id == taskId);
+    if (matches.isEmpty ||
+        matches.first.parseMode != ImportParseMode.ocr.name) {
+      throw const ImportTaskRetryRejectedException();
+    }
+    final task = matches.first;
+    final immutablePaths = List<String>.unmodifiable(selectedPaths);
+    final immutableNames = List<String>.unmodifiable(selectedNames);
+    final sourceDescription = immutableNames.length == 1
+        ? immutableNames.single
+        : '${immutableNames.first} 等 ${immutableNames.length} 个文件';
+
+    return retryOcrTask(
+      taskId: taskId,
+      sourceDescription: sourceDescription,
+      explanationRetentionMode: task.explanationRetentionMode,
+      parse: (retryTaskId) => parser(ImportParseRequest(
+        filePaths: immutablePaths,
+        fileNames: immutableNames,
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: retryTaskId,
+        explanationRetentionMode: task.explanationRetentionMode,
+      )),
+    );
+  }
+
+  Future<ImportTaskHandle> retryOcrTask({
+    required String taskId,
+    required String sourceDescription,
+    required ImportTaskParseAction parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+  }) async {
+    await _readiness;
+    final matches = _taskManager.tasks.where((task) => task.id == taskId);
+    if (matches.isEmpty ||
+        matches.first.parseMode != ImportParseMode.ocr.name) {
+      throw const ImportTaskRetryRejectedException();
+    }
+    final task = matches.first;
+    final reservedTraceIds = _taskManager.tasks
+        .where((candidate) => candidate.id != taskId)
+        .map((candidate) => candidate.traceId)
+        .whereType<String>()
+        .toSet();
+    final reservedAttemptTokens = _taskManager.tasks
+        .where((candidate) => candidate.id != taskId)
+        .map((candidate) => candidate.attemptToken)
+        .whereType<String>()
+        .toSet();
+    final traceId = _uniqueValue(_traceIdFactory(), reservedTraceIds);
+    final attemptToken =
+        _uniqueValue(_attemptTokenFactory(), reservedAttemptTokens);
+    final handle = ImportTaskHandle(
+      taskId: taskId,
+      traceId: traceId,
+      attemptNumber: task.attemptNumber + 1,
+      attemptToken: attemptToken,
+    );
+    final writeStatus = await _taskManager.restartAttempt(
+      handle.attempt,
+      parseMode: ImportParseMode.ocr.name,
+      explanationRetentionMode: explanationRetentionMode,
+    );
+    if (writeStatus != ImportAttemptWriteStatus.applied) {
+      throw const ImportTaskRetryRejectedException();
+    }
+
+    unawaited(Future<void>.microtask(() => _runScheduledTask(
+          _ScheduledImportTask(
+            handle: handle,
+            sourceDescription: _safeSourceDescription(sourceDescription),
+            parse: parse,
+          ),
+        )));
+    return handle;
+  }
+
+  Future<void> _runScheduledTask(_ScheduledImportTask item) {
+    return ImportAttemptContext.run(
+      attempt: item.handle.attempt,
+      action: () => TraceContext.run(
+        taskId: item.handle.taskId,
+        traceId: item.handle.traceId,
+        action: () => _runParse(
+          handle: item.handle,
+          sourceDescription: item.sourceDescription,
+          parse: item.parse,
+        ),
+      ),
+    );
+  }
+
+  static String _uniqueValue(String candidate, Set<String> reserved) {
+    if (!reserved.contains(candidate)) return candidate;
+    var suffix = 1;
+    while (reserved.contains('${candidate}_$suffix')) {
+      suffix++;
+    }
+    return '${candidate}_$suffix';
   }
 
   Future<void> _runParse({
     required ImportTaskHandle handle,
     required String sourceDescription,
-    required Future<ImportParseResult> Function(String taskId) parse,
+    required ImportTaskParseAction parse,
   }) async {
     AppLogger.info(
       'Background import dispatched',
@@ -162,11 +527,12 @@ class ImportTaskCoordinator {
     );
     final stopwatch = Stopwatch()..start();
     try {
-      _taskManager.updateProgress(
-        handle.taskId,
+      final progressStatus = await _taskManager.updateAttemptProgress(
+        handle.attempt,
         '正在调用解析引擎...',
         0.4,
       );
+      if (progressStatus != ImportAttemptWriteStatus.applied) return;
       AppLogger.info(
         'Import parsing started',
         module: 'Import',
@@ -181,10 +547,15 @@ class ImportTaskCoordinator {
           'durationMs': stopwatch.elapsedMilliseconds,
         },
       );
+      if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
+      if (!_taskManager.isAttemptRunnable(handle.attempt)) {
+        await _taskManager.finalizeAttemptCancelled(handle.attempt);
+        return;
+      }
 
       if (result.questions.isEmpty) {
         final emptyFailure = _classifyEmptyResult(result);
-        _failSafely(
+        await _failSafely(
           handle,
           emptyFailure.failure,
           warningCount: result.warnings.length,
@@ -208,6 +579,8 @@ class ImportTaskCoordinator {
 
       final questions = _attachImportDiagnostics(result);
       final diagnostics = Map<String, dynamic>.from(result.diagnostics)
+        ..[TaskManager.keyExplanationRetentionMode] =
+            result.explanationRetentionMode.name
         ..[keySourceQuestionCount] = result.questions.length
         ..[keySourceQuestionNumbers] = result.questions
             .map(
@@ -216,8 +589,8 @@ class ImportTaskCoordinator {
               ),
             )
             .toList(growable: false);
-      _taskManager.requireReview(
-        handle.taskId,
+      final reviewStatus = await _taskManager.requireAttemptReview(
+        handle.attempt,
         '解析成功，请进行人工校对并入库',
         questions,
         '',
@@ -225,6 +598,12 @@ class ImportTaskCoordinator {
         warnings: result.warnings,
         diagnostics: diagnostics,
       );
+      if (reviewStatus != ImportAttemptWriteStatus.applied) {
+        if (_taskManager.isCurrentAttempt(handle.attempt)) {
+          await _taskManager.finalizeAttemptCancelled(handle.attempt);
+        }
+        return;
+      }
       AppLogger.info(
         'Import is ready for review',
         module: 'Import',
@@ -245,9 +624,29 @@ class ImportTaskCoordinator {
           },
         );
       }
+    } on OcrRequestCancelledException {
+      await _taskManager.finalizeAttemptCancelled(handle.attempt);
+      AppLogger.info(
+        'Background import cancelled',
+        module: 'Import',
+        data: <String, Object?>{
+          'stage': 'import_parse',
+          'status': 'cancelled',
+          'durationMs': stopwatch.elapsedMilliseconds,
+        },
+      );
     } catch (error) {
+      if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
+      final currentTask = _taskManager.tasks.firstWhere(
+        (task) => task.id == handle.taskId,
+      );
+      if (currentTask.attemptState == ImportAttemptState.cancelRequested ||
+          currentTask.attemptState == ImportAttemptState.cancelled) {
+        await _taskManager.finalizeAttemptCancelled(handle.attempt);
+        return;
+      }
       final failure = ImportFailureClassifier.classify(error);
-      _failSafely(handle, failure);
+      await _failSafely(handle, failure);
       AppLogger.error(
         'Background import failed',
         module: 'Import',
@@ -321,15 +720,15 @@ class ImportTaskCoordinator {
     };
   }
 
-  void _failSafely(
+  Future<ImportAttemptWriteStatus> _failSafely(
     ImportTaskHandle handle,
     ImportFailureClassification failure, {
     int? warningCount,
     String? status,
     String? ocrErrorType,
   }) {
-    _taskManager.failTask(
-      handle.taskId,
+    return _taskManager.failAttempt(
+      handle.attempt,
       failure.userMessage,
       warnings: const <String>[],
       clearSensitivePayload: true,
@@ -384,6 +783,18 @@ class ImportTaskCoordinator {
     flatten(diagnostics, '');
     return values;
   }
+}
+
+class _ScheduledImportTask {
+  const _ScheduledImportTask({
+    required this.handle,
+    required this.sourceDescription,
+    required this.parse,
+  });
+
+  final ImportTaskHandle handle;
+  final String sourceDescription;
+  final ImportTaskParseAction parse;
 }
 
 class _EmptyResultFailure {

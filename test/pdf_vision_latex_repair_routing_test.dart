@@ -7,6 +7,8 @@ import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_providers/llm_provider_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_fusion_coordinator.dart';
 
+import 'support/unsupported_ai_engine_store.dart';
+
 class _MockLlmApiClient extends LlmApiClient {
   final String responseText;
 
@@ -45,7 +47,8 @@ class _StubAssetBuilder extends VisionAssetBuilder {
 class _MockEngineRepository extends AiEngineRepository {
   final AiEngineProfile? profile;
 
-  _MockEngineRepository(this.profile);
+  _MockEngineRepository(this.profile)
+      : super(store: const UnsupportedAiEngineStore());
 
   @override
   Future<AiEngineProfile?> getActiveVisionEngine() async {

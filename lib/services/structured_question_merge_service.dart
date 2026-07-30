@@ -52,10 +52,9 @@ typedef StructuredQuestionMergeParser = Future<List<Map<String, dynamic>>>
 class StructuredQuestionMergeService {
   StructuredQuestionMergeService({
     LlmApiClient apiClient = const LlmApiClient(),
-    AiEngineRepository? engineRepository,
+    required AiEngineRepository engineRepository,
   }) : this._(
-          loadProfile: (engineRepository ?? AiEngineRepository.instance)
-              .getActiveTextEngine,
+          loadProfile: engineRepository.getActiveTextEngine,
           request: (profile, prompt) => apiClient.callText(
             profile: profile,
             prompt: prompt,

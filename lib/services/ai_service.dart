@@ -1,5 +1,7 @@
 import '../data/models/question_draft.dart';
 import '../data/models/question_parse_mode.dart';
+import '../data/repositories/ai_engine_repository.dart';
+import '../data/repositories/question_repository.dart';
 import 'import_pipeline/text_question_region.dart';
 import 'ai_direct_call_service.dart';
 import 'ai_task_resume_coordinator.dart';
@@ -7,18 +9,54 @@ import 'ai_text_generation_service.dart';
 import 'ai_text_parse_service.dart';
 import 'ai_vision_parse_service.dart';
 import 'structured_question_merge_service.dart';
+import 'task_manager.dart';
 
 class AiService {
-  final AiDirectCallService _directCallService = AiDirectCallService();
-  final StructuredQuestionMergeService _questionMergeService =
-      StructuredQuestionMergeService();
-  final AiTextGenerationService _textGenerationService =
-      AiTextGenerationService();
-  final AiTextParseService _textParseService = AiTextParseService();
-  final AiVisionParseService _visionParseService = AiVisionParseService();
+  factory AiService({
+    required AiEngineRepository engineRepository,
+    TaskManager? taskManager,
+    QuestionRepository? questionRepository,
+  }) {
+    final visionParseService = AiVisionParseService(
+      engineRepository: engineRepository,
+    );
+    return AiService._(
+      directCallService: AiDirectCallService(
+        engineRepository: engineRepository,
+        visionParseService: visionParseService,
+      ),
+      questionMergeService: StructuredQuestionMergeService(
+        engineRepository: engineRepository,
+      ),
+      textGenerationService: AiTextGenerationService(
+        engineRepository: engineRepository,
+        questionRepository: questionRepository,
+      ),
+      textParseService: AiTextParseService(
+        engineRepository: engineRepository,
+        taskManager: taskManager,
+      ),
+      visionParseService: visionParseService,
+    );
+  }
 
-  static final AiService instance = AiService._();
-  AiService._();
+  const AiService._({
+    required AiDirectCallService directCallService,
+    required StructuredQuestionMergeService questionMergeService,
+    required AiTextGenerationService textGenerationService,
+    required AiTextParseService textParseService,
+    required AiVisionParseService visionParseService,
+  })  : _directCallService = directCallService,
+        _questionMergeService = questionMergeService,
+        _textGenerationService = textGenerationService,
+        _textParseService = textParseService,
+        _visionParseService = visionParseService;
+
+  final AiDirectCallService _directCallService;
+  final StructuredQuestionMergeService _questionMergeService;
+  final AiTextGenerationService _textGenerationService;
+  final AiTextParseService _textParseService;
+  final AiVisionParseService _visionParseService;
 
   Future<String> callLlmApi(String prompt, {List<String>? imagePaths}) async {
     return _directCallService.call(prompt, imagePaths: imagePaths);

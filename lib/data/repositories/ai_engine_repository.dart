@@ -1,19 +1,20 @@
-import '../../core/database/database_helper.dart';
 import '../models/ai_engine_profile.dart';
+import '../persistence/ai_engine_store.dart';
+
+class AiEngineDependencyException implements Exception {
+  const AiEngineDependencyException();
+
+  @override
+  String toString() => 'AiEngineDependencyException';
+}
 
 class AiEngineRepository {
-  AiEngineRepository({DatabaseHelper? databaseHelper})
-      : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
+  const AiEngineRepository({required AiEngineStore store}) : _store = store;
 
-  static final AiEngineRepository instance = AiEngineRepository();
-
-  final DatabaseHelper _databaseHelper;
+  final AiEngineStore _store;
 
   Future<List<AiEngineProfile>> getEngines(AiEngineType type) async {
-    final rows = await _databaseHelper.getAiEngines(type.dbValue);
-    final profiles = rows
-        .map((row) => AiEngineProfile.fromMap(row, fallbackType: type))
-        .toList(growable: false);
+    final profiles = await _store.listAiEngines(type);
     if (type == AiEngineType.ocr) {
       return profiles
           .where((profile) => profile.engineType == AiEngineType.ocr)
@@ -25,9 +26,8 @@ class AiEngineRepository {
   }
 
   Future<AiEngineProfile?> getActiveEngine(AiEngineType type) async {
-    final row = await _databaseHelper.getActiveAiEngine(type.dbValue);
-    if (row == null) return null;
-    final profile = AiEngineProfile.fromMap(row, fallbackType: type);
+    final profile = await _store.getActiveAiEngine(type);
+    if (profile == null) return null;
     if (type == AiEngineType.ocr) {
       return profile.engineType == AiEngineType.ocr ? profile : null;
     }
@@ -50,17 +50,13 @@ class AiEngineRepository {
     return profile;
   }
 
-  Future<void> saveEngine(AiEngineProfile profile) async {
-    await _databaseHelper.saveAiEngine(profile.toMap());
-  }
+  Future<void> saveEngine(AiEngineProfile profile) =>
+      _store.saveAiEngine(profile);
 
-  Future<void> setActiveEngine(String id, AiEngineType type) async {
-    await _databaseHelper.setActiveAiEngine(id, type.dbValue);
-  }
+  Future<void> setActiveEngine(String id, AiEngineType type) =>
+      _store.setActiveAiEngine(id, type);
 
-  Future<void> deleteEngine(String id) async {
-    await _databaseHelper.deleteAiEngine(id);
-  }
+  Future<void> deleteEngine(String id) => _store.deleteAiEngine(id);
 
   Future<void> renameEngine(
       String id, String newName, AiEngineType type) async {

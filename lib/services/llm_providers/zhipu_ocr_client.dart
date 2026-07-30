@@ -6,6 +6,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../data/models/ai_engine_profile.dart';
 import '../import_pipeline/ocr_document.dart';
+import '../import_pipeline/ocr_document_client.dart';
 
 class ZhipuOcrAuthenticationException implements Exception {
   const ZhipuOcrAuthenticationException();
@@ -19,7 +20,11 @@ class ZhipuOcrResponseFormatException implements Exception {
   const ZhipuOcrResponseFormatException();
 }
 
-class ZhipuOcrClient {
+class ZhipuOcrInvalidPdfException implements Exception {
+  const ZhipuOcrInvalidPdfException();
+}
+
+class ZhipuOcrClient implements OcrDocumentClient {
   const ZhipuOcrClient({
     http.Client? httpClient,
     this.pdfPageChunkSize = 30,
@@ -32,6 +37,9 @@ class ZhipuOcrClient {
   static const int maxPdfBytes = 50 * 1024 * 1024;
   static const int maxImageBytes = 10 * 1024 * 1024;
 
+  @override
+  String get modelId => model;
+
   static String buildLayoutParsingUrl(String baseUrl) {
     var normalized = baseUrl.trim();
     while (normalized.endsWith('/')) {
@@ -43,6 +51,7 @@ class ZhipuOcrClient {
     return '$normalized/v4/layout_parsing';
   }
 
+  @override
   Future<OcrDocument> parseFile({
     required AiEngineProfile profile,
     required String filePath,
@@ -177,7 +186,14 @@ class ZhipuOcrClient {
     PdfDocument? document;
     try {
       document = PdfDocument(inputBytes: bytes);
-      return document.pages.count;
+      final count = document.pages.count;
+      if (count <= 0) {
+        throw const ZhipuOcrInvalidPdfException();
+      }
+      return count;
+    } catch (e) {
+      if (e is ZhipuOcrInvalidPdfException) rethrow;
+      throw const ZhipuOcrInvalidPdfException();
     } finally {
       document?.dispose();
     }

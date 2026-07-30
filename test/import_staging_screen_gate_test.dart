@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,23 +44,90 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  Widget createWidget({required Map<String, dynamic>? diagnostics}) {
+  Widget createWidget({
+    required Map<String, dynamic>? diagnostics,
+    List<Map<String, dynamic>>? questions,
+    ExplanationRetentionMode initialExplanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+  }) {
     return MaterialApp(
       home: ImportStagingScreen(
-        parsedQuestions: [
-          {
-            'q_num': 1,
-            'question_type': 0,
-            'content': 'Valid Question',
-            'options': ['A', 'B', 'C', 'D'],
-            'standard_answer': 'A',
-          }
-        ],
+        parsedQuestions: questions ??
+            [
+              {
+                'q_num': 1,
+                'type': 0,
+                'content': 'Valid Question',
+                'options': ['A', 'B', 'C', 'D'],
+                'standard_answer': 'A',
+              }
+            ],
         diagnostics: diagnostics,
+        initialExplanationRetentionMode: initialExplanationRetentionMode,
         questionRepository: MockQuestionRepository(),
       ),
     );
   }
+
+  testWidgets('document retention switch restores the import task mode',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: const <String, dynamic>{},
+        initialExplanationRetentionMode:
+            ExplanationRetentionMode.allQuestionTypes,
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Retained explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final control = tester.widget<SwitchListTile>(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+    );
+    expect(control.value, isTrue);
+    expect(find.text('Retained explanation'), findsOneWidget);
+  });
+
+  testWidgets('document retention switch defaults to subjective only',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: const <String, dynamic>{},
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Hidden explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final control = tester.widget<SwitchListTile>(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+    );
+    expect(control.value, isFalse);
+    expect(find.text('Hidden explanation'), findsNothing);
+  });
 
   testWidgets('Save button is active when qualityGate is not blocked',
       (WidgetTester tester) async {
@@ -76,8 +144,7 @@ void main() {
     expect(find.textContaining('确认无误'), findsOneWidget);
   });
 
-  testWidgets(
-      'Save button is disabled and shows reason when qualityGate is blocked',
+  testWidgets('historical blocked gate is diagnostic only for legal questions',
       (WidgetTester tester) async {
     final blockReason = '解析丢失率过高（实际 1，预期 10）';
     await tester.pumpWidget(createWidget(diagnostics: {
@@ -92,10 +159,140 @@ void main() {
     expect(elevatedButton, findsOneWidget);
 
     final buttonWidget = tester.widget<ElevatedButton>(elevatedButton);
-    expect(buttonWidget.onPressed, isNull,
-        reason: 'Save button should be disabled');
+    expect(buttonWidget.onPressed, isNotNull);
+    expect(find.textContaining('确认无误'), findsOneWidget);
+    expect(find.textContaining(blockReason), findsNothing);
 
-    expect(find.textContaining(blockReason), findsOneWidget);
+    await tester.tap(find.text('查看详情'));
+    await tester.pumpAndSettle();
+    expect(find.text('初始质量门禁'), findsOneWidget);
+    expect(find.textContaining('最终门禁以当前校对结果为准'), findsOneWidget);
+  });
+
+  testWidgets('historical blocked gate still blocks current structural issues',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {
+        'qualityGate': {'blocked': true, 'reason': 'historical'},
+      },
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Broken choice question',
+          'options': <String>['', '   '],
+          'standard_answer': 'A',
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+    expect(button.onPressed, isNull);
+    expect(find.textContaining('题目结构错误'), findsOneWidget);
+  });
+
+  testWidgets('historical clear gate cannot allow current structural issues',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {
+        'qualityGate': {'blocked': false},
+      },
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Broken choice question',
+          'options': <String>['', '   '],
+          'standard_answer': 'A',
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('changing the blocking question type recomputes and unblocks',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {
+        'qualityGate': {'blocked': true, 'reason': 'historical'},
+      },
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Broken choice question',
+          'options': <String>[],
+          'standard_answer': 'Answer',
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+      isNull,
+    );
+    await tester.tap(find.byTooltip('批量操作'));
+    await tester.pump();
+    final changeTypeQuestion = find.text('Broken choice question');
+    await tester.ensureVisible(changeTypeQuestion);
+    await tester.pumpAndSettle();
+    await tester.tap(changeTypeQuestion);
+    await tester.pump();
+    await tester.tap(find.text('改题型'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('简答题'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('deleting the only blocking question recomputes and unblocks',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {
+        'qualityGate': {'blocked': true, 'reason': 'historical'},
+      },
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Delete blocking question',
+          'options': <String>[],
+          'standard_answer': 'A',
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+      isNull,
+    );
+    await tester.tap(find.byTooltip('批量操作'));
+    await tester.pump();
+    final deleteQuestion = find.text('Delete blocking question');
+    await tester.ensureVisible(deleteQuestion);
+    await tester.pumpAndSettle();
+    await tester.tap(deleteQuestion);
+    await tester.pump();
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认删除'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('所有题目已被删除'), findsOneWidget);
+    expect(
+      tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('review screen displays and copies the task trace ID',
@@ -130,5 +327,60 @@ void main() {
     expect(find.text('private exception body'), findsNothing);
     expect(find.text(r'C:\private\import.log'), findsNothing);
     expect(find.textContaining('确认无误'), findsOneWidget);
+  });
+
+  testWidgets(
+      'document and per-question retention controls recompute quality state',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(createWidget(
+      diagnostics: const {},
+      questions: const [
+        {
+          'q_num': 1,
+          'type': 0,
+          'content': 'Valid choice question',
+          'options': ['A', 'B'],
+          'standard_answer': 'A',
+          'explanation': '',
+          'raw_explanation': r'Broken \begin{matrix}1',
+          '_import_review': {
+            'riskHints': ['latex_unrenderable'],
+          },
+        },
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('警告: 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+    expect(find.text('保留解析'), findsOneWidget);
+    expect(find.text('忽略解析'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('objective-explanation-document-switch')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('警告: 1'), findsOneWidget);
+    expect(find.text('LaTeX 异常'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+
+    final discard =
+        find.byKey(const ValueKey('question-explanation-discard-0'));
+    tester.widget<FilterChip>(discard).onSelected!(true);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('警告: 0'), findsOneWidget);
+    expect(find.text('LaTeX 异常'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
   });
 }

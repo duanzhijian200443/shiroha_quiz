@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/models/question_draft.dart';
 import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/question_repository.dart';
-import '../../services/ai_service.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
 
 /// AI 智能组卷页面
@@ -92,11 +92,12 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     _beginLoading();
 
     try {
-      final drafts = await AiService.instance.generateQuestions(
-        _topicController.text.trim(),
-        count: _selectedCount,
-        type: _selectedType,
-      );
+      final drafts =
+          await AiDependenciesScope.of(context).aiService.generateQuestions(
+                _topicController.text.trim(),
+                count: _selectedCount,
+                type: _selectedType,
+              );
       if (!mounted) return;
       setState(() {
         _questions = drafts;
@@ -852,13 +853,14 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     _beginLoading();
 
     try {
-      final result = await AiService.instance.generateExamPaper(
-        topic: _topicController.text.trim(),
-        singleCount: s,
-        fillCount: f,
-        shortCount: sh,
-        customPrompt: customPrompt,
-      );
+      final result =
+          await AiDependenciesScope.of(context).aiService.generateExamPaper(
+                topic: _topicController.text.trim(),
+                singleCount: s,
+                fillCount: f,
+                shortCount: sh,
+                customPrompt: customPrompt,
+              );
 
       // 2. 核心合流：将 AI 生成的全新题目直接落盘为试卷 (source_type: 1)
       final paperTitle = '${_topicController.text.trim()} AI模拟卷';

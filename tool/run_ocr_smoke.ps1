@@ -7,7 +7,10 @@ param(
     [ValidateRange(30, 600)]
     [int]$BuildTimeoutSeconds = 180,
     [ValidateRange(60, 1200)]
-    [int]$OcrTimeoutSeconds = 600
+    [int]$OcrTimeoutSeconds = 600,
+    [switch]$WriteReplayCache,
+    [string]$CaseId = '',
+    [switch]$SavedKeyProbe
 )
 
 Set-StrictMode -Version Latest
@@ -27,6 +30,18 @@ function Write-SafeJson {
     )
 
     Write-Output ($Value | ConvertTo-Json -Compress)
+    if ($Value.ContainsKey('status') -and $null -ne $Value.status) {
+        $summaryPath = Join-Path $script:reportDirectory 'summary.json'
+        if (Test-Path -LiteralPath $summaryPath -PathType Leaf) {
+            try {
+                $summaryJson = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+                $summaryJson.stage = $Value.stage
+                $summaryJson.status = $Value.status
+                Write-OcrSmokeReportJson -FileName 'summary.json' -Value $summaryJson
+            }
+            catch {}
+        }
+    }
     Update-OcrSmokeLauncherReport -Value $Value
 }
 
@@ -96,21 +111,24 @@ function New-OcrSmokeReportContext {
                 durationMs = $null
                 ocrBlockCount = $null
                 questionCandidateCount = $null
-                acceptedNumbers = $null
+                acceptedNumbers = @()
                 rejectedCandidateCount = $null
+                duplicateNumbers = @()
+                missingNumbers = @()
                 regionCount = $null
                 assembledQuestionCount = $null
                 finalQuestionCount = $null
-                duplicateNumbers = $null
-                missingNumbers = $null
                 referenceSectionDetected = $null
                 referenceSectionCandidateCount = $null
                 questionCandidateTraceTruncated = $null
+                markerProbeCount = $null
+                markerProbeTraceTruncated = $null
                 firstAnomaly = $null
+                requiresReview = $null
+                blocked = $null
             })
         Write-OcrSmokeReportJson -FileName 'candidate_trace.json' -Value @()
         Write-OcrSmokeReportJson -FileName 'rejected_candidates.json' -Value @()
-        Write-OcrSmokeReportJson -FileName 'launcher.log' -Value @()
     }
     catch {
         $script:reportReady = $false
@@ -124,329 +142,12 @@ function Update-OcrSmokeLauncherReport {
         [hashtable]$Value
     )
 
-    if (-not $script:reportReady) {
-        return
+    $eventCopy = [ordered]@{}
+    foreach ($key in $Value.Keys) {
+        $eventCopy[$key] = $Value[$key]
     }
-    $safeEvent = [ordered]@{}
-    foreach ($key in @(
-            'stage',
-            'status',
-            'causeType',
-            'durationMs',
-            'buildCacheHit',
-            'exitCode'
-        )) {
-        if ($Value.ContainsKey($key)) {
-            $safeEvent[$key] = $Value[$key]
-        }
-    }
-    if ($safeEvent.Count -gt 0) {
-        $script:launcherEvents += $safeEvent
-        Write-OcrSmokeReportJson -FileName 'launcher.log' -Value $script:launcherEvents
-    }
-    if ($Value.ContainsKey('status')) {
-        Write-OcrSmokeReportJson -FileName 'summary.json' -Value ([ordered]@{
-                schemaVersion = 1
-                runId = $script:reportRunId
-                traceId = $script:reportTraceId
-                stage = $(if ($Value.ContainsKey('stage')) { $Value.stage } else { $null })
-                status = $Value.status
-                durationMs = $(if ($Value.ContainsKey('durationMs')) {
-                        $Value.durationMs
-                    }
-                    else {
-                        $null
-                    })
-                ocrBlockCount = $null
-                questionCandidateCount = $null
-                acceptedNumbers = $null
-                rejectedCandidateCount = $null
-                regionCount = $null
-                assembledQuestionCount = $null
-                finalQuestionCount = $null
-                duplicateNumbers = $null
-                missingNumbers = $null
-                referenceSectionDetected = $null
-                referenceSectionCandidateCount = $null
-                questionCandidateTraceTruncated = $null
-                firstAnomaly = $null
-            })
-    }
-}
-
-function ConvertTo-SafeNumberList {
-    param([object]$Value)
-
-    if ($null -eq $Value) {
-        return 'unavailable'
-    }
-    $numbers = @()
-    foreach ($item in @($Value)) {
-        $number = 0
-        if ([int]::TryParse([string]$item, [ref]$number)) {
-            $numbers += $number
-        }
-    }
-    if ($numbers.Count -eq 0) {
-        return 'none'
-    }
-    return ($numbers -join ',')
-}
-
-function Write-OcrSmokeTerminalSummary {
-    param(
-        [Parameter(Mandatory = $true)]
-        [pscustomobject]$Report
-    )
-
-    $ocrStatus = if ([string]$Report.ocrStatus -match '^[a-z_]+$') {
-        [string]$Report.ocrStatus
-    }
-    else {
-        'unavailable'
-    }
-    $traceId = if ([string]$Report.traceId -match '^trace-[a-zA-Z0-9-]+$') {
-        [string]$Report.traceId
-    }
-    else {
-        'unavailable'
-    }
-    $reportDirectory =
-        if ([string]$Report.reportDirectory -match
-            '^scratch/ocr_reports/ocr-run-[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$') {
-            [string]$Report.reportDirectory
-        }
-        else {
-            'unavailable'
-        }
-    $firstAnomaly = 'none'
-    if ($null -ne $Report.firstAnomaly) {
-        $number = 0
-        $reason = [string]$Report.firstAnomaly.reason
-        if ([int]::TryParse([string]$Report.firstAnomaly.number, [ref]$number) -and
-            $reason -match '^[a-z_]+$') {
-            $firstAnomaly = "$number / $reason"
-        }
-    }
-    $duplicateCount = if ($null -eq $Report.duplicateNumbers) {
-        'unavailable'
-    }
-    else {
-        @($Report.duplicateNumbers).Count
-    }
-
-    Write-Output "OCR: $ocrStatus"
-    Write-Output "Trace ID: $traceId"
-    Write-Output "Duration: $($Report.durationMs) ms"
-    Write-Output "OCR Blocks: $($Report.ocrBlockCount)"
-    Write-Output "Candidates: $($Report.questionCandidateCount)"
-    Write-Output "Accepted Numbers: $(ConvertTo-SafeNumberList -Value $Report.acceptedNumbers)"
-    Write-Output "Missing Numbers: $(ConvertTo-SafeNumberList -Value $Report.missingNumbers)"
-    Write-Output "Duplicate Count: $duplicateCount"
-    Write-Output "First Anomaly: $firstAnomaly"
-    Write-Output "Report Directory: $reportDirectory"
-}
-
-function ConvertTo-WindowsCommandLineArgument {
-    param(
-        [AllowEmptyString()]
-        [string]$Argument
-    )
-
-    if ($null -eq $Argument -or $Argument.Length -eq 0) {
-        return '""'
-    }
-    if ($Argument -notmatch '[\s"]') {
-        return $Argument
-    }
-
-    $builder = [System.Text.StringBuilder]::new()
-    $null = $builder.Append('"')
-    $backslashCount = 0
-    foreach ($character in $Argument.ToCharArray()) {
-        if ($character -eq '\') {
-            $backslashCount++
-            continue
-        }
-        if ($character -eq '"') {
-            $null = $builder.Append(('\' * (($backslashCount * 2) + 1)))
-            $null = $builder.Append('"')
-            $backslashCount = 0
-            continue
-        }
-        if ($backslashCount -gt 0) {
-            $null = $builder.Append(('\' * $backslashCount))
-            $backslashCount = 0
-        }
-        $null = $builder.Append($character)
-    }
-    if ($backslashCount -gt 0) {
-        $null = $builder.Append(('\' * ($backslashCount * 2)))
-    }
-    $null = $builder.Append('"')
-    return $builder.ToString()
-}
-
-function Join-WindowsCommandLine {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$Argument
-    )
-
-    return (($Argument | ForEach-Object {
-                ConvertTo-WindowsCommandLineArgument -Argument $_
-            }) -join ' ')
-}
-
-function Stop-OwnedProcessTree {
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Diagnostics.Process]$OwnedProcess
-    )
-
-    if ($OwnedProcess.HasExited) {
-        return
-    }
-
-    $taskkillPath = Join-Path ([Environment]::GetFolderPath('System')) 'taskkill.exe'
-    if (-not (Test-Path -LiteralPath $taskkillPath -PathType Leaf)) {
-        throw [System.ComponentModel.Win32Exception]::new('taskkill.exe unavailable.')
-    }
-
-    $killStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $killStartInfo.FileName = $taskkillPath
-    $killStartInfo.UseShellExecute = $false
-    $killStartInfo.CreateNoWindow = $true
-    $killStartInfo.RedirectStandardOutput = $true
-    $killStartInfo.RedirectStandardError = $true
-    $null = $killStartInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')
-    $null = $killStartInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
-    $killStartInfo.Arguments = Join-WindowsCommandLine -Argument @(
-        '/PID',
-        $OwnedProcess.Id.ToString(),
-        '/T',
-        '/F'
-    )
-
-    $killProcess = [System.Diagnostics.Process]::Start($killStartInfo)
-    try {
-        $killStdout = $killProcess.StandardOutput.ReadToEndAsync()
-        $killStderr = $killProcess.StandardError.ReadToEndAsync()
-        if (-not $killProcess.WaitForExit(30000)) {
-            $killProcess.Kill()
-            $killProcess.WaitForExit()
-        }
-        $null = $killStdout.Result
-        $null = $killStderr.Result
-    }
-    finally {
-        $killProcess.Dispose()
-    }
-    if (-not $OwnedProcess.WaitForExit(30000)) {
-        throw [System.TimeoutException]::new('Owned process tree did not exit.')
-    }
-}
-
-function Resolve-SmokePdfPath {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PdfArgument,
-        [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot,
-        [Parameter(Mandatory = $true)]
-        [string]$AllowedRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($PdfArgument) -or
-        $PdfArgument.Contains('"') -or
-        -not $PdfArgument.EndsWith('.pdf', [System.StringComparison]::OrdinalIgnoreCase)) {
-        return [pscustomobject]@{
-            Success = $false
-            Status = 'invalid_pdf_argument'
-            CauseType = 'InvalidPdfArgument'
-            Path = $null
-        }
-    }
-
-    $segments = $PdfArgument -split '[\\/]'
-    if ($segments -contains '..') {
-        return [pscustomobject]@{
-            Success = $false
-            Status = 'pdf_outside_allowed_root'
-            CauseType = 'PdfOutsideAllowedRoot'
-            Path = $null
-        }
-    }
-
-    $isRepositoryRelative =
-        $segments.Count -ge 2 -and
-        $segments[0].Equals('scratch', [System.StringComparison]::OrdinalIgnoreCase) -and
-        $segments[1].Equals('test_pdfs', [System.StringComparison]::OrdinalIgnoreCase)
-    if ([System.IO.Path]::IsPathRooted($PdfArgument)) {
-        $candidatePath = [System.IO.Path]::GetFullPath($PdfArgument)
-    }
-    elseif ($isRepositoryRelative) {
-        $candidatePath = [System.IO.Path]::GetFullPath((Join-Path $RepositoryRoot $PdfArgument))
-    }
-    else {
-        $candidatePath = [System.IO.Path]::GetFullPath((Join-Path $AllowedRoot $PdfArgument))
-    }
-
-    $rootPrefix = $AllowedRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) +
-        [System.IO.Path]::DirectorySeparatorChar
-    if (-not $candidatePath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return [pscustomobject]@{
-            Success = $false
-            Status = 'pdf_outside_allowed_root'
-            CauseType = 'PdfOutsideAllowedRoot'
-            Path = $null
-        }
-    }
-    if (-not (Test-Path -LiteralPath $candidatePath)) {
-        return [pscustomobject]@{
-            Success = $false
-            Status = 'pdf_not_found'
-            CauseType = 'FileSystemException'
-            Path = $null
-        }
-    }
-
-    try {
-        $resolvedPdfPath = (Resolve-Path -LiteralPath $candidatePath).ProviderPath
-        if (-not $resolvedPdfPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return [pscustomobject]@{
-                Success = $false
-                Status = 'pdf_outside_allowed_root'
-                CauseType = 'PdfOutsideAllowedRoot'
-                Path = $null
-            }
-        }
-        $item = Get-Item -LiteralPath $resolvedPdfPath
-        if ($item.PSIsContainer -or $item.Length -le 0) {
-            throw [System.IO.IOException]::new('Unreadable PDF fixture.')
-        }
-        $stream = [System.IO.File]::Open(
-            $resolvedPdfPath,
-            [System.IO.FileMode]::Open,
-            [System.IO.FileAccess]::Read,
-            [System.IO.FileShare]::Read
-        )
-        $stream.Dispose()
-        return [pscustomobject]@{
-            Success = $true
-            Status = 'success'
-            CauseType = $null
-            Path = $resolvedPdfPath
-        }
-    }
-    catch {
-        return [pscustomobject]@{
-            Success = $false
-            Status = 'file_read_error'
-            CauseType = 'FileSystemException'
-            Path = $null
-        }
-    }
+    $script:launcherEvents += $eventCopy
+    Write-OcrSmokeReportJson -FileName 'launcher.log' -Value $script:launcherEvents
 }
 
 function Get-SmokeSourceFingerprint {
@@ -497,13 +198,148 @@ function Test-SmokeArtifact {
     }
     try {
         $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+        if ($manifest.sourceFingerprint -ne $SourceFingerprint) {
+            return $false
+        }
         $appLibraryHash = (Get-FileHash -LiteralPath $AppLibraryPath -Algorithm SHA256).Hash
-        return $manifest.sourceFingerprint -eq $SourceFingerprint -and
-            $manifest.appLibraryHash -eq $appLibraryHash
+        return $manifest.appLibraryHash -eq $appLibraryHash
     }
     catch {
         return $false
     }
+}
+
+function Resolve-SmokePdfPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PdfArgument,
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$AllowedRoot
+    )
+
+    $trimmed = $PdfArgument.Trim()
+    if ([string]::IsNullOrWhiteSpace($trimmed)) {
+        return @{
+            Success = $false
+            Status = 'invalid_pdf_argument'
+            CauseType = 'InvalidPdfArgument'
+        }
+    }
+
+    $extension = [System.IO.Path]::GetExtension($trimmed).ToLowerInvariant()
+    if ($extension -ne '.pdf') {
+        return @{
+            Success = $false
+            Status = 'invalid_pdf_extension'
+            CauseType = 'InvalidPdfExtension'
+        }
+    }
+
+    try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($trimmed)) {
+            [System.IO.Path]::GetFullPath($trimmed)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepositoryRoot $trimmed))
+        }
+    }
+    catch {
+        return @{
+            Success = $false
+            Status = 'invalid_pdf_argument'
+            CauseType = 'InvalidPdfArgument'
+        }
+    }
+
+    $normalizedAllowed = $AllowedRoot.TrimEnd('\') + '\'
+    $normalizedResolved = $resolved
+    if (-not $normalizedResolved.StartsWith($normalizedAllowed, [StringComparison]::OrdinalIgnoreCase) -and
+        -not ($normalizedResolved -eq $AllowedRoot)) {
+        return @{
+            Success = $false
+            Status = 'path_outside_repository_root'
+            CauseType = 'PathOutsideRepositoryRoot'
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        return @{
+            Success = $false
+            Status = 'pdf_not_found'
+            CauseType = 'PdfNotFound'
+        }
+    }
+
+    return @{
+        Success = $true
+        Path = $resolved
+    }
+}
+
+function Join-WindowsCommandLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Argument
+    )
+
+    $escaped = foreach ($arg in $Argument) {
+        if ([string]::IsNullOrEmpty($arg)) {
+            '""'
+        }
+        elseif ($arg -match '[\s"]') {
+            '"' + ($arg -replace '(\\+)("|$)', '$1$1$2' -replace '"', '\"') + '"'
+        }
+        else {
+            $arg
+        }
+    }
+    return $escaped -join ' '
+}
+
+function Stop-OwnedProcessTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Process]$OwnedProcess
+    )
+
+    try {
+        $pidToKill = $OwnedProcess.Id
+        $null = & taskkill.exe /F /T /PID $pidToKill 2>&1
+    }
+    catch {
+        # Preserve original failure state if process cleanup fails.
+    }
+}
+
+function Write-OcrSmokeTerminalSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Report
+    )
+
+    Write-Output ("OCR: {0}" -f $(if ($null -ne $Report.status) { $Report.status } elseif ($null -ne $Report.ocrStatus) { $Report.ocrStatus } else { '' }))
+    Write-Output ("Trace ID: {0}" -f $(if ($null -ne $Report.traceId) { $Report.traceId } else { $script:reportTraceId }))
+    Write-Output ("Duration: {0}" -f $(if ($null -ne $Report.durationMs) { "$($Report.durationMs) ms" } else { '' }))
+    Write-Output ("OCR Blocks: {0}" -f $(if ($null -ne $Report.ocrBlockCount) { $Report.ocrBlockCount } else { '' }))
+    Write-Output ("Candidates: {0}" -f $(if ($null -ne $Report.questionCandidateCount) { $Report.questionCandidateCount } else { '' }))
+    Write-Output ("Accepted Numbers: {0}" -f $(if ($null -ne $Report.acceptedNumbers) { ($Report.acceptedNumbers -join ',') } else { 'unavailable' }))
+    Write-Output ("Missing Numbers: {0}" -f $(if ($null -ne $Report.missingNumbers) { if ($Report.missingNumbers.Count -gt 0) { ($Report.missingNumbers -join ',') } else { 'none' } } else { 'unavailable' }))
+    Write-Output ("Duplicate Count: {0}" -f $(if ($null -ne $Report.duplicateNumbers) { $Report.duplicateNumbers.Count } else { 'unavailable' }))
+    $firstAnomalyStr = 'none'
+    if ($null -ne $Report.firstAnomaly) {
+        $num = 0
+        $reason = [string]$Report.firstAnomaly.reason
+        if ([int]::TryParse([string]$Report.firstAnomaly.number, [ref]$num) -and $reason -match '^[a-z_]+$') {
+            $firstAnomalyStr = "$num / $reason"
+        }
+        else {
+            $firstAnomalyStr = $Report.firstAnomaly | ConvertTo-Json -Compress
+        }
+    }
+    Write-Output ("First Anomaly: {0}" -f $firstAnomalyStr)
+    Write-Output ("Report Directory: {0}" -f $(if ($null -ne $Report.reportDirectory) { $Report.reportDirectory } else { $script:reportRelativeDirectory }))
 }
 
 function Invoke-SmokeBuild {
@@ -514,35 +350,29 @@ function Invoke-SmokeBuild {
         [int]$TimeoutSeconds
     )
 
-    $flutterCommand = Get-Command flutter -ErrorAction Stop
-    $flutterBin = Split-Path -Parent $flutterCommand.Source
-    $flutterRoot = Split-Path -Parent $flutterBin
-    $dartExecutable = Join-Path $flutterRoot 'bin\cache\dart-sdk\bin\dart.exe'
-    $flutterTools = Join-Path $flutterRoot 'packages\flutter_tools\bin\flutter_tools.dart'
-    if (-not (Test-Path -LiteralPath $dartExecutable -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $flutterTools -PathType Leaf)) {
-        return [pscustomobject]@{ Success = $false; Status = 'build_tool_unavailable' }
+    $flutterCmd = Get-Command 'flutter' -ErrorAction SilentlyContinue
+    if (-not $flutterCmd) {
+        return @{
+            Success = $false
+            Status = 'flutter_tools_unavailable'
+        }
     }
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $flutterCmd.Source
+    $startInfo.WorkingDirectory = $RepositoryRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_RUN_ID')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_BUILD_CACHE_HIT')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_WRITE_REPLAY_CACHE')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPLAY_CASE_ID')
+    $startInfo.Arguments = 'build windows --release -t tool/ocr_smoke.dart'
 
-    $buildStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $buildStartInfo.FileName = $dartExecutable
-    $buildStartInfo.WorkingDirectory = $RepositoryRoot
-    $buildStartInfo.UseShellExecute = $false
-    $buildStartInfo.CreateNoWindow = $true
-    $buildStartInfo.RedirectStandardOutput = $true
-    $buildStartInfo.RedirectStandardError = $true
-    $null = $buildStartInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')
-    $null = $buildStartInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
-    $buildStartInfo.Arguments = Join-WindowsCommandLine -Argument @(
-        $flutterTools,
-        'build',
-        'windows',
-        '--release',
-        '-t',
-        'tool/ocr_smoke.dart'
-    )
-
-    $buildProcess = [System.Diagnostics.Process]::Start($buildStartInfo)
+    $buildProcess = [System.Diagnostics.Process]::Start($startInfo)
     try {
         $stdoutTask = $buildProcess.StandardOutput.ReadToEndAsync()
         $stderrTask = $buildProcess.StandardError.ReadToEndAsync()
@@ -550,11 +380,14 @@ function Invoke-SmokeBuild {
             Stop-OwnedProcessTree -OwnedProcess $buildProcess
             $null = $stdoutTask.Result
             $null = $stderrTask.Result
-            return [pscustomobject]@{ Success = $false; Status = 'build_timeout' }
+            return @{
+                Success = $false
+                Status = 'build_timeout'
+            }
         }
         $null = $stdoutTask.Result
         $null = $stderrTask.Result
-        return [pscustomobject]@{
+        return @{
             Success = $buildProcess.ExitCode -eq 0
             Status = $(if ($buildProcess.ExitCode -eq 0) { 'success' } else { 'build_failed' })
         }
@@ -580,42 +413,80 @@ $useSavedAppKeyInChild = $false
 New-OcrSmokeReportContext -RepositoryRoot $repoRoot
 
 try {
-    if ($null -eq $Pdf -or $Pdf.Count -lt 1 -or $Pdf.Count -gt 2) {
+    if ($SavedKeyProbe -and $WriteReplayCache) {
         Write-SafeJson @{
             stage = 'launcher'
-            status = 'invalid_pdf_argument'
-            causeType = 'InvalidPdfArgument'
+            status = 'invalid_arguments'
+            causeType = 'InvalidArguments'
         }
         exit 2
     }
 
-    $resolvedPdfPaths = @()
-    foreach ($pdfArgument in $Pdf) {
-        $resolution = Resolve-SmokePdfPath `
-            -PdfArgument $pdfArgument `
-            -RepositoryRoot $repoRoot `
-            -AllowedRoot $allowedRoot
-        if (-not $resolution.Success) {
+    if ($WriteReplayCache) {
+        if ($null -eq $Pdf -or $Pdf.Count -ne 1) {
             Write-SafeJson @{
-                stage = $(if ($resolution.Status -eq 'invalid_pdf_argument') {
-                        'launcher'
-                    }
-                    else {
-                        'preflight'
-                    })
-                status = $resolution.Status
-                causeType = $resolution.CauseType
+                stage = 'launcher'
+                status = 'replay_cache_requires_single_pdf'
+                causeType = 'InvalidReplayCacheRequest'
             }
             exit 2
         }
-        $resolvedPdfPaths += $resolution.Path
+        if ([string]::IsNullOrWhiteSpace($CaseId)) {
+            Write-SafeJson @{
+                stage = 'launcher'
+                status = 'replay_case_id_required'
+                causeType = 'InvalidReplayCacheRequest'
+            }
+            exit 2
+        }
+        if ($CaseId -notmatch '^[A-Za-z0-9_-]+$') {
+            Write-SafeJson @{
+                stage = 'launcher'
+                status = 'invalid_replay_case_id'
+                causeType = 'InvalidReplayCaseId'
+            }
+            exit 2
+        }
+    }
+
+    $resolvedPdfPaths = @()
+    if (-not $SavedKeyProbe) {
+        if ($null -eq $Pdf -or $Pdf.Count -lt 1 -or $Pdf.Count -gt 2) {
+            Write-SafeJson @{
+                stage = 'launcher'
+                status = 'invalid_pdf_argument'
+                causeType = 'InvalidPdfArgument'
+            }
+            exit 2
+        }
+
+        foreach ($pdfArgument in $Pdf) {
+            $resolution = Resolve-SmokePdfPath `
+                -PdfArgument $pdfArgument `
+                -RepositoryRoot $repoRoot `
+                -AllowedRoot $allowedRoot
+            if (-not $resolution.Success) {
+                Write-SafeJson @{
+                    stage = $(if ($resolution.Status -eq 'invalid_pdf_argument') {
+                            'launcher'
+                        }
+                        else {
+                            'preflight'
+                        })
+                    status = $resolution.Status
+                    causeType = $resolution.CauseType
+                }
+                exit 2
+            }
+            $resolvedPdfPaths += $resolution.Path
+        }
     }
 
     $environmentApiKey = $env:SHIROHA_OCR_API_KEY
     if (-not [string]::IsNullOrWhiteSpace($environmentApiKey)) {
         $apiKey = $environmentApiKey
     }
-    elseif ($UseSavedAppKey) {
+    elseif ($UseSavedAppKey -or $SavedKeyProbe) {
         $useSavedAppKeyInChild = $true
     }
     else {
@@ -623,7 +494,7 @@ try {
         $apiKeyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureApiKey)
         $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($apiKeyPointer)
     }
-    if (-not $useSavedAppKeyInChild -and [string]::IsNullOrWhiteSpace($apiKey)) {
+    if (-not $SavedKeyProbe -and -not $useSavedAppKeyInChild -and [string]::IsNullOrWhiteSpace($apiKey)) {
         Write-SafeJson @{
             stage = 'launcher'
             status = 'missing_api_key'
@@ -684,6 +555,7 @@ try {
     $startInfo.RedirectStandardError = $true
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_SAVED_KEY_PROBE')
     if ($useSavedAppKeyInChild) {
         $startInfo.EnvironmentVariables['SHIROHA_OCR_USE_SAVED_APP_KEY'] = 'true'
     }
@@ -693,7 +565,21 @@ try {
     $startInfo.EnvironmentVariables['SHIROHA_OCR_RUN_ID'] = $script:reportRunId
     $startInfo.EnvironmentVariables['SHIROHA_OCR_BUILD_CACHE_HIT'] =
         $buildCacheHit.ToString().ToLowerInvariant()
-    $toolArguments = @()
+    $startInfo.EnvironmentVariables['SHIROHA_REPOSITORY_ROOT'] = $repoRoot
+
+    $toolArguments = @(
+        "--repository-root=$repoRoot"
+    )
+    if ($SavedKeyProbe) {
+        $startInfo.EnvironmentVariables['SHIROHA_SAVED_KEY_PROBE'] = 'true'
+        $toolArguments += '--saved-key-probe'
+    }
+    if ($WriteReplayCache) {
+        $startInfo.EnvironmentVariables['SHIROHA_WRITE_REPLAY_CACHE'] = 'true'
+        $startInfo.EnvironmentVariables['SHIROHA_REPLAY_CASE_ID'] = $CaseId
+        $toolArguments += '--write-replay-cache'
+        $toolArguments += "--case-id=$CaseId"
+    }
     foreach ($resolvedPdfPath in $resolvedPdfPaths) {
         $toolArguments += '--pdf'
         $toolArguments += $resolvedPdfPath
@@ -705,6 +591,10 @@ try {
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_RUN_ID')
     $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_BUILD_CACHE_HIT')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_WRITE_REPLAY_CACHE')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPLAY_CASE_ID')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_SAVED_KEY_PROBE')
+    $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPOSITORY_ROOT')
     if ($apiKeyPointer -ne [IntPtr]::Zero) {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($apiKeyPointer)
         $apiKeyPointer = [IntPtr]::Zero
@@ -741,10 +631,14 @@ try {
         'combined_merge',
         'report',
         'completed',
-        'failed'
+        'failed',
+        'replay_cache',
+        'credential_probe'
     )
     $lastStructuredStatus = $null
     $reportedSuccess = $false
+    $replayCacheWritten = $false
+
     foreach ($line in ($standardOutput -split "`r?`n")) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
@@ -753,6 +647,9 @@ try {
             $parsed = $line | ConvertFrom-Json -ErrorAction Stop
             if ($null -ne $parsed.stage -and $safeStages -contains [string]$parsed.stage) {
                 $lastStructuredStatus = $parsed
+                if ($parsed.stage -eq 'replay_cache' -and $parsed.status -eq 'written') {
+                    $replayCacheWritten = $true
+                }
                 if ($parsed.stage -eq 'completed' -and $parsed.status -eq 'success') {
                     $reportedSuccess = $true
                     Write-Output $line
@@ -779,7 +676,11 @@ try {
         exit $(if ($nativeExitCode -eq 0) { 1 } else { $nativeExitCode })
     }
 
-    if ($nativeExitCode -eq 0 -and -not $reportedSuccess) {
+    if ($WriteReplayCache -and -not $replayCacheWritten) {
+        exit 1
+    }
+
+    if ($nativeExitCode -eq 0 -and -not $reportedSuccess -and -not $SavedKeyProbe) {
         exit 1
     }
     exit $nativeExitCode
@@ -798,6 +699,10 @@ finally {
         $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_USE_SAVED_APP_KEY')
         $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_RUN_ID')
         $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_BUILD_CACHE_HIT')
+        $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_WRITE_REPLAY_CACHE')
+        $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPLAY_CASE_ID')
+        $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_SAVED_KEY_PROBE')
+        $null = $startInfo.EnvironmentVariables.Remove('SHIROHA_REPOSITORY_ROOT')
     }
     if ($null -ne $process) {
         try {

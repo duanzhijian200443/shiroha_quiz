@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
@@ -12,14 +13,15 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_api_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_quality_gate.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/answer_block_matcher.dart';
-import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
-import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
+
+import '../../support/unsupported_ai_engine_store.dart';
 
 void main() {
   group('Boundary Defense Tests - LocalQuestionAssembler', () {
-    test('1. region 文本包含“答案 B. 分析 ...”时，answer=B，explanation=分析正文。', () {
+    test('1. 选择题解析进入 raw provenance，最终 explanation 默认为空', () {
       const region = TextQuestionRegion(
         number: 1,
         rawText: '''
@@ -38,11 +40,12 @@ B. 选项 B
       final result = assembler.assemble(region);
 
       expect(result.question['standard_answer'], equals('B'));
-      expect(result.question['explanation'], equals('这里的分析正文非常长。'));
+      expect(result.question['explanation'], isEmpty);
+      expect(result.question['raw_explanation'], equals('这里的分析正文非常长。'));
       expect(result.question['options'], equals(['A. 选项 A', 'B. 选项 B']));
     });
 
-    test('1b. Phase 4 — 紧凑内联“答案+分析”格式：从正文行内提取 answer/explanation', () {
+    test('1b. 紧凑内联解析保留在 raw provenance', () {
       const region = TextQuestionRegion(
         number: 1,
         rawText: '1 设函数 f(x) ... (A) f(1)=0 (B) f(1)=1 答案 B. 分析 本题考查极限。',
@@ -56,9 +59,33 @@ B. 选项 B
       final result = assembler.assemble(region);
 
       expect(result.question['standard_answer'], 'B');
-      expect(result.question['explanation'], contains('本题考查'));
+      expect(result.question['explanation'], isEmpty);
+      expect(result.question['raw_explanation'], contains('本题考查'));
       expect(result.question['options'], isNotEmpty);
       expect(result.question['type'], 0);
+    });
+
+    test('hidden objective explanation does not trigger structural repair', () {
+      const region = TextQuestionRegion(
+        number: 1,
+        rawText: r'''
+1. Choice question
+A. First
+B. Second
+答案 A. 分析 Hidden broken formula \(x
+''',
+        startOffset: 0,
+        endOffset: 100,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+
+      final result = const LocalQuestionAssembler().assemble(region);
+
+      expect(result.question['explanation'], isEmpty);
+      expect(result.question['raw_explanation'], contains(r'\(x'));
+      expect(result.diagnostics, isNot(contains('dangling_latex')));
+      expect(result.repairRecommended, isFalse);
     });
 
     test('2. region 文本包含”(A)... (B)... (C)... (D)...”时，options 被正确拆出。', () {
@@ -248,13 +275,308 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.question['content'], equals('被修复后的题干'));
       expect(result.question['options'], equals(['A. 新选项A', 'B. 新选项B']));
       expect(result.question['standard_answer'], equals('A'));
-      expect(result.question['explanation'], equals(''));
+      expect(result.question['explanation'], isEmpty);
+      expect(result.question['raw_explanation'], equals('被修复后的解析'));
       expect(result.diagnostics, contains('ai_repair_applied'));
+    });
+
+    test('subjective repair preserves explanation fields', () async {
+      final mockClient = MockLlmApiClient('''
+      {
+        "question_number": 5,
+        "type": 3,
+        "content": "被修复后的主观题题干",
+        "options": [],
+        "standard_answer": "结论",
+        "explanation": "被修复后的主观题解析",
+        "raw_explanation": "原始主观题解析"
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. 原始主观题题干...',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.subjective,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.question['type'], 3);
+      expect(result.question['explanation'], '被修复后的主观题解析');
+      expect(result.question['raw_explanation'], '原始主观题解析');
+      expect(result.diagnostics, contains('ai_repair_applied'));
+    });
+
+    test('all-question-types repair preserves objective explanation fields',
+        () async {
+      final mockClient = MockLlmApiClient('''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "Repaired choice question",
+        "options": ["A. First", "B. Second"],
+        "standard_answer": "B",
+        "explanation": "Retained objective explanation",
+        "raw_explanation": "Original objective explanation"
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. Synthetic damaged choice question',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(result.question['explanation'], 'Retained objective explanation');
+      expect(
+          result.question['raw_explanation'], 'Original objective explanation');
+      expect(result.diagnostics, contains('ai_repair_applied'));
+      expect(mockClient.callCount, 1);
+    });
+
+    test('all-question-types repair rejects damaged retained explanation',
+        () async {
+      final mockClient = MockLlmApiClient(r'''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "Repaired choice question",
+        "options": ["A. First", "B. Second"],
+        "standard_answer": "B",
+        "explanation": "\\(\\begin{matrix}1\\end{pmatrix}\\)",
+        "raw_explanation": "Original objective explanation"
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. Synthetic damaged choice question',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(
+        result.diagnostics,
+        contains('repair_rejected_structural_invalid'),
+      );
+      expect(result.diagnostics, isNot(contains('ai_repair_applied')));
+      expect(mockClient.callCount, 1);
+    });
+
+    test('repair result with unresolved choice structure is rejected',
+        () async {
+      final mockClient = MockLlmApiClient('''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "结构仍不完整的题干",
+        "options": ["", "   "],
+        "standard_answer": "A",
+        "explanation": "仅返回了解析"
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. 原始破损题干...',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.question['content'], localResult.question['content']);
+      expect(result.question['type'], localResult.question['type']);
+      expect(result.question['options'], localResult.question['options']);
+      expect(
+        result.question['standard_answer'],
+        localResult.question['standard_answer'],
+      );
+      expect(
+        result.question['explanation'],
+        localResult.question['explanation'],
+      );
+      expect(
+        result.diagnostics,
+        contains('repair_rejected_structural_invalid'),
+      );
+      expect(result.diagnostics, isNot(contains('ai_repair_applied')));
+    });
+
+    test('repair result with placeholder answer is rejected', () async {
+      final mockClient = MockLlmApiClient('''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "结构完整的题干",
+        "options": ["A. 选项A", "B. 选项B"],
+        "standard_answer": "无",
+        "explanation": ""
+      }
+      ''');
+      final repairService = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. 原始破损题干...',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await repairService.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(
+        result.diagnostics,
+        contains('repair_rejected_structural_invalid'),
+      );
+      expect(result.diagnostics, isNot(contains('ai_repair_applied')));
+    });
+
+    test('repair applies only after deterministic LaTeX repair passes audit',
+        () async {
+      final mockClient = MockLlmApiClient(r'''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "Repaired content \\(\\left(x + 1\\)",
+        "options": ["A. First", "B. Second"],
+        "standard_answer": "A",
+        "explanation": ""
+      }
+      ''');
+      final service = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. Synthetic damaged question',
+        startOffset: 0,
+        endOffset: 30,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await service.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.question['content'], r'Repaired content \((x + 1\)');
+      expect(result.diagnostics, contains('ai_repair_applied'));
+      expect(
+        result.diagnostics,
+        isNot(contains('repair_rejected_structural_invalid')),
+      );
+    });
+
+    test('repair with mismatched LaTeX environment is rejected', () async {
+      final mockClient = MockLlmApiClient(r'''
+      {
+        "question_number": 5,
+        "type": 0,
+        "content": "Repaired content \\(\\begin{matrix}1\\end{pmatrix}\\)",
+        "options": ["A. First", "B. Second"],
+        "standard_answer": "A",
+        "explanation": ""
+      }
+      ''');
+      final service = SingleQuestionRepairService(
+        apiClient: mockClient,
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. Synthetic damaged question',
+        startOffset: 0,
+        endOffset: 30,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+
+      final result = await service.repair(
+        region: region,
+        localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(
+        result.diagnostics,
+        contains('repair_rejected_structural_invalid'),
+      );
+      expect(result.diagnostics, isNot(contains('ai_repair_applied')));
     });
 
     test('7. 题号变更拒绝：AI改变题号时，拒绝合并修复，追加错误诊断', () async {
@@ -288,6 +610,8 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result.diagnostics,
@@ -324,10 +648,52 @@ B. 选项B
       final result = await repairService.repair(
         region: region,
         localResult: localResult,
+        requireAnswer: true,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(
           result.diagnostics.any((d) => d.contains('repair_failed')), isTrue);
+    });
+
+    test('9. 修复异常仅保留固定错误码与异常类型，不泄露异常消息', () async {
+      const sensitiveMarker = 'SENSITIVE_PROVIDER_RESPONSE_MARKER_7F91';
+      final repairService = SingleQuestionRepairService(
+        apiClient: ThrowingLlmApiClient(
+          const FormatException(sensitiveMarker),
+        ),
+        engineRepository: MockAiEngineRepository(profile),
+      );
+      const region = TextQuestionRegion(
+        number: 5,
+        rawText: '5. 原始破损题干...',
+        startOffset: 0,
+        endOffset: 50,
+        kind: TextQuestionKind.choice,
+        health: RegionHealth.repairable,
+      );
+      final localResult = const LocalQuestionAssembler().assemble(region);
+      final printed = <String>[];
+
+      final result = await runZoned(
+        () => repairService.repair(
+          region: region,
+          localResult: localResult,
+          requireAnswer: true,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => printed.add(line),
+        ),
+      );
+
+      expect(result.diagnostics, contains('repair_failed'));
+      expect(
+          result.diagnostics, contains('repair_failure_type:FormatException'));
+      expect(jsonEncode(result.question), isNot(contains(sensitiveMarker)));
+      expect(jsonEncode(result.diagnostics), isNot(contains(sensitiveMarker)));
+      expect(printed.join(), isNot(contains(sensitiveMarker)));
+      expect(printed, isEmpty);
     });
   });
 
@@ -736,6 +1102,8 @@ B. 选项B
 
 class MockLlmApiClient extends LlmApiClient {
   final String responseText;
+  int callCount = 0;
+
   MockLlmApiClient(this.responseText);
 
   @override
@@ -749,13 +1117,35 @@ class MockLlmApiClient extends LlmApiClient {
     bool jsonResponse = false,
     Duration timeout = const Duration(minutes: 5),
   }) async {
+    callCount++;
     return responseText;
+  }
+}
+
+class ThrowingLlmApiClient extends LlmApiClient {
+  ThrowingLlmApiClient(this.error);
+
+  final Object error;
+
+  @override
+  Future<String> callText({
+    required AiEngineProfile profile,
+    required String prompt,
+    String? systemPrompt,
+    double? temperature,
+    String? reasoningEffort,
+    int maxTokens = 8192,
+    bool jsonResponse = false,
+    Duration timeout = const Duration(minutes: 5),
+  }) async {
+    throw error;
   }
 }
 
 class MockAiEngineRepository extends AiEngineRepository {
   final AiEngineProfile? profile;
-  MockAiEngineRepository(this.profile);
+  MockAiEngineRepository(this.profile)
+      : super(store: const UnsupportedAiEngineStore());
 
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async {

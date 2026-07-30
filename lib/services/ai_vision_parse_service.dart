@@ -12,11 +12,11 @@ import 'vision_asset_builder.dart';
 class AiVisionParseService {
   AiVisionParseService({
     LlmApiClient apiClient = const LlmApiClient(),
-    AiEngineRepository? engineRepository,
+    required AiEngineRepository engineRepository,
     QuestionParsePipeline parsePipeline = const QuestionParsePipeline(),
     VisionAssetBuilder assetBuilder = const VisionAssetBuilder(),
   })  : _apiClient = apiClient,
-        _engineRepository = engineRepository ?? AiEngineRepository.instance,
+        _engineRepository = engineRepository,
         _parsePipeline = parsePipeline,
         _assetBuilder = assetBuilder;
 

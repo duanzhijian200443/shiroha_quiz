@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_document_role.dart'
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
@@ -17,8 +18,10 @@ import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart'
 import 'package:shiroha_quiz/services/import_pipeline/vision_question_quality_gate.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
+import 'support/unsupported_ai_engine_store.dart';
+
 class _EngineRepository extends AiEngineRepository {
-  _EngineRepository() : super();
+  _EngineRepository() : super(store: const UnsupportedAiEngineStore());
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => const AiEngineProfile(
@@ -72,6 +75,8 @@ class _RecordingRepairService extends SingleQuestionRepairService {
   Future<LocalAssemblyResult> repair({
     required TextQuestionRegion region,
     required LocalAssemblyResult localResult,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     callCount++;
     final question = Map<String, dynamic>.from(localResult.question)
@@ -192,6 +197,7 @@ void main() {
         filePath: r'C:\private\PRIVATE_PATH.pdf',
         sourceName: 'safe.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result, isNotNull);
@@ -238,6 +244,7 @@ void main() {
         filePath: 'safe.pdf',
         sourceName: 'safe.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result!.diagnostics['documentRole'], 'stemOnly');
@@ -270,6 +277,7 @@ void main() {
         filePath: 'safe.pdf',
         sourceName: 'safe.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(repair.callCount, 1);
@@ -302,6 +310,7 @@ void main() {
         filePath: 'safe.pdf',
         sourceName: 'safe.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
       );
 
       expect(result!.diagnostics['documentRole'], 'answerBearing');
@@ -330,6 +339,7 @@ void main() {
         filePath: 'safe.pdf',
         sourceName: 'safe.pdf',
         format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       );
 
       expect(result!.diagnostics['documentRole'], 'ambiguous');
@@ -408,6 +418,7 @@ void main() {
           required filePath,
           required sourceName,
           required ImportFormat format,
+          required ExplanationRetentionMode explanationRetentionMode,
         }) async {
           ocrCalls++;
           return OcrImportResult(

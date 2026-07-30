@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/main_ocr_ui_smoke.dart';
 
 void main() {
@@ -85,18 +88,49 @@ void main() {
       expect(encoded, isNot(contains(r'C:\')));
     });
 
-    test('entrypoint configures isolated database before singleton access', () {
+    test('entrypoint explicitly composes one repository after database profile',
+        () {
       final source = File('lib/main_ocr_ui_smoke.dart').readAsStringSync();
       final configureIndex = source.indexOf(
         'DatabaseHelper.configureRuntimeProfile(',
       );
+      final helperIndex = source.indexOf('final databaseHelper =');
       final engineRepositoryIndex =
-          source.indexOf('AiEngineRepository.instance');
-      final taskManagerIndex = source.indexOf('TaskManager.instance');
+          source.indexOf('AiEngineRepository(store: databaseHelper)');
+      final taskManagerIndex = source.indexOf('final taskManager =');
 
       expect(configureIndex, greaterThanOrEqualTo(0));
+      expect(helperIndex, greaterThan(configureIndex));
       expect(engineRepositoryIndex, greaterThan(configureIndex));
-      expect(taskManagerIndex, greaterThan(configureIndex));
+      expect(taskManagerIndex, greaterThan(engineRepositoryIndex));
+      expect(source, isNot(contains('AiEngineRepository.instance')));
+    });
+
+    test(
+        'UI smoke saves and re-reads the active profile through one repository',
+        () async {
+      final store = _OcrUiSmokeMemoryStore();
+      final repository = AiEngineRepository(store: store);
+      const profile = AiEngineProfile(
+        id: 'ui-smoke-profile',
+        engineType: AiEngineType.ocr,
+        name: 'UI Smoke Profile',
+        apiKey: 'fixture-value',
+        baseUrl: 'https://example.invalid',
+        modelName: 'fixture-model',
+        temperature: 0,
+        reasoningEffort: '',
+        isActive: true,
+      );
+
+      final active = await configureOcrUiSmokeEngine(
+        repository: repository,
+        profile: profile,
+      );
+
+      expect(active, same(profile));
+      expect(store.saved, [profile]);
+      expect(store.activeId, profile.id);
     });
 
     test('PowerShell launcher bounds build and run lifecycle safely', () {
@@ -157,4 +191,40 @@ void main() {
       expect(source, isNot(contains('SetEnvironmentVariable')));
     });
   });
+}
+
+class _OcrUiSmokeMemoryStore implements AiEngineStore {
+  final List<AiEngineProfile> saved = <AiEngineProfile>[];
+  String? activeId;
+
+  @override
+  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async {
+    return saved.where((profile) => profile.engineType == type).toList();
+  }
+
+  @override
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    return saved
+        .where(
+          (profile) => profile.id == activeId && profile.engineType == type,
+        )
+        .firstOrNull;
+  }
+
+  @override
+  Future<void> saveAiEngine(AiEngineProfile profile) async {
+    saved
+      ..removeWhere((existing) => existing.id == profile.id)
+      ..add(profile);
+  }
+
+  @override
+  Future<void> setActiveAiEngine(String id, AiEngineType type) async {
+    activeId = id;
+  }
+
+  @override
+  Future<void> deleteAiEngine(String id) async {
+    saved.removeWhere((profile) => profile.id == id);
+  }
 }

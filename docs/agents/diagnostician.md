@@ -24,6 +24,48 @@ Use the smallest and safest evidence source first:
 
 Do not load an entire log directory when a traceId is available.
 
+## Content-migration stage classification
+
+For import, rich-content, review, persistence, or rendering failures, locate
+the last successful and first failed stage using this vocabulary:
+
+1. provider output;
+2. provider DTO parsing;
+3. source adapter;
+4. source normalization;
+5. question-region ownership;
+6. typed assembly;
+7. compatibility projection;
+8. review-session snapshot;
+9. persistence mapper;
+10. database read/write;
+11. renderer.
+
+The diagnosis package must answer:
+
+- whether the original structure existed at the Provider or Source boundary;
+- where type, order, provenance, or content was first lost;
+- whether the failure is source/provider corruption, application-level
+  flattening, compatibility projection loss, stale diagnostics, persistence
+  loss, or a renderer limitation;
+- the last successful stage;
+- the first failed stage.
+
+Do not assume a visible renderer or database symptom originated at that stage.
+
+## Evidence priority
+
+Prefer, in order:
+
+1. structured diagnostics;
+2. trace-filtered logs;
+3. synthetic fixture;
+4. redacted read-only Replay;
+5. focused tests.
+
+Do not run real OCR, network access, saved-key loading, a private PDF, or a
+Replay write without explicit authorization.
+
 ## Privacy
 
 Never output or copy:
@@ -77,6 +119,15 @@ Escalate to a high-capability model when the issue involves:
 - failures spanning multiple unrelated modules;
 - a fix that changes public APIs or persisted formats.
 
+Also escalate when:
+
+- model, renderer, and database ownership boundaries are unclear;
+- a persisted format must change;
+- a table, image, formula, raw fallback, or provenance is lost;
+- evidence cannot distinguish Provider corruption from application
+  flattening;
+- the fix spans multiple migration stages.
+
 ## Required output
 
 Produce a bounded diagnosis package:
@@ -92,7 +143,8 @@ Produce a bounded diagnosis package:
 9. Minimal suggested fix scope
 10. Required regression tests
 11. Risks
-12. Recommended next role:
+12. Data fidelity classification and first-loss boundary
+13. Recommended next role:
     - normal Executor;
     - high-capability Planner;
     - high-capability Executor;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/data_center_screen.dart';
+import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
 
 import 'package:shiroha_quiz/core/review_engine_service.dart';
 import '../../core/state/dashboard_notifier.dart';
@@ -121,7 +122,12 @@ class ProfilePage extends StatelessWidget {
             subtitle: '设置大模型 API Key 与基础路径',
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AiSettingsScreen()),
+                MaterialPageRoute(
+                  builder: (_) => AiSettingsScreen(
+                    engineRepository:
+                        AiDependenciesScope.of(context).engineRepository,
+                  ),
+                ),
               );
             },
           ),

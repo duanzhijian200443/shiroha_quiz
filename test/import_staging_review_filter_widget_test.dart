@@ -69,6 +69,8 @@ void main() {
 
   testWidgets('Clicking filter chip filters items',
       (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final questions = [
       {
         'content': '普通问题',

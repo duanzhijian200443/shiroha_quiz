@@ -85,11 +85,13 @@ class ImportReviewReportFormatter {
       case ImportReviewIssueCode.placeholderStem:
         return '包含 AI 占位符/假设';
       case ImportReviewIssueCode.missingAnswer:
-        return '缺失答案与解析';
+        return '缺少标准答案';
       case ImportReviewIssueCode.choiceWithoutOptions:
         return '选择题无选项';
       case ImportReviewIssueCode.choiceAnswerNotInOptions:
         return '选项不包含标准答案';
+      case ImportReviewIssueCode.choiceAnswerNeedsReview:
+        return '选择题答案格式需复核';
       case ImportReviewIssueCode.answerConflict:
         return '图文答案冲突';
       case ImportReviewIssueCode.orphanFragment:
@@ -116,6 +118,10 @@ class ImportReviewReportFormatter {
         return '题号顺序漂移';
       case ImportReviewIssueCode.lowQualityVisionParse:
         return '视觉结构质量偏低';
+      case ImportReviewIssueCode.latexUnrenderable:
+        return 'LaTeX 无法可靠渲染';
+      case ImportReviewIssueCode.rawHtmlTag:
+        return '最终字段存在 HTML 残留';
     }
   }
 
@@ -145,6 +151,10 @@ class ImportReviewReportFormatter {
         return '题号顺序漂移';
       case 'low_quality_vision_parse':
         return '视觉结构质量偏低';
+      case 'latex_unrenderable':
+        return 'LaTeX 无法可靠渲染';
+      case 'raw_html_tag':
+        return '最终字段存在 HTML 残留';
       default:
         return hint;
     }

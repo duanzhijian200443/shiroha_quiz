@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'answer_block_matcher.dart';
 import 'import_quality_gate.dart';
+import 'import_question_field_policy.dart';
 import 'local_question_assembler.dart';
 import 'single_question_repair_service.dart';
 import 'text_question_regionizer.dart';
@@ -120,6 +121,8 @@ class DocxTextFirstParseService {
         assembly = await _repairService.repair(
           region: enrichedRegion,
           localResult: assembly,
+          requireAnswer: true,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
         );
       }
 

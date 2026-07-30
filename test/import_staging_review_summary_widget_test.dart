@@ -50,13 +50,14 @@ void main() {
 
     testWidgets('Validates before save with low score',
         (WidgetTester tester) async {
-      final questions = [
-        {
-          'content': '无题干', // Error
+      final questions = List.generate(
+        3,
+        (i) => {
+          'content': '题干 ${i + 1}',
           'type': 2,
-          'standard_answer': '', // Error
+          'standard_answer': '',
         },
-      ];
+      );
 
       await tester.pumpWidget(MaterialApp(
         home: ImportStagingScreen(
@@ -67,7 +68,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap the save button
-      await tester.tap(find.textContaining('确认无误，将 1 题收入题库'));
+      await tester.tap(find.textContaining('确认无误，将 3 题收入题库'));
       await tester.pumpAndSettle();
 
       // Verify the warning dialog popped up

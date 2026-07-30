@@ -1,22 +1,38 @@
 import 'package:flutter/material.dart';
+
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
-import 'ai_engine_management_screen.dart';
+import 'ai_settings_screen.dart';
 import 'knowledge_base_screen.dart';
+import 'wrong_book_page.dart';
+
+typedef ProfileHeatmapLoader = Future<Map<DateTime, int>> Function();
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({
+    super.key,
+    required this.engineRepository,
+    this.heatmapLoader,
+  });
+
+  final AiEngineRepository engineRepository;
+  final ProfileHeatmapLoader? heatmapLoader;
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _textEngineName = '未配置';
-  String _visionEngineName = '未配置';
-  String _ocrEngineName = '未配置';
-  Map<DateTime, int> _heatmapData = {};
+  static const Color _pageBackground = Color(0xFFF4F7FB);
+  static const Color _primaryText = Color(0xFF17233D);
+  static const Color _secondaryText = Color(0xFF73809A);
+  static const Color _brandBlue = Color(0xFF4C6ED7);
+  static const Color _iconBackground = Color(0xFFEEF3FF);
+  static const Color _divider = Color(0xFFE8EEF7);
+
+  Map<DateTime, int> _heatmapData = const {};
   int _totalReviewed = 0;
   bool _isLoading = true;
 
@@ -27,332 +43,400 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
     try {
-      final textEngine =
-          await AiEngineRepository.instance.getActiveTextEngine();
-      final visionEngine =
-          await AiEngineRepository.instance.getActiveVisionEngine();
-      final ocrEngine = await AiEngineRepository.instance.getActiveOcrEngine();
-      final heatmap = await QuestionRepository.instance.getHeatmapData();
+      final heatmap = await (widget.heatmapLoader?.call() ??
+          QuestionRepository.instance.getHeatmapData());
+      final total = heatmap.values.fold<int>(0, (sum, value) => sum + value);
 
-      int total = 0;
-      heatmap.forEach((k, v) => total += v);
-
+      if (!mounted) return;
+      setState(() {
+        _heatmapData = heatmap;
+        _totalReviewed = total;
+        _isLoading = false;
+      });
+    } catch (error) {
+      debugPrint('Profile data load failed: ${error.runtimeType}');
       if (mounted) {
-        setState(() {
-          _textEngineName = textEngine?.name ?? '点击去配置';
-          _visionEngineName = visionEngine?.name ?? '点击去配置';
-          _ocrEngineName = ocrEngine?.name ?? '点击去配置';
-          _heatmapData = heatmap;
-          _totalReviewed = total;
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
-    } catch (e) {
-      debugPrint('Profile 数据加载失败: $e');
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // 核心算法：手工 GitHub 极客热力图
+  Future<void> _setTheme(String themeName) async {
+    globalThemeNotifier.value = themeName;
+    await SettingsRepository.instance.setAppTheme(themeName);
+  }
+
+  void _push(Widget page) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
   Widget _buildHeatmap(ThemeData theme) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    // 往前推 83 天
     final startDate = today.subtract(const Duration(days: 83));
-
-    List<Widget> columns = [];
-    for (int w = 0; w < 12; w++) {
-      List<Widget> cells = [];
-      for (int d = 0; d < 7; d++) {
-        final currentDate = startDate.add(Duration(days: w * 7 + d));
-        final count = _heatmapData[currentDate] ?? 0;
-
-        // 动态色彩映射：根据刷题量加深主题色透明度
-        Color cellColor;
-        if (count == 0) {
-          cellColor = theme.brightness == Brightness.dark
-              ? Colors.white10
-              : Colors.black.withValues(alpha: 0.05);
-        } else if (count < 10) {
-          cellColor = theme.primaryColor.withValues(alpha: 0.3);
-        } else if (count < 30) {
-          cellColor = theme.primaryColor.withValues(alpha: 0.6);
-        } else if (count < 60) {
-          cellColor = theme.primaryColor.withValues(alpha: 0.8);
-        } else {
-          cellColor = theme.primaryColor;
-        }
-
-        cells.add(Container(
-          width: 14,
-          height: 14,
-          margin: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-              color: cellColor, borderRadius: BorderRadius.circular(3)),
-        ));
-      }
-      columns.add(Column(children: cells));
-    }
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: columns,
+      children: List<Widget>.generate(12, (week) {
+        return Column(
+          children: List<Widget>.generate(7, (day) {
+            final currentDate = startDate.add(Duration(days: week * 7 + day));
+            final count = _heatmapData[currentDate] ?? 0;
+
+            final Color cellColor;
+            if (count == 0) {
+              cellColor = theme.brightness == Brightness.dark
+                  ? Colors.white10
+                  : const Color(0xFFE9EEF6);
+            } else if (count < 10) {
+              cellColor = theme.primaryColor.withValues(alpha: 0.3);
+            } else if (count < 30) {
+              cellColor = theme.primaryColor.withValues(alpha: 0.6);
+            } else if (count < 60) {
+              cellColor = theme.primaryColor.withValues(alpha: 0.8);
+            } else {
+              cellColor = theme.primaryColor;
+            }
+
+            return Padding(
+              padding: const EdgeInsets.all(1.5),
+              child: Container(
+                key: ValueKey<String>('profile-heatmap-cell-$week-$day'),
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: cellColor,
+                  borderRadius: BorderRadius.circular(2.5),
+                ),
+              ),
+            );
+          }),
+        );
+      }),
+    );
+  }
+
+  Widget _buildOverviewCard(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryText = isDark ? Colors.white : _primaryText;
+    final secondaryText = isDark ? Colors.white60 : _secondaryText;
+
+    return _SurfaceCard(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const CircleAvatar(
+                  radius: 27,
+                  backgroundColor: Color(0xFFE8EEFC),
+                  child: Icon(
+                    Icons.face_retouching_natural,
+                    size: 31,
+                    color: _brandBlue,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Shiroha 学员',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: primaryText,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '累计完成 $_totalReviewed 道题',
+                        style: TextStyle(
+                          color: secondaryText,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '最近 12 周学习记录',
+              style: TextStyle(
+                color: secondaryText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(child: _buildHeatmap(theme)),
+          ],
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: isDark ? theme.scaffoldBackgroundColor : _pageBackground,
       appBar: AppBar(
-          title: const Text('我的控制台',
-              style: TextStyle(fontWeight: FontWeight.bold))),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16.0),
-              children: [
-                // 1. 极客名片与热力墙
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                          color: Colors.grey.withValues(alpha: 0.1))),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            const CircleAvatar(
-                                radius: 30,
-                                backgroundColor: Color(0xFFE0E5F9),
-                                child: Icon(Icons.face_retouching_natural,
-                                    size: 35, color: Color(0xFF4C6ED7))),
-                            const SizedBox(width: 16),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Shiroha 学员',
-                                    style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 4),
-                                Text('累计消灭 $_totalReviewed 道题',
-                                    style: const TextStyle(
-                                        color: Colors.grey, fontSize: 13)),
-                              ],
-                            )
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('最近 12 周记忆热力图',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.bold))),
-                        const SizedBox(height: 12),
-                        _buildHeatmap(theme),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // 2. RAG 专属知识库管理
-                const Padding(
-                    padding: EdgeInsets.only(left: 8, bottom: 8),
-                    child: Text('知识引擎',
-                        style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold))),
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                          color: Colors.grey.withValues(alpha: 0.1))),
-                  child: ListTile(
-                    leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                            color: Colors.blueAccent,
-                            borderRadius: BorderRadius.circular(8)),
-                        child: const Icon(Icons.auto_stories,
-                            color: Colors.white)),
-                    title: const Text('管理 RAG 专属知识库',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: const Text('导入私有笔记，AI 出题绝对零幻觉',
-                        style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                        size: 14, color: Colors.grey),
-                    onTap: () {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const KnowledgeBaseScreen()));
-                    },
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // 3. AI 引擎配置栏
-                const Padding(
-                    padding: EdgeInsets.only(left: 8, bottom: 8),
-                    child: Text('AI 分布式核心配置',
-                        style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold))),
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                          color: Colors.grey.withValues(alpha: 0.1))),
-                  child: Column(
+        centerTitle: true,
+        title: const Text(
+          '我的',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                children: [
+                  _buildOverviewCard(theme),
+                  const SizedBox(height: 24),
+                  const _SectionTitle('学习记录'),
+                  const SizedBox(height: 8),
+                  _SettingsCard(
                     children: [
-                      ListTile(
-                        leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(8)),
-                            child: const Icon(Icons.text_fields_rounded,
-                                color: Colors.blueAccent)),
-                        title: const Text('文本与逻辑中枢',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(_textEngineName,
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.blueAccent)),
-                        trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                            size: 14, color: Colors.grey),
-                        onTap: () {
-                          Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const AiEngineManagementScreen(
-                                              engineType: 'text')))
-                              .then((_) => _loadData());
-                        },
-                      ),
-                      const Divider(height: 1, indent: 64),
-                      ListTile(
-                        leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                                color: Colors.orange.shade50,
-                                borderRadius: BorderRadius.circular(8)),
-                            child: const Icon(Icons.remove_red_eye_rounded,
-                                color: Colors.orangeAccent)),
-                        title: const Text('视觉与多模态矩阵',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(_visionEngineName,
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.orange)),
-                        trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                            size: 14, color: Colors.grey),
-                        onTap: () {
-                          Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const AiEngineManagementScreen(
-                                              engineType: 'vision')))
-                              .then((_) => _loadData());
-                        },
-                      ),
-                      const Divider(height: 1, indent: 64),
-                      ListTile(
-                        leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                                color: Colors.teal.shade50,
-                                borderRadius: BorderRadius.circular(8)),
-                            child: const Icon(Icons.document_scanner_rounded,
-                                color: Colors.teal)),
-                        title: const Text('文档 OCR 解析引擎',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(_ocrEngineName,
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.teal)),
-                        trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                            size: 14, color: Colors.grey),
-                        onTap: () {
-                          Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const AiEngineManagementScreen(
-                                              engineType: 'ocr')))
-                              .then((_) => _loadData());
-                        },
+                      _SettingsRow(
+                        key: const ValueKey<String>('profile-wrong-book-row'),
+                        icon: Icons.assignment_late_outlined,
+                        title: '错题记录',
+                        subtitle: '集中查看练习与考试中的错题',
+                        onTap: () => _push(const WrongBookPage()),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 32),
-
-                // 3. 个性化装扮
-                const Padding(
-                    padding: EdgeInsets.only(left: 8, bottom: 8),
-                    child: Text('个性化装扮',
-                        style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold))),
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                          color: Colors.grey.withValues(alpha: 0.1))),
-                  child: ValueListenableBuilder<String>(
-                    valueListenable: globalThemeNotifier,
-                    builder: (context, currentTheme, child) {
-                      return ListTile(
-                        leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                                color: Colors.purple.shade50,
-                                borderRadius: BorderRadius.circular(8)),
-                            child: const Icon(Icons.palette_rounded,
-                                color: Colors.purpleAccent)),
-                        title: const Text('界面皮肤引擎',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        trailing: DropdownButton<String>(
-                          value: currentTheme,
-                          underline: const SizedBox(),
-                          icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                              color: Colors.purpleAccent),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'light', child: Text('极简白板 / 日间')),
-                            DropdownMenuItem(
-                                value: 'dark', child: Text('深空极客 / 暗黑')),
-                          ],
-                          onChanged: (value) async {
-                            if (value != null) {
-                              globalThemeNotifier.value = value;
-                              await SettingsRepository.instance
-                                  .setAppTheme(value);
-                            }
-                          },
+                  const SizedBox(height: 24),
+                  const _SectionTitle('AI 与知识库'),
+                  const SizedBox(height: 8),
+                  _SettingsCard(
+                    children: [
+                      _SettingsRow(
+                        key: const ValueKey<String>(
+                            'profile-knowledge-base-row'),
+                        icon: Icons.auto_stories_outlined,
+                        title: '我的知识库',
+                        subtitle: '管理个人笔记与学习资料',
+                        onTap: () => _push(const KnowledgeBaseScreen()),
+                      ),
+                      _SettingsRow(
+                        key: const ValueKey<String>('profile-ai-service-row'),
+                        icon: Icons.smart_toy_outlined,
+                        title: 'AI 服务',
+                        subtitle: '文本解答、图片理解与文档识别',
+                        onTap: () => _push(
+                          AiSettingsScreen(
+                            engineRepository: widget.engineRepository,
+                          ),
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  const _SectionTitle('设置与数据'),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<String>(
+                    valueListenable: globalThemeNotifier,
+                    builder: (context, currentTheme, _) {
+                      final isDarkTheme = currentTheme == 'dark';
+                      return _SettingsCard(
+                        children: [
+                          _SettingsRow(
+                            key: const ValueKey<String>(
+                              'profile-appearance-row',
+                            ),
+                            icon: Icons.palette_outlined,
+                            title: '外观设置',
+                            subtitle: isDarkTheme ? '深色模式' : '浅色模式',
+                            trailing: Switch(
+                              key: const ValueKey<String>(
+                                'profile-appearance-switch',
+                              ),
+                              value: isDarkTheme,
+                              activeTrackColor: _brandBlue,
+                              onChanged: (value) =>
+                                  _setTheme(value ? 'dark' : 'light'),
+                            ),
+                            onTap: () =>
+                                _setTheme(isDarkTheme ? 'light' : 'dark'),
+                          ),
+                        ],
                       );
                     },
                   ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: isDark ? Colors.white70 : _ProfileScreenState._secondaryText,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _SurfaceCard extends StatelessWidget {
+  const _SurfaceCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFE9EEF6),
+        ),
+        boxShadow: isDark
+            ? const []
+            : [
+                BoxShadow(
+                  color: const Color(0xFF375078).withValues(alpha: 0.06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
                 ),
               ],
-            ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SurfaceCard(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Column(
+          children: [
+            for (var index = 0; index < children.length; index++) ...[
+              if (index > 0)
+                const Divider(
+                  height: 1,
+                  thickness: 1,
+                  indent: 64,
+                  color: _ProfileScreenState._divider,
+                ),
+              children[index],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ListTile(
+      minVerticalPadding: 10,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      leading: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: isDark
+              ? _ProfileScreenState._brandBlue.withValues(alpha: 0.18)
+              : _ProfileScreenState._iconBackground,
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Icon(
+          icon,
+          color: isDark
+              ? Theme.of(context).colorScheme.primary
+              : _ProfileScreenState._brandBlue,
+          size: 21,
+        ),
+      ),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: isDark ? Colors.white : _ProfileScreenState._primaryText,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: Text(
+          subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: isDark ? Colors.white60 : _ProfileScreenState._secondaryText,
+            fontSize: 12,
+            height: 1.3,
+          ),
+        ),
+      ),
+      trailing: trailing ??
+          Icon(
+            Icons.chevron_right_rounded,
+            color: isDark ? Colors.white38 : const Color(0xFFA5AFC0),
+          ),
+      onTap: onTap,
     );
   }
 }

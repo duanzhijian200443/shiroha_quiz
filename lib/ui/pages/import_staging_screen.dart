@@ -1,10 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
+import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
+import '../../services/import_pipeline/import_question_field_policy.dart';
+import '../../services/import_pipeline/subjective_answer_distillation_policy.dart';
+import '../../services/import_pipeline/subjective_answer_distillation_service.dart';
+import '../../services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
+import '../../services/import_pipeline/subjective_answer_expectation.dart';
+import '../../services/import_pipeline/subjective_answer_extractor.dart';
 import '../../services/import_review/import_review_analyzer.dart';
+import '../../services/import_review/import_review_blocking_policy.dart';
 import '../../services/import_review/import_review_item.dart';
 import '../../services/import_review/import_review_issue.dart';
 import '../../services/import_review/import_review_badge_formatter.dart';
@@ -16,6 +26,7 @@ import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
 
 class ImportStagingScreen extends StatefulWidget {
@@ -25,6 +36,9 @@ class ImportStagingScreen extends StatefulWidget {
   final Map<String, dynamic>? diagnostics;
   final QuestionRepository? questionRepository;
   final ImportCommitService? commitService;
+  final SubjectiveAnswerDistiller? answerDistiller;
+  final TaskManager? taskManager;
+  final ExplanationRetentionMode initialExplanationRetentionMode;
 
   const ImportStagingScreen({
     super.key,
@@ -34,6 +48,10 @@ class ImportStagingScreen extends StatefulWidget {
     this.diagnostics,
     this.questionRepository,
     this.commitService,
+    this.answerDistiller,
+    this.taskManager,
+    this.initialExplanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   });
 
   @override
@@ -41,6 +59,15 @@ class ImportStagingScreen extends StatefulWidget {
 }
 
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
+  static const _explanationOverrideKey = '_explanation_override';
+  static const _safeSnapshotProvenanceKeys = {
+    'q_num',
+    'question_number',
+    'source_page_indices',
+    'source_block_ids',
+    '_import_diagnostics',
+  };
+
   late List<ImportReviewItem> _allItems;
   late List<ImportReviewVisibleItem> _visibleItems;
   late List<String> _importDiagnostics;
@@ -51,6 +78,22 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   bool _isSaving = false;
   bool _selectionMode = false;
   final Set<int> _selectedOriginalIndices = {};
+  late ExplanationRetentionMode _explanationRetentionMode;
+  final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
+  final Map<int, String> _answerDistillationStatuses = {};
+  final Map<int, String> _answerDistillationReasons = {};
+  final Map<int, String> _reviewItemIds = {};
+  final Map<int, Map<String, dynamic>> _snapshotProvenance = {};
+  Future<void> _reviewDraftOperationTail = Future<void>.value();
+  final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
+      const SubjectiveAnswerDistillationPolicy();
+  SubjectiveAnswerDistiller? _answerDistiller;
+  bool _isDistillingAnswers = false;
+  bool _answerDistillationCancellationRequested = false;
+  int _answerDistillationOperationId = 0;
+  int _answerDistillationCompletedCount = 0;
+  int _answerDistillationTotalCount = 0;
+  int? _activeAnswerDistillationIndex;
 
   String? get _traceId {
     final value =
@@ -64,19 +107,27 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       widget.questionRepository ?? QuestionRepository.instance;
   late final ImportCommitService _commitService = widget.commitService ??
       ImportCommitService(questionRepository: _questionRepository);
+  late final TaskManager _taskManager =
+      widget.taskManager ?? TaskManager.instance;
   List<String> _existingFolders = [];
 
-  bool get _isBlockedByQualityGate {
-    final gate = widget.diagnostics?['qualityGate'];
-    return gate is Map && gate['blocked'] == true;
+  bool get _isBlockedByQualityGate =>
+      ImportReviewBlockingPolicy.isBlocked(_reviewResult);
+
+  bool get _isStemOnlyDocument =>
+      widget.diagnostics?['documentRole']?.toString() == 'stemOnly';
+
+  SubjectiveAnswerDistiller get _resolvedAnswerDistiller {
+    return _answerDistiller ??= widget.answerDistiller ??
+        SubjectiveAnswerDistillationService(
+          engineRepository: AiDependenciesScope.of(context).engineRepository,
+        );
   }
 
   String? get _qualityGateReason {
-    final gate = widget.diagnostics?['qualityGate'];
-    if (gate is! Map) return null;
-    if (gate['blocked'] != true) return null;
-    final reason = gate['reason'];
-    if (reason is String && reason.trim().isNotEmpty) return reason.trim();
+    if (ImportReviewBlockingPolicy.isBlocked(_reviewResult)) {
+      return '题目结构错误，请修正或删除后再入库';
+    }
     return null;
   }
 
@@ -96,6 +147,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
+    _explanationRetentionMode = widget.initialExplanationRetentionMode;
     final messages = ImportDiagnosticFormatter.format(
       warnings: widget.warnings,
       diagnostics: widget.diagnostics,
@@ -113,13 +165,48 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               ))
           .toList();
     }
+    final historicalGateMessage = _historicalQualityGateMessage();
+    if (historicalGateMessage != null) {
+      _diagnosticMessages = [
+        ..._diagnosticMessages,
+        historicalGateMessage,
+      ];
+    }
     _allItems = widget.parsedQuestions
         .asMap()
         .entries
         .map((e) => ImportReviewItem.fromMap(e.value, e.key))
         .toList();
+    final snapshotNormalizationNeeded =
+        _restoreReviewDraftMarkers(widget.parsedQuestions);
+    final extractedLocally = _applyLocalSubjectiveAnswers();
+    _reapplyExplanationPolicy();
     _refreshReviewState();
     _loadExistingFolders();
+    if (extractedLocally || snapshotNormalizationNeeded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_persistReviewDraft());
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _answerDistillationCancellationRequested = true;
+    _answerDistillationOperationId++;
+    super.dispose();
+  }
+
+  ImportDiagnosticMessage? _historicalQualityGateMessage() {
+    final gate = widget.diagnostics?['qualityGate'];
+    if (gate is! Map || gate['blocked'] != true) return null;
+    return ImportDiagnosticMessage(
+      severity: ImportDiagnosticSeverity.warning,
+      title: '初始质量门禁',
+      message: '初始解析曾被质量门禁标记为阻断；最终门禁以当前校对结果为准。',
+      source: 'quality_gate',
+      code: 'HISTORICAL_GATE_BLOCKED',
+    );
   }
 
   List<String> _readImportDiagnostics(List<Map<String, dynamic>> questions) {
@@ -319,10 +406,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   void _applyBatchResult(List<ImportReviewItem> nextItems) {
     setState(() {
       _allItems = nextItems;
+      _reapplyExplanationPolicy();
       _selectedOriginalIndices.clear();
       _selectionMode = false;
       _refreshReviewState();
     });
+    unawaited(_persistReviewDraft());
   }
 
   void _deleteSelectedWithConfirm() {
@@ -510,6 +599,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         questions: _allItems.map((item) => item.draft).toList(),
         taskId: widget.taskId,
         diagnostics: widget.diagnostics ?? const <String, dynamic>{},
+        explanationRetentionMode: _explanationRetentionMode,
+        explanationOverrides: _allItems
+            .map(
+              (item) =>
+                  _explanationOverrides[item.originalIndex] ??
+                  QuestionExplanationOverride.inherit,
+            )
+            .toList(growable: false),
       );
 
       // 触发全局题库刷新事件
@@ -571,6 +668,460 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   void _refreshReviewState() {
     _reviewResult = ImportReviewAnalyzer.analyzeItems(_allItems);
     _refreshVisibleItems();
+  }
+
+  bool _restoreReviewDraftMarkers(List<Map<String, dynamic>> questions) {
+    var normalizationNeeded = false;
+    for (var index = 0; index < questions.length; index++) {
+      final source = questions[index];
+      _snapshotProvenance[index] = <String, dynamic>{
+        for (final key in _safeSnapshotProvenanceKeys)
+          if (source.containsKey(key)) key: source[key],
+      };
+      final storedItemId = source[TaskManager.keyReviewItemId]?.toString();
+      _reviewItemIds[index] = storedItemId ??
+          '${widget.taskId ?? 'local'}:${source['question_number'] ?? source['q_num'] ?? 'unknown'}:$index';
+      normalizationNeeded |= storedItemId == null;
+      final override = questions[index][_explanationOverrideKey]?.toString();
+      for (final value in QuestionExplanationOverride.values) {
+        if (value.name == override) {
+          _explanationOverrides[index] = value;
+          break;
+        }
+      }
+      final status = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
+        questions[index][TaskManager.keyAnswerDistillationStatus],
+      );
+      if (status != null) {
+        _answerDistillationStatuses[index] = status;
+      }
+      final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+        status: status,
+        value: questions[index][TaskManager.keyAnswerDistillationReason],
+      );
+      if (reason != null) {
+        _answerDistillationReasons[index] = reason;
+      }
+    }
+    return normalizationNeeded;
+  }
+
+  bool _applyLocalSubjectiveAnswers() {
+    if (_isStemOnlyDocument) return false;
+    const extractor = SubjectiveAnswerExtractor();
+    const expectationPolicy = SubjectiveAnswerExpectationPolicy();
+    var changed = false;
+
+    for (var index = 0; index < _allItems.length; index++) {
+      final item = _allItems[index];
+      final question = item.draft;
+      if (question.type != QuestionType.shortAnswer) continue;
+
+      final expectation = expectationPolicy.classify(question);
+      if (expectation == SubjectiveAnswerExpectation.proofExplanation &&
+          question.explanation.trim().isNotEmpty) {
+        if (_answerDistillationStatuses[item.originalIndex] !=
+            'proof_explanation_recognized') {
+          _answerDistillationStatuses[item.originalIndex] =
+              'proof_explanation_recognized';
+          _answerDistillationReasons.remove(item.originalIndex);
+          changed = true;
+        }
+        continue;
+      }
+
+      final result = extractor.extract(
+        questionNumber: item.originalIndex + 1,
+        content: question.content,
+        standardAnswer: question.standardAnswer,
+        explanation: question.explanation,
+      );
+      if (!result.matched || result.answer == null) continue;
+
+      _allItems[index] = item.copyWith(
+        draft: question.copyWith(standardAnswer: result.answer),
+      );
+      _answerDistillationStatuses[item.originalIndex] = 'local_extracted';
+      _answerDistillationReasons.remove(item.originalIndex);
+      changed = true;
+    }
+    return changed;
+  }
+
+  Future<T> _enqueueReviewDraftOperation<T>(Future<T> Function() operation) {
+    final completer = Completer<T>();
+    _reviewDraftOperationTail = _reviewDraftOperationTail.then((_) async {
+      try {
+        completer.complete(await operation());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<ReviewDraftSaveResult?> _persistReviewDraft() {
+    final taskId = widget.taskId;
+    if (taskId == null || taskId.trim().isEmpty) {
+      return Future<ReviewDraftSaveResult?>.value();
+    }
+
+    return _enqueueReviewDraftOperation(() async {
+      final questions = _allItems.map((item) {
+        final question = <String, dynamic>{
+          ...?_snapshotProvenance[item.originalIndex],
+          ...item.draft.toMap(),
+          '_import_review': item.metadata.toMap(),
+          TaskManager.keyReviewItemId: _reviewItemIds[item.originalIndex],
+          _explanationOverrideKey: (_explanationOverrides[item.originalIndex] ??
+                  QuestionExplanationOverride.inherit)
+              .name,
+        };
+        final status =
+            SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
+          _answerDistillationStatuses[item.originalIndex],
+        );
+        if (status != null) {
+          question[TaskManager.keyAnswerDistillationStatus] = status;
+        }
+        final reason =
+            SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+          status: status,
+          value: _answerDistillationReasons[item.originalIndex],
+        );
+        if (reason != null) {
+          question[TaskManager.keyAnswerDistillationReason] = reason;
+        }
+        return question;
+      }).toList(growable: false);
+
+      final result = await _taskManager.saveReviewDraft(
+        taskId,
+        questions: questions,
+        explanationRetentionMode: _explanationRetentionMode,
+      );
+      if (!result.saved && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('校对结果尚未保存，请重试')),
+        );
+      }
+      return result;
+    });
+  }
+
+  List<ImportReviewItem> get _answerDistillationCandidates {
+    return _allItems
+        .where(
+          (item) => _answerDistillationPolicy.isCandidate(
+            item.draft,
+            isStemOnly: _isStemOnlyDocument,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  bool _isAnswerDistillationCandidate(ImportReviewItem item) {
+    return _answerDistillationPolicy.isCandidate(
+      item.draft,
+      isStemOnly: _isStemOnlyDocument,
+    );
+  }
+
+  Future<SubjectiveAnswerDistillationResult> _distillAnswer(
+    ImportReviewItem item, {
+    required Duration timeout,
+  }) async {
+    try {
+      return await _resolvedAnswerDistiller.distill(
+        questionNumber: item.originalIndex + 1,
+        question: item.draft,
+        isStemOnly: _isStemOnlyDocument,
+        timeout: timeout,
+      );
+    } catch (error) {
+      return SubjectiveAnswerDistillationResult.failed(
+        diagnostics: [
+          'answer_distillation_failed',
+          'answer_distillation_failure_type:${error.runtimeType}',
+        ],
+      );
+    }
+  }
+
+  bool _applyDistillationResult(
+    int originalIndex,
+    SubjectiveAnswerDistillationResult result,
+  ) {
+    final answer = result.standardAnswer?.trim();
+    if (result.applied && (answer == null || answer.isEmpty)) return false;
+
+    final itemIndex = _allItems.indexWhere(
+      (item) => item.originalIndex == originalIndex,
+    );
+    if (itemIndex < 0) return false;
+    if (result.applied) {
+      final current = _allItems[itemIndex];
+      _allItems[itemIndex] = current.copyWith(
+        draft: current.draft.copyWith(standardAnswer: answer),
+      );
+      _answerDistillationReasons.remove(originalIndex);
+    } else {
+      final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
+        status: result.snapshotStatus,
+        value: result.safeReasonCode,
+      );
+      if (reason == null) {
+        _answerDistillationReasons.remove(originalIndex);
+      } else {
+        _answerDistillationReasons[originalIndex] = reason;
+      }
+    }
+    _answerDistillationStatuses[originalIndex] = result.snapshotStatus;
+    return true;
+  }
+
+  Future<bool> _mergeDistillationResult(
+    ImportReviewItem item,
+    SubjectiveAnswerDistillationResult result, {
+    required int? expectedRevision,
+  }) async {
+    final answer = result.standardAnswer?.trim();
+    if (result.applied && (answer == null || answer.isEmpty)) return false;
+
+    final taskId = widget.taskId;
+    if (taskId == null || taskId.trim().isEmpty) {
+      if (!mounted) return false;
+      return _applyDistillationResult(item.originalIndex, result);
+    }
+    if (expectedRevision == null) return false;
+
+    return _enqueueReviewDraftOperation(() async {
+      final saveResult = await _taskManager.mergeReviewDraftAnswerDistillation(
+        taskId,
+        reviewItemId: _reviewItemIds[item.originalIndex]!,
+        expectedRevision: expectedRevision,
+        standardAnswer: result.applied ? answer : null,
+        status: result.snapshotStatus,
+        reasonCode: result.safeReasonCode,
+      );
+      if (!saveResult.saved) {
+        if (mounted && saveResult.status == ReviewDraftSaveStatus.failed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('答案已生成，但校对快照保存失败')),
+          );
+        }
+        return false;
+      }
+      return _applyDistillationResult(item.originalIndex, result);
+    });
+  }
+
+  Future<void> _distillSingleAnswer(ImportReviewItem item) async {
+    if (_isDistillingAnswers || !_isAnswerDistillationCandidate(item)) return;
+    final operationId = ++_answerDistillationOperationId;
+    setState(() {
+      _isDistillingAnswers = true;
+      _answerDistillationCancellationRequested = false;
+      _answerDistillationCompletedCount = 0;
+      _answerDistillationTotalCount = 1;
+      _activeAnswerDistillationIndex = item.originalIndex;
+    });
+
+    final baseSnapshot = await _persistReviewDraft();
+    if (widget.taskId != null && baseSnapshot?.saved != true) {
+      if (!mounted || operationId != _answerDistillationOperationId) return;
+      setState(() {
+        _isDistillingAnswers = false;
+        _activeAnswerDistillationIndex = null;
+      });
+      return;
+    }
+    final result = await _distillAnswer(
+      item,
+      timeout: const Duration(seconds: 30),
+    );
+    if (mounted && operationId != _answerDistillationOperationId) return;
+
+    final recorded = await _mergeDistillationResult(
+      item,
+      result,
+      expectedRevision: baseSnapshot?.revision,
+    );
+    if (!mounted || operationId != _answerDistillationOperationId) return;
+    setState(() {
+      _answerDistillationCompletedCount = 1;
+      _isDistillingAnswers = false;
+      _activeAnswerDistillationIndex = null;
+      if (recorded && result.applied) _refreshReviewState();
+    });
+    _showAnswerDistillationOutcome(
+      single: true,
+      appliedCount: recorded && result.applied ? 1 : 0,
+      rejectedCount: recorded &&
+              result.outcome == SubjectiveAnswerDistillationOutcome.rejected
+          ? 1
+          : 0,
+      failedCount: !recorded ||
+              result.outcome == SubjectiveAnswerDistillationOutcome.failed
+          ? 1
+          : 0,
+    );
+  }
+
+  Future<void> _distillAllAnswers() async {
+    if (_isDistillingAnswers) return;
+    final candidates = _answerDistillationCandidates;
+    if (candidates.isEmpty) return;
+
+    final operationId = ++_answerDistillationOperationId;
+    final stopwatch = Stopwatch()..start();
+    var appliedCount = 0;
+    var rejectedCount = 0;
+    var failedCount = 0;
+    setState(() {
+      _isDistillingAnswers = true;
+      _answerDistillationCancellationRequested = false;
+      _answerDistillationCompletedCount = 0;
+      _answerDistillationTotalCount = candidates.length;
+      _activeAnswerDistillationIndex = null;
+    });
+
+    for (var index = 0; index < candidates.length; index++) {
+      if (_answerDistillationCancellationRequested) break;
+      final remaining = const Duration(seconds: 90) - stopwatch.elapsed;
+      if (remaining <= Duration.zero) break;
+      final timeout = remaining.compareTo(const Duration(seconds: 30)) < 0
+          ? remaining
+          : const Duration(seconds: 30);
+      final candidate = candidates[index];
+      if (!mounted || operationId != _answerDistillationOperationId) return;
+      setState(() {
+        _activeAnswerDistillationIndex = candidate.originalIndex;
+      });
+
+      final baseSnapshot = await _persistReviewDraft();
+      if (widget.taskId != null && baseSnapshot?.saved != true) break;
+      final result = await _distillAnswer(candidate, timeout: timeout);
+      if (mounted && operationId != _answerDistillationOperationId) return;
+      final recorded = await _mergeDistillationResult(
+        candidate,
+        result,
+        expectedRevision: baseSnapshot?.revision,
+      );
+      if (recorded) {
+        switch (result.outcome) {
+          case SubjectiveAnswerDistillationOutcome.applied:
+            appliedCount++;
+            break;
+          case SubjectiveAnswerDistillationOutcome.rejected:
+            rejectedCount++;
+            break;
+          case SubjectiveAnswerDistillationOutcome.failed:
+            failedCount++;
+            break;
+        }
+      } else {
+        failedCount++;
+      }
+      if (!mounted || operationId != _answerDistillationOperationId) return;
+      setState(() {
+        _answerDistillationCompletedCount = index + 1;
+        if (recorded && result.applied) _refreshReviewState();
+      });
+      if (_answerDistillationCancellationRequested) break;
+    }
+    stopwatch.stop();
+    if (!mounted || operationId != _answerDistillationOperationId) return;
+    final cancelled = _answerDistillationCancellationRequested;
+    setState(() {
+      _isDistillingAnswers = false;
+      _activeAnswerDistillationIndex = null;
+    });
+    _showAnswerDistillationOutcome(
+      cancelled: cancelled,
+      appliedCount: appliedCount,
+      rejectedCount: rejectedCount,
+      failedCount: failedCount,
+    );
+  }
+
+  void _cancelAnswerDistillation() {
+    if (!_isDistillingAnswers) return;
+    setState(() {
+      _answerDistillationCancellationRequested = true;
+    });
+  }
+
+  void _showAnswerDistillationOutcome({
+    required int appliedCount,
+    required int rejectedCount,
+    required int failedCount,
+    bool cancelled = false,
+    bool single = false,
+  }) {
+    if (!mounted) return;
+    final message = cancelled
+        ? '已停止生成：补全 $appliedCount 道，未提炼 $rejectedCount 道，失败 $failedCount 道'
+        : single && appliedCount == 1
+            ? '标准答案已生成'
+            : single && rejectedCount == 1
+                ? '解析中未找到可安全提炼的明确答案'
+                : single && failedCount == 1
+                    ? '标准答案生成失败，可重试'
+                    : '处理完成：补全 $appliedCount 道，未提炼 $rejectedCount 道，失败 $failedCount 道';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  void _reapplyExplanationPolicy() {
+    _allItems = _allItems.map((item) {
+      final question = <String, dynamic>{
+        ...item.draft.toMap(),
+        '_import_review': item.metadata.toMap(),
+      };
+      final finalized = finalizeAndAuditImportQuestion(
+        question,
+        mode: _explanationRetentionMode,
+        override: _explanationOverrides[item.originalIndex] ??
+            QuestionExplanationOverride.inherit,
+      );
+      return ImportReviewItem.fromMap(finalized, item.originalIndex);
+    }).toList();
+  }
+
+  void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {
+    setState(() {
+      _explanationRetentionMode = retainObjectiveExplanations
+          ? ExplanationRetentionMode.allQuestionTypes
+          : ExplanationRetentionMode.subjectiveOnly;
+      _reapplyExplanationPolicy();
+      _refreshReviewState();
+    });
+    unawaited(_persistReviewDraft());
+  }
+
+  void _setQuestionExplanationRetention(
+    ImportReviewItem item,
+    bool retain,
+  ) {
+    setState(() {
+      _explanationOverrides[item.originalIndex] = retain
+          ? QuestionExplanationOverride.keep
+          : QuestionExplanationOverride.discard;
+      _reapplyExplanationPolicy();
+      _refreshReviewState();
+    });
+    unawaited(_persistReviewDraft());
+  }
+
+  bool _isQuestionExplanationRetained(ImportReviewItem item) {
+    return const ImportQuestionFieldPolicy().shouldRetainExplanation(
+      type: item.draft.type.code,
+      mode: _explanationRetentionMode,
+      override: _explanationOverrides[item.originalIndex] ??
+          QuestionExplanationOverride.inherit,
+    );
   }
 
   void _refreshVisibleItems() {
@@ -901,6 +1452,80 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  Widget _buildExplanationRetentionControl() {
+    return SwitchListTile.adaptive(
+      key: const ValueKey('objective-explanation-document-switch'),
+      value: _explanationRetentionMode ==
+          ExplanationRetentionMode.allQuestionTypes,
+      onChanged: _setDocumentExplanationRetention,
+      title: const Text(
+        '同时导入选择题、填空题解析',
+        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+      ),
+      subtitle: const Text(
+        '开启后会保留详细解析，但可能增加校对问题和 AI 处理时间。',
+        style: TextStyle(fontSize: 12),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+    );
+  }
+
+  Widget _buildAnswerDistillationControl() {
+    final candidateCount = _answerDistillationCandidates.length;
+    if (candidateCount == 0 && !_isDistillingAnswers) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: theme.primaryColor.withValues(alpha: 0.05),
+      child: Row(
+        children: [
+          Icon(Icons.auto_awesome_outlined,
+              size: 20, color: theme.primaryColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isDistillingAnswers
+                      ? '正在生成答案 $_answerDistillationCompletedCount/$_answerDistillationTotalCount'
+                      : '可用解析补全 $candidateCount 道主观题标准答案',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Text(
+                  '仅依据已有解析提取简洁答案，不会重新解题。',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (_isDistillingAnswers)
+            TextButton(
+              key: const ValueKey('answer-distillation-cancel'),
+              onPressed: _answerDistillationCancellationRequested
+                  ? null
+                  : _cancelAnswerDistillation,
+              child: const Text('停止生成'),
+            )
+          else
+            FilledButton(
+              key: const ValueKey('answer-distillation-batch'),
+              onPressed: _distillAllAnswers,
+              child: Text('补全 $candidateCount 道'),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -949,6 +1574,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             _buildDiagnosticBanner(),
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
+          _buildExplanationRetentionControl(),
+          _buildAnswerDistillationControl(),
           const Divider(height: 1),
           _buildSummaryBar(),
           const Divider(height: 1),
@@ -1021,6 +1648,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                     it.originalIndex == item.originalIndex);
                                 _refreshReviewState();
                               });
+                              unawaited(_persistReviewDraft());
                             },
                             child: Row(
                               children: [
@@ -1041,6 +1669,32 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       item: item,
                                       index: visibleItem.canonicalIndex,
                                       issues: visibleItem.issues,
+                                      explanationRetained:
+                                          _isQuestionExplanationRetained(item),
+                                      onExplanationRetentionChanged:
+                                          _selectionMode
+                                              ? null
+                                              : (retain) =>
+                                                  _setQuestionExplanationRetention(
+                                                    item,
+                                                    retain,
+                                                  ),
+                                      answerDistillationCandidate:
+                                          _isAnswerDistillationCandidate(item),
+                                      answerDistillationStatus:
+                                          _answerDistillationStatuses[
+                                              item.originalIndex],
+                                      proofExplanationRecognized:
+                                          _answerDistillationStatuses[
+                                                  item.originalIndex] ==
+                                              'proof_explanation_recognized',
+                                      answerDistillationInProgress:
+                                          _activeAnswerDistillationIndex ==
+                                              item.originalIndex,
+                                      onAnswerDistillation: _selectionMode ||
+                                              _isDistillingAnswers
+                                          ? null
+                                          : () => _distillSingleAnswer(item),
                                     ),
                                   ),
                                 ),
@@ -1428,11 +2082,25 @@ class _QuestionCard extends StatelessWidget {
     required this.item,
     required this.index,
     required this.issues,
+    required this.explanationRetained,
+    required this.onExplanationRetentionChanged,
+    required this.answerDistillationCandidate,
+    required this.answerDistillationStatus,
+    required this.proofExplanationRecognized,
+    required this.answerDistillationInProgress,
+    required this.onAnswerDistillation,
   });
 
   final ImportReviewItem item;
   final int index;
   final List<ImportReviewIssue> issues;
+  final bool explanationRetained;
+  final ValueChanged<bool>? onExplanationRetentionChanged;
+  final bool answerDistillationCandidate;
+  final String? answerDistillationStatus;
+  final bool proofExplanationRecognized;
+  final bool answerDistillationInProgress;
+  final VoidCallback? onAnswerDistillation;
 
   @override
   Widget build(BuildContext context) {
@@ -1507,6 +2175,92 @@ class _QuestionCard extends StatelessWidget {
             if (issues.isNotEmpty) ...[
               const SizedBox(height: 8),
               _IssueSummary(issues: issues),
+            ],
+            if (item.metadata.repairCandidateCodes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Chip(
+                key: ValueKey(
+                  'question-repair-candidate-${item.originalIndex}',
+                ),
+                avatar: const Icon(Icons.auto_fix_high, size: 16),
+                label: const Text('需要结构修复'),
+              ),
+            ],
+            if (answerDistillationCandidate) ...[
+              const SizedBox(height: 8),
+              if (answerDistillationStatus == 'ai_rejected' ||
+                  answerDistillationStatus == 'ai_failed') ...[
+                Chip(
+                  key: ValueKey(
+                    'answer-distillation-status-${item.originalIndex}',
+                  ),
+                  avatar: Icon(
+                    answerDistillationStatus == 'ai_failed'
+                        ? Icons.error_outline
+                        : Icons.info_outline,
+                    size: 16,
+                  ),
+                  label: Text(
+                    answerDistillationStatus == 'ai_failed'
+                        ? '生成失败，可重试'
+                        : '未找到可安全提炼的答案',
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
+              OutlinedButton.icon(
+                key: ValueKey(
+                  'answer-distillation-single-${item.originalIndex}',
+                ),
+                onPressed: onAnswerDistillation,
+                icon: answerDistillationInProgress
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_awesome_outlined, size: 16),
+                label: Text(
+                  answerDistillationInProgress ? '正在生成答案' : '生成标准答案',
+                ),
+              ),
+            ],
+            if (proofExplanationRecognized) ...[
+              const SizedBox(height: 8),
+              const Chip(
+                avatar: Icon(Icons.verified_outlined, size: 16),
+                label: Text('证明过程已识别'),
+              ),
+            ],
+            if ((question.type == QuestionType.singleChoice ||
+                    question.type == QuestionType.fillBlank) &&
+                (question.rawExplanation?.trim().isNotEmpty ?? false)) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  FilterChip(
+                    key: ValueKey(
+                      'question-explanation-keep-${item.originalIndex}',
+                    ),
+                    label: const Text('保留解析'),
+                    selected: explanationRetained,
+                    onSelected: onExplanationRetentionChanged == null
+                        ? null
+                        : (_) => onExplanationRetentionChanged!(true),
+                  ),
+                  FilterChip(
+                    key: ValueKey(
+                      'question-explanation-discard-${item.originalIndex}',
+                    ),
+                    label: const Text('忽略解析'),
+                    selected: !explanationRetained,
+                    onSelected: onExplanationRetentionChanged == null
+                        ? null
+                        : (_) => onExplanationRetentionChanged!(false),
+                  ),
+                ],
+              ),
             ],
             const SizedBox(height: 12),
             _buildMarkdown(context, question.content),

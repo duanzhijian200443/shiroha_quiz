@@ -6,6 +6,7 @@ enum ImportReviewIssueCode {
   missingAnswer,
   choiceWithoutOptions,
   choiceAnswerNotInOptions,
+  choiceAnswerNeedsReview,
 
   // A2 Fusion Metadata Issues
   answerConflict,
@@ -21,6 +22,8 @@ enum ImportReviewIssueCode {
   duplicateQuestionNumber,
   questionNumberDrift,
   lowQualityVisionParse,
+  latexUnrenderable,
+  rawHtmlTag,
 }
 
 class ImportReviewIssue {

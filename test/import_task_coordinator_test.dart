@@ -5,10 +5,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_failure_classifier.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -188,6 +190,464 @@ void main() {
     expect(task.parsedData, hasLength(1));
   });
 
+  test('persists and restores the request explanation retention mode',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async {
+        expect(
+          request.explanationRetentionMode,
+          ExplanationRetentionMode.allQuestionTypes,
+        );
+        return ImportParseResult(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': 'Synthetic explanation',
+            },
+          ],
+          explanationRetentionMode: request.explanationRetentionMode,
+        );
+      },
+      taskIdFactory: () => 'task-retention',
+      traceIdFactory: () => 'trace-retention',
+    );
+
+    final handle = await coordinator.dispatchRequest(
+      sourceDescription: 'fixture.pdf',
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+      mode: ImportParseMode.ocr,
+      maxConcurrency: 1,
+      explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (candidate) => candidate.status == TaskStatus.pendingReview,
+    );
+    final restored = ImportTask.fromMap(task.toMap());
+
+    expect(
+      task.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      task.diagnostics?[TaskManager.keyExplanationRetentionMode],
+      ExplanationRetentionMode.allQuestionTypes.name,
+    );
+    expect(
+      restored.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+  });
+
+  test(
+      'independent OCR batch creates all tasks first and starts parses concurrently',
+      () async {
+    var taskIndex = 0;
+    var traceIndex = 0;
+    var activeParses = 0;
+    var maxActiveParses = 0;
+    var allTasksVisibleAtFirstStart = false;
+    final starts = <int>[];
+    final allStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'batch-task-${taskIndex++}',
+      traceIdFactory: () => 'batch-trace-${traceIndex++}',
+      batchIdFactory: () => 'batch-fixture',
+    );
+
+    Future<ImportParseResult> parseItem(int index, String taskId) async {
+      starts.add(index);
+      if (starts.length == 4) {
+        allStarted.complete();
+      }
+      activeParses++;
+      maxActiveParses =
+          activeParses > maxActiveParses ? activeParses : maxActiveParses;
+      if (index == 0) {
+        allTasksVisibleAtFirstStart = manager.tasks.length == 4;
+      }
+      try {
+        if (index == 0) {
+          await releaseFirst.future;
+        }
+        if (index == 1) {
+          throw StateError('synthetic batch failure');
+        }
+        return ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '${index + 1}',
+              'type': 0,
+              'content': 'Synthetic question ${index + 1}',
+              'options': const <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': '',
+            },
+          ],
+        );
+      } finally {
+        activeParses--;
+      }
+    }
+
+    final batch = await coordinator.dispatchIndependentBatch(
+      items: List<ImportTaskBatchItem>.generate(
+        4,
+        (index) => ImportTaskBatchItem(
+          sourceDescription: index < 2 ? 'same.pdf' : 'file-$index.pdf',
+          mode: ImportParseMode.ocr,
+          parse: (taskId) => parseItem(index, taskId),
+        ),
+      ),
+    );
+
+    expect(batch.batchId, 'batch-fixture');
+    expect(batch.tasks.map((handle) => handle.taskId), <String>[
+      'batch-task-0',
+      'batch-task-1',
+      'batch-task-2',
+      'batch-task-3',
+    ]);
+    expect(manager.tasks.map((task) => task.id), <String>[
+      'batch-task-0',
+      'batch-task-1',
+      'batch-task-2',
+      'batch-task-3',
+    ]);
+    expect(
+      manager.tasks.map((task) => task.selectionIndex),
+      <int?>[0, 1, 2, 3],
+    );
+    expect(
+      manager.tasks.map((task) => task.batchId).toSet(),
+      <String?>{'batch-fixture'},
+    );
+    expect(
+      batch.tasks.map((handle) => handle.traceId).toSet(),
+      hasLength(4),
+    );
+
+    await allStarted.future;
+    releaseFirst.complete();
+    for (final handle in batch.tasks) {
+      await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status != TaskStatus.processing,
+      );
+    }
+
+    expect(allTasksVisibleAtFirstStart, isTrue);
+    expect(starts, <int>[0, 1, 2, 3]);
+    expect(maxActiveParses, greaterThan(1));
+    expect(
+      manager.tasks.map((task) => task.status),
+      <TaskStatus>[
+        TaskStatus.pendingReview,
+        TaskStatus.error,
+        TaskStatus.pendingReview,
+        TaskStatus.pendingReview,
+      ],
+    );
+    expect(
+      manager.tasks.map((task) => task.selectionIndex),
+      <int?>[0, 1, 2, 3],
+    );
+    expect(
+      manager.tasks.map((task) => task.batchId).toSet(),
+      <String?>{'batch-fixture'},
+    );
+  });
+
+  test('cancelled old attempt cannot overwrite a successful retry', () async {
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'retry-same-task',
+      traceIdFactory: () => 'retry-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-attempt-${attemptIndex++}',
+    );
+
+    final firstHandle = await coordinator.dispatch(
+      sourceDescription: 'same.pdf',
+      mode: ImportParseMode.ocr,
+      parse: (_) async {
+        firstStarted.complete();
+        await releaseFirst.future;
+        return const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'content': 'Synthetic first attempt',
+              'standard_answer': 'A',
+            },
+          ],
+        );
+      },
+    );
+    await firstStarted.future;
+    expect(
+      await coordinator.cancelOcrTask(firstHandle.taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+
+    final secondHandle = await coordinator.retryOcrTask(
+      taskId: firstHandle.taskId,
+      sourceDescription: 'same.pdf',
+      parse: (_) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '2',
+            'content': 'Synthetic second attempt',
+            'standard_answer': 'B',
+          },
+        ],
+      ),
+    );
+    final retried = await _waitForTask(
+      manager,
+      firstHandle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    expect(secondHandle.taskId, firstHandle.taskId);
+    expect(secondHandle.attemptNumber, 2);
+    expect(secondHandle.traceId, isNot(firstHandle.traceId));
+    expect(secondHandle.attemptToken, isNot(firstHandle.attemptToken));
+    expect(retried.attemptState, ImportAttemptState.readyForReview);
+    expect(retried.parsedData?.single['q_num'], '2');
+
+    releaseFirst.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final afterOldReturn = manager.tasks.single;
+    expect(afterOldReturn.attemptNumber, 2);
+    expect(afterOldReturn.traceId, secondHandle.traceId);
+    expect(afterOldReturn.attemptToken, secondHandle.attemptToken);
+    expect(afterOldReturn.status, TaskStatus.pendingReview);
+    expect(afterOldReturn.parsedData?.single['q_num'], '2');
+  });
+
+  test('retry request rebuilds OCR parsing from newly selected files',
+      () async {
+    const sensitiveSelectedPath = r'C:\synthetic-private\replacement.pdf';
+    final capturedRequest = Completer<ImportParseRequest>();
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    manager.tasks.add(
+      ImportTask(
+        id: 'retry-request-task',
+        title: 'Synthetic original task',
+        status: TaskStatus.error,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-request-old-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyExplanationRetentionMode: 'allQuestionTypes',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-request-old-attempt',
+          TaskManager.keyAttemptState: 'failed',
+        },
+      ),
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async {
+        capturedRequest.complete(request);
+        return const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'content': 'Synthetic replacement question',
+              'standard_answer': 'A',
+            },
+          ],
+          explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+        );
+      },
+      traceIdFactory: () => 'retry-request-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-request-attempt-${attemptIndex++}',
+    );
+
+    final handle = await coordinator.retryOcrRequest(
+      taskId: 'retry-request-task',
+      filePaths: const <String>[sensitiveSelectedPath],
+      fileNames: const <String>['replacement.pdf'],
+    );
+    final request = await capturedRequest.future;
+
+    expect(handle.taskId, 'retry-request-task');
+    expect(handle.attemptNumber, 2);
+    expect(handle.traceId, isNot('retry-request-old-trace'));
+    expect(handle.attemptToken, isNot('retry-request-old-attempt'));
+    expect(request.taskId, 'retry-request-task');
+    expect(request.mode, ImportParseMode.ocr);
+    expect(request.filePaths, const <String>[sensitiveSelectedPath]);
+    expect(request.fileNames, const <String>['replacement.pdf']);
+    expect(request.maxConcurrency, 1);
+    expect(
+      request.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      jsonEncode(manager.tasks.single.diagnostics),
+      isNot(contains(sensitiveSelectedPath)),
+    );
+  });
+
+  test('retry request rejects invalid selection before changing attempt',
+      () async {
+    manager.tasks.add(
+      ImportTask(
+        id: 'retry-invalid-selection',
+        title: 'Synthetic invalid retry',
+        status: TaskStatus.error,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-invalid-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-invalid-attempt',
+          TaskManager.keyAttemptState: 'failed',
+        },
+      ),
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (_) async => fail('parser must not run'),
+    );
+
+    await expectLater(
+      coordinator.retryOcrRequest(
+        taskId: 'retry-invalid-selection',
+        filePaths: const <String>['unsupported.txt'],
+        fileNames: const <String>['unsupported.txt'],
+      ),
+      throwsA(isA<ImportTaskRetryRejectedException>()),
+    );
+
+    final task = manager.tasks.single;
+    expect(task.attemptNumber, 1);
+    expect(task.traceId, 'retry-invalid-trace');
+    expect(task.attemptToken, 'retry-invalid-attempt');
+    expect(task.attemptState, ImportAttemptState.failed);
+  });
+
+  test('retry request requires a parser before changing attempt', () async {
+    manager.tasks.add(
+      ImportTask(
+        id: 'retry-missing-parser',
+        title: 'Synthetic missing parser',
+        status: TaskStatus.error,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-missing-parser-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-missing-parser-attempt',
+          TaskManager.keyAttemptState: 'failed',
+        },
+      ),
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+    );
+
+    await expectLater(
+      coordinator.retryOcrRequest(
+        taskId: 'retry-missing-parser',
+        filePaths: const <String>['replacement.pdf'],
+        fileNames: const <String>['replacement.pdf'],
+      ),
+      throwsA(isA<ImportTaskCoordinatorDependencyException>()),
+    );
+
+    expect(manager.tasks.single.attemptNumber, 1);
+    expect(manager.tasks.single.attemptState, ImportAttemptState.failed);
+  });
+
+  for (final mode in <ImportParseMode>[
+    ImportParseMode.vision,
+    ImportParseMode.text,
+  ]) {
+    test('independent ${mode.name} batch keeps the existing serial runner',
+        () async {
+      var taskIndex = 0;
+      var traceIndex = 0;
+      final firstStarted = Completer<void>();
+      final secondStarted = Completer<void>();
+      final releaseFirst = Completer<void>();
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => '${mode.name}-task-${taskIndex++}',
+        traceIdFactory: () => '${mode.name}-trace-${traceIndex++}',
+        batchIdFactory: () => '${mode.name}-batch',
+      );
+
+      Future<ImportParseResult> parseItem(int index) async {
+        if (index == 0) {
+          firstStarted.complete();
+          await releaseFirst.future;
+        } else if (index == 1) {
+          secondStarted.complete();
+        }
+        return ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '${index + 1}',
+              'type': 0,
+              'content': 'Synthetic question ${index + 1}',
+              'options': const <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': '',
+            },
+          ],
+        );
+      }
+
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: List<ImportTaskBatchItem>.generate(
+          3,
+          (index) => ImportTaskBatchItem(
+            sourceDescription: '${mode.name}-$index.pdf',
+            mode: mode,
+            parse: (_) => parseItem(index),
+          ),
+        ),
+      );
+
+      await firstStarted.future;
+      expect(manager.tasks, hasLength(3));
+      expect(secondStarted.isCompleted, isFalse);
+
+      releaseFirst.complete();
+      await secondStarted.future;
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+    });
+  }
+
   test('empty result persists only allowlisted failure diagnostics', () async {
     final coordinator = ImportTaskCoordinator(
       taskManager: manager,
@@ -350,7 +810,9 @@ void main() {
       ocrParser: (
               {required filePath,
               required sourceName,
-              required format}) async =>
+              required format,
+              required ExplanationRetentionMode
+                  explanationRetentionMode}) async =>
           throw StateError(_sensitiveFailureText),
     );
     final coordinator = ImportTaskCoordinator(

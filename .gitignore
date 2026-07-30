@@ -48,4 +48,6 @@ app.*.map.json
 .gemini/
 /scratch/test_pdfs/
 scratch/ocr_reports/
+scratch/ocr_replay/
+scratch/import_acceptance/
 /scratch/review_diff.txt
