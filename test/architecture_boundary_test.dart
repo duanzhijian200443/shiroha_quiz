@@ -97,6 +97,25 @@ final _rules = <LayerBoundaryRule>[
   ),
 ];
 
+final _domainDirectivePattern =
+    RegExp(r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''');
+
+const _forbiddenDomainUris = <String>{
+  'dart:io',
+  'dart:ui',
+};
+
+const _forbiddenDomainPackagePrefixes = <String>[
+  'package:flutter/',
+  'package:http/',
+  'package:provider/',
+  'package:sqflite/',
+  'package:sqflite_common_ffi/',
+];
+
+final _forbiddenProjectLayerPattern =
+    RegExp(r'(?:^|/)(?:core|data|services|ui)(?:/|$)');
+
 void main() {
   group('architecture boundaries', () {
     test('UI and services do not access SQLite directly', () {
@@ -134,7 +153,52 @@ void main() {
             'Architecture boundary violations found:\n${violations.join('\n\n')}',
       );
     });
+
+    test('domain stays independent from platform and infrastructure layers',
+        () {
+      final violations = <LayerBoundaryViolation>[];
+
+      for (final file in _dartFilesUnder('lib/domain')) {
+        final normalizedPath = _normalizePath(file.path);
+        final lines = file.readAsLinesSync();
+
+        for (var index = 0; index < lines.length; index++) {
+          final source = lines[index];
+          final match = _domainDirectivePattern.firstMatch(source);
+          if (match == null) continue;
+
+          final uri = match.group(1)!;
+          if (!_isForbiddenDomainUri(uri)) continue;
+
+          violations.add(
+            LayerBoundaryViolation(
+              ruleName: 'domain-dependency-boundary',
+              path: normalizedPath,
+              line: index + 1,
+              source: source.trim(),
+              reason:
+                  'Domain code must not depend on platform, infrastructure, '
+                  'provider, persistence, service, or UI libraries.',
+            ),
+          );
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason: 'Domain boundary violations found:\n${violations.join('\n\n')}',
+      );
+    });
   });
+}
+
+bool _isForbiddenDomainUri(String uri) {
+  if (_forbiddenDomainUris.contains(uri)) return true;
+  if (_forbiddenDomainPackagePrefixes.any(uri.startsWith)) return true;
+
+  final normalizedUri = _normalizePath(uri);
+  return _forbiddenProjectLayerPattern.hasMatch(normalizedUri);
 }
 
 Iterable<File> _dartFilesUnder(String rootPath) {
