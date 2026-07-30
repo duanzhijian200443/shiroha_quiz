@@ -120,6 +120,37 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     Navigator.pop(context);
   }
 
+  Future<void> _dispatchIndependentBackgroundTasks(
+    List<ImportTaskBatchItem> items,
+  ) async {
+    final testDispatcher = widget.taskDispatcher;
+    if (testDispatcher != null) {
+      for (final item in items) {
+        testDispatcher(
+          item.sourceDescription,
+          (taskId) async => (await item.parse(taskId)).questions,
+        );
+      }
+      return;
+    }
+
+    final coordinator = ImportTaskCoordinator(
+      onReadyForReview: (sourceDescription) {
+        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
+          content: Text('$sourceDescription 解析完成，请前往传输中心校对入库'),
+          backgroundColor: Colors.orange,
+        ));
+      },
+    );
+    await coordinator.dispatchIndependentBatch(items: items);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('🚀 任务已派发！请在首页左上角“传输中心”查看实时进度。'),
+        backgroundColor: Colors.blueAccent));
+    Navigator.pop(context);
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     if (_selectedMode == ImportParseMode.text) return;
 
@@ -185,22 +216,53 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       return;
     }
 
-    // 如果是单文件，显示其名称；多文件则显示“多文件合并导入”
-    final String sourceDesc = result.files.length == 1
-        ? result.files.first.name
-        : '多文件自动拼合 (${result.files.length}个)';
+    final isAllPdfBatch = result.files.length > 1 &&
+        result.files.every((file) => _fileExtension(file) == 'pdf');
 
-    await _dispatchBackgroundTask(sourceDesc, (taskId) async {
-      final request = ImportParseRequest(
-        filePaths: result.files.map((e) => e.path!).toList(),
-        fileNames: result.files.map((e) => e.name).toList(),
-        mode: selectedMode,
-        maxConcurrency: maxConcurrency,
-        taskId: taskId,
-        explanationRetentionMode: explanationRetentionMode,
-      );
-      return _parseRequest(request);
-    }, mode: selectedMode, explanationRetentionMode: explanationRetentionMode);
+    if (isAllPdfBatch) {
+      final items = result.files
+          .map(
+            (file) => ImportTaskBatchItem(
+              sourceDescription: file.name,
+              mode: selectedMode,
+              explanationRetentionMode: explanationRetentionMode,
+              parse: (taskId) => _parseRequest(
+                ImportParseRequest(
+                  filePaths: <String>[file.path!],
+                  fileNames: <String>[file.name],
+                  mode: selectedMode,
+                  maxConcurrency: maxConcurrency,
+                  taskId: taskId,
+                  explanationRetentionMode: explanationRetentionMode,
+                ),
+              ),
+            ),
+          )
+          .toList(growable: false);
+
+      await _dispatchIndependentBackgroundTasks(items);
+      return;
+    }
+
+    final sourceDescription = result.files.length == 1
+        ? result.files.single.name
+        : '${result.files.first.name} 等 ${result.files.length} 个文件';
+
+    await _dispatchBackgroundTask(
+      sourceDescription,
+      (taskId) async => _parseRequest(
+        ImportParseRequest(
+          filePaths: result.files.map((file) => file.path!).toList(),
+          fileNames: result.files.map((file) => file.name).toList(),
+          mode: selectedMode,
+          maxConcurrency: maxConcurrency,
+          taskId: taskId,
+          explanationRetentionMode: explanationRetentionMode,
+        ),
+      ),
+      mode: selectedMode,
+      explanationRetentionMode: explanationRetentionMode,
+    );
   }
 
   bool _isFileCompatible(PlatformFile file, ImportParseMode mode) {

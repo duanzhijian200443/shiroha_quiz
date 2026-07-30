@@ -447,6 +447,183 @@ void main() {
     expect(find.textContaining('notes.txt'), findsOneWidget);
   });
 
+  testWidgets(
+      'multi-file selection dispatches one single-file request per file in selection order',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'first.pdf', path: 'first.pdf', size: 0),
+          PlatformFile(name: 'same.pdf', path: 'second.pdf', size: 0),
+          PlatformFile(name: 'same.pdf', path: 'third.pdf', size: 0),
+          PlatformFile(name: 'fourth.pdf', path: 'fourth.pdf', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(
+        sources, <String>['first.pdf', 'same.pdf', 'same.pdf', 'fourth.pdf']);
+    expect(requests, hasLength(4));
+    expect(
+      requests.map((request) => request.filePaths.single),
+      <String>['first.pdf', 'second.pdf', 'third.pdf', 'fourth.pdf'],
+    );
+    expect(
+      requests.map((request) => request.fileNames.single),
+      <String>['first.pdf', 'same.pdf', 'same.pdf', 'fourth.pdf'],
+    );
+    expect(
+      requests.map((request) => request.taskId),
+      <String>[
+        'settings-task-0',
+        'settings-task-1',
+        'settings-task-2',
+        'settings-task-3',
+      ],
+    );
+    expect(requests.every((request) => request.filePaths.length == 1), isTrue);
+    expect(
+      sources.any((source) => source.contains('多文件自动拼合')),
+      isFalse,
+    );
+  });
+
+  testWidgets('multi-image selection dispatches one single aggregated request',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'img1.png', path: 'img1.png', size: 0),
+          PlatformFile(name: 'img2.png', path: 'img2.png', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(sources, <String>['img1.png 等 2 个文件']);
+    expect(requests, hasLength(1));
+    expect(requests.single.filePaths, <String>['img1.png', 'img2.png']);
+    expect(requests.single.fileNames, <String>['img1.png', 'img2.png']);
+    expect(requests.single.taskId, 'settings-task-0');
+  });
+
+  testWidgets('multi-text selection dispatches one single aggregated request',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'notes1.txt', path: 'notes1.txt', size: 0),
+          PlatformFile(name: 'notes2.md', path: 'notes2.md', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(find.text('文本（最快）'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(sources, <String>['notes1.txt 等 2 个文件']);
+    expect(requests, hasLength(1));
+    expect(requests.single.filePaths, <String>['notes1.txt', 'notes2.md']);
+    expect(requests.single.fileNames, <String>['notes1.txt', 'notes2.md']);
+  });
+
+  testWidgets(
+      'mixed PDF and image selection dispatches one single aggregated request',
+      (tester) async {
+    final sources = <String>[];
+    final requests = <ImportParseRequest>[];
+    var dispatchedTaskIndex = 0;
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        pickFiles: () async => FilePickerResult(<PlatformFile>[
+          PlatformFile(name: 'paper.pdf', path: 'paper.pdf', size: 0),
+          PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
+        ]),
+        requestParser: (request) async {
+          requests.add(request);
+          return ImportParseResult(
+            questions: const <Map<String, dynamic>>[],
+            explanationRetentionMode: request.explanationRetentionMode,
+          );
+        },
+        taskDispatcher: (source, parseTask) {
+          sources.add(source);
+          unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
+        },
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-file-button')),
+    );
+    await tester.pump();
+
+    expect(sources, <String>['paper.pdf 等 2 个文件']);
+    expect(requests, hasLength(1));
+    expect(requests.single.filePaths, <String>['paper.pdf', 'photo.png']);
+    expect(requests.single.fileNames, <String>['paper.pdf', 'photo.png']);
+  });
+
   testWidgets('text mode rejects images without changing the selected mode',
       (tester) async {
     var dispatchCalls = 0;
