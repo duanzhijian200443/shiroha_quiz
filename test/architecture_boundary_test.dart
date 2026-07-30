@@ -116,6 +116,27 @@ const _forbiddenDomainPackagePrefixes = <String>[
 final _forbiddenProjectLayerPattern =
     RegExp(r'(?:^|/)(?:core|data|services|ui)(?:/|$)');
 
+const _r1bDomainValueObjectPaths = <String>[
+  'lib/domain/source/source_ref.dart',
+  'lib/domain/assets/asset_ref.dart',
+  'lib/domain/import/import_issue.dart',
+];
+
+const _forbiddenR1bApiNames = <String>[
+  'path',
+  'uri',
+  'url',
+  'base64',
+  'bytes',
+  'rawText',
+  'message',
+  'exception',
+  'stackTrace',
+  'diagnostics',
+  'providerResponse',
+  'questionIndex',
+];
+
 void main() {
   group('architecture boundaries', () {
     test('UI and services do not access SQLite directly', () {
@@ -188,6 +209,54 @@ void main() {
         violations,
         isEmpty,
         reason: 'Domain boundary violations found:\n${violations.join('\n\n')}',
+      );
+    });
+
+    test('R1B value objects expose no content or locator payload API', () {
+      final violations = <LayerBoundaryViolation>[];
+
+      for (final path in _r1bDomainValueObjectPaths) {
+        final file = File(path);
+        if (!file.existsSync()) {
+          violations.add(
+            LayerBoundaryViolation(
+              ruleName: 'r1b-safe-api-boundary',
+              path: path,
+              line: 0,
+              source: '<missing>',
+              reason: 'Required R1B domain value object is missing.',
+            ),
+          );
+          continue;
+        }
+
+        final lines = file.readAsLinesSync();
+        for (var index = 0; index < lines.length; index++) {
+          final source = lines[index];
+          for (final name in _forbiddenR1bApiNames) {
+            if (!RegExp('\\b${RegExp.escape(name)}\\b').hasMatch(source)) {
+              continue;
+            }
+            violations.add(
+              LayerBoundaryViolation(
+                ruleName: 'r1b-safe-api-boundary',
+                path: path,
+                line: index + 1,
+                source: source.trim(),
+                reason:
+                    'R1B domain value objects must not expose unsafe payload '
+                    'or locator fields.',
+              ),
+            );
+          }
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'Unsafe R1B API declarations found:\n${violations.join('\n\n')}',
       );
     });
   });
