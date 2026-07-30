@@ -8,6 +8,8 @@ import '../../data/models/question_identity.dart';
 import '../task_manager.dart';
 import 'import_attempt_context.dart';
 import 'import_failure_classifier.dart';
+import 'import_file_detector.dart';
+import 'import_format.dart';
 import 'import_parse_request.dart';
 import 'import_parse_result.dart';
 import 'import_question_field_policy.dart';
@@ -380,6 +382,61 @@ class ImportTaskCoordinator {
       attemptToken: attempt.attemptToken,
     );
     return persistence;
+  }
+
+  Future<ImportTaskHandle> retryOcrRequest({
+    required String taskId,
+    required List<String> filePaths,
+    required List<String> fileNames,
+  }) async {
+    final parser = _parser;
+    if (parser == null) {
+      throw const ImportTaskCoordinatorDependencyException();
+    }
+    if (filePaths.isEmpty || filePaths.length != fileNames.length) {
+      throw const ImportTaskRetryRejectedException();
+    }
+
+    final selectedPaths =
+        filePaths.map((path) => path.trim()).toList(growable: false);
+    final selectedNames = fileNames
+        .map((name) => p.basename(name.trim()))
+        .toList(growable: false);
+    if (selectedPaths.any((path) => path.isEmpty) ||
+        selectedNames.any((name) => name.isEmpty) ||
+        selectedPaths.any((path) {
+          final format = ImportFileDetector.detect(path);
+          return format != ImportFormat.pdf && format != ImportFormat.image;
+        })) {
+      throw const ImportTaskRetryRejectedException();
+    }
+
+    await _readiness;
+    final matches = _taskManager.tasks.where((task) => task.id == taskId);
+    if (matches.isEmpty ||
+        matches.first.parseMode != ImportParseMode.ocr.name) {
+      throw const ImportTaskRetryRejectedException();
+    }
+    final task = matches.first;
+    final immutablePaths = List<String>.unmodifiable(selectedPaths);
+    final immutableNames = List<String>.unmodifiable(selectedNames);
+    final sourceDescription = immutableNames.length == 1
+        ? immutableNames.single
+        : '${immutableNames.first} 等 ${immutableNames.length} 个文件';
+
+    return retryOcrTask(
+      taskId: taskId,
+      sourceDescription: sourceDescription,
+      explanationRetentionMode: task.explanationRetentionMode,
+      parse: (retryTaskId) => parser(ImportParseRequest(
+        filePaths: immutablePaths,
+        fileNames: immutableNames,
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: retryTaskId,
+        explanationRetentionMode: task.explanationRetentionMode,
+      )),
+    );
   }
 
   Future<ImportTaskHandle> retryOcrTask({

@@ -1,10 +1,13 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../services/task_manager.dart';
-import '../dependencies/ai_dependencies_scope.dart';
+
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_diagnostic_summary.dart';
+import '../../services/import_pipeline/import_task_coordinator.dart';
+import '../../services/task_manager.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import 'import_staging_screen.dart';
 import 'task_center_projection.dart';
 
@@ -13,15 +16,23 @@ typedef TaskReviewPageBuilder = Widget Function(
   ImportTask task,
 );
 
+typedef TaskCenterRetryFilePicker = Future<FilePickerResult?> Function();
+
 class TaskCenterScreen extends StatefulWidget {
   const TaskCenterScreen({
     super.key,
     this.onOpenReview,
     this.reviewPageBuilder,
+    this.taskManager,
+    this.taskCoordinator,
+    this.retryFilePicker,
   });
 
   final ValueChanged<ImportTask>? onOpenReview;
   final TaskReviewPageBuilder? reviewPageBuilder;
+  final TaskManager? taskManager;
+  final ImportTaskCoordinator? taskCoordinator;
+  final TaskCenterRetryFilePicker? retryFilePicker;
 
   @override
   State<TaskCenterScreen> createState() => _TaskCenterScreenState();
@@ -29,6 +40,14 @@ class TaskCenterScreen extends StatefulWidget {
 
 class _TaskCenterScreenState extends State<TaskCenterScreen> {
   TaskCenterCategory _selectedCategory = TaskCenterCategory.processing;
+  final Set<String> _pendingActionTaskIds = <String>{};
+
+  TaskManager get _taskManager => widget.taskManager ?? TaskManager.instance;
+
+  ImportTaskCoordinator _taskCoordinator(BuildContext context) {
+    return widget.taskCoordinator ??
+        AiDependenciesScope.of(context).importTaskCoordinator;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,16 +62,16 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.clear_all),
-            onPressed: () => TaskManager.instance.clearCompletedTasks(),
+            onPressed: () => _taskManager.clearCompletedTasks(),
             tooltip: '清理已完成',
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: AnimatedBuilder(
-          animation: TaskManager.instance,
+          animation: _taskManager,
           builder: (context, _) {
-            final tasks = TaskManager.instance.tasks;
+            final tasks = _taskManager.tasks;
             final projection = TaskCenterProjection.fromTasks(tasks);
             final visibleTasks = projection.tasksFor(_selectedCategory);
 
@@ -109,6 +128,8 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
     final summary = ImportDiagnosticFormatter.summarize(task);
     final statusColor = _statusColor(task.status);
     final progress = task.percent.clamp(0.0, 1.0).toDouble();
+    final presentation = TaskCenterProjection.presentationFor(task);
+    final actionPending = _pendingActionTaskIds.contains(task.id);
 
     return Card(
       key: ValueKey<String>('import-task-${task.id}'),
@@ -157,29 +178,32 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        key: ValueKey<String>('task-delete-${task.id}'),
-                        onPressed: () =>
-                            TaskManager.instance.deleteTask(task.id),
-                        icon: const Icon(
-                          Icons.close,
-                          size: 18,
-                          color: Colors.grey,
+                      if (presentation.canDelete) ...[
+                        const SizedBox(width: 8),
+                        IconButton(
+                          key: ValueKey<String>('task-delete-${task.id}'),
+                          onPressed: actionPending
+                              ? null
+                              : () => _taskManager.deleteTask(task.id),
+                          icon: const Icon(
+                            Icons.close,
+                            size: 18,
+                            color: Colors.grey,
+                          ),
+                          tooltip: '删除${task.title}',
+                          visualDensity: VisualDensity.compact,
                         ),
-                        tooltip: '删除${task.title}',
-                        visualDensity: VisualDensity.compact,
-                      ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 8),
                   _TaskStatusBadge(
-                    label: _statusLabel(task.status),
+                    label: presentation.statusLabel,
                     color: statusColor,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _safeCardSummary(task, summary),
+                    _safeCardSummary(task, summary, presentation),
                     key: ValueKey<String>('task-summary-${task.id}'),
                     style: TextStyle(
                       color: task.status == TaskStatus.error
@@ -305,9 +329,37 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                             label: const Text('去校对'),
                           ),
                         ),
+                      if (presentation.canCancel ||
+                          presentation.isCancellationPending)
+                        OutlinedButton.icon(
+                          key: ValueKey<String>('task-cancel-${task.id}'),
+                          onPressed: actionPending ||
+                                  presentation.isCancellationPending
+                              ? null
+                              : () => _cancelOcrTask(task.id),
+                          icon:
+                              const Icon(Icons.stop_circle_outlined, size: 16),
+                          label: Text(
+                            presentation.isCancellationPending || actionPending
+                                ? '取消中'
+                                : '取消任务',
+                          ),
+                        ),
+                      if (presentation.canRetry)
+                        FilledButton.tonalIcon(
+                          key: ValueKey<String>('task-retry-${task.id}'),
+                          onPressed: actionPending
+                              ? null
+                              : () => _retryOcrTask(task.id),
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: Text(
+                            actionPending ? '选择文件中' : '重新选择文件重试',
+                          ),
+                        ),
                       if ((task.status == TaskStatus.error ||
                               task.status == TaskStatus.processing) &&
-                          (task.pendingChunks?.isNotEmpty ?? false))
+                          (task.pendingChunks?.isNotEmpty ?? false) &&
+                          !presentation.canRetry)
                         OutlinedButton(
                           onPressed: () {
                             AiDependenciesScope.of(context)
@@ -330,6 +382,99 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _cancelOcrTask(String taskId) async {
+    if (!_beginTaskAction(taskId)) return;
+    try {
+      final status = await _taskCoordinator(context).cancelOcrTask(taskId);
+      if (!mounted) return;
+      final message = switch (status) {
+        ImportAttemptWriteStatus.applied => '已提交取消请求',
+        ImportAttemptWriteStatus.persistenceFailed => '取消状态保存失败，请稍后重试',
+        ImportAttemptWriteStatus.stale ||
+        ImportAttemptWriteStatus.taskMissing ||
+        ImportAttemptWriteStatus.invalidState =>
+          '任务状态已变化，请刷新后重试',
+      };
+      _showSafeActionMessage(message);
+    } catch (_) {
+      _showSafeActionMessage('无法取消任务，请稍后重试');
+    } finally {
+      _finishTaskAction(taskId);
+    }
+  }
+
+  Future<void> _retryOcrTask(String taskId) async {
+    if (!_beginTaskAction(taskId)) return;
+    try {
+      final result = await (widget.retryFilePicker?.call() ??
+          FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: const <String>['pdf', 'png', 'jpg', 'jpeg'],
+            allowMultiple: true,
+          ));
+      if (!mounted || result == null || result.files.isEmpty) return;
+
+      final currentTask = _taskForId(taskId);
+      if (currentTask == null ||
+          !TaskCenterProjection.presentationFor(currentTask).canRetry) {
+        _showSafeActionMessage('任务状态已变化，请刷新后重试');
+        return;
+      }
+
+      final filePaths = <String>[];
+      final fileNames = <String>[];
+      for (final file in result.files) {
+        final path = file.path?.trim();
+        if (path == null || path.isEmpty) {
+          _showSafeActionMessage('所选文件不可用，请重新选择');
+          return;
+        }
+        filePaths.add(path);
+        fileNames.add(file.name);
+      }
+
+      await _taskCoordinator(context).retryOcrRequest(
+        taskId: taskId,
+        filePaths: filePaths,
+        fileNames: fileNames,
+      );
+      _showSafeActionMessage('任务已重新排队');
+    } on ImportTaskRetryRejectedException {
+      _showSafeActionMessage('任务状态已变化，请刷新后重试');
+    } on ImportTaskCoordinatorDependencyException {
+      _showSafeActionMessage('重试暂不可用，请稍后再试');
+    } catch (_) {
+      _showSafeActionMessage('无法重试任务，请稍后再试');
+    } finally {
+      _finishTaskAction(taskId);
+    }
+  }
+
+  bool _beginTaskAction(String taskId) {
+    if (_pendingActionTaskIds.contains(taskId)) return false;
+    setState(() => _pendingActionTaskIds.add(taskId));
+    return true;
+  }
+
+  void _finishTaskAction(String taskId) {
+    if (!mounted || !_pendingActionTaskIds.contains(taskId)) return;
+    setState(() => _pendingActionTaskIds.remove(taskId));
+  }
+
+  ImportTask? _taskForId(String taskId) {
+    for (final task in _taskManager.tasks) {
+      if (task.id == taskId) return task;
+    }
+    return null;
+  }
+
+  void _showSafeActionMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _openReview(BuildContext context, ImportTask task) {
@@ -361,7 +506,10 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
   String _safeCardSummary(
     ImportTask task,
     ImportDiagnosticSummary summary,
+    TaskCenterTaskPresentation presentation,
   ) {
+    final override = presentation.summaryOverride;
+    if (override != null) return override;
     switch (task.status) {
       case TaskStatus.processing:
         return task.progressText;
@@ -384,15 +532,6 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
         }
         return '导入失败，请查看诊断信息';
     }
-  }
-
-  String _statusLabel(TaskStatus status) {
-    return switch (status) {
-      TaskStatus.processing => '进行中',
-      TaskStatus.pendingReview => '待校对',
-      TaskStatus.completed => '已完成',
-      TaskStatus.error => '解析失败',
-    };
   }
 
   Color _statusColor(TaskStatus status) {

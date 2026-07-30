@@ -94,6 +94,7 @@ void main() {
     );
     final importTaskCoordinator = ImportTaskCoordinator(
       taskManager: taskManager,
+      parser: importPipelineService.parseFiles,
       requestScheduler: ocrRequestScheduler,
       onReadyForReview: (sourceDescription) {
         rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(

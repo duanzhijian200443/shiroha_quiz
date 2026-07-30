@@ -443,6 +443,144 @@ void main() {
     expect(afterOldReturn.parsedData?.single['q_num'], '2');
   });
 
+  test('retry request rebuilds OCR parsing from newly selected files',
+      () async {
+    const sensitiveSelectedPath = r'C:\synthetic-private\replacement.pdf';
+    final capturedRequest = Completer<ImportParseRequest>();
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    manager.tasks.add(
+      ImportTask(
+        id: 'retry-request-task',
+        title: 'Synthetic original task',
+        status: TaskStatus.error,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-request-old-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyExplanationRetentionMode: 'allQuestionTypes',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-request-old-attempt',
+          TaskManager.keyAttemptState: 'failed',
+        },
+      ),
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async {
+        capturedRequest.complete(request);
+        return const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'content': 'Synthetic replacement question',
+              'standard_answer': 'A',
+            },
+          ],
+          explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+        );
+      },
+      traceIdFactory: () => 'retry-request-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-request-attempt-${attemptIndex++}',
+    );
+
+    final handle = await coordinator.retryOcrRequest(
+      taskId: 'retry-request-task',
+      filePaths: const <String>[sensitiveSelectedPath],
+      fileNames: const <String>['replacement.pdf'],
+    );
+    final request = await capturedRequest.future;
+
+    expect(handle.taskId, 'retry-request-task');
+    expect(handle.attemptNumber, 2);
+    expect(handle.traceId, isNot('retry-request-old-trace'));
+    expect(handle.attemptToken, isNot('retry-request-old-attempt'));
+    expect(request.taskId, 'retry-request-task');
+    expect(request.mode, ImportParseMode.ocr);
+    expect(request.filePaths, const <String>[sensitiveSelectedPath]);
+    expect(request.fileNames, const <String>['replacement.pdf']);
+    expect(request.maxConcurrency, 1);
+    expect(
+      request.explanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      jsonEncode(manager.tasks.single.diagnostics),
+      isNot(contains(sensitiveSelectedPath)),
+    );
+  });
+
+  test('retry request rejects invalid selection before changing attempt',
+      () async {
+    manager.tasks.add(
+      ImportTask(
+        id: 'retry-invalid-selection',
+        title: 'Synthetic invalid retry',
+        status: TaskStatus.error,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-invalid-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-invalid-attempt',
+          TaskManager.keyAttemptState: 'failed',
+        },
+      ),
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (_) async => fail('parser must not run'),
+    );
+
+    await expectLater(
+      coordinator.retryOcrRequest(
+        taskId: 'retry-invalid-selection',
+        filePaths: const <String>['unsupported.txt'],
+        fileNames: const <String>['unsupported.txt'],
+      ),
+      throwsA(isA<ImportTaskRetryRejectedException>()),
+    );
+
+    final task = manager.tasks.single;
+    expect(task.attemptNumber, 1);
+    expect(task.traceId, 'retry-invalid-trace');
+    expect(task.attemptToken, 'retry-invalid-attempt');
+    expect(task.attemptState, ImportAttemptState.failed);
+  });
+
+  test('retry request requires a parser before changing attempt', () async {
+    manager.tasks.add(
+      ImportTask(
+        id: 'retry-missing-parser',
+        title: 'Synthetic missing parser',
+        status: TaskStatus.error,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-missing-parser-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-missing-parser-attempt',
+          TaskManager.keyAttemptState: 'failed',
+        },
+      ),
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+    );
+
+    await expectLater(
+      coordinator.retryOcrRequest(
+        taskId: 'retry-missing-parser',
+        filePaths: const <String>['replacement.pdf'],
+        fileNames: const <String>['replacement.pdf'],
+      ),
+      throwsA(isA<ImportTaskCoordinatorDependencyException>()),
+    );
+
+    expect(manager.tasks.single.attemptNumber, 1);
+    expect(manager.tasks.single.attemptState, ImportAttemptState.failed);
+  });
+
   for (final mode in <ImportParseMode>[
     ImportParseMode.vision,
     ImportParseMode.text,

@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_projection.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_screen.dart';
@@ -35,11 +41,17 @@ void main() {
   Widget createWidgetUnderTest({
     ValueChanged<ImportTask>? onOpenReview,
     TaskReviewPageBuilder? reviewPageBuilder,
+    TaskManager? taskManager,
+    ImportTaskCoordinator? taskCoordinator,
+    TaskCenterRetryFilePicker? retryFilePicker,
   }) {
     return MaterialApp(
       home: TaskCenterScreen(
         onOpenReview: onOpenReview,
         reviewPageBuilder: reviewPageBuilder,
+        taskManager: taskManager,
+        taskCoordinator: taskCoordinator,
+        retryFilePicker: retryFilePicker,
       ),
     );
   }
@@ -52,6 +64,28 @@ void main() {
       find.byKey(ValueKey<String>('task-category-${category.name}')),
     );
     await tester.pump();
+  }
+
+  ImportTask createOcrAttemptTask({
+    required String id,
+    required TaskStatus status,
+    required ImportAttemptState attemptState,
+    String title = 'same.pdf',
+  }) {
+    return ImportTask(
+      id: id,
+      title: title,
+      status: status,
+      progressText: '安全的合成任务状态',
+      percent: status == TaskStatus.processing ? 0.4 : 0,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyTraceId: 'trace-$id',
+        TaskManager.keyParseMode: 'ocr',
+        TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptToken: 'attempt-$id',
+        TaskManager.keyAttemptState: attemptState.name,
+      },
+    );
   }
 
   testWidgets('TaskCenterScreen shows empty state when no tasks are present',
@@ -328,6 +362,195 @@ void main() {
     expect(find.text('待解析: 2 批次'), findsOneWidget);
     expect(find.text('失败: 1 批次'), findsOneWidget);
     expect(find.text('断点重试'), findsOneWidget);
+  });
+
+  testWidgets(
+      'OCR cancellation is task-ID bound and duplicate action stays disabled',
+      (WidgetTester tester) async {
+    final persistenceRelease = Completer<void>();
+    var persistenceWrites = 0;
+    final taskManager = TaskManager.forTesting(
+      saveTask: (_) async {
+        persistenceWrites++;
+        await persistenceRelease.future;
+      },
+    );
+    addTearDown(() {
+      if (!persistenceRelease.isCompleted) persistenceRelease.complete();
+      taskManager.dispose();
+    });
+    final first = createOcrAttemptTask(
+      id: 'cancel-first',
+      status: TaskStatus.processing,
+      attemptState: ImportAttemptState.running,
+    );
+    final second = createOcrAttemptTask(
+      id: 'cancel-second',
+      status: TaskStatus.processing,
+      attemptState: ImportAttemptState.running,
+    );
+    taskManager.tasks.addAll(<ImportTask>[first, second]);
+    final coordinator = ImportTaskCoordinator(taskManager: taskManager);
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        taskManager: taskManager,
+        taskCoordinator: coordinator,
+      ),
+    );
+    await tester.pump();
+
+    final firstCancel =
+        find.byKey(const ValueKey<String>('task-cancel-cancel-first'));
+    expect(firstCancel, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('task-delete-cancel-first')),
+      findsNothing,
+    );
+    await tester.ensureVisible(firstCancel);
+    await tester.tap(firstCancel);
+    await tester.pump();
+    await tester.pump();
+
+    expect(first.attemptState, ImportAttemptState.cancelRequested);
+    expect(second.attemptState, ImportAttemptState.running);
+    expect(persistenceWrites, 1);
+    expect(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('import-task-cancel-first'),
+        ),
+        matching: find.text('取消中'),
+      ),
+      findsNWidgets(2),
+    );
+    expect(tester.widget<OutlinedButton>(firstCancel).onPressed, isNull);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(
+              const ValueKey<String>('task-cancel-cancel-second'),
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
+
+    persistenceRelease.complete();
+    await tester.pump();
+    await tester.pump();
+  });
+
+  testWidgets('retry picker cancellation does not mutate the OCR attempt',
+      (WidgetTester tester) async {
+    final taskManager = TaskManager.forTesting();
+    addTearDown(taskManager.dispose);
+    final task = createOcrAttemptTask(
+      id: 'retry-picker-cancelled',
+      status: TaskStatus.error,
+      attemptState: ImportAttemptState.failed,
+    );
+    taskManager.tasks.add(task);
+    var parserCalls = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      parser: (_) async {
+        parserCalls++;
+        return const ImportParseResult(questions: <Map<String, dynamic>>[]);
+      },
+    );
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        taskManager: taskManager,
+        taskCoordinator: coordinator,
+        retryFilePicker: () async => null,
+      ),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.error);
+
+    final retry =
+        find.byKey(const ValueKey<String>('task-retry-retry-picker-cancelled'));
+    await tester.tap(retry);
+    await tester.pump();
+    await tester.pump();
+
+    expect(task.attemptNumber, 1);
+    expect(task.attemptState, ImportAttemptState.failed);
+    expect(task.traceId, 'trace-retry-picker-cancelled');
+    expect(parserCalls, 0);
+    expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
+  });
+
+  testWidgets(
+      'retry reselects files for the exact task without rendering the path',
+      (WidgetTester tester) async {
+    const selectedPath = r'C:\synthetic-private\replacement.pdf';
+    final taskManager = TaskManager.forTesting();
+    addTearDown(taskManager.dispose);
+    final first = createOcrAttemptTask(
+      id: 'retry-first',
+      status: TaskStatus.error,
+      attemptState: ImportAttemptState.failed,
+    );
+    final second = createOcrAttemptTask(
+      id: 'retry-second',
+      status: TaskStatus.error,
+      attemptState: ImportAttemptState.failed,
+    );
+    taskManager.tasks.addAll(<ImportTask>[first, second]);
+    List<String>? parsedPaths;
+    List<String>? parsedNames;
+    String? parsedTaskId;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      traceIdFactory: () => 'trace-retry-new',
+      attemptTokenFactory: () => 'attempt-retry-new',
+      parser: (request) async {
+        parsedPaths = request.filePaths;
+        parsedNames = request.fileNames;
+        parsedTaskId = request.taskId;
+        return const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{'q_num': '1', 'content': 'fixture'},
+          ],
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(
+        taskManager: taskManager,
+        taskCoordinator: coordinator,
+        retryFilePicker: () async => FilePickerResult(
+          <PlatformFile>[
+            PlatformFile(
+              name: 'replacement.pdf',
+              path: selectedPath,
+              size: 0,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.error);
+
+    final retry = find.byKey(const ValueKey<String>('task-retry-retry-first'));
+    await tester.ensureVisible(retry);
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+
+    expect(parsedTaskId, 'retry-first');
+    expect(parsedPaths, const <String>[selectedPath]);
+    expect(parsedNames, const <String>['replacement.pdf']);
+    expect(first.id, 'retry-first');
+    expect(first.attemptNumber, 2);
+    expect(first.traceId, 'trace-retry-new');
+    expect(second.attemptNumber, 1);
+    expect(second.attemptState, ImportAttemptState.failed);
+    expect(find.textContaining(selectedPath), findsNothing);
   });
 
   testWidgets(
