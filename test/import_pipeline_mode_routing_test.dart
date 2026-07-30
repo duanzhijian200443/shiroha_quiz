@@ -548,4 +548,52 @@ void main() {
       ['Explanation 1', 'Explanation 2'],
     );
   });
+
+  test('independent single-file requests never call the question merger',
+      () async {
+    final files = <File>[];
+    for (var index = 0; index < 4; index++) {
+      final file = File(
+        '${tempDirectory.path}${Platform.pathSeparator}independent-$index.txt',
+      );
+      await file.writeAsString('Synthetic source text ${index + 1}.');
+      files.add(file);
+    }
+    var parseCalls = 0;
+    var mergerCalls = 0;
+    final pipeline = ImportPipelineService.forTesting(
+      textParser: (rawText, {required taskId, required isMarkdown}) async {
+        parseCalls++;
+        return questions('text-$taskId');
+      },
+      visionParser: (imagePaths) async => fail('vision parser must not run'),
+      ocrParser: ({
+        required filePath,
+        required sourceName,
+        required ImportFormat format,
+        required ExplanationRetentionMode explanationRetentionMode,
+      }) async =>
+          fail('OCR parser must not run'),
+      questionMerger: (fileResults) async {
+        mergerCalls++;
+        return fileResults.expand((questions) => questions).toList();
+      },
+    );
+
+    for (var index = 0; index < files.length; index++) {
+      final result = await pipeline.parseFiles(
+        ImportParseRequest(
+          filePaths: <String>[files[index].path],
+          fileNames: <String>['independent-$index.txt'],
+          mode: ImportParseMode.text,
+          maxConcurrency: 1,
+          taskId: 'independent-$index',
+        ),
+      );
+      expect(result.questions, hasLength(1));
+    }
+
+    expect(parseCalls, 4);
+    expect(mergerCalls, 0);
+  });
 }

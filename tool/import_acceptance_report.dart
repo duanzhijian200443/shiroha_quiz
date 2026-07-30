@@ -125,7 +125,9 @@ class AcceptanceReportWriter {
       buf.writeln();
     }
 
-    if (hardIssues.isEmpty && reviewIssues.isEmpty) {
+    if (verdict.verdict == 'PASS' &&
+        hardIssues.isEmpty &&
+        reviewIssues.isEmpty) {
       buf.writeln('All questions passed quality checks.');
       buf.writeln();
     }
@@ -153,6 +155,9 @@ class AcceptanceReportWriter {
           .any((r) => r.issues.any((i) => i.code == 'raw_html_tag'))) {
         buf.writeln('Add HTML tag stripping to post-processing pipeline.');
       }
+    } else if (verdict.verdict == 'NOT_VERIFIED') {
+      buf.writeln(
+          'Required Replay or image-ownership evidence could not be verified.');
     } else {
       buf.writeln(
           'Fix structural failures (missing/duplicate questions) first.');

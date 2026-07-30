@@ -68,6 +68,74 @@ void main() {
       expect(decodedTask.diagnostics, isNull);
     });
 
+    test('batch insertion keeps selection order ahead of existing tasks', () {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(id: 'existing', title: 'Existing task'),
+      );
+
+      taskManager.addTasksInOrder(<ImportTask>[
+        ImportTask(id: 'batch-0', title: 'First selected task'),
+        ImportTask(id: 'batch-1', title: 'Second selected task'),
+        ImportTask(id: 'batch-2', title: 'Third selected task'),
+      ]);
+
+      expect(
+        taskManager.tasks.map((task) => task.id),
+        <String>['batch-0', 'batch-1', 'batch-2', 'existing'],
+      );
+    });
+
+    test('batch identity survives review failure and serialization', () {
+      final taskManager = TaskManager.forTesting();
+      taskManager.addTask(
+        ImportTask(
+          id: 'batch-metadata',
+          title: 'Synthetic batch task',
+          diagnostics: const <String, dynamic>{
+            TaskManager.keyTraceId: 'trace-batch',
+            TaskManager.keyParseMode: 'ocr',
+            TaskManager.keyExplanationRetentionMode: 'subjectiveOnly',
+            TaskManager.keyBatchId: 'batch-fixture',
+            TaskManager.keySelectionIndex: 2,
+          },
+        ),
+      );
+
+      taskManager.requireReview(
+        'batch-metadata',
+        'Ready',
+        const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'content': 'Synthetic question',
+            'standard_answer': 'A',
+          },
+        ],
+        '',
+        '',
+        diagnostics: const <String, dynamic>{'safeCount': 1},
+      );
+      taskManager.failTask(
+        'batch-metadata',
+        'Synthetic failure',
+        diagnostics: const <String, dynamic>{
+          'failedStage': 'import_parse',
+          'errorType': 'SyntheticFailure',
+        },
+      );
+
+      final task = taskManager.tasks.single;
+      final restored = ImportTask.fromMap(task.toMap());
+      expect(task.batchId, 'batch-fixture');
+      expect(task.selectionIndex, 2);
+      expect(task.traceId, 'trace-batch');
+      expect(task.parseMode, 'ocr');
+      expect(restored.batchId, 'batch-fixture');
+      expect(restored.selectionIndex, 2);
+      expect(restored.diagnostics?['failedStage'], 'import_parse');
+    });
+
     test('TaskManager attachDiagnostics updates task successfully', () {
       final taskManager = TaskManager.instance;
       final task = ImportTask(

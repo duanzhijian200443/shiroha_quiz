@@ -13,11 +13,39 @@ typedef ImportRequestParser = Future<ImportParseResult> Function(
   ImportParseRequest request,
 );
 
+typedef ImportTaskParseAction = Future<ImportParseResult> Function(
+  String taskId,
+);
+
 class ImportTaskHandle {
   const ImportTaskHandle({required this.taskId, required this.traceId});
 
   final String taskId;
   final String traceId;
+}
+
+class ImportTaskBatchItem {
+  const ImportTaskBatchItem({
+    required this.sourceDescription,
+    required this.mode,
+    required this.parse,
+    this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
+  });
+
+  final String sourceDescription;
+  final ImportParseMode mode;
+  final ImportTaskParseAction parse;
+  final ExplanationRetentionMode explanationRetentionMode;
+}
+
+class ImportTaskBatchHandle {
+  const ImportTaskBatchHandle({
+    required this.batchId,
+    required this.tasks,
+  });
+
+  final String batchId;
+  final List<ImportTaskHandle> tasks;
 }
 
 class ImportTaskCoordinatorDependencyException implements Exception {
@@ -34,12 +62,14 @@ class ImportTaskCoordinator {
     ImportRequestParser? parser,
     String Function()? taskIdFactory,
     String Function()? traceIdFactory,
+    String Function()? batchIdFactory,
     this.onReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
         _parser = parser,
         _taskIdFactory = taskIdFactory ?? _createTaskId,
-        _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId;
+        _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId,
+        _batchIdFactory = batchIdFactory ?? _createBatchId;
 
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
@@ -97,10 +127,13 @@ class ImportTaskCoordinator {
   final ImportRequestParser? _parser;
   final String Function() _taskIdFactory;
   final String Function() _traceIdFactory;
+  final String Function() _batchIdFactory;
   final void Function(String sourceDescription)? onReadyForReview;
 
   static String _createTaskId() =>
-      'task_${DateTime.now().millisecondsSinceEpoch}';
+      'task_${DateTime.now().microsecondsSinceEpoch}';
+  static String _createBatchId() =>
+      'batch_${DateTime.now().microsecondsSinceEpoch}';
 
   Future<ImportTaskHandle> dispatchRequest({
     required String sourceDescription,
@@ -167,10 +200,92 @@ class ImportTaskCoordinator {
     return handle;
   }
 
+  Future<ImportTaskBatchHandle> dispatchIndependentBatch({
+    required List<ImportTaskBatchItem> items,
+  }) async {
+    if (items.isEmpty) {
+      throw ArgumentError.value(items, 'items', 'must not be empty');
+    }
+    await _readiness;
+
+    final existingBatchIds = _taskManager.tasks
+        .map((task) => task.batchId)
+        .whereType<String>()
+        .toSet();
+    final batchId = _uniqueValue(_batchIdFactory(), existingBatchIds);
+    final reservedTaskIds = _taskManager.tasks.map((task) => task.id).toSet();
+    final reservedTraceIds = _taskManager.tasks
+        .map((task) => task.traceId)
+        .whereType<String>()
+        .toSet();
+    final scheduled = <_ScheduledImportTask>[];
+    final tasks = <ImportTask>[];
+
+    for (var index = 0; index < items.length; index++) {
+      final item = items[index];
+      final taskId = _uniqueValue(_taskIdFactory(), reservedTaskIds);
+      reservedTaskIds.add(taskId);
+      final traceId = _uniqueValue(_traceIdFactory(), reservedTraceIds);
+      reservedTraceIds.add(traceId);
+      final handle = ImportTaskHandle(taskId: taskId, traceId: traceId);
+      final safeSourceDescription =
+          _safeSourceDescription(item.sourceDescription);
+      tasks.add(ImportTask(
+        id: taskId,
+        title: '文档解析任务: $safeSourceDescription',
+        progressText: '已进入后台队列...',
+        percent: 0.1,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyTraceId: traceId,
+          TaskManager.keyParseMode: item.mode.name,
+          TaskManager.keyExplanationRetentionMode:
+              item.explanationRetentionMode.name,
+          TaskManager.keyBatchId: batchId,
+          TaskManager.keySelectionIndex: index,
+        },
+      ));
+      scheduled.add(_ScheduledImportTask(
+        handle: handle,
+        sourceDescription: safeSourceDescription,
+        parse: item.parse,
+      ));
+    }
+
+    _taskManager.addTasksInOrder(tasks);
+    Future<void>.microtask(() async {
+      for (final item in scheduled) {
+        await TraceContext.run(
+          taskId: item.handle.taskId,
+          traceId: item.handle.traceId,
+          action: () => _runParse(
+            handle: item.handle,
+            sourceDescription: item.sourceDescription,
+            parse: item.parse,
+          ),
+        );
+      }
+    });
+    return ImportTaskBatchHandle(
+      batchId: batchId,
+      tasks: List<ImportTaskHandle>.unmodifiable(
+        scheduled.map((item) => item.handle),
+      ),
+    );
+  }
+
+  static String _uniqueValue(String candidate, Set<String> reserved) {
+    if (!reserved.contains(candidate)) return candidate;
+    var suffix = 1;
+    while (reserved.contains('${candidate}_$suffix')) {
+      suffix++;
+    }
+    return '${candidate}_$suffix';
+  }
+
   Future<void> _runParse({
     required ImportTaskHandle handle,
     required String sourceDescription,
-    required Future<ImportParseResult> Function(String taskId) parse,
+    required ImportTaskParseAction parse,
   }) async {
     AppLogger.info(
       'Background import dispatched',
@@ -403,6 +518,18 @@ class ImportTaskCoordinator {
     flatten(diagnostics, '');
     return values;
   }
+}
+
+class _ScheduledImportTask {
+  const _ScheduledImportTask({
+    required this.handle,
+    required this.sourceDescription,
+    required this.parse,
+  });
+
+  final ImportTaskHandle handle;
+  final String sourceDescription;
+  final ImportTaskParseAction parse;
 }
 
 class _EmptyResultFailure {

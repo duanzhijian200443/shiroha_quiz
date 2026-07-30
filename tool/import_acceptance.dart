@@ -18,6 +18,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_final_sort
 import 'package:shiroha_quiz/services/import_pipeline/latex_renderability_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
+import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
@@ -34,6 +35,31 @@ const supportedReplayOcrModelId = 'glm-ocr';
 // Test case configuration
 // ---------------------------------------------------------------------------
 
+class ImportAcceptanceSource {
+  const ImportAcceptanceSource({
+    required this.role,
+    required this.replayCaseId,
+  });
+
+  final String role;
+  final String replayCaseId;
+
+  factory ImportAcceptanceSource.fromJson(Map<String, dynamic> json) {
+    final role = json['role'];
+    final replayCaseId = json['replayCaseId'];
+    if (role is! String ||
+        (role != 'stem' && role != 'solution') ||
+        replayCaseId is! String ||
+        !isValidAcceptanceCaseId(replayCaseId)) {
+      throw const FormatException('Invalid paired acceptance source');
+    }
+    return ImportAcceptanceSource(
+      role: role,
+      replayCaseId: replayCaseId,
+    );
+  }
+}
+
 class ImportAcceptanceCase {
   const ImportAcceptanceCase({
     required this.schemaVersion,
@@ -42,6 +68,10 @@ class ImportAcceptanceCase {
     required this.expectedQuestionCount,
     required this.expectedNumbers,
     required this.allowDuplicateNumbers,
+    this.sources = const <ImportAcceptanceSource>[],
+    this.expectedDuplicateNumberCount = 0,
+    this.expectedUnmatchedFragmentCount = 0,
+    this.requiresQ6ImageOwnership = false,
   });
 
   final int schemaVersion;
@@ -50,21 +80,87 @@ class ImportAcceptanceCase {
   final int expectedQuestionCount;
   final List<int> expectedNumbers;
   final bool allowDuplicateNumbers;
+  final List<ImportAcceptanceSource> sources;
+  final int expectedDuplicateNumberCount;
+  final int expectedUnmatchedFragmentCount;
+  final bool requiresQ6ImageOwnership;
+
+  bool get isPaired => schemaVersion == 2;
 
   factory ImportAcceptanceCase.fromJson(Map<String, dynamic> json) {
     final schemaVersion = json['schemaVersion'];
-    if (schemaVersion is! int || schemaVersion != 1) {
+    if (schemaVersion == 1) {
+      return ImportAcceptanceCase(
+        schemaVersion: schemaVersion as int,
+        caseId: json['caseId'] as String,
+        pdf: json['pdf'] as String,
+        expectedQuestionCount: json['expectedQuestionCount'] as int,
+        expectedNumbers: (json['expectedNumbers'] as List).cast<int>().toList(),
+        allowDuplicateNumbers: json['allowDuplicateNumbers'] as bool? ?? false,
+      );
+    }
+    if (schemaVersion != 2) {
       throw FormatException(
         'Unsupported case schema version: $schemaVersion',
       );
     }
+
+    final caseId = json['caseId'];
+    final sourcesRaw = json['sources'];
+    final expectedRaw = json['expected'];
+    if (caseId is! String ||
+        !isValidAcceptanceCaseId(caseId) ||
+        sourcesRaw is! List ||
+        sourcesRaw.length != 2 ||
+        expectedRaw is! Map) {
+      throw const FormatException('Invalid paired acceptance case');
+    }
+    final sources = sourcesRaw
+        .map(
+          (source) => ImportAcceptanceSource.fromJson(
+            Map<String, dynamic>.from(source as Map),
+          ),
+        )
+        .toList(growable: false);
+    final roles = sources.map((source) => source.role).toSet();
+    if (roles.length != 2 ||
+        !roles.contains('stem') ||
+        !roles.contains('solution')) {
+      throw const FormatException('Paired sources must contain unique roles');
+    }
+    final expected = Map<String, dynamic>.from(expectedRaw);
+    final expectedQuestionCount = expected['questionCount'];
+    final expectedNumbersRaw = expected['numbers'];
+    final expectedDuplicateNumberCount = expected['duplicateNumbers'];
+    final expectedUnmatchedFragmentCount = expected['unmatchedFragments'];
+    if (expectedQuestionCount is! int ||
+        expectedQuestionCount <= 0 ||
+        expectedNumbersRaw is! List ||
+        expectedDuplicateNumberCount is! int ||
+        expectedDuplicateNumberCount < 0 ||
+        expectedUnmatchedFragmentCount is! int ||
+        expectedUnmatchedFragmentCount < 0 ||
+        expected['q6ImageOwnership'] != 'required') {
+      throw const FormatException('Invalid paired acceptance expectations');
+    }
+    final expectedNumbers = expectedNumbersRaw.cast<int>().toList();
+    if (expectedNumbers.length != expectedQuestionCount ||
+        expectedNumbers.toSet().length != expectedNumbers.length ||
+        expectedNumbers.any((number) => number <= 0)) {
+      throw const FormatException('Invalid paired expected numbers');
+    }
+
     return ImportAcceptanceCase(
-      schemaVersion: schemaVersion,
-      caseId: json['caseId'] as String,
-      pdf: json['pdf'] as String,
-      expectedQuestionCount: json['expectedQuestionCount'] as int,
-      expectedNumbers: (json['expectedNumbers'] as List).cast<int>().toList(),
-      allowDuplicateNumbers: json['allowDuplicateNumbers'] as bool? ?? false,
+      schemaVersion: 2,
+      caseId: caseId,
+      pdf: '',
+      expectedQuestionCount: expectedQuestionCount,
+      expectedNumbers: expectedNumbers,
+      allowDuplicateNumbers: false,
+      sources: List<ImportAcceptanceSource>.unmodifiable(sources),
+      expectedDuplicateNumberCount: expectedDuplicateNumberCount,
+      expectedUnmatchedFragmentCount: expectedUnmatchedFragmentCount,
+      requiresQ6ImageOwnership: true,
     );
   }
 }
@@ -779,6 +875,301 @@ class _EmptyAiEngineStore implements AiEngineStore {
   }
 }
 
+class _PairedReplayPipelineResult {
+  const _PairedReplayPipelineResult({
+    required this.document,
+    required this.documentRole,
+    required this.questions,
+    required this.diagnostics,
+    required this.repairCandidateCount,
+    required this.replayClientCallCount,
+    required this.succeeded,
+    this.causeType,
+  });
+
+  final OcrDocument document;
+  final ImportDocumentRole? documentRole;
+  final List<Map<String, dynamic>> questions;
+  final Map<String, dynamic> diagnostics;
+  final int repairCandidateCount;
+  final int replayClientCallCount;
+  final bool succeeded;
+  final String? causeType;
+}
+
+class _Q6ImageOwnershipEvidence {
+  const _Q6ImageOwnershipEvidence({
+    required this.status,
+    required this.imageBlockCount,
+    required this.pageIndices,
+    required this.blockIdShortHash,
+  });
+
+  final String status;
+  final int imageBlockCount;
+  final List<int> pageIndices;
+  final String blockIdShortHash;
+}
+
+Future<_PairedReplayPipelineResult> _runPairedReplayPipeline({
+  required String role,
+  required OcrDocument document,
+}) async {
+  final replayClient = _ReplayOcrClient(document);
+  final noOpRepair = _NoOpRepairService();
+  final replayProfile = AiEngineProfile(
+    id: 'acceptance-replay-$role',
+    engineType: AiEngineType.ocr,
+    name: 'acceptance-replay-$role',
+    apiKey: 'replay-no-network',
+    baseUrl: 'https://open.bigmodel.cn/api/paas',
+    modelName: supportedReplayOcrModelId,
+    temperature: 0.0,
+    reasoningEffort: '',
+    isActive: true,
+  );
+  final service = OcrImportService(
+    engineRepository: _ReplayEngineRepository(replayProfile),
+    ocrClient: replayClient,
+    repairService: noOpRepair,
+  );
+  final result = await service.tryParse(
+    filePath: 'replay://acceptance/$role',
+    sourceName: 'paired-$role',
+    format: ImportFormat.pdf,
+    explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+  );
+  final documentRole = tryParseImportDocumentRole(
+    result?.diagnostics['documentRole'],
+  );
+  if (result == null || !result.usedOcr || result.questions.isEmpty) {
+    return _PairedReplayPipelineResult(
+      document: document,
+      documentRole: documentRole,
+      questions: const <Map<String, dynamic>>[],
+      diagnostics: result?.diagnostics ?? const <String, dynamic>{},
+      repairCandidateCount: noOpRepair.candidateCount,
+      replayClientCallCount: replayClient.callCount,
+      succeeded: false,
+      causeType: result?.diagnostics['status']?.toString() ??
+          'PairedPipelineProducedNoQuestions',
+    );
+  }
+
+  final qualityGate = const VisionQuestionQualityGate().evaluate(
+    result.questions,
+    sourceName: 'glm_ocr_intermediate',
+    documentRole: documentRole,
+  );
+  final sorted = const ImportQuestionFinalSorter().sort(
+    qualityGate.questions,
+  );
+  final finalQuestions = finalizeAndAuditImportQuestions(
+    sorted.questions,
+    mode: ExplanationRetentionMode.subjectiveOnly,
+  );
+  return _PairedReplayPipelineResult(
+    document: document,
+    documentRole: documentRole,
+    questions: finalQuestions,
+    diagnostics: result.diagnostics,
+    repairCandidateCount: noOpRepair.candidateCount,
+    replayClientCallCount: replayClient.callCount,
+    succeeded: finalQuestions.isNotEmpty,
+  );
+}
+
+List<Map<String, dynamic>> _projectAnswerBearingSolutionQuestions(
+  Iterable<Map<String, dynamic>> questions,
+) {
+  return questions
+      .map(
+        (question) => <String, dynamic>{
+          ...question,
+          'content': '',
+          'options': const <String>[],
+        },
+      )
+      .toList(growable: false);
+}
+
+List<int> _acceptanceQuestionNumbers(
+  Iterable<Map<String, dynamic>> questions,
+) {
+  final numbers = questions
+      .map(
+        (question) =>
+            _readInt(question['question_number']) ??
+            _readInt(question['q_num']),
+      )
+      .whereType<int>()
+      .toList();
+  numbers.sort();
+  return numbers;
+}
+
+List<int> _duplicateQuestionNumbers(Iterable<int> numbers) {
+  final counts = <int, int>{};
+  for (final number in numbers) {
+    counts.update(number, (count) => count + 1, ifAbsent: () => 1);
+  }
+  final duplicates = counts.entries
+      .where((entry) => entry.value > 1)
+      .map((entry) => entry.key)
+      .toList();
+  duplicates.sort();
+  return duplicates;
+}
+
+bool _sameNumbers(List<int> actual, List<int> expected) {
+  if (actual.length != expected.length) return false;
+  for (var index = 0; index < actual.length; index++) {
+    if (actual[index] != expected[index]) return false;
+  }
+  return true;
+}
+
+List<String> _sourceBlockIds(Map<String, dynamic> question) {
+  final raw = question['source_block_ids'];
+  if (raw is! List) return const <String>[];
+  return raw
+      .map((value) => value?.toString().trim() ?? '')
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+}
+
+Map<String, dynamic>? _questionByNumber(
+  Iterable<Map<String, dynamic>> questions,
+  int number,
+) {
+  for (final question in questions) {
+    final questionNumber =
+        _readInt(question['question_number']) ?? _readInt(question['q_num']);
+    if (questionNumber == number) return question;
+  }
+  return null;
+}
+
+_Q6ImageOwnershipEvidence _verifyQ6ImageOwnership({
+  required OcrDocument stemDocument,
+  required List<Map<String, dynamic>> stemQuestions,
+  required List<Map<String, dynamic>> mergedQuestions,
+}) {
+  const recognizedTypes = <String>{'image', 'figure'};
+  final imageBlocks = <String, OcrBlock>{};
+  for (final block in stemDocument.flattenedBlocks) {
+    if (recognizedTypes.contains(block.type.trim().toLowerCase()) &&
+        block.blockId.trim().isNotEmpty) {
+      imageBlocks[block.blockId] = block;
+    }
+  }
+  if (imageBlocks.isEmpty) {
+    return const _Q6ImageOwnershipEvidence(
+      status: 'NOT_VERIFIED',
+      imageBlockCount: 0,
+      pageIndices: <int>[],
+      blockIdShortHash: '',
+    );
+  }
+
+  final stemQ6 = _questionByNumber(stemQuestions, 6);
+  final mergedQ6 = _questionByNumber(mergedQuestions, 6);
+  if (stemQ6 == null || mergedQ6 == null) {
+    return const _Q6ImageOwnershipEvidence(
+      status: 'FAIL',
+      imageBlockCount: 0,
+      pageIndices: <int>[],
+      blockIdShortHash: '',
+    );
+  }
+  final q6ImageIds = _sourceBlockIds(stemQ6)
+      .where(imageBlocks.containsKey)
+      .toSet()
+      .toList()
+    ..sort();
+  if (q6ImageIds.isEmpty) {
+    return const _Q6ImageOwnershipEvidence(
+      status: 'FAIL',
+      imageBlockCount: 0,
+      pageIndices: <int>[],
+      blockIdShortHash: '',
+    );
+  }
+
+  final mergedQ6Ids = _sourceBlockIds(mergedQ6).toSet();
+  final retainedAfterMerge =
+      q6ImageIds.every((blockId) => mergedQ6Ids.contains(blockId));
+  final sharedByOtherQuestion = <Map<String, dynamic>>[
+    ...stemQuestions,
+    ...mergedQuestions,
+  ].where((question) {
+    final number =
+        _readInt(question['question_number']) ?? _readInt(question['q_num']);
+    if (number == 6) return false;
+    final ids = _sourceBlockIds(question).toSet();
+    return q6ImageIds.any(ids.contains);
+  }).isNotEmpty;
+
+  final pages = q6ImageIds
+      .map((blockId) => imageBlocks[blockId]!.pageIndex)
+      .toSet()
+      .toList()
+    ..sort();
+  final shortHash = sha256
+      .convert(utf8.encode(q6ImageIds.join('|')))
+      .toString()
+      .substring(0, 12);
+  return _Q6ImageOwnershipEvidence(
+    status: retainedAfterMerge && !sharedByOtherQuestion ? 'VERIFIED' : 'FAIL',
+    imageBlockCount: q6ImageIds.length,
+    pageIndices: pages,
+    blockIdShortHash: shortHash,
+  );
+}
+
+AcceptanceQualityResult _classifyPairedAnswerConflictsAsReview(
+  AcceptanceQualityResult quality,
+  Set<int> answerConflictNumbers,
+) {
+  if (answerConflictNumbers.isEmpty) return quality;
+  final reports = quality.questionReports.map((report) {
+    if (!answerConflictNumbers.contains(report.questionNumber)) return report;
+    final issues = report.issues
+        .where(
+          (issue) =>
+              issue.code != 'missing_required_answer' &&
+              issue.code != 'missing_explicit_answer' &&
+              issue.code != 'missing_answer_and_explanation',
+        )
+        .toList();
+    if (!issues.any((issue) => issue.code == 'answer_conflict')) {
+      issues.add(
+        const AcceptanceQuestionIssue(
+          code: 'answer_conflict',
+          severity: 'review',
+        ),
+      );
+    }
+    return AcceptanceQuestionReport(
+      questionNumber: report.questionNumber,
+      questionType: report.questionType,
+      hasContent: report.hasContent,
+      optionCount: report.optionCount,
+      hasStandardAnswer: report.hasStandardAnswer,
+      hasExplanation: report.hasExplanation,
+      issues: issues,
+      latexValidationMode: report.latexValidationMode,
+    );
+  }).toList(growable: false);
+  return AcceptanceQualityResult(
+    questionReports: reports,
+    structureVerdict: quality.structureVerdict,
+    acceptedNumbers: quality.acceptedNumbers,
+    missingNumbers: quality.missingNumbers,
+    duplicateNumbers: quality.duplicateNumbers,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance quality checker
 // ---------------------------------------------------------------------------
@@ -1188,7 +1579,7 @@ class AcceptanceVerdict {
     required this.exitCode,
   });
 
-  final String verdict; // PASS, REVIEW, FAIL
+  final String verdict; // PASS, REVIEW, FAIL, NOT_VERIFIED
   final int exitCode;
 }
 
@@ -1241,6 +1632,357 @@ int countSubjectiveAnswerDistillationCandidates(
 
 typedef AcceptanceEventEmitter = void Function(Map<String, dynamic> event);
 
+Map<String, dynamic> _emptyPairedMetrics(
+  ImportAcceptanceCase testCase, {
+  int stemQuestionCount = 0,
+  List<int> stemNumbers = const <int>[],
+  int solutionQuestionCount = 0,
+  List<int> solutionNumbers = const <int>[],
+  ImportDocumentRole? stemDocumentRole,
+  ImportDocumentRole? solutionDocumentRole,
+  bool solutionProjectionApplied = false,
+}) {
+  return <String, dynamic>{
+    'schemaVersion': 2,
+    'caseId': testCase.caseId,
+    'sourceMode': 'replay',
+    'stemQuestionCount': stemQuestionCount,
+    'stemNumbers': stemNumbers,
+    'solutionQuestionCount': solutionQuestionCount,
+    'solutionNumbers': solutionNumbers,
+    'stemDocumentRole': stemDocumentRole?.name ?? 'unknown',
+    'solutionDocumentRole': solutionDocumentRole?.name ?? 'unknown',
+    'solutionProjectionApplied': solutionProjectionApplied,
+    'finalQuestionCount': 0,
+    'finalNumbers': const <int>[],
+    'missingNumbers': testCase.expectedNumbers,
+    'duplicateNumbers': const <int>[],
+    'mergedQuestionCount': 0,
+    'unmatchedFragmentCount': 0,
+    'stemConflictCount': 0,
+    'answerConflictCount': 0,
+    'requiresReview': false,
+    'blocked': true,
+    'hardIssueCount': 0,
+    'reviewIssueCount': 0,
+    'missingAnswerCount': 0,
+    'repairMode': 'skipped',
+    'repairCandidateCount': 0,
+    'externalProviderCallCount': 0,
+    'repairProviderCallCount': 0,
+    'referenceAnswerAttachedCount': 0,
+    'q6ImageOwnership': 'NOT_VERIFIED',
+    'imageBlockCount': 0,
+    'pageIndex': const <int>[],
+    'blockIdShortHash': '',
+    'expectedQuestionCount': testCase.expectedQuestionCount,
+    'actualQuestionCount': 0,
+  };
+}
+
+Future<int> _completePairedAcceptance({
+  required ImportAcceptanceCase testCase,
+  required AcceptanceVerdict verdict,
+  required Map<String, dynamic> metrics,
+  required Stopwatch stopwatch,
+  required AcceptanceEventEmitter emitEvent,
+  required AcceptanceReportWriter? reportWriter,
+  List<AcceptanceQuestionReport> questionReports =
+      const <AcceptanceQuestionReport>[],
+  String? causeType,
+}) async {
+  if (stopwatch.isRunning) stopwatch.stop();
+  final summary = <String, dynamic>{
+    ...metrics,
+    'verdict': verdict.verdict,
+    'durationMs': stopwatch.elapsedMilliseconds,
+    if (causeType != null) 'causeType': causeType,
+  };
+  if (reportWriter != null) {
+    await reportWriter.write(
+      summary: summary,
+      questionReports: questionReports,
+      candidateTrace: null,
+      verdict: verdict,
+    );
+  }
+  emitEvent({
+    'stage': 'completed',
+    'status': verdict.verdict.toLowerCase(),
+    ...summary,
+  });
+  return verdict.exitCode;
+}
+
+Future<int> _runPairedImportAcceptance({
+  required ImportAcceptanceCase testCase,
+  required String repositoryRoot,
+  required AcceptanceEventEmitter emitEvent,
+  required AcceptanceReportWriter? reportWriter,
+  required Stopwatch stopwatch,
+}) async {
+  final sourcesByRole = <String, ImportAcceptanceSource>{
+    for (final source in testCase.sources) source.role: source,
+  };
+  final documentsByRole = <String, OcrDocument>{};
+
+  for (final role in const <String>['stem', 'solution']) {
+    final source = sourcesByRole[role]!;
+    final cached = loadReplayCache(
+      caseId: source.replayCaseId,
+      repositoryRoot: repositoryRoot,
+    );
+    if (!cached.isLoaded) {
+      emitEvent({
+        'stage': 'cache',
+        'status':
+            cached.isMissing ? 'replay_cache_missing' : 'replay_cache_invalid',
+        'role': role,
+        if (cached.isInvalid)
+          'causeType': cached.causeType ?? 'ReplayCacheInvalid',
+      });
+      return _completePairedAcceptance(
+        testCase: testCase,
+        verdict: const AcceptanceVerdict(
+          verdict: 'NOT_VERIFIED',
+          exitCode: 3,
+        ),
+        metrics: _emptyPairedMetrics(testCase),
+        stopwatch: stopwatch,
+        emitEvent: emitEvent,
+        reportWriter: reportWriter,
+        causeType: cached.isMissing
+            ? 'RequiredReplayMissing'
+            : 'RequiredReplayInvalid',
+      );
+    }
+    documentsByRole[role] = cached.document!;
+    emitEvent({
+      'stage': 'cache',
+      'status': 'replay_cache_loaded',
+      'role': role,
+    });
+  }
+
+  final stem = await _runPairedReplayPipeline(
+    role: 'stem',
+    document: documentsByRole['stem']!,
+  );
+  final solution = await _runPairedReplayPipeline(
+    role: 'solution',
+    document: documentsByRole['solution']!,
+  );
+  final stemNumbers = _acceptanceQuestionNumbers(stem.questions);
+  final solutionNumbers = _acceptanceQuestionNumbers(solution.questions);
+
+  for (final entry in <String, _PairedReplayPipelineResult>{
+    'stem': stem,
+    'solution': solution,
+  }.entries) {
+    emitEvent({
+      'stage': 'paired_source',
+      'status': entry.value.succeeded ? 'completed' : 'failed',
+      'role': entry.key,
+      'questionCount': entry.value.questions.length,
+      'numbers': _acceptanceQuestionNumbers(entry.value.questions),
+      'documentRole': entry.value.documentRole?.name ?? 'unknown',
+      'repairCandidateCount': entry.value.repairCandidateCount,
+      'externalProviderCallCount': 0,
+      'repairProviderCallCount': 0,
+      if (!entry.value.succeeded)
+        'causeType': entry.value.causeType ?? 'PairedSourceParseFailed',
+    });
+  }
+  if (!stem.succeeded || !solution.succeeded) {
+    return _completePairedAcceptance(
+      testCase: testCase,
+      verdict: const AcceptanceVerdict(verdict: 'FAIL', exitCode: 1),
+      metrics: _emptyPairedMetrics(
+        testCase,
+        stemQuestionCount: stem.questions.length,
+        stemNumbers: stemNumbers,
+        solutionQuestionCount: solution.questions.length,
+        solutionNumbers: solutionNumbers,
+        stemDocumentRole: stem.documentRole,
+        solutionDocumentRole: solution.documentRole,
+      ),
+      stopwatch: stopwatch,
+      emitEvent: emitEvent,
+      reportWriter: reportWriter,
+      causeType: 'PairedSourceParseFailed',
+    );
+  }
+
+  if (solution.documentRole != ImportDocumentRole.answerBearing) {
+    return _completePairedAcceptance(
+      testCase: testCase,
+      verdict: const AcceptanceVerdict(
+        verdict: 'NOT_VERIFIED',
+        exitCode: 3,
+      ),
+      metrics: _emptyPairedMetrics(
+        testCase,
+        stemQuestionCount: stem.questions.length,
+        stemNumbers: stemNumbers,
+        solutionQuestionCount: solution.questions.length,
+        solutionNumbers: solutionNumbers,
+        stemDocumentRole: stem.documentRole,
+        solutionDocumentRole: solution.documentRole,
+      ),
+      stopwatch: stopwatch,
+      emitEvent: emitEvent,
+      reportWriter: reportWriter,
+      causeType: 'PairedSolutionRoleMismatch',
+    );
+  }
+
+  final projectedSolutionQuestions =
+      _projectAnswerBearingSolutionQuestions(solution.questions);
+  final mergeResult = const MultiFileQuestionMergeService().merge(
+    <MultiFileQuestionBatch>[
+      MultiFileQuestionBatch(fileIndex: 0, questions: stem.questions),
+      MultiFileQuestionBatch(
+        fileIndex: 1,
+        questions: projectedSolutionQuestions,
+      ),
+    ],
+  );
+  final mergedSorted = const ImportQuestionFinalSorter().sort(
+    mergeResult.mergedQuestions,
+  );
+  final finalQuestions = finalizeAndAuditImportQuestions(
+    mergedSorted.questions,
+    mode: ExplanationRetentionMode.subjectiveOnly,
+  );
+  final finalNumbers = _acceptanceQuestionNumbers(finalQuestions);
+  final duplicateNumbers = _duplicateQuestionNumbers(finalNumbers);
+  final finalNumberSet = finalNumbers.toSet();
+  final missingNumbers = testCase.expectedNumbers
+      .where((number) => !finalNumberSet.contains(number))
+      .toList(growable: false);
+  final answerConflictNumbers = mergeResult.conflictFragments
+      .where(
+        (conflict) => conflict.kind == MultiFileQuestionConflictKind.answer,
+      )
+      .map((conflict) => conflict.questionNumber)
+      .toSet();
+  var quality = runAcceptanceQualityChecks(
+    questions: finalQuestions,
+    testCase: testCase,
+  );
+  quality = _classifyPairedAnswerConflictsAsReview(
+    quality,
+    answerConflictNumbers,
+  );
+
+  final ownership = _verifyQ6ImageOwnership(
+    stemDocument: stem.document,
+    stemQuestions: stem.questions,
+    mergedQuestions: finalQuestions,
+  );
+  final hardIssueCount = quality.questionReports
+      .expand((report) => report.issues)
+      .where((issue) => issue.severity == 'hard')
+      .length;
+  final reviewIssueCount = quality.questionReports
+      .expand((report) => report.issues)
+      .where((issue) => issue.severity == 'review')
+      .length;
+  final missingAnswerCount = quality.questionReports
+      .where(
+        (report) => report.issues.any(
+          (issue) =>
+              issue.code.startsWith('missing_') &&
+              issue.code.contains('answer'),
+        ),
+      )
+      .length;
+  final repairCandidateCount =
+      stem.repairCandidateCount + solution.repairCandidateCount;
+  final referenceAnswerAttachedCount =
+      (_readInt(stem.diagnostics['referenceAnswerAttachedCount']) ?? 0) +
+          (_readInt(solution.diagnostics['referenceAnswerAttachedCount']) ?? 0);
+  final hasStructuralFailure =
+      !_sameNumbers(stemNumbers, testCase.expectedNumbers) ||
+          !_sameNumbers(solutionNumbers, testCase.expectedNumbers) ||
+          !_sameNumbers(finalNumbers, testCase.expectedNumbers) ||
+          missingNumbers.isNotEmpty ||
+          duplicateNumbers.length != testCase.expectedDuplicateNumberCount ||
+          mergeResult.metrics.duplicateKeyCount !=
+              testCase.expectedDuplicateNumberCount ||
+          mergeResult.metrics.unmatchedFragmentCount !=
+              testCase.expectedUnmatchedFragmentCount ||
+          mergeResult.metrics.stemConflictCount > 0 ||
+          hardIssueCount > 0 ||
+          ownership.status == 'FAIL';
+  final requiresReview = mergeResult.requiresReview ||
+      reviewIssueCount > 0 ||
+      repairCandidateCount > 0 ||
+      ownership.status == 'NOT_VERIFIED';
+
+  final AcceptanceVerdict verdict;
+  if (hasStructuralFailure) {
+    verdict = const AcceptanceVerdict(verdict: 'FAIL', exitCode: 1);
+  } else if (ownership.status == 'NOT_VERIFIED') {
+    verdict = const AcceptanceVerdict(verdict: 'NOT_VERIFIED', exitCode: 3);
+  } else if (requiresReview) {
+    verdict = const AcceptanceVerdict(verdict: 'REVIEW', exitCode: 2);
+  } else {
+    verdict = const AcceptanceVerdict(verdict: 'PASS', exitCode: 0);
+  }
+  final blocked = switch (verdict.verdict) {
+    'PASS' => false,
+    'REVIEW' => mergeResult.blocked,
+    _ => true,
+  };
+
+  final metrics = <String, dynamic>{
+    'schemaVersion': 2,
+    'caseId': testCase.caseId,
+    'sourceMode': 'replay',
+    'stemQuestionCount': stem.questions.length,
+    'stemNumbers': stemNumbers,
+    'solutionQuestionCount': solution.questions.length,
+    'solutionNumbers': solutionNumbers,
+    'stemDocumentRole': stem.documentRole?.name ?? 'unknown',
+    'solutionDocumentRole': solution.documentRole?.name ?? 'unknown',
+    'solutionProjectionApplied': true,
+    'finalQuestionCount': finalQuestions.length,
+    'finalNumbers': finalNumbers,
+    'missingNumbers': missingNumbers,
+    'duplicateNumbers': duplicateNumbers,
+    'mergedQuestionCount': mergeResult.metrics.mergedQuestionCount,
+    'unmatchedFragmentCount': mergeResult.metrics.unmatchedFragmentCount,
+    'stemConflictCount': mergeResult.metrics.stemConflictCount,
+    'answerConflictCount': mergeResult.metrics.answerConflictCount,
+    'requiresReview': requiresReview,
+    'blocked': blocked,
+    'hardIssueCount': hardIssueCount,
+    'reviewIssueCount': reviewIssueCount,
+    'missingAnswerCount': missingAnswerCount,
+    'repairMode': 'skipped',
+    'repairCandidateCount': repairCandidateCount,
+    'externalProviderCallCount': 0,
+    'repairProviderCallCount': 0,
+    'referenceAnswerAttachedCount': referenceAnswerAttachedCount,
+    'q6ImageOwnership': ownership.status,
+    'imageBlockCount': ownership.imageBlockCount,
+    'pageIndex': ownership.pageIndices,
+    'blockIdShortHash': ownership.blockIdShortHash,
+    'expectedQuestionCount': testCase.expectedQuestionCount,
+    'actualQuestionCount': finalQuestions.length,
+  };
+  return _completePairedAcceptance(
+    testCase: testCase,
+    verdict: verdict,
+    metrics: metrics,
+    stopwatch: stopwatch,
+    emitEvent: emitEvent,
+    reportWriter: reportWriter,
+    questionReports: quality.questionReports,
+  );
+}
+
 Future<int> runImportAcceptance({
   required String caseId,
   required String repositoryRoot,
@@ -1276,9 +2018,20 @@ Future<int> runImportAcceptance({
   emitEvent({
     'stage': 'preflight',
     'status': 'case_loaded',
+    'schemaVersion': testCase.schemaVersion,
     'caseId': testCase.caseId,
     'expectedQuestionCount': testCase.expectedQuestionCount,
   });
+
+  if (testCase.isPaired) {
+    return _runPairedImportAcceptance(
+      testCase: testCase,
+      repositoryRoot: repositoryRoot,
+      emitEvent: emitEvent,
+      reportWriter: reportWriter,
+      stopwatch: stopwatch,
+    );
+  }
 
   // 2. Obtain OcrDocument (replay cache or live OCR)
   final OcrDocument document;

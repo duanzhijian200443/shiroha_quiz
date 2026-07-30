@@ -74,14 +74,18 @@ if (-not (Test-Path $caseFile)) {
 
 # ── Refresh OCR via existing smoke infrastructure ───────────────────────
 if ($RefreshOcr) {
-    Write-Output "--- Refreshing OCR cache via ocr_smoke ---"
-
     try {
         $caseJson = Get-Content $caseFile -Raw | ConvertFrom-Json
     } catch {
         Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'case_config_invalid' -CauseType ($_.Exception.GetType().Name)
         exit 1
     }
+    if ($caseJson.schemaVersion -eq 2) {
+        Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'paired_refresh_not_supported' -CauseType 'PairedReplayOnly'
+        exit 2
+    }
+
+    Write-Output "--- Refreshing OCR cache via ocr_smoke ---"
     $pdfRelative = $caseJson.pdf
 
     $smokeArgs = @(
@@ -165,13 +169,19 @@ try {
                 $qCount  = if ($evt.actualQuestionCount) { $evt.actualQuestionCount } else { '?' }
                 $expected = if ($evt.expectedQuestionCount) { $evt.expectedQuestionCount } else { '?' }
                 $dur = if ($evt.durationMs) { $evt.durationMs } else { '?' }
+                $hardCount = $null
+                if ($null -ne $evt.PSObject.Properties['hardIssueCount']) {
+                    $hardCount = $evt.hardIssueCount
+                } elseif ($null -ne $evt.PSObject.Properties['hardFailureCount']) {
+                    $hardCount = $evt.hardFailureCount
+                }
                 Write-Output ""
                 Write-Output "=== ACCEPTANCE RESULT ==="
                 Write-Output "Verdict:   $verdict"
                 Write-Output "Questions: $qCount / $expected"
                 Write-Output "Duration:  ${dur}ms"
-                if ($evt.hardFailureCount -and $evt.hardFailureCount -gt 0) {
-                    Write-Output "Hard:      $($evt.hardFailureCount) failures"
+                if ($null -ne $hardCount -and $hardCount -gt 0) {
+                    Write-Output "Hard:      $hardCount failures"
                 }
                 if ($evt.reviewIssueCount -and $evt.reviewIssueCount -gt 0) {
                     Write-Output "Review:    $($evt.reviewIssueCount) issues"
@@ -195,6 +205,8 @@ if ($exitCode -eq 0) {
     Write-Output "Result: PASS"
 } elseif ($exitCode -eq 2) {
     Write-Output "Result: REVIEW (issues found, see reports)"
+} elseif ($exitCode -eq 3) {
+    Write-Output "Result: NOT_VERIFIED"
 } else {
     Write-Output "Result: FAIL"
 }

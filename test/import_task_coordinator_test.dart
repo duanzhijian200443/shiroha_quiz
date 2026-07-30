@@ -246,6 +246,124 @@ void main() {
     );
   });
 
+  test(
+      'independent batch creates all tasks first and parses serially after failures',
+      () async {
+    var taskIndex = 0;
+    var traceIndex = 0;
+    var activeParses = 0;
+    var maxActiveParses = 0;
+    var allTasksVisibleAtFirstStart = false;
+    final starts = <int>[];
+    final releaseFirst = Completer<void>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'batch-task-${taskIndex++}',
+      traceIdFactory: () => 'batch-trace-${traceIndex++}',
+      batchIdFactory: () => 'batch-fixture',
+    );
+
+    Future<ImportParseResult> parseItem(int index, String taskId) async {
+      starts.add(index);
+      activeParses++;
+      maxActiveParses =
+          activeParses > maxActiveParses ? activeParses : maxActiveParses;
+      if (index == 0) {
+        allTasksVisibleAtFirstStart = manager.tasks.length == 4;
+      }
+      try {
+        if (index == 0) {
+          await releaseFirst.future;
+        }
+        if (index == 1) {
+          throw StateError('synthetic batch failure');
+        }
+        return ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '${index + 1}',
+              'type': 0,
+              'content': 'Synthetic question ${index + 1}',
+              'options': const <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': '',
+            },
+          ],
+        );
+      } finally {
+        activeParses--;
+      }
+    }
+
+    final batch = await coordinator.dispatchIndependentBatch(
+      items: List<ImportTaskBatchItem>.generate(
+        4,
+        (index) => ImportTaskBatchItem(
+          sourceDescription: index < 2 ? 'same.pdf' : 'file-$index.pdf',
+          mode: ImportParseMode.ocr,
+          parse: (taskId) => parseItem(index, taskId),
+        ),
+      ),
+    );
+
+    expect(batch.batchId, 'batch-fixture');
+    expect(batch.tasks.map((handle) => handle.taskId), <String>[
+      'batch-task-0',
+      'batch-task-1',
+      'batch-task-2',
+      'batch-task-3',
+    ]);
+    expect(manager.tasks.map((task) => task.id), <String>[
+      'batch-task-0',
+      'batch-task-1',
+      'batch-task-2',
+      'batch-task-3',
+    ]);
+    expect(
+      manager.tasks.map((task) => task.selectionIndex),
+      <int?>[0, 1, 2, 3],
+    );
+    expect(
+      manager.tasks.map((task) => task.batchId).toSet(),
+      <String?>{'batch-fixture'},
+    );
+    expect(
+      batch.tasks.map((handle) => handle.traceId).toSet(),
+      hasLength(4),
+    );
+
+    releaseFirst.complete();
+    for (final handle in batch.tasks) {
+      await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status != TaskStatus.processing,
+      );
+    }
+
+    expect(allTasksVisibleAtFirstStart, isTrue);
+    expect(starts, <int>[0, 1, 2, 3]);
+    expect(maxActiveParses, 1);
+    expect(
+      manager.tasks.map((task) => task.status),
+      <TaskStatus>[
+        TaskStatus.pendingReview,
+        TaskStatus.error,
+        TaskStatus.pendingReview,
+        TaskStatus.pendingReview,
+      ],
+    );
+    expect(
+      manager.tasks.map((task) => task.selectionIndex),
+      <int?>[0, 1, 2, 3],
+    );
+    expect(
+      manager.tasks.map((task) => task.batchId).toSet(),
+      <String?>{'batch-fixture'},
+    );
+  });
+
   test('empty result persists only allowlisted failure diagnostics', () async {
     final coordinator = ImportTaskCoordinator(
       taskManager: manager,

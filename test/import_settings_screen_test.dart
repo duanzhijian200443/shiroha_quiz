@@ -546,7 +546,8 @@ void main() {
     expect(requests.single.taskId, 'settings-task-0');
   });
 
-  testWidgets('multi-text selection dispatches one single aggregated request',
+  testWidgets(
+      'TXT Markdown and DOCX selection dispatches one aggregated request',
       (tester) async {
     final sources = <String>[];
     final requests = <ImportParseRequest>[];
@@ -557,6 +558,7 @@ void main() {
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'notes1.txt', path: 'notes1.txt', size: 0),
           PlatformFile(name: 'notes2.md', path: 'notes2.md', size: 0),
+          PlatformFile(name: 'notes3.docx', path: 'notes3.docx', size: 0),
         ]),
         requestParser: (request) async {
           requests.add(request);
@@ -580,10 +582,16 @@ void main() {
     );
     await tester.pump();
 
-    expect(sources, <String>['notes1.txt 等 2 个文件']);
+    expect(sources, <String>['notes1.txt 等 3 个文件']);
     expect(requests, hasLength(1));
-    expect(requests.single.filePaths, <String>['notes1.txt', 'notes2.md']);
-    expect(requests.single.fileNames, <String>['notes1.txt', 'notes2.md']);
+    expect(
+      requests.single.filePaths,
+      <String>['notes1.txt', 'notes2.md', 'notes3.docx'],
+    );
+    expect(
+      requests.single.fileNames,
+      <String>['notes1.txt', 'notes2.md', 'notes3.docx'],
+    );
   });
 
   testWidgets(

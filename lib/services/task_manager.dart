@@ -39,6 +39,16 @@ class ImportTask {
   // 诊断元数据快捷获取
   String? get traceId => diagnostics?[TaskManager.keyTraceId]?.toString();
   String? get parseMode => diagnostics?[TaskManager.keyParseMode]?.toString();
+  String? get batchId {
+    final value = diagnostics?[TaskManager.keyBatchId];
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
+  int? get selectionIndex {
+    final value = diagnostics?[TaskManager.keySelectionIndex];
+    return value is num ? value.toInt() : null;
+  }
+
   ExplanationRetentionMode get explanationRetentionMode =>
       parseExplanationRetentionMode(
         diagnostics?[TaskManager.keyExplanationRetentionMode],
@@ -189,6 +199,8 @@ class ReviewDraftSaveResult {
 class TaskManager extends ChangeNotifier {
   static const String keyTraceId = '_traceId';
   static const String keyParseMode = '_parseMode';
+  static const String keyBatchId = '_batchId';
+  static const String keySelectionIndex = '_selectionIndex';
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
   static const String keyReviewDraftRevision = '_reviewDraftRevision';
   static const String keyReviewItemId = '_reviewItemId';
@@ -276,8 +288,15 @@ class TaskManager extends ChangeNotifier {
   }
 
   void addTask(ImportTask task) {
-    tasks.insert(0, task);
-    _saveTask(task);
+    addTasksInOrder(<ImportTask>[task]);
+  }
+
+  void addTasksInOrder(List<ImportTask> orderedTasks) {
+    if (orderedTasks.isEmpty) return;
+    tasks.insertAll(0, orderedTasks);
+    for (final task in orderedTasks) {
+      _saveTask(task);
+    }
     notifyListeners();
   }
 
@@ -313,30 +332,10 @@ class TaskManager extends ChangeNotifier {
         tasks[idx].warnings = warnings;
       }
       if (diagnostics.isNotEmpty) {
-        final existingTraceId = tasks[idx].traceId;
-        final existingParseMode = tasks[idx].parseMode;
-        final existingExplanationRetentionMode =
-            tasks[idx].diagnostics?[keyExplanationRetentionMode]?.toString();
-
-        tasks[idx].diagnostics = diagnostics;
-
-        // 恢复原有元数据
-        if (existingTraceId != null ||
-            existingParseMode != null ||
-            existingExplanationRetentionMode != null) {
-          tasks[idx].diagnostics ??= {};
-          if (existingTraceId != null)
-            tasks[idx].diagnostics![keyTraceId] = existingTraceId;
-          if (existingParseMode != null)
-            tasks[idx].diagnostics![keyParseMode] = existingParseMode;
-          if (existingExplanationRetentionMode != null &&
-              !tasks[idx]
-                  .diagnostics!
-                  .containsKey(keyExplanationRetentionMode)) {
-            tasks[idx].diagnostics![keyExplanationRetentionMode] =
-                existingExplanationRetentionMode;
-          }
-        }
+        tasks[idx].diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+          tasks[idx],
+          diagnostics,
+        );
       }
       _saveTask(tasks[idx]);
       notifyListeners();
@@ -351,33 +350,40 @@ class TaskManager extends ChangeNotifier {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].warnings = warnings;
-
-      final existingTraceId = tasks[idx].traceId;
-      final existingParseMode = tasks[idx].parseMode;
-      final existingExplanationRetentionMode =
-          tasks[idx].diagnostics?[keyExplanationRetentionMode]?.toString();
-
-      tasks[idx].diagnostics = diagnostics;
-
-      // 恢复原有元数据
-      if (existingTraceId != null ||
-          existingParseMode != null ||
-          existingExplanationRetentionMode != null) {
-        tasks[idx].diagnostics ??= {};
-        if (existingTraceId != null)
-          tasks[idx].diagnostics![keyTraceId] = existingTraceId;
-        if (existingParseMode != null)
-          tasks[idx].diagnostics![keyParseMode] = existingParseMode;
-        if (existingExplanationRetentionMode != null &&
-            !tasks[idx].diagnostics!.containsKey(keyExplanationRetentionMode)) {
-          tasks[idx].diagnostics![keyExplanationRetentionMode] =
-              existingExplanationRetentionMode;
-        }
-      }
+      tasks[idx].diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+        tasks[idx],
+        diagnostics,
+      );
 
       _saveTask(tasks[idx]);
       notifyListeners();
     }
+  }
+
+  Map<String, dynamic> _replaceDiagnosticsPreservingTaskMetadata(
+    ImportTask task,
+    Map<String, dynamic> diagnostics,
+  ) {
+    final existing = task.diagnostics;
+    final next = Map<String, dynamic>.from(diagnostics);
+    for (final key in <String>[
+      keyTraceId,
+      keyParseMode,
+      keyBatchId,
+      keySelectionIndex,
+    ]) {
+      final value = existing?[key];
+      if (value != null) {
+        next[key] = value;
+      }
+    }
+    if (!next.containsKey(keyExplanationRetentionMode)) {
+      final retentionMode = existing?[keyExplanationRetentionMode];
+      if (retentionMode != null) {
+        next[keyExplanationRetentionMode] = retentionMode;
+      }
+    }
+    return next;
   }
 
   int reviewDraftRevision(String id) {
@@ -673,8 +679,6 @@ class TaskManager extends ChangeNotifier {
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       final task = tasks[idx];
-      final existingTraceId = task.traceId;
-      final existingParseMode = task.parseMode;
       if (clearSensitivePayload) {
         task.parsedData = null;
         task.pendingChunks = null;
@@ -684,15 +688,10 @@ class TaskManager extends ChangeNotifier {
         task.warnings = List<String>.from(warnings);
       }
       if (clearSensitivePayload || diagnostics != null) {
-        task.diagnostics = Map<String, dynamic>.from(
+        task.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+          task,
           diagnostics ?? const <String, dynamic>{},
         );
-        if (existingTraceId != null) {
-          task.diagnostics![keyTraceId] = existingTraceId;
-        }
-        if (existingParseMode != null) {
-          task.diagnostics![keyParseMode] = existingParseMode;
-        }
       }
       task.status = TaskStatus.error;
       task.errorMsg = error;
