@@ -100,6 +100,10 @@ final _rules = <LayerBoundaryRule>[
 final _domainDirectivePattern =
     RegExp(r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''');
 
+final _dartSingleLineStringPattern = RegExp(
+  r'''(?:r)?'(?:\\.|[^'\\])*'|(?:r)?"(?:\\.|[^"\\])*"''',
+);
+
 const _forbiddenDomainUris = <String>{
   'dart:io',
   'dart:ui',
@@ -135,6 +139,43 @@ const _forbiddenR1bApiNames = <String>[
   'diagnostics',
   'providerResponse',
   'questionIndex',
+];
+
+const _r2aSourceModelPaths = <String>[
+  'lib/domain/source/source_document.dart',
+  'lib/domain/source/source_part.dart',
+];
+
+const _forbiddenR2aApiNames = <String>[
+  'path',
+  'absolutePath',
+  'originalPath',
+  'resolvedPath',
+  'extractedPath',
+  'cachePath',
+  'temporaryPath',
+  'uri',
+  'url',
+  'base64',
+  'bytes',
+  'rawText',
+  'fullContent',
+  'providerText',
+  'rawResponse',
+  'providerRequest',
+  'providerResponse',
+  'requestBody',
+  'responseBody',
+  'diagnostics',
+  'preview',
+  'exception',
+  'stackTrace',
+  'credential',
+  'apiKey',
+  'relationshipId',
+  'File',
+  'Uri',
+  'ImageProvider',
 ];
 
 void main() {
@@ -259,7 +300,64 @@ void main() {
             'Unsafe R1B API declarations found:\n${violations.join('\n\n')}',
       );
     });
+
+    test('R2A source models expose no locator or side-channel payload API', () {
+      final violations = <LayerBoundaryViolation>[];
+
+      for (final path in _r2aSourceModelPaths) {
+        final file = File(path);
+        if (!file.existsSync()) {
+          violations.add(
+            LayerBoundaryViolation(
+              ruleName: 'r2a-safe-api-boundary',
+              path: path,
+              line: 0,
+              source: '<missing>',
+              reason: 'Required R2A source domain model is missing.',
+            ),
+          );
+          continue;
+        }
+
+        final lines = file.readAsLinesSync();
+        for (var index = 0; index < lines.length; index++) {
+          final source = lines[index];
+          final declarationSource = _withoutDartStringsAndLineComment(source);
+          for (final name in _forbiddenR2aApiNames) {
+            if (!RegExp('\\b${RegExp.escape(name)}\\b')
+                .hasMatch(declarationSource)) {
+              continue;
+            }
+            violations.add(
+              LayerBoundaryViolation(
+                ruleName: 'r2a-safe-api-boundary',
+                path: path,
+                line: index + 1,
+                source: source.trim(),
+                reason: 'R2A source models must not expose unsafe payload or '
+                    'locator fields.',
+              ),
+            );
+          }
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'Unsafe R2A API declarations found:\n${violations.join('\n\n')}',
+      );
+    });
   });
+}
+
+String _withoutDartStringsAndLineComment(String source) {
+  final withoutStrings = source.replaceAll(_dartSingleLineStringPattern, '');
+  final commentStart = withoutStrings.indexOf('//');
+  return commentStart < 0
+      ? withoutStrings
+      : withoutStrings.substring(0, commentStart);
 }
 
 bool _isForbiddenDomainUri(String uri) {
