@@ -6,6 +6,10 @@ final _mimeTypePattern = RegExp(
 
 enum AssetKind { image }
 
+/// Metadata for an asset whose [assetId] is local to one source document.
+///
+/// Cross-source aggregates must pair this value with its opaque source ID;
+/// [assetId] alone is not an import-task or database-global identity.
 final class AssetRef {
   factory AssetRef({
     required String assetId,

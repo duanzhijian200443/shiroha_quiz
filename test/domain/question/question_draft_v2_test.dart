@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
@@ -16,8 +17,11 @@ void main() {
           point: SourcePoint.page(pageNumber: 2),
         ),
       ];
-      final assetRefs = <AssetRef>[
-        AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+      final assetRefs = <SourcedAssetRef>[
+        SourcedAssetRef(
+          sourceId: 'source_001',
+          asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+        ),
       ];
       final issues = <ImportIssue>[
         ImportIssue(
@@ -76,6 +80,98 @@ void main() {
       expect(fillBlank.answer, isA<ContentAnswer>());
       expect(shortAnswer.answer, isNull);
       expect(shortAnswer.explanation, isNull);
+    });
+
+    test('deduplicates composite identities without merging different sources',
+        () {
+      final sourceA = SourceRef.document(sourceId: 'source_001');
+      final sourceB = SourceRef.document(sourceId: 'source_002');
+      final first = SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(
+          assetId: 'asset_000001',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+        ),
+      );
+      final repeated = SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(
+          assetId: 'asset_000001',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+        ),
+      );
+      final otherSource = SourcedAssetRef(
+        sourceId: 'source_002',
+        asset: AssetRef(
+          assetId: 'asset_000001',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+        ),
+      );
+
+      final draft = QuestionDraftV2(
+        questionId: 'question_assets_001',
+        kind: QuestionKind.shortAnswer,
+        stem: _text('synthetic'),
+        sourceRefs: <SourceRef>[sourceA, sourceB],
+        assetRefs: <SourcedAssetRef>[first, repeated, otherSource],
+      );
+
+      expect(draft.assetRefs, <SourcedAssetRef>[first, otherSource]);
+      expect(draft.assetRefs.map((ref) => ref.sourceId), <String>[
+        'source_001',
+        'source_002',
+      ]);
+    });
+
+    test('rejects conflicting composite metadata and orphan asset sources', () {
+      final source = SourceRef.document(sourceId: 'source_001');
+      final png = SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(
+          assetId: 'asset_000001',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+        ),
+      );
+      final jpeg = SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(
+          assetId: 'asset_000001',
+          kind: AssetKind.image,
+          mimeType: 'image/jpeg',
+        ),
+      );
+      final orphan = SourcedAssetRef(
+        sourceId: 'source_002',
+        asset: AssetRef(
+          assetId: 'asset_000001',
+          kind: AssetKind.image,
+        ),
+      );
+
+      expect(
+        () => QuestionDraftV2(
+          questionId: 'question_assets_conflict',
+          kind: QuestionKind.shortAnswer,
+          stem: _text('synthetic'),
+          sourceRefs: <SourceRef>[source],
+          assetRefs: <SourcedAssetRef>[png, jpeg],
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => QuestionDraftV2(
+          questionId: 'question_assets_orphan',
+          kind: QuestionKind.shortAnswer,
+          stem: _text('synthetic'),
+          sourceRefs: <SourceRef>[source],
+          assetRefs: <SourcedAssetRef>[orphan],
+        ),
+        throwsFormatException,
+      );
     });
 
     test('keeps review-quality problems constructible without defaults', () {
@@ -293,8 +389,11 @@ void main() {
       final sources = <SourceRef>[
         SourceRef.document(sourceId: 'source_001'),
       ];
-      final assets = <AssetRef>[
-        AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+      final assets = <SourcedAssetRef>[
+        SourcedAssetRef(
+          sourceId: 'source_001',
+          asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+        ),
       ];
       final issues = <ImportIssue>[
         ImportIssue(

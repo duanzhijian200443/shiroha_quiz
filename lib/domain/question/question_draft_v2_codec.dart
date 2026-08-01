@@ -1,4 +1,5 @@
 import '../assets/asset_ref.dart';
+import '../assets/sourced_asset_ref.dart';
 import '../content/rich_content_codec.dart';
 import '../import/import_issue.dart';
 import '../source/source_ref.dart';
@@ -7,7 +8,7 @@ import 'question_draft_v2.dart';
 final class QuestionDraftV2Codec {
   const QuestionDraftV2Codec();
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
   static const RichContentCodec _richContentCodec = RichContentCodec();
 
   Map<String, Object?> encode(QuestionDraftV2 draft) {
@@ -265,30 +266,35 @@ final class QuestionDraftV2Codec {
     );
   }
 
-  Map<String, Object?> _encodeAssetRef(AssetRef assetRef) {
+  Map<String, Object?> _encodeAssetRef(SourcedAssetRef assetRef) {
+    final local = assetRef.asset;
     return <String, Object?>{
-      'assetId': assetRef.assetId,
-      'kind': _encodeAssetKind(assetRef.kind),
-      'mimeType': assetRef.mimeType,
-      'pixelWidth': assetRef.pixelWidth,
-      'pixelHeight': assetRef.pixelHeight,
+      'sourceId': assetRef.sourceId,
+      'assetId': local.assetId,
+      'kind': _encodeAssetKind(local.kind),
+      'mimeType': local.mimeType,
+      'pixelWidth': local.pixelWidth,
+      'pixelHeight': local.pixelHeight,
     };
   }
 
-  AssetRef _decodeAssetRef(Object? json) {
+  SourcedAssetRef _decodeAssetRef(Object? json) {
     final assetRef = _expectObject(
       json,
       expectedKeys: _assetKeys,
       label: 'Asset reference',
     );
-    return AssetRef(
-      assetId: _expectString(assetRef['assetId'], 'assetId'),
-      kind: _decodeAssetKind(assetRef['kind']),
-      mimeType: _expectNullableString(assetRef['mimeType'], 'mimeType'),
-      pixelWidth: _expectNullableInt(assetRef['pixelWidth'], 'pixelWidth'),
-      pixelHeight: _expectNullableInt(
-        assetRef['pixelHeight'],
-        'pixelHeight',
+    return SourcedAssetRef(
+      sourceId: _expectString(assetRef['sourceId'], 'asset sourceId'),
+      asset: AssetRef(
+        assetId: _expectString(assetRef['assetId'], 'assetId'),
+        kind: _decodeAssetKind(assetRef['kind']),
+        mimeType: _expectNullableString(assetRef['mimeType'], 'mimeType'),
+        pixelWidth: _expectNullableInt(assetRef['pixelWidth'], 'pixelWidth'),
+        pixelHeight: _expectNullableInt(
+          assetRef['pixelHeight'],
+          'pixelHeight',
+        ),
       ),
     );
   }
@@ -358,6 +364,7 @@ const _blockPointKeys = <String>{
   'readingOrder',
 };
 const _assetKeys = <String>{
+  'sourceId',
   'assetId',
   'kind',
   'mimeType',

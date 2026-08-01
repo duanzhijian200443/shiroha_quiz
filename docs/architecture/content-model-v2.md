@@ -77,6 +77,26 @@ These names describe responsibilities, not R0A implementations.
 No converter may silently discard text, tables, images, formulas, diagnostics or
 source references.
 
+## Asset identity scope before R3
+
+`AssetRef.assetId` is local to one `SourceDocument`. Reusing a deterministic
+local token such as `asset_000001` in another source document is valid and does
+not imply that the assets are equal.
+
+Any aggregate that can contain assets from multiple source documents must use
+the composite identity `(sourceId, localAssetId)`. `QuestionDraftV2` represents
+that association with `SourcedAssetRef`; identical composite references are
+deduplicated in first-encounter order, while conflicting metadata for one
+composite identity is invalid. Different source IDs must never be merged solely
+because their local asset IDs match.
+
+Source IDs are assigned by the future source registry before adapter conversion
+and must be independent of file names, paths, provider identifiers, timestamps,
+random values, and asynchronous completion order. Local asset IDs may be
+assigned after parsing in deterministic asset encounter order. Neither local nor
+composite asset identity is a database-global key; future persistence must keep
+the owning aggregate identity alongside the composite source/asset identity.
+
 ## Dependency rules
 
 The target direction is:
