@@ -22,6 +22,13 @@ class TextPart extends DocumentPart {
   }) : super(order);
 }
 
+final class GeneratedSourceBoundaryPart extends TextPart {
+  const GeneratedSourceBoundaryPart({
+    required super.order,
+    required super.text,
+  }) : super(role: TextRole.paragraph);
+}
+
 class TablePart extends DocumentPart {
   final List<List<String>> rows;
 

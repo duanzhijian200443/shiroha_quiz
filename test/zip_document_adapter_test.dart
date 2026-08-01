@@ -52,9 +52,19 @@ void main() {
     // Map entries in Dart preserve insertion order.
 
     expect(parsed.parts.length, 5);
-    expect((parsed.parts[0] as TextPart).text.contains('Source: 1.md'), true);
+    expect(parsed.parts[0], isA<GeneratedSourceBoundaryPart>());
+    expect(
+        (parsed.parts[0] as GeneratedSourceBoundaryPart)
+            .text
+            .contains('Source: 1.md'),
+        true);
     expect((parsed.parts[1] as TextPart).text, 'First file');
-    expect((parsed.parts[2] as TextPart).text.contains('Source: 2.txt'), true);
+    expect(parsed.parts[2], isA<GeneratedSourceBoundaryPart>());
+    expect(
+        (parsed.parts[2] as GeneratedSourceBoundaryPart)
+            .text
+            .contains('Source: 2.txt'),
+        true);
     expect((parsed.parts[3] as TextPart).text, 'Second file');
     expect(parsed.parts[4] is ImagePart,
         true); // unreferenced image is added at the end

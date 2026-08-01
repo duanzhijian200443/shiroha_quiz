@@ -3,12 +3,18 @@ import 'document_part.dart';
 import 'document_signals.dart';
 import 'import_format.dart';
 
+enum ParsedDocumentContentStatus {
+  usable,
+  infrastructureFailure,
+}
+
 class ParsedDocument {
   final String sourceName;
   final ImportFormat format;
   final List<DocumentPart> parts;
   final DocumentSignals signals;
   final bool fallbackUsed;
+  final ParsedDocumentContentStatus contentStatus;
   final Map<String, dynamic> diagnostics;
   final List<DocumentImageAsset> imageAssets;
 
@@ -17,6 +23,7 @@ class ParsedDocument {
     required this.format,
     required this.parts,
     required this.signals,
+    required this.contentStatus,
     this.fallbackUsed = false,
     Map<String, dynamic>? diagnostics,
     List<DocumentImageAsset>? imageAssets,

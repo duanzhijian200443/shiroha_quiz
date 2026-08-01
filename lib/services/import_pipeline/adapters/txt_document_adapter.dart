@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../document_part.dart';
 import '../document_signals.dart';
@@ -11,9 +12,27 @@ class TxtDocumentAdapter {
   static Future<ParsedDocument> parse({
     required String filePath,
     required String sourceName,
+  }) {
+    return _parse(
+      sourceName: sourceName,
+      readBytes: () => File(filePath).readAsBytes(),
+    );
+  }
+
+  @visibleForTesting
+  static Future<ParsedDocument> parseForTesting({
+    required String sourceName,
+    required Future<List<int>> Function() readBytes,
+  }) {
+    return _parse(sourceName: sourceName, readBytes: readBytes);
+  }
+
+  static Future<ParsedDocument> _parse({
+    required String sourceName,
+    required Future<List<int>> Function() readBytes,
   }) async {
     try {
-      final bytes = await File(filePath).readAsBytes();
+      final bytes = await readBytes();
       // Handle UTF-8 with optional BOM
       String content;
       if (bytes.length >= 3 &&
@@ -36,6 +55,7 @@ class TxtDocumentAdapter {
               role: TextRole.paragraph)
         ],
         signals: const DocumentSignals(),
+        contentStatus: ParsedDocumentContentStatus.infrastructureFailure,
         fallbackUsed: true,
       )..diagnostics['warning'] = '文本文件 $sourceName 解析崩溃: $e';
     }
@@ -54,6 +74,7 @@ class TxtDocumentAdapter {
         format: ImportFormat.txt,
         parts: [],
         signals: const DocumentSignals(),
+        contentStatus: ParsedDocumentContentStatus.usable,
         fallbackUsed: true,
       )..diagnostics['warning'] = '文本文件 $sourceName 内容为空。';
     }
@@ -77,6 +98,7 @@ class TxtDocumentAdapter {
       format: ImportFormat.txt,
       parts: parts,
       signals: signals,
+      contentStatus: ParsedDocumentContentStatus.usable,
       fallbackUsed: false,
     );
   }
