@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../document_image_asset.dart';
@@ -15,9 +16,45 @@ class ZipDocumentAdapter {
   static Future<ParsedDocument> parse({
     required String filePath,
     required String sourceName,
+  }) {
+    return _parse(
+      sourceName: sourceName,
+      readBytes: () => File(filePath).readAsBytes(),
+    );
+  }
+
+  @visibleForTesting
+  static Future<ParsedDocument> parseForTesting({
+    required String sourceName,
+    required Future<List<int>> Function() readBytes,
+  }) {
+    return _parse(sourceName: sourceName, readBytes: readBytes);
+  }
+
+  @visibleForTesting
+  static GeneratedSourceBoundaryPart sourceBoundaryForTesting({
+    required int order,
+    required String sourceName,
+  }) {
+    return _sourceBoundary(order: order, sourceName: sourceName);
+  }
+
+  static GeneratedSourceBoundaryPart _sourceBoundary({
+    required int order,
+    required String sourceName,
+  }) {
+    return GeneratedSourceBoundaryPart(
+      order: order,
+      text: '\n--- Source: $sourceName ---\n',
+    );
+  }
+
+  static Future<ParsedDocument> _parse({
+    required String sourceName,
+    required Future<List<int>> Function() readBytes,
   }) async {
     try {
-      final bytes = await File(filePath).readAsBytes();
+      final bytes = await readBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
       final List<String> warnings = [];
@@ -108,10 +145,7 @@ class ZipDocumentAdapter {
         final lowerName = file.name.toLowerCase();
         ParsedDocument doc;
 
-        parts.add(TextPart(
-            order: order++,
-            text: '\n--- Source: ${file.name} ---\n',
-            role: TextRole.paragraph));
+        parts.add(_sourceBoundary(order: order++, sourceName: file.name));
 
         final data = file.content as List<int>;
 
@@ -214,6 +248,7 @@ class ZipDocumentAdapter {
         format: ImportFormat.zip,
         parts: parts,
         signals: combinedSignals,
+        contentStatus: ParsedDocumentContentStatus.usable,
         fallbackUsed: false,
         diagnostics: diagnostics,
         imageAssets: imageAssetsList,
@@ -229,6 +264,7 @@ class ZipDocumentAdapter {
               role: TextRole.paragraph)
         ],
         signals: const DocumentSignals(),
+        contentStatus: ParsedDocumentContentStatus.infrastructureFailure,
         fallbackUsed: true,
       )..diagnostics['warning'] = 'Zip包 $sourceName 解析崩溃: $e';
     }

@@ -32,6 +32,7 @@ void main() {
       format: ImportFormat.md,
       parts: [],
       signals: const DocumentSignals(),
+      contentStatus: ParsedDocumentContentStatus.usable,
       imageAssets: [
         DocumentImageAsset(
           id: 'img_0',

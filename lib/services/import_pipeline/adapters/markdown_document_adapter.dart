@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
@@ -13,10 +14,33 @@ class MarkdownDocumentAdapter {
   static Future<ParsedDocument> parse({
     required String filePath,
     required String sourceName,
+  }) {
+    return _parse(
+      sourceName: sourceName,
+      baseDir: p.dirname(filePath),
+      readContent: () => File(filePath).readAsString(),
+    );
+  }
+
+  @visibleForTesting
+  static Future<ParsedDocument> parseForTesting({
+    required String sourceName,
+    required Future<String> Function() readContent,
+  }) {
+    return _parse(
+      sourceName: sourceName,
+      baseDir: '.',
+      readContent: readContent,
+    );
+  }
+
+  static Future<ParsedDocument> _parse({
+    required String sourceName,
+    required String baseDir,
+    required Future<String> Function() readContent,
   }) async {
     try {
-      final content = await File(filePath).readAsString();
-      final baseDir = p.dirname(filePath);
+      final content = await readContent();
       int assetCounter = 0;
       final List<String> warnings = [];
 
@@ -88,6 +112,7 @@ class MarkdownDocumentAdapter {
               role: TextRole.paragraph)
         ],
         signals: const DocumentSignals(),
+        contentStatus: ParsedDocumentContentStatus.infrastructureFailure,
         fallbackUsed: true,
       )..diagnostics['warning'] = 'Markdown文件 $sourceName 解析崩溃: $e';
     }
@@ -105,6 +130,7 @@ class MarkdownDocumentAdapter {
         format: ImportFormat.md,
         parts: [],
         signals: const DocumentSignals(),
+        contentStatus: ParsedDocumentContentStatus.usable,
         fallbackUsed: true,
       )..diagnostics['warning'] = 'Markdown文件 $sourceName 内容为空。';
     }
@@ -128,6 +154,7 @@ class MarkdownDocumentAdapter {
       format: ImportFormat.md,
       parts: parts,
       signals: signals,
+      contentStatus: ParsedDocumentContentStatus.usable,
       fallbackUsed: false,
       imageAssets: collectedAssets,
     );

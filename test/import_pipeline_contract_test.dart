@@ -36,6 +36,7 @@ void main() {
               order: 40, text: 'Last paragraph', role: TextRole.paragraph),
         ],
         signals: const DocumentSignals(),
+        contentStatus: ParsedDocumentContentStatus.usable,
       );
 
       final plainText = doc.toPlainTextForParsing();
@@ -77,6 +78,7 @@ void main() {
         parts: [],
         signals:
             const DocumentSignals(questionMarkerCount: 3, answerMarkerCount: 2),
+        contentStatus: ParsedDocumentContentStatus.usable,
         fallbackUsed: true,
         diagnostics: {'custom_error': 'Failed to read zip footer'},
         imageAssets: [asset],
@@ -88,6 +90,7 @@ void main() {
       expect(diag['format'], 'docx');
       expect(diag['partCount'], 0);
       expect(diag['fallbackUsed'], true);
+      expect(diag.containsKey('contentStatus'), false);
       expect(diag['custom_error'], 'Failed to read zip footer');
 
       final signalsMap = diag['signals'] as Map<String, dynamic>;

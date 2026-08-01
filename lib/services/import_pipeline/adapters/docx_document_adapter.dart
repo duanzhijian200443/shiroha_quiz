@@ -16,9 +16,34 @@ class DocxDocumentAdapter {
   static Future<ParsedDocument> parse({
     required String filePath,
     required String sourceName,
+  }) {
+    return _parse(
+      sourceName: sourceName,
+      readBytes: () => File(filePath).readAsBytes(),
+      fallbackToText: (bytes) => docxToText(bytes),
+    );
+  }
+
+  @visibleForTesting
+  static Future<ParsedDocument> parseForTesting({
+    required String sourceName,
+    required Future<Uint8List> Function() readBytes,
+    required String Function(Uint8List) fallbackToText,
+  }) {
+    return _parse(
+      sourceName: sourceName,
+      readBytes: readBytes,
+      fallbackToText: fallbackToText,
+    );
+  }
+
+  static Future<ParsedDocument> _parse({
+    required String sourceName,
+    required Future<Uint8List> Function() readBytes,
+    required String Function(Uint8List) fallbackToText,
   }) async {
     try {
-      final bytes = await File(filePath).readAsBytes();
+      final bytes = await readBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
       // --- Phase 4-A: Extract word/media/* to temp dir ---
@@ -89,6 +114,7 @@ class DocxDocumentAdapter {
         format: ImportFormat.docx,
         parts: allParts,
         signals: signals,
+        contentStatus: ParsedDocumentContentStatus.usable,
         fallbackUsed: false,
         imageAssets: imageAssets,
       );
@@ -104,15 +130,17 @@ class DocxDocumentAdapter {
       debugPrint(
           'DocxDocumentAdapter: Parsing failed, falling back to docxToText. Phase 4-A image extraction failed: $e');
       String rawText = '';
+      var contentStatus = ParsedDocumentContentStatus.infrastructureFailure;
       try {
-        final bytes = await File(filePath).readAsBytes();
-        rawText = docxToText(bytes);
+        final bytes = await readBytes();
+        rawText = fallbackToText(bytes);
         rawText = rawText
             .replaceAll(RegExp(r'<[^>]+>'), ' ')
             .replaceAll('\r\n', '\n')
             .replaceAll('\r', '\n')
             .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
             .replaceAll(RegExp(r'\n{3,}'), '\n\n');
+        contentStatus = ParsedDocumentContentStatus.usable;
       } catch (fallbackErr) {
         rawText = 'Docx Parsing and Fallback Failed: $e, $fallbackErr';
       }
@@ -122,6 +150,7 @@ class DocxDocumentAdapter {
         format: ImportFormat.docx,
         parts: [TextPart(order: 0, text: rawText, role: TextRole.paragraph)],
         signals: const DocumentSignals(),
+        contentStatus: contentStatus,
         fallbackUsed: true,
       )
         ..diagnostics['warning'] = 'Word文档 $sourceName 解析发生降级: $e'
