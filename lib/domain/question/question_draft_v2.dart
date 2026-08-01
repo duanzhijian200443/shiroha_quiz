@@ -1,4 +1,4 @@
-import '../assets/asset_ref.dart';
+import '../assets/sourced_asset_ref.dart';
 import '../content/content_node.dart';
 import '../content/rich_content.dart';
 import '../import/import_issue.dart';
@@ -111,7 +111,7 @@ final class QuestionDraftV2 {
     QuestionAnswer? answer,
     RichContent? explanation,
     Iterable<SourceRef> sourceRefs = const <SourceRef>[],
-    Iterable<AssetRef> assetRefs = const <AssetRef>[],
+    Iterable<SourcedAssetRef> assetRefs = const <SourcedAssetRef>[],
     Iterable<ImportIssue> issues = const <ImportIssue>[],
   }) {
     final validatedQuestionId = _validateOpaqueIdentifier(questionId);
@@ -131,6 +131,27 @@ final class QuestionDraftV2 {
       }
     }
 
+    final copiedSourceRefs = List<SourceRef>.unmodifiable(sourceRefs);
+    final sourceIds =
+        copiedSourceRefs.map((sourceRef) => sourceRef.sourceId).toSet();
+    final assetsByIdentity = <(String, String), SourcedAssetRef>{};
+    for (final assetRef in assetRefs) {
+      if (!sourceIds.contains(assetRef.sourceId)) {
+        throw const FormatException(
+          'Question assets must belong to a declared draft source.',
+        );
+      }
+      final identity = (assetRef.sourceId, assetRef.localAssetId);
+      final existing = assetsByIdentity[identity];
+      if (existing == null) {
+        assetsByIdentity[identity] = assetRef;
+      } else if (existing != assetRef) {
+        throw const FormatException(
+          'Question asset identities must not carry conflicting metadata.',
+        );
+      }
+    }
+
     return QuestionDraftV2._(
       questionId: validatedQuestionId,
       kind: kind,
@@ -139,8 +160,8 @@ final class QuestionDraftV2 {
       options: copiedOptions,
       answer: answer,
       explanation: explanation,
-      sourceRefs: List<SourceRef>.unmodifiable(sourceRefs),
-      assetRefs: List<AssetRef>.unmodifiable(assetRefs),
+      sourceRefs: copiedSourceRefs,
+      assetRefs: List<SourcedAssetRef>.unmodifiable(assetsByIdentity.values),
       issues: List<ImportIssue>.unmodifiable(issues),
     );
   }
@@ -166,7 +187,7 @@ final class QuestionDraftV2 {
   final QuestionAnswer? answer;
   final RichContent? explanation;
   final List<SourceRef> sourceRefs;
-  final List<AssetRef> assetRefs;
+  final List<SourcedAssetRef> assetRefs;
   final List<ImportIssue> issues;
 
   @override

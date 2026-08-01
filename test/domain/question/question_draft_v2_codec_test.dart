@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
@@ -10,7 +11,7 @@ import 'package:shiroha_quiz/domain/source/source_ref.dart';
 void main() {
   const codec = QuestionDraftV2Codec();
 
-  group('QuestionDraftV2Codec schema v1', () {
+  group('QuestionDraftV2Codec schema v2', () {
     test('round-trips the complete aggregate with exact wire shapes', () {
       final draft = _fullChoiceDraft();
 
@@ -19,7 +20,7 @@ void main() {
       final reencoded = codec.encode(decoded);
 
       expect(encoded.keys.toSet(), _rootKeys);
-      expect(encoded['schemaVersion'], 1);
+      expect(encoded['schemaVersion'], 2);
       expect(encoded['kind'], 'single_choice');
       expect((encoded['answer']! as Map)['type'], 'choice');
       expect(
@@ -46,6 +47,9 @@ void main() {
         (((sourceRefs[2] as Map)['point']! as Map).keys.toSet()),
         _blockPointKeys,
       );
+      final assetRefs = encoded['assetRefs']! as List;
+      expect((assetRefs.single as Map).keys.toSet(), _assetKeys);
+      expect((assetRefs.single as Map)['sourceId'], 'source_001');
 
       expect(decoded, draft);
       expect(decoded.hashCode, draft.hashCode);
@@ -93,6 +97,46 @@ void main() {
       expect(missingJson['answer'], isNull);
       expect(missingJson['explanation'], isNull);
       expect(codec.decode(missingJson), missing);
+    });
+
+    test('round-trips equal local asset IDs from different sources', () {
+      final draft = QuestionDraftV2(
+        questionId: 'question_multi_source_assets',
+        kind: QuestionKind.shortAnswer,
+        stem: RichContent(nodes: const <ContentNode>[TextNode('synthetic')]),
+        sourceRefs: <SourceRef>[
+          SourceRef.document(sourceId: 'source_001'),
+          SourceRef.document(sourceId: 'source_002'),
+        ],
+        assetRefs: <SourcedAssetRef>[
+          SourcedAssetRef(
+            sourceId: 'source_001',
+            asset: AssetRef(
+              assetId: 'asset_000001',
+              kind: AssetKind.image,
+            ),
+          ),
+          SourcedAssetRef(
+            sourceId: 'source_002',
+            asset: AssetRef(
+              assetId: 'asset_000001',
+              kind: AssetKind.image,
+            ),
+          ),
+        ],
+      );
+
+      final encoded = codec.encode(draft);
+      final encodedAssets = encoded['assetRefs']! as List;
+      final decoded = codec.decode(encoded);
+
+      expect(
+        encodedAssets.map((asset) => (asset as Map)['sourceId']),
+        <String>['source_001', 'source_002'],
+      );
+      expect(decoded, draft);
+      expect(decoded.assetRefs, hasLength(2));
+      expect(codec.encode(decoded), encoded);
     });
 
     test('encode returns a fresh mutable graph detached from the model', () {
@@ -161,13 +205,15 @@ void main() {
     });
 
     test('distinguishes malformed and unsupported schema versions', () {
-      for (final version in <Object?>[null, true, 1.0, '1']) {
+      for (final version in <Object?>[null, true, 2.0, '2']) {
         final malformed = _validJson()..['schemaVersion'] = version;
         expect(() => codec.decode(malformed), throwsFormatException);
       }
 
-      final unsupported = _validJson()..['schemaVersion'] = 2;
-      expect(() => codec.decode(unsupported), throwsUnsupportedError);
+      for (final version in <int>[1, 3]) {
+        final unsupported = _validJson()..['schemaVersion'] = version;
+        expect(() => codec.decode(unsupported), throwsUnsupportedError);
+      }
     });
 
     test('rejects malformed root scalar and collection fields', () {
@@ -310,6 +356,17 @@ void main() {
     test('rejects malformed assets and issues, including enum indexes', () {
       _expectFormat(codec, (json) {
         (json['assetRefs']! as List).add(<String, Object?>{
+          'sourceId': 'unsafe/source',
+          'assetId': 'asset_001',
+          'kind': 'image',
+          'mimeType': null,
+          'pixelWidth': null,
+          'pixelHeight': null,
+        });
+      });
+      _expectFormat(codec, (json) {
+        (json['assetRefs']! as List).add(<String, Object?>{
+          'sourceId': 'source_001',
           'assetId': 'asset_001',
           'kind': 0,
           'mimeType': null,
@@ -319,6 +376,7 @@ void main() {
       });
       _expectFormat(codec, (json) {
         (json['assetRefs']! as List).add(<String, Object?>{
+          'sourceId': 'source_001',
           'assetId': 'asset_001',
           'kind': 'image',
           'mimeType': 'image/png',
@@ -328,6 +386,7 @@ void main() {
       });
       _expectFormat(codec, (json) {
         (json['assetRefs']! as List).add(<String, Object?>{
+          'sourceId': 'source_001',
           'assetId': 'asset_001',
           'kind': 'image',
           'mimeType': null,
@@ -436,6 +495,14 @@ const _blockPointKeys = <String>{
   'blockId',
   'readingOrder',
 };
+const _assetKeys = <String>{
+  'sourceId',
+  'assetId',
+  'kind',
+  'mimeType',
+  'pixelWidth',
+  'pixelHeight',
+};
 const _forbiddenKeys = <String>{
   'path',
   'absolutePath',
@@ -512,12 +579,15 @@ QuestionDraftV2 _fullChoiceDraft() {
       range,
     ],
     assetRefs: [
-      AssetRef(
-        assetId: 'asset_001',
-        kind: AssetKind.image,
-        mimeType: 'image/png',
-        pixelWidth: 16,
-        pixelHeight: 9,
+      SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(
+          assetId: 'asset_001',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+          pixelWidth: 16,
+          pixelHeight: 9,
+        ),
       ),
     ],
     issues: [

@@ -257,6 +257,38 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('scopes the same local asset ID independently per source document',
+        () {
+      SourceDocument build(String sourceId) {
+        final documentRef = SourceRef.document(sourceId: sourceId);
+        return SourceDocument(
+          sourceId: sourceId,
+          parts: <SourcePart>[
+            SourceAssetPart(
+              sourceRef: documentRef,
+              asset: AssetRef(
+                assetId: 'asset_000001',
+                kind: AssetKind.image,
+              ),
+            ),
+          ],
+        );
+      }
+
+      final first = build('source_001');
+      final second = build('source_002');
+
+      expect(
+        (first.parts.single as SourceAssetPart).asset.assetId,
+        'asset_000001',
+      );
+      expect(
+        (second.parts.single as SourceAssetPart).asset.assetId,
+        'asset_000001',
+      );
+      expect(first.documentRef, isNot(second.documentRef));
+    });
   });
 
   group('SourceDocument value semantics and privacy shape', () {
