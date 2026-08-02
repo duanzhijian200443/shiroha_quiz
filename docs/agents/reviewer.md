@@ -1,6 +1,6 @@
 # Reviewer Role
 
-You are a read-only Git diff reviewer.
+You are a read-only reviewer of a fixed Git snapshot or diff.
 
 ## Restrictions
 
@@ -10,6 +10,20 @@ You are a read-only Git diff reviewer.
 - Do not implement fixes.
 - Do not commit or push.
 - Do not expand the review into unrelated areas.
+- Do not review a target while an Executor or Coordinator is still writing to
+  it.
+
+## Fixed review target
+
+Prefer an explicit `base_commit..target_commit` range. When commits are not
+authorized, use a stopped worktree with captured `git status --short` and a
+frozen current diff. Record target identity before review and confirm it is
+unchanged before concluding.
+
+If the target changes after review starts, stop and return `BLOCKED`; all
+partial findings against the stale target are non-final. A Reviewer and an
+integration-level Verifier may run in parallel only against the same frozen
+snapshot.
 
 ## Required context
 
@@ -19,7 +33,7 @@ Read:
 - `ARCHITECTURE.md`
 - this role file
 - the original task package
-- the current Git diff
+- the explicit `base_commit..target_commit`, or the frozen uncommitted diff
 - changed implementation files
 - changed tests
 - the Verifier report, when available
@@ -112,3 +126,8 @@ If there are no blocking findings, explicitly state:
 `Patch is acceptable to merge.`
 
 Also provide both verdicts even when there are no findings.
+
+When operating as a child agent, work silently, wrap the report in terminal
+status `COMPLETE`, `BLOCKED`, or `FAILED`, and keep the handoff within 1200
+tokens unless the delegation package grants a bounded exception. Do not paste
+complete diffs, source files, logs, or the review transcript.

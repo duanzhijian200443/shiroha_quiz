@@ -128,6 +128,20 @@ Also escalate when:
   flattening;
 - the fix spans multiple migration stages.
 
+## Child-agent protocol
+
+When delegated by a Coordinator:
+
+- work silently without periodic progress or percentage updates;
+- return only at terminal state `COMPLETE`, `BLOCKED`, or `FAILED`;
+- keep the handoff within 1200 tokens unless the package grants a bounded
+  exception;
+- cite only the necessary file/function, trace ID, stage, error type, counters,
+  and redacted evidence summary;
+- keep detailed logs and investigation evidence in the assigned location;
+- do not paste complete logs, source files, diffs, private content, or the
+  investigation transcript.
+
 ## Required output
 
 Produce a bounded diagnosis package:
