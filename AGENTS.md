@@ -382,6 +382,10 @@ Unless the user explicitly authorizes otherwise:
 
 A command that produces no meaningful progress for 3 minutes must be treated
 as stalled. Stop waiting, preserve its evidence, and report it as incomplete.
+This threshold applies only to an individual command monitored by the active
+agent. It does not define the execution window for an entire silent child
+task, and a Coordinator must not infer that a child is stalled merely because
+the child has not emitted commentary or a terminal handoff.
 
 Any long-running build must have an explicit timeout before it starts.
 A timeout is an incomplete verification result, not proof of build failure.
@@ -418,9 +422,9 @@ Agents must automatically apply the shared architecture, safety, privacy, Git, v
 ## 15. Multi-agent orchestration
 
 Repository roles define responsibilities and permissions. Model/provider
-selection and cost routing belong to the host or global Codex configuration,
-not to this repository. Do not encode a specific model name in repository
-rules or role files.
+selection and cost routing normally belong to the host or global Codex
+configuration. The explicit user-authorized repository routing section below
+is the authoritative exception for child agents in this repository.
 
 ### 15.1 Parent Coordinator responsibilities
 
@@ -466,10 +470,11 @@ Every delegated task must state:
 7. forbidden files and worktrees;
 8. dependencies and required shared-contract checkpoint;
 9. acceptance criteria;
-10. focused validation;
-11. commit authorization and allowed commit paths;
-12. stop conditions;
-13. handoff token budget.
+10. focused validation and per-command timeouts;
+11. child execution window;
+12. commit authorization and allowed commit paths;
+13. stop conditions;
+14. handoff token budget.
 
 Do not copy the complete parent conversation. Supply only the context needed
 to execute the package safely.
@@ -530,7 +535,35 @@ Multi-agent work must pass these gates in order:
 5. **Human gate:** leave merge and push decisions to the user unless separately
    authorized.
 
-A verification or review result is invalid if its target changes after the
-check starts. Prefer an explicit `base_commit..target_commit`; when commits are
-not authorized, use a stopped working tree with a captured status and frozen
-diff.
+### 15.7 Writer lifecycle and frozen-target validity
+
+- Implementation, independent verification, and semantic review are separate
+  bounded tasks. An Executor's focused gate is a self-check, not independent
+  verification.
+- A terminal writer handoff is irreversible. After an Executor returns
+  `COMPLETE`, `BLOCKED`, or `FAILED`, or after the Coordinator stops or closes
+  it, that Executor must not be resumed, messaged, or granted write ownership
+  again.
+- Any repair after a terminal handoff must use a fresh Executor with the frozen
+  target, actionable findings, exact file ownership, a bounded repair window,
+  and one minimal focused gate.
+- Before verification or review, capture the branch or detached state, `HEAD`,
+  `git status --short`, and target file identities. Include relevant sidecar
+  file identities when their drift could change the task or evidence.
+- If any captured target identity changes, all verification and review results
+  for the previous target are invalid. Stop affected read-only agents, freeze
+  the new target, and rerun every required gate from the beginning; do not
+  reuse partial PASS evidence.
+
+## 子代理模型路由（用户授权例外）
+
+当父代理或 Coordinator 创建子代理时：
+
+- `deepseek/deepseek-v4-flash` 是默认且最高优先级的子代理模型；创建
+  子代理时必须优先显式指定该模型。
+- Planner、Executor、Verifier、Reviewer 和 Diagnostician 子代理均适用。
+- 用户在当前任务中明确声明其他子代理模型时，该声明覆盖默认模型。
+- 若 DeepSeek 不可用、创建失败或不支持所需工具，允许选择其他可用
+  模型；不得静默回退，必须报告原因及实际 provider/model。
+- 创建子代理后，应在交接中报告实际使用的 provider/model；发生回退
+  时还必须报告 DeepSeek 不可用的证据类别。
