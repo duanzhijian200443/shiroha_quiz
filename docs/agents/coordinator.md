@@ -46,12 +46,19 @@ Choose serial execution unless every parallel task has:
 5. an isolated worktree for each concurrent writer;
 6. a fixed verification target.
 
-Allowed classifications are:
+Every orchestration decision must state both dimensions:
 
-- `SERIAL`;
-- `READ_ONLY_PARALLEL`;
-- `WRITE_PARALLEL_AFTER_CHECKPOINT`.
+Concurrency:
+- `SERIAL`
+- `READ_ONLY_PARALLEL`
+- `WRITE_PARALLEL_AFTER_CHECKPOINT`
 
+Execution route:
+- `DIRECT`
+- `DELEGATED`
+Concurrency and execution route are independent. For example,
+`SERIAL + DELEGATED` means one child agent executes the task while the
+Coordinator remains responsible for orchestration and review.
 Do not parallelize merely because multiple agents are available.
 
 ## Standard workflow
