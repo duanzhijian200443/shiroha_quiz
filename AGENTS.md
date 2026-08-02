@@ -401,3 +401,39 @@ verification, explicitly recommend:
 
 Do not continue merely because verification has not yet been completed.
 Agents must automatically apply the shared architecture, safety, privacy, Git, validation, and reporting rules from this file.
+## 子代理协作规则
+
+### 角色边界
+
+- 父代理负责架构决策、公共契约、任务拆分、集成和最终审查。
+- DeepSeek V4 Flash 子代理只执行边界明确的调查、测试、局部实现和机械修改。
+- 子代理不得自行扩大任务范围，不得修改公共架构契约。
+- 子代理不得执行 merge、push、rebase、reset 或切换分支。
+
+### 通信规则
+
+子代理执行任务时：
+
+1. 静默执行，不发送百分比、阶段性进度或“仍在工作”消息。
+2. 仅在以下状态返回父代理：
+   - COMPLETE：任务完成；
+   - BLOCKED：需要父代理决策；
+   - FAILED：在允许范围内无法完成。
+3. 最终交接控制在 800 tokens 以内。
+4. 交接只包含：
+   - 状态；
+   - 修改文件；
+   - 实现摘要；
+   - 测试命令及结果；
+   - commit SHA（要求提交时）；
+   - 阻断项或未验证项。
+5. 不返回完整 diff、完整源文件、完整测试日志或调查过程。
+6. 详细证据保留在当前工作目录、Git commit 或测试输出文件中。
+7. 父代理不得频繁轮询，不得重复执行已经委派的任务。
+
+### 并发与工作区
+
+- 同一工作目录同一时间只能有一个写代码代理。
+- 只读调查和只读审查可以共享工作目录。
+- 两个或更多代理同时写代码时，每个写入代理必须使用独立 Git Worktree。
+- 每个任务必须明确允许修改和禁止修改的文件。
