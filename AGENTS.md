@@ -486,7 +486,8 @@ Default maximum handoff sizes are:
 
 | Child task or role | Default maximum |
 |---|---:|
-| Bounded repository survey | 500 tokens |
+| Bounded repository survey | 700 tokens
+| Planner full task package | 1600 tokens
 | Executor | 800 tokens |
 | Verifier | 800 tokens |
 | Diagnostician | 1200 tokens |

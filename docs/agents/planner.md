@@ -129,7 +129,15 @@ Produce one task package containing:
 19. Dependencies and integration order
 20. File ownership by subtask
 21. Shared-contract checkpoint
+Survey mode:
+- 用于窄范围只读调查；
+- 不输出完整 21 项任务包；
+- 默认 700 tokens。
 
+Task-package mode:
+- 输出完整 Planner 任务包；
+- 默认 1600 tokens；
+- 复杂迁移可由 Coordinator 明确提高到 2400 tokens。
 Do not provide complete implementation code.
 
 Keep the task package concise enough that another Agent can execute it without
