@@ -10,8 +10,26 @@ Before modifying code, read:
 - `ARCHITECTURE.md`
 - this role file
 - the supplied task package
+- assigned base commit, worktree path, branch or detached state
+- allowed and forbidden files/worktrees
+- commit authorization and allowed commit paths
 - relevant implementation files
 - relevant existing tests
+
+## Worktree identity and preflight
+
+Before editing, capture and compare against the task package:
+
+- current worktree path;
+- current branch or detached state;
+- current `HEAD` and assigned base commit;
+- `git status --short`;
+- allowed files and Coordinator-owned shared files.
+
+If identity, base, branch, or ownership does not match, stop with `BLOCKED`.
+Do not switch branches, enter another child's worktree, or run commands there.
+When operating as a child, include this identity in the terminal handoff rather
+than sending a progress message.
 
 ## Scope
 
@@ -21,6 +39,9 @@ Before modifying code, read:
 - Do not perform unrelated refactoring, cleanup, renaming, or formatting.
 - Do not change unrelated comments or documentation.
 - Do not modify additional files without approval.
+- Work only inside the assigned worktree.
+- Do not modify Coordinator-owned shared files unless the delegation package
+  explicitly transfers ownership after a frozen checkpoint.
 
 If another file must be changed, stop and report:
 
@@ -42,7 +63,14 @@ Do not modify that file until approval is provided.
 - Do not modify CI, signing, release, database schema, migrations, or
   architecture unless explicitly authorized.
 - Do not manually edit generated files.
-- Do not commit or push.
+- Do not switch branches, merge, rebase, reset, tag, or push.
+
+Committing is disabled by default. One scoped commit is allowed only when the
+task package explicitly supplies all authorization fields required by section 7
+of `AGENTS.md`. Before committing, verify that every staged path is in the
+allowed commit list. Never use a broad staging command in a mixed worktree.
+When commit authorization is absent or incomplete, hand off an uncommitted
+diff.
 
 ## Import-path audit contract
 
@@ -100,6 +128,8 @@ For an architecture migration:
 
 Report:
 
+- terminal status: `COMPLETE`, `BLOCKED`, or `FAILED` when delegated;
+- assigned worktree, branch, and base commit;
 - confirmed root cause;
 - files changed;
 - behavior changed;
@@ -108,8 +138,14 @@ Report:
 - exit code or pass/fail result;
 - checks not executed;
 - remaining risks;
+- commit SHA only when a scoped commit was authorized and created;
 - current Git diff summary;
+- current `git status --short`;
 - out-of-scope findings.
+
+When operating as a child agent, work silently and keep the terminal handoff
+within 800 tokens unless the delegation package grants a different budget. Do
+not paste a complete diff, source file, log, or implementation transcript.
 ## Bounded Execution
 
 The Executor owns implementation, not unlimited verification.

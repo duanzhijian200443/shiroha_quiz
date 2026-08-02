@@ -61,6 +61,7 @@ The first line of the user request may activate exactly one role:
 
 | Identifier | Role file |
 |---|---|
+| `角色：总控` | `docs/agents/coordinator.md` |
 | `角色：规划` | `docs/agents/planner.md` |
 | `角色：执行` | `docs/agents/executor.md` |
 | `角色：验证` | `docs/agents/verifier.md` |
@@ -138,6 +139,16 @@ Never run destructive or history-rewriting commands, including:
 - force push
 
 Do not commit, push, merge, rebase, tag, or create branches unless explicitly requested.
+
+An Executor is not authorized to commit by role alone. It may create one
+scoped commit only when its task package explicitly provides all of:
+
+- `Commit authorized: yes`;
+- the assigned branch;
+- the exact paths allowed in the commit;
+- `Push authorized: no` (unless the user separately authorizes a push).
+
+Without all four fields, the Executor must hand off an uncommitted diff.
 
 Before and after write tasks, inspect:
 
@@ -313,7 +324,7 @@ A normal task request should contain only:
 - acceptance criteria
 - focused validation
 - stop conditions
-## Agent Cost and Execution Boundaries
+## 14. Agent cost and execution boundaries
 
 Use high-capability agents only for work that requires architectural
 reasoning, uncertain root-cause analysis, security decisions, concurrency,
@@ -401,39 +412,124 @@ verification, explicitly recommend:
 
 Do not continue merely because verification has not yet been completed.
 Agents must automatically apply the shared architecture, safety, privacy, Git, validation, and reporting rules from this file.
-## 子代理协作规则
 
-### 角色边界
+---
 
-- 父代理负责架构决策、公共契约、任务拆分、集成和最终审查。
-- DeepSeek V4 Flash 子代理只执行边界明确的调查、测试、局部实现和机械修改。
-- 子代理不得自行扩大任务范围，不得修改公共架构契约。
-- 子代理不得执行 merge、push、rebase、reset 或切换分支。
+## 15. Multi-agent orchestration
 
-### 通信规则
+Repository roles define responsibilities and permissions. Model/provider
+selection and cost routing belong to the host or global Codex configuration,
+not to this repository. Do not encode a specific model name in repository
+rules or role files.
 
-子代理执行任务时：
+### 15.1 Parent Coordinator responsibilities
 
-1. 静默执行，不发送百分比、阶段性进度或“仍在工作”消息。
-2. 仅在以下状态返回父代理：
-   - COMPLETE：任务完成；
-   - BLOCKED：需要父代理决策；
-   - FAILED：在允许范围内无法完成。
-3. 最终交接控制在 800 tokens 以内。
-4. 交接只包含：
-   - 状态；
-   - 修改文件；
-   - 实现摘要；
-   - 测试命令及结果；
-   - commit SHA（要求提交时）；
-   - 阻断项或未验证项。
-5. 不返回完整 diff、完整源文件、完整测试日志或调查过程。
-6. 详细证据保留在当前工作目录、Git commit 或测试输出文件中。
-7. 父代理不得频繁轮询，不得重复执行已经委派的任务。
+Repository-wide orchestration uses the `角色：总控` role. The Coordinator
+owns:
 
-### 并发与工作区
+- inspecting the base commit, current branch, worktrees, and dirty state;
+- choosing serial work or safe parallel work;
+- invoking bounded Planner or Diagnostician tasks when needed;
+- freezing shared architecture, public contracts, public models, persisted
+  formats, database migrations, and cross-module integration order;
+- building the dependency graph and assigning non-overlapping file ownership;
+- creating or assigning branches and worktrees only when explicitly
+  authorized under section 7;
+- dispatching role-specific child task packages and waiting for terminal
+  handoffs without duplicating delegated work;
+- integrating validated work serially when integration is explicitly
+  authorized;
+- freezing the integrated result before final verification and review;
+- reporting to the user without automatically merging or pushing.
 
-- 同一工作目录同一时间只能有一个写代码代理。
-- 只读调查和只读审查可以共享工作目录。
-- 两个或更多代理同时写代码时，每个写入代理必须使用独立 Git Worktree。
-- 每个任务必须明确允许修改和禁止修改的文件。
+The Coordinator must not give two Executors ownership of the same production
+file, delegate shared-contract decisions, skip required verification/review,
+or edit a shared working tree while a child writer is active there.
+
+### 15.2 Child role activation
+
+Every child task must activate exactly one repository role. Use Planner for a
+bounded repository survey or implementation plan and Diagnostician for failure
+tracing. A child may not switch roles, create descendants, expand its scope, or
+decide public architecture/contracts. Child-agent nesting depth is one.
+
+### 15.3 Delegation package
+
+Every delegated task must state:
+
+1. active role;
+2. objective and necessary background;
+3. base commit;
+4. assigned worktree path;
+5. assigned branch or detached state;
+6. allowed files;
+7. forbidden files and worktrees;
+8. dependencies and required shared-contract checkpoint;
+9. acceptance criteria;
+10. focused validation;
+11. commit authorization and allowed commit paths;
+12. stop conditions;
+13. handoff token budget.
+
+Do not copy the complete parent conversation. Supply only the context needed
+to execute the package safely.
+
+### 15.4 Communication and handoff
+
+Child agents work silently and return only at a terminal state:
+
+- `COMPLETE`: the bounded task is complete;
+- `BLOCKED`: a Coordinator decision or new authority is required;
+- `FAILED`: the task cannot be completed within its allowed scope.
+
+Default maximum handoff sizes are:
+
+| Child task or role | Default maximum |
+|---|---:|
+| Bounded repository survey | 500 tokens |
+| Executor | 800 tokens |
+| Verifier | 800 tokens |
+| Diagnostician | 1200 tokens |
+| Reviewer | 1200 tokens |
+
+A Coordinator may grant a bounded exception for a complex blocker or P1/P2
+finding. Handoffs must not paste complete diffs, source files, logs, or the
+investigation transcript. Keep detailed evidence in the assigned worktree,
+scoped commit, or bounded test output. The Coordinator must not frequently
+poll children or repeat work already delegated to them.
+
+### 15.5 Worktrees and file ownership
+
+- A working directory may have only one active writer.
+- Read-only agents may share a working directory only when they are not
+  reviewing or verifying a moving implementation target.
+- Two or more concurrent writers require separate Git worktrees.
+- Each writer owns only its assigned files and must not read, modify, or run
+  commands in another child's worktree.
+- Parallel write packages must not overlap production-file ownership.
+- Shared files remain Coordinator-owned until the shared-contract checkpoint
+  is frozen; subsequent changes require Coordinator approval and serialization.
+- A Coordinator must not modify the shared current worktree concurrently with
+  a child writer.
+- Children must not switch branches, merge, rebase, reset, push, or perform
+  any Git action not explicitly authorized by their package.
+
+### 15.6 Freeze and integration gates
+
+Multi-agent work must pass these gates in order:
+
+1. **Shared-contract gate:** freeze common contracts and ownership before
+   parallel writes begin.
+2. **Implementation-freeze gate:** stop all writers before a Verifier or
+   Reviewer examines their target.
+3. **Branch-validation gate:** validate each implementation worktree or target
+   commit before integration.
+4. **Integration gate:** integrate validated work serially, freeze the
+   integrated snapshot, then run integration-level verification and review.
+5. **Human gate:** leave merge and push decisions to the user unless separately
+   authorized.
+
+A verification or review result is invalid if its target changes after the
+check starts. Prefer an explicit `base_commit..target_commit`; when commits are
+not authorized, use a stopped working tree with a captured status and frozen
+diff.
