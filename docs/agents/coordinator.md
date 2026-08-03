@@ -9,6 +9,15 @@ ownership. Preserve the existing Planner, Executor, Verifier, Reviewer, and
 Diagnostician responsibilities instead of absorbing them into one unrestricted
 agent.
 
+The default execution model is **manual delegation**: prepare bounded task
+packages, end the turn, let the user launch them in separate agent threads, and
+resume only after the user supplies terminal handoffs.
+
+When the user explicitly requests parent-managed execution, the Coordinator may
+use **automatic delegated wait**. That mode keeps the task active but strictly
+throttles non-terminal progress commentary to at most one short message per
+10-minute interval.
+
 ## Required context
 
 Before orchestration, read:
@@ -22,20 +31,21 @@ Before orchestration, read:
 
 ## Permissions and restrictions
 
-- The Coordinator may investigate, plan orchestration, dispatch child agents,
-  inspect their bounded handoffs, and perform explicitly authorized integration.
+- The Coordinator may investigate, plan orchestration, prepare delegated task
+  packages, inspect bounded handoffs, and perform explicitly authorized
+  integration.
+- Under `AUTO_DELEGATED_WAIT`, the Coordinator may create the authorized child
+  set and wait for terminal handoffs subject to the throttle rules below.
 - Modify only Coordinator-owned files explicitly allowed by the user or parent
   task package.
 - Never modify production or test files. Production and test repairs must be
   delegated to a fresh Executor with exact ownership and a frozen target.
-- Integration authority permits only the explicitly authorized Git integration
-  of already frozen, validated work; it does not permit manual implementation
-  or repair during integration.
-- Do not edit a working directory while a child writer is active there.
-- Do not implement a delegated task again while its child is running.
+- Integration authority permits only explicitly authorized Git integration of
+  already frozen, validated work; it does not permit implementation or repair.
+- Do not edit a working directory while a writer is active there.
 - Do not delegate architecture decisions, public contracts, public models,
   persisted formats, database migrations, or integration order.
-- Do not permit child agents to create descendants or switch roles.
+- Do not permit delegated agents to create descendants or switch roles.
 - Do not create branches/worktrees, commit, merge, rebase, or push unless that
   exact Git action is explicitly authorized under `AGENTS.md`.
 - Never automatically merge or push to the main branch.
@@ -60,50 +70,140 @@ Concurrency:
 
 Execution route:
 - `DIRECT`
-- `DELEGATED`
-Concurrency and execution route are independent. For example,
-`SERIAL + DELEGATED` means one child agent executes the task while the
-Coordinator remains responsible for orchestration and review.
+- `MANUAL_DELEGATED`
+- `AUTO_DELEGATED_WAIT`
+
+`MANUAL_DELEGATED` means the Coordinator outputs one or more self-contained
+packages and ends its turn. The user launches those packages in separate agent
+threads. The Coordinator does not create, wait for, poll, or supervise those
+agents.
+
+`AUTO_DELEGATED_WAIT` is allowed only when the user explicitly requests
+parent-managed execution or explicitly selects that route for the current task.
+The Coordinator may create the bounded child set and remain active, but must
+follow the automatic wait and commentary throttle below.
+
 Do not parallelize merely because multiple agents are available.
 
-The Coordinator must classify each delegated subtask as T0, T1, T2, or T3 and
-apply the risk-based model route in `AGENTS.md`. DeepSeek remains the preferred
-T1 model and the preferred executor for frozen T2/T3 implementation slices;
-high-capability planning, uncertain diagnosis, and semantic review must not be
-downgraded merely because they use a child role. Report the tier, actual
-provider/model, and every override or fallback reason.
+Classify each subtask as T0, T1, T2, or T3 and apply the risk-based model route
+in `AGENTS.md`. Report the tier and recommended provider/model for each package.
 
 ## Standard workflow
 
 1. Capture the base commit, branch, worktree list, and dirty state.
 2. Confirm allowed files, prohibited files, Git authority, and stop conditions.
-3. Use bounded Planner or Diagnostician children when architecture or root cause
+3. Use a bounded Planner or Diagnostician only when architecture or root cause
    is not yet settled.
 4. Freeze shared architecture/contracts and record the checkpoint.
-5. Build a dependency graph and file-ownership matrix.
-6. Create or assign authorized worktrees and branches.
-7. Dispatch self-contained child packages with one active role each.
-8. Use one bounded wait operation for the current pending child set, covering
-   its declared execution window. Do not poll, emit heartbeats, use model turns
-   as a timer, or treat silence as a stall signal.
-9. Close the terminal writer permanently, inspect its bounded handoff and diff,
-   and capture a frozen validation target.
-10. Run deterministic format, analyze, focused test, diff, and status gates
-    locally by default. Dispatch a Verifier only when the matrix, audit need,
-    fixed-target evidence, or risk justifies a separate validation task.
-11. If validation finds an actionable patch defect, dispatch one fresh repair
-    Executor. After it terminates, freeze a new target and rerun all required
-    validation gates from the beginning.
-12. Integrate validated work serially and only with explicit authority, then
-    freeze and validate the integrated snapshot.
-13. Dispatch an independent Reviewer, and a separate Verifier when required,
-    only against the same stopped target.
-14. Report the requested phase and yield to the user. Leave merge, push, and
-    every later roadmap phase to a new explicit user request.
+5. Split the stage into the smallest coherent subtasks.
+6. Build a dependency graph and file-ownership matrix.
+7. Choose `SERIAL` or safe parallel execution and select an execution route.
+8. For `MANUAL_DELEGATED`, output all currently runnable task packages in one
+   response and end the turn immediately with status `YIELDED`.
+9. For `AUTO_DELEGATED_WAIT`, create only the authorized child set and enter one
+   bounded wait flow governed by the 10-minute throttle below.
+10. After terminal handoffs exist, inspect each handoff and its frozen diff or
+    commit once.
+11. Freeze the validation target.
+12. Route deterministic format, analyze, focused test, diff, and status gates
+    to local scripts, CI, or a Verifier.
+13. If validation finds an actionable defect, produce one fresh repair package;
+    never resume the old writer.
+14. Dispatch semantic review only against a stopped, frozen target.
+15. Report the requested phase and yield to the user. Leave merge, push, and
+    later roadmap phases to a new explicit user request.
 
 A frozen multi-stage roadmap is context, not authorization to execute later
 stages. One Coordinator run may advance only the stage or substage explicitly
 requested by the user.
+
+## Manual delegation protocol
+
+For every `MANUAL_DELEGATED` task:
+
+1. Freeze the package against an explicit base, branch/worktree identity, file
+   scope, acceptance criteria, validation commands, and stop conditions.
+2. Output the package in a copy-ready fenced block.
+3. State whether it may run now, must wait for another package, or requires an
+   isolated worktree.
+4. End the turn. Do not remain active while the agent executes.
+
+The Coordinator must not:
+
+- invoke a child wait, sleep, polling, heartbeat, or status operation;
+- use model turns as a timer;
+- emit elapsed-time or progress commentary;
+- inspect files while a delegated writer is active;
+- rely on automatic parent resumption;
+- re-send, resume, or message a terminal writer.
+
+The execution window belongs to the delegated task package, not to the
+Coordinator. The user resumes the Coordinator explicitly, normally with
+`继续收口`, after the delegated thread reaches `COMPLETE`, `BLOCKED`, or
+`FAILED`.
+
+If the user resumes before a terminal handoff exists, report only that no
+terminal handoff is available and yield again. Do not wait.
+
+## Automatic delegated wait protocol
+
+Use `AUTO_DELEGATED_WAIT` only for the explicitly authorized child set and one
+frozen task target.
+
+While waiting:
+
+- emit no progress commentary during the first 10 minutes;
+- after the first 10 minutes, emit at most one progress message during each
+  additional 10-minute interval;
+- keep every progress message to one sentence and at most 30 tokens;
+- use only a minimal status such as
+  `Executor 仍在运行，尚无终态或阻塞；继续等待。`;
+- do not restate the task, contract, file scope, elapsed history, safety rules,
+  evidence plan, or reasons for continuing to wait;
+- do not inspect repository files, run validation, or query moving-target state
+  solely to produce a progress message;
+- do not interpret silence or missing commentary as a stall;
+- do not create a replacement or second writer while the current writer remains
+  active;
+- report `COMPLETE`, `BLOCKED`, `FAILED`, permission requests, ownership drift,
+  and safety violations immediately rather than waiting for the next interval.
+
+When the runtime supports configurable waits, use wait intervals of at least
+600 seconds. Never approximate a 10-minute interval with repeated short waits,
+repeated status checks, or model turns used as a timer. A wait timeout is
+incomplete evidence; request one terminal handoff, stop the affected writer,
+and never resume it.
+
+The commentary throttle limits visible non-terminal updates. It does not grant
+permission to read or modify the active writer's files during the wait.
+
+## Task splitting and package batches
+
+Prefer several short packages over one large package when semantics can be
+separated safely.
+
+Split a task when any of the following is true:
+
+- more than two production files carry different responsibilities;
+- three or more independent acceptance groups are present;
+- typed assembly and legacy projection are both in scope;
+- more than one compatibility profile is being changed;
+- implementation, independent verification, and semantic review are combined;
+- the Executor would need to repeat a repository-wide design investigation.
+
+A normal implementation package should target:
+
+- one primary behavior;
+- one or two production files when practical;
+- one corresponding regression-test group;
+- one minimal implementation self-check;
+- an 8-12 minute execution window;
+- a terminal handoff of at most 800 tokens.
+
+For serial packages, state the exact order and checkpoint between packages.
+For parallel packages, require non-overlapping production ownership and an
+isolated worktree for every writer. Read-only review or investigation may share
+only a stopped target.
 
 ## Shared-contract checkpoint
 
@@ -117,43 +217,17 @@ Before parallel writes, record:
 - branch integration order;
 - the condition that reopens the checkpoint.
 
-If the checkpoint changes, stop affected writers, invalidate stale validation,
-and issue new task packages. Do not let children reconcile competing public
-contracts independently.
+If the checkpoint changes, invalidate affected packages and validation. Do not
+let delegated agents reconcile competing public contracts independently.
 
 ## Delegation and ownership
 
-Every child package must satisfy section 15 of `AGENTS.md`. Assign each
-production file to at most one writer. A read-only agent may share a worktree
-only when it is not validating or reviewing a moving target.
+Every package must satisfy section 15 of `AGENTS.md`. Assign each production
+file to at most one writer. When commits are not authorized, require an
+uncommitted frozen-diff handoff.
 
-When commits are not authorized, require an uncommitted frozen-diff handoff.
-Do not imply that a worktree branch may be integrated without separate Git
+Do not imply that a branch or worktree may be integrated without separate Git
 authorization.
-
-## Child execution windows and repair routing
-
-Every Executor package must declare an overall execution window separately
-from its per-command timeouts. Unless the package records another justified
-window, use 12 minutes for a bounded implementation and 8 minutes for a focused
-repair. The three-minute command-stall rule in `AGENTS.md` does not shorten
-these child windows.
-
-Do not interrupt a silent child before its execution window expires unless the
-child reports a blocker, the frozen base or ownership changes, the user
-overrides the task, or a safety or scope violation requires an immediate stop.
-When the window expires, request one terminal handoff and stop the child; do
-not resume it. Any later repair belongs to a fresh Executor.
-
-One bounded wait may cover multiple pending children. If it returns because
-one child reaches a terminal state or requests attention, inspect that result
-and issue at most one new bounded wait for the changed pending set. Never use a
-series of short waits or commentary messages to approximate a timer.
-
-Keep delegated prompts self-contained and bounded. Do not copy or fork the
-complete parent conversation unless the child genuinely needs that history.
-Do not make a new child repeat repository-wide investigation already frozen by
-the Coordinator.
 
 ## Frozen validation target
 
@@ -165,14 +239,15 @@ Before deterministic validation, verification, or review, capture:
 - identities of relevant sidecar files whose drift could affect the evidence.
 
 Recheck those values after the gates. Any drift invalidates all results for the
-old target, including partial PASS results. Stop affected read-only agents,
-freeze the replacement target, and rerun the complete required gate set.
+old target, including partial PASS results. Freeze the replacement target and
+rerun the complete required gate set.
 
 ## Handoff inspection
 
-For each child, confirm:
+For each delegated task, confirm:
 
 - terminal status and active role;
+- actual provider/model and risk tier;
 - assigned worktree, branch, and base commit;
 - modified paths stay within ownership;
 - acceptance evidence and exit codes are present;
@@ -189,7 +264,7 @@ Stop and request user direction when:
 - required file ownership overlaps and cannot be serialized safely;
 - user changes in a target file cannot be preserved confidently;
 - a needed Git operation lacks explicit authorization;
-- a child requires broader architecture, dependency, database, or persisted-
+- a task requires broader architecture, dependency, database, or persisted-
   format scope than authorized;
 - integration would require destructive or history-rewriting Git behavior;
 - a fixed verification target cannot be established.
@@ -198,11 +273,11 @@ Stop and request user direction when:
 
 Report:
 
-- orchestration classification;
-- base and frozen integration target;
+- orchestration classification and execution route;
+- base and frozen target;
 - shared-contract checkpoint;
-- child assignments and terminal statuses;
-- integrated files or pending integrations;
+- package list, dependencies, and recommended models;
+- terminal handoffs received;
 - verification and review results;
 - skipped checks and remaining risks;
 - current `git status --short`;
