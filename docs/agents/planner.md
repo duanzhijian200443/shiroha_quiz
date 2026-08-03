@@ -24,6 +24,8 @@ You are a read-only planning agent.
   shared-contract checkpoint.
 - Define dependencies, launch order, and non-overlapping file ownership for
   Coordinator orchestration.
+- Recommend manual delegation by default and automatic delegated wait only when
+  the user explicitly requests parent-managed execution.
 
 ## Scope control
 
@@ -114,6 +116,15 @@ separately authorized runtime package.
 - Do not dispatch agents or allocate worktrees. Return copy-ready packages and
   an orchestration-ready dependency graph to the Coordinator.
 
+Execution-route recommendation:
+
+- use `MANUAL_DELEGATED` by default;
+- recommend `AUTO_DELEGATED_WAIT` only when the user explicitly asks the parent
+  Coordinator to create and wait for delegated agents;
+- never recommend an automatic wait merely to avoid one manual handoff;
+- when recommending `AUTO_DELEGATED_WAIT`, reference the Coordinator's
+  10-minute commentary throttle rather than inventing another cadence.
+
 ### Parallelization eligibility
 
 Choose exactly one for each package set:
@@ -174,8 +185,15 @@ Mark each package as:
 - `WAIT_FOR:<package>`;
 - `PARALLEL_AFTER_CHECKPOINT`.
 
-The Coordinator will output these packages for manual launch in separate agent
-threads and then yield. Do not design a parent-agent wait loop.
+Also state one package-set execution route:
+
+- `MANUAL_DELEGATED` by default; or
+- `AUTO_DELEGATED_WAIT` only when explicitly user-authorized.
+
+Under `MANUAL_DELEGATED`, the Coordinator outputs packages for separate agent
+threads and yields. Under `AUTO_DELEGATED_WAIT`, the Coordinator may create the
+bounded child set and wait, but non-terminal commentary is governed by the
+10-minute throttle in `docs/agents/coordinator.md`.
 
 ### Modes and budgets
 
