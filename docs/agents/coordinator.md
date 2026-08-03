@@ -61,6 +61,12 @@ Concurrency and execution route are independent. For example,
 Coordinator remains responsible for orchestration and review.
 Do not parallelize merely because multiple agents are available.
 
+The Coordinator must apply the repository child-model priority rule to every
+delegation. It may choose another model only when the user explicitly declares
+one for the current task or when the preferred DeepSeek model is unavailable,
+fails to start, or lacks a required tool. Every override or fallback must be
+reported with its reason and actual provider/model.
+
 ## Standard workflow
 
 1. Capture the base commit, branch, worktree list, and dirty state.
@@ -71,14 +77,26 @@ Do not parallelize merely because multiple agents are available.
 5. Build a dependency graph and file-ownership matrix.
 6. Create or assign authorized worktrees and branches.
 7. Dispatch self-contained child packages with one active role each.
-8. Wait for `COMPLETE`, `BLOCKED`, or `FAILED`; do not frequently poll.
-9. Inspect each short handoff and the associated frozen diff or commit.
-10. Dispatch a Verifier against each stopped worktree or target commit.
-11. Integrate validated work serially and only with explicit authority.
-12. Freeze the integrated snapshot.
-13. Dispatch integration-level Verifier and Reviewer tasks; they may run in
-    parallel against the same frozen snapshot.
-14. Report results and leave the final merge/push decision to the user.
+8. Wait within the declared child execution window for `COMPLETE`, `BLOCKED`,
+   or `FAILED`; do not frequently poll or treat silence as a stall signal.
+9. Close the terminal writer permanently, inspect its bounded handoff and diff,
+   and capture a frozen validation target.
+10. Run deterministic format, analyze, focused test, diff, and status gates
+    locally by default. Dispatch a Verifier only when the matrix, audit need,
+    fixed-target evidence, or risk justifies a separate validation task.
+11. If validation finds an actionable patch defect, dispatch one fresh repair
+    Executor. After it terminates, freeze a new target and rerun all required
+    validation gates from the beginning.
+12. Integrate validated work serially and only with explicit authority, then
+    freeze and validate the integrated snapshot.
+13. Dispatch an independent Reviewer, and a separate Verifier when required,
+    only against the same stopped target.
+14. Report the requested phase and yield to the user. Leave merge, push, and
+    every later roadmap phase to a new explicit user request.
+
+A frozen multi-stage roadmap is context, not authorization to execute later
+stages. One Coordinator run may advance only the stage or substage explicitly
+requested by the user.
 
 ## Shared-contract checkpoint
 
@@ -105,6 +123,38 @@ only when it is not validating or reviewing a moving target.
 When commits are not authorized, require an uncommitted frozen-diff handoff.
 Do not imply that a worktree branch may be integrated without separate Git
 authorization.
+
+## Child execution windows and repair routing
+
+Every Executor package must declare an overall execution window separately
+from its per-command timeouts. Unless the package records another justified
+window, use 12 minutes for a bounded implementation and 8 minutes for a focused
+repair. The three-minute command-stall rule in `AGENTS.md` does not shorten
+these child windows.
+
+Do not interrupt a silent child before its execution window expires unless the
+child reports a blocker, the frozen base or ownership changes, the user
+overrides the task, or a safety or scope violation requires an immediate stop.
+When the window expires, request one terminal handoff and stop the child; do
+not resume it. Any later repair belongs to a fresh Executor.
+
+Keep delegated prompts self-contained and bounded. Do not copy or fork the
+complete parent conversation unless the child genuinely needs that history.
+Do not make a new child repeat repository-wide investigation already frozen by
+the Coordinator.
+
+## Frozen validation target
+
+Before deterministic validation, verification, or review, capture:
+
+- branch or detached state and `HEAD`;
+- `git status --short`;
+- identities or hashes of every target file;
+- identities of relevant sidecar files whose drift could affect the evidence.
+
+Recheck those values after the gates. Any drift invalidates all results for the
+old target, including partial PASS results. Stop affected read-only agents,
+freeze the replacement target, and rerun the complete required gate set.
 
 ## Handoff inspection
 
