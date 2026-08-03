@@ -552,6 +552,34 @@ void main() {
     });
   });
 
+  group('TypedQuestionAssembler answer case parity', () {
+    test('preserves non-choice answer case and keeps choice uppercased', () {
+      final short = assembler.assemble(
+        _region(
+          stemText: 'Synthetic prompt marker 1.',
+          answerText: 'synthetic-result-1',
+          kindHint: QuestionRegionKindHint.shortAnswer,
+        ),
+        questionId: 'q_case_1',
+      );
+      expect(
+        ((short.answer! as ContentAnswer).content.nodes.single as TextNode)
+            .text,
+        'synthetic-result-1',
+      );
+
+      final choice = assembler.assemble(
+        _region(
+          stemText: 'A. one\nB. two',
+          answerText: 'a',
+          kindHint: QuestionRegionKindHint.singleChoice,
+        ),
+        questionId: 'q_case_2',
+      );
+      expect(choice.answer, ChoiceAnswer(optionIds: <String>['A']));
+    });
+  });
+
   group('TypedQuestionAssembler issues and readiness', () {
     test('keeps region issues and adds policy issues without duplicates', () {
       final draft = assembler.assemble(

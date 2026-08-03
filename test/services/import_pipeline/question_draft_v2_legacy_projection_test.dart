@@ -41,6 +41,26 @@ void main() {
       expect(projected.rejected, expected.rejected);
     });
 
+    test('keeps lowercase subjective answer parity with the text legacy path',
+        () {
+      final legacy = TextQuestionRegion(
+        number: 2,
+        rawText: '2. Synthetic prompt marker.',
+        startOffset: 0,
+        endOffset: 27,
+        answerText: 'synthetic-result',
+        kind: TextQuestionKind.subjective,
+        health: RegionHealth.clean,
+      );
+      final projected = _projectText(legacy);
+      final expected = const LocalQuestionAssembler().assemble(legacy);
+
+      expect(expected.question['standard_answer'], 'SYNTHETIC-RESULT');
+      expect(projected.question, expected.question);
+      expect(projected.repairRecommended, expected.repairRecommended);
+      expect(projected.rejected, expected.rejected);
+    });
+
     test('keeps repair parity for a short-content choice region', () {
       final legacy = TextQuestionRegion(
         number: 3,
