@@ -110,42 +110,6 @@ if ($changeCollectionFailed) {
     }
 }
 
-Write-Section -Name 'Format check'
-if ($changeCollectionFailed) {
-    Write-Output 'Format check: NOT RUN (change collection failed)'
-} elseif ($SkipFormatCheck) {
-    Write-Output 'Format check: SKIPPED'
-} elseif ($changedDartFiles.Count -eq 0) {
-    Write-Output 'Format check: NOT RUN (no changed Dart files)'
-} else {
-    & dart format --output=none --set-exit-if-changed @changedDartFiles
-    $formatExitCode = $LASTEXITCODE
-    if ($formatExitCode -eq 0) {
-        Write-Output 'Format check: PASS'
-    } else {
-        Write-Output "Format check: FAIL (exit $formatExitCode)"
-        $failed = $true
-    }
-}
-
-Write-Section -Name 'Analyze'
-if ($changeCollectionFailed) {
-    Write-Output 'Analyze: NOT RUN (change collection failed)'
-} elseif ($SkipAnalyze) {
-    Write-Output 'Analyze: SKIPPED'
-} elseif ($changedDartFiles.Count -eq 0) {
-    Write-Output 'Analyze: NOT RUN (no changed Dart files)'
-} else {
-    & flutter analyze @changedDartFiles
-    $analyzeExitCode = $LASTEXITCODE
-    if ($analyzeExitCode -eq 0) {
-        Write-Output 'Analyze: PASS'
-    } else {
-        Write-Output "Analyze: FAIL (exit $analyzeExitCode)"
-        $failed = $true
-    }
-}
-
 $validatedTestPaths = @()
 $testPathInvalid = $false
 foreach ($path in $TestPath) {
@@ -166,6 +130,52 @@ foreach ($path in $TestPath) {
     $validatedTestPaths += $normalizedPath
 }
 $validatedTestPaths = @($validatedTestPaths | Sort-Object -Unique)
+
+Write-Section -Name 'Format check'
+if ($changeCollectionFailed) {
+    Write-Output 'Format check: NOT RUN (change collection failed)'
+} elseif ($SkipFormatCheck) {
+    Write-Output 'Format check: SKIPPED'
+} elseif ($changedDartFiles.Count -eq 0 -and $validatedTestPaths.Count -eq 0) {
+    Write-Output 'Format check: NOT RUN (no changed Dart files or explicit test paths)'
+} else {
+    $formatTargets = @($changedDartFiles)
+    if ($formatTargets.Count -eq 0) {
+        $formatTargets = @($validatedTestPaths)
+        Write-Output 'Format check: no changed Dart files; checking explicit test paths'
+    }
+    & dart format --output=none --set-exit-if-changed @formatTargets
+    $formatExitCode = $LASTEXITCODE
+    if ($formatExitCode -eq 0) {
+        Write-Output 'Format check: PASS'
+    } else {
+        Write-Output "Format check: FAIL (exit $formatExitCode)"
+        $failed = $true
+    }
+}
+
+Write-Section -Name 'Analyze'
+if ($changeCollectionFailed) {
+    Write-Output 'Analyze: NOT RUN (change collection failed)'
+} elseif ($SkipAnalyze) {
+    Write-Output 'Analyze: SKIPPED'
+} elseif ($changedDartFiles.Count -eq 0 -and $validatedTestPaths.Count -eq 0) {
+    Write-Output 'Analyze: NOT RUN (no changed Dart files or explicit test paths)'
+} else {
+    $analyzeTargets = @($changedDartFiles)
+    if ($analyzeTargets.Count -eq 0) {
+        $analyzeTargets = @($validatedTestPaths)
+        Write-Output 'Analyze: no changed Dart files; checking explicit test paths'
+    }
+    & flutter analyze @analyzeTargets
+    $analyzeExitCode = $LASTEXITCODE
+    if ($analyzeExitCode -eq 0) {
+        Write-Output 'Analyze: PASS'
+    } else {
+        Write-Output "Analyze: FAIL (exit $analyzeExitCode)"
+        $failed = $true
+    }
+}
 
 Write-Section -Name 'Tests'
 if ($testPathInvalid) {
