@@ -296,8 +296,10 @@ String _normalizeAnswerText(String raw, {required bool isChoice}) {
       .replaceAll('Ｄ', 'D')
       .replaceAll('正确', '对')
       .replaceAll('错误', '错')
-      .trim()
-      .toUpperCase();
+      .trim();
+  if (isChoice) {
+    value = value.toUpperCase();
+  }
   if (value == '对') return '√';
   if (value == '错') return '×';
   if (!isChoice) {

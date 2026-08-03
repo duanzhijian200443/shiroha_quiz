@@ -102,7 +102,11 @@ final class QuestionDraftV2LegacyProjector {
             for (final option in draft.options)
               '${option.label}. ${_contentText(option.content)}',
           ];
-    final answer = _answerText(draft.answer);
+    final typedAnswer = _answerText(draft.answer);
+    // The text legacy assembler uppercases every answer, while the OCR legacy
+    // assembler preserves non-choice answer case. Keep the typed draft
+    // lossless and apply the profile-specific compatibility rule here.
+    final answer = isOcr ? typedAnswer : typedAnswer.toUpperCase();
     final rawExplanation =
         draft.explanation == null ? '' : _contentText(draft.explanation!);
 
