@@ -37,8 +37,9 @@ final class OcrLegacyProjectionProfile extends LegacyProjectionProfile {
   String get sourceTag => sourceTagValue;
 }
 
-/// Raised when a [QuestionRegion] or its assembled [QuestionDraftV2] contains
-/// raw fallback content that the legacy map cannot express losslessly.
+/// Raised when a [QuestionRegion] or its assembled [QuestionDraftV2] cannot be
+/// projected losslessly: raw fallback content, unsupported source parts,
+/// source-qualified asset identity, or a draft/region identity mismatch.
 final class LegacyProjectionUnsupportedException implements Exception {
   const LegacyProjectionUnsupportedException({
     required this.kindCode,
@@ -66,7 +67,7 @@ final class QuestionDraftV2LegacyProjector {
     required QuestionRegion region,
     required LegacyProjectionProfile profile,
   }) {
-    _guardNoRawFallback(draft, region);
+    _guardProjectionBoundary(draft, region);
     final isOcr = profile is OcrLegacyProjectionProfile;
     final draftStem = _contentText(draft.stem).trim();
     // The OCR profile mirrors the authoritative OCR assembler: options are
@@ -330,14 +331,70 @@ void _guardNoRawFallback(
     check('option', option.content.nodes);
   }
   for (final fragment in region.fragments) {
-    final part = fragment.part;
-    if (part is SourceContentPart) {
-      check(
-        fragment.field.name,
-        _materializeContentNodes(part.content, fragment.slice),
-      );
+    switch (fragment.part) {
+      case SourceContentPart(:final content):
+        check(
+          fragment.field.name,
+          _materializeContentNodes(content, fragment.slice),
+        );
+      case SourceAssetPart():
+        throw LegacyProjectionUnsupportedException(
+          kindCode: 'source_asset',
+          message: 'Asset fragments cannot be projected losslessly by the '
+              'legacy map.',
+        );
+      case SourceTablePart():
+        throw LegacyProjectionUnsupportedException(
+          kindCode: 'source_table',
+          message: 'Table fragments cannot be projected losslessly by the '
+              'legacy map.',
+        );
+      case UnsupportedSourcePart(:final kindCode):
+        throw LegacyProjectionUnsupportedException(
+          kindCode: kindCode,
+          message: 'Unsupported source content cannot be projected losslessly '
+              'by the legacy map.',
+        );
     }
   }
+}
+
+void _guardProjectionBoundary(
+  QuestionDraftV2 draft,
+  QuestionRegion region,
+) {
+  if (draft.assetRefs.isNotEmpty) {
+    throw LegacyProjectionUnsupportedException(
+      kindCode: 'source_asset',
+      message: 'Source-qualified asset identity cannot be projected '
+          'losslessly by the legacy map.',
+    );
+  }
+  _guardNoRawFallback(draft, region);
+  _guardDraftRegionConsistency(draft, region);
+}
+
+void _guardDraftRegionConsistency(
+  QuestionDraftV2 draft,
+  QuestionRegion region,
+) {
+  if (draft.questionNumber != region.questionNumber ||
+      !_orderedEquals(draft.sourceRefs, region.sourceRefs)) {
+    throw LegacyProjectionUnsupportedException(
+      kindCode: 'draft_region_mismatch',
+      message: 'The draft and region must agree on the question number and '
+          'the ordered source references before legacy projection.',
+    );
+  }
+}
+
+bool _orderedEquals<T>(List<T> left, List<T> right) {
+  if (identical(left, right)) return true;
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
 
 String _ocrRegionStem(QuestionRegion region) {

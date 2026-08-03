@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
@@ -493,6 +496,195 @@ void main() {
     });
   });
 
+  group('Projector boundary guards', () {
+    SourceRef blockRef() {
+      return SourceRef.at(
+        sourceId: 'source_a',
+        displayLabel: 'paper.pdf',
+        point: SourcePoint.block(
+          pageNumber: 1,
+          blockId: 'b1',
+          readingOrder: 0,
+        ),
+      );
+    }
+
+    QuestionRegion simpleRegion() {
+      return QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceContentPart(
+              sourceRef: blockRef(),
+              content: RichContent(
+                nodes: <ContentNode>[const TextNode('stem text')],
+              ),
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+    }
+
+    QuestionDraftV2 matchingDraft(QuestionRegion region) {
+      return QuestionDraftV2(
+        questionId: 'task_q1',
+        kind: QuestionKind.shortAnswer,
+        questionNumber: region.questionNumber,
+        stem: RichContent(nodes: <ContentNode>[const TextNode('stem text')]),
+        sourceRefs: region.sourceRefs,
+        issues: region.issues,
+      );
+    }
+
+    void expectUnsupported(
+      QuestionDraftV2 draft,
+      QuestionRegion region,
+      String kindCode,
+    ) {
+      expect(
+        () => projector.project(
+          draft: draft,
+          region: region,
+          profile: const TextLegacyProjectionProfile(),
+        ),
+        throwsA(
+          isA<LegacyProjectionUnsupportedException>()
+              .having((error) => error.kindCode, 'kindCode', kindCode),
+        ),
+      );
+    }
+
+    test('rejects a draft carrying source-qualified assets', () {
+      final region = simpleRegion();
+      final base = assembler.assemble(region, questionId: 'task_q1');
+      final draft = QuestionDraftV2(
+        questionId: base.questionId,
+        kind: base.kind,
+        questionNumber: base.questionNumber,
+        stem: base.stem,
+        options: base.options,
+        answer: base.answer,
+        explanation: base.explanation,
+        sourceRefs: base.sourceRefs,
+        assetRefs: <SourcedAssetRef>[
+          SourcedAssetRef(
+            sourceId: 'source_a',
+            asset: AssetRef(assetId: 'img_1', kind: AssetKind.image),
+          ),
+        ],
+        issues: base.issues,
+      );
+      expectUnsupported(draft, region, 'source_asset');
+    });
+
+    test('rejects SourceAssetPart fragments instead of ignoring them', () {
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceAssetPart(
+              sourceRef: blockRef(),
+              asset: AssetRef(assetId: 'img_1', kind: AssetKind.image),
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      expectUnsupported(matchingDraft(region), region, 'source_asset');
+    });
+
+    test('rejects SourceTablePart fragments instead of ignoring them', () {
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceTablePart(
+              sourceRef: blockRef(),
+              rows: <Iterable<RichContent>>[
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[const TextNode('cell')]),
+                ],
+              ],
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      expectUnsupported(matchingDraft(region), region, 'source_table');
+    });
+
+    test('rejects UnsupportedSourcePart fragments with their kind code', () {
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: UnsupportedSourcePart(
+              sourceRef: blockRef(),
+              kindCode: 'unknown_rich',
+              fallbackContent: RichContent(
+                nodes: <ContentNode>[const TextNode('preserved text')],
+              ),
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      expectUnsupported(matchingDraft(region), region, 'unknown_rich');
+    });
+
+    test('rejects a draft/region question-number mismatch', () {
+      final region = simpleRegion();
+      final base = assembler.assemble(region, questionId: 'task_q1');
+      final draft = QuestionDraftV2(
+        questionId: base.questionId,
+        kind: base.kind,
+        questionNumber: 2,
+        stem: base.stem,
+        options: base.options,
+        answer: base.answer,
+        explanation: base.explanation,
+        sourceRefs: base.sourceRefs,
+        issues: base.issues,
+      );
+      expectUnsupported(draft, region, 'draft_region_mismatch');
+    });
+
+    test('rejects a reordered draft sourceRefs', () {
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: _blockPart('b1', 1, 0, 'stem text'),
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.answer,
+            part: _blockPart('b2', 1, 1, 'answer text'),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = matchingDraft(region);
+      final reordered = QuestionDraftV2(
+        questionId: draft.questionId,
+        kind: draft.kind,
+        questionNumber: draft.questionNumber,
+        stem: draft.stem,
+        options: draft.options,
+        answer: draft.answer,
+        explanation: draft.explanation,
+        sourceRefs: <SourceRef>[region.sourceRefs[1], region.sourceRefs[0]],
+        issues: draft.issues,
+      );
+      expectUnsupported(reordered, region, 'draft_region_mismatch');
+    });
+  });
+
   group('Projector provenance degradation contract', () {
     test('locks the three-block range degradation with the coarse diagnostic',
         () {
@@ -561,6 +753,36 @@ void main() {
 
       expect(projected.question['source_page_indices'], isEmpty);
       expect(projected.question['source_block_ids'], isEmpty);
+    });
+
+    test('keeps legacy_provenance_coarse in the assembled draft issues', () {
+      final legacy = OcrQuestionRegion(
+        number: 1,
+        stemParts: const <String>['1. stem text'],
+        answerParts: const <String>[],
+        explanationParts: const <String>[],
+        sourcePageIndices: const <int>[1],
+        sourceBlockIds: const <String>['missing_b1'],
+        diagnostics: const <String>[],
+        declaredKind: TextQuestionKind.subjective,
+      );
+      final sourceDocument = SourceDocument(
+        sourceId: 'source_a',
+        displayLabel: 'paper.pdf',
+        parts: <SourcePart>[
+          _blockPart('b1', 1, 0, '1. stem text'),
+        ],
+      );
+      final region = const OcrQuestionRegionBridge().convert(
+        legacy,
+        sourceDocument: sourceDocument,
+      );
+      final draft = assembler.assemble(region, questionId: 'task_q1');
+
+      expect(
+        draft.issues.map((issue) => issue.code),
+        contains('legacy_provenance_coarse'),
+      );
     });
   });
 
