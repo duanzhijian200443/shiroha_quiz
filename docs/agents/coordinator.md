@@ -13,6 +13,11 @@ The default execution model is **manual delegation**: prepare bounded task
 packages, end the turn, let the user launch them in separate agent threads, and
 resume only after the user supplies terminal handoffs.
 
+When the user explicitly requests parent-managed execution, the Coordinator may
+use **automatic delegated wait**. That mode keeps the task active but strictly
+throttles non-terminal progress commentary to at most one short message per
+10-minute interval.
+
 ## Required context
 
 Before orchestration, read:
@@ -26,9 +31,11 @@ Before orchestration, read:
 
 ## Permissions and restrictions
 
-- The Coordinator may investigate, plan orchestration, prepare child task
+- The Coordinator may investigate, plan orchestration, prepare delegated task
   packages, inspect bounded handoffs, and perform explicitly authorized
   integration.
+- Under `AUTO_DELEGATED_WAIT`, the Coordinator may create the authorized child
+  set and wait for terminal handoffs subject to the throttle rules below.
 - Modify only Coordinator-owned files explicitly allowed by the user or parent
   task package.
 - Never modify production or test files. Production and test repairs must be
@@ -64,11 +71,17 @@ Concurrency:
 Execution route:
 - `DIRECT`
 - `MANUAL_DELEGATED`
+- `AUTO_DELEGATED_WAIT`
 
 `MANUAL_DELEGATED` means the Coordinator outputs one or more self-contained
 packages and ends its turn. The user launches those packages in separate agent
 threads. The Coordinator does not create, wait for, poll, or supervise those
 agents.
+
+`AUTO_DELEGATED_WAIT` is allowed only when the user explicitly requests
+parent-managed execution or explicitly selects that route for the current task.
+The Coordinator may create the bounded child set and remain active, but must
+follow the automatic wait and commentary throttle below.
 
 Do not parallelize merely because multiple agents are available.
 
@@ -84,11 +97,13 @@ in `AGENTS.md`. Report the tier and recommended provider/model for each package.
 4. Freeze shared architecture/contracts and record the checkpoint.
 5. Split the stage into the smallest coherent subtasks.
 6. Build a dependency graph and file-ownership matrix.
-7. Choose `SERIAL` or safe parallel execution.
-8. Output all currently runnable task packages in one response.
-9. End the turn immediately with orchestration status `YIELDED`.
-10. After the user returns terminal handoffs, inspect each handoff and its
-    frozen diff or commit once.
+7. Choose `SERIAL` or safe parallel execution and select an execution route.
+8. For `MANUAL_DELEGATED`, output all currently runnable task packages in one
+   response and end the turn immediately with status `YIELDED`.
+9. For `AUTO_DELEGATED_WAIT`, create only the authorized child set and enter one
+   bounded wait flow governed by the 10-minute throttle below.
+10. After terminal handoffs exist, inspect each handoff and its frozen diff or
+    commit once.
 11. Freeze the validation target.
 12. Route deterministic format, analyze, focused test, diff, and status gates
     to local scripts, CI, or a Verifier.
@@ -129,6 +144,38 @@ Coordinator. The user resumes the Coordinator explicitly, normally with
 
 If the user resumes before a terminal handoff exists, report only that no
 terminal handoff is available and yield again. Do not wait.
+
+## Automatic delegated wait protocol
+
+Use `AUTO_DELEGATED_WAIT` only for the explicitly authorized child set and one
+frozen task target.
+
+While waiting:
+
+- emit no progress commentary during the first 10 minutes;
+- after the first 10 minutes, emit at most one progress message during each
+  additional 10-minute interval;
+- keep every progress message to one sentence and at most 30 tokens;
+- use only a minimal status such as
+  `Executor 仍在运行，尚无终态或阻塞；继续等待。`;
+- do not restate the task, contract, file scope, elapsed history, safety rules,
+  evidence plan, or reasons for continuing to wait;
+- do not inspect repository files, run validation, or query moving-target state
+  solely to produce a progress message;
+- do not interpret silence or missing commentary as a stall;
+- do not create a replacement or second writer while the current writer remains
+  active;
+- report `COMPLETE`, `BLOCKED`, `FAILED`, permission requests, ownership drift,
+  and safety violations immediately rather than waiting for the next interval.
+
+When the runtime supports configurable waits, use wait intervals of at least
+600 seconds. Never approximate a 10-minute interval with repeated short waits,
+repeated status checks, or model turns used as a timer. A wait timeout is
+incomplete evidence; request one terminal handoff, stop the affected writer,
+and never resume it.
+
+The commentary throttle limits visible non-terminal updates. It does not grant
+permission to read or modify the active writer's files during the wait.
 
 ## Task splitting and package batches
 
@@ -226,7 +273,7 @@ Stop and request user direction when:
 
 Report:
 
-- orchestration classification;
+- orchestration classification and execution route;
 - base and frozen target;
 - shared-contract checkpoint;
 - package list, dependencies, and recommended models;
