@@ -131,6 +131,18 @@ foreach ($path in $TestPath) {
 }
 $validatedTestPaths = @($validatedTestPaths | Sort-Object -Unique)
 
+$changedTestFiles = @(
+    $changedDartFiles |
+        ForEach-Object { $_.Trim().Replace('\', '/') } |
+        Where-Object {
+            $_ -match '^test/.+\.dart$' -and
+            -not [System.IO.Path]::IsPathRooted($_) -and
+            -not ($_.Split('/') -contains '..')
+        } |
+        Sort-Object -Unique
+)
+$testTargets = @($validatedTestPaths + $changedTestFiles | Sort-Object -Unique)
+
 Write-Section -Name 'Format check'
 if ($changeCollectionFailed) {
     Write-Output 'Format check: NOT RUN (change collection failed)'
@@ -177,14 +189,23 @@ if ($changeCollectionFailed) {
     }
 }
 
+Write-Section -Name 'Tests target files'
+if ($testTargets.Count -eq 0) {
+    Write-Output 'Tests target files: (none)'
+} else {
+    foreach ($file in $testTargets) {
+        Write-Output "  $file"
+    }
+}
+
 Write-Section -Name 'Tests'
 if ($testPathInvalid) {
     Write-Output 'Tests: FAIL (invalid explicit test path)'
     $failed = $true
-} elseif ($validatedTestPaths.Count -eq 0) {
+} elseif ($testTargets.Count -eq 0) {
     Write-Output 'Tests: NOT RUN'
 } else {
-    & flutter test --concurrency=1 @validatedTestPaths
+    & flutter test --concurrency=1 @testTargets
     $testExitCode = $LASTEXITCODE
     if ($testExitCode -eq 0) {
         Write-Output 'Tests: PASS'
@@ -218,7 +239,7 @@ if ($statusExitCode -eq 0) {
 
 if ($failed) {
     $verdict = 'FAIL'
-} elseif ($changedDartFiles.Count -eq 0 -and $validatedTestPaths.Count -eq 0) {
+} elseif ($testTargets.Count -eq 0) {
     $verdict = 'NOTHING_TO_VERIFY'
 } else {
     $verdict = 'PASS'

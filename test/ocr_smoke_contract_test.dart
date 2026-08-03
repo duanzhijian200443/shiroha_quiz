@@ -918,6 +918,31 @@ void main() {
       expect(gitignore, contains('scratch/ocr_reports/'));
     });
 
+    test('PowerShell launcher delegates PDF path resolution to the helper', () {
+      final source = File('tool/run_ocr_smoke.ps1').readAsStringSync();
+      final helper = File('tool/ocr_smoke_path_helpers.ps1').readAsStringSync();
+
+      expect(
+        source,
+        contains(r". (Join-Path $PSScriptRoot 'ocr_smoke_path_helpers.ps1')"),
+        reason: 'launcher must dot-source the path helper',
+      );
+      expect(
+        source,
+        isNot(contains('function Resolve-SmokePdfPath')),
+        reason: 'launcher must not keep a second path resolver implementation',
+      );
+      expect(helper, contains('function Resolve-SmokePdfPath'));
+      expect(helper, isNot(contains('Read-Host')));
+      expect(helper, isNot(contains('SHIROHA_OCR_API_KEY')));
+      expect(helper, isNot(contains('ConvertTo-Json')));
+
+      // Multi-PDF rejection contract stays in the launcher.
+      expect(source, contains('multiple_pdfs_not_supported'));
+      expect(source, contains('MultiplePdfNotSupported'));
+      expect(source, contains(r'$Pdf.Count -gt 1'));
+    });
+
     test(
         'loadSavedOcrApiKey resolves saved profile using an explicit repository',
         () async {

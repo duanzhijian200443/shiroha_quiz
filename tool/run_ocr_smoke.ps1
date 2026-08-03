@@ -15,6 +15,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ocr_smoke_path_helpers.ps1')
 $script:reportReady = $false
 $script:reportWriteFailureEmitted = $false
 $script:reportDirectory = $null
@@ -206,75 +207,6 @@ function Test-SmokeArtifact {
     }
     catch {
         return $false
-    }
-}
-
-function Resolve-SmokePdfPath {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PdfArgument,
-        [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot,
-        [Parameter(Mandatory = $true)]
-        [string]$AllowedRoot
-    )
-
-    $trimmed = $PdfArgument.Trim()
-    if ([string]::IsNullOrWhiteSpace($trimmed)) {
-        return @{
-            Success = $false
-            Status = 'invalid_pdf_argument'
-            CauseType = 'InvalidPdfArgument'
-        }
-    }
-
-    $extension = [System.IO.Path]::GetExtension($trimmed).ToLowerInvariant()
-    if ($extension -ne '.pdf') {
-        return @{
-            Success = $false
-            Status = 'invalid_pdf_extension'
-            CauseType = 'InvalidPdfExtension'
-        }
-    }
-
-    try {
-        $resolved = if ([System.IO.Path]::IsPathRooted($trimmed)) {
-            [System.IO.Path]::GetFullPath($trimmed)
-        }
-        else {
-            [System.IO.Path]::GetFullPath((Join-Path $RepositoryRoot $trimmed))
-        }
-    }
-    catch {
-        return @{
-            Success = $false
-            Status = 'invalid_pdf_argument'
-            CauseType = 'InvalidPdfArgument'
-        }
-    }
-
-    $normalizedAllowed = $AllowedRoot.TrimEnd('\') + '\'
-    $normalizedResolved = $resolved
-    if (-not $normalizedResolved.StartsWith($normalizedAllowed, [StringComparison]::OrdinalIgnoreCase) -and
-        -not ($normalizedResolved -eq $AllowedRoot)) {
-        return @{
-            Success = $false
-            Status = 'path_outside_repository_root'
-            CauseType = 'PathOutsideRepositoryRoot'
-        }
-    }
-
-    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
-        return @{
-            Success = $false
-            Status = 'pdf_not_found'
-            CauseType = 'PdfNotFound'
-        }
-    }
-
-    return @{
-        Success = $true
-        Path = $resolved
     }
 }
 
