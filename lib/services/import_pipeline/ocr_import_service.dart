@@ -168,6 +168,11 @@ class OcrImportService {
         throw const OcrRequestCancelledException();
       }
       diagnostics['document'] = document.toDiagnostics();
+      final unsupportedStructureSummary = _countUnsupportedStructures(document);
+      if (unsupportedStructureSummary != null) {
+        diagnostics['unsupportedStructureSummary'] =
+            unsupportedStructureSummary;
+      }
 
       if (!document.hasUsableBlocks) {
         diagnostics['status'] = 'failed_empty_ocr_blocks';
@@ -467,6 +472,24 @@ class OcrImportService {
       repairRecommended: result.repairRecommended,
       rejected: result.rejected,
     );
+  }
+
+  Map<String, int>? _countUnsupportedStructures(OcrDocument document) {
+    var imageBlockCount = 0;
+    var tableBlockCount = 0;
+    for (final block in document.flattenedBlocks) {
+      final type = block.type.trim().toLowerCase();
+      if (type == 'image' || type == 'figure') {
+        imageBlockCount += 1;
+      } else if (type == 'table') {
+        tableBlockCount += 1;
+      }
+    }
+    if (imageBlockCount == 0 && tableBlockCount == 0) return null;
+    return {
+      'imageBlockCount': imageBlockCount,
+      'tableBlockCount': tableBlockCount,
+    };
   }
 
   _OcrDocumentRoleAssessment _assessDocumentRole({

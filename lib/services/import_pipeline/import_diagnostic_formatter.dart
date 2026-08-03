@@ -233,6 +233,36 @@ class ImportDiagnosticFormatter {
       }
     }
 
+    // 9. Unsupported structure summary (image/table blocks detected but not
+    // renderable by the current pipeline). Safe counts only: non-int,
+    // negative, or missing counts are ignored.
+    final structureMaps =
+        findMapsByKey(diagnostics, (k) => k == 'unsupportedStructureSummary');
+    for (final structureMap in structureMaps) {
+      final imageBlockCount = structureMap['imageBlockCount'];
+      if (imageBlockCount is int && imageBlockCount > 0) {
+        addDiagnostic(
+          severity: ImportDiagnosticSeverity.warning,
+          title: '图片暂未完整导入',
+          message:
+              '检测到 $imageBlockCount 个图片或图形区域。当前版本尚未保存可渲染图片资产，请对照原 PDF 校对相关题目。',
+          source: 'pipeline',
+          code: 'UNSUPPORTED_IMAGE_BLOCKS',
+        );
+      }
+      final tableBlockCount = structureMap['tableBlockCount'];
+      if (tableBlockCount is int && tableBlockCount > 0) {
+        addDiagnostic(
+          severity: ImportDiagnosticSeverity.warning,
+          title: '表格暂未结构化',
+          message:
+              '检测到 $tableBlockCount 个表格区域。当前版本可能以文本或 HTML 片段显示，请对照原 PDF 校对。',
+          source: 'pipeline',
+          code: 'UNSUPPORTED_TABLE_BLOCKS',
+        );
+      }
+    }
+
     return messages;
   }
 
@@ -301,7 +331,9 @@ class ImportDiagnosticFormatter {
     void traverseAndExtract(Map<String, dynamic> data, [String prefix = '']) {
       for (final entry in data.entries) {
         if (entry.key == TaskManager.keyTraceId ||
-            entry.key == TaskManager.keyParseMode) continue;
+            entry.key == TaskManager.keyParseMode) {
+          continue;
+        }
 
         if (entry.value is Map<String, dynamic>) {
           traverseAndExtract(entry.value as Map<String, dynamic>,
@@ -368,8 +400,8 @@ class ImportDiagnosticFormatter {
 
     if (task.errorMsg != null) {
       errorType = task.errorMsg!.split(':').first;
-      if (errorType!.length > 50) {
-        errorType = errorType!.substring(0, 50) + '...';
+      if (errorType.length > 50) {
+        errorType = '${errorType.substring(0, 50)}...';
       }
     }
 
@@ -390,8 +422,9 @@ class ImportDiagnosticFormatter {
   }
 
   static String? _findNestedString(Map<String, dynamic> data, String key) {
-    if (data.containsKey(key) && data[key] is String)
+    if (data.containsKey(key) && data[key] is String) {
       return data[key] as String;
+    }
     for (final v in data.values) {
       if (v is Map<String, dynamic>) {
         final res = _findNestedString(v, key);

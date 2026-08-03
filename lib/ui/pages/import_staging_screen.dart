@@ -144,6 +144,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     return summary['hasLowQualityVisionParse'] == true;
   }
 
+  bool get _hasUnsupportedStructure {
+    final summary = widget.diagnostics?['unsupportedStructureSummary'];
+    if (summary is! Map) return false;
+    final imageBlockCount = summary['imageBlockCount'];
+    final tableBlockCount = summary['tableBlockCount'];
+    return (imageBlockCount is int && imageBlockCount > 0) ||
+        (tableBlockCount is int && tableBlockCount > 0);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1463,7 +1472,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
       ),
       subtitle: const Text(
-        '开启后会保留详细解析，但可能增加校对问题和 AI 处理时间。',
+        '开启后保留选择题和填空题的已识别解析，可能增加需要校对的内容。',
         style: TextStyle(fontSize: 12),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1574,6 +1583,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             _buildDiagnosticBanner(),
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
+          if (_hasUnsupportedStructure) _buildUnsupportedStructureBanner(),
           _buildExplanationRetentionControl(),
           _buildAnswerDistillationControl(),
           const Divider(height: 1),
@@ -1938,6 +1948,39 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   ),
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnsupportedStructureBanner() {
+    final summary = widget.diagnostics?['unsupportedStructureSummary'];
+    final imageBlockCount = summary is Map ? summary['imageBlockCount'] : null;
+    final tableBlockCount = summary is Map ? summary['tableBlockCount'] : null;
+    final hasImage = imageBlockCount is int && imageBlockCount > 0;
+    final hasTable = tableBlockCount is int && tableBlockCount > 0;
+    final message = hasImage && hasTable
+        ? '检测到图片和表格内容，当前版本尚不能完整呈现，请对照 PDF 校对。'
+        : hasImage
+            ? '检测到图片内容，但当前版本尚不能显示原图，请对照 PDF 校对。'
+            : '检测到表格内容，当前可能以文本或 HTML 片段显示，请对照 PDF 校对。';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: Colors.orangeAccent.withValues(alpha: 0.12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: Colors.orange, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.orange, fontSize: 12),
             ),
           ),
         ],

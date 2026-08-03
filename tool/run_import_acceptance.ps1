@@ -80,8 +80,8 @@ if ($RefreshOcr) {
         Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'case_config_invalid' -CauseType ($_.Exception.GetType().Name)
         exit 1
     }
-    if ($caseJson.schemaVersion -eq 2) {
-        Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'paired_refresh_not_supported' -CauseType 'PairedReplayOnly'
+    if ($caseJson.schemaVersion -ne 1) {
+        Write-SafeAcceptanceEvent -Stage 'launcher' -Status 'unsupported_case_schema' -CauseType 'UnsupportedAcceptanceSchemaVersion'
         exit 2
     }
 

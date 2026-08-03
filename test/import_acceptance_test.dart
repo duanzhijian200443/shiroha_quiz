@@ -1402,7 +1402,7 @@ void main() {
 
     test('R0B2b agent brief reserves the success claim for PASS', () async {
       final summary = <String, dynamic>{
-        'caseId': 'paired_report_contract',
+        'caseId': 'single_report_contract',
         'sourceMode': 'replay',
         'expectedQuestionCount': 23,
         'actualQuestionCount': 0,
@@ -1413,7 +1413,7 @@ void main() {
 
       final notVerifiedDir = await AcceptanceReportWriter(
         repositoryRoot: tempDir.path,
-        runId: 'paired-not-verified',
+        runId: 'single-not-verified',
       ).write(
         summary: summary,
         questionReports: const <AcceptanceQuestionReport>[],
@@ -1438,7 +1438,7 @@ void main() {
 
       final passDir = await AcceptanceReportWriter(
         repositoryRoot: tempDir.path,
-        runId: 'paired-pass',
+        runId: 'single-pass',
       ).write(
         summary: <String, dynamic>{
           ...summary,
@@ -1593,423 +1593,54 @@ void main() {
     });
   });
 
-  group('Paired Replay Acceptance v2 Tests', () {
-    late Directory tempRepo;
-
-    setUp(() {
-      tempRepo = Directory.systemTemp.createTempSync('paired_acceptance_test_');
-    });
-
-    tearDown(() {
-      if (tempRepo.existsSync()) {
-        tempRepo.deleteSync(recursive: true);
-      }
-    });
-
-    test('schema v1 remains unchanged and schema v2 parses paired sources', () {
-      final v1 = ImportAcceptanceCase.fromJson({
+  group('Acceptance case schema contracts', () {
+    test('schema v1 single-document case remains supported', () {
+      final testCase = ImportAcceptanceCase.fromJson({
         'schemaVersion': 1,
-        'caseId': 'legacy_case',
-        'pdf': 'synthetic.pdf',
+        'caseId': 'single_case',
+        'pdf': 'math/single/sample.pdf',
         'expectedQuestionCount': 1,
         'expectedNumbers': [1],
         'allowDuplicateNumbers': false,
       });
-      expect(v1.schemaVersion, 1);
-      expect(v1.isPaired, isFalse);
-      expect(v1.sources, isEmpty);
 
-      final v2 = ImportAcceptanceCase.fromJson(
-        _pairedCaseJson(caseId: 'paired_case'),
+      expect(testCase.schemaVersion, 1);
+      expect(testCase.caseId, 'single_case');
+      expect(testCase.pdf, 'math/single/sample.pdf');
+    });
+
+    test('schema v2 is rejected before Replay loading', () async {
+      final tempRepo =
+          Directory.systemTemp.createTempSync('unsupported_schema_test_');
+      addTearDown(() => tempRepo.deleteSync(recursive: true));
+      final casesDir = Directory(p.join(tempRepo.path, 'tool', 'import_cases'))
+        ..createSync(recursive: true);
+      File(p.join(casesDir.path, 'unsupported_v2.json')).writeAsStringSync(
+        jsonEncode({
+          'schemaVersion': 2,
+          'caseId': 'unsupported_v2',
+          'sources': const <Object>[],
+        }),
       );
-      expect(v2.schemaVersion, 2);
-      expect(v2.isPaired, isTrue);
-      expect(v2.sources.map((source) => source.role), ['stem', 'solution']);
+
+      final events = <Map<String, dynamic>>[];
+      final exitCode = await runImportAcceptance(
+        caseId: 'unsupported_v2',
+        repositoryRoot: tempRepo.path,
+        emitEvent: events.add,
+      );
+
+      expect(exitCode, 2);
+      expect(events, hasLength(1));
+      expect(events.single['stage'], 'preflight');
+      expect(events.single['status'], 'unsupported_case_schema');
+      expect(events.single['schemaVersion'], 2);
       expect(
-        v2.sources.map((source) => source.replayCaseId),
-        ['stem_replay', 'solution_replay'],
+        events.single['causeType'],
+        'UnsupportedAcceptanceSchemaVersion',
       );
-      expect(v2.expectedQuestionCount, 23);
-      expect(v2.expectedDuplicateNumberCount, 0);
-      expect(v2.expectedUnmatchedFragmentCount, 0);
-      expect(v2.requiresQ6ImageOwnership, isTrue);
-    });
-
-    test(
-        'two synthetic 23-question replays merge offline and retain unique Q6 image provenance',
-        () async {
-      _writePairedCase(tempRepo, caseId: 'paired_pass');
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(),
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'solution_replay',
-        document: _syntheticSolutionDocument(),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_pass',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 0, reason: jsonEncode(events));
-      expect(completed['schemaVersion'], 2);
-      expect(completed['sourceMode'], 'replay');
-      expect(completed['stemQuestionCount'], 23);
-      expect(completed['stemNumbers'], List.generate(23, (index) => index + 1));
-      expect(completed['solutionQuestionCount'], 23);
-      expect(
-        completed['solutionNumbers'],
-        List.generate(23, (index) => index + 1),
-      );
-      expect(completed['finalQuestionCount'], 23);
-      expect(completed['mergedQuestionCount'], 23);
-      expect(
-          completed['finalNumbers'], List.generate(23, (index) => index + 1));
-      expect(completed['missingNumbers'], isEmpty);
-      expect(completed['duplicateNumbers'], isEmpty);
-      expect(completed['unmatchedFragmentCount'], 0);
-      expect(completed['stemConflictCount'], 0);
-      expect(completed['answerConflictCount'], 0);
-      expect(completed['q6ImageOwnership'], 'VERIFIED');
-      expect(completed['imageBlockCount'], 1);
-      expect(completed['pageIndex'], [1]);
-      expect(completed['blockIdShortHash'], matches(RegExp(r'^[a-f0-9]{12}$')));
-      expect(completed['externalProviderCallCount'], 0);
-      expect(completed['repairProviderCallCount'], 0);
-      expect(completed['repairCandidateCount'], 0);
-      expect(completed['hardIssueCount'], 0);
-      expect(completed['reviewIssueCount'], 0);
-      expect(completed['blocked'], isFalse);
-
-      final encoded = jsonEncode(events);
-      expect(encoded, isNot(contains('SYNTHETIC_PRIVATE_STEM_MARKER')));
-      expect(encoded, isNot(contains('SYNTHETIC_PRIVATE_SOLUTION_MARKER')));
-      expect(encoded, isNot(contains(tempRepo.path)));
-      expect(encoded, isNot(contains('https://private.invalid')));
-      expect(encoded, isNot(contains('data:image')));
-      expect(encoded, isNot(contains('stem_q6_image_block')));
-    });
-
-    test(
-        'answer-bearing solution content is projected before deterministic merge',
-        () async {
-      _writePairedCase(tempRepo, caseId: 'paired_answer_bearing_projection');
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(),
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'solution_replay',
-        document: _syntheticAnswerBearingSolutionDocument(),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_answer_bearing_projection',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 1, reason: jsonEncode(events));
-      expect(completed['solutionDocumentRole'], 'answerBearing');
-      expect(completed['solutionProjectionApplied'], isTrue);
-      expect(completed['stemQuestionCount'], 23);
-      expect(completed['solutionQuestionCount'], 23);
-      expect(completed['finalQuestionCount'], 23);
-      expect(completed['mergedQuestionCount'], 23);
-      expect(completed['unmatchedFragmentCount'], 0);
-      expect(completed['stemConflictCount'], 0);
-      expect(completed['missingAnswerCount'], greaterThan(0));
-      expect(completed['hardIssueCount'], greaterThan(0));
-      expect(completed['blocked'], isTrue);
-      expect(completed['externalProviderCallCount'], 0);
-      expect(completed['repairProviderCallCount'], 0);
-
-      final encoded = jsonEncode(events);
-      expect(
-        encoded,
-        isNot(contains('SYNTHETIC_PRIVATE_SOLUTION_BODY')),
-      );
-      expect(encoded, isNot(contains(tempRepo.path)));
-    });
-
-    test('non-answer-bearing solution role is NOT_VERIFIED', () async {
-      _writePairedCase(tempRepo, caseId: 'paired_solution_role_mismatch');
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(),
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'solution_replay',
-        document: _syntheticAnswerBearingSolutionDocument(
-          includeExplanationMarkers: false,
-        ),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_solution_role_mismatch',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 3, reason: jsonEncode(events));
-      expect(completed['verdict'], 'NOT_VERIFIED');
-      expect(completed['causeType'], 'PairedSolutionRoleMismatch');
-      expect(completed['solutionDocumentRole'], 'stemOnly');
-      expect(completed['solutionProjectionApplied'], isFalse);
-      expect(completed['finalQuestionCount'], 0);
-      expect(completed['blocked'], isTrue);
-      expect(completed['externalProviderCallCount'], 0);
-      expect(completed['repairProviderCallCount'], 0);
-    });
-
-    test('answer conflict is REVIEW rather than a hard failure', () async {
-      _writePairedCase(tempRepo, caseId: 'paired_review');
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(includeAnswers: true),
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'solution_replay',
-        document: _syntheticSolutionDocument(conflictingFirstAnswer: true),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_review',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 2, reason: jsonEncode(events));
-      expect(completed['verdict'], 'REVIEW');
-      expect(completed['answerConflictCount'], 1);
-      expect(completed['hardIssueCount'], 0);
-      expect(completed['reviewIssueCount'], greaterThan(0));
-      expect(completed['externalProviderCallCount'], 0);
-    });
-
-    test('missing source Replay is NOT_VERIFIED without fallback', () async {
-      _writePairedCase(tempRepo, caseId: 'paired_missing');
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_missing',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 3, reason: jsonEncode(events));
-      expect(completed['verdict'], 'NOT_VERIFIED');
-      expect(completed['q6ImageOwnership'], 'NOT_VERIFIED');
-      expect(completed['blocked'], isTrue);
-      expect(
-        events
-            .where((event) => event['status'] == 'replay_cache_loaded')
-            .length,
-        lessThan(2),
-      );
-      expect(
-        events.any((event) => event['status'] == 'fallback_replay_loaded'),
-        isFalse,
-      );
-    });
-
-    test('unrecognized image block type makes ownership NOT_VERIFIED',
-        () async {
-      _writePairedCase(tempRepo, caseId: 'paired_unknown_image');
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(imageType: 'drawing'),
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'solution_replay',
-        document: _syntheticSolutionDocument(),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_unknown_image',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 3, reason: jsonEncode(events));
-      expect(completed['verdict'], 'NOT_VERIFIED');
-      expect(completed['q6ImageOwnership'], 'NOT_VERIFIED');
-      expect(completed['imageBlockCount'], 0);
-      expect(completed['blocked'], isTrue);
-      expect(completed['externalProviderCallCount'], 0);
-    });
-
-    test('structural mismatch maps to FAIL exit code 1', () async {
-      _writePairedCase(
-        tempRepo,
-        caseId: 'paired_fail',
-        expectedQuestionCount: 24,
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'stem_replay',
-        document: _syntheticStemDocument(),
-      );
-      _writeSyntheticReplay(
-        tempRepo,
-        caseId: 'solution_replay',
-        document: _syntheticSolutionDocument(),
-      );
-
-      final events = <Map<String, dynamic>>[];
-      final exitCode = await runImportAcceptance(
-        caseId: 'paired_fail',
-        repositoryRoot: tempRepo.path,
-        emitEvent: events.add,
-      );
-      final completed =
-          events.firstWhere((event) => event['stage'] == 'completed');
-
-      expect(exitCode, 1);
-      expect(completed['verdict'], 'FAIL');
-      expect(completed['finalQuestionCount'], 23);
-      expect(completed['blocked'], isTrue);
-      expect(completed['externalProviderCallCount'], 0);
-    });
-
-    test('PowerShell wrapper maps PASS FAIL REVIEW and NOT_VERIFIED exits',
-        () async {
-      if (!Platform.isWindows) return;
-      final expected = <int, String>{
-        0: 'Result: PASS',
-        1: 'Result: FAIL',
-        2: 'Result: REVIEW',
-        3: 'Result: NOT_VERIFIED',
-      };
-
-      for (final entry in expected.entries) {
-        final fakeDart =
-            File(p.join(tempRepo.path, 'fake_dart_${entry.key}.cmd'))
-              ..writeAsStringSync('@exit /b ${entry.key}\r\n');
-        final result = await _runImportAcceptancePowerShell(
-          caseId: '2019_math1_paired',
-          dartExecutable: fakeDart.path,
-        );
-        expect(result.exitCode, entry.key, reason: 'exit=${entry.key}');
-        expect(result.stdout, contains(entry.value),
-            reason: 'exit=${entry.key}');
-      }
-    });
-
-    test('R0B2b PowerShell summary supports paired and legacy Hard fields',
-        () async {
-      if (!Platform.isWindows) return;
-
-      final pairedDart = File(p.join(tempRepo.path, 'fake_paired_hard.cmd'))
-        ..writeAsStringSync(
-          '@echo SYNTHETIC_PRIVATE_BODY\r\n'
-          '@echo {"stage":"completed","status":"fail",'
-          '"verdict":"FAIL","hardIssueCount":23,'
-          '"actualQuestionCount":0,"expectedQuestionCount":23,'
-          '"durationMs":1,"repairMode":"skipped",'
-          '"repairCandidateCount":0}\r\n'
-          '@exit /b 1\r\n',
-        );
-      final pairedResult = await _runImportAcceptancePowerShell(
-        caseId: '2019_math1_paired',
-        dartExecutable: pairedDart.path,
-      );
-      expect(pairedResult.exitCode, 1);
-      expect(pairedResult.stdout, contains('Hard:      23 failures'));
-      expect(pairedResult.stdout, isNot(contains('SYNTHETIC_PRIVATE_BODY')));
-
-      final legacyDart = File(p.join(tempRepo.path, 'fake_legacy_hard.cmd'))
-        ..writeAsStringSync(
-          '@echo {"stage":"completed","status":"fail",'
-          '"verdict":"FAIL","hardFailureCount":7,'
-          '"actualQuestionCount":0,"expectedQuestionCount":23,'
-          '"durationMs":1,"repairMode":"skipped",'
-          '"repairCandidateCount":0}\r\n'
-          '@exit /b 1\r\n',
-        );
-      final legacyResult = await _runImportAcceptancePowerShell(
-        caseId: '2019_math1_paired',
-        dartExecutable: legacyDart.path,
-      );
-      expect(legacyResult.exitCode, 1);
-      expect(legacyResult.stdout, contains('Hard:      7 failures'));
-
-      final zeroDart = File(p.join(tempRepo.path, 'fake_zero_hard.cmd'))
-        ..writeAsStringSync(
-          '@echo {"stage":"completed","status":"fail",'
-          '"verdict":"FAIL","hardIssueCount":0,"hardFailureCount":9,'
-          '"actualQuestionCount":0,"expectedQuestionCount":23,'
-          '"durationMs":1,"repairMode":"skipped",'
-          '"repairCandidateCount":0}\r\n'
-          '@exit /b 1\r\n',
-        );
-      final zeroResult = await _runImportAcceptancePowerShell(
-        caseId: '2019_math1_paired',
-        dartExecutable: zeroDart.path,
-      );
-      expect(zeroResult.exitCode, 1);
-      expect(zeroResult.stdout, isNot(contains('Hard:')));
-    });
-
-    test('paired RefreshOcr is rejected before smoke or key access', () async {
-      if (!Platform.isWindows) return;
-      final result = await Process.run(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-File',
-          p.join(Directory.current.path, 'tool', 'run_import_acceptance.ps1'),
-          '-Case',
-          '2019_math1_paired',
-          '-RefreshOcr',
-          '-UseSavedAppKey',
-        ],
-        runInShell: false,
-      );
-
-      expect(result.exitCode, 2);
-      expect(result.stdout, contains('paired_refresh_not_supported'));
-      expect(result.stdout, isNot(contains('Refreshing OCR cache')));
-      expect(result.stdout, isNot(contains('credential_probe')));
-      expect(result.stdout, isNot(contains('live_ocr_started')));
-      expect(result.stderr, isEmpty);
+      expect(events.where((event) => event['stage'] == 'cache'), isEmpty);
+      expect(events.where((event) => event['stage'] == 'pipeline'), isEmpty);
     });
   });
 
@@ -2579,232 +2210,5 @@ Future<ProcessResult> _runImportAcceptanceCli(List<String> args) {
     'dart',
     [script, ...args],
     runInShell: Platform.isWindows,
-  );
-}
-
-Map<String, dynamic> _pairedCaseJson({
-  required String caseId,
-  int expectedQuestionCount = 23,
-}) {
-  return <String, dynamic>{
-    'schemaVersion': 2,
-    'caseId': caseId,
-    'sources': [
-      {'role': 'stem', 'replayCaseId': 'stem_replay'},
-      {'role': 'solution', 'replayCaseId': 'solution_replay'},
-    ],
-    'expected': {
-      'questionCount': expectedQuestionCount,
-      'numbers': List.generate(
-        expectedQuestionCount,
-        (index) => index + 1,
-      ),
-      'duplicateNumbers': 0,
-      'unmatchedFragments': 0,
-      'q6ImageOwnership': 'required',
-    },
-  };
-}
-
-void _writePairedCase(
-  Directory repositoryRoot, {
-  required String caseId,
-  int expectedQuestionCount = 23,
-}) {
-  final casesDir =
-      Directory(p.join(repositoryRoot.path, 'tool', 'import_cases'))
-        ..createSync(recursive: true);
-  File(p.join(casesDir.path, '$caseId.json')).writeAsStringSync(
-    jsonEncode(
-      _pairedCaseJson(
-        caseId: caseId,
-        expectedQuestionCount: expectedQuestionCount,
-      ),
-    ),
-  );
-}
-
-void _writeSyntheticReplay(
-  Directory repositoryRoot, {
-  required String caseId,
-  required OcrDocument document,
-}) {
-  final fingerprint = computeReplayCacheFingerprint(
-    pdfBytes: utf8.encode(jsonEncode(document.toReplayJson())),
-    documentSchemaVersion: 1,
-    ocrModelId: supportedReplayOcrModelId,
-  );
-  writeReplayCache(
-    caseId: caseId,
-    repositoryRoot: repositoryRoot.path,
-    document: document,
-    fingerprint: fingerprint,
-    pdfContentHash:
-        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-  );
-}
-
-OcrDocument _syntheticStemDocument({
-  String imageType = 'image',
-  bool includeAnswers = false,
-}) {
-  final blocks = <OcrBlock>[];
-  var readingOrder = 0;
-  for (var number = 1; number <= 23; number++) {
-    blocks.add(
-      OcrBlock(
-        blockId: 'stem_q$number',
-        pageIndex: 1,
-        type: 'text',
-        text: '$number. SYNTHETIC_PRIVATE_STEM_MARKER $number\n'
-            '(A) Alpha\n(B) Beta\n(C) Gamma\n(D) Delta',
-        bbox: const [],
-        readingOrder: readingOrder++,
-      ),
-    );
-    if (includeAnswers) {
-      blocks.add(
-        OcrBlock(
-          blockId: 'stem_q${number}_answer',
-          pageIndex: 1,
-          type: 'text',
-          text: '答案：A',
-          bbox: const [],
-          readingOrder: readingOrder++,
-        ),
-      );
-    }
-    if (number == 6) {
-      blocks.add(
-        OcrBlock(
-          blockId: 'stem_q6_image_block',
-          pageIndex: 1,
-          type: imageType,
-          text: '[synthetic figure https://private.invalid data:image]',
-          bbox: const [],
-          readingOrder: readingOrder++,
-        ),
-      );
-    }
-  }
-  return OcrDocument(
-    sourceName: 'synthetic_stem.pdf',
-    pages: [
-      OcrPage(pageIndex: 1, blocks: blocks),
-    ],
-    markdown: '',
-    rawResponses: const [],
-    usage: const {},
-  );
-}
-
-OcrDocument _syntheticAnswerBearingSolutionDocument({
-  bool includeExplanationMarkers = true,
-}) {
-  final blocks = <OcrBlock>[];
-  var readingOrder = 0;
-  for (var number = 1; number <= 23; number++) {
-    blocks.add(
-      OcrBlock(
-        blockId: 'solution_body_q$number',
-        pageIndex: 1,
-        type: 'text',
-        text: '$number. SYNTHETIC_PRIVATE_SOLUTION_BODY $number',
-        bbox: const [],
-        readingOrder: readingOrder++,
-      ),
-    );
-    if (includeExplanationMarkers && number <= 2) {
-      blocks.add(
-        OcrBlock(
-          blockId: 'solution_explanation_q$number',
-          pageIndex: 1,
-          type: 'text',
-          text: '解析：SYNTHETIC_PRIVATE_SOLUTION_MARKER $number',
-          bbox: const [],
-          readingOrder: readingOrder++,
-        ),
-      );
-    }
-  }
-  return OcrDocument(
-    sourceName: 'synthetic_answer_bearing_solution.pdf',
-    pages: [
-      OcrPage(pageIndex: 1, blocks: blocks),
-    ],
-    markdown: '',
-    rawResponses: const [],
-    usage: const {},
-  );
-}
-
-OcrDocument _syntheticSolutionDocument({
-  bool conflictingFirstAnswer = false,
-}) {
-  final blocks = <OcrBlock>[];
-  var readingOrder = 0;
-  for (var number = 1; number <= 23; number++) {
-    final answer = conflictingFirstAnswer && number == 1 ? 'B' : 'A';
-    blocks.add(
-      OcrBlock(
-        blockId: 'solution_q$number',
-        pageIndex: 1,
-        type: 'text',
-        text: '$number. SYNTHETIC_PRIVATE_STEM_MARKER $number\n'
-            '(A) Alpha\n(B) Beta\n(C) Gamma\n(D) Delta',
-        bbox: const [],
-        readingOrder: readingOrder++,
-      ),
-    );
-    blocks.add(
-      OcrBlock(
-        blockId: 'solution_q${number}_answer',
-        pageIndex: 1,
-        type: 'text',
-        text: '答案：$answer',
-        bbox: const [],
-        readingOrder: readingOrder++,
-      ),
-    );
-    blocks.add(
-      OcrBlock(
-        blockId: 'solution_q${number}_explanation',
-        pageIndex: 1,
-        type: 'text',
-        text: '解析：SYNTHETIC_PRIVATE_SOLUTION_MARKER $number',
-        bbox: const [],
-        readingOrder: readingOrder++,
-      ),
-    );
-  }
-  return OcrDocument(
-    sourceName: 'synthetic_solution.pdf',
-    pages: [
-      OcrPage(pageIndex: 1, blocks: blocks),
-    ],
-    markdown: '',
-    rawResponses: const [],
-    usage: const {},
-  );
-}
-
-Future<ProcessResult> _runImportAcceptancePowerShell({
-  required String caseId,
-  required String dartExecutable,
-}) {
-  return Process.run(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      p.join(Directory.current.path, 'tool', 'run_import_acceptance.ps1'),
-      '-Case',
-      caseId,
-      '-DartExecutableForTesting',
-      dartExecutable,
-    ],
-    runInShell: false,
   );
 }

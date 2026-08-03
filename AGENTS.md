@@ -268,21 +268,17 @@ Current structure:
 ```text
 scratch/test_pdfs/
 └─ math/
-   ├─ paired/
    └─ single/
 ```
 
 Meaning:
 
-- `paired/`: a stem-only paper and its matching solution paper
 - `single/`: one PDF that should import independently
 
 Future subjects may use the same structure, for example:
 
 ```text
-politics/paired/
 politics/single/
-english/paired/
 english/single/
 ```
 
@@ -292,12 +288,14 @@ Rules:
 2. Do not modify, rename, copy, upload, commit, or track these PDFs.
 3. Do not copy real question text into fixtures, logs, diagnostics, or reports.
 4. Reports may include only filenames, counts, question numbers, stages, statuses, and redacted metrics.
-5. `paired` verification must distinguish:
-   - stem-only import
-   - solution-only import
-   - combined import
-6. `single` verification uses one PDF only.
-7. These assets must remain untracked by Git.
+5. Only `scratch/test_pdfs/<subject>/single/` is an active test corpus.
+6. One PDF corresponds to one independent smoke run and one import task.
+7. Multiple PDFs must not be scanned or automatically merged. Historical
+   `paired/` directories, if still present locally, must not be scanned, read,
+   or executed.
+8. Supplemental-answer document matching is deferred to P6 and requires a
+   newly frozen contract; it must not reuse the old default two-PDF merge.
+9. These assets must remain untracked by Git.
 
 ---
 

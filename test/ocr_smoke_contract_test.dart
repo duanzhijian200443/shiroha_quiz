@@ -669,30 +669,40 @@ void main() {
       );
     });
 
-    test('double file parameters are accepted before preflight failure',
-        () async {
+    test('two PDF parameters are rejected before Provider access', () async {
       await runSmokeTest(
         ['--pdf=math/single/missing1.pdf', '--pdf=math/single/missing2.pdf'],
-        expectedExitCode: 1,
+        expectedExitCode: 2,
         verify: (jsonLines) {
-          expect(jsonLines.length, 2);
-          expect(jsonLines[0]['stage'], 'preflight');
-          expect(jsonLines[1]['stage'], 'preflight');
-          expect(jsonLines[1]['status'], 'pdf_not_found');
+          expect(jsonLines, hasLength(1));
+          expect(jsonLines.single['stage'], 'launcher');
+          expect(jsonLines.single['status'], 'multiple_pdfs_not_supported');
+          expect(jsonLines.single['causeType'], 'MultiplePdfNotSupported');
+          expect(
+            jsonLines.where((line) => line['stage'] == 'provider'),
+            isEmpty,
+          );
+          expect(
+            jsonLines.where((line) => line['stage'] == 'independent_parse'),
+            isEmpty,
+          );
         },
       );
     });
 
-    test('rejects more than two PDF parameters', () async {
+    test('rejects more than two PDF parameters with the same safe status',
+        () async {
       await runSmokeTest(
         [
           '--pdf=first.pdf',
           '--pdf=second.pdf',
           '--pdf=third.pdf',
         ],
-        expectedExitCode: 1,
+        expectedExitCode: 2,
         verify: (jsonLines) {
-          expect(jsonLines.last['status'], 'invalid_arguments');
+          expect(jsonLines.single['stage'], 'launcher');
+          expect(jsonLines.single['status'], 'multiple_pdfs_not_supported');
+          expect(jsonLines.single['causeType'], 'MultiplePdfNotSupported');
           expect(
             jsonLines.where((line) => line['stage'] == 'independent_parse'),
             isEmpty,
@@ -876,6 +886,10 @@ void main() {
       expect(source, contains('[System.Diagnostics.Process]::Start'));
       expect(source, contains('New-OcrSmokeReportContext'));
       expect(source, contains('Write-OcrSmokeTerminalSummary'));
+      expect(source, contains('multiple_pdfs_not_supported'));
+      expect(source, contains('MultiplePdfNotSupported'));
+      expect(source, contains(r'$Pdf.Count -gt 1'));
+      expect(source, isNot(contains("'combined_merge'")));
       expect(source, contains('SHIROHA_OCR_RUN_ID'));
       expect(source, contains('tool\\ocr_smoke_report.dart'));
       expect(source, contains("'report'"));
@@ -1094,8 +1108,8 @@ void main() {
             '--pdf=b.pdf',
             '--case-id=2022_math1'
           ],
-          status: 'replay_cache_requires_single_pdf',
-          cause: 'InvalidReplayCacheRequest'
+          status: 'multiple_pdfs_not_supported',
+          cause: 'MultiplePdfNotSupported'
         ),
         (
           args: ['--write-replay-cache', '--pdf=a.pdf', '--case-id='],

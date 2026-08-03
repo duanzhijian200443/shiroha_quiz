@@ -14,7 +14,6 @@ import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
-import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
@@ -495,6 +494,15 @@ Future<int> _runOcrSmokeCore(
     }
   }
 
+  if (pdfArgs.length > 1) {
+    return exitWithError(
+      'multiple_pdfs_not_supported',
+      stage: 'launcher',
+      causeType: 'MultiplePdfNotSupported',
+      code: 2,
+    );
+  }
+
   if (writeReplayCacheEnabled) {
     if (pdfArgs.length != 1) {
       return exitWithError(
@@ -585,14 +593,6 @@ Future<int> _runOcrSmokeCore(
         code: 1,
       );
     }
-    if (pdfArgs.length > 2) {
-      return exitWithError(
-        'invalid_arguments',
-        stage: 'launcher',
-        causeType: 'InvalidArguments',
-        code: 1,
-      );
-    }
   }
 
   final baseUrl = environment['SHIROHA_OCR_BASE_URL'] ??
@@ -647,11 +647,11 @@ Future<int> _runOcrSmokeCore(
     repairService: repairService,
   );
 
-  final batches = <MultiFileQuestionBatch>[];
   var hasFailure = false;
 
-  for (int i = 0; i < validPaths.length; i++) {
-    final fullPath = validPaths[i];
+  parseSinglePdf:
+  {
+    final fullPath = validPaths.single;
     final fileName = p.basename(fullPath);
     final stopwatch = Stopwatch()..start();
 
@@ -670,7 +670,7 @@ Future<int> _runOcrSmokeCore(
           'status': 'skipped_null',
           'durationMs': stopwatch.elapsedMilliseconds,
         });
-        continue;
+        break parseSinglePdf;
       }
 
       final diagnostics = result.diagnostics;
@@ -684,16 +684,11 @@ Future<int> _runOcrSmokeCore(
             'causeType': errorType,
           'durationMs': stopwatch.elapsedMilliseconds,
         });
-        continue;
+        break parseSinglePdf;
       }
       printJson(buildOcrSmokeIndependentParseReport(
         result: result,
         durationMs: stopwatch.elapsedMilliseconds,
-      ));
-
-      batches.add(MultiFileQuestionBatch(
-        fileIndex: i,
-        questions: result.questions,
       ));
     } on FileSystemException catch (error) {
       stopwatch.stop();
@@ -714,36 +709,6 @@ Future<int> _runOcrSmokeCore(
         'status': responseFormat ? 'response_format_error' : 'request_error',
         'causeType': error.runtimeType.toString(),
         'durationMs': stopwatch.elapsedMilliseconds,
-      });
-    }
-  }
-
-  if (validPaths.length == 2 && !hasFailure) {
-    try {
-      final mergeService = const MultiFileQuestionMergeService();
-      final mergeResult = mergeService.merge(batches);
-      final metrics = mergeResult.metrics.toMap();
-
-      printJson({
-        'stage': 'combined_merge',
-        'status': 'success',
-        '输入文件数': metrics['inputFileCount'],
-        '各文件题目数': metrics['parsedQuestionCountByFile'],
-        '最终题目数': metrics['finalQuestionCount'],
-        '题号': mergeResult.mergedQuestions.map((q) => q['q_num']).toList(),
-        '合并数': metrics['mergedQuestionCount'],
-        '残留数': metrics['unmatchedFragmentCount'],
-        '冲突数': (metrics['stemConflictCount'] as int) +
-            (metrics['answerConflictCount'] as int),
-        'requiresReview': metrics['requiresReview'],
-        'blocked': metrics['blocked'],
-      });
-    } catch (e) {
-      hasFailure = true;
-      printJson({
-        'stage': 'combined_merge',
-        'status': 'failed_merge_exception',
-        'causeType': e.runtimeType.toString(),
       });
     }
   }

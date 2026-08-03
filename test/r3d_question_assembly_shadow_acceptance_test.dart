@@ -31,7 +31,6 @@ import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
-import 'package:shiroha_quiz/services/import_pipeline/multi_file_question_merge_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
@@ -44,7 +43,6 @@ const _sourceAdapter = OcrSourceDocumentAdapter();
 const _bridge = OcrQuestionRegionBridge();
 const _typedAssembler = TypedQuestionAssembler();
 const _projector = QuestionDraftV2LegacyProjector();
-const _merger = MultiFileQuestionMergeService();
 
 /// Provider calls in this pure harness: there is no callable Provider site,
 /// so the count is constant zero.
@@ -158,81 +156,6 @@ void main() {
           'Synthetic prompt marker 1.\n'
           'A. 选项甲\nB. 选项乙\nC. 选项丙\nD. 选项丁',
         );
-        _expectZeroProviderCalls();
-      },
-    );
-
-    test(
-      '2019 stem/answer batches merge 23-to-23 identically on both paths',
-      () {
-        final stemDocument = _build2019StemBatch();
-        final answerDocument = _build2019AnswerBatch();
-        final stemPaths = _runBothPaths(stemDocument, 'r3d1_stem_source');
-        final answerPaths = _runBothPaths(answerDocument, 'r3d1_answer_source');
-        expect(stemPaths, hasLength(23));
-        expect(answerPaths, hasLength(23));
-
-        final legacyMerge = _merger.merge(<MultiFileQuestionBatch>[
-          MultiFileQuestionBatch(
-            fileIndex: 0,
-            questions: stemPaths
-                .map((path) => path.legacy.question)
-                .toList(growable: false),
-          ),
-          MultiFileQuestionBatch(
-            fileIndex: 1,
-            questions: answerPaths
-                .map((path) => path.legacy.question)
-                .toList(growable: false),
-          ),
-        ]);
-        final shadowMerge = _merger.merge(<MultiFileQuestionBatch>[
-          MultiFileQuestionBatch(
-            fileIndex: 0,
-            questions: stemPaths
-                .map((path) => path.shadow.result.question)
-                .toList(growable: false),
-          ),
-          MultiFileQuestionBatch(
-            fileIndex: 1,
-            questions: answerPaths
-                .map((path) => path.shadow.result.question)
-                .toList(growable: false),
-          ),
-        ]);
-
-        expect(shadowMerge.metrics.toMap(), legacyMerge.metrics.toMap());
-        expect(
-          shadowMerge.batchProfiles.map((profile) => profile.toMap()).toList(),
-          legacyMerge.batchProfiles.map((profile) => profile.toMap()).toList(),
-        );
-        expect(legacyMerge.mergedQuestions, hasLength(23));
-        expect(shadowMerge.mergedQuestions, hasLength(23));
-        expect(
-          legacyMerge.mergedQuestions
-              .map((question) => question['question_number'])
-              .toList(),
-          List<int>.generate(23, (index) => index + 1),
-        );
-        expect(
-          shadowMerge.mergedQuestions
-              .map((question) => question['question_number'])
-              .toList(),
-          List<int>.generate(23, (index) => index + 1),
-        );
-        expect(shadowMerge.residualFragments, isEmpty);
-        expect(legacyMerge.residualFragments, isEmpty);
-        expect(shadowMerge.conflictFragments, isEmpty);
-        expect(legacyMerge.conflictFragments, isEmpty);
-        expect(shadowMerge.requiresReview, legacyMerge.requiresReview);
-        expect(shadowMerge.blocked, legacyMerge.blocked);
-        for (var index = 0; index < 23; index++) {
-          _expectFullParity(
-            legacyMerge.mergedQuestions[index],
-            shadowMerge.mergedQuestions[index],
-            label: 'merged question ${index + 1}',
-          );
-        }
         _expectZeroProviderCalls();
       },
     );
@@ -728,63 +651,6 @@ OcrDocument _build2019Equivalent() {
   return _document(
     'r3d1_synthetic_2019_equivalent',
     <OcrPage>[OcrPage(pageIndex: 1, blocks: blocks)],
-  );
-}
-
-/// 2019 stem-only batch: 23 parenthesized questions with full A-D options and
-/// no answers or explanations.
-OcrDocument _build2019StemBatch() {
-  final blocks = <OcrBlock>[
-    _block('section_heading', 1, 0, '一、选择题'),
-  ];
-  for (var number = 1; number <= 23; number++) {
-    blocks.add(
-      _block(
-        'stem_q_$number',
-        1,
-        number,
-        '（$number）Synthetic stem marker $number.\n'
-            'A. 选项甲\nB. 选项乙\nC. 选项丙\nD. 选项丁',
-      ),
-    );
-  }
-  return _document(
-    'r3d1_synthetic_2019_stem_batch',
-    <OcrPage>[OcrPage(pageIndex: 1, blocks: blocks)],
-  );
-}
-
-/// 2019 answer-only batch: 23 parenthesized placeholder stems with answers
-/// and explanations on page 2.
-OcrDocument _build2019AnswerBatch() {
-  final blocks = <OcrBlock>[
-    _block('section_heading', 2, 0, '一、选择题'),
-  ];
-  var order = 1;
-  const answers = <String>['A', 'B', 'C', 'D'];
-  for (var number = 1; number <= 23; number++) {
-    blocks
-      ..add(_block('answer_q_$number', 2, order++, '（$number）无题干'))
-      ..add(
-        _block(
-          'answer_a_$number',
-          2,
-          order++,
-          '答案：${answers[(number - 1) % answers.length]}',
-        ),
-      )
-      ..add(
-        _block(
-          'answer_e_$number',
-          2,
-          order++,
-          '解析：Synthetic rationale marker $number.',
-        ),
-      );
-  }
-  return _document(
-    'r3d1_synthetic_2019_answer_batch',
-    <OcrPage>[OcrPage(pageIndex: 2, blocks: blocks)],
   );
 }
 

@@ -422,6 +422,15 @@ try {
         exit 2
     }
 
+    if ($null -ne $Pdf -and $Pdf.Count -gt 1) {
+        Write-SafeJson @{
+            stage = 'launcher'
+            status = 'multiple_pdfs_not_supported'
+            causeType = 'MultiplePdfNotSupported'
+        }
+        exit 2
+    }
+
     if ($WriteReplayCache) {
         if ($null -eq $Pdf -or $Pdf.Count -ne 1) {
             Write-SafeJson @{
@@ -451,7 +460,7 @@ try {
 
     $resolvedPdfPaths = @()
     if (-not $SavedKeyProbe) {
-        if ($null -eq $Pdf -or $Pdf.Count -lt 1 -or $Pdf.Count -gt 2) {
+        if ($null -eq $Pdf -or $Pdf.Count -ne 1) {
             Write-SafeJson @{
                 stage = 'launcher'
                 status = 'invalid_pdf_argument'
@@ -460,26 +469,24 @@ try {
             exit 2
         }
 
-        foreach ($pdfArgument in $Pdf) {
-            $resolution = Resolve-SmokePdfPath `
-                -PdfArgument $pdfArgument `
-                -RepositoryRoot $repoRoot `
-                -AllowedRoot $allowedRoot
-            if (-not $resolution.Success) {
-                Write-SafeJson @{
-                    stage = $(if ($resolution.Status -eq 'invalid_pdf_argument') {
-                            'launcher'
-                        }
-                        else {
-                            'preflight'
-                        })
-                    status = $resolution.Status
-                    causeType = $resolution.CauseType
-                }
-                exit 2
+        $resolution = Resolve-SmokePdfPath `
+            -PdfArgument $Pdf[0] `
+            -RepositoryRoot $repoRoot `
+            -AllowedRoot $allowedRoot
+        if (-not $resolution.Success) {
+            Write-SafeJson @{
+                stage = $(if ($resolution.Status -eq 'invalid_pdf_argument') {
+                        'launcher'
+                    }
+                    else {
+                        'preflight'
+                    })
+                status = $resolution.Status
+                causeType = $resolution.CauseType
             }
-            $resolvedPdfPaths += $resolution.Path
+            exit 2
         }
+        $resolvedPdfPaths += $resolution.Path
     }
 
     $environmentApiKey = $env:SHIROHA_OCR_API_KEY
@@ -580,9 +587,9 @@ try {
         $toolArguments += '--write-replay-cache'
         $toolArguments += "--case-id=$CaseId"
     }
-    foreach ($resolvedPdfPath in $resolvedPdfPaths) {
+    if ($resolvedPdfPaths.Count -eq 1) {
         $toolArguments += '--pdf'
-        $toolArguments += $resolvedPdfPath
+        $toolArguments += $resolvedPdfPaths[0]
     }
     $startInfo.Arguments = Join-WindowsCommandLine -Argument $toolArguments
 
@@ -628,7 +635,6 @@ try {
         'provider',
         'regionizer',
         'independent_parse',
-        'combined_merge',
         'report',
         'completed',
         'failed',

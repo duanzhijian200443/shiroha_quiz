@@ -12,16 +12,15 @@ The suite distinguishes three evidence classes:
 3. real OCR: final release evidence only, with explicit authorization.
 
 The 2019 baseline in R0A is synthetic-equivalent only. A redacted, read-only
-2019 Replay fixture is not currently available, so the parenthesized numbering,
-Roman subquestion and 23-to-23 fusion contracts do not claim real-document
-verification.
+2019 Replay fixture is not currently available, so the parenthesized numbering
+and Roman subquestion contracts do not claim real-document verification.
 
 ## Characterized V1 behavior
 
 | Area | Locked behavior |
 |---|---|
 | 2022-equivalent synthetic import | 22 questions, numbers 1 through 22, no missing explicit answers, Q21 has only `latex_unrenderable`, zero ordinary repair candidates and zero provider/network calls |
-| 2019-equivalent synthetic import | sequenced parenthesized Arabic markers are top-level questions; Roman numeral markers remain in their parent; 23 stem maps plus 23 answer maps merge by explicit number into 23 |
+| 2019-equivalent synthetic import | sequenced parenthesized Arabic markers are top-level questions; Roman numeral markers remain in their parent; one synthetic document yields 23 ordered questions |
 | HTML | unsupported table tags are preserved as raw content and produce `raw_html_tag`; R0A does not create a table node |
 | LaTeX | complete formulas use the math renderer; malformed array/matrix environments remain unchanged and fall back locally; no missing `\end{...}` is synthesized |
 | `\textcircled{n}` | structural preflight currently accepts the command, but `flutter_math_fork` rejects it and the renderer displays the original formula through its local parse-error fallback; R0A does not normalize or repair it |
@@ -84,7 +83,7 @@ database migration.
 Every later stage must retain:
 
 - 2022-equivalent counts/order and its single safe Review;
-- 2019-equivalent numbering and exact fusion;
+- 2019-equivalent single-document numbering and order;
 - HTML/table raw fallback until a typed table bridge is verified;
 - malformed LaTeX preservation without guessed closure;
 - zero provider calls in offline acceptance;
@@ -94,7 +93,12 @@ Every later stage must retain:
 Real evidence still required later:
 
 - a redacted read-only 2019 question-paper Replay;
-- a paired 2019 question-plus-solution Replay with 23-to-23 fusion;
-- image ownership for the synthetic equivalent of question 6;
+- independent redacted Replay evidence for each supported single-document case;
 - real simple/complex table samples after a privacy review;
 - migrated copies of released V1 databases.
+
+Current smoke and acceptance architecture is single-document only: one PDF is
+one independent smoke run and one import task. Multiple PDFs are never
+automatically fused. Supplemental-answer document matching is deferred to P6,
+requires a newly frozen contract, and must not reuse the deprecated default
+two-PDF merge path.

@@ -165,6 +165,102 @@ OcrDocument objectiveExplanationDocument({
   );
 }
 
+AiEngineProfile ocrTestProfile() {
+  return AiEngineProfile(
+    id: 'ocr-1',
+    engineType: AiEngineType.ocr,
+    name: 'zhipu-ocr',
+    apiKey: 'test-key',
+    baseUrl: 'https://open.bigmodel.cn/api/paas',
+    modelName: 'glm-ocr',
+    temperature: 0.1,
+    reasoningEffort: '',
+    isActive: true,
+  );
+}
+
+OcrDocument unsupportedStructureDocument({bool includeUnsupported = true}) {
+  return OcrDocument(
+    sourceName: 'unsupported-structure.pdf',
+    markdown: '',
+    rawResponses: const [],
+    usage: const {},
+    pages: [
+      OcrPage(
+        pageIndex: 1,
+        blocks: [
+          const OcrBlock(
+            blockId: 'section',
+            pageIndex: 1,
+            type: 'text',
+            text: 'SECTION 1',
+            bbox: [],
+            readingOrder: 0,
+          ),
+          const OcrBlock(
+            blockId: 'question',
+            pageIndex: 1,
+            type: 'text',
+            text: '1. Valid stem (A) one (B) two (C) three (D) four',
+            bbox: [],
+            readingOrder: 1,
+          ),
+          const OcrBlock(
+            blockId: 'answer',
+            pageIndex: 1,
+            type: 'text',
+            text: '答案：A',
+            bbox: [],
+            readingOrder: 2,
+          ),
+          const OcrBlock(
+            blockId: 'explanation',
+            pageIndex: 1,
+            type: 'text',
+            text: '解析：valid explanation',
+            bbox: [],
+            readingOrder: 3,
+          ),
+          if (includeUnsupported) ...[
+            const OcrBlock(
+              blockId: 'canary_img_1',
+              pageIndex: 1,
+              type: 'image',
+              text: '',
+              bbox: [1, 2, 3, 4],
+              readingOrder: 4,
+            ),
+            const OcrBlock(
+              blockId: 'canary_figure_1',
+              pageIndex: 1,
+              type: ' Figure ',
+              text: '',
+              bbox: [],
+              readingOrder: 5,
+            ),
+            const OcrBlock(
+              blockId: 'canary_table_1',
+              pageIndex: 1,
+              type: 'TABLE',
+              text: '',
+              bbox: [],
+              readingOrder: 6,
+            ),
+            const OcrBlock(
+              blockId: 'canary_chart_1',
+              pageIndex: 1,
+              type: 'chart',
+              text: '',
+              bbox: [],
+              readingOrder: 7,
+            ),
+          ],
+        ],
+      ),
+    ],
+  );
+}
+
 void main() {
   group('OcrImportService', () {
     test('uses OCR path when GLM-OCR returns a valid document', () async {
@@ -238,6 +334,91 @@ void main() {
       expect(result.questions.first['q_num'], '1');
       expect(result.questions.first['source'], 'glm_ocr_intermediate');
       expect(result.diagnostics['status'], 'used_ocr');
+    });
+
+    test('records safe image/table counts without changing question output',
+        () async {
+      final profile = ocrTestProfile();
+      final client = FakeOcrDocumentClient(unsupportedStructureDocument());
+      final repairService = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: client,
+        repairService: repairService,
+      );
+      final baselineClient = FakeOcrDocumentClient(
+        unsupportedStructureDocument(includeUnsupported: false),
+      );
+      final baselineService = OcrImportService(
+        engineRepository: FakeAiEngineRepository(profile),
+        ocrClient: baselineClient,
+        repairService: const FakeRepairService(),
+      );
+
+      final result = await service.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      final baseline = await baselineService.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue);
+      expect(result.questions, hasLength(1));
+      expect(result.questions, baseline!.questions,
+          reason: 'unsupported structure blocks must not change question maps');
+      expect(result.diagnostics['status'], 'used_ocr');
+      expect(
+        result.diagnostics['unsupportedStructureSummary'],
+        <String, int>{'imageBlockCount': 2, 'tableBlockCount': 1},
+        reason: 'image/figure counts normalize case and whitespace',
+      );
+      expect(
+        baseline.diagnostics.containsKey('unsupportedStructureSummary'),
+        isFalse,
+      );
+
+      final diagnosticsJson = jsonEncode(result.diagnostics);
+      expect(diagnosticsJson, isNot(contains('canary_img_1')));
+      expect(diagnosticsJson, isNot(contains('canary_figure_1')));
+      expect(diagnosticsJson, isNot(contains('canary_table_1')));
+      expect(diagnosticsJson, isNot(contains('canary_chart_1')));
+      expect(diagnosticsJson, isNot(contains('bbox')));
+
+      expect(client.callCount, 1,
+          reason: 'structure counting must not add OCR provider calls');
+      expect(repairService.callCount, 0,
+          reason: 'structure counting must not trigger repair');
+    });
+
+    test('omits unsupported structure summary when no image or table blocks',
+        () async {
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: FakeOcrDocumentClient(
+          unsupportedStructureDocument(includeUnsupported: false),
+        ),
+        repairService: const FakeRepairService(),
+      );
+
+      final result = await service.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(
+        result!.diagnostics.containsKey('unsupportedStructureSummary'),
+        isFalse,
+      );
     });
 
     test(
