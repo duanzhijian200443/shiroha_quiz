@@ -140,6 +140,13 @@ Never run destructive or history-rewriting commands, including:
 
 Do not commit, push, merge, rebase, tag, or create branches unless explicitly requested.
 
+Git authorization is action-specific. Mentioning or authorizing one action
+does not authorize a later action: staging does not authorize commit, commit
+does not authorize push, and push does not authorize merge, tag, or release.
+Never use `git add .` or `git add -A`. Do not automatically create or modify
+`DEVELOPMENT_LOG.md`; it must be explicitly included in the allowed file scope.
+No rule file may broaden the Git authority supplied by the user and this file.
+
 An Executor is not authorized to commit by role alone. It may create one
 scoped commit only when its task package explicitly provides all of:
 
@@ -330,6 +337,19 @@ Use high-capability agents only for work that requires architectural
 reasoning, uncertain root-cause analysis, security decisions, concurrency,
 database safety, cross-module changes, or high-risk implementation.
 
+Route work by task risk rather than role name alone:
+
+| Tier | Typical work | Default route |
+|---|---|---|
+| T0 | format, analyze, focused tests, status, diff collection | local terminal, CI, Verifier, or ordinary low-cost agent |
+| T1 | one bounded local implementation with frozen behavior | preferred low-cost Executor, then deterministic validation |
+| T2 | cross-file compatibility work or a bounded migration | short Planner/Diagnostician when needed, bounded Executor, independent Reviewer |
+| T3 | public contracts, persistence/database, security, concurrency, or high-risk semantics | high-capability planning and review; delegate only frozen implementation slices |
+
+Use the lowest tier that safely covers the actual uncertainty and impact. A
+role label does not downgrade a T2/T3 task, and a routine role does not by
+itself justify a high-capability model.
+
 Deterministic work must be handed to a Verifier, ordinary agent, local
 terminal, or CI. Deterministic work includes:
 
@@ -450,6 +470,12 @@ The Coordinator must not give two Executors ownership of the same production
 file, delegate shared-contract decisions, skip required verification/review,
 or edit a shared working tree while a child writer is active there.
 
+The Coordinator must never modify production or test files. It may modify only
+explicitly assigned orchestration documentation and may perform explicitly
+authorized Git integration of already frozen, validated work. A production or
+test repair requires a fresh Executor with exact file ownership, or a new user
+decision when the repair exceeds the frozen scope.
+
 ### 15.2 Child role activation
 
 Every child task must activate exactly one repository role. Use Planner for a
@@ -504,6 +530,13 @@ investigation transcript. Keep detailed evidence in the assigned worktree,
 scoped commit, or bounded test output. The Coordinator must not frequently
 poll children or repeat work already delegated to them.
 
+For each pending child set, use one bounded wait operation covering the
+declared execution window. Do not emit heartbeat or elapsed-time messages, use
+model turns as a timer, or repeatedly issue short waits. A new bounded wait is
+allowed only after the pending set changes because a child completed, failed,
+or requested attention. A wait timeout is incomplete evidence; request one
+terminal handoff, stop the affected child, and do not resume that writer.
+
 ### 15.5 Worktrees and file ownership
 
 - A working directory may have only one active writer.
@@ -555,15 +588,23 @@ Multi-agent work must pass these gates in order:
   the new target, and rerun every required gate from the beginning; do not
   reuse partial PASS evidence.
 
-## 子代理模型路由（用户授权例外）
+## 子代理风险与模型路由（用户授权例外）
 
-当父代理或 Coordinator 创建子代理时：
+当父代理或 Coordinator 创建子代理时，先按第 14 节判定 T0-T3 风险，
+再按子任务的实际职责选择模型；不得仅根据 Planner、Executor、Verifier、
+Reviewer 或 Diagnostician 的角色名称固定模型。
 
-- `deepseek/deepseek-v4-flash` 是默认且最高优先级的子代理模型；创建
-  子代理时必须优先显式指定该模型。
-- Planner、Executor、Verifier、Reviewer 和 Diagnostician 子代理均适用。
-- 用户在当前任务中明确声明其他子代理模型时，该声明覆盖默认模型。
-- 若 DeepSeek 不可用、创建失败或不支持所需工具，允许选择其他可用
-  模型；不得静默回退，必须报告原因及实际 provider/model。
-- 创建子代理后，应在交接中报告实际使用的 provider/model；发生回退
-  时还必须报告 DeepSeek 不可用的证据类别。
+- T0 默认使用本地命令、CI、Verifier 或普通低成本代理；不要为机械验证
+  启动高能力代理。
+- T1 的默认且最高优先级子代理模型为
+  `deepseek/deepseek-v4-flash`。
+- T2 的边界清楚实现与机械验证优先使用 DeepSeek；涉及跨模块兼容判断、
+  未确定根因或语义审查时，Planner、Diagnostician 或 Reviewer 可使用宿主
+  提供的高能力模型。
+- T3 必须由高能力模型承担规划、公共契约判断和独立语义审查；DeepSeek
+  只执行已经冻结、边界明确的实现切片或确定性验证。
+- 用户在当前任务中明确声明的模型覆盖上述默认路由。
+- 若首选模型不可用、创建失败或不支持所需工具，允许选择其他可用模型；
+  不得静默回退，必须报告原因及实际 provider/model。
+- 创建子代理后，应在交接中报告风险等级和实际 provider/model；发生回退
+  时还必须报告首选模型不可用的证据类别。
