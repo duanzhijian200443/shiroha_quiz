@@ -26,6 +26,11 @@ Before orchestration, read:
   inspect their bounded handoffs, and perform explicitly authorized integration.
 - Modify only Coordinator-owned files explicitly allowed by the user or parent
   task package.
+- Never modify production or test files. Production and test repairs must be
+  delegated to a fresh Executor with exact ownership and a frozen target.
+- Integration authority permits only the explicitly authorized Git integration
+  of already frozen, validated work; it does not permit manual implementation
+  or repair during integration.
 - Do not edit a working directory while a child writer is active there.
 - Do not implement a delegated task again while its child is running.
 - Do not delegate architecture decisions, public contracts, public models,
@@ -61,11 +66,12 @@ Concurrency and execution route are independent. For example,
 Coordinator remains responsible for orchestration and review.
 Do not parallelize merely because multiple agents are available.
 
-The Coordinator must apply the repository child-model priority rule to every
-delegation. It may choose another model only when the user explicitly declares
-one for the current task or when the preferred DeepSeek model is unavailable,
-fails to start, or lacks a required tool. Every override or fallback must be
-reported with its reason and actual provider/model.
+The Coordinator must classify each delegated subtask as T0, T1, T2, or T3 and
+apply the risk-based model route in `AGENTS.md`. DeepSeek remains the preferred
+T1 model and the preferred executor for frozen T2/T3 implementation slices;
+high-capability planning, uncertain diagnosis, and semantic review must not be
+downgraded merely because they use a child role. Report the tier, actual
+provider/model, and every override or fallback reason.
 
 ## Standard workflow
 
@@ -77,8 +83,9 @@ reported with its reason and actual provider/model.
 5. Build a dependency graph and file-ownership matrix.
 6. Create or assign authorized worktrees and branches.
 7. Dispatch self-contained child packages with one active role each.
-8. Wait within the declared child execution window for `COMPLETE`, `BLOCKED`,
-   or `FAILED`; do not frequently poll or treat silence as a stall signal.
+8. Use one bounded wait operation for the current pending child set, covering
+   its declared execution window. Do not poll, emit heartbeats, use model turns
+   as a timer, or treat silence as a stall signal.
 9. Close the terminal writer permanently, inspect its bounded handoff and diff,
    and capture a frozen validation target.
 10. Run deterministic format, analyze, focused test, diff, and status gates
@@ -137,6 +144,11 @@ child reports a blocker, the frozen base or ownership changes, the user
 overrides the task, or a safety or scope violation requires an immediate stop.
 When the window expires, request one terminal handoff and stop the child; do
 not resume it. Any later repair belongs to a fresh Executor.
+
+One bounded wait may cover multiple pending children. If it returns because
+one child reaches a terminal state or requests attention, inspect that result
+and issue at most one new bounded wait for the changed pending set. Never use a
+series of short waits or commentary messages to approximate a timer.
 
 Keep delegated prompts self-contained and bounded. Do not copy or fork the
 complete parent conversation unless the child genuinely needs that history.
