@@ -47,7 +47,8 @@ jobs:
               'test/services/import_pipeline/adapters/ocr_question_region_bridge_test.dart',
               'test/services/import_pipeline/adapters/text_question_region_bridge_test.dart',
               'test/services/import_pipeline/question_draft_v2_legacy_projection_test.dart',
-              'test/services/import_pipeline/typed_question_assembler_test.dart'
+              'test/services/import_pipeline/typed_question_assembler_test.dart',
+              'test/r3d_question_assembly_shadow_acceptance_test.dart'
             )
 
       - name: Check committed PR diff
