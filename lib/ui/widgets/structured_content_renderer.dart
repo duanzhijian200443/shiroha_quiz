@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
+import '../../domain/content/content_node.dart';
+import '../../domain/content/rich_content.dart';
 import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
 import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
@@ -181,6 +183,226 @@ class StructuredContentRenderer extends StatelessWidget {
         }
       }
     }
+  }
+}
+
+class RichContentRenderer extends StatelessWidget {
+  const RichContentRenderer({
+    super.key,
+    required this.content,
+    this.textColor,
+    this.fontSize = 16.0,
+    this.fontWeight = FontWeight.normal,
+  });
+
+  final RichContent content;
+  final Color? textColor;
+  final double fontSize;
+  final FontWeight fontWeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color =
+        textColor ?? theme.textTheme.bodyLarge?.color ?? Colors.black87;
+    final style = TextStyle(
+      fontSize: fontSize,
+      color: color,
+      fontWeight: fontWeight,
+      height: 1.65,
+    );
+    final nodes = content.nodes;
+    if (nodes.isEmpty) return const SizedBox.shrink();
+
+    final widgets = <Widget>[];
+    final inlineTokens = <ContentToken>[];
+
+    void flushInline() {
+      if (inlineTokens.isEmpty) return;
+      widgets.add(_InlineTokenParagraph(
+        tokens: List<ContentToken>.from(inlineTokens),
+        style: style,
+        color: color,
+        fontSize: fontSize,
+      ));
+      inlineTokens.clear();
+    }
+
+    for (final node in nodes) {
+      switch (node) {
+        case TextNode(:final text):
+          _appendTypedText(text, inlineTokens, flushInline, widgets);
+        case InlineMathNode(:final latex):
+          inlineTokens.add(InlineMathToken(tex: latex, raw: latex));
+        case BlockMathNode(:final latex):
+          flushInline();
+          widgets.add(_BlockMathView(
+            tex: latex,
+            style: style,
+            color: color,
+            fontSize: fontSize,
+          ));
+        case RawFallbackNode(:final rawJson):
+          flushInline();
+          widgets.add(_RawFallbackPlaceholder(rawJson: rawJson, style: style));
+      }
+    }
+    flushInline();
+
+    if (widgets.length == 1) return widgets.single;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < widgets.length; i++) ...[
+          widgets[i],
+          if (i != widgets.length - 1) SizedBox(height: fontSize * 0.35),
+        ],
+      ],
+    );
+  }
+
+  void _appendTypedText(
+    String text,
+    List<ContentToken> inlineTokens,
+    VoidCallback flushInline,
+    List<Widget> widgets,
+  ) {
+    final tokens = _TypedTextTokenizer.tokenize(text);
+    for (final token in tokens) {
+      if (token is TextToken && token.text.contains('\n')) {
+        final parts = token.text.split('\n');
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].isNotEmpty) {
+            inlineTokens.add(TextToken(parts[i]));
+          }
+          if (i != parts.length - 1) {
+            flushInline();
+            if (parts[i].isEmpty) {
+              widgets.add(SizedBox(height: fontSize * 0.35));
+            }
+          }
+        }
+      } else {
+        inlineTokens.add(token);
+      }
+    }
+  }
+}
+
+class RichContentFieldRenderer extends StatelessWidget {
+  const RichContentFieldRenderer({
+    super.key,
+    required this.legacyText,
+    this.content,
+    this.textColor,
+    this.fontSize = 16.0,
+    this.fontWeight = FontWeight.normal,
+    this.imageBuilder,
+  });
+
+  final RichContent? content;
+  final String legacyText;
+  final Color? textColor;
+  final double fontSize;
+  final FontWeight fontWeight;
+  final StructuredImageBuilder? imageBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final typed = content;
+    if (typed != null) {
+      return RichContentRenderer(
+        content: typed,
+        textColor: textColor,
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+      );
+    }
+    return StructuredContentRenderer(
+      text: legacyText,
+      textColor: textColor,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      imageBuilder: imageBuilder,
+    );
+  }
+}
+
+final _safeFallbackTypePattern = RegExp(r'^[A-Za-z0-9._-]{1,64}$');
+
+class _RawFallbackPlaceholder extends StatelessWidget {
+  final Map<String, Object?> rawJson;
+  final TextStyle style;
+
+  const _RawFallbackPlaceholder({required this.rawJson, required this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    if (kDebugMode) {
+      debugPrint('RichContent render fallback: unsupported_node');
+    }
+    final type = rawJson['type'];
+    final safeType = type is String ? type : null;
+    final label =
+        safeType != null && _safeFallbackTypePattern.hasMatch(safeType)
+            ? 'Unsupported content: $safeType'
+            : 'Unsupported content';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.10),
+        border: Border.all(color: Colors.amber.shade300),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: style.copyWith(
+          color: Colors.brown.shade800,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+    );
+  }
+}
+
+class _TypedTextTokenizer {
+  const _TypedTextTokenizer._();
+
+  /// Tokenizes typed text without re-parsing math delimiters, Markdown
+  /// images, URLs, parse errors, or raw fallbacks. Only underscore runs of
+  /// length >= 3 become blanks; everything else stays plain text.
+  static List<ContentToken> tokenize(String input) {
+    if (input.isEmpty) return const <ContentToken>[];
+    final tokens = <ContentToken>[];
+    final textBuffer = StringBuffer();
+
+    void flushText() {
+      if (textBuffer.isEmpty) return;
+      tokens.add(TextToken(textBuffer.toString()));
+      textBuffer.clear();
+    }
+
+    var i = 0;
+    while (i < input.length) {
+      if (input[i] == '_') {
+        var end = i;
+        while (end < input.length && input[end] == '_') {
+          end++;
+        }
+        if (end - i >= 3) {
+          flushText();
+          tokens.add(BlankToken(end - i));
+          i = end;
+          continue;
+        }
+      }
+      textBuffer.write(input[i]);
+      i++;
+    }
+    flushText();
+    return tokens;
   }
 }
 
