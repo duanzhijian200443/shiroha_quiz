@@ -847,12 +847,12 @@ void main() {
       expect(source, contains('ZeroFreeBSTR'));
       expect(
         source,
-        contains("EnvironmentVariables['SHIROHA_OCR_API_KEY'] = $apiKey"),
+        contains("EnvironmentVariables['SHIROHA_OCR_API_KEY'] = \$apiKey"),
       );
       expect(
         source,
         contains(
-          "$null = $startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')",
+          "\$null = \$startInfo.EnvironmentVariables.Remove('SHIROHA_OCR_API_KEY')",
         ),
       );
       expect(source, isNot(contains('.Environment[')));
@@ -869,7 +869,7 @@ void main() {
       expect(source, isNot(contains('shiroha_core_v1.db')));
       expect(source, isNot(contains('sqlite')));
       expect(source, contains('taskkill.exe'));
-      expect(source, isNot(contains('Kill($true)')));
+      expect(source, isNot(contains('Kill(\$true)')));
       expect(source, isNot(contains('ToHexString')));
       expect(source, isNot(contains('.ArgumentList')));
       expect(source, isNot(contains('SetEnvironmentVariable')));
@@ -1209,7 +1209,7 @@ void main() {
       // The old two-token form caused the path to be misidentified as a PDF.
       expect(
         psScript,
-        isNot(contains("'--repository-root', $repoRoot")),
+        isNot(contains("'--repository-root', \$repoRoot")),
         reason:
             'two-token form would leak repo root as a positional PDF argument',
       );
