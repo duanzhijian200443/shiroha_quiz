@@ -75,7 +75,8 @@ jobs:
               'test/ocr_smoke_contract_test.dart',
               'test/ocr_smoke_path_helpers_test.dart',
               'test/ocr_import_service_test.dart',
-              'test/import_staging_unsupported_structure_banner_test.dart'
+              'test/import_staging_unsupported_structure_banner_test.dart',
+              'test/r5_rich_content_renderer_test.dart'
             )
 
       - name: Check committed diff
