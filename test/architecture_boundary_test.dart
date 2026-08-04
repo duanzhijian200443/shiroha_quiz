@@ -100,6 +100,11 @@ final _rules = <LayerBoundaryRule>[
 final _domainDirectivePattern =
     RegExp(r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''');
 
+final _applicationImportDirectivePattern = RegExp(
+  r'^\s*import\b[\s\S]*?;',
+  multiLine: true,
+);
+
 final _dartSingleLineStringPattern = RegExp(
   r'''(?:r)?'(?:\\.|[^'\\])*'|(?:r)?"(?:\\.|[^"\\])*"''',
 );
@@ -116,6 +121,14 @@ const _forbiddenDomainPackagePrefixes = <String>[
   'package:sqflite/',
   'package:sqflite_common_ffi/',
 ];
+
+const _allowedApplicationSdkUris = <String>{
+  'dart:async',
+  'dart:collection',
+  'dart:convert',
+  'dart:math',
+  'dart:typed_data',
+};
 
 final _forbiddenProjectLayerPattern =
     RegExp(r'(?:^|/)(?:core|data|services|ui)(?:/|$)');
@@ -253,6 +266,182 @@ void main() {
       );
     });
 
+    test('application stays pure and depends only on domain or application',
+        () {
+      final violations = <LayerBoundaryViolation>[];
+
+      for (final file in _dartFilesUnder('lib/application')) {
+        final normalizedPath = _normalizePath(file.path);
+        final source = file.readAsStringSync();
+
+        for (final directive
+            in _applicationImportDirectivePattern.allMatches(source)) {
+          final directiveSource = directive.group(0)!;
+          final line =
+              '\n'.allMatches(source.substring(0, directive.start)).length + 1;
+          for (final uri in _applicationImportUris(directiveSource)) {
+            if (_isAllowedApplicationDependency(normalizedPath, uri)) continue;
+
+            violations.add(
+              LayerBoundaryViolation(
+                ruleName: 'application-dependency-boundary',
+                path: normalizedPath,
+                line: line,
+                source: directiveSource.trim(),
+                reason: 'Application code may depend only on the pure SDK '
+                    'allowlist, domain, or the application layer.',
+              ),
+            );
+          }
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'Application boundary violations found:\n${violations.join('\n\n')}',
+      );
+    });
+
+    group('application dependency allowlist', () {
+      const importingFile = 'lib/application/import_review/review_session.dart';
+
+      test('rejects non-allowlisted SDK, third-party, and project targets', () {
+        const rejectedUris = <String>[
+          'dart:ffi',
+          'dart:io',
+          'dart:ui',
+          'package:shared_preferences/shared_preferences.dart',
+          'package:file_picker/file_picker.dart',
+          'package:flutter/material.dart',
+          'package:http/http.dart',
+          'package:provider/provider.dart',
+          'package:sqflite/sqflite.dart',
+          'package:sqflite_common_ffi/sqflite_ffi.dart',
+          'package:shiroha_quiz/services/import_service.dart',
+          '../../services/import_service.dart',
+          '../../core/database/database_helper.dart',
+          '../../data/repositories/import_task_repository.dart',
+          '../../ui/screens/import_screen.dart',
+        ];
+
+        for (final uri in rejectedUris) {
+          expect(
+            _isAllowedApplicationDependency(importingFile, uri),
+            isFalse,
+            reason: 'Expected application dependency rejected: $uri',
+          );
+        }
+      });
+
+      test('allows pure SDK, domain, and application targets', () {
+        const allowedUris = <String>[
+          'dart:async',
+          'dart:collection',
+          'dart:convert',
+          'dart:math',
+          'dart:typed_data',
+          '../../domain/content/content_node.dart',
+          '../../domain/question/question_draft_v2.dart',
+          '../review_metrics.dart',
+          'package:shiroha_quiz/domain/source/source_document.dart',
+          'package:shiroha_quiz/application/import_review/review_session.dart',
+        ];
+
+        for (final uri in allowedUris) {
+          expect(
+            _isAllowedApplicationDependency(importingFile, uri),
+            isTrue,
+            reason: 'Expected application dependency allowed: $uri',
+          );
+        }
+      });
+
+      test('A rejects a forbidden URI in a multiline conditional import', () {
+        const source = """
+import '../../domain/content/content_node.dart'
+    if (dart.library.io) '../../services/import_service.dart';
+""";
+
+        final uris = _applicationImportUris(source);
+        expect(uris, hasLength(2));
+        expect(
+          uris.where(
+            (uri) => !_isAllowedApplicationDependency(importingFile, uri),
+          ),
+          ['../../services/import_service.dart'],
+        );
+      });
+
+      test('B inspects every URI in multiple conditional branches', () {
+        const source = """
+import '../../domain/content/content_node.dart'
+    if (dart.library.io) '../../services/import_service.dart'
+    if (dart.library.html) '../../ui/screens/import_screen.dart';
+""";
+
+        expect(
+          _applicationImportUris(source),
+          [
+            '../../domain/content/content_node.dart',
+            '../../services/import_service.dart',
+            '../../ui/screens/import_screen.dart',
+          ],
+        );
+      });
+
+      test('C allows an unprefixed sibling relative import', () {
+        expect(
+          _isAllowedApplicationDependency(importingFile, 'review_helper.dart'),
+          isTrue,
+        );
+      });
+
+      test('D rejects normalized paths that resolve to forbidden layers', () {
+        const rejectedUris = <String>[
+          'package:shiroha_quiz/application/../services/import_service.dart',
+          '../import_review/../../services/import_service.dart',
+        ];
+
+        for (final uri in rejectedUris) {
+          expect(
+            _isAllowedApplicationDependency(importingFile, uri),
+            isFalse,
+            reason: 'Expected normalized forbidden dependency rejected: $uri',
+          );
+        }
+      });
+
+      test('E rejects paths that underflow their logical root', () {
+        const rejectedUris = <String>[
+          '../../../../../../outside.dart',
+          'package:shiroha_quiz/../outside.dart',
+        ];
+
+        for (final uri in rejectedUris) {
+          expect(
+            _isAllowedApplicationDependency(importingFile, uri),
+            isFalse,
+            reason: 'Expected root-underflow dependency rejected: $uri',
+          );
+        }
+      });
+
+      test('F preserves simple import extraction and allowlist behavior', () {
+        const source = "import 'dart:async';";
+
+        expect(_applicationImportUris(source), ['dart:async']);
+        expect(
+          _isAllowedApplicationDependency(
+            importingFile,
+            _applicationImportUris(source).single,
+          ),
+          isTrue,
+        );
+      });
+    });
+
     test('R1B value objects expose no content or locator payload API', () {
       final violations = <LayerBoundaryViolation>[];
 
@@ -366,6 +555,80 @@ bool _isForbiddenDomainUri(String uri) {
 
   final normalizedUri = _normalizePath(uri);
   return _forbiddenProjectLayerPattern.hasMatch(normalizedUri);
+}
+
+bool _isAllowedApplicationDependency(String importingPath, String uri) {
+  final resolved = _resolveApplicationDependency(importingPath, uri);
+  if (resolved == null) return false;
+
+  if (_allowedApplicationSdkUris.contains(resolved)) return true;
+  return resolved.startsWith('lib/application/') ||
+      resolved.startsWith('lib/domain/');
+}
+
+List<String> _applicationImportUris(String directiveSource) {
+  return _dartSingleLineStringPattern
+      .allMatches(directiveSource)
+      .map((match) => _dartStringValue(match.group(0)!))
+      .toList(growable: false);
+}
+
+String _dartStringValue(String literal) {
+  final quoteIndex = literal.startsWith('r') ? 1 : 0;
+  return literal.substring(quoteIndex + 1, literal.length - 1);
+}
+
+/// Resolves an import/export URI to a canonical project path or SDK URI.
+///
+/// Returns null for any URI that cannot resolve inside this project, such as
+/// third-party packages or absolute paths.
+String? _resolveApplicationDependency(String importingPath, String uri) {
+  if (uri.startsWith('dart:')) {
+    return uri;
+  }
+  if (uri.startsWith('package:shiroha_quiz/')) {
+    return _normalizeSegments(
+      const ['lib'],
+      uri.substring('package:shiroha_quiz/'.length),
+      minimumDepth: 1,
+    );
+  }
+  if (uri.startsWith('package:')) {
+    return null;
+  }
+  if (uri.startsWith('/') || uri.contains(':')) {
+    return null;
+  }
+
+  final importingDirectory = _parentDirectory(importingPath);
+  return _normalizeSegments(importingDirectory.split('/'), uri);
+}
+
+String _parentDirectory(String path) {
+  final normalized = _normalizePath(path);
+  final slash = normalized.lastIndexOf('/');
+  return slash < 0 ? '' : normalized.substring(0, slash);
+}
+
+String? _normalizeSegments(
+  Iterable<String> baseSegments,
+  String path, {
+  int minimumDepth = 0,
+}) {
+  final resolved = baseSegments
+      .where((segment) => segment.isNotEmpty && segment != '.')
+      .toList();
+  for (final segment in _normalizePath(path).split('/')) {
+    if (segment == '..') {
+      if (resolved.length <= minimumDepth) return null;
+      resolved.removeLast();
+    } else if (segment == '.' || segment.isEmpty) {
+      continue;
+    } else {
+      resolved.add(segment);
+    }
+  }
+  return resolved.join('/');
 }
 
 Iterable<File> _dartFilesUnder(String rootPath) {
