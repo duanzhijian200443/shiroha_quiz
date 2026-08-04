@@ -213,6 +213,146 @@ void main() {
     });
   });
 
+  group('edit no-op and lifecycle', () {
+    test('unchanged and repeated identical edits return the same aggregate',
+        () {
+      final open = _openWithIssues();
+      final unchanged = open.edit(
+        itemId: 'item-1',
+        edit: ReviewEdit.unchanged(),
+        expectedRevision: 0,
+      );
+      expect(unchanged, same(open));
+      expect(unchanged.status, ReviewStatus.open);
+
+      var session = open.edit(
+        itemId: 'item-1',
+        edit: ReviewEdit(stem: ReviewFieldEdit.replace(_content('edited'))),
+        expectedRevision: 0,
+      );
+      session = session.decide(
+        itemId: 'item-1',
+        decision: ReviewDecision.accepted,
+        expectedRevision: 1,
+      );
+      session = session.acknowledge(
+        itemId: 'item-1',
+        acknowledgement: ReviewIssueAcknowledgement(issueIndex: 0),
+        expectedRevision: 2,
+      );
+      session = session.applyAnswerAssist(
+        itemId: 'item-1',
+        assist: AnswerAssist(status: AnswerAssistStatus.localExtracted),
+        expectedRevision: 3,
+      );
+
+      final repeated = session.edit(
+        itemId: 'item-1',
+        edit: ReviewEdit(stem: ReviewFieldEdit.replace(_content('edited'))),
+        expectedRevision: 4,
+      );
+      expect(repeated, same(session));
+      expect(repeated.revision, 4);
+      expect(repeated.status, ReviewStatus.inProgress);
+      expect(repeated.items[0].revision, 4);
+      expect(repeated.items[0].decision, ReviewDecision.accepted);
+      expect(repeated.items[0].working, same(session.items[0].working));
+      expect(repeated.items[0].answerAssist, session.items[0].answerAssist);
+      expect(
+        repeated.items[0].issueAcknowledgements,
+        session.items[0].issueAcknowledgements,
+      );
+    });
+
+    test('explicit original replacements and clear edits remain mutations', () {
+      final open = _open();
+      final replacedWithOriginal = open.edit(
+        itemId: 'item-1',
+        edit: ReviewEdit(
+          stem: ReviewFieldEdit.replace(_content('synthetic stem')),
+        ),
+        expectedRevision: 0,
+      );
+      expect(replacedWithOriginal, isNot(same(open)));
+      expect(replacedWithOriginal.items[0].edit.isUnchanged, isFalse);
+      expect(replacedWithOriginal.items[0].working, open.items[0].working);
+      expect(replacedWithOriginal.status, ReviewStatus.inProgress);
+
+      final cleared = open.edit(
+        itemId: 'item-1',
+        edit: ReviewEdit(
+          explanation: const ReviewFieldEdit<RichContent?>.clear(),
+        ),
+        expectedRevision: 0,
+      );
+      expect(cleared, isNot(same(open)));
+      expect(cleared.items[0].edit.explanation.isClear, isTrue);
+      expect(cleared.status, ReviewStatus.inProgress);
+    });
+
+    test('valid item mutations enter and retain in-progress state', () {
+      final edited = _open().edit(
+        itemId: 'item-1',
+        edit: ReviewEdit(stem: ReviewFieldEdit.replace(_content('edited'))),
+        expectedRevision: 0,
+      );
+      expect(edited.status, ReviewStatus.inProgress);
+      expect(
+        edited
+            .restore(
+              itemId: 'item-1',
+              field: ReviewRestoreField.stem,
+              expectedRevision: 1,
+            )
+            .status,
+        ReviewStatus.inProgress,
+      );
+      expect(
+        _open().reset(itemId: 'item-1', expectedRevision: 0).status,
+        ReviewStatus.inProgress,
+      );
+      expect(
+        _open()
+            .decide(
+              itemId: 'item-1',
+              decision: ReviewDecision.accepted,
+              expectedRevision: 0,
+            )
+            .status,
+        ReviewStatus.inProgress,
+      );
+      expect(
+        _openWithIssues()
+            .acknowledge(
+              itemId: 'item-1',
+              acknowledgement: ReviewIssueAcknowledgement(issueIndex: 0),
+              expectedRevision: 0,
+            )
+            .status,
+        ReviewStatus.inProgress,
+      );
+      expect(
+        _open()
+            .applyAnswerAssist(
+              itemId: 'item-1',
+              assist: AnswerAssist(status: AnswerAssistStatus.localExtracted),
+              expectedRevision: 0,
+            )
+            .status,
+        ReviewStatus.inProgress,
+      );
+
+      expect(
+        _open().abandon(expectedRevision: 0).status,
+        ReviewStatus.abandoned,
+      );
+      expect(
+        edited.abandon(expectedRevision: 1).status,
+        ReviewStatus.abandoned,
+      );
+    });
+  });
+
   group('typed edit and restore semantics', () {
     test('edits compose field-wise and restores revert exactly one field', () {
       var session = _open();
@@ -983,6 +1123,10 @@ void main() {
             issueAcknowledgements: [
               ReviewIssueAcknowledgement(issueIndex: 0),
             ],
+            requiredIssueAcknowledgements: [
+              ReviewIssueAcknowledgement(issueIndex: 0),
+              ReviewIssueAcknowledgement(issueIndex: 1),
+            ],
           ),
           base.items[1],
         ],
@@ -1020,7 +1164,7 @@ void main() {
       );
 
       expect(session.revision, revision);
-      expect(session.status, ReviewStatus.open);
+      expect(session.status, ReviewStatus.inProgress);
     });
 
     test('policy blockers prevent completion', () {
@@ -1061,8 +1205,78 @@ void main() {
         ),
         throwsFormatException,
       );
-      expect(session.status, ReviewStatus.open);
+      expect(session.status, ReviewStatus.inProgress);
       expect(session.revision, 2);
+    });
+
+    test('completion enforces only the required acknowledgement subset', () {
+      var noRequirements = _openWithIssues();
+      noRequirements = noRequirements.decide(
+        itemId: 'item-1',
+        decision: ReviewDecision.accepted,
+        expectedRevision: 0,
+      );
+      noRequirements = noRequirements.decide(
+        itemId: 'item-2',
+        decision: ReviewDecision.rejected,
+        expectedRevision: 1,
+      );
+      final completedWithoutAcknowledgements = noRequirements.complete(
+        expectedRevision: 2,
+        assessment: _completionAssessment(noRequirements),
+      );
+      expect(
+        completedWithoutAcknowledgements.session.status,
+        ReviewStatus.completed,
+      );
+
+      var requiredSubset = _openWithIssues();
+      requiredSubset = requiredSubset.decide(
+        itemId: 'item-1',
+        decision: ReviewDecision.accepted,
+        expectedRevision: 0,
+      );
+      requiredSubset = requiredSubset.decide(
+        itemId: 'item-2',
+        decision: ReviewDecision.rejected,
+        expectedRevision: 1,
+      );
+      final missingRequired = _completionAssessment(
+        requiredSubset,
+        requiredIssueIndexesByItem: const {
+          'item-1': [1],
+        },
+      );
+      expect(
+        () => requiredSubset.complete(
+          expectedRevision: 2,
+          assessment: missingRequired,
+        ),
+        throwsFormatException,
+      );
+      expect(requiredSubset.revision, 2);
+      expect(requiredSubset.status, ReviewStatus.inProgress);
+
+      requiredSubset = requiredSubset.acknowledge(
+        itemId: 'item-1',
+        acknowledgement: ReviewIssueAcknowledgement(issueIndex: 1),
+        expectedRevision: 2,
+      );
+      final completedSubset = requiredSubset.complete(
+        expectedRevision: 3,
+        assessment: _completionAssessment(
+          requiredSubset,
+          requiredIssueIndexesByItem: const {
+            'item-1': [1],
+          },
+        ),
+      );
+      expect(completedSubset.session.status, ReviewStatus.completed);
+      expect(
+        requiredSubset.items[0].issueAcknowledgements
+            .map((acknowledgement) => acknowledgement.issueIndex),
+        [1],
+      );
     });
 
     test('deferred and unreviewed items prevent completion', () {
@@ -1078,7 +1292,7 @@ void main() {
         expectedRevision: 1,
       );
       final deferredAssessment = _completionAssessment(session);
-      expect(deferredAssessment.canComplete, isTrue);
+      expect(deferredAssessment.canComplete, isFalse);
       expect(
         () => session.complete(
           expectedRevision: 2,
@@ -1086,7 +1300,7 @@ void main() {
         ),
         throwsFormatException,
       );
-      expect(session.status, ReviewStatus.open);
+      expect(session.status, ReviewStatus.inProgress);
 
       final fresh = _open();
       expect(
@@ -1116,6 +1330,7 @@ void main() {
       final completed = _complete(session);
       expect(completed.session.status, ReviewStatus.completed);
       expect(completed.session.revision, 3);
+      expect(completed.result.sessionId, session.sessionId);
       expect(completed.result.completedRevision, 3);
     });
 
@@ -1245,11 +1460,16 @@ void main() {
 
     test('results are defensive, ordered, and comparable', () {
       expect(
-        () => ReviewResult(completedRevision: 0, items: const []),
+        () => ReviewResult(
+          sessionId: 'session-1',
+          completedRevision: 0,
+          items: const [],
+        ),
         throwsFormatException,
       );
       expect(
         () => ReviewResult(
+          sessionId: 'session-1',
           completedRevision: 1,
           items: [
             ReviewItemResult(
@@ -1267,6 +1487,7 @@ void main() {
       );
 
       final left = ReviewResult(
+        sessionId: 'session-1',
         completedRevision: 1,
         items: [
           ReviewItemResult(
@@ -1277,6 +1498,7 @@ void main() {
         ],
       );
       final right = ReviewResult(
+        sessionId: 'session-1',
         completedRevision: 1,
         items: [
           ReviewItemResult(
@@ -1289,6 +1511,21 @@ void main() {
       expect(left, right);
       expect(left.hashCode, right.hashCode);
       expect(() => left.items.clear(), throwsUnsupportedError);
+      expect(
+        () => ReviewResult(
+          sessionId: 'bad session',
+          completedRevision: 1,
+          items: left.items,
+        ),
+        throwsFormatException,
+      );
+      final otherSession = ReviewResult(
+        sessionId: 'session-2',
+        completedRevision: 1,
+        items: left.items,
+      );
+      expect(left, isNot(otherSession));
+      expect(left.hashCode, isNot(otherSession.hashCode));
     });
   });
 
@@ -1476,7 +1713,10 @@ ReviewSession _withProof(ReviewSession session, {int? expectedRevision}) {
   );
 }
 
-ReviewCompletionAssessment _completionAssessment(ReviewSession session) {
+ReviewCompletionAssessment _completionAssessment(
+  ReviewSession session, {
+  Map<String, List<int>> requiredIssueIndexesByItem = const {},
+}) {
   return ReviewCompletionAssessment(
     sessionId: session.sessionId,
     assessedRevision: session.revision,
@@ -1487,6 +1727,11 @@ ReviewCompletionAssessment _completionAssessment(ReviewSession session) {
           decision: item.decision,
           issueCount: item.original.issues.length,
           issueAcknowledgements: item.issueAcknowledgements,
+          requiredIssueAcknowledgements: [
+            for (final issueIndex
+                in requiredIssueIndexesByItem[item.itemId] ?? const <int>[])
+              ReviewIssueAcknowledgement(issueIndex: issueIndex),
+          ],
         ),
     ],
   );

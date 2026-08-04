@@ -377,6 +377,7 @@ final class ReviewSession {
     final itemIndex = _requireItemIndex(itemId);
     final item = items[itemIndex];
     final composedEdit = _composeEdits(item.edit, edit);
+    if (composedEdit == item.edit) return this;
     final working = composedEdit.deriveWorkingDraft(item.original);
     return _withItem(
       itemIndex,
@@ -622,21 +623,26 @@ final class ReviewSession {
           'Completion assessments must mirror the acknowledged issues.',
         );
       }
-      if (!assessed.canComplete) {
+      final hasEligibleDecision =
+          assessed.decision == ReviewDecision.accepted ||
+              assessed.decision == ReviewDecision.rejected;
+      final hasAllRequiredAcknowledgements =
+          assessed.requiredIssueAcknowledgements.every(
+        assessed.issueAcknowledgements.contains,
+      );
+      if (!hasEligibleDecision ||
+          assessed.policyBlockers.isNotEmpty ||
+          !hasAllRequiredAcknowledgements) {
         throw const FormatException(
           'Blocking issues or unmet issue acknowledgements prevent '
           'completion.',
-        );
-      }
-      if (assessed.decision == ReviewDecision.deferred) {
-        throw const FormatException(
-          'Deferred items prevent completion.',
         );
       }
     }
 
     final completedRevision = assessment.assessedRevision + 1;
     final result = ReviewResult(
+      sessionId: sessionId,
       completedRevision: completedRevision,
       items: [
         for (final item in items)
@@ -700,7 +706,7 @@ final class ReviewSession {
     return ReviewSession._(
       sessionId: sessionId,
       origin: origin,
-      status: status,
+      status: status == ReviewStatus.open ? ReviewStatus.inProgress : status,
       revision: revision + 1,
       items: List<ReviewItem>.unmodifiable([
         for (var index = 0; index < items.length; index++)
@@ -867,6 +873,8 @@ final class ReviewItemCompletionAssessment {
     required int issueCount,
     Iterable<ReviewIssueAcknowledgement> issueAcknowledgements =
         const <ReviewIssueAcknowledgement>[],
+    Iterable<ReviewIssueAcknowledgement> requiredIssueAcknowledgements =
+        const <ReviewIssueAcknowledgement>[],
     Iterable<ReviewPolicyBlocker> policyBlockers =
         const <ReviewPolicyBlocker>[],
   }) {
@@ -874,7 +882,10 @@ final class ReviewItemCompletionAssessment {
       throw const FormatException('Issue counts must be non-negative.');
     }
     final copiedAcknowledgements =
-        List<ReviewIssueAcknowledgement>.unmodifiable(issueAcknowledgements);
+        List<ReviewIssueAcknowledgement>.unmodifiable(
+      List<ReviewIssueAcknowledgement>.of(issueAcknowledgements)
+        ..sort((left, right) => left.issueIndex.compareTo(right.issueIndex)),
+    );
     final acknowledgedIndexes = <int>{};
     for (final acknowledgement in copiedAcknowledgements) {
       if (acknowledgement.issueIndex >= issueCount) {
@@ -885,6 +896,25 @@ final class ReviewItemCompletionAssessment {
       if (!acknowledgedIndexes.add(acknowledgement.issueIndex)) {
         throw const FormatException(
           'Issue acknowledgements must be unique within an assessment.',
+        );
+      }
+    }
+    final copiedRequiredAcknowledgements =
+        List<ReviewIssueAcknowledgement>.unmodifiable(
+      List<ReviewIssueAcknowledgement>.of(requiredIssueAcknowledgements)
+        ..sort((left, right) => left.issueIndex.compareTo(right.issueIndex)),
+    );
+    final requiredIndexes = <int>{};
+    for (final acknowledgement in copiedRequiredAcknowledgements) {
+      if (acknowledgement.issueIndex >= issueCount) {
+        throw const FormatException(
+          'Required issue acknowledgements must reference an assessed issue.',
+        );
+      }
+      if (!requiredIndexes.add(acknowledgement.issueIndex)) {
+        throw const FormatException(
+          'Required issue acknowledgements must be unique within an '
+          'assessment.',
         );
       }
     }
@@ -905,6 +935,7 @@ final class ReviewItemCompletionAssessment {
       decision: decision,
       issueCount: issueCount,
       issueAcknowledgements: copiedAcknowledgements,
+      requiredIssueAcknowledgements: copiedRequiredAcknowledgements,
       policyBlockers: copiedBlockers,
     );
   }
@@ -914,6 +945,7 @@ final class ReviewItemCompletionAssessment {
     required this.decision,
     required this.issueCount,
     required this.issueAcknowledgements,
+    required this.requiredIssueAcknowledgements,
     required this.policyBlockers,
   });
 
@@ -921,12 +953,14 @@ final class ReviewItemCompletionAssessment {
   final ReviewDecision decision;
   final int issueCount;
   final List<ReviewIssueAcknowledgement> issueAcknowledgements;
+  final List<ReviewIssueAcknowledgement> requiredIssueAcknowledgements;
   final List<ReviewPolicyBlocker> policyBlockers;
 
   bool get canComplete =>
-      decision != ReviewDecision.unreviewed &&
-      issueAcknowledgements.length == issueCount &&
-      policyBlockers.isEmpty;
+      (decision == ReviewDecision.accepted ||
+          decision == ReviewDecision.rejected) &&
+      policyBlockers.isEmpty &&
+      requiredIssueAcknowledgements.every(issueAcknowledgements.contains);
 
   @override
   bool operator ==(Object other) {
@@ -939,6 +973,10 @@ final class ReviewItemCompletionAssessment {
               issueAcknowledgements,
               other.issueAcknowledgements,
             ) &&
+            _orderedEquals(
+              requiredIssueAcknowledgements,
+              other.requiredIssueAcknowledgements,
+            ) &&
             _orderedEquals(policyBlockers, other.policyBlockers);
   }
 
@@ -948,6 +986,7 @@ final class ReviewItemCompletionAssessment {
         decision,
         issueCount,
         Object.hashAll(issueAcknowledgements),
+        Object.hashAll(requiredIssueAcknowledgements),
         Object.hashAll(policyBlockers),
       );
 }
@@ -1074,6 +1113,7 @@ final class ReviewItemResult {
 /// source revision in this result.
 final class ReviewResult {
   factory ReviewResult({
+    required String sessionId,
     required int completedRevision,
     required Iterable<ReviewItemResult> items,
   }) {
@@ -1097,16 +1137,19 @@ final class ReviewResult {
       }
     }
     return ReviewResult._(
+      sessionId: _validateOpaqueIdentifier(sessionId, 'sessionId'),
       completedRevision: completedRevision,
       items: copiedItems,
     );
   }
 
   const ReviewResult._({
+    required this.sessionId,
     required this.completedRevision,
     required this.items,
   });
 
+  final String sessionId;
   final int completedRevision;
   final List<ReviewItemResult> items;
 
@@ -1114,12 +1157,14 @@ final class ReviewResult {
   bool operator ==(Object other) {
     return identical(this, other) ||
         other is ReviewResult &&
+            sessionId == other.sessionId &&
             completedRevision == other.completedRevision &&
             _orderedEquals(items, other.items);
   }
 
   @override
-  int get hashCode => Object.hash(completedRevision, Object.hashAll(items));
+  int get hashCode =>
+      Object.hash(sessionId, completedRevision, Object.hashAll(items));
 }
 
 ReviewFieldEdit<List<QuestionOption>> _freezeOptionsEdit(

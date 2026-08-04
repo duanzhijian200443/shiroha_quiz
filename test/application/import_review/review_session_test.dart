@@ -391,13 +391,18 @@ void main() {
       final acknowledgements = <ReviewIssueAcknowledgement>[
         ReviewIssueAcknowledgement(issueIndex: 0),
       ];
+      final requiredAcknowledgements = <ReviewIssueAcknowledgement>[
+        ReviewIssueAcknowledgement(issueIndex: 0),
+      ];
       final item = ReviewItemCompletionAssessment(
         itemId: 'item-1',
         decision: ReviewDecision.accepted,
         issueCount: 1,
         issueAcknowledgements: acknowledgements,
+        requiredIssueAcknowledgements: requiredAcknowledgements,
       );
       acknowledgements.clear();
+      requiredAcknowledgements.clear();
       final assessment = ReviewCompletionAssessment(
         sessionId: 'session-1',
         assessedRevision: 3,
@@ -414,19 +419,116 @@ void main() {
             issueAcknowledgements: [
               ReviewIssueAcknowledgement(issueIndex: 0),
             ],
+            requiredIssueAcknowledgements: [
+              ReviewIssueAcknowledgement(issueIndex: 0),
+            ],
           ),
         ],
       );
 
       expect(item.issueAcknowledgements, hasLength(1));
+      expect(item.requiredIssueAcknowledgements, hasLength(1));
       expect(item.canComplete, isTrue);
       expect(assessment.canComplete, isTrue);
       expect(assessment, equalAssessment);
       expect(assessment.hashCode, equalAssessment.hashCode);
+      final withoutRequired = ReviewItemCompletionAssessment(
+        itemId: 'item-1',
+        decision: ReviewDecision.accepted,
+        issueCount: 1,
+        issueAcknowledgements: [
+          ReviewIssueAcknowledgement(issueIndex: 0),
+        ],
+      );
+      expect(item, isNot(withoutRequired));
+      expect(item.hashCode, isNot(withoutRequired.hashCode));
       expect(() => assessment.items.clear(), throwsUnsupportedError);
       expect(
         () => item.issueAcknowledgements.clear(),
         throwsUnsupportedError,
+      );
+      expect(
+        () => item.requiredIssueAcknowledgements.clear(),
+        throwsUnsupportedError,
+      );
+    });
+
+    test('uses eligible decisions and only the policy-required issue subset',
+        () {
+      for (final decision in [
+        ReviewDecision.accepted,
+        ReviewDecision.rejected,
+      ]) {
+        expect(
+          ReviewItemCompletionAssessment(
+            itemId: 'item-eligible',
+            decision: decision,
+            issueCount: 2,
+          ).canComplete,
+          isTrue,
+          reason: '$decision',
+        );
+      }
+      for (final decision in [
+        ReviewDecision.unreviewed,
+        ReviewDecision.deferred,
+      ]) {
+        expect(
+          ReviewItemCompletionAssessment(
+            itemId: 'item-ineligible',
+            decision: decision,
+            issueCount: 0,
+          ).canComplete,
+          isFalse,
+          reason: '$decision',
+        );
+      }
+
+      final required = ReviewIssueAcknowledgement(issueIndex: 1);
+      final missingRequired = ReviewItemCompletionAssessment(
+        itemId: 'item-required',
+        decision: ReviewDecision.accepted,
+        issueCount: 2,
+        requiredIssueAcknowledgements: [required],
+      );
+      final acknowledgedRequired = ReviewItemCompletionAssessment(
+        itemId: 'item-required',
+        decision: ReviewDecision.accepted,
+        issueCount: 2,
+        issueAcknowledgements: [required],
+        requiredIssueAcknowledgements: [required],
+      );
+
+      expect(missingRequired.canComplete, isFalse);
+      expect(acknowledgedRequired.canComplete, isTrue);
+      expect(
+        acknowledgedRequired.issueAcknowledgements
+            .map((acknowledgement) => acknowledgement.issueIndex),
+        [1],
+      );
+
+      final normalized = ReviewItemCompletionAssessment(
+        itemId: 'item-normalized',
+        decision: ReviewDecision.rejected,
+        issueCount: 2,
+        issueAcknowledgements: [
+          ReviewIssueAcknowledgement(issueIndex: 1),
+          ReviewIssueAcknowledgement(issueIndex: 0),
+        ],
+        requiredIssueAcknowledgements: [
+          ReviewIssueAcknowledgement(issueIndex: 1),
+          ReviewIssueAcknowledgement(issueIndex: 0),
+        ],
+      );
+      expect(
+        normalized.issueAcknowledgements
+            .map((acknowledgement) => acknowledgement.issueIndex),
+        [0, 1],
+      );
+      expect(
+        normalized.requiredIssueAcknowledgements
+            .map((acknowledgement) => acknowledgement.issueIndex),
+        [0, 1],
       );
     });
 
@@ -471,6 +573,41 @@ void main() {
           decision: ReviewDecision.accepted,
           issueCount: 0,
           issueAcknowledgements: [
+            ReviewIssueAcknowledgement(issueIndex: 0),
+          ],
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => ReviewItemCompletionAssessment(
+          itemId: 'item-1',
+          decision: ReviewDecision.accepted,
+          issueCount: 1,
+          issueAcknowledgements: [
+            ReviewIssueAcknowledgement(issueIndex: 0),
+            ReviewIssueAcknowledgement(issueIndex: 0),
+          ],
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => ReviewItemCompletionAssessment(
+          itemId: 'item-1',
+          decision: ReviewDecision.accepted,
+          issueCount: 1,
+          requiredIssueAcknowledgements: [
+            ReviewIssueAcknowledgement(issueIndex: 1),
+          ],
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => ReviewItemCompletionAssessment(
+          itemId: 'item-1',
+          decision: ReviewDecision.accepted,
+          issueCount: 1,
+          requiredIssueAcknowledgements: [
+            ReviewIssueAcknowledgement(issueIndex: 0),
             ReviewIssueAcknowledgement(issueIndex: 0),
           ],
         ),

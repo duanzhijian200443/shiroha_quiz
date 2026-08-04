@@ -290,7 +290,7 @@ void main() {
         ),
         throwsFormatException,
       );
-      expect(session.status, ReviewStatus.open);
+      expect(session.status, ReviewStatus.inProgress);
       expect(session.revision, 3);
 
       // The deferred item can be re-decided, then the session completes.
@@ -466,7 +466,7 @@ void main() {
 
   group('acknowledgement gate and completion', () {
     test(
-        'required acknowledgements gate completion and accepted items carry '
+        'required acknowledgement subsets gate completion and accepted items carry '
         'the final working draft', () {
       var session = _sessionWithIssues();
       session = session.decide(
@@ -480,54 +480,51 @@ void main() {
         expectedRevision: 1,
       );
 
-      // No acknowledgements yet: completion is blocked.
+      // Only issue 1 is policy-required, so no acknowledgements blocks.
       expect(
         () => session.complete(
           expectedRevision: 2,
-          assessment: _completionAssessment(session),
+          assessment: _completionAssessment(
+            session,
+            requiredIssueIndexesByItem: const {
+              'item_r4d_001': [1],
+            },
+          ),
         ),
         throwsFormatException,
       );
-      expect(session.status, ReviewStatus.open);
-
-      // One of two acknowledgements is still insufficient.
-      session = session.acknowledge(
-        itemId: 'item_r4d_001',
-        acknowledgement: ReviewIssueAcknowledgement(issueIndex: 0),
-        expectedRevision: 2,
-      );
-      expect(
-        () => session.complete(
-          expectedRevision: 3,
-          assessment: _completionAssessment(session),
-        ),
-        throwsFormatException,
-      );
+      expect(session.status, ReviewStatus.inProgress);
 
       // Out-of-range acknowledgements are rejected with zero updates.
       expect(
         () => session.acknowledge(
           itemId: 'item_r4d_001',
           acknowledgement: ReviewIssueAcknowledgement(issueIndex: 2),
-          expectedRevision: 3,
+          expectedRevision: 2,
         ),
         throwsFormatException,
       );
-      expect(session.revision, 3);
+      expect(session.revision, 2);
 
       session = session.acknowledge(
         itemId: 'item_r4d_001',
         acknowledgement: ReviewIssueAcknowledgement(issueIndex: 1),
-        expectedRevision: 3,
+        expectedRevision: 2,
       );
       final preRevision = session.revision;
       final completed = session.complete(
         expectedRevision: preRevision,
-        assessment: _completionAssessment(session),
+        assessment: _completionAssessment(
+          session,
+          requiredIssueIndexesByItem: const {
+            'item_r4d_001': [1],
+          },
+        ),
       );
 
       expect(completed.session.status, ReviewStatus.completed);
       expect(completed.session.revision, preRevision + 1);
+      expect(completed.result.sessionId, session.sessionId);
       expect(completed.result.completedRevision, preRevision + 1);
       expect(completed.result.items.map((item) => item.itemId), [
         'item_r4d_001',
@@ -864,7 +861,10 @@ QuestionDraftV2 _draftWithIssues(String questionId) {
   );
 }
 
-ReviewCompletionAssessment _completionAssessment(ReviewSession session) {
+ReviewCompletionAssessment _completionAssessment(
+  ReviewSession session, {
+  Map<String, List<int>> requiredIssueIndexesByItem = const {},
+}) {
   return ReviewCompletionAssessment(
     sessionId: session.sessionId,
     assessedRevision: session.revision,
@@ -875,6 +875,11 @@ ReviewCompletionAssessment _completionAssessment(ReviewSession session) {
           decision: item.decision,
           issueCount: item.original.issues.length,
           issueAcknowledgements: item.issueAcknowledgements,
+          requiredIssueAcknowledgements: [
+            for (final issueIndex
+                in requiredIssueIndexesByItem[item.itemId] ?? const <int>[])
+              ReviewIssueAcknowledgement(issueIndex: issueIndex),
+          ],
         ),
     ],
   );
