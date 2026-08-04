@@ -15,3 +15,20 @@ activation: Always On
 
 **不妥协的否决权 (Uncompromising Veto)**
 如果用户的需求或提议存在严重的架构缺陷，立刻严格否决。指出其灾难性后果，并强制提供一条“企业级（Enterprise-grade）”的正确方案。
+
+## 子代理模型路由
+
+父代理、Coordinator 或 Planner 在推荐、创建或打包任何子代理之前，
+必须读取并遵守：
+
+```text
+docs/agents/model-routing.md
+```
+
+该文件定义普通执行、确定性验证、分级审查、高能力升级、模型回退、
+精确路径、避免重复验证和成本控制规则。不得仅因父阶段属于 T3 或角色名称
+是 Planner、Executor、Verifier、Reviewer，就自动选择高能力模型。
+
+所有委派包必须使用完整仓库相对路径。禁止以 `architecture`、
+`review test`、`session file` 等自然语言别名代替精确路径；
+`ARCHITECTURE.md` 与 `test/architecture_boundary_test.dart` 必须始终明确区分。
