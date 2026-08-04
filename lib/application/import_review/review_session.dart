@@ -211,6 +211,36 @@ final class ReviewSessionOrigin {
   int get hashCode => Object.hash(taskId, attemptToken, attemptNumber);
 }
 
+/// Typed optimistic-concurrency (CAS) failure for review session
+/// transitions: the caller-supplied [expectedRevision] does not match the
+/// session's current [actualRevision], so the transition was rejected with
+/// zero partial updates.
+final class ReviewSessionStaleRevisionError implements Exception {
+  const ReviewSessionStaleRevisionError({
+    required this.sessionId,
+    required this.expectedRevision,
+    required this.actualRevision,
+  });
+
+  final String sessionId;
+  final int expectedRevision;
+  final int actualRevision;
+
+  @override
+  String toString() => 'ReviewSessionStaleRevisionError(sessionId: $sessionId, '
+      'expectedRevision: $expectedRevision, actualRevision: $actualRevision)';
+}
+
+/// Selects the single typed field restored by [ReviewSession.restore].
+enum ReviewRestoreField {
+  kind,
+  questionNumber,
+  stem,
+  options,
+  answer,
+  explanation,
+}
+
 final class ReviewItem {
   factory ReviewItem.initial({
     required String itemId,
@@ -224,6 +254,8 @@ final class ReviewItem {
       edit: initialEdit,
       decision: ReviewDecision.unreviewed,
       answerAssist: null,
+      revision: 0,
+      issueAcknowledgements: const <ReviewIssueAcknowledgement>[],
     );
   }
 
@@ -234,6 +266,8 @@ final class ReviewItem {
     required this.edit,
     required this.decision,
     required this.answerAssist,
+    required this.revision,
+    required this.issueAcknowledgements,
   });
 
   final String itemId;
@@ -242,6 +276,8 @@ final class ReviewItem {
   final ReviewEdit edit;
   final ReviewDecision decision;
   final AnswerAssist? answerAssist;
+  final int revision;
+  final List<ReviewIssueAcknowledgement> issueAcknowledgements;
 
   @override
   bool operator ==(Object other) {
@@ -252,7 +288,12 @@ final class ReviewItem {
             working == other.working &&
             edit == other.edit &&
             decision == other.decision &&
-            answerAssist == other.answerAssist;
+            answerAssist == other.answerAssist &&
+            revision == other.revision &&
+            _orderedEquals(
+              issueAcknowledgements,
+              other.issueAcknowledgements,
+            );
   }
 
   @override
@@ -263,6 +304,8 @@ final class ReviewItem {
         edit,
         decision,
         answerAssist,
+        revision,
+        Object.hashAll(issueAcknowledgements),
       );
 }
 
@@ -320,6 +363,351 @@ final class ReviewSession {
   final ReviewStatus status;
   final int revision;
   final List<ReviewItem> items;
+
+  /// Applies a typed field [edit] to [itemId]'s working draft. Field edits
+  /// compose with the item's accumulated edit (later non-unchanged fields
+  /// win), and any existing review decision is cleared back to unreviewed.
+  ReviewSession edit({
+    required String itemId,
+    required ReviewEdit edit,
+    required int expectedRevision,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    final itemIndex = _requireItemIndex(itemId);
+    final item = items[itemIndex];
+    final composedEdit = _composeEdits(item.edit, edit);
+    final working = composedEdit.deriveWorkingDraft(item.original);
+    return _withItem(
+      itemIndex,
+      ReviewItem._(
+        itemId: item.itemId,
+        original: item.original,
+        working: working,
+        edit: composedEdit,
+        decision: ReviewDecision.unreviewed,
+        answerAssist: _assistForWorkingExplanation(
+          item.answerAssist,
+          working.explanation,
+        ),
+        revision: item.revision + 1,
+        issueAcknowledgements: item.issueAcknowledgements,
+      ),
+    );
+  }
+
+  /// Restores a single typed [field] of [itemId] to its original value,
+  /// removing that field from the accumulated edit, and clears any review
+  /// decision back to unreviewed.
+  ReviewSession restore({
+    required String itemId,
+    required ReviewRestoreField field,
+    required int expectedRevision,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    final itemIndex = _requireItemIndex(itemId);
+    final item = items[itemIndex];
+    if (_editFieldIsUnchanged(item.edit, field)) {
+      throw const FormatException(
+        'Restoring an already-unchanged review field is not allowed.',
+      );
+    }
+    final restoredEdit = _editWithoutField(item.edit, field);
+    final working = restoredEdit.deriveWorkingDraft(item.original);
+    return _withItem(
+      itemIndex,
+      ReviewItem._(
+        itemId: item.itemId,
+        original: item.original,
+        working: working,
+        edit: restoredEdit,
+        decision: ReviewDecision.unreviewed,
+        answerAssist: _assistForWorkingExplanation(
+          item.answerAssist,
+          working.explanation,
+        ),
+        revision: item.revision + 1,
+        issueAcknowledgements: item.issueAcknowledgements,
+      ),
+    );
+  }
+
+  /// Resets [itemId] to its original draft: all edits, the review decision,
+  /// and all issue acknowledgements are cleared, and answer-assist state
+  /// inconsistent with the reset working content is removed.
+  ReviewSession reset({
+    required String itemId,
+    required int expectedRevision,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    final itemIndex = _requireItemIndex(itemId);
+    final item = items[itemIndex];
+    final initialEdit = ReviewEdit.unchanged();
+    final working = initialEdit.deriveWorkingDraft(item.original);
+    return _withItem(
+      itemIndex,
+      ReviewItem._(
+        itemId: item.itemId,
+        original: item.original,
+        working: working,
+        edit: initialEdit,
+        decision: ReviewDecision.unreviewed,
+        answerAssist: _assistForWorkingExplanation(
+          item.answerAssist,
+          working.explanation,
+        ),
+        revision: item.revision + 1,
+        issueAcknowledgements: const <ReviewIssueAcknowledgement>[],
+      ),
+    );
+  }
+
+  /// Records a review [decision] for [itemId] without touching content.
+  ReviewSession decide({
+    required String itemId,
+    required ReviewDecision decision,
+    required int expectedRevision,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    if (decision == ReviewDecision.unreviewed) {
+      throw const FormatException(
+        'Review decisions must be accepted, rejected, or deferred.',
+      );
+    }
+    final itemIndex = _requireItemIndex(itemId);
+    final item = items[itemIndex];
+    return _withItem(
+      itemIndex,
+      ReviewItem._(
+        itemId: item.itemId,
+        original: item.original,
+        working: item.working,
+        edit: item.edit,
+        decision: decision,
+        answerAssist: item.answerAssist,
+        revision: item.revision + 1,
+        issueAcknowledgements: item.issueAcknowledgements,
+      ),
+    );
+  }
+
+  /// Acknowledges one frozen stable issue identity of [itemId]. The issue is
+  /// referenced by its index in the item's immutable original issue list;
+  /// original [ImportIssue]s are never deleted, modified, or recomputed.
+  ReviewSession acknowledge({
+    required String itemId,
+    required ReviewIssueAcknowledgement acknowledgement,
+    required int expectedRevision,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    final itemIndex = _requireItemIndex(itemId);
+    final item = items[itemIndex];
+    if (acknowledgement.issueIndex >= item.original.issues.length) {
+      throw const FormatException(
+        'Issue acknowledgements must reference an issue of the reviewed item.',
+      );
+    }
+    final acknowledgements = item.issueAcknowledgements;
+    final updatedAcknowledgements = acknowledgements.contains(acknowledgement)
+        ? acknowledgements
+        : List<ReviewIssueAcknowledgement>.unmodifiable(
+            <ReviewIssueAcknowledgement>[
+              ...acknowledgements,
+              acknowledgement,
+            ]..sort(
+                (left, right) => left.issueIndex.compareTo(right.issueIndex),
+              ),
+          );
+    return _withItem(
+      itemIndex,
+      ReviewItem._(
+        itemId: item.itemId,
+        original: item.original,
+        working: item.working,
+        edit: item.edit,
+        decision: item.decision,
+        answerAssist: item.answerAssist,
+        revision: item.revision + 1,
+        issueAcknowledgements: updatedAcknowledgements,
+      ),
+    );
+  }
+
+  /// Records [assist] answer-assist state for [itemId] after validating it
+  /// against the item's current working content.
+  ReviewSession applyAnswerAssist({
+    required String itemId,
+    required AnswerAssist assist,
+    required int expectedRevision,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    final itemIndex = _requireItemIndex(itemId);
+    final item = items[itemIndex];
+    if (assist.status == AnswerAssistStatus.proofExplanationRecognized &&
+        !_hasStructuralExplanation(item.working.explanation)) {
+      throw const FormatException(
+        'Proof recognition requires a structurally non-empty working '
+        'explanation.',
+      );
+    }
+    return _withItem(
+      itemIndex,
+      ReviewItem._(
+        itemId: item.itemId,
+        original: item.original,
+        working: item.working,
+        edit: item.edit,
+        decision: item.decision,
+        answerAssist: assist,
+        revision: item.revision + 1,
+        issueAcknowledgements: item.issueAcknowledgements,
+      ),
+    );
+  }
+
+  /// Completes the session when [assessment] judges every item as ready. The
+  /// assessment must target this session and assess the exact pre-transition
+  /// revision; it only judges and never modifies session state. Returns the
+  /// completed session together with its [ReviewResult].
+  ({ReviewSession session, ReviewResult result}) complete({
+    required int expectedRevision,
+    required ReviewCompletionAssessment assessment,
+  }) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    if (assessment.sessionId != sessionId) {
+      throw const FormatException(
+        'Completion assessments must target this review session.',
+      );
+    }
+    if (assessment.assessedRevision != revision) {
+      throw const FormatException(
+        'Completion assessments must assess the current pre-transition '
+        'revision.',
+      );
+    }
+    if (assessment.items.length != items.length) {
+      throw const FormatException(
+        'Completion assessments must cover every session item exactly.',
+      );
+    }
+    for (var index = 0; index < items.length; index++) {
+      final item = items[index];
+      final assessed = assessment.items[index];
+      if (assessed.itemId != item.itemId) {
+        throw const FormatException(
+          'Completion assessments must mirror session items in order.',
+        );
+      }
+      if (assessed.decision != item.decision) {
+        throw const FormatException(
+          'Completion assessments must match the reviewed decisions.',
+        );
+      }
+      if (assessed.issueCount != item.original.issues.length) {
+        throw const FormatException(
+          "Completion assessments must assess the item's actual issue count.",
+        );
+      }
+      if (!_orderedEquals(
+        assessed.issueAcknowledgements,
+        item.issueAcknowledgements,
+      )) {
+        throw const FormatException(
+          'Completion assessments must mirror the acknowledged issues.',
+        );
+      }
+      if (!assessed.canComplete) {
+        throw const FormatException(
+          'Blocking issues or unmet issue acknowledgements prevent '
+          'completion.',
+        );
+      }
+      if (assessed.decision == ReviewDecision.deferred) {
+        throw const FormatException(
+          'Deferred items prevent completion.',
+        );
+      }
+    }
+
+    final completedRevision = assessment.assessedRevision + 1;
+    final result = ReviewResult(
+      completedRevision: completedRevision,
+      items: [
+        for (final item in items)
+          ReviewItemResult(
+            itemId: item.itemId,
+            decision: item.decision,
+            finalDraft:
+                item.decision == ReviewDecision.accepted ? item.working : null,
+          ),
+      ],
+    );
+    final completedSession = ReviewSession._(
+      sessionId: sessionId,
+      origin: origin,
+      status: ReviewStatus.completed,
+      revision: completedRevision,
+      items: items,
+    );
+    return (session: completedSession, result: result);
+  }
+
+  /// Terminates the session as abandoned through a CAS transition.
+  ReviewSession abandon({required int expectedRevision}) {
+    _requireMutable();
+    _requireRevision(expectedRevision);
+    return ReviewSession._(
+      sessionId: sessionId,
+      origin: origin,
+      status: ReviewStatus.abandoned,
+      revision: revision + 1,
+      items: items,
+    );
+  }
+
+  void _requireMutable() {
+    if (status == ReviewStatus.completed || status == ReviewStatus.abandoned) {
+      throw const FormatException(
+        'Review sessions in a terminal state cannot be modified.',
+      );
+    }
+  }
+
+  void _requireRevision(int expectedRevision) {
+    if (expectedRevision != revision) {
+      throw ReviewSessionStaleRevisionError(
+        sessionId: sessionId,
+        expectedRevision: expectedRevision,
+        actualRevision: revision,
+      );
+    }
+  }
+
+  int _requireItemIndex(String itemId) {
+    for (var index = 0; index < items.length; index++) {
+      if (items[index].itemId == itemId) return index;
+    }
+    throw FormatException('Unknown review item identity: $itemId');
+  }
+
+  ReviewSession _withItem(int itemIndex, ReviewItem updatedItem) {
+    return ReviewSession._(
+      sessionId: sessionId,
+      origin: origin,
+      status: status,
+      revision: revision + 1,
+      items: List<ReviewItem>.unmodifiable([
+        for (var index = 0; index < items.length; index++)
+          if (index == itemIndex) updatedItem else items[index],
+      ]),
+    );
+  }
 
   @override
   bool operator ==(Object other) {
@@ -627,6 +1015,113 @@ final class ReviewCompletionAssessment {
       );
 }
 
+/// One completed item result: an accepted item carries its final working
+/// draft, a rejected item carries none. The original draft never changes.
+final class ReviewItemResult {
+  factory ReviewItemResult({
+    required String itemId,
+    required ReviewDecision decision,
+    QuestionDraftV2? finalDraft,
+  }) {
+    if (decision != ReviewDecision.accepted &&
+        decision != ReviewDecision.rejected) {
+      throw const FormatException(
+        'Completed item results only carry accepted or rejected decisions.',
+      );
+    }
+    if (decision == ReviewDecision.accepted && finalDraft == null) {
+      throw const FormatException(
+        'Accepted item results require the final working draft.',
+      );
+    }
+    if (decision == ReviewDecision.rejected && finalDraft != null) {
+      throw const FormatException(
+        'Rejected item results do not carry a final draft.',
+      );
+    }
+    return ReviewItemResult._(
+      itemId: _validateOpaqueIdentifier(itemId, 'itemId'),
+      decision: decision,
+      finalDraft: finalDraft,
+    );
+  }
+
+  const ReviewItemResult._({
+    required this.itemId,
+    required this.decision,
+    required this.finalDraft,
+  });
+
+  final String itemId;
+  final ReviewDecision decision;
+  final QuestionDraftV2? finalDraft;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is ReviewItemResult &&
+            itemId == other.itemId &&
+            decision == other.decision &&
+            finalDraft == other.finalDraft;
+  }
+
+  @override
+  int get hashCode => Object.hash(itemId, decision, finalDraft);
+}
+
+/// Pure completion result of a review session. [completedRevision] equals the
+/// session revision after the completion transition; there is no separate
+/// source revision in this result.
+final class ReviewResult {
+  factory ReviewResult({
+    required int completedRevision,
+    required Iterable<ReviewItemResult> items,
+  }) {
+    if (completedRevision < 0) {
+      throw const FormatException(
+        'Completed review revisions must be non-negative.',
+      );
+    }
+    final copiedItems = List<ReviewItemResult>.unmodifiable(items);
+    if (copiedItems.isEmpty) {
+      throw const FormatException(
+        'Completed review results require at least one item.',
+      );
+    }
+    final itemIds = <String>{};
+    for (final item in copiedItems) {
+      if (!itemIds.add(item.itemId)) {
+        throw const FormatException(
+          'Completed review item identities must be unique.',
+        );
+      }
+    }
+    return ReviewResult._(
+      completedRevision: completedRevision,
+      items: copiedItems,
+    );
+  }
+
+  const ReviewResult._({
+    required this.completedRevision,
+    required this.items,
+  });
+
+  final int completedRevision;
+  final List<ReviewItemResult> items;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is ReviewResult &&
+            completedRevision == other.completedRevision &&
+            _orderedEquals(items, other.items);
+  }
+
+  @override
+  int get hashCode => Object.hash(completedRevision, Object.hashAll(items));
+}
+
 ReviewFieldEdit<List<QuestionOption>> _freezeOptionsEdit(
   ReviewFieldEdit<List<QuestionOption>> edit,
 ) {
@@ -634,6 +1129,96 @@ ReviewFieldEdit<List<QuestionOption>> _freezeOptionsEdit(
   return ReviewFieldEdit<List<QuestionOption>>.replace(
     List<QuestionOption>.unmodifiable(edit.replacement),
   );
+}
+
+ReviewEdit _composeEdits(ReviewEdit current, ReviewEdit delta) {
+  return ReviewEdit._(
+    kind: delta.kind.isUnchanged ? current.kind : delta.kind,
+    questionNumber: delta.questionNumber.isUnchanged
+        ? current.questionNumber
+        : delta.questionNumber,
+    stem: delta.stem.isUnchanged ? current.stem : delta.stem,
+    options: delta.options.isUnchanged ? current.options : delta.options,
+    answer: delta.answer.isUnchanged ? current.answer : delta.answer,
+    explanation:
+        delta.explanation.isUnchanged ? current.explanation : delta.explanation,
+  );
+}
+
+ReviewEdit _editWithoutField(ReviewEdit edit, ReviewRestoreField field) {
+  return switch (field) {
+    ReviewRestoreField.kind => ReviewEdit._(
+        kind: const ReviewFieldEdit<QuestionKind>.unchanged(),
+        questionNumber: edit.questionNumber,
+        stem: edit.stem,
+        options: edit.options,
+        answer: edit.answer,
+        explanation: edit.explanation,
+      ),
+    ReviewRestoreField.questionNumber => ReviewEdit._(
+        kind: edit.kind,
+        questionNumber: const ReviewFieldEdit<int?>.unchanged(),
+        stem: edit.stem,
+        options: edit.options,
+        answer: edit.answer,
+        explanation: edit.explanation,
+      ),
+    ReviewRestoreField.stem => ReviewEdit._(
+        kind: edit.kind,
+        questionNumber: edit.questionNumber,
+        stem: const ReviewFieldEdit<RichContent>.unchanged(),
+        options: edit.options,
+        answer: edit.answer,
+        explanation: edit.explanation,
+      ),
+    ReviewRestoreField.options => ReviewEdit._(
+        kind: edit.kind,
+        questionNumber: edit.questionNumber,
+        stem: edit.stem,
+        options: const ReviewFieldEdit<List<QuestionOption>>.unchanged(),
+        answer: edit.answer,
+        explanation: edit.explanation,
+      ),
+    ReviewRestoreField.answer => ReviewEdit._(
+        kind: edit.kind,
+        questionNumber: edit.questionNumber,
+        stem: edit.stem,
+        options: edit.options,
+        answer: const ReviewFieldEdit<QuestionAnswer?>.unchanged(),
+        explanation: edit.explanation,
+      ),
+    ReviewRestoreField.explanation => ReviewEdit._(
+        kind: edit.kind,
+        questionNumber: edit.questionNumber,
+        stem: edit.stem,
+        options: edit.options,
+        answer: edit.answer,
+        explanation: const ReviewFieldEdit<RichContent?>.unchanged(),
+      ),
+  };
+}
+
+bool _editFieldIsUnchanged(ReviewEdit edit, ReviewRestoreField field) {
+  return switch (field) {
+    ReviewRestoreField.kind => edit.kind.isUnchanged,
+    ReviewRestoreField.questionNumber => edit.questionNumber.isUnchanged,
+    ReviewRestoreField.stem => edit.stem.isUnchanged,
+    ReviewRestoreField.options => edit.options.isUnchanged,
+    ReviewRestoreField.answer => edit.answer.isUnchanged,
+    ReviewRestoreField.explanation => edit.explanation.isUnchanged,
+  };
+}
+
+AnswerAssist? _assistForWorkingExplanation(
+  AnswerAssist? assist,
+  RichContent? explanation,
+) {
+  if (assist == null) return null;
+  if (assist.status == AnswerAssistStatus.proofExplanationRecognized &&
+      !_hasStructuralExplanation(explanation)) {
+    return null;
+  }
+  return assist;
 }
 
 T _requiredValue<T>(ReviewFieldEdit<T> edit, T original) {
