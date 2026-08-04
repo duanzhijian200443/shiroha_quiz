@@ -267,11 +267,11 @@ void main() {
       pdf.writeAsBytesSync(const [0x25, 0x50, 0x44, 0x46]);
 
       final shortPath = resolveOcrSmokePdfPath(
-        r'fixture\中文试卷.pdf',
+        p.join('fixture', '中文试卷.pdf'),
         repositoryRoot: repository.path,
       );
       final repositoryRelativePath = resolveOcrSmokePdfPath(
-        r'scratch\test_pdfs\fixture\中文试卷.pdf',
+        p.join('scratch', 'test_pdfs', 'fixture', '中文试卷.pdf'),
         repositoryRoot: repository.path,
       );
       final absolutePath = resolveOcrSmokePdfPath(
@@ -296,7 +296,7 @@ void main() {
 
       expect(
         () => resolveOcrSmokePdfPath(
-          r'math\single\missing.pdf',
+          p.join('math', 'single', 'missing.pdf'),
           repositoryRoot: repository.path,
         ),
         throwsA(
