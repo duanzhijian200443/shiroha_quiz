@@ -1401,7 +1401,7 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
     final db = await database;
     await _ensureExamTablesExist(db);
 
-    final paperId = 'paper_' + DateTime.now().millisecondsSinceEpoch.toString();
+    final paperId = 'paper_${DateTime.now().millisecondsSinceEpoch}';
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
     await db.transaction((txn) async {
@@ -1423,10 +1423,7 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
 
         // 如果是 AI 刚生成的题，没有 ID，需要先强制落盘到 questions 表
         if (qId.isEmpty) {
-          qId = 'ai_q_' +
-              DateTime.now().millisecondsSinceEpoch.toString() +
-              '_' +
-              i.toString();
+          qId = 'ai_q_${DateTime.now().millisecondsSinceEpoch}_$i';
           await txn.insert('questions', {
             'id': qId,
             'bank_name': '📦 模考专属题库', // 隐藏题库，不污染日常刷题

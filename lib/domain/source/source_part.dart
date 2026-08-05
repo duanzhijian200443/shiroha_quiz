@@ -29,10 +29,10 @@ final class SourceContentPart extends SourcePart {
   }
 
   const SourceContentPart._({
-    required SourceRef sourceRef,
+    required super.sourceRef,
     required this.content,
     required this.role,
-  }) : super(sourceRef: sourceRef);
+  });
 
   final RichContent content;
   final SourceContentRole role;
@@ -75,9 +75,9 @@ final class SourceTablePart extends SourcePart {
   }
 
   const SourceTablePart._({
-    required SourceRef sourceRef,
+    required super.sourceRef,
     required this.rows,
-  }) : super(sourceRef: sourceRef);
+  });
 
   final List<List<RichContent>> rows;
 
@@ -118,10 +118,10 @@ final class SourceAssetPart extends SourcePart {
   }
 
   const SourceAssetPart._({
-    required SourceRef sourceRef,
+    required super.sourceRef,
     required this.asset,
     required this.alternativeText,
-  }) : super(sourceRef: sourceRef);
+  });
 
   final AssetRef asset;
   final RichContent? alternativeText;
@@ -172,10 +172,10 @@ final class UnsupportedSourcePart extends SourcePart {
   }
 
   const UnsupportedSourcePart._({
-    required SourceRef sourceRef,
+    required super.sourceRef,
     required this.kindCode,
     required this.fallbackContent,
-  }) : super(sourceRef: sourceRef);
+  });
 
   final String kindCode;
   final RichContent fallbackContent;

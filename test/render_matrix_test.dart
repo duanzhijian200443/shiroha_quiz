@@ -145,8 +145,7 @@ void main() {
 
       // 4. Literal \n decodes before the escaped command unescapes.
       expect(
-        StorageContentNormalizer.normalizeLegacyProjection(
-            r'line1\n\\sqrt{2}'),
+        StorageContentNormalizer.normalizeLegacyProjection(r'line1\n\\sqrt{2}'),
         'line1\n\\sqrt{2}',
       );
     });

@@ -23,7 +23,6 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const _mapper = QuestionV2PersistenceMapper();
