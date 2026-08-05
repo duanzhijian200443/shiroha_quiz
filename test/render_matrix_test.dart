@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 import 'package:shiroha_quiz/utils/ai_data_sanitizer.dart';
 import 'package:shiroha_quiz/utils/content_normalizer.dart';
 import 'package:shiroha_quiz/utils/content_tokenizer.dart';
+import 'package:shiroha_quiz/utils/storage_content_normalizer.dart';
 
 void main() {
   test('normalizer converts paired dollar delimiters only', () {
@@ -63,6 +64,92 @@ void main() {
 
     expect(output, input);
     expect(AiDataSanitizer.findBareLatexCommands(output), contains('frac'));
+  });
+
+  group('StorageContentNormalizer legacy parity', () {
+    const parityInputs = <String>[
+      '',
+      r'ordinary text with 中文 and $5.',
+      r'Stem with \(x_i\) and \[\sum_{i=1}^{n}x_i\].',
+      r'A. \frac{1}{4} and x_i',
+      r'A=\(\\frac{1}{2}\) and B=\\sqrt{2}',
+      r'\\begin{pmatrix}1&2\\3&4\end{pmatrix}',
+      r'line1\nline2\twith\tcontrols',
+      'line1\nline2\twith\tliteral\tcontrols',
+      'CRLF\r\nmixed\rendings\r',
+      r'Unclosed \(x_i and dangling \[',
+      r'Malformed \(\left[\int\)',
+      r'<think>internal reasoning</think>visible text',
+      r'<THINK>uppercase</THINK>ok',
+      r'<think>never closed',
+      r'$x_i$ and $$sum$$ while price is $5.',
+      r'\(\(\frac{1}{2}\)\) and \[\[A\]\]',
+      r'\(a=___\) then ____.',
+      r'\\rightarrow \\geq \\neq \\alpha \\unknownCmd',
+      r'\\n not a control; \\tfrac stays',
+    ];
+
+    test('parity: matches cleanLatexBeforeDB for every representative input',
+        () {
+      for (final input in parityInputs) {
+        expect(
+          StorageContentNormalizer.normalizeLegacyProjection(input),
+          AiDataSanitizer.cleanLatexBeforeDB(input),
+          reason: 'input: $input',
+        );
+      }
+    });
+
+    test('characterization: pinned legacy outputs', () {
+      expect(StorageContentNormalizer.normalizeLegacyProjection(''), '');
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(
+            r'A=\(\\frac{1}{2}\)'),
+        r'A=\(\frac{1}{2}\)',
+      );
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(r'line1\nline2'),
+        r'line1\nline2',
+      );
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(r'line1\n line2'),
+        'line1\n line2',
+      );
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(
+            r'<think>hidden</think>shown'),
+        'shown',
+      );
+    });
+
+    test(
+        'characterization: independent pins for the four missing legacy branches',
+        () {
+      // 1. A raw \t before a space decodes to a real tab.
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(r'line1\t line2'),
+        'line1\t line2',
+      );
+
+      // 2. A raw \t adjacent to a letter stays literal (negative lookahead).
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(r'\tfrac'),
+        r'\tfrac',
+      );
+
+      // 3. JSON-escaped known command \\sqrt collapses to \sqrt.
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(r'B=\\sqrt{2}'),
+        r'B=\sqrt{2}',
+      );
+
+      // 4. Literal \n decodes before the escaped command unescapes.
+      expect(
+        StorageContentNormalizer.normalizeLegacyProjection(
+            r'line1\n\\sqrt{2}'),
+        'line1\n\\sqrt{2}',
+      );
+    });
   });
 
   test('tokenizer emits structured tokens without guessing bare LaTeX', () {
