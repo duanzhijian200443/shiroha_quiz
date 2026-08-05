@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/persistence/ai_engine_store.dart';
+import '../../data/persistence/question_v2_persistence_mapper.dart';
 import 'question_v2_schema_exception.dart';
 
 enum DatabaseRuntimeProfile {
@@ -1017,6 +1018,9 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
         AND options != '' 
         AND options != '[]' 
         AND type != 0
+        AND NOT EXISTS (
+          SELECT 1 FROM $_questionV2SidecarTable p WHERE p.question_id = questions.id
+        )
     ''');
 
     // 绝对自愈防御2：自动修复由于早期 AI 组卷漏插入复习状态而导致的“幽灵题目”（自动归为已掌握）
@@ -1296,12 +1300,25 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
 
   Future<void> updateQuestion(Map<String, dynamic> questionData) async {
     final db = await database;
-    await db.update(
-      'questions',
-      questionData,
-      where: 'id = ?',
-      whereArgs: [questionData['id']],
-    );
+    final questionId = questionData['id'];
+    await db.transaction((txn) async {
+      final sidecar = await txn.query(
+        _questionV2SidecarTable,
+        columns: ['question_id'],
+        where: 'question_id = ?',
+        whereArgs: [questionId],
+        limit: 1,
+      );
+      if (sidecar.isNotEmpty) {
+        throw const QuestionV2LegacyMutationBlockedException();
+      }
+      await txn.update(
+        'questions',
+        questionData,
+        where: 'id = ?',
+        whereArgs: [questionId],
+      );
+    });
   }
 
   // --- 全真模拟考场：极速随机抽题引擎 ---
