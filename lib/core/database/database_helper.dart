@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/persistence/ai_engine_store.dart';
+import 'question_v2_schema_exception.dart';
 
 enum DatabaseRuntimeProfile {
   production,
@@ -15,7 +16,29 @@ class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 14;
+  static const int _dbVersion = 15;
+
+  static const String _questionV2SidecarTable = 'question_v2_payloads';
+
+  /// Exact frozen v15 additive sidecar definition.
+  static const String _questionV2SidecarDdl = '''
+CREATE TABLE question_v2_payloads (
+  question_id TEXT PRIMARY KEY NOT NULL,
+  payload_schema_version INTEGER NOT NULL CHECK(payload_schema_version > 0),
+  payload_json TEXT NOT NULL CHECK(length(payload_json) > 0),
+  FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen sidecar definition.
+  static const String _questionV2SidecarDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS question_v2_payloads (
+  question_id TEXT PRIMARY KEY NOT NULL,
+  payload_schema_version INTEGER NOT NULL CHECK(payload_schema_version > 0),
+  payload_json TEXT NOT NULL CHECK(length(payload_json) > 0),
+  FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+);
+''';
 
   static DatabaseHelper? _instance;
   static Database? _database;
@@ -78,6 +101,28 @@ class DatabaseHelper implements AiEngineStore {
     _openedDatabasePath = null;
   }
 
+  /// Opens a database handle with the exact production v15 callbacks.
+  ///
+  /// Available only under `FLUTTER_TEST`. The returned handle is owned by
+  /// the caller and must be closed by the caller. This seam never mutates
+  /// the singleton database, opening, path, or runtime-profile state.
+  @visibleForTesting
+  Future<Database> openPathForTesting(String path) async {
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      throw StateError(
+        'DatabaseHelper.openPathForTesting requires the FLUTTER_TEST '
+        'environment variable.',
+      );
+    }
+    return openDatabase(
+      path,
+      version: _dbVersion,
+      onConfigure: _onConfigure,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+  }
+
   Future<Database> _initDatabase() async {
     final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
     final useInMemory = isTest ||
@@ -115,6 +160,8 @@ class DatabaseHelper implements AiEngineStore {
           bank_name TEXT DEFAULT '默认题库'
       );
     ''');
+
+    await db.execute(_questionV2SidecarDdl);
 
     await db.execute('''
       CREATE TABLE review_states (
@@ -218,9 +265,16 @@ class DatabaseHelper implements AiEngineStore {
         diagnostics TEXT
       );
     ''');
+
+    await _validateV15Schema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 10) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.unsupportedSourceVersion,
+      );
+    }
     if (oldVersion < 8) {
       try {
         await db.execute('ALTER TABLE review_logs ADD COLUMN user_answer TEXT');
@@ -321,6 +375,528 @@ class DatabaseHelper implements AiEngineStore {
         // Ignore
       }
     }
+    if (oldVersion < 15) {
+      await db.execute(_questionV2SidecarDdlIfNotExists);
+    }
+    await _validateV15Schema(db);
+  }
+
+  /// Validates the frozen v15 schema before the open/upgrade can succeed.
+  ///
+  /// The open callbacks already run inside the SQLite open transaction, so
+  /// this method must not start a nested transaction; a thrown failure rolls
+  /// back every DDL change and leaves `user_version` and existing rows
+  /// unchanged. The sidecar CHECKs and trigger visibility are exercised by
+  /// rollback-only SAVEPOINT probes, so benign sidecar triggers stay allowed
+  /// while blocking triggers fail the open through the legal probe path.
+  static Future<void> _validateV15Schema(Database db) async {
+    final foreignKeys = await db.rawQuery('PRAGMA foreign_keys');
+    if (foreignKeys.isEmpty || foreignKeys.first.values.first != 1) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.foreignKeysDisabled,
+      );
+    }
+
+    final tables = <String, String?>{};
+    for (final row in await db.rawQuery(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'table'",
+    )) {
+      tables[row['name'] as String] = row['sql'] as String?;
+    }
+
+    await _validateSidecarSchema(db, tables);
+    await _validateParentSchema(db, tables);
+    await _validateBankFoldersSchema(db, tables);
+    await _probeSidecarWrites(db);
+
+    final violations = await db.rawQuery('PRAGMA foreign_key_check');
+    if (violations.isNotEmpty) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.foreignKeyViolation,
+      );
+    }
+  }
+
+  static const List<String> _sidecarColumnOrder = <String>[
+    'question_id',
+    'payload_schema_version',
+    'payload_json',
+  ];
+
+  static const List<String> _sidecarColumnAffinities = <String>[
+    'TEXT',
+    'INTEGER',
+    'TEXT',
+  ];
+
+  static Future<void> _validateSidecarSchema(
+    Database db,
+    Map<String, String?> tables,
+  ) async {
+    final storedSql = tables[_questionV2SidecarTable];
+    if (storedSql == null ||
+        _canonicalizeSql(storedSql) !=
+            _canonicalizeSql(_questionV2SidecarDdl)) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedSidecarSchema,
+      );
+    }
+
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(question_v2_payloads)',
+    );
+    if (columns.length != _sidecarColumnOrder.length) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedSidecarSchema,
+      );
+    }
+    for (var index = 0; index < columns.length; index++) {
+      final column = columns[index];
+      if (column['name'] != _sidecarColumnOrder[index] ||
+          column['notnull'] != 1 ||
+          _columnAffinity(column['type'] as String? ?? '') !=
+              _sidecarColumnAffinities[index]) {
+        throw const QuestionV2SchemaException(
+          QuestionV2SchemaFailure.malformedSidecarSchema,
+        );
+      }
+    }
+    final primaryKeys = columns.where((column) => column['pk'] != 0).toList();
+    if (primaryKeys.length != 1 ||
+        primaryKeys.single['name'] != 'question_id') {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedSidecarSchema,
+      );
+    }
+
+    final foreignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list(question_v2_payloads)',
+    );
+    if (foreignKeys.length != 1) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedSidecarSchema,
+      );
+    }
+    final foreignKey = foreignKeys.single;
+    if (foreignKey['table'] != 'questions' ||
+        foreignKey['from'] != 'question_id' ||
+        foreignKey['to'] != 'id' ||
+        foreignKey['on_update'] != 'NO ACTION' ||
+        foreignKey['on_delete'] != 'CASCADE') {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedSidecarSchema,
+      );
+    }
+  }
+
+  /// Required V1 question columns (name, affinity, required NOT NULL).
+  static const Map<String, (String, bool)> _requiredQuestionColumns =
+      <String, (String, bool)>{
+    'id': ('TEXT', false),
+    'type': ('INTEGER', true),
+    'content': ('TEXT', true),
+    'options': ('TEXT', false),
+    'standard_answer': ('TEXT', true),
+    'explanation': ('TEXT', false),
+    'raw_explanation': ('TEXT', false),
+    'created_at': ('INTEGER', true),
+    'bank_name': ('TEXT', false),
+  };
+
+  static Future<void> _validateParentSchema(
+    Database db,
+    Map<String, String?> tables,
+  ) async {
+    if (!tables.containsKey('questions')) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+    final columns = await db.rawQuery('PRAGMA table_info(questions)');
+    final columnByName = <String, Map<String, Object?>>{
+      for (final column in columns) column['name'] as String: column,
+    };
+    for (final entry in _requiredQuestionColumns.entries) {
+      final column = columnByName[entry.key];
+      if (column == null ||
+          _columnAffinity(column['type'] as String? ?? '') != entry.value.$1 ||
+          (entry.value.$2 && column['notnull'] != 1)) {
+        throw const QuestionV2SchemaException(
+          QuestionV2SchemaFailure.malformedParentSchema,
+        );
+      }
+    }
+    final primaryKeys = columns.where((column) => column['pk'] != 0).toList();
+    if (primaryKeys.length != 1 || primaryKeys.single['name'] != 'id') {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+  }
+
+  static Future<void> _validateBankFoldersSchema(
+    Database db,
+    Map<String, String?> tables,
+  ) async {
+    if (!tables.containsKey('bank_folders')) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+    final columns = await db.rawQuery('PRAGMA table_info(bank_folders)');
+    if (columns.length != 2) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+    final bankName = columns[0];
+    final folderName = columns[1];
+    if (bankName['name'] != 'bank_name' ||
+        _columnAffinity(bankName['type'] as String? ?? '') != 'TEXT' ||
+        bankName['pk'] != 1) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+    if (folderName['name'] != 'folder_name' ||
+        _columnAffinity(folderName['type'] as String? ?? '') != 'TEXT' ||
+        folderName['notnull'] != 1) {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+    final defaultValue =
+        (folderName['dflt_value'] as String?)?.replaceAll("'", '');
+    if (defaultValue != '默认学科') {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+    final primaryKeys = columns.where((column) => column['pk'] != 0).toList();
+    if (primaryKeys.length != 1 || primaryKeys.single['name'] != 'bank_name') {
+      throw const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedParentSchema,
+      );
+    }
+  }
+
+  static const String _sidecarProbeSavepoint = 'r6b_v15_sidecar_probe';
+  static const String _sidecarProbeParentPrefix = 'r6b_v15_probe_parent_';
+  static const int _sidecarProbeParentMax = 1000000;
+
+  /// Runs rollback-only write probes inside a fixed SAVEPOINT: a synthetic
+  /// parent question, a version-0 and an empty-payload sidecar insert that
+  /// must each fail via [DatabaseException], and a legal version-2 insert
+  /// that must round-trip exactly. Once the SAVEPOINT exists, rollback and
+  /// release are always attempted, so the synthetic parent, probe rows, and
+  /// any trigger audit rows disappear. SAVEPOINT creation, body, rollback,
+  /// and release failures each surface only
+  /// [QuestionV2SchemaFailure.malformedSidecarSchema] without retaining or
+  /// echoing the raw exception; a fixed original schema failure is preserved
+  /// when cleanup succeeds.
+  static Future<void> _probeSidecarWrites(Database db) async {
+    var savepointCreated = false;
+    QuestionV2SchemaException? probeFailure;
+    try {
+      await db.execute('SAVEPOINT $_sidecarProbeSavepoint');
+      savepointCreated = true;
+      try {
+        final parentId = await _nextSidecarProbeParentId(db);
+        await db.insert('questions', <String, Object?>{
+          'id': parentId,
+          'type': 0,
+          'content': 'r6b v15 synthetic probe',
+          'options': '["A","B"]',
+          'standard_answer': 'A',
+          'explanation': 'r6b v15 synthetic probe explanation',
+          'raw_explanation': 'r6b v15 synthetic probe raw',
+          'created_at': 1,
+          'bank_name': 'r6b_v15_probe_bank',
+        });
+        await _expectSidecarProbeRejected(
+          db,
+          parentId,
+          0,
+          '{"synthetic":true}',
+        );
+        await _expectSidecarProbeRejected(db, parentId, 2, '');
+        await db.insert('question_v2_payloads', <String, Object?>{
+          'question_id': parentId,
+          'payload_schema_version': 2,
+          'payload_json': '{"synthetic":true,"r6b":2}',
+        });
+        final rows = await db.query(
+          'question_v2_payloads',
+          where: 'question_id = ?',
+          whereArgs: <Object?>[parentId],
+        );
+        if (rows.length != 1 ||
+            rows.single['question_id'] != parentId ||
+            rows.single['payload_schema_version'] != 2 ||
+            rows.single['payload_json'] != '{"synthetic":true,"r6b":2}') {
+          throw const QuestionV2SchemaException(
+            QuestionV2SchemaFailure.malformedSidecarSchema,
+          );
+        }
+      } on QuestionV2SchemaException catch (error) {
+        probeFailure = error;
+      } catch (_) {
+        probeFailure = const QuestionV2SchemaException(
+          QuestionV2SchemaFailure.malformedSidecarSchema,
+        );
+      }
+    } catch (_) {
+      probeFailure = const QuestionV2SchemaException(
+        QuestionV2SchemaFailure.malformedSidecarSchema,
+      );
+    } finally {
+      if (savepointCreated) {
+        try {
+          await db.execute('ROLLBACK TO $_sidecarProbeSavepoint');
+          await db.execute('RELEASE $_sidecarProbeSavepoint');
+        } catch (_) {
+          probeFailure = const QuestionV2SchemaException(
+            QuestionV2SchemaFailure.malformedSidecarSchema,
+          );
+        }
+      }
+    }
+    if (probeFailure != null) {
+      throw probeFailure;
+    }
+  }
+
+  /// Expects one sidecar insert to be rejected by the live CHECK constraint.
+  /// A statement that succeeds (for example under a `RAISE(IGNORE)` trigger)
+  /// means the frozen constraint is not enforced and maps to
+  /// [QuestionV2SchemaFailure.malformedSidecarSchema].
+  static Future<void> _expectSidecarProbeRejected(
+    Database db,
+    String parentId,
+    int schemaVersion,
+    String payloadJson,
+  ) async {
+    try {
+      await db.insert('question_v2_payloads', <String, Object?>{
+        'question_id': parentId,
+        'payload_schema_version': schemaVersion,
+        'payload_json': payloadJson,
+      });
+    } on DatabaseException {
+      return;
+    }
+    throw const QuestionV2SchemaException(
+      QuestionV2SchemaFailure.malformedSidecarSchema,
+    );
+  }
+
+  /// Deterministic collision-free probe parent id: the first absent integer
+  /// candidate in the bounded range 1..1,000,000 for the reserved prefix,
+  /// selected by exact-equality queries only. Existing ids with arbitrary
+  /// suffixes are never parsed or ordered lexicographically, so nonnumeric,
+  /// oversized, or gapped user ids cannot block or collide with another
+  /// absent candidate. No random, path, or time input is involved.
+  static Future<String> _nextSidecarProbeParentId(Database db) async {
+    for (var candidate = 1; candidate <= _sidecarProbeParentMax; candidate++) {
+      final rows = await db.rawQuery(
+        'SELECT 1 FROM questions WHERE id = ? LIMIT 1',
+        <Object?>['$_sidecarProbeParentPrefix$candidate'],
+      );
+      if (rows.isEmpty) {
+        return '$_sidecarProbeParentPrefix$candidate';
+      }
+    }
+    throw const QuestionV2SchemaException(
+      QuestionV2SchemaFailure.malformedSidecarSchema,
+    );
+  }
+
+  /// Token-aware canonical form of one CREATE TABLE statement: comments are
+  /// stripped, identifiers are unquoted and lowercased, case and whitespace
+  /// are normalized, and the terminal semicolon is removed.
+  static String _canonicalizeSql(String sql) {
+    final tokens = _sqlTokens(sql);
+    if (tokens.length >= 5 &&
+        tokens[0] == 'create' &&
+        tokens[1] == 'table' &&
+        tokens[2] == 'if' &&
+        tokens[3] == 'not' &&
+        tokens[4] == 'exists') {
+      tokens.removeRange(0, 5);
+    }
+    var result = tokens.join(' ').trim();
+    if (result.endsWith(';')) {
+      result = result.substring(0, result.length - 1).trim();
+    }
+    return result;
+  }
+
+  static List<String> _sqlTokens(String sql) {
+    final tokens = <String>[];
+    var index = 0;
+    while (index < sql.length) {
+      final char = sql[index];
+      if (_isSqlWhitespace(char)) {
+        index++;
+        continue;
+      }
+      if (char == '-' && index + 1 < sql.length && sql[index + 1] == '-') {
+        index += 2;
+        while (index < sql.length && sql[index] != '\n') {
+          index++;
+        }
+        continue;
+      }
+      if (char == '/' && index + 1 < sql.length && sql[index + 1] == '*') {
+        index += 2;
+        var closed = false;
+        while (index < sql.length) {
+          if (sql[index] == '*' &&
+              index + 1 < sql.length &&
+              sql[index + 1] == '/') {
+            index += 2;
+            closed = true;
+            break;
+          }
+          index++;
+        }
+        if (!closed) {
+          break;
+        }
+        continue;
+      }
+      if (char == "'") {
+        final start = index;
+        index++;
+        while (index < sql.length) {
+          if (sql[index] == "'") {
+            if (index + 1 < sql.length && sql[index + 1] == "'") {
+              index += 2;
+              continue;
+            }
+            index++;
+            break;
+          }
+          index++;
+        }
+        tokens.add(sql.substring(start, index));
+        continue;
+      }
+      if (char == '"' || char == '`') {
+        final quote = char;
+        index++;
+        final start = index;
+        while (index < sql.length && sql[index] != quote) {
+          index++;
+        }
+        tokens.add(sql.substring(start, index).toLowerCase());
+        if (index < sql.length) {
+          index++;
+        }
+        continue;
+      }
+      if (char == '[') {
+        index++;
+        final start = index;
+        while (index < sql.length && sql[index] != ']') {
+          index++;
+        }
+        tokens.add(sql.substring(start, index).toLowerCase());
+        if (index < sql.length) {
+          index++;
+        }
+        continue;
+      }
+      final operator = _sqlOperatorAt(sql, index);
+      if (operator != null) {
+        tokens.add(operator);
+        index += operator.length;
+        continue;
+      }
+      if (char == '(' || char == ')' || char == ',' || char == ';') {
+        tokens.add(char);
+        index++;
+        continue;
+      }
+      final start = index;
+      while (index < sql.length) {
+        final next = sql[index];
+        if (_isSqlWhitespace(next) ||
+            next == '(' ||
+            next == ')' ||
+            next == ',' ||
+            next == ';' ||
+            next == "'" ||
+            next == '"' ||
+            next == '`' ||
+            next == '[' ||
+            _sqlOperatorAt(sql, index) != null ||
+            (next == '-' && index + 1 < sql.length && sql[index + 1] == '-') ||
+            (next == '/' && index + 1 < sql.length && sql[index + 1] == '*')) {
+          break;
+        }
+        index++;
+      }
+      tokens.add(sql.substring(start, index).toLowerCase());
+    }
+    return tokens;
+  }
+
+  /// SQL comparison and arithmetic operators, longest first so two-character
+  /// operators win over single-character ones. Operators are tokenized so
+  /// whitespace around them is irrelevant to canonical equality.
+  static const List<String> _sqlOperators = <String>[
+    '>=',
+    '<=',
+    '!=',
+    '<>',
+    '==',
+    '||',
+    '+',
+    '-',
+    '*',
+    '/',
+    '%',
+    '=',
+    '<',
+    '>',
+    '!',
+  ];
+
+  static String? _sqlOperatorAt(String sql, int index) {
+    for (final operator in _sqlOperators) {
+      if (sql.startsWith(operator, index)) {
+        return operator;
+      }
+    }
+    return null;
+  }
+
+  static bool _isSqlWhitespace(String char) {
+    return char == ' ' ||
+        char == '\t' ||
+        char == '\n' ||
+        char == '\r' ||
+        char == '\u000B' ||
+        char == '\u000C';
+  }
+
+  /// SQLite column affinity derived from the declared type.
+  static String _columnAffinity(String declaredType) {
+    final type = declaredType.toUpperCase();
+    if (type.contains('INT')) return 'INTEGER';
+    if (type.contains('CHAR') ||
+        type.contains('CLOB') ||
+        type.contains('TEXT')) {
+      return 'TEXT';
+    }
+    if (type.contains('BLOB') || type.isEmpty) return 'BLOB';
+    if (type.contains('REAL') ||
+        type.contains('FLOA') ||
+        type.contains('DOUB')) {
+      return 'REAL';
+    }
+    return 'NUMERIC';
   }
 
   static Future<void> deleteDatabaseFile() async {
