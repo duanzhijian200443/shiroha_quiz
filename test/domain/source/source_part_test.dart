@@ -346,6 +346,46 @@ void main() {
       }
     });
 
+    test('freezes exact messages for forbidden keys and locators', () {
+      final sourceRef = SourceRef.document(sourceId: 'source_001');
+      final forbiddenKey = RichContent(nodes: <ContentNode>[
+        RawFallbackNode(<Object?, Object?>{
+          'type': 'future_diagram',
+          'payload': <Object?, Object?>{'path': 'fixtures/synthetic.bin'},
+        }),
+      ]);
+      final forbiddenLocator = RichContent(nodes: <ContentNode>[
+        RawFallbackNode(<Object?, Object?>{
+          'type': 'future_diagram',
+          'payload': <Object?, Object?>{
+            'href': 'https://example.invalid/synthetic',
+          },
+        }),
+      ]);
+
+      expect(
+        () => SourceContentPart(sourceRef: sourceRef, content: forbiddenKey),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Source fallback content contains prohibited side-channel metadata.',
+          ),
+        ),
+      );
+      expect(
+        () =>
+            SourceContentPart(sourceRef: sourceRef, content: forbiddenLocator),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Source fallback content contains a prohibited locator value.',
+          ),
+        ),
+      );
+    });
+
     test('does not treat formal text content as side-channel metadata', () {
       final part = SourceContentPart(
         sourceRef: SourceRef.document(sourceId: 'source_001'),
@@ -356,6 +396,25 @@ void main() {
 
       expect(
           (part.content.nodes.single as TextNode).text, contains('https://'));
+    });
+
+    test('does not treat formal math literals as side-channel metadata', () {
+      final part = SourceContentPart(
+        sourceRef: SourceRef.document(sourceId: 'source_001'),
+        content: RichContent(nodes: const <ContentNode>[
+          InlineMathNode(r'\frac{a}{b} https://example.invalid/ref'),
+          BlockMathNode(r'C:\synthetic\path'),
+        ]),
+      );
+
+      expect(
+        (part.content.nodes[0] as InlineMathNode).latex,
+        r'\frac{a}{b} https://example.invalid/ref',
+      );
+      expect(
+        (part.content.nodes[1] as BlockMathNode).latex,
+        r'C:\synthetic\path',
+      );
     });
   });
 }
