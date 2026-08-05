@@ -10,9 +10,15 @@ Reduce cost by selecting the cheapest model that safely fits the actual child
 task, avoiding duplicate context and duplicate validation, and escalating only
 when the work genuinely requires stronger reasoning.
 
-This policy does **not** impose a hard monetary, token, agent-count, or total
-elapsed-time budget. Scope, safety, command timeouts, terminal stop conditions,
-and the bounded review-cycle rules below still apply.
+Review must be both complete and capable of closing routine findings without
+repeated user interruptions. The process must not oscillate between two bad
+extremes:
+
+- unbounded review -> revision -> review loops;
+- stopping for every local field name, bound, wording, or deterministic repair.
+
+Scope, safety, Git authority, privacy, fixed-target rules, command timeouts, and
+the bounded closure rules below always apply.
 
 ## Default model routes
 
@@ -31,7 +37,7 @@ contracts are already frozen, including:
 - ordinary production-code changes;
 - focused regression tests;
 - adapters, mappers, and compatibility glue;
-- deterministic repairs inside an already approved contract;
+- deterministic repairs inside an approved contract;
 - frozen implementation slices that originated from a T3 roadmap.
 
 A task being related to a T3 feature does not by itself justify a high-capability
@@ -63,17 +69,19 @@ report the fallback reason and the actual provider/model used.
 Verifier rules:
 
 - run only the exact commands and exact paths listed in the package;
-- do not infer or add “related” tests, OCR checks, full suites, builds, or apps;
+- do not infer or add unrelated tests, OCR checks, full suites, builds, or apps;
 - do not use write-mode formatting or automatic fixes;
 - do not repair failures;
 - accidental extra commands must be disclosed and must not count as required
   evidence;
-- final authoritative focused validation should run once on the frozen target.
+- authoritative focused validation runs once per frozen target;
+- after a repair, rerun only evidence invalidated by that repair plus the
+  changed-path, staged-state, and target-identity gates.
 
-### Semantic review
+## Semantic review routing
 
-Route semantic review by the uncertainty and blast radius of the review target.
-Do not default every Reviewer to `gpt-5.6-sol`.
+Route semantic review by remaining uncertainty and blast radius. Do not default
+every Reviewer to `gpt-5.6-sol`.
 
 Every Reviewer package must state:
 
@@ -82,17 +90,17 @@ Review difficulty: light | ordinary | high
 Reason: <one concrete sentence>
 ```
 
-#### Light review
+### Light review
 
-Use:
+Use one Reviewer:
 
 ```text
-Model: gpt-5.6-sol
+Preferred model: gpt-5.6-sol
 Reasoning: light
 Fallback: Gemini 3.6 Flash high
 ```
 
-Typical light review targets:
+Typical light targets:
 
 - one small documentation file;
 - a single-file mechanical fix;
@@ -101,20 +109,18 @@ Typical light review targets:
 - frozen behavior with no public API, persistence, privacy, or concurrency
   change.
 
-Use one Reviewer only. Do not add a cross-review merely because another cheap
-model is available.
+Do not add a second Reviewer merely because another inexpensive model is
+available.
 
-#### Ordinary semantic review
+### Ordinary semantic review
 
-Primary route:
+Primary route supported by the current host:
 
 ```text
-Model: deepseek/deepseek-v4-pro
+Preferred model: deepseek/deepseek-v4-flash
 Reasoning: max
+Fallback: the same model at xhigh when max is unavailable
 ```
-
-When the host does not expose `max`, use and report its exact highest available
-equivalent, such as `xhigh`.
 
 Typical ordinary targets:
 
@@ -124,14 +130,14 @@ Typical ordinary targets:
 - ordinary state behavior;
 - non-security-critical architecture-boundary work.
 
-A Gemini cross-check is **risk-triggered**, not automatic. Add it only when one
-or more of these signals exists:
+A Gemini cross-check is risk-triggered, not automatic. Add it only when one or
+more of these signals exists:
 
 - the primary Reviewer reports uncertainty;
 - the change crosses more than one architecture layer;
 - the change contains fallback, rollback, exception, or corruption handling;
 - the change introduces or modifies a public DTO or compatibility projection;
-- Verifier evidence appears inconsistent with the implementation semantics;
+- Verifier evidence appears inconsistent with implementation semantics;
 - the diff is large enough that an independent boundary pass is materially
   useful.
 
@@ -142,7 +148,7 @@ Model: Gemini 3.6 Flash
 Reasoning: high
 ```
 
-The two Reviewers must receive different assignments:
+The two Reviewers receive different assignments:
 
 ```text
 DeepSeek primary:
@@ -164,7 +170,7 @@ Gemini cross-check:
 - inconsistencies between Verifier evidence and the claimed result
 ```
 
-Do not send both Reviewers identical “review everything” prompts. The Gemini
+Do not send both Reviewers identical “review everything” prompts. The
 cross-check receives only the frozen contract summary, exact changed paths,
 focused diff, Verifier result, primary findings, and its targeted checklist. It
 must not reload the full parent conversation or repository.
@@ -176,14 +182,15 @@ Both approve
 -> APPROVE
 
 Either reports an actionable P1/P2
--> REQUEST_CHANGES
+-> enter the finding-classification and closure process below
 
 The two reports conflict
 -> Coordinator resolves from the frozen contract and repository evidence
--> do not create a third Reviewer automatically
+-> if the conflict is architectural, stop for user input
+-> do not create a third full Reviewer automatically
 ```
 
-#### High-difficulty review
+### High-difficulty review
 
 High review applies to:
 
@@ -200,10 +207,10 @@ high-cost review:
 
 ```text
 Optional bounded pre-review:
-- deepseek/deepseek-v4-pro max
-- Gemini 3.6 Flash high for a different targeted checklist
+- deepseek/deepseek-v4-flash max
+- Gemini 3.6 Flash high with a different targeted checklist
 
-Final review after all known findings are fixed:
+Final review after known findings are fixed:
 - gpt-5.6-sol high
 ```
 
@@ -219,93 +226,172 @@ Escalation reason: <specific unresolved high-risk reasoning problem>
 Why cheaper review is insufficient: <one concrete sentence>
 ```
 
-Exactly one Sol-high final review is allowed per stage by default. A second
-Sol-high review requires new explicit user authorization.
+Exactly one Sol-high full review is allowed per stage by default. A second
+Sol-high full review requires new explicit user authorization.
 
-Do not select high merely because the role is Reviewer or the parent stage is
-T3. Once a contract is fully frozen, ordinary implementation slices normally
-return to ordinary review routing.
+Once a high-risk contract is frozen, its ordinary implementation slices return
+to ordinary review routing unless the slice itself changes schema, public API,
+privacy, concurrency, or migration semantics.
 
 Reviewers inspect the frozen diff, task contract, changed files, and Verifier
-evidence. They do not rerun deterministic validation unless the package
-explicitly makes a command result itself the review target.
+evidence. They do not rerun deterministic validation unless a command result is
+explicitly the review target.
 
-### High-capability planning, diagnosis, or execution
-
-Use:
-
-```text
-Model: gpt-5.6-sol
-Reasoning: high
-```
-
-Only when the child task explicitly requires one or more of:
-
-- architectural design or public-contract freezing;
-- uncertain root-cause analysis across modules;
-- security or privacy judgment;
-- concurrency, CAS, migration, or database-safety reasoning;
-- resolving conflicting authoritative contracts or evidence;
-- a genuinely difficult implementation whose behavior cannot be frozen first;
-- escalation after the ordinary Executor failed because of reasoning limits,
-  not because of environment, quota, path, or permission errors.
-
-Each high-capability dispatch must record:
-
-```text
-Escalation reason: <specific unresolved reasoning problem>
-```
-
-The following are not sufficient escalation reasons:
-
-- “the task is important”;
-- “the parent stage is T3”;
-- “high may be safer”;
-- “the role is Planner/Reviewer/Executor”.
-
-## Review-cycle budget
-
-Review must be complete and bounded.
-
-### Complete-review requirement
+## Complete-review requirement
 
 A Reviewer must continue through every assigned review dimension even after
 finding a P1. It returns one terminal report containing all non-duplicate P1,
-P2, and P3 findings. It must not split one target into incremental findings
-across multiple agents or stop after the first blocker.
+P2, and P3 findings. It must not stop after the first blocker or intentionally
+split one target into incremental reports.
 
-### Light and ordinary cycles
+A full Reviewer assesses the whole assigned target. A later targeted closure
+check verifies only explicit findings and their direct regression surface; it
+is not another full review.
 
-- one primary review cycle by default;
-- at most one targeted Gemini cross-check when a listed risk trigger applies;
-- `REQUEST_CHANGES` ends the current cycle;
-- do not automatically repair, rewrite the contract, and create another full
-  Reviewer;
-- a new review after repair requires an explicitly authorized package.
+## Finding classification
 
-### High-difficulty cycles
+The Coordinator classifies every actionable finding before deciding whether to
+repair, re-review, or stop.
+
+### Class A: deterministic mechanical correction
+
+A finding is Class A only when it has one unique, semantics-preserving fix.
+Examples:
+
+- wrong field name where the canonical field is already frozen;
+- typo, stale path, duplicated word, broken Markdown, or inconsistent example;
+- omitted occurrence of an already-approved rename;
+- formatting or terminology drift;
+- a test expectation that mechanically lags the frozen behavior;
+- an exact Reviewer instruction such as `id -> question_id` where no design
+  choice remains.
+
+Class A must not change behavior, public meaning, permissions, schema, tool
+set, stage dependency, error taxonomy, or allowed-file scope.
+
+Closure lane:
+
+```text
+one terminal correction
+-> focused Verifier evidence
+-> commit when all gates pass
+```
+
+No new Reviewer is required. The Coordinator must search the full allowed
+scope for the same stale pattern so the correction closes every occurrence.
+
+### Class B: bounded in-scope semantic completion
+
+A finding is Class B when it requires a local decision but does not change the
+approved goal or architecture. Examples:
+
+- choosing an interval convention such as `[from, to)`;
+- setting a bounded list limit, preview length, or deterministic truncation
+  rule;
+- selecting a timezone source already implied by the application boundary;
+- clarifying which layer owns protocol-shape validation versus business
+  validation;
+- completing a safe response envelope;
+- resolving a contradiction entirely within the existing tool set, permission
+  model, stage dependency, and allowed files.
+
+The Coordinator may freeze a reasonable local default without interrupting the
+user when all of these are true:
+
+- no tool, endpoint, public capability, or permission is added or removed;
+- READ/WRITE or security posture does not change;
+- no database schema, migration, frozen public API, or cross-stage dependency
+  changes;
+- no new dependency, transport, provider, or file scope is introduced;
+- the decision is recorded explicitly in the task handoff or decision ledger;
+- one clearly defensible default exists and no authoritative contract conflicts
+  with it.
+
+Closure lane:
+
+```text
+fresh Repair Executor
+-> focused Verifier
+-> one targeted closure Reviewer
+```
+
+The targeted closure Reviewer receives only the findings, frozen decisions,
+focused diff, and updated Verifier evidence. It must not restart a full review.
+
+If the targeted closure Reviewer finds only Class A defects, use the Class A
+terminal-correction lane and finish without another Reviewer.
+
+If it finds another Class B defect directly caused by the repair, the
+Coordinator may perform one final bounded closure repair, rerun focused
+verification, and request one targeted confirmation. This is the last semantic
+repair pass for the task.
+
+### Class C: material design change
+
+Stop and request user authorization when a finding would:
+
+- add, remove, or substantially redefine a public tool or API;
+- change READ_ONLY to WRITE or expand destructive capability;
+- expose previously forbidden data;
+- alter database schema, migration, concurrency, CAS, or privacy policy;
+- modify a frozen cross-stage dependency or authoritative fallback rule;
+- add a dependency, transport, provider, or new allowed file;
+- require choosing among materially different product behaviors;
+- conflict with another authoritative contract without a clear precedence rule.
+
+Class C is the only finding class that is automatically `BLOCKED` pending user
+input.
+
+## Bounded automatic closure
+
+The normal automatic lifecycle is:
+
+```text
+Executor
+-> Verifier
+-> complete Reviewer
+-> classify all findings together
+-> repair through Class A or Class B lane when authorized by this policy
+-> final focused evidence
+-> commit or stop
+```
+
+Hard limits per task:
+
+- at most one initial full semantic Reviewer;
+- at most one risk-triggered cross-check;
+- at most two Class B semantic repair passes total;
+- at most one Class A terminal-correction pass after the final semantic check;
+- at most one Sol-high full review per stage without new user authorization;
+- no third full Reviewer;
+- no automatic Revision 2/3 loop that reloads the entire contract each time.
+
+A targeted closure Reviewer is allowed within these limits because it verifies
+specific findings rather than performing another whole-target review.
+
+The process must not stop merely because a local default was previously
+unstated. It stops only for Class C, exhausted closure limits, environment or
+permission failure, target drift, or an unresolved authoritative conflict.
+
+## High-difficulty closure
 
 Use this maximum sequence:
 
 ```text
-bounded cheap pre-review
--> consolidate all findings
--> one repair/revision
--> one Sol-high final review
+bounded inexpensive pre-review
+-> consolidate findings
+-> one main repair/revision
+-> one Sol-high full final review
+-> optional Class A terminal correction
+-> focused Verifier
 -> stop
 ```
 
-The final Sol-high result ends the cycle whether it is `APPROVE` or
-`REQUEST_CHANGES`.
+If the Sol-high final review reports a Class B issue that is narrow and caused
+by the final candidate, one bounded closure repair plus one inexpensive targeted
+confirmation is allowed. Do not launch another Sol-high full review.
 
-Forbidden without new explicit user authorization:
-
-- a second Sol-high final review;
-- a third Reviewer after a primary and cross-check;
-- automatic review -> revision -> review loops;
-- repeatedly generating Revision 2, Revision 3, or later revisions inside one
-  delegated task;
-- extending the cycle merely because a new finding is “still in scope”.
+If the Sol-high final review reports Class C, stop for user authorization.
 
 ## Execution and repair economy
 
@@ -315,13 +401,18 @@ The ordinary Executor owns implementation plus a minimal focused self-check.
 It should run only tests and analysis directly needed to catch an immediate
 mistake in its changed behavior.
 
-During that first focused validation, the Executor may make one deterministic,
+During the first focused validation, the Executor may make one deterministic,
 in-scope correction and rerun only the failed focused command. This remains
-part of the original Executor task and does not require a separate Repair agent.
+part of the original Executor task and does not require a separate Repair
+agent.
 
-Create a fresh Repair Executor only after the original writer has reached a
-terminal handoff and an independent Verifier or Reviewer finds an actionable
-defect, or when writer isolation is otherwise required by repository rules.
+Create a fresh Repair Executor after the original writer reaches a terminal
+handoff and an independent Verifier or Reviewer identifies a Class B defect, or
+when writer isolation is otherwise required by repository rules.
+
+A Class A terminal correction may be performed by a narrowly scoped fresh
+Repair Executor or by the Coordinator only when repository role rules explicitly
+allow the Coordinator to write. The default is a fresh Repair Executor.
 
 ### Avoid duplicate validation
 
@@ -334,12 +425,17 @@ Executor:
 - git diff --check
 
 Verifier:
-- the complete authoritative focused validation matrix
+- complete authoritative focused matrix for the current frozen target
 - changed-path, staged-state, target-identity, and diff gates
+
+Targeted closure Reviewer:
+- explicit findings
+- repaired lines and direct regression surface
+- updated Verifier evidence
 ```
 
-Do not make both agents run the same complete matrix unless a post-handoff
-repair changed the frozen target and invalidated the old evidence.
+Do not make multiple agents run the same complete matrix unless a repair changed
+the frozen target and invalidated the old evidence.
 
 ### Diff-first reading
 
@@ -353,8 +449,8 @@ For implementation handoff, verification, and review, inspect in this order:
 Do not repeatedly load the entire parent conversation, entire repository, or
 large unchanged files into every child package.
 
-For cross-review, the second Reviewer must receive focused context instead of a
-second copy of the complete planning history.
+For cross-review and closure review, send focused context instead of a second
+copy of the complete planning history.
 
 ## Exact-path discipline
 
@@ -395,18 +491,46 @@ Routing reason: <one sentence>
 Fallback: <route or none>
 ```
 
-For Reviewer packages, also include review difficulty. For high-capability
-packages, include the escalation reason. Sol-high Reviewer packages must also
-include the stage high-review count and whether the dispatch is the final
-review.
+Reviewer packages also include review difficulty. High-capability packages
+include the escalation reason. Sol-high Reviewer packages additionally include
+the stage high-review count and whether the dispatch is the final full review.
 
-Terminal handoffs must report the actual provider/model and reasoning level.
-When a fallback occurs, report why the preferred route could not be created.
-For a cross-review, report both actual models and the distinct checklist each
-one received.
+Repair packages must include:
+
+```text
+Finding class: A | B
+Findings to close: <exact list>
+Frozen local decisions: <none or exact decisions>
+Forbidden semantic changes: <exact boundaries>
+Closure pass: <number>/<maximum>
+```
+
+Terminal handoffs report the actual provider/model and reasoning level. When a
+fallback occurs, report why the preferred route could not be created. For a
+cross-review, report both actual models and their distinct checklists.
+
+## Commit gate after review
+
+A task may be staged and committed when one of these is true:
+
+- the complete Reviewer or required cross-review returns `APPROVE`, and
+  Verifier gates pass;
+- all remaining findings were Class A, the terminal correction is complete,
+  and focused Verifier gates pass;
+- the final targeted closure Reviewer approves all Class B repairs, any
+  remaining Class A correction is complete, and focused Verifier gates pass.
+
+A commit is forbidden when:
+
+- any Class B or Class C finding remains open;
+- target identity drifted;
+- changed or staged paths exceed authority;
+- required verification failed or was not run;
+- Git authority was not explicitly granted.
 
 ## User overrides
 
-An explicit user-selected model, reasoning level, or review-cycle limit for the
-current task takes precedence over these defaults. Safety, scope, Git
-authorization, privacy, and fixed-target rules remain unchanged.
+An explicit user-selected model, reasoning level, review-cycle limit, repair
+permission, or stop condition for the current task takes precedence over these
+defaults. Safety, scope, Git authorization, privacy, and fixed-target rules
+remain unchanged.
