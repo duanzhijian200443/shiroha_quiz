@@ -76,7 +76,17 @@ jobs:
               'test/ocr_smoke_path_helpers_test.dart',
               'test/ocr_import_service_test.dart',
               'test/import_staging_unsupported_structure_banner_test.dart',
-              'test/r5_rich_content_renderer_test.dart'
+              'test/r5_rich_content_renderer_test.dart',
+              'test/domain/content/rich_content_privacy_admission_test.dart',
+              'test/domain/source/source_part_test.dart',
+              'test/render_matrix_test.dart',
+              'test/question_v2_persistence_mapper_test.dart',
+              'test/database_v15_migration_test.dart',
+              'test/question_repository_v2_test.dart',
+              'test/r6_question_v2_persistence_acceptance_test.dart',
+              'test/database_runtime_profile_test.dart',
+              'test/import_commit_service_test.dart',
+              'test/domain/question/question_draft_v2_codec_test.dart'
             )
 
       - name: Check committed diff

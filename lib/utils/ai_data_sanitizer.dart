@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'content_normalizer.dart';
+import 'storage_content_normalizer.dart';
 import '../services/import_pipeline/ai_question_normalizer.dart';
 
 class AiDataSanitizer {
@@ -48,11 +49,7 @@ class AiDataSanitizer {
   }
 
   static String cleanLatexBeforeDB(String text) {
-    if (text.isEmpty) return text;
-    final decoded = _decodeLiteralControls(text);
-    return ContentNormalizer.normalizeForStorage(
-      _normalizeJsonEscapedKnownLatexCommands(decoded),
-    );
+    return StorageContentNormalizer.normalizeLegacyProjection(text);
   }
 
   static String formatLatex(String text) {
