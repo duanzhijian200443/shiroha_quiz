@@ -7,10 +7,12 @@ import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dar
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 
@@ -327,8 +329,8 @@ void main() {
         singleFile: true,
       );
 
-      expect(result.route, ImportStorageRoute.legacyV1);
-      expect(result.reason, 'typed_candidate_shadow_ready');
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
       expect(result.questions, hasLength(1));
       final envelope = result.questions.single[TypedReviewSnapshotCodec.mapKey];
       expect(envelope, isA<Map<String, Object?>>());
@@ -538,7 +540,7 @@ void main() {
           finalQuestions: <Map<String, dynamic>>[question],
           singleFile: true,
         );
-        expect(result.reason, 'typed_candidate_shadow_ready',
+        expect(result.reason, 'typed_candidate_ready',
             reason: 'raw_explanation $raw must be allowed');
       }
     });
@@ -675,7 +677,7 @@ void main() {
         singleFile: true,
       );
 
-      expect(result.reason, 'typed_candidate_shadow_ready');
+      expect(result.reason, 'typed_candidate_ready');
       final decodedByNumber = <int, TypedReviewSnapshot>{};
       for (final question in result.questions) {
         final number = question['question_number'] as int;
@@ -687,6 +689,204 @@ void main() {
       expect(decodedByNumber[2]!.reviewItemId, _reviewUuidB);
       expect(decodedByNumber[1]!.questionId, _questionUuidA);
       expect(decodedByNumber[2]!.questionId, _questionUuidB);
+    });
+  });
+
+  group('R7C activation hardening', () {
+    test('ineligible results strip every pre-existing envelope', () {
+      final finalQuestions = <Map<String, dynamic>>[
+        <String, dynamic>{
+          ..._finalQuestion(number: 1),
+          TypedReviewSnapshotCodec.mapKey: <String, Object?>{
+            'schemaVersion': 1,
+            'route': 'typedV2',
+            'reviewItemId': _reviewUuidA,
+            'questionId': _questionUuidA,
+            'draft': <String, Object?>{},
+            'baselineLegacy': <String, Object?>{},
+          },
+        },
+      ];
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[],
+          failure: OcrTypedCandidateFailure.projectionMismatch,
+        ),
+        finalQuestions: finalQuestions,
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_projection_mismatch');
+      expect(result.questions, hasLength(1));
+      expect(
+        result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isFalse,
+      );
+      expect(
+        finalQuestions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isTrue,
+        reason: 'the caller-owned input map must never be mutated in place',
+      );
+      expect(finalQuestions.single['content'], 'Synthetic prompt marker 1.');
+    });
+
+    test('ineligible envelope stripping never modifies the input maps', () {
+      final questions = <Map<String, dynamic>>[
+        _finalQuestion(number: 1),
+        _finalQuestion(number: 2),
+      ];
+      final before = <Map<String, dynamic>>[
+        Map<String, dynamic>.from(questions[0]),
+        Map<String, dynamic>.from(questions[1]),
+      ];
+      applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[],
+          failure: OcrTypedCandidateFailure.notSingleFile,
+        ),
+        finalQuestions: questions,
+        singleFile: false,
+      );
+      expect(questions, before);
+    });
+
+    test('non-canonical draft source ids make the whole batch ineligible', () {
+      final draft = QuestionDraftV2(
+        questionId: _questionUuidA,
+        kind: QuestionKind.shortAnswer,
+        questionNumber: 1,
+        stem: RichContent(
+          nodes: <ContentNode>[TextNode('Synthetic prompt marker 1.')],
+        ),
+        answer: ContentAnswer(
+          content: RichContent(
+            nodes: <ContentNode>[TextNode('synthetic-result-1')],
+          ),
+        ),
+        sourceRefs: <SourceRef>[
+          SourceRef.document(
+            sourceId: 'legacy_non_canonical_source',
+            displayLabel: null,
+          ),
+        ],
+      );
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[
+            _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: draft,
+            ),
+          ],
+        ),
+        finalQuestions: <Map<String, dynamic>>[
+          <String, dynamic>{..._finalQuestion(number: 1)},
+        ],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_identity_mismatch');
+      expect(
+        result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isFalse,
+      );
+      expect(
+        result.reason,
+        isNot(contains('legacy_non_canonical_source')),
+        reason: 'the original source id must never be emitted',
+      );
+    });
+
+    test('canonical draft source ids pass the eligibility gate', () {
+      final draft = QuestionDraftV2(
+        questionId: _questionUuidA,
+        kind: QuestionKind.shortAnswer,
+        questionNumber: 1,
+        stem: RichContent(
+          nodes: <ContentNode>[TextNode('Synthetic prompt marker 1.')],
+        ),
+        answer: ContentAnswer(
+          content: RichContent(
+            nodes: <ContentNode>[TextNode('synthetic-result-1')],
+          ),
+        ),
+        sourceRefs: <SourceRef>[
+          SourceRef.document(
+            sourceId: _sourceUuid,
+            displayLabel: null,
+          ),
+        ],
+      );
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[
+            _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: draft,
+            ),
+          ],
+        ),
+        finalQuestions: <Map<String, dynamic>>[
+          <String, dynamic>{..._finalQuestion(number: 1)},
+        ],
+        singleFile: true,
+      );
+
+      expect(result.reason, isNot('typed_candidate_identity_mismatch'));
+      expect(
+        result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isTrue,
+      );
+    });
+
+    test('strict metadata validation rejects typedV2 with a null reason', () {
+      expect(
+        () => validateImportStorageMetadata(
+          route: ImportStorageRoute.typedV2,
+          reason: null,
+        ),
+        throwsA(isA<TypedReviewSnapshotException>()),
+      );
+    });
+
+    test('strict metadata validation rejects typedV2 with shadow_ready', () {
+      expect(
+        () => validateImportStorageMetadata(
+          route: ImportStorageRoute.typedV2,
+          reason: ocrTypedCandidateShadowReadyReason,
+        ),
+        throwsA(isA<TypedReviewSnapshotException>()),
+      );
+    });
+
+    test('strict metadata validation accepts typedV2 with ready reason', () {
+      final validated = validateImportStorageMetadata(
+        route: ImportStorageRoute.typedV2,
+        reason: ocrTypedCandidateReadyReason,
+      );
+      expect(validated.route, ImportStorageRoute.typedV2);
+      expect(validated.reason, 'typed_candidate_ready');
+    });
+
+    test('strict metadata validation keeps historical legacy reasons', () {
+      for (final reason in <String?>[
+        null,
+        ocrTypedCandidateShadowReadyReason,
+        ocrTypedCandidateFailureReason(OcrTypedCandidateFailure.repairApplied),
+      ]) {
+        final validated = validateImportStorageMetadata(
+          route: ImportStorageRoute.legacyV1,
+          reason: reason,
+        );
+        expect(validated.route, ImportStorageRoute.legacyV1);
+        expect(validated.reason, reason);
+      }
     });
   });
 }
