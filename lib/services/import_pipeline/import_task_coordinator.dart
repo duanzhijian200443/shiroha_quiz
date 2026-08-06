@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:path/path.dart' as p;
 
+import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/models/question_identity.dart';
@@ -578,17 +579,24 @@ class ImportTaskCoordinator {
       }
 
       final questions = _attachImportDiagnostics(result);
-      final diagnostics = Map<String, dynamic>.from(result.diagnostics)
-        ..[TaskManager.keyExplanationRetentionMode] =
-            result.explanationRetentionMode.name
-        ..[keySourceQuestionCount] = result.questions.length
-        ..[keySourceQuestionNumbers] = result.questions
+      final storageRoute = importStorageRouteSerialization(result.storageRoute);
+      final storageReason = normalizeImportStorageReason(result.storageReason);
+      final diagnostics = <String, dynamic>{
+        ...result.diagnostics,
+        TaskManager.keyExplanationRetentionMode:
+            result.explanationRetentionMode.name,
+        TaskManager.keyImportStorageRoute: storageRoute,
+        if (storageReason != null)
+          TaskManager.keyImportStorageReason: storageReason,
+        keySourceQuestionCount: result.questions.length,
+        keySourceQuestionNumbers: result.questions
             .map(
               (question) => QuestionIdentity.tryParseExplicitQuestionNumber(
                 question['q_num'],
               ),
             )
-            .toList(growable: false);
+            .toList(growable: false),
+      };
       final reviewStatus = await _taskManager.requireAttemptReview(
         handle.attempt,
         '解析成功，请进行人工校对并入库',

@@ -2,6 +2,7 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../../core/observability/trace_context.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../task_manager.dart';
+import 'package:uuid/uuid.dart';
 import 'final_question_latex_audit.dart';
 import 'import_attempt_context.dart';
 import 'import_document_role.dart';
@@ -9,6 +10,7 @@ import 'import_format.dart';
 import 'import_question_field_policy.dart';
 import 'import_question_repair_policy.dart';
 import 'local_question_assembler.dart';
+import 'ocr_typed_candidate.dart';
 import 'ocr_document.dart';
 import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
@@ -24,12 +26,17 @@ class OcrImportResult {
     required this.questions,
     required this.warnings,
     required this.diagnostics,
+    this.typedCandidateBatch,
   });
 
   final bool usedOcr;
   final List<Map<String, dynamic>> questions;
   final List<String> warnings;
   final Map<String, dynamic> diagnostics;
+
+  /// Shadow typed candidate batch produced in parallel with the legacy
+  /// questions. Never part of [diagnostics].
+  final OcrTypedCandidateBatch? typedCandidateBatch;
 }
 
 class OcrImportService {
@@ -44,6 +51,7 @@ class OcrImportService {
     SingleQuestionRepairService? repairService,
     OcrRequestScheduler? requestScheduler,
     TaskManager? taskManager,
+    String Function()? uuidV4Factory,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
@@ -52,6 +60,7 @@ class OcrImportService {
         _referenceAnswerMerger = referenceAnswerMerger,
         _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
         _taskManager = taskManager,
+        _uuidV4Factory = uuidV4Factory ?? _defaultUuidV4,
         _repairService = repairService ??
             SingleQuestionRepairService(
               engineRepository: engineRepository,
@@ -66,6 +75,9 @@ class OcrImportService {
   final OcrRequestScheduler _requestScheduler;
   final TaskManager? _taskManager;
   final SingleQuestionRepairService _repairService;
+  final String Function() _uuidV4Factory;
+
+  static String _defaultUuidV4() => const Uuid().v4();
 
   Future<OcrImportResult?> tryParse({
     required String filePath,
@@ -388,6 +400,14 @@ class OcrImportService {
         'rejectedRegionCount': rejectedCount,
       });
 
+      final typedCandidateBatch = _buildTypedCandidateBatch(
+        document,
+        <OcrQuestionRegion>[
+          for (final candidate in assembled) candidate.region,
+        ],
+        questions,
+      );
+
       return OcrImportResult(
         usedOcr: true,
         questions: questions,
@@ -395,6 +415,7 @@ class OcrImportService {
             ? const ['文档答案结构不明确，请人工复核。']
             : const [],
         diagnostics: diagnostics,
+        typedCandidateBatch: typedCandidateBatch,
       );
     } on OcrRequestCancelledException {
       rethrow;
@@ -490,6 +511,26 @@ class OcrImportService {
       'imageBlockCount': imageBlockCount,
       'tableBlockCount': tableBlockCount,
     };
+  }
+
+  OcrTypedCandidateBatch _buildTypedCandidateBatch(
+    OcrDocument document,
+    List<OcrQuestionRegion> regions,
+    List<Map<String, dynamic>> legacyQuestions,
+  ) {
+    try {
+      return buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regions,
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidV4Factory,
+      );
+    } catch (_) {
+      return OcrTypedCandidateBatch(
+        candidates: <OcrTypedCandidate>[],
+        failure: OcrTypedCandidateFailure.internalError,
+      );
+    }
   }
 
   _OcrDocumentRoleAssessment _assessDocumentRole({

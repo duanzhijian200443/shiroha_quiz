@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
@@ -595,5 +596,73 @@ void main() {
 
     expect(parseCalls, 4);
     expect(mergerCalls, 0);
+  });
+
+  test('OCR without a candidate batch keeps default legacy storage metadata',
+      () async {
+    final pipeline = ImportPipelineService.forTesting(
+      textParser: (rawText, {required taskId, required isMarkdown}) async =>
+          questions('text'),
+      visionParser: (imagePaths) async => questions('vision'),
+      ocrParser: (
+              {required filePath,
+              required sourceName,
+              required ImportFormat format,
+              required ExplanationRetentionMode
+                  explanationRetentionMode}) async =>
+          OcrImportResult(
+        usedOcr: true,
+        questions: questions('ocr'),
+        warnings: const <String>[],
+        diagnostics: const <String, dynamic>{'status': 'used_ocr'},
+      ),
+    );
+
+    final result = await pipeline.parseFiles(
+      requestFor('question.png', ImportParseMode.ocr),
+    );
+
+    expect(result.storageRoute, ImportStorageRoute.legacyV1);
+    expect(result.storageReason, isNull);
+    expect(result.questions, isNotEmpty);
+    expect(
+      result.questions.every(
+        (question) => !question.containsKey('_typed_review_v1'),
+      ),
+      isTrue,
+    );
+  });
+
+  test('text and vision modes keep default legacy storage metadata', () async {
+    for (final mode in <ImportParseMode>[
+      ImportParseMode.text,
+      ImportParseMode.vision,
+    ]) {
+      final textFile = File(
+        '${tempDirectory.path}${Platform.pathSeparator}default-mode.txt',
+      );
+      await textFile.writeAsString(
+        'Synthetic source text long enough to enter the text parser.',
+      );
+      final pipeline = ImportPipelineService.forTesting(
+        textParser: (rawText, {required taskId, required isMarkdown}) async =>
+            questions('text'),
+        visionParser: (imagePaths) async => questions('vision'),
+        ocrParser: ({
+          required filePath,
+          required sourceName,
+          required ImportFormat format,
+          required ExplanationRetentionMode explanationRetentionMode,
+        }) async =>
+            fail('OCR parser must not run'),
+      );
+      final path =
+          mode == ImportParseMode.text ? textFile.path : 'question.png';
+      final result = await pipeline.parseFiles(requestFor(path, mode));
+
+      expect(result.storageRoute, ImportStorageRoute.legacyV1,
+          reason: '${mode.name} mode');
+      expect(result.storageReason, isNull, reason: '${mode.name} mode');
+    }
   });
 }
