@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
@@ -233,7 +235,14 @@ class ImportTask {
   }
 }
 
-enum ReviewDraftSaveStatus { saved, stale, taskMissing, itemMissing, failed }
+enum ReviewDraftSaveStatus {
+  saved,
+  stale,
+  taskMissing,
+  itemMissing,
+  failed,
+  commitInProgress,
+}
 
 class ReviewDraftSaveResult {
   const ReviewDraftSaveResult(this.status, {required this.revision});
@@ -242,6 +251,58 @@ class ReviewDraftSaveResult {
   final int revision;
 
   bool get saved => status == ReviewDraftSaveStatus.saved;
+}
+
+/// Outcome of one typed commit lease acquisition.
+enum TypedCommitLeaseStatus {
+  acquired,
+  taskMissing,
+  taskNotPendingReview,
+  staleAttempt,
+  staleReviewDraft,
+  commitInProgress,
+}
+
+final class TypedCommitLeaseResult {
+  const TypedCommitLeaseResult(this.status, [this.lease]);
+
+  const TypedCommitLeaseResult.acquired(TypedCommitAttemptLease lease)
+      : this(TypedCommitLeaseStatus.acquired, lease);
+
+  final TypedCommitLeaseStatus status;
+  final TypedCommitAttemptLease? lease;
+}
+
+/// One exclusive typed commit lease for a task.
+///
+/// [leaseId] is an opaque random identifier and never contains question
+/// content, paths or source ids.
+final class TypedCommitAttemptLease {
+  const TypedCommitAttemptLease({
+    required this.leaseId,
+    required this.taskId,
+    required this.attemptToken,
+    required this.attemptNumber,
+    required this.reviewDraftRevision,
+    required this.storageRoute,
+    required this.storageReason,
+  });
+
+  final String leaseId;
+  final String taskId;
+  final String attemptToken;
+  final int attemptNumber;
+  final int reviewDraftRevision;
+  final String storageRoute;
+  final String storageReason;
+}
+
+/// Result of applying an already-durable typed completion to memory.
+enum TypedDurableCompletionStatus {
+  applied,
+  taskRemovedDurable,
+  staleLease,
+  alreadyCompleted,
 }
 
 enum ImportAttemptWriteStatus {
@@ -257,18 +318,24 @@ class TaskManager extends ChangeNotifier {
   static const String keyParseMode = '_parseMode';
   static const String keyBatchId = '_batchId';
   static const String keySelectionIndex = '_selectionIndex';
-  static const String keyAttemptNumber = '_attemptNumber';
-  static const String keyAttemptToken = '_attemptToken';
-  static const String keyAttemptState = '_attemptState';
+  static const String keyAttemptNumber =
+      TypedImportCommitPersistence.keyAttemptNumber;
+  static const String keyAttemptToken =
+      TypedImportCommitPersistence.keyAttemptToken;
+  static const String keyAttemptState =
+      TypedImportCommitPersistence.keyAttemptState;
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
-  static const String keyReviewDraftRevision = '_reviewDraftRevision';
+  static const String keyReviewDraftRevision =
+      TypedImportCommitPersistence.keyReviewDraftRevision;
   static const String keyReviewItemId = '_reviewItemId';
   static const String keyAnswerDistillationStatus =
       '_answer_distillation_status';
   static const String keyAnswerDistillationReason =
       '_answer_distillation_reason';
-  static const String keyImportStorageRoute = '_importStorageRoute';
-  static const String keyImportStorageReason = '_importStorageReason';
+  static const String keyImportStorageRoute =
+      TypedImportCommitPersistence.keyImportStorageRoute;
+  static const String keyImportStorageReason =
+      TypedImportCommitPersistence.keyImportStorageReason;
 
   static final TaskManager _instance = TaskManager._internal();
   static TaskManager get instance => _instance;
@@ -296,6 +363,9 @@ class TaskManager extends ChangeNotifier {
   final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
   Future<void> _reviewDraftWriteTail = Future<void>.value();
   final Map<String, Future<void>> _attemptWriteTails = <String, Future<void>>{};
+  final Map<String, TypedCommitAttemptLease> _typedCommitLeases =
+      <String, TypedCommitAttemptLease>{};
+  static final Random _leaseRandom = Random.secure();
 
   final List<ImportTask> tasks = [];
   int get processingCount =>
@@ -857,6 +927,14 @@ class TaskManager extends ChangeNotifier {
     required List<Map<String, dynamic>> questions,
     required ExplanationRetentionMode explanationRetentionMode,
   }) {
+    if (_typedCommitLeases.containsKey(id)) {
+      return Future<ReviewDraftSaveResult>.value(
+        ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.commitInProgress,
+          revision: reviewDraftRevision(id),
+        ),
+      );
+    }
     return _enqueueReviewDraftWrite(
       () => _saveReviewDraftNow(
         id,
@@ -890,6 +968,14 @@ class TaskManager extends ChangeNotifier {
     String? standardAnswer,
     String? reasonCode,
   }) {
+    if (_typedCommitLeases.containsKey(id)) {
+      return Future<ReviewDraftSaveResult>.value(
+        ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.commitInProgress,
+          revision: reviewDraftRevision(id),
+        ),
+      );
+    }
     if (!SubjectiveAnswerDistillationSnapshotPolicy.isAiStatus(status)) {
       throw ArgumentError.value(status, 'status', 'unsupported status');
     }
@@ -969,6 +1055,12 @@ class TaskManager extends ChangeNotifier {
     required ExplanationRetentionMode explanationRetentionMode,
     int? expectedRevision,
   }) async {
+    if (_typedCommitLeases.containsKey(id)) {
+      return ReviewDraftSaveResult(
+        ReviewDraftSaveStatus.commitInProgress,
+        revision: reviewDraftRevision(id),
+      );
+    }
     final idx = tasks.indexWhere((task) => task.id == id);
     if (idx < 0) {
       return const ReviewDraftSaveResult(
@@ -1051,6 +1143,177 @@ class TaskManager extends ChangeNotifier {
       }
     });
     return completer.future;
+  }
+
+  /// Begins a typed commit attempt for one task.
+  ///
+  /// The lease registration is serialized with the review-draft queue: every
+  /// review draft write enqueued before this call completes first, and every
+  /// write enqueued afterwards observes the active lease and is rejected with
+  /// [ReviewDraftSaveStatus.commitInProgress]. The in-memory current-attempt
+  /// gate mirrors the persisted repository gate (P2-A).
+  Future<TypedCommitLeaseResult> beginTypedCommitAttempt({
+    required String taskId,
+    required String attemptToken,
+    required int attemptNumber,
+    required int expectedReviewDraftRevision,
+  }) {
+    final completer = Completer<TypedCommitLeaseResult>();
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) async {
+      try {
+        completer.complete(
+          _beginTypedCommitAttemptNow(
+            taskId: taskId,
+            attemptToken: attemptToken,
+            attemptNumber: attemptNumber,
+            expectedReviewDraftRevision: expectedReviewDraftRevision,
+          ),
+        );
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  TypedCommitLeaseResult _beginTypedCommitAttemptNow({
+    required String taskId,
+    required String attemptToken,
+    required int attemptNumber,
+    required int expectedReviewDraftRevision,
+  }) {
+    if (_typedCommitLeases.containsKey(taskId)) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.commitInProgress,
+      );
+    }
+    final index = tasks.indexWhere((task) => task.id == taskId);
+    if (index < 0) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.taskMissing,
+      );
+    }
+    final task = tasks[index];
+    if (task.status != TaskStatus.pendingReview) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    if (task.attemptToken != attemptToken ||
+        task.attemptNumber != attemptNumber) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.staleAttempt,
+      );
+    }
+    if (task.attemptState != ImportAttemptState.readyForReview) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    final route = task.diagnostics?[keyImportStorageRoute];
+    final reason = task.diagnostics?[keyImportStorageReason];
+    if (route != TypedImportCommitPersistence.typedV2RouteValue ||
+        reason != TypedImportCommitPersistence.typedCandidateReadyReasonValue) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    if (task.parsedData == null || task.parsedData!.isEmpty) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    final currentRevision = _readReviewDraftRevision(task);
+    if (expectedReviewDraftRevision <= 0 ||
+        currentRevision != expectedReviewDraftRevision) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.staleReviewDraft,
+      );
+    }
+
+    final lease = TypedCommitAttemptLease(
+      leaseId: _newTypedCommitLeaseId(),
+      taskId: taskId,
+      attemptToken: attemptToken,
+      attemptNumber: attemptNumber,
+      reviewDraftRevision: expectedReviewDraftRevision,
+      storageRoute: TypedImportCommitPersistence.typedV2RouteValue,
+      storageReason:
+          TypedImportCommitPersistence.typedCandidateReadyReasonValue,
+    );
+    _typedCommitLeases[taskId] = lease;
+    return TypedCommitLeaseResult.acquired(lease);
+  }
+
+  /// Releases an active typed commit lease after a failed attempt. The task
+  /// stays `pendingReview` and new review draft writes are allowed again.
+  void releaseTypedCommitLease(TypedCommitAttemptLease lease) {
+    final active = _typedCommitLeases[lease.taskId];
+    if (active != null && active.leaseId == lease.leaseId) {
+      _typedCommitLeases.remove(lease.taskId);
+    }
+  }
+
+  /// Synchronizes the already-durable typed completion into memory only.
+  ///
+  /// Never persists: the SQLite transaction already wrote `import_tasks` to
+  /// completed. No `_saveTask`, `ImportTaskRepository` or database write is
+  /// ever triggered from this path. When the in-memory task was removed, a
+  /// fixed safe warning is recorded and the durable database state remains
+  /// authoritative. The lease is cleared only after every review draft write
+  /// queued before the completion has drained, so no old pendingReview
+  /// snapshot can be written after the task completed.
+  TypedDurableCompletionStatus applyDurableTypedCommitCompletion({
+    required TypedCommitAttemptLease lease,
+    required String completionText,
+    required int completedAt,
+  }) {
+    final index = tasks.indexWhere((task) => task.id == lease.taskId);
+    if (index < 0) {
+      _typedCommitLeases.remove(lease.taskId);
+      _logTypedCommitTaskRemovedWarning();
+      return TypedDurableCompletionStatus.taskRemovedDurable;
+    }
+    final task = tasks[index];
+    if (task.attemptToken != lease.attemptToken ||
+        task.attemptNumber != lease.attemptNumber) {
+      _typedCommitLeases.remove(lease.taskId);
+      return TypedDurableCompletionStatus.staleLease;
+    }
+    if (task.status == TaskStatus.completed) {
+      _typedCommitLeases.remove(lease.taskId);
+      return TypedDurableCompletionStatus.alreadyCompleted;
+    }
+    task.status = TaskStatus.completed;
+    task.progressText = completionText;
+    task.completedAt = completedAt;
+    task.parsedData = null;
+    notifyListeners();
+    _scheduleTypedCommitLeaseCleanup(lease.taskId);
+    return TypedDurableCompletionStatus.applied;
+  }
+
+  void _scheduleTypedCommitLeaseCleanup(String taskId) {
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) {
+      _typedCommitLeases.remove(taskId);
+    });
+  }
+
+  void _logTypedCommitTaskRemovedWarning() {
+    AppLogger.warning(
+      'Typed import committed durably but the in-memory task was removed',
+      module: 'ImportTask',
+      data: const <String, Object?>{
+        'stage': 'typed_commit_memory_sync',
+        'status': 'durable_completed_task_removed',
+      },
+    );
+  }
+
+  static String _newTypedCommitLeaseId() {
+    final timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
+    final entropy = _leaseRandom.nextInt(0x7fffffff).toRadixString(16);
+    return 'typed-commit-$timestamp-$entropy';
   }
 
   int _readReviewDraftRevision(ImportTask task) {
