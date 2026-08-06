@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -55,6 +56,23 @@ class _FakeRepo extends Fake implements QuestionRepository {
     typedSaveCalls++;
     savedTyped = List<QuestionDraftV2>.unmodifiable(questions);
     if (typedFailure != null) throw typedFailure!;
+  }
+
+  @override
+  Future<TypedImportCommitPersistenceResult> commitQuestionDraftsV2ForImport({
+    required String bankName,
+    String? folderName,
+    required List<QuestionDraftV2> questions,
+    required TypedImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    typedSaveCalls++;
+    savedTyped = List<QuestionDraftV2>.unmodifiable(questions);
+    if (typedFailure != null) throw typedFailure!;
+    return TypedImportCommitPersistenceResult(
+      questionCount: questions.length,
+      completedAt: 1700000000,
+    );
   }
 }
 
@@ -161,7 +179,6 @@ void main() {
 
   setUp(() {
     repo = _FakeRepo();
-    manager = TaskManager.forTesting();
   });
 
   tearDown(() {
@@ -173,11 +190,17 @@ void main() {
     Map<String, dynamic>? diagnostics,
     String? taskId,
   }) {
+    // The manager must be created inside the test body zone: a manager
+    // created in setUp owns a `_reviewDraftWriteTail` completed in the real
+    // zone, whose `.then` microtasks never run under the widget test's fake
+    // async pump.
+    manager = TaskManager.forTesting();
     if (taskId != null) {
       manager.tasks.add(ImportTask(
         id: taskId,
         title: 'Synthetic typed import',
         status: TaskStatus.pendingReview,
+        parsedData: questions,
         diagnostics: diagnostics ?? _typedDiagnostics(),
       ));
     }

@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/data/repositories/latex_migration_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
@@ -130,6 +131,75 @@ Future<void> _insertReviewState(
     'last_lapse_time': lastLapseTime,
     'last_review_time': 0,
   });
+}
+
+TypedImportCommitGuard _importGuard({
+  String taskId = 'import-task',
+  String token = 'attempt-A',
+  int number = 1,
+  int revision = 1,
+}) {
+  return TypedImportCommitGuard(
+    taskId: taskId,
+    attemptToken: token,
+    attemptNumber: number,
+    reviewDraftRevision: revision,
+    storageRoute: TypedImportCommitPersistence.typedV2RouteValue,
+    storageReason: TypedImportCommitPersistence.typedCandidateReadyReasonValue,
+  );
+}
+
+Map<String, Object?> _importDiagnostics({
+  String token = 'attempt-A',
+  int number = 1,
+  int revision = 1,
+  String route = 'typedV2',
+  String? reason = 'typed_candidate_ready',
+  String attemptState = 'readyForReview',
+}) {
+  return <String, Object?>{
+    TypedImportCommitPersistence.keyAttemptToken: token,
+    TypedImportCommitPersistence.keyAttemptNumber: number,
+    TypedImportCommitPersistence.keyAttemptState: attemptState,
+    TypedImportCommitPersistence.keyImportStorageRoute: route,
+    if (reason != null)
+      TypedImportCommitPersistence.keyImportStorageReason: reason,
+    TypedImportCommitPersistence.keyReviewDraftRevision: revision,
+  };
+}
+
+Future<void> _insertImportTask(
+  Database db, {
+  String id = 'import-task',
+  int status = 1,
+  String? parsedData = '[{"q_num":1}]',
+  Map<String, Object?>? diagnostics,
+  String? diagnosticsJson,
+}) async {
+  await db.insert(
+    'import_tasks',
+    <String, Object?>{
+      'id': id,
+      'title': 'Synthetic typed import',
+      'status': status,
+      'progress_text': 'Ready for review',
+      'percent': 1.0,
+      'error_msg': null,
+      'parsed_data': parsedData,
+      'bank_name': _bankName,
+      'folder_name': 'Math',
+      'created_at': 1700000000,
+      'completed_at': null,
+      'source_type': 'vision',
+      'warnings': null,
+      'diagnostics':
+          diagnosticsJson ?? jsonEncode(diagnostics ?? _importDiagnostics()),
+    },
+  );
+}
+
+Future<List<Map<String, Object?>>> _importTaskRows(Database db) {
+  return db.query('import_tasks');
 }
 
 String _unsafePayloadJson() {
@@ -798,6 +868,471 @@ void main() {
       } finally {
         await second.close();
       }
+    });
+  });
+
+  group('typed import atomic commit', () {
+    test('valid guard and drafts commit atomically', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db);
+      final repository = QuestionRepository();
+
+      final result = await repository.commitQuestionDraftsV2ForImport(
+        bankName: _bankName,
+        folderName: 'Math',
+        questions: <QuestionDraftV2>[
+          _draft('import_question_1'),
+          _draft('import_question_2'),
+        ],
+        guard: _importGuard(),
+        completionText: '已成功导入题库: synthetic_bank',
+      );
+
+      expect(result.questionCount, 2);
+      expect(result.completedAt, greaterThan(0));
+      expect(await db.query('questions'), hasLength(2));
+      expect(await db.query('question_v2_payloads'), hasLength(2));
+      expect(await db.query('review_states'), hasLength(2));
+      final folders = await db.query('bank_folders');
+      expect(folders.single['bank_name'], _bankName);
+      expect(folders.single['folder_name'], 'Math');
+
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 2);
+      expect(task['progress_text'], '已成功导入题库: synthetic_bank');
+      expect(task['percent'], 1.0);
+      expect(task['error_msg'], isNull);
+      expect(task['parsed_data'], isNull);
+      expect(task['completed_at'], isNotNull);
+      expect(task['id'], 'import-task');
+      expect(task['title'], 'Synthetic typed import');
+      expect(task['created_at'], 1700000000);
+      expect(task['diagnostics'], isNotNull,
+          reason: 'diagnostics audit metadata must be preserved');
+    });
+
+    test('task missing fails with zero question writes', () async {
+      final db = await _singletonDb();
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_missing_task')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.taskMissing,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+      expect(await db.query('review_states'), isEmpty);
+      expect(await db.query('bank_folders'), isEmpty);
+    });
+
+    test('wrong persisted status fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, status: 0);
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_wrong_status')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.taskNotPendingReview,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+    });
+
+    test('already completed task fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, status: 2);
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_already_done')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.alreadyCompleted,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+    });
+
+    test('stale attempt token fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, diagnostics: _importDiagnostics(token: 'B'));
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_stale_token')],
+          guard: _importGuard(token: 'A'),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.staleAttempt,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+    });
+
+    test('stale attempt number fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, diagnostics: _importDiagnostics(number: 2));
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_stale_number')],
+          guard: _importGuard(number: 1),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.staleAttempt,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+    });
+
+    test('stale review revision fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, diagnostics: _importDiagnostics(revision: 2));
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_stale_revision')],
+          guard: _importGuard(revision: 1),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.staleReviewDraft,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+    });
+
+    test('wrong route, reason or attempt state fails with zero writes',
+        () async {
+      final db = await _singletonDb();
+      final repository = QuestionRepository();
+
+      for (final metadata in <Map<String, Object?>>[
+        _importDiagnostics(route: 'legacyV1'),
+        _importDiagnostics(reason: 'typed_candidate_shadow_ready'),
+        _importDiagnostics(attemptState: 'failed'),
+      ]) {
+        await _insertImportTask(db, diagnostics: metadata);
+        await expectLater(
+          repository.commitQuestionDraftsV2ForImport(
+            bankName: _bankName,
+            folderName: 'Math',
+            questions: <QuestionDraftV2>[_draft('import_bad_metadata')],
+            guard: _importGuard(),
+            completionText: 'done',
+          ),
+          throwsA(
+            isA<TypedImportCommitPersistenceException>().having(
+              (error) => error.failure,
+              'failure',
+              TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+            ),
+          ),
+        );
+        await db.delete('import_tasks');
+      }
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+    });
+
+    test('invalid diagnostics JSON fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, diagnosticsJson: '{broken');
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_bad_json')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+    });
+
+    test('null parsed_data fails with zero writes', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db, parsedData: null);
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_null_parsed')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+    });
+
+    test('sidecar insert failure rolls back the task completion', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db);
+      await db.execute('''
+        CREATE TRIGGER r7c1_block_second_payload
+        BEFORE INSERT ON question_v2_payloads
+        WHEN (SELECT COUNT(*) FROM question_v2_payloads) >= 1
+        BEGIN SELECT RAISE(ABORT, 'r7c1_synthetic_second_payload_failure'); END;
+      ''');
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[
+            _draft('import_rollback_1'),
+            _draft('import_rollback_2'),
+          ],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.transactionFailed,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+      expect(await db.query('review_states'), isEmpty);
+      expect(await db.query('bank_folders'), isEmpty);
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 1, reason: 'task completion must roll back');
+      expect(task['parsed_data'], isNotNull);
+    });
+
+    test('import_tasks update trigger failure rolls back all question rows',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db);
+      await db.execute('''
+        CREATE TRIGGER r7c1_block_completion
+        BEFORE UPDATE ON import_tasks
+        WHEN NEW.status = 2
+        BEGIN SELECT RAISE(ABORT, 'r7c1_synthetic_completion_failure'); END;
+      ''');
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_update_rollback')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.transactionFailed,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+      expect(await db.query('review_states'), isEmpty);
+      expect(await db.query('bank_folders'), isEmpty);
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 1);
+      expect(task['parsed_data'], isNotNull);
+    });
+
+    test('CAS mismatch on the final update rolls back everything', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db);
+      await db.execute('''
+        CREATE TRIGGER r7c1_break_cas
+        AFTER INSERT ON questions
+        BEGIN
+          UPDATE import_tasks SET status = 3 WHERE status = 1;
+        END;
+      ''');
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_cas_rollback')],
+          guard: _importGuard(),
+          completionText: 'done',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.transactionFailed,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('question_v2_payloads'), isEmpty);
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 1,
+          reason: 'the CAS trigger mutation must roll back with the '
+              'transaction');
+    });
+
+    test('safe persistence exception leaks no SQL, token or trigger text',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db);
+      await db.execute('''
+        CREATE TRIGGER r7c1_block_completion
+        BEFORE UPDATE ON import_tasks
+        WHEN NEW.status = 2
+        BEGIN SELECT RAISE(ABORT, 'r7c1_private_trigger_text'); END;
+      ''');
+      final repository = QuestionRepository();
+      TypedImportCommitPersistenceException? caught;
+      try {
+        await repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: <QuestionDraftV2>[_draft('import_safe_error')],
+          guard: _importGuard(),
+          completionText: 'done',
+        );
+      } on TypedImportCommitPersistenceException catch (error) {
+        caught = error;
+      }
+
+      expect(caught, isNotNull);
+      expect(caught!.failure,
+          TypedImportCommitPersistenceFailure.transactionFailed);
+      expect(caught.toString(), isNot(contains('r7c1_private_trigger_text')));
+      expect(caught.toString(), isNot(contains('attempt-A')));
+      expect(caught.toString(), isNot(contains('import-task')));
+      expect(caught.toString(), isNot(contains(_bankName)));
+      expect(caught.toString(), isNot(contains('diagnostics')));
+      expect(caught.toString(), isNot(contains('UPDATE')));
+    });
+
+    test('concurrent duplicate commits write exactly one batch', () async {
+      final db = await _singletonDb();
+      await _insertImportTask(db);
+      final repository = QuestionRepository();
+      final drafts = <QuestionDraftV2>[
+        _draft('import_concurrent_1'),
+        _draft('import_concurrent_2'),
+      ];
+
+      final results = await Future.wait<Object?>(
+        <Future<Object?>>[
+          repository
+              .commitQuestionDraftsV2ForImport(
+                bankName: _bankName,
+                folderName: 'Math',
+                questions: drafts,
+                guard: _importGuard(),
+                completionText: 'done',
+              )
+              .then<Object?>((result) => result),
+          repository
+              .commitQuestionDraftsV2ForImport(
+                bankName: _bankName,
+                folderName: 'Math',
+                questions: drafts,
+                guard: _importGuard(),
+                completionText: 'done',
+              )
+              .then<Object?>((result) => result)
+              .catchError((Object error) => error),
+        ],
+      );
+
+      final successes =
+          results.whereType<TypedImportCommitPersistenceResult>().toList();
+      final failures =
+          results.whereType<TypedImportCommitPersistenceException>().toList();
+      expect(successes, hasLength(1));
+      expect(failures, hasLength(1));
+      expect(successes.single.questionCount, 2);
+      expect(await db.query('questions'), hasLength(2),
+          reason: 'exactly one batch of questions must be written');
+      expect(await db.query('question_v2_payloads'), hasLength(2));
+      expect(await db.query('review_states'), hasLength(2));
+      expect((await _importTaskRows(db)).single['status'], 2);
     });
   });
 
