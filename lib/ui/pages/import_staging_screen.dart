@@ -14,6 +14,8 @@ import '../../services/import_pipeline/subjective_answer_distillation_service.da
 import '../../services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
 import '../../services/import_pipeline/subjective_answer_expectation.dart';
 import '../../services/import_pipeline/subjective_answer_extractor.dart';
+import '../../services/import_pipeline/import_parse_result.dart';
+import '../../services/import_pipeline/ocr_typed_candidate.dart';
 import '../../services/import_review/import_review_analyzer.dart';
 import '../../services/import_review/import_review_blocking_policy.dart';
 import '../../services/import_review/import_review_item.dart';
@@ -22,9 +24,11 @@ import '../../services/import_review/import_review_badge_formatter.dart';
 import '../../services/import_review/import_review_batch_controller.dart';
 import '../../services/import_review/import_review_filter.dart';
 import '../../services/import_review/import_review_visible_item.dart';
+import '../../services/import_review/import_review_report.dart';
 import '../../services/import_review/import_review_report_builder.dart';
 import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_commit_service.dart';
+import '../../services/import_review/typed_review_result_builder.dart';
 import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -61,6 +65,10 @@ class ImportStagingScreen extends StatefulWidget {
 
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _explanationOverrideKey = '_explanation_override';
+  static const _typedCommitBlockedText = '结构化题目缺少必要的审核信息，无法入库，请检查后重试';
+  static const _typedCommitFailedText = '结构化题库入库失败，题目保持待审状态，请检查后重试';
+  static const _typedOptionsBlockedText = '当前结构化题目暂不支持修改选项数量、顺序或标签，请恢复后再入库';
+  static const _invalidStorageRouteText = '当前任务的存储路线无效，无法入库';
   static const _safeSnapshotProvenanceKeys = {
     'q_num',
     'question_number',
@@ -602,6 +610,23 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
     final report = ImportReviewReportBuilder.build(_allItems, _reviewResult);
 
+    final route = _resolveStorageRoute();
+    if (route == null) {
+      _showFixedError(_invalidStorageRouteText);
+      return;
+    }
+    if (route == ImportStorageRoute.typedV2) {
+      await _confirmAndSaveTyped(bankName, folderName, report);
+      return;
+    }
+    await _confirmAndSaveLegacy(bankName, folderName, report);
+  }
+
+  Future<void> _confirmAndSaveLegacy(
+    String bankName,
+    String folderName,
+    ImportReviewReport report,
+  ) async {
     setState(() => _isSaving = true);
     try {
       await _commitService.commit(
@@ -620,52 +645,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             .toList(growable: false),
       );
 
-      // 触发全局题库刷新事件
-      globalBankUpdateNotifier.value++;
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('🎉 导入成功！'), backgroundColor: Colors.green));
-
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) {
-            return AlertDialog(
-              title: const Text('本次导入报告',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    ImportReviewReportFormatter.formatSuccessReport(
-                        report, bankName, folderName),
-                    style:
-                        const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                  ),
-                ),
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    Navigator.pop(context);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ),
-                  child: const Text('完成'),
-                ),
-              ],
-            );
-          },
-        );
-      }
+      _showSuccessAfterCommit(report, bankName, folderName);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -674,6 +654,182 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Future<void> _confirmAndSaveTyped(
+    String bankName,
+    String folderName,
+    ImportReviewReport report,
+  ) async {
+    final taskId = widget.taskId?.trim() ?? '';
+    final attemptToken =
+        widget.diagnostics?[TaskManager.keyAttemptToken]?.toString().trim() ??
+            '';
+    final attemptNumber = _readAttemptNumber();
+    if (taskId.isEmpty || attemptToken.isEmpty || attemptNumber == null) {
+      _showFixedError(_typedCommitBlockedText);
+      return;
+    }
+
+    final items = <TypedReviewCommitInput>[];
+    for (final item in _allItems) {
+      final marker = _reviewItemIds[item.originalIndex];
+      final provenance = _snapshotProvenance[item.originalIndex];
+      if (marker == null ||
+          provenance == null ||
+          !provenance.containsKey(TypedReviewSnapshotCodec.mapKey)) {
+        _showFixedError(_typedCommitBlockedText);
+        return;
+      }
+      items.add(
+        TypedReviewCommitInput(
+          reviewItemId: marker,
+          envelope: provenance[TypedReviewSnapshotCodec.mapKey],
+          currentDraft: item.draft,
+        ),
+      );
+    }
+    if (items.isEmpty) {
+      _showFixedError(_typedCommitBlockedText);
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      await _commitService.commitTyped(
+        bankName: bankName,
+        folderName: folderName,
+        items: items,
+        taskId: taskId,
+        attemptToken: attemptToken,
+        attemptNumber: attemptNumber,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: _explanationRetentionMode,
+        explanationOverrides: _allItems
+            .map(
+              (item) =>
+                  _explanationOverrides[item.originalIndex] ??
+                  QuestionExplanationOverride.inherit,
+            )
+            .toList(growable: false),
+      );
+      _showSuccessAfterCommit(report, bankName, folderName);
+    } on TypedReviewCommitException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            error.failure == TypedReviewCommitFailure.unsupportedOptionEdit
+                ? _typedOptionsBlockedText
+                : _typedCommitFailedText,
+          ),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(_typedCommitFailedText),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _showSuccessAfterCommit(
+    ImportReviewReport report,
+    String bankName,
+    String folderName,
+  ) {
+    // 触发全局题库刷新事件
+    globalBankUpdateNotifier.value++;
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('🎉 导入成功！'), backgroundColor: Colors.green));
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('本次导入报告',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                ImportReviewReportFormatter.formatSuccessReport(
+                    report, bankName, folderName),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('完成'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showFixedError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Colors.redAccent,
+    ));
+  }
+
+  /// Strict route resolution: missing route -> legacyV1, legacyV1 with any
+  /// legal reason -> legacyV1, typedV2 + typed_candidate_ready -> typedV2,
+  /// every other combination -> null (block).
+  ImportStorageRoute? _resolveStorageRoute() {
+    final value = widget.diagnostics?[TaskManager.keyImportStorageRoute];
+    final ImportStorageRoute route;
+    try {
+      route = value == null
+          ? ImportStorageRoute.legacyV1
+          : decodeImportStorageRoute(value);
+    } on TypedReviewSnapshotException {
+      return null;
+    }
+    try {
+      validateImportStorageMetadata(
+        route: route,
+        reason: widget.diagnostics?[TaskManager.keyImportStorageReason],
+      );
+    } on TypedReviewSnapshotException {
+      return null;
+    }
+    return route;
+  }
+
+  int? _readAttemptNumber() {
+    final value = widget.diagnostics?[TaskManager.keyAttemptNumber];
+    if (value is int && value > 0) return value;
+    if (value is num && value > 0) return value.toInt();
+    if (value is String) {
+      final parsed = int.tryParse(value.trim());
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return null;
   }
 
   void _refreshReviewState() {
@@ -690,7 +846,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           if (source.containsKey(key)) key: source[key],
       };
       final storedItemId = source[TaskManager.keyReviewItemId]?.toString();
+      String? envelopeReviewItemId;
+      final envelope = source[TypedReviewSnapshotCodec.mapKey];
+      if (envelope is Map && envelope['reviewItemId'] is String) {
+        envelopeReviewItemId = envelope['reviewItemId'] as String;
+      }
       _reviewItemIds[index] = storedItemId ??
+          envelopeReviewItemId ??
           '${widget.taskId ?? 'local'}:${source['question_number'] ?? source['q_num'] ?? 'unknown'}:$index';
       normalizationNeeded |= storedItemId == null;
       final override = questions[index][_explanationOverrideKey]?.toString();
