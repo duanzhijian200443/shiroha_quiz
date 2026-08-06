@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
@@ -1772,6 +1774,214 @@ void main() {
       expect(result.diagnostics['status'], 'failed_request');
       expect(result.warnings, contains('OCR 请求失败，请检查 OCR 配置或网络后重试。'));
       expect(result.warnings.join(), isNot(contains('视觉')));
+    });
+  });
+
+  group('OcrImportService shadow typed candidates', () {
+    test('a clean single-file parse produces an eligible candidate batch',
+        () async {
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: FakeOcrDocumentClient(
+          objectiveExplanationDocument(
+            explanation: 'Synthetic explanation',
+            answer: '答案：A',
+          ),
+        ),
+        repairService: const FakeRepairService(),
+        uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000001',
+      );
+
+      final result = await service.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.typedCandidateBatch, isNotNull);
+      final batch = result.typedCandidateBatch!;
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(isCanonicalUuidV4(candidate.reviewItemId), isTrue);
+      expect(isCanonicalUuidV4(candidate.questionId), isTrue);
+      expect(candidate.draft.questionId, candidate.questionId);
+      expect(
+        isCanonicalUuidV4(candidate.draft.sourceRefs.first.sourceId),
+        isTrue,
+      );
+      expect(candidate.draft.sourceRefs.first.displayLabel, isNull);
+      expect(
+        jsonEncode(result.diagnostics),
+        isNot(contains('_typed_review_v1')),
+      );
+    });
+
+    test(
+        'unsupported structure yields a fixed failure without changing '
+        'legacy questions', () async {
+      final document = OcrDocument(
+        sourceName: 'table-question.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: [
+              const OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '三、解答题',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              const OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'table',
+                text: '1. Synthetic table question',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              const OcrBlock(
+                blockId: 'answer',
+                pageIndex: 1,
+                type: 'text',
+                text: '答案：A',
+                bbox: [],
+                readingOrder: 2,
+              ),
+            ],
+          ),
+        ],
+      );
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: FakeOcrDocumentClient(document),
+        repairService: const FakeRepairService(),
+        uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000001',
+      );
+
+      final result = await service.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue);
+      expect(result.questions, hasLength(1),
+          reason: 'legacy assembly is unaffected by candidate failures');
+      final batch = result.typedCandidateBatch!;
+      expect(batch.candidates, isEmpty);
+      expect(
+        batch.failure,
+        OcrTypedCandidateFailure.unsupportedStructure,
+      );
+    });
+
+    test('ai_repair_applied fails the whole candidate batch', () async {
+      final document = OcrDocument(
+        sourceName: 'repair-candidate.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: [
+              const OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '一、选择题（共 1 题）',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              const OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'text',
+                text: '1. Valid stem (A) one (B) two (C) three (D) four',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              const OcrBlock(
+                blockId: 'answer',
+                pageIndex: 1,
+                type: 'text',
+                text: '答案：',
+                bbox: [],
+                readingOrder: 2,
+              ),
+              const OcrBlock(
+                blockId: 'explanation',
+                pageIndex: 1,
+                type: 'text',
+                text: '解析：Synthetic explanation',
+                bbox: [],
+                readingOrder: 3,
+              ),
+            ],
+          ),
+        ],
+      );
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: FakeOcrDocumentClient(document),
+        repairService: RecordingRepairService(),
+        uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000001',
+      );
+
+      final result = await service.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue,
+          reason: 'candidate failure must not fail legacy OCR import');
+      expect(result.questions, hasLength(1));
+      final batch = result.typedCandidateBatch!;
+      expect(batch.candidates, isEmpty);
+      expect(batch.failure, OcrTypedCandidateFailure.repairApplied);
+    });
+
+    test(
+        'an unexpected candidate error maps to internal_error without '
+        'failing legacy import', () async {
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: FakeOcrDocumentClient(
+          objectiveExplanationDocument(
+            explanation: 'Synthetic explanation',
+            answer: '答案：A',
+          ),
+        ),
+        repairService: const FakeRepairService(),
+        uuidV4Factory: () => throw StateError('synthetic uuid failure'),
+      );
+
+      final result = await service.tryParse(
+        filePath: 'C:\\tmp\\sample.pdf',
+        sourceName: 'sample.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue);
+      expect(result.questions, hasLength(1));
+      final batch = result.typedCandidateBatch!;
+      expect(batch.candidates, isEmpty);
+      expect(batch.failure, OcrTypedCandidateFailure.internalError);
     });
   });
 }

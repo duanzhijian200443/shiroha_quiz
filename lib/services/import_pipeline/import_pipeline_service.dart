@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
+import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/repositories/ai_engine_repository.dart';
@@ -26,6 +27,7 @@ import 'import_attempt_context.dart';
 import 'import_question_final_sorter.dart';
 import 'ocr_import_service.dart';
 import 'ocr_request_scheduler.dart';
+import 'ocr_typed_candidate.dart';
 import 'pdf_page_image_renderer.dart';
 import 'single_question_repair_service.dart';
 import 'vision_batch_parse_coordinator.dart';
@@ -160,6 +162,7 @@ class ImportPipelineService {
     List<String> allWarnings = [];
     Map<String, dynamic> allDiagnostics = {};
     final taskId = request.taskId;
+    OcrTypedCandidateBatch? ocrTypedCandidateBatch;
 
     bool hasStrictDocxRoute = false;
     bool hasBlockedParse = false;
@@ -400,6 +403,7 @@ class ImportPipelineService {
             allWarnings.add('OCR 未能处理当前文件。');
             break;
           }
+          ocrTypedCandidateBatch = ocrResult.typedCandidateBatch;
 
           allWarnings.addAll(ocrResult.warnings);
           allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
@@ -441,30 +445,46 @@ class ImportPipelineService {
       final sorted = const ImportQuestionFinalSorter().sort(merged);
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);
-      return ImportParseResult(
-        questions: finalizeAndAuditImportQuestions(
-          sorted.questions,
-          mode: request.explanationRetentionMode,
-        ),
+      final finalized = finalizeAndAuditImportQuestions(
+        sorted.questions,
+        mode: request.explanationRetentionMode,
+      );
+      final storage = _resolveOcrCandidateStorage(
+        request,
+        ocrTypedCandidateBatch,
+        finalized,
+      );
+      return ImportParseResult.withStorageMetadata(
+        questions: storage.questions,
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         explanationRetentionMode: request.explanationRetentionMode,
+        storageRoute: storage.route,
+        storageReason: storage.reason,
       );
     } else if (fileResults.isNotEmpty) {
       final flattenedQuestions = fileResults.expand((e) => e).toList();
       final sorted = const ImportQuestionFinalSorter().sort(flattenedQuestions);
       allDiagnostics['final_sort'] = sorted.diagnostics;
       _attachVisionQualitySummary(allDiagnostics);
-      return ImportParseResult(
-        questions: finalizeAndAuditImportQuestions(
-          sorted.questions,
-          mode: request.explanationRetentionMode,
-        ),
+      final finalized = finalizeAndAuditImportQuestions(
+        sorted.questions,
+        mode: request.explanationRetentionMode,
+      );
+      final storage = _resolveOcrCandidateStorage(
+        request,
+        ocrTypedCandidateBatch,
+        finalized,
+      );
+      return ImportParseResult.withStorageMetadata(
+        questions: storage.questions,
         warnings: allWarnings,
         diagnostics: allDiagnostics,
         blocked: hasBlockedParse,
         blockReason: _readBlockReason(allDiagnostics),
         explanationRetentionMode: request.explanationRetentionMode,
+        storageRoute: storage.route,
+        storageReason: storage.reason,
       );
     } else {
       if (allWarnings.isEmpty && allDiagnostics.isNotEmpty) {
@@ -487,6 +507,37 @@ class ImportPipelineService {
       return (gate['reason']?.toString() ?? gate['severity']?.toString());
     }
     return null;
+  }
+
+  /// Resolves the R7B shadow candidate storage metadata after the final
+  /// finalization. Non-OCR modes and parsers without a candidate batch keep
+  /// the strict defaults; OCR batches go through the all-or-nothing gate.
+  ({
+    List<Map<String, dynamic>> questions,
+    ImportStorageRoute route,
+    String? reason
+  }) _resolveOcrCandidateStorage(
+    ImportParseRequest request,
+    OcrTypedCandidateBatch? batch,
+    List<Map<String, dynamic>> finalized,
+  ) {
+    if (request.mode != ImportParseMode.ocr || batch == null) {
+      return (
+        questions: finalized,
+        route: ImportStorageRoute.legacyV1,
+        reason: null,
+      );
+    }
+    final gate = applyOcrTypedCandidateGate(
+      batch: batch,
+      finalQuestions: finalized,
+      singleFile: request.filePaths.length == 1,
+    );
+    return (
+      questions: gate.questions,
+      route: gate.route,
+      reason: gate.reason,
+    );
   }
 
   Future<void> _updateTaskProgress(

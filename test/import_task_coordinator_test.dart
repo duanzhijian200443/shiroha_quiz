@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
@@ -1000,4 +1001,75 @@ void main() {
       }
     });
   }
+
+  test(
+      'route and reason enter task diagnostics only, never the user-visible '
+      '_import_diagnostics, and survive reload', () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => ImportParseResult.withStorageMetadata(
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'type': 0,
+            'content': 'Synthetic question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+          },
+        ],
+        warnings: const <String>['synthetic warning'],
+        diagnostics: const <String, dynamic>{'safeCount': 1},
+        storageRoute: ImportStorageRoute.legacyV1,
+        storageReason: 'typed_candidate_shadow_ready',
+      ),
+      taskIdFactory: () => 'task-storage-metadata',
+      traceIdFactory: () => 'trace-storage-metadata',
+    );
+
+    final handle = await coordinator.dispatchRequest(
+      sourceDescription: 'fixture.pdf',
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+      mode: ImportParseMode.ocr,
+      maxConcurrency: 1,
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    expect(task.diagnostics?[TaskManager.keyImportStorageRoute], 'legacyV1');
+    expect(
+      task.diagnostics?[TaskManager.keyImportStorageReason],
+      'typed_candidate_shadow_ready',
+    );
+    final userVisible = task.parsedData!.first['_import_diagnostics'] as List;
+    expect(userVisible, isNot(contains('typed_candidate_shadow_ready')));
+    expect(userVisible, isNot(contains('_importStorageRoute')));
+    expect(userVisible, isNot(contains('_importStorageReason')));
+    final restored = ImportTask.fromMap(task.toMap());
+    expect(
+      restored.diagnostics?[TaskManager.keyImportStorageRoute],
+      'legacyV1',
+    );
+    expect(
+      restored.diagnostics?[TaskManager.keyImportStorageReason],
+      'typed_candidate_shadow_ready',
+    );
+    expect(restored.parsedData, hasLength(1));
+  });
+
+  test('invalid storage reason is rejected at the strict metadata boundary',
+      () {
+    expect(
+      () => ImportParseResult.withStorageMetadata(
+        questions: const <Map<String, dynamic>>[],
+        storageReason: 'Not A Reason!',
+      ),
+      throwsA(isA<TypedReviewSnapshotException>()),
+    );
+  });
 }
