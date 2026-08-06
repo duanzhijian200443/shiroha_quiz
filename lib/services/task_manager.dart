@@ -267,6 +267,8 @@ class TaskManager extends ChangeNotifier {
       '_answer_distillation_status';
   static const String keyAnswerDistillationReason =
       '_answer_distillation_reason';
+  static const String keyImportStorageRoute = '_importStorageRoute';
+  static const String keyImportStorageReason = '_importStorageReason';
 
   static final TaskManager _instance = TaskManager._internal();
   static TaskManager get instance => _instance;
@@ -645,6 +647,10 @@ class TaskManager extends ChangeNotifier {
         keyBatchId: stableMetadata[keyBatchId],
       if (stableMetadata[keySelectionIndex] != null)
         keySelectionIndex: stableMetadata[keySelectionIndex],
+      if (stableMetadata[keyImportStorageRoute] != null)
+        keyImportStorageRoute: stableMetadata[keyImportStorageRoute],
+      if (stableMetadata[keyImportStorageReason] != null)
+        keyImportStorageReason: stableMetadata[keyImportStorageReason],
       keyTraceId: nextAttempt.traceId,
       keyParseMode: parseMode,
       keyExplanationRetentionMode: explanationRetentionMode.name,
@@ -740,6 +746,8 @@ class TaskManager extends ChangeNotifier {
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
+      keyImportStorageRoute,
+      keyImportStorageReason,
     ]) {
       final value = existing?[key];
       if (value != null) metadata[key] = value;
@@ -821,6 +829,8 @@ class TaskManager extends ChangeNotifier {
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
+      keyImportStorageRoute,
+      keyImportStorageReason,
     ]) {
       final value = existing?[key];
       if (value != null) {

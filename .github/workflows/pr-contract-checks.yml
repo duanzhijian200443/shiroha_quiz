@@ -86,7 +86,8 @@ jobs:
               'test/r6_question_v2_persistence_acceptance_test.dart',
               'test/database_runtime_profile_test.dart',
               'test/import_commit_service_test.dart',
-              'test/domain/question/question_draft_v2_codec_test.dart'
+              'test/domain/question/question_draft_v2_codec_test.dart',
+              'test/r7a_typed_review_snapshot_acceptance_test.dart'
             )
 
       - name: Check committed diff
