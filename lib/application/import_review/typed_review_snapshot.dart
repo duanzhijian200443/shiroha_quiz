@@ -66,7 +66,10 @@ bool isCanonicalUuidV4(String value) {
 
 /// Fixed failure classification for typed review snapshots.
 enum TypedReviewSnapshotFailure {
-  /// The typed envelope key is absent.
+  /// The payload is absent (null) when a required decode is attempted.
+  ///
+  /// A task-level missing envelope key is blocked by [requireTypedEnvelope]
+  /// with [TypedReviewSnapshotFailure.routeMismatch] instead.
   missingPayload,
 
   /// The envelope schema version is unsupported.
