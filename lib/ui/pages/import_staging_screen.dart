@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../application/import_review/typed_review_snapshot.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_pipeline/final_question_latex_audit.dart';
@@ -66,6 +67,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     'source_page_indices',
     'source_block_ids',
     '_import_diagnostics',
+    TypedReviewSnapshotCodec.mapKey,
   };
 
   late List<ImportReviewItem> _allItems;
