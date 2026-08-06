@@ -349,15 +349,16 @@ void main() {
   });
 
   group('R7A boundary proofs', () {
-    test('ImportCommitService still calls the legacy writer', () {
+    test('ImportCommitService keeps the legacy writer and adds typed writer',
+        () {
       final source =
           File('lib/services/import_review/import_commit_service.dart')
               .readAsStringSync();
       expect(source, contains('saveQuestionDraftsToBank'));
-      expect(source, isNot(contains('saveQuestionDraftsV2ToBank')));
+      expect(source, contains('saveQuestionDraftsV2ToBank'));
     });
 
-    test('saveQuestionDraftsV2ToBank has no production call site', () {
+    test('saveQuestionDraftsV2ToBank is called only by the typed commit', () {
       final libFiles = Directory('lib')
           .listSync(recursive: true)
           .whereType<File>()
@@ -370,8 +371,10 @@ void main() {
           callSites.add(file.path);
         }
       }
+      callSites.sort();
       expect(callSites, <String>[
         'lib${Platform.pathSeparator}data${Platform.pathSeparator}repositories${Platform.pathSeparator}question_repository.dart',
+        'lib${Platform.pathSeparator}services${Platform.pathSeparator}import_review${Platform.pathSeparator}import_commit_service.dart',
       ]);
     });
 

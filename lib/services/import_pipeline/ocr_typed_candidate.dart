@@ -13,6 +13,10 @@ import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.d
 const String ocrTypedCandidateShadowReadyReason =
     'typed_candidate_shadow_ready';
 
+/// Fixed task-level storage reason for an R7C activated typed candidate
+/// batch. Only this reason is accepted for [ImportStorageRoute.typedV2].
+const String ocrTypedCandidateReadyReason = 'typed_candidate_ready';
+
 /// Fixed classification of shadow typed candidate batch failures.
 ///
 /// The enum is the only domain state; arbitrary error strings are never used
@@ -273,8 +277,9 @@ final class OcrTypedCandidateGateResult {
 /// All checks are batch-wide: any failure returns the original questions
 /// without any `_typed_review_v1` envelope and a single fixed reason. Only
 /// when every check passes are envelopes attached to a freshly constructed
-/// question list in one atomic step. The effective storage route is always
-/// `legacyV1` in R7B.
+/// question list in one atomic step. Eligible R7C batches activate the typed
+/// route with [ocrTypedCandidateReadyReason]; ineligible batches stay
+/// [ImportStorageRoute.legacyV1] with their fixed failure reason.
 OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   required OcrTypedCandidateBatch batch,
   required List<Map<String, dynamic>> finalQuestions,
@@ -314,6 +319,16 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
           OcrTypedCandidateFailure.identityMismatch,
         ),
       );
+    }
+    for (final sourceRef in candidate.draft.sourceRefs) {
+      if (!isCanonicalUuidV4(sourceRef.sourceId)) {
+        return _ineligible(
+          finalQuestions,
+          ocrTypedCandidateFailureReason(
+            OcrTypedCandidateFailure.identityMismatch,
+          ),
+        );
+      }
     }
   }
 
@@ -429,8 +444,8 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
 
   return OcrTypedCandidateGateResult(
     questions: List<Map<String, dynamic>>.unmodifiable(attached),
-    route: ImportStorageRoute.legacyV1,
-    reason: ocrTypedCandidateShadowReadyReason,
+    route: ImportStorageRoute.typedV2,
+    reason: ocrTypedCandidateReadyReason,
   );
 }
 
@@ -439,7 +454,14 @@ OcrTypedCandidateGateResult _ineligible(
   String reason,
 ) {
   return OcrTypedCandidateGateResult(
-    questions: questions,
+    questions: List<Map<String, dynamic>>.unmodifiable(<Map<String, dynamic>>[
+      for (final question in questions)
+        <String, dynamic>{
+          for (final entry in question.entries)
+            if (entry.key != TypedReviewSnapshotCodec.mapKey)
+              entry.key: entry.value,
+        },
+    ]),
     route: ImportStorageRoute.legacyV1,
     reason: reason,
   );

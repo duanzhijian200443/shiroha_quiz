@@ -226,8 +226,8 @@ void main() {
       ),
     );
 
-    expect(parseResult.storageRoute, ImportStorageRoute.legacyV1);
-    expect(parseResult.storageReason, 'typed_candidate_shadow_ready');
+    expect(parseResult.storageRoute, ImportStorageRoute.typedV2);
+    expect(parseResult.storageReason, 'typed_candidate_ready');
     expect(parseResult.questions, hasLength(2));
     for (final question in parseResult.questions) {
       expect(
@@ -265,10 +265,10 @@ void main() {
       (task) => task.status == TaskStatus.pendingReview,
     );
 
-    expect(task.diagnostics?[TaskManager.keyImportStorageRoute], 'legacyV1');
+    expect(task.diagnostics?[TaskManager.keyImportStorageRoute], 'typedV2');
     expect(
       task.diagnostics?[TaskManager.keyImportStorageReason],
-      'typed_candidate_shadow_ready',
+      'typed_candidate_ready',
     );
     expect(task.parsedData, hasLength(2));
     final userVisibleDiagnostics = jsonEncode(task.parsedData);
@@ -288,11 +288,11 @@ void main() {
     expect(reloaded.status, TaskStatus.pendingReview);
     expect(
       reloaded.diagnostics?[TaskManager.keyImportStorageRoute],
-      'legacyV1',
+      'typedV2',
     );
     expect(
       reloaded.diagnostics?[TaskManager.keyImportStorageReason],
-      'typed_candidate_shadow_ready',
+      'typed_candidate_ready',
     );
     expect(reloaded.parsedData, hasLength(2));
 
@@ -544,13 +544,11 @@ void main() {
     );
   });
 
-  test('R7B production code never sets the typedV2 route', () {
+  test('typedV2 activation is gated to the ready reason only', () {
     for (final path in const <String>[
       'lib/services/import_pipeline/import_pipeline_service.dart',
       'lib/services/import_pipeline/import_task_coordinator.dart',
-      'lib/services/import_pipeline/import_parse_result.dart',
       'lib/services/import_pipeline/ocr_import_service.dart',
-      'lib/services/import_pipeline/ocr_typed_candidate.dart',
     ]) {
       final source = File(path).readAsStringSync();
       expect(
@@ -558,8 +556,20 @@ void main() {
         isNot(contains('ImportStorageRoute.typedV2')),
         reason: path,
       );
-      expect(source, isNot(contains("'typedV2'")), reason: path);
     }
+    final gateSource =
+        File('lib/services/import_pipeline/ocr_typed_candidate.dart')
+            .readAsStringSync();
+    expect(
+      gateSource,
+      contains('ImportStorageRoute.typedV2'),
+      reason: 'the eligible gate must activate the typed route',
+    );
+    expect(
+      gateSource,
+      contains('typed_candidate_ready'),
+      reason: 'typedV2 must always pair with the ready reason',
+    );
   });
 }
 
