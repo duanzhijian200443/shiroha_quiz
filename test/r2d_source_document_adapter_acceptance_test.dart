@@ -755,32 +755,44 @@ void main() {
       );
     });
 
-    test('no production call sites for either adapter in lib/', () {
-      const skip = <String>{
-        'lib/services/import_pipeline/adapters/'
-            'parsed_source_document_adapter.dart',
-        'lib/services/import_pipeline/adapters/'
-            'ocr_source_document_adapter.dart',
-      };
-      final offenders = <String>[];
-      for (final entity in Directory('lib').listSync(recursive: true)) {
-        if (entity is! File || !entity.path.endsWith('.dart')) continue;
-        final normalized = entity.path.replaceAll('\\', '/');
-        if (skip.contains(normalized)) continue;
-        final content = entity.readAsStringSync();
-        if (content.contains('ParsedSourceDocumentAdapter')) {
-          offenders.add('$normalized references ParsedSourceDocumentAdapter');
+    test(
+      'only the frozen typed-candidate seam may reference the OCR adapter',
+      () {
+        const skip = <String>{
+          'lib/services/import_pipeline/adapters/'
+              'parsed_source_document_adapter.dart',
+          'lib/services/import_pipeline/adapters/'
+              'ocr_source_document_adapter.dart',
+        };
+        // R7B frozen typed-candidate seam: the only authorized production
+        // caller of OcrSourceDocumentAdapter.
+        const authorizedOcrCaller =
+            'lib/services/import_pipeline/ocr_typed_candidate.dart';
+        final offenders = <String>[];
+        for (final entity in Directory('lib').listSync(recursive: true)) {
+          if (entity is! File || !entity.path.endsWith('.dart')) continue;
+          final normalized = entity.path.replaceAll('\\', '/');
+          if (skip.contains(normalized)) continue;
+          final content = entity.readAsStringSync();
+          if (content.contains('ParsedSourceDocumentAdapter')) {
+            offenders.add('$normalized references ParsedSourceDocumentAdapter');
+          }
+          if (content.contains('OcrSourceDocumentAdapter') &&
+              normalized != authorizedOcrCaller) {
+            offenders.add('$normalized references OcrSourceDocumentAdapter');
+          }
         }
-        if (content.contains('OcrSourceDocumentAdapter')) {
-          offenders.add('$normalized references OcrSourceDocumentAdapter');
-        }
-      }
-      expect(
-        offenders,
-        isEmpty,
-        reason: 'lib must not reference the adapters before production wiring',
-      );
-    });
+        expect(
+          offenders,
+          isEmpty,
+          reason:
+              'ParsedSourceDocumentAdapter must have no production callers; '
+              'OcrSourceDocumentAdapter is allowed only in the frozen '
+              'typed-candidate seam '
+              '(lib/services/import_pipeline/ocr_typed_candidate.dart)',
+        );
+      },
+    );
   });
 }
 
