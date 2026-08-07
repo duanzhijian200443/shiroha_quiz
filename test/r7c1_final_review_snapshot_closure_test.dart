@@ -1,8 +1,10 @@
 // R7C.1 final-review-snapshot closure: the typed commit payload must be
 // rebuilt from the POST-flush staging state and bound to the flush-returned
 // revision, distillation must gate both the UI and any bypassed save flow,
-// and the legacy writer stays untouched. Synthetic fixtures only; no
-// Provider, Replay, network, real database, filesystem or application call.
+// every payload-mutating entry must gate while the typed commit is in
+// progress, and the legacy writer stays untouched. Synthetic fixtures only;
+// no Provider, Replay, network, real database, filesystem or application
+// call.
 import 'dart:async';
 import 'dart:convert';
 
@@ -39,12 +41,13 @@ class _FlushGate {
   final List<String> events;
   final Completer<void> gate = Completer<void>();
   bool armed = false;
+  int armSaveCount = 1;
   int saveCount = 0;
 
   Future<void> onSave(Map<String, dynamic> taskMap) async {
     saveCount++;
     final revision = _readRevision(taskMap);
-    if (armed && saveCount == 1) {
+    if (armed && saveCount == armSaveCount) {
       events.add('final_flush_started');
       await gate.future;
       events.add('final_flush_saved_revision_$revision');
@@ -387,8 +390,8 @@ void main() {
   }
 
   testWidgets(
-      '18.1 post-flush inputs: payload is rebuilt from the state mutated '
-      'during the final flush', (tester) async {
+      '18.1 post-flush inputs: payload equals the state at flush time; '
+      'mutation lands before confirm', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 2000));
     final flushGate = _FlushGate(repo.events);
     await tester.pumpWidget(buildScreen(
@@ -410,8 +413,18 @@ void main() {
     await tester.pumpAndSettle();
     service.recordOnly = true;
 
-    // Start the confirm chain; the final flush save is gated in-flight.
+    // The P3-1 gate forbids payload mutations while the final flush is
+    // in-flight, so state B is landed BEFORE the confirm chain starts; the
+    // commit must then bind B to the final flush revision.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('question-explanation-discard-0')),
+    );
+    await tester.pumpAndSettle();
+    expect(repo.events, contains('review_save_revision_1'),
+        reason: 'the pre-confirm mutation save must land first');
+
     flushGate.armed = true;
+    flushGate.armSaveCount = 2;
     await tester.tap(find.textContaining('收入题库'));
     await tester.pumpAndSettle();
     if (find.text('继续').evaluate().isNotEmpty) {
@@ -427,27 +440,157 @@ void main() {
     expect(repo.events, contains('final_flush_started'),
         reason: 'the final flush must be in-flight before the mutation');
 
-    // A real review-draft mutation lands while the flush is still pending:
-    // the per-item explanation retention chip rewrites `_allItems` and
-    // enqueues its own (delayed) review save.
-    await tester.tap(
-      find.byKey(const ValueKey<String>('question-explanation-discard-0')),
+    flushGate.gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(service.commitTypedCalls, 1);
+    expect(service.lastExpectedReviewDraftRevision, 2,
+        reason: 'the payload revision must equal the final flush revision');
+    expect(service.lastObservedExplanation, isEmpty,
+        reason: 'the commit payload must reflect the state at flush time (B), '
+            'not an entry-time capture');
+    expect(service.lastObservedAnswer, 'A');
+    expect(repo.lastScreenPayloadAnswer, 'A');
+    expect(repo.typedSaveCalls, 1);
+    expect(repo.legacySaveCalls, 0);
+  });
+
+  testWidgets(
+      '18.8 P3-1: every payload-mutating entry is blocked while the typed '
+      'commit is in progress', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2600));
+    final distiller = _GatedDistiller(answer: 'Distilled B');
+    final flushGate = _FlushGate(repo.events);
+    await tester.pumpWidget(buildScreen(
+      questions: <Map<String, dynamic>>[
+        _typedQuestion(
+          number: 1,
+          type: 1,
+          options: const <String>['A', 'B'],
+          content: 'Synthetic choice stem',
+          standardAnswer: 'A',
+          explanation: 'Synthetic explanation',
+        ),
+        _typedQuestion(
+            number: 2,
+            standardAnswer: '',
+            explanation: 'Subjective explanation'),
+      ],
+      diagnostics: _typedDiagnostics(),
+      taskId: _taskId,
+      answerDistiller: distiller,
+      retentionMode: ExplanationRetentionMode.allQuestionTypes,
+      saveTask: flushGate.onSave,
+    ));
+    await tester.pumpAndSettle();
+    service.recordOnly = true;
+
+    // Capture the real mutation handlers while the UI is still enabled.
+    final distillSingle = tester
+        .widget<OutlinedButton>(
+          find.byKey(const ValueKey<String>('answer-distillation-single-1')),
+        )
+        .onPressed!;
+    final discardExplanation = tester
+        .widget<FilterChip>(
+          find.byKey(const ValueKey<String>('question-explanation-discard-0')),
+        )
+        .onSelected!;
+
+    flushGate.armed = true;
+    await tester.tap(find.textContaining('收入题库'));
+    await tester.pumpAndSettle();
+    if (find.text('继续').evaluate().isNotEmpty) {
+      await tester.tap(find.text('继续'));
+      await tester.pumpAndSettle();
+    }
+    await tester.enterText(
+      find.widgetWithText(TextField, '目标题库名称'),
+      'Typed Bank',
     );
+    await tester.tap(find.text('确定入库'));
     await pumpFrames(tester);
+    expect(repo.events, contains('final_flush_started'),
+        reason: 'the final flush must be in-flight so _isSaving is true');
+
+    // Every payload-mutating control must be disabled while saving.
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey<String>('answer-distillation-batch')),
+          )
+          .onPressed,
+      isNull,
+      reason: 'batch distillation must be disabled during the commit',
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey<String>('answer-distillation-single-1')),
+          )
+          .onPressed,
+      isNull,
+      reason: 'single distillation must be disabled during the commit',
+    );
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(
+                const ValueKey<String>('question-explanation-discard-0')),
+          )
+          .onSelected,
+      isNull,
+      reason: 'retention chips must be disabled during the commit',
+    );
+    expect(
+      tester
+          .widget<SwitchListTile>(find.byKey(
+              const ValueKey<String>('objective-explanation-document-switch')))
+          .onChanged,
+      isNull,
+      reason: 'the document retention switch must be disabled during commit',
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.checklist),
+          )
+          .onPressed,
+      isNull,
+      reason: 'batch mode must not be enterable during the commit',
+    );
+    expect(
+      tester.widget<Dismissible>(find.byKey(const ValueKey<int>(0))).direction,
+      DismissDirection.none,
+      reason: 'swipe-to-delete must be disabled during the commit',
+    );
+
+    // Programmatic bypasses are no-ops: no mutation, no enqueued save.
+    distillSingle();
+    discardExplanation(false);
+    await pumpFrames(tester);
+    expect(find.text('正在生成答案 0/1'), findsNothing);
+    expect(distiller.distillCalls, 0);
+    expect(flushGate.saveCount, 1,
+        reason: 'no mutation save may be enqueued while the flush runs');
 
     flushGate.gate.complete();
     await tester.pumpAndSettle();
 
     expect(service.commitTypedCalls, 1);
     expect(service.lastExpectedReviewDraftRevision, 1,
-        reason: 'the payload revision must equal the final flush revision');
-    expect(service.lastObservedExplanation, isEmpty,
-        reason: 'the commit payload must reflect the post-flush state, not '
-            'the entry-time capture');
-    expect(service.lastObservedAnswer, 'A');
+        reason: 'the payload must carry the final flush revision');
+    expect(service.lastObservedAnswer, 'A',
+        reason: 'the commit payload must equal the flushed state, not the '
+            'bypassed distilled answer');
+    expect(service.lastObservedExplanation, 'Synthetic explanation',
+        reason: 'the retention discard must be a no-op, so the payload stays '
+            'identical to the flushed state');
     expect(repo.lastScreenPayloadAnswer, 'A');
     expect(repo.typedSaveCalls, 1);
     expect(repo.legacySaveCalls, 0);
+    expect(flushGate.saveCount, 1,
+        reason: 'only the final flush may have saved');
   });
 
   testWidgets(
@@ -767,8 +910,8 @@ void main() {
   });
 
   testWidgets(
-      '20 order probe: flush save < commit input observation < repository '
-      'commit', (tester) async {
+      '20 order probe: mutation save < flush save < commit input observation '
+      '< repository commit', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 2000));
     final flushGate = _FlushGate(repo.events);
     await tester.pumpWidget(buildScreen(
@@ -790,7 +933,15 @@ void main() {
     await tester.pumpAndSettle();
     service.recordOnly = true;
 
+    // Land state B before confirm (P3-1 blocks mid-flush mutations), then
+    // hold the final flush in-flight and complete it before the commit.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('question-explanation-discard-0')),
+    );
+    await tester.pumpAndSettle();
+
     flushGate.armed = true;
+    flushGate.armSaveCount = 2;
     await tester.tap(find.textContaining('收入题库'));
     await tester.pumpAndSettle();
     if (find.text('继续').evaluate().isNotEmpty) {
@@ -805,25 +956,27 @@ void main() {
     await pumpFrames(tester);
     expect(repo.events, contains('final_flush_started'));
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('question-explanation-discard-0')),
-    );
-    await pumpFrames(tester);
     flushGate.gate.complete();
     await tester.pumpAndSettle();
 
     final events = repo.events;
+    expect(events, contains('review_save_revision_1'));
     expect(events, contains('final_flush_started'));
-    expect(events, contains('final_flush_saved_revision_1'));
+    expect(events, contains('final_flush_saved_revision_2'));
     expect(events, contains('commit_input_observed:B'));
     expect(events, contains('repository_commit'));
     expect(
+      events.indexOf('review_save_revision_1'),
+      lessThan(events.indexOf('final_flush_started')),
+      reason: 'the pre-confirm mutation must save before the final flush',
+    );
+    expect(
       events.indexOf('final_flush_started'),
-      lessThan(events.indexOf('final_flush_saved_revision_1')),
+      lessThan(events.indexOf('final_flush_saved_revision_2')),
       reason: 'the final flush must start before it saves',
     );
     expect(
-      events.indexOf('final_flush_saved_revision_1'),
+      events.indexOf('final_flush_saved_revision_2'),
       lessThan(events.indexOf('commit_input_observed:B')),
       reason: 'commit inputs must be observed only after the flush revision '
           'is known',
@@ -833,7 +986,7 @@ void main() {
       lessThan(events.indexOf('repository_commit')),
       reason: 'the repository commit must come after the input observation',
     );
-    expect(service.lastExpectedReviewDraftRevision, 1);
+    expect(service.lastExpectedReviewDraftRevision, 2);
     expect(service.lastObservedExplanation, isEmpty);
   });
 }

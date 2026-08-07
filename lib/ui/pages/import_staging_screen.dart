@@ -395,6 +395,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _enterSelectionMode() {
+    if (_isSaving) return;
     setState(() {
       _selectionMode = true;
       _selectedOriginalIndices.clear();
@@ -427,6 +428,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _applyBatchResult(List<ImportReviewItem> nextItems) {
+    if (_isSaving) return;
     setState(() {
       _allItems = nextItems;
       _reapplyExplanationPolicy();
@@ -438,6 +440,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _deleteSelectedWithConfirm() {
+    if (_isSaving) return;
     if (_selectedOriginalIndices.isEmpty) return;
     showDialog(
       context: context,
@@ -470,6 +473,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _changeSelectedType(QuestionType targetType) {
+    if (_isSaving) return;
     final nextItems = ImportReviewBatchController.changeTypeSelected(
       items: _allItems,
       selectedOriginalIndices: _selectedOriginalIndices,
@@ -1137,7 +1141,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _distillSingleAnswer(ImportReviewItem item) async {
-    if (_isDistillingAnswers || !_isAnswerDistillationCandidate(item)) return;
+    if (_isSaving ||
+        _isDistillingAnswers ||
+        !_isAnswerDistillationCandidate(item)) {
+      return;
+    }
     final operationId = ++_answerDistillationOperationId;
     setState(() {
       _isDistillingAnswers = true;
@@ -1189,7 +1197,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _distillAllAnswers() async {
-    if (_isDistillingAnswers) return;
+    if (_isSaving || _isDistillingAnswers) return;
     final candidates = _answerDistillationCandidates;
     if (candidates.isEmpty) return;
 
@@ -1311,6 +1319,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {
+    if (_isSaving) return;
     setState(() {
       _explanationRetentionMode = retainObjectiveExplanations
           ? ExplanationRetentionMode.allQuestionTypes
@@ -1325,6 +1334,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     ImportReviewItem item,
     bool retain,
   ) {
+    if (_isSaving) return;
     setState(() {
       _explanationOverrides[item.originalIndex] = retain
           ? QuestionExplanationOverride.keep
@@ -1677,7 +1687,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       key: const ValueKey('objective-explanation-document-switch'),
       value: _explanationRetentionMode ==
           ExplanationRetentionMode.allQuestionTypes,
-      onChanged: _setDocumentExplanationRetention,
+      onChanged: _isSaving ? null : _setDocumentExplanationRetention,
       title: const Text(
         '同时导入选择题、填空题解析',
         style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -1738,7 +1748,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           else
             FilledButton(
               key: const ValueKey('answer-distillation-batch'),
-              onPressed: _distillAllAnswers,
+              onPressed: _isSaving ? null : _distillAllAnswers,
               child: Text('补全 $candidateCount 道'),
             ),
         ],
@@ -1769,7 +1779,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             IconButton(
               icon: const Icon(Icons.checklist),
               tooltip: '批量操作',
-              onPressed: _enterSelectionMode,
+              onPressed: _isSaving ? null : _enterSelectionMode,
             ),
         ],
       ),
@@ -1853,7 +1863,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           final item = visibleItem.item;
                           return Dismissible(
                             key: ValueKey(item.originalIndex),
-                            direction: _selectionMode
+                            direction: (_selectionMode || _isSaving)
                                 ? DismissDirection.none
                                 : DismissDirection.endToStart,
                             background: Container(
@@ -1864,6 +1874,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                   color: Colors.white),
                             ),
                             onDismissed: (direction) {
+                              if (_isSaving) return;
                               setState(() {
                                 _allItems.removeWhere((it) =>
                                     it.originalIndex == item.originalIndex);
@@ -1893,7 +1904,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       explanationRetained:
                                           _isQuestionExplanationRetained(item),
                                       onExplanationRetentionChanged:
-                                          _selectionMode
+                                          (_selectionMode || _isSaving)
                                               ? null
                                               : (retain) =>
                                                   _setQuestionExplanationRetention(
@@ -1913,6 +1924,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                           _activeAnswerDistillationIndex ==
                                               item.originalIndex,
                                       onAnswerDistillation: _selectionMode ||
+                                              _isSaving ||
                                               _isDistillingAnswers
                                           ? null
                                           : () => _distillSingleAnswer(item),
@@ -1954,18 +1966,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                         TextButton.icon(
                           icon: const Icon(Icons.edit),
                           label: const Text('改题型'),
-                          onPressed: _selectedOriginalIndices.isEmpty
-                              ? null
-                              : _showChangeTypeDialog,
+                          onPressed:
+                              (_selectedOriginalIndices.isEmpty || _isSaving)
+                                  ? null
+                                  : _showChangeTypeDialog,
                         ),
                         TextButton.icon(
                           icon:
                               const Icon(Icons.delete, color: Colors.redAccent),
                           label: const Text('删除',
                               style: TextStyle(color: Colors.redAccent)),
-                          onPressed: _selectedOriginalIndices.isEmpty
-                              ? null
-                              : _deleteSelectedWithConfirm,
+                          onPressed:
+                              (_selectedOriginalIndices.isEmpty || _isSaving)
+                                  ? null
+                                  : _deleteSelectedWithConfirm,
                         ),
                       ],
                     ),
