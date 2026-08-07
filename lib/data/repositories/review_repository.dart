@@ -1,5 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import '../../core/database/database_helper.dart';
+import '../models/persisted_question.dart';
+import '../persistence/question_v2_persistence_mapper.dart';
 
 const _globalWrongBookBankName = '🔥 全局错题本';
 
@@ -10,6 +12,8 @@ class ReviewRepository {
   static final ReviewRepository instance = ReviewRepository();
 
   final DatabaseHelper _databaseHelper;
+  static const QuestionV2PersistenceMapper _mapper =
+      QuestionV2PersistenceMapper();
 
   Future<Database> get _db async => await _databaseHelper.database;
 
@@ -316,6 +320,64 @@ class ReviewRepository {
         LIMIT ?
       ''', args);
     }
+  }
+
+  /// Typed-authority study-session read: same selection semantics as
+  /// [getStudySessionQuestions] (new/due selection, type filter, limit, and
+  /// ordering stay in SQL), but every row is union-decoded through the V2
+  /// sidecar. Typed rows carry their draft as the fact source; wholly legacy
+  /// rows decode as [LegacyPersistedQuestion]. Any corrupt, partial, or
+  /// unsafe sidecar fails the whole session read without V1 fallback.
+  Future<List<PersistedQuestion>> getPersistedStudySessionQuestions(
+    String bankName,
+    int nowUnix, {
+    int? type,
+    int limit = 40,
+  }) async {
+    final db = await _db;
+    String typeCondition = "";
+    List<dynamic> args = [];
+
+    if (type != null) {
+      if (type == 0) {
+        typeCondition = " AND q.type IN (0, 1)";
+      } else {
+        typeCondition = " AND q.type = ?";
+        args.add(type);
+      }
+    }
+
+    final String payloadColumns = '''
+      p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+      p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+    ''';
+
+    final List<Map<String, Object?>> rows;
+    if (bankName == _globalWrongBookBankName) {
+      rows = await db.rawQuery('''
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time,
+               $payloadColumns
+        FROM questions q
+        JOIN review_states r ON q.id = r.question_id
+        LEFT JOIN question_v2_payloads p ON q.id = p.question_id
+        WHERE r.lapses > 0 AND r.next_review_time <= ? $typeCondition
+        ORDER BY r.next_review_time ASC
+        LIMIT ?
+      ''', <Object?>[nowUnix, ...args, limit]);
+    } else {
+      rows = await db.rawQuery('''
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time,
+               $payloadColumns
+        FROM questions q
+        JOIN review_states r ON q.id = r.question_id
+        LEFT JOIN question_v2_payloads p ON q.id = p.question_id
+        WHERE q.bank_name = ? AND (r.state = 0 OR r.next_review_time <= ?) $typeCondition
+        ORDER BY r.state DESC, r.next_review_time ASC
+        LIMIT ?
+      ''', <Object?>[bankName, nowUnix, ...args, limit]);
+    }
+
+    return rows.map(_mapper.decodeJoinedRow).toList(growable: false);
   }
 
   // 暴露给事务的核心读写逻辑

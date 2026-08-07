@@ -56,16 +56,31 @@ last_lapse_time DESC`），是 R8 三消费者的公共读取地基。
 
 ## 5. Practice consumer migration
 
-由 R8A 关闭（本阶段只冻结契约）：
+已由 R8A 关闭。Practice 会话读取与展示不再经过 raw map：
 
-- Practice 的新读取必须返回 `PersistedQuestion`（或携带复习指标的 typed
-  DTO/view），禁止向消费者返回 `Map<String, dynamic>`；禁止 UI 直连
-  SQLite/join sidecar。
-- 到期/新题过滤、limit、排序保持在 repository 层 SQL；全局错题本分支保持
-  `lapses > 0` 且到期语义。
-- typed 行渲染只走 `RichContentRenderer`（经 `RichContentFieldRenderer`），
-  typed 显式空不回退 V1。
-- 复习指标随 wrong-book 分支（含全局错题本）可用，普通 bank 读取可为 null。
+- 会话读取入口：`ReviewRepository.getPersistedStudySessionQuestions(
+  bankName, nowUnix, {type, limit})` → `List<PersistedQuestion>`。SQL 形状与
+  旧 `getStudySessionQuestions` 一致（新题/到期选择、type 过滤、limit、
+  `state DESC, next_review_time ASC` 顺序、全局错题本 `lapses > 0` 且到期
+  分支），仅增加 `LEFT JOIN question_v2_payloads` 并逐行 union 解码；任何
+  corrupt/partial/unsafe sidecar 使整个会话读取安全失败，无 legacy fallback。
+  会话读取不携带 review metrics（practice 不需要）。
+- `ReviewEngineService` 会话队列改为 `Queue<PersistedQuestion>`；
+  `popNextQuestion()` / `requeueQuestion(PersistedQuestion)` 只接受 union 行，
+  不再向页面返回 `Map<String, dynamic>`。
+- 页面投影：`PracticeQuestionView`（practice 专用只读投影，位于
+  `lib/ui/models/practice_question_view.dart`）承载交互语义：
+  - typed 选项以 `optionId`/结构映射（禁止从 V1 字母文本反推）；
+  - typed 答案以 `ChoiceAnswer`/`ContentAnswer` 结构映射，显式空保持为空，
+    不回退 V1 decoy/占位符；
+  - typed 显示只走 `RichContentRenderer`（stem/选项/答案/解析），legacy 行
+    保持旧解析与旧渲染（`buildLatexWidget` 路径）。
+- 保留交互：选项选择/揭晓（typed 按 optionId 判正确，legacy 按字母）、FSRS
+  提交（`submitReview(storageId, grade)` 写入 review_states/review_logs）、
+  主观题输入与 AI 判卷（typed 用安全文本投影，RawFallback 不进文本）、题型
+  过滤、limit、顺序语义、pomodoro 会话、preview 保存（仅 preview 行可达，
+  DB guard 阻断 typed 冲突）、删除（`deleteQuestion(storageId)` + v15 FK
+  cascade）。typed 行不出现 preview 保存/旧编辑入口。
 
 ## 6. Wrong-book consumer migration
 
