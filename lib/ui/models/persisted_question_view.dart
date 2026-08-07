@@ -50,6 +50,7 @@ final class PersistedQuestionView {
     required this.legacyExplanation,
     required this.legacyEditPayload,
     required this.searchText,
+    this.reviewMetrics,
   });
 
   final String storageId;
@@ -79,6 +80,10 @@ final class PersistedQuestionView {
   /// In-memory search text. Never contains raw fallback payloads, source or
   /// asset references, issues, storage ids, bank names, or database metadata.
   final String searchText;
+
+  /// Present only when the underlying read joined `review_states` (the
+  /// wrong-book surface); null on the regular bank list.
+  final PersistedQuestionReviewMetrics? reviewMetrics;
 }
 
 /// Converts persisted union rows into display views at one boundary so the
@@ -120,6 +125,7 @@ abstract final class PersistedQuestionViewAdapter {
       legacyExplanation: '',
       legacyEditPayload: null,
       searchText: _typedSearchText(draft),
+      reviewMetrics: typed.reviewMetrics,
     );
   }
 
@@ -142,6 +148,7 @@ abstract final class PersistedQuestionViewAdapter {
       legacyExplanation: question.explanation ?? '',
       legacyEditPayload: Map<String, dynamic>.unmodifiable(question.toMap()),
       searchText: _legacySearchText(question),
+      reviewMetrics: legacy.reviewMetrics,
     );
   }
 

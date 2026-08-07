@@ -24,6 +24,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/models/persisted_question_view.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const _mapper = QuestionV2PersistenceMapper();
@@ -119,14 +120,16 @@ Future<void> _insertReviewState(
   required String questionId,
   required int lapses,
   required int lastLapseTime,
+  double difficulty = 5.0,
+  double stability = 0.0,
 }) async {
   await db.insert('review_states', <String, Object?>{
     'question_id': questionId,
     'state': 0,
     'next_review_time': 0,
     'lapses': lapses,
-    'difficulty': 5.0,
-    'stability': 0.0,
+    'difficulty': difficulty,
+    'stability': stability,
     'reps': 0,
     'last_lapse_time': lastLapseTime,
     'last_review_time': 0,
@@ -694,6 +697,12 @@ void main() {
       expect(decoded[0], isA<LegacyPersistedQuestion>());
       expect(decoded[1].storageId, _storageIdA);
       expect(decoded[1], isA<TypedPersistedQuestion>());
+      final legacyRow = decoded[0] as LegacyPersistedQuestion;
+      expect(legacyRow.reviewMetrics?.lapses, 1);
+      expect(legacyRow.reviewMetrics?.lastLapseTime, 900);
+      final typedRow = decoded[1] as TypedPersistedQuestion;
+      expect(typedRow.reviewMetrics?.lapses, 2);
+      expect(typedRow.reviewMetrics?.lastLapseTime, 500);
 
       final bankRows = await repository.getPersistedQuestionsByBank(_bankName);
       expect(bankRows, hasLength(3));
@@ -701,6 +710,106 @@ void main() {
         bankRows.map((question) => question.storageId).toList(),
         <String>[_storageIdB, 'legacy_lapsed', _storageIdA],
       );
+    });
+
+    test(
+        'getPersistedWrongQuestions returns the typed union with review metrics',
+        () async {
+      final db = await _singletonDb();
+      await _insertTypedRow(db, _draft('wrong_metrics_typed'),
+          storageId: _storageIdA, createdAt: 100);
+      await _insertReviewState(
+        db,
+        questionId: _storageIdA,
+        lapses: 3,
+        lastLapseTime: 1700000007,
+        difficulty: 4.5,
+        stability: 1.25,
+      );
+      await _insertLegacyRow(db, id: 'wrong_metrics_legacy', createdAt: 200);
+      await _insertReviewState(
+        db,
+        questionId: 'wrong_metrics_legacy',
+        lapses: 1,
+        lastLapseTime: 1700000009,
+      );
+      await _insertTypedRow(db, _draft('wrong_metrics_clean'),
+          storageId: _storageIdB, createdAt: 300);
+      await _insertReviewState(
+        db,
+        questionId: _storageIdB,
+        lapses: 0,
+        lastLapseTime: 1700000011,
+      );
+
+      final repository = QuestionRepository();
+      final decoded = await repository.getPersistedWrongQuestions();
+
+      expect(decoded, hasLength(2));
+      expect(decoded[0], isA<LegacyPersistedQuestion>());
+      expect(decoded[0].storageId, 'wrong_metrics_legacy');
+      expect(decoded[1], isA<TypedPersistedQuestion>());
+      expect(decoded[1].storageId, _storageIdA);
+
+      final legacy = decoded[0] as LegacyPersistedQuestion;
+      expect(legacy.reviewMetrics, isNotNull);
+      expect(legacy.reviewMetrics!.lapses, 1);
+      expect(legacy.reviewMetrics!.difficulty, 5.0);
+      expect(legacy.reviewMetrics!.stability, 0.0);
+      expect(legacy.reviewMetrics!.lastLapseTime, 1700000009);
+
+      final typed = decoded[1] as TypedPersistedQuestion;
+      expect(typed.reviewMetrics, isNotNull);
+      expect(typed.reviewMetrics!.lapses, 3);
+      expect(typed.reviewMetrics!.difficulty, 4.5);
+      expect(typed.reviewMetrics!.stability, 1.25);
+      expect(typed.reviewMetrics!.lastLapseTime, 1700000007);
+
+      // The regular bank read does not join review_states and stays
+      // metric-free; the wrong-book read never returns raw maps.
+      final bankRows = await repository.getPersistedQuestionsByBank(_bankName);
+      expect(bankRows, hasLength(3));
+      for (final row in bankRows) {
+        expect(row.reviewMetrics, isNull);
+      }
+    });
+
+    test('wrong-book typed read preserves typed explicit empty in the view',
+        () async {
+      final db = await _singletonDb();
+      final draft = QuestionDraftV2(
+        questionId: 'wrong_empty_stem',
+        kind: QuestionKind.singleChoice,
+        stem: RichContent(nodes: const <ContentNode>[]),
+        options: <QuestionOption>[
+          QuestionOption(
+              optionId: 'A', label: 'A', content: _text('Option one')),
+        ],
+        answer: ChoiceAnswer(optionIds: <String>['A']),
+        explanation: null,
+      );
+      await _insertTypedRow(db, draft, storageId: _storageIdA, createdAt: 1);
+      await _insertReviewState(
+        db,
+        questionId: _storageIdA,
+        lapses: 1,
+        lastLapseTime: 2,
+      );
+
+      final decoded = await QuestionRepository().getPersistedWrongQuestions();
+      final typed = decoded.single as TypedPersistedQuestion;
+      expect(typed.draft.stem.nodes, isEmpty,
+          reason: 'the sidecar draft stays the typed authority');
+
+      final view = PersistedQuestionViewAdapter.fromPersisted(typed);
+      expect(view.isTyped, isTrue);
+      expect(view.typedStem, isNotNull);
+      expect(view.typedStem!.nodes, isEmpty);
+      expect(view.legacyStem, isEmpty,
+          reason: 'no V1 decoy or placeholder may fall back');
+      expect(view.searchText, isNot(contains('无题干')));
+      expect(view.reviewMetrics?.lapses, 1);
+      expect(view.reviewMetrics?.lastLapseTime, 2);
     });
 
     test('legacy rows without a sidecar fall back to the legacy question',
