@@ -105,37 +105,11 @@ class ReviewRepository {
     };
   }
 
-  Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() async {
-    final db = await _db;
-    return db.rawQuery('''
-      SELECT
-        q.id,
-        q.type,
-        q.content,
-        q.options,
-        q.standard_answer,
-        q.bank_name,
-        rs.lapses,
-        rs.difficulty,
-        rs.stability,
-        rs.last_lapse_time
-      FROM questions q
-      INNER JOIN review_states rs ON q.id = rs.question_id
-      WHERE rs.lapses > 0
-      ORDER BY rs.last_lapse_time DESC;
-    ''');
-  }
-
   Future<void> clearAllData() async {
     final db = await _db;
     await db.delete('review_states');
     await db.delete('review_logs');
     await db.delete('questions');
-  }
-
-  Future<void> deleteQuestionAndRelatedData(String questionId) async {
-    final db = await _db;
-    await db.delete('questions', where: 'id = ?', whereArgs: [questionId]);
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBankStats(int nowUnix) async {
@@ -275,55 +249,8 @@ class ReviewRepository {
     };
   }
 
-  Future<void> deleteQuestionBank(String bankName) async {
-    final db = await _db;
-    await db.delete('questions', where: 'bank_name = ?', whereArgs: [bankName]);
-  }
-
-  Future<List<Map<String, dynamic>>> getStudySessionQuestions(
-      String bankName, int nowUnix,
-      {int? type, int limit = 40}) async {
-    final db = await _db;
-    String typeCondition = "";
-    List<dynamic> args = [];
-
-    if (type != null) {
-      if (type == 0) {
-        typeCondition = " AND q.type IN (0, 1)";
-      } else {
-        typeCondition = " AND q.type = ?";
-        args.add(type);
-      }
-    }
-
-    if (bankName == _globalWrongBookBankName) {
-      args.insert(0, nowUnix);
-      args.add(limit);
-      return db.rawQuery('''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time
-        FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE r.lapses > 0 AND r.next_review_time <= ? $typeCondition
-        ORDER BY r.next_review_time ASC
-        LIMIT ?
-      ''', args);
-    } else {
-      args.insert(0, bankName);
-      args.insert(1, nowUnix);
-      args.add(limit);
-      return db.rawQuery('''
-        SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time
-        FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE q.bank_name = ? AND (r.state = 0 OR r.next_review_time <= ?) $typeCondition
-        ORDER BY r.state DESC, r.next_review_time ASC
-        LIMIT ?
-      ''', args);
-    }
-  }
-
-  /// Typed-authority study-session read: same selection semantics as
-  /// [getStudySessionQuestions] (new/due selection, type filter, limit, and
+  /// Typed-authority study-session read: same selection semantics as the
+  /// retired raw-map session read (new/due selection, type filter, limit, and
   /// ordering stay in SQL), but every row is union-decoded through the V2
   /// sidecar. Typed rows carry their draft as the fact source; wholly legacy
   /// rows decode as [LegacyPersistedQuestion]. Any corrupt, partial, or

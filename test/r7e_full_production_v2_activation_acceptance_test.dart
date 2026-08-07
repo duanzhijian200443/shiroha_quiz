@@ -247,8 +247,6 @@ class _CountingRepository extends QuestionRepository {
   int atomicCalls = 0;
   int legacyCalls = 0;
   int persistedReadCalls = 0;
-  int legacyReadCalls = 0;
-  int searchCalls = 0;
 
   @override
   Future<TypedImportCommitPersistenceResult> commitQuestionDraftsV2ForImport({
@@ -288,23 +286,6 @@ class _CountingRepository extends QuestionRepository {
   ) async {
     persistedReadCalls++;
     return super.getPersistedQuestionsByBank(bankName);
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(
-    String bankName,
-  ) async {
-    legacyReadCalls++;
-    return super.getQuestionsByBank(bankName);
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> searchQuestions(
-    String bankName,
-    String query,
-  ) async {
-    searchCalls++;
-    return super.searchQuestions(bankName, query);
   }
 }
 
@@ -659,8 +640,6 @@ void main() {
 
     expect(lastCount, 2);
     expect(readRepository.persistedReadCalls, 1);
-    expect(readRepository.legacyReadCalls, 0);
-    expect(readRepository.searchCalls, 0);
     expect(find.byType(PersistedQuestionCard), findsNWidgets(2));
     expect(find.text('Synthetic prompt marker 1.'), findsOneWidget);
     expect(find.text('synthetic-result-1'), findsOneWidget,
@@ -770,8 +749,6 @@ void main() {
 
     expect(lastCount, 2);
     expect(repository.persistedReadCalls, 1);
-    expect(repository.legacyReadCalls, 0);
-    expect(repository.searchCalls, 0);
     expect(find.byType(PersistedQuestionCard), findsNWidgets(2));
     expect(find.text('typed-visible'), findsOneWidget,
         reason: 'the sidecar stem is the display authority');
@@ -902,8 +879,6 @@ void main() {
     expect(find.textContaining('Synthetic'), findsNothing);
     expect(find.textContaining('Exception'), findsNothing);
     expect(repository.persistedReadCalls, 1);
-    expect(repository.legacyReadCalls, 0);
-    expect(repository.searchCalls, 0);
     expect(client.callCount, 1,
         reason: 'one synthetic boundary invocation; Provider calls are 0 '
             'by construction');

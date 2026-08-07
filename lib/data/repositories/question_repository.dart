@@ -497,10 +497,6 @@ class QuestionRepository {
   // Question read / edit
   // ---------------------------------------------------------------------------
 
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(String bankName) {
-    return _databaseHelper.getQuestionsByBank(bankName);
-  }
-
   /// Typed dual-read: V2 sidecar rows decode through the persistence mapper;
   /// wholly legacy rows fall back to [LegacyPersistedQuestion]. Any corrupt,
   /// partial, or unsafe sidecar fails the whole list without V1 fallback.
@@ -611,13 +607,6 @@ class QuestionRepository {
           reviewMetrics: metrics,
         ),
     };
-  }
-
-  Future<List<Map<String, dynamic>>> searchQuestions(
-    String bankName,
-    String query,
-  ) {
-    return _databaseHelper.searchQuestions(bankName, query);
   }
 
   Future<void> updateQuestion(Map<String, dynamic> question) {

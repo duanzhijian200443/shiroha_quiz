@@ -40,7 +40,6 @@ class _FakeQuestionRepository extends Fake implements QuestionRepository {
   final List<PersistedQuestion> allQuestions;
   final List<String> deletedIds = <String>[];
   int wrongReadCalls = 0;
-  int legacyReadCalls = 0;
   bool failLoad = false;
   bool failDelete = false;
 
@@ -56,14 +55,6 @@ class _FakeQuestionRepository extends Fake implements QuestionRepository {
             .compareTo(a.reviewMetrics?.lastLapseTime ?? 0),
       );
     return lapsed;
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(
-    String bankName,
-  ) async {
-    legacyReadCalls++;
-    return const <Map<String, dynamic>>[];
   }
 
   @override
@@ -154,7 +145,6 @@ void main() {
       await _pumpPage(tester, repository);
 
       expect(repository.wrongReadCalls, 1);
-      expect(repository.legacyReadCalls, 0);
       expect(find.byType(PersistedQuestionCard), findsNWidgets(2));
       expect(find.text('Typed sidecar stem.'), findsOneWidget);
       expect(find.text('Legacy lapsed content.'), findsOneWidget);

@@ -12,7 +12,6 @@ import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/models/study_plan_bank_catalog.dart';
-import '../data/models/wrong_book_entry.dart';
 import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
 
 import 'package:shiroha_quiz/data/repositories/review_repository.dart';
@@ -224,21 +223,8 @@ class ReviewEngineService with WidgetsBindingObserver {
     return ReviewRepository.instance.getDashboardData(now, todayStart);
   }
 
-  Future<List<WrongBookEntry>> getWrongBookEntries() async {
-    final rows = await ReviewRepository.instance.getDetailedWrongQuestions();
-    return rows.map(WrongBookEntry.fromRow).toList(growable: false);
-  }
-
-  Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() {
-    return ReviewRepository.instance.getDetailedWrongQuestions();
-  }
-
   Future<void> clearAllData() {
     return ReviewRepository.instance.clearAllData();
-  }
-
-  Future<void> deleteQuestionAndRelatedData(String questionId) {
-    return ReviewRepository.instance.deleteQuestionAndRelatedData(questionId);
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBankStats() {
@@ -353,10 +339,6 @@ class ReviewEngineService with WidgetsBindingObserver {
   Future<List<Map<String, dynamic>>> getAllBankStats() async {
     final catalog = await getStudyPlanBankCatalog();
     return catalog.banks.map((bank) => bank.toLegacyMap()).toList();
-  }
-
-  Future<void> deleteQuestionBank(String bankName) {
-    return ReviewRepository.instance.deleteQuestionBank(bankName);
   }
 
   // ================================================================

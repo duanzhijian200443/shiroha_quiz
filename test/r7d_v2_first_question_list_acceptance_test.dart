@@ -78,8 +78,6 @@ class _CountingRepository extends QuestionRepository {
       : super(databaseHelper: databaseHelper);
 
   int persistedReadCalls = 0;
-  int legacyReadCalls = 0;
-  int searchCalls = 0;
   final List<String> deletedIds = <String>[];
 
   @override
@@ -88,23 +86,6 @@ class _CountingRepository extends QuestionRepository {
   ) async {
     persistedReadCalls++;
     return super.getPersistedQuestionsByBank(bankName);
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(
-    String bankName,
-  ) async {
-    legacyReadCalls++;
-    return super.getQuestionsByBank(bankName);
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> searchQuestions(
-    String bankName,
-    String query,
-  ) async {
-    searchCalls++;
-    return super.searchQuestions(bankName, query);
   }
 
   @override
@@ -298,8 +279,6 @@ void main() {
 
     expect(lastCount, 2);
     expect(repository.persistedReadCalls, 1);
-    expect(repository.legacyReadCalls, 0);
-    expect(repository.searchCalls, 0);
     expect(find.byType(PersistedQuestionCard), findsNWidgets(2));
     expect(find.text('Typed stem text.'), findsOneWidget);
     expect(find.text('Typed option one'), findsOneWidget);
@@ -530,8 +509,6 @@ void main() {
     expect(find.textContaining('corrupt'), findsNothing);
     expect(find.textContaining('Exception'), findsNothing);
     expect(repository.persistedReadCalls, 1);
-    expect(repository.legacyReadCalls, 0);
-    expect(repository.searchCalls, 0);
     expect(tester.takeException(), isNull);
     await _dbChunk(tester, helper.close);
   });

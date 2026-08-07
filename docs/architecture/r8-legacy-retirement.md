@@ -117,12 +117,19 @@ last_lapse_time DESC`），是 R8 三消费者的公共读取地基。
 
 ## 8. Retired production paths
 
-R8A/R8B/R8C 完成后退役：
+R8A/R8B/R8C 已完成退役：
 
 - `PracticePage` / `WrongBookPage` 的 raw-map 读取路径；
 - 上述两个页面中对 typed 行 V1 投影的重解析与占位化行为；
+- `QuestionRepository.getQuestionsByBank` / `searchQuestions`
+  （R8C 删除，无剩余消费者）；
 - `ReviewRepository.getStudySessionQuestions` / `getDetailedWrongQuestions`
-  （删除归 R8C，需先确认无剩余消费者）。
+  及 `ReviewEngineService.getWrongBookEntries` / `getDetailedWrongQuestions`
+  转发（R8C 删除，无剩余消费者）；
+- `ReviewRepository.deleteQuestionAndRelatedData` / `deleteQuestionBank`
+  及 `ReviewEngineService` 对应转发（R8C 删除；删除统一走
+  `QuestionRepository.deleteQuestion` / `deleteQuestionBank`）；
+- `lib/core/quiz_session_controller.dart`（R8C 删除，无 UI 消费者）。
 
 ## 9. Deferred typed editing
 

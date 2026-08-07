@@ -1696,15 +1696,15 @@ void main() {
       expect(await db.query('review_states'), isEmpty);
     });
 
-    test('ReviewRepository delete and clear-all cascade sidecars', () async {
+    test('unified delete and clear-all cascade sidecars', () async {
       final db = await _singletonDb();
       await _insertTypedRow(db, _draft('review_delete'),
           storageId: _storageIdA, createdAt: 1);
       await _insertReviewState(db,
           questionId: _storageIdA, lapses: 1, lastLapseTime: 2);
 
-      final repository = ReviewRepository();
-      await repository.deleteQuestionAndRelatedData(_storageIdA);
+      final questionRepository = QuestionRepository();
+      await questionRepository.deleteQuestion(_storageIdA);
       expect(await db.query('questions'), isEmpty);
       expect(await db.query('question_v2_payloads'), isEmpty);
       expect(await db.query('review_states'), isEmpty);
@@ -1716,7 +1716,8 @@ void main() {
       await _insertReviewState(db,
           questionId: _storageIdB, lapses: 2, lastLapseTime: 5);
 
-      await repository.clearAllData();
+      final reviewRepository = ReviewRepository();
+      await reviewRepository.clearAllData();
       expect(await db.query('questions'), isEmpty);
       expect(await db.query('question_v2_payloads'), isEmpty);
       expect(await db.query('review_states'), isEmpty);
