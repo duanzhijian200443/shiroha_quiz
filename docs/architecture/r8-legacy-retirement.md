@@ -84,15 +84,25 @@ last_lapse_time DESC`），是 R8 三消费者的公共读取地基。
 
 ## 6. Wrong-book consumer migration
 
-由 R8B 关闭（本阶段已冻结读取契约）：
-
-- 新读取入口：`QuestionRepository.getPersistedWrongQuestions()`，返回
-  `List<PersistedQuestion>`；过滤（`lapses > 0`）与排序（`last_lapse_time
-  DESC`）在 SQL 中完成。
+已由 R8B 关闭。WrongBookPage 已是 V2-first 读取：
+- 页面唯一读取入口是 `QuestionRepository.getPersistedWrongQuestions()`，
+  返回 `List<PersistedQuestion>`；过滤（`lapses > 0`）与排序（
+  `last_lapse_time DESC`）在 SQL 层完成。页面不再调用
+  `ReviewRepository.getDetailedWrongQuestions` /
+  `getWrongBookEntries`（旧 API 删除归 R8C）。
 - 复习指标随 union 行返回：`PersistedQuestion.reviewMetrics`（
   `PersistedQuestionReviewMetrics`，含 lapses/difficulty/stability/
   lastLapseTime），经 `PersistedQuestionViewAdapter` 投影到
-  `PersistedQuestionView.reviewMetrics` 供卡片展示。
+  `PersistedQuestionView.reviewMetrics`，由 `PersistedQuestionCard`
+  展示错误次数/难度系数/稳定性。
+- typed 行以 sidecar draft 为事实来源，经 `PersistedQuestionViewAdapter`
+  与 `RichContentRenderer` 渲染；legacy 行保持 legacy 投影与旧渲染；
+  typed 显式空不回退 V1 decoy/占位符。
+- typed 行禁止进入旧编辑器（编辑入口禁用，`onPressed == null`）；
+  legacy 行继续走 `QuestionEditScreen`。
+- 删除统一走 `QuestionRepository.deleteQuestion(storageId)`，typed 依赖
+  v15 FK `ON DELETE CASCADE` 清理 sidecar；清除错题（若只改
+  review_states）保持不动。
 - `getPersistedQuestionsByBank` 的全局错题本分支同样携带指标，QuestionList
   错题本视图与 WrongBook 共享同一语义。
 
