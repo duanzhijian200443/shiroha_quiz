@@ -70,6 +70,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _typedOptionsBlockedText = '当前结构化题目暂不支持修改选项数量、顺序或标签，请恢复后再入库';
   static const _invalidStorageRouteText = '当前任务的存储路线无效，无法入库';
   static const _reviewDraftUnsafeText = '校对结果尚未安全保存，无法入库，请重试';
+  static const _answerDistillationInProgressText = '答案仍在生成中，请等待完成后再入库';
   static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
   static const _safeSnapshotProvenanceKeys = {
@@ -394,6 +395,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _enterSelectionMode() {
+    if (_isSaving) return;
     setState(() {
       _selectionMode = true;
       _selectedOriginalIndices.clear();
@@ -426,6 +428,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _applyBatchResult(List<ImportReviewItem> nextItems) {
+    if (_isSaving) return;
     setState(() {
       _allItems = nextItems;
       _reapplyExplanationPolicy();
@@ -437,6 +440,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _deleteSelectedWithConfirm() {
+    if (_isSaving) return;
     if (_selectedOriginalIndices.isEmpty) return;
     showDialog(
       context: context,
@@ -469,6 +473,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _changeSelectedType(QuestionType targetType) {
+    if (_isSaving) return;
     final nextItems = ImportReviewBatchController.changeTypeSelected(
       items: _allItems,
       selectedOriginalIndices: _selectedOriginalIndices,
@@ -664,6 +669,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     String folderName,
     ImportReviewReport report,
   ) async {
+    // Programmatic distillation gate: the disabled button must never be the
+    // only protection. A bypassed save flow still blocks while answers are
+    // being generated so the commit snapshot cannot race the distillation.
+    if (_isDistillingAnswers) {
+      _showFixedError(_answerDistillationInProgressText);
+      return;
+    }
+
     final taskId = widget.taskId?.trim() ?? '';
     final attemptToken =
         widget.diagnostics?[TaskManager.keyAttemptToken]?.toString().trim() ??
@@ -674,36 +687,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       return;
     }
 
-    final items = <TypedReviewCommitInput>[];
-    for (final item in _allItems) {
-      final marker = _reviewItemIds[item.originalIndex];
-      final provenance = _snapshotProvenance[item.originalIndex];
-      if (marker == null ||
-          provenance == null ||
-          !provenance.containsKey(TypedReviewSnapshotCodec.mapKey)) {
-        _showFixedError(_typedCommitBlockedText);
-        return;
-      }
-      items.add(
-        TypedReviewCommitInput(
-          reviewItemId: marker,
-          envelope: provenance[TypedReviewSnapshotCodec.mapKey],
-          currentDraft: item.draft,
-        ),
-      );
-    }
-    if (items.isEmpty) {
-      _showFixedError(_typedCommitBlockedText);
-      return;
-    }
-
     setState(() => _isSaving = true);
     try {
       // Commit-time review draft flush: wait for the queued tail, persist the
-      // latest draft, and require a successful save before committing.
+      // latest draft, and require a successful save before committing. The
+      // payload must be rebuilt afterwards so revision N is bound to the
+      // post-flush snapshot, never to an entry-time capture.
       final flushResult = await _persistReviewDraft(showFailurePrompt: false);
       if (flushResult == null || !flushResult.saved) {
         _showFixedError(_reviewDraftUnsafeText);
+        return;
+      }
+      final items = _buildCurrentTypedCommitInputs();
+      if (items == null) {
+        _showFixedError(_typedCommitBlockedText);
         return;
       }
       await _commitService.commitTyped(
@@ -735,6 +732,33 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  /// Builds typed commit inputs from the current `_allItems` snapshot,
+  /// preserving the `originalIndex` association to the review markers and
+  /// typed snapshot envelopes. Strictly validates the envelope presence and
+  /// returns null when any item cannot be bound to its snapshot, so the
+  /// caller can show the fixed blocked text without exposing raw state.
+  List<TypedReviewCommitInput>? _buildCurrentTypedCommitInputs() {
+    final items = <TypedReviewCommitInput>[];
+    for (final item in _allItems) {
+      final marker = _reviewItemIds[item.originalIndex];
+      final provenance = _snapshotProvenance[item.originalIndex];
+      if (marker == null ||
+          provenance == null ||
+          !provenance.containsKey(TypedReviewSnapshotCodec.mapKey)) {
+        return null;
+      }
+      items.add(
+        TypedReviewCommitInput(
+          reviewItemId: marker,
+          envelope: provenance[TypedReviewSnapshotCodec.mapKey],
+          currentDraft: item.draft,
+        ),
+      );
+    }
+    if (items.isEmpty) return null;
+    return items;
   }
 
   void _showTypedCommitError(TypedReviewCommitFailure failure) {
@@ -1117,7 +1141,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _distillSingleAnswer(ImportReviewItem item) async {
-    if (_isDistillingAnswers || !_isAnswerDistillationCandidate(item)) return;
+    if (_isSaving ||
+        _isDistillingAnswers ||
+        !_isAnswerDistillationCandidate(item)) {
+      return;
+    }
     final operationId = ++_answerDistillationOperationId;
     setState(() {
       _isDistillingAnswers = true;
@@ -1169,7 +1197,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _distillAllAnswers() async {
-    if (_isDistillingAnswers) return;
+    if (_isSaving || _isDistillingAnswers) return;
     final candidates = _answerDistillationCandidates;
     if (candidates.isEmpty) return;
 
@@ -1291,6 +1319,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {
+    if (_isSaving) return;
     setState(() {
       _explanationRetentionMode = retainObjectiveExplanations
           ? ExplanationRetentionMode.allQuestionTypes
@@ -1305,6 +1334,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     ImportReviewItem item,
     bool retain,
   ) {
+    if (_isSaving) return;
     setState(() {
       _explanationOverrides[item.originalIndex] = retain
           ? QuestionExplanationOverride.keep
@@ -1657,7 +1687,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       key: const ValueKey('objective-explanation-document-switch'),
       value: _explanationRetentionMode ==
           ExplanationRetentionMode.allQuestionTypes,
-      onChanged: _setDocumentExplanationRetention,
+      onChanged: _isSaving ? null : _setDocumentExplanationRetention,
       title: const Text(
         '同时导入选择题、填空题解析',
         style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -1718,7 +1748,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           else
             FilledButton(
               key: const ValueKey('answer-distillation-batch'),
-              onPressed: _distillAllAnswers,
+              onPressed: _isSaving ? null : _distillAllAnswers,
               child: Text('补全 $candidateCount 道'),
             ),
         ],
@@ -1749,7 +1779,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             IconButton(
               icon: const Icon(Icons.checklist),
               tooltip: '批量操作',
-              onPressed: _enterSelectionMode,
+              onPressed: _isSaving ? null : _enterSelectionMode,
             ),
         ],
       ),
@@ -1833,7 +1863,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                           final item = visibleItem.item;
                           return Dismissible(
                             key: ValueKey(item.originalIndex),
-                            direction: _selectionMode
+                            direction: (_selectionMode || _isSaving)
                                 ? DismissDirection.none
                                 : DismissDirection.endToStart,
                             background: Container(
@@ -1844,6 +1874,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                   color: Colors.white),
                             ),
                             onDismissed: (direction) {
+                              if (_isSaving) return;
                               setState(() {
                                 _allItems.removeWhere((it) =>
                                     it.originalIndex == item.originalIndex);
@@ -1873,7 +1904,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       explanationRetained:
                                           _isQuestionExplanationRetained(item),
                                       onExplanationRetentionChanged:
-                                          _selectionMode
+                                          (_selectionMode || _isSaving)
                                               ? null
                                               : (retain) =>
                                                   _setQuestionExplanationRetention(
@@ -1893,6 +1924,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                           _activeAnswerDistillationIndex ==
                                               item.originalIndex,
                                       onAnswerDistillation: _selectionMode ||
+                                              _isSaving ||
                                               _isDistillingAnswers
                                           ? null
                                           : () => _distillSingleAnswer(item),
@@ -1934,18 +1966,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                         TextButton.icon(
                           icon: const Icon(Icons.edit),
                           label: const Text('改题型'),
-                          onPressed: _selectedOriginalIndices.isEmpty
-                              ? null
-                              : _showChangeTypeDialog,
+                          onPressed:
+                              (_selectedOriginalIndices.isEmpty || _isSaving)
+                                  ? null
+                                  : _showChangeTypeDialog,
                         ),
                         TextButton.icon(
                           icon:
                               const Icon(Icons.delete, color: Colors.redAccent),
                           label: const Text('删除',
                               style: TextStyle(color: Colors.redAccent)),
-                          onPressed: _selectedOriginalIndices.isEmpty
-                              ? null
-                              : _deleteSelectedWithConfirm,
+                          onPressed:
+                              (_selectedOriginalIndices.isEmpty || _isSaving)
+                                  ? null
+                                  : _deleteSelectedWithConfirm,
                         ),
                       ],
                     ),
@@ -1983,7 +2017,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                               : '确认无误，将 ${_allItems.length} 题收入题库'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold)),
-                  onPressed: (_isSaving || _isBlockedByQualityGate)
+                  onPressed: (_isSaving ||
+                          _isBlockedByQualityGate ||
+                          _isDistillingAnswers)
                       ? null
                       : _validateBeforeSave,
                 ),
