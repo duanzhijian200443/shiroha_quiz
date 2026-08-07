@@ -6,12 +6,12 @@ import 'package:flutter/material.dart';
 
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
+import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/llm_service.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/models/study_plan_bank_catalog.dart';
-import '../data/models/wrong_book_entry.dart';
 import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
 
 import 'package:shiroha_quiz/data/repositories/review_repository.dart';
@@ -145,7 +145,7 @@ class ReviewEngineService with WidgetsBindingObserver {
   bool _flushing = false;
 
   // 双端队列调度器 (O(1) 内存会话)
-  Queue<Map<String, dynamic>>? _sessionQueue;
+  Queue<PersistedQuestion>? _sessionQueue;
 
   static const int _batchSize = 5;
   static const Duration _debounceWindow = Duration(milliseconds: 800);
@@ -223,21 +223,8 @@ class ReviewEngineService with WidgetsBindingObserver {
     return ReviewRepository.instance.getDashboardData(now, todayStart);
   }
 
-  Future<List<WrongBookEntry>> getWrongBookEntries() async {
-    final rows = await ReviewRepository.instance.getDetailedWrongQuestions();
-    return rows.map(WrongBookEntry.fromRow).toList(growable: false);
-  }
-
-  Future<List<Map<String, dynamic>>> getDetailedWrongQuestions() {
-    return ReviewRepository.instance.getDetailedWrongQuestions();
-  }
-
   Future<void> clearAllData() {
     return ReviewRepository.instance.clearAllData();
-  }
-
-  Future<void> deleteQuestionAndRelatedData(String questionId) {
-    return ReviewRepository.instance.deleteQuestionAndRelatedData(questionId);
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBankStats() {
@@ -354,10 +341,6 @@ class ReviewEngineService with WidgetsBindingObserver {
     return catalog.banks.map((bank) => bank.toLegacyMap()).toList();
   }
 
-  Future<void> deleteQuestionBank(String bankName) {
-    return ReviewRepository.instance.deleteQuestionBank(bankName);
-  }
-
   // ================================================================
   //  FSRS 核心数学引擎
   // ================================================================
@@ -423,6 +406,7 @@ class ReviewEngineService with WidgetsBindingObserver {
 
     final currentState = states[questionId]!;
     final newState = _calculateFSRS(currentState, grade);
+    newState['question_id'] = questionId;
 
     final safeLen = math.min(8, questionId.length);
     final newLog = {
@@ -449,19 +433,20 @@ class ReviewEngineService with WidgetsBindingObserver {
   Future<void> initStudySession(String bankName,
       {int? type, int limit = 40}) async {
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final rawQuestions = await ReviewRepository.instance
-        .getStudySessionQuestions(bankName, nowUnix, type: type, limit: limit);
-    _sessionQueue = Queue<Map<String, dynamic>>.from(rawQuestions);
+    final questions = await ReviewRepository.instance
+        .getPersistedStudySessionQuestions(bankName, nowUnix,
+            type: type, limit: limit);
+    _sessionQueue = Queue<PersistedQuestion>.from(questions);
   }
 
   // O(1) 极速弹出一道题
-  Map<String, dynamic>? popNextQuestion() {
+  PersistedQuestion? popNextQuestion() {
     if (_sessionQueue == null || _sessionQueue!.isEmpty) return null;
     return _sessionQueue!.removeFirst();
   }
 
   // O(1) 错题回炉：grade=1(重来)时塞回队尾，本轮必须消灭它
-  void requeueQuestion(Map<String, dynamic> question) {
+  void requeueQuestion(PersistedQuestion question) {
     _sessionQueue?.addLast(question);
   }
 

@@ -1,14 +1,16 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import '../../core/review_engine_service.dart';
+import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/llm_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../models/practice_question_view.dart';
 import '../widgets/markdown_extensions.dart';
+import '../widgets/structured_content_renderer.dart';
 
 class PracticePage extends StatefulWidget {
   final String? bankName;
@@ -38,12 +40,13 @@ class _PracticePageState extends State<PracticePage> {
   static const Color _bgColor = Color(0xFFF4F6FA);
   static const Color _primaryColor = Color(0xFF4C6ED7);
 
-  Map<String, dynamic>? _currentQuestion;
+  PracticeQuestionView? _currentQuestion;
   bool _isAnswerRevealed = false; // 控制是否显示答案和打分底栏
   bool _isLoading = true;
   String? _error;
 
   int? _selectedOptionIndex;
+  String? _selectedOptionId;
   bool _isGeneratingVariant = false;
 
   bool _isAiJudging = false;
@@ -58,12 +61,7 @@ class _PracticePageState extends State<PracticePage> {
 
   bool get isSubjective {
     if (_currentQuestion == null) return false;
-    final q = Question.fromMap(_currentQuestion!);
-    return q.type == 3 ||
-        q.type == 2 ||
-        q.options == null ||
-        q.options!.isEmpty ||
-        q.options == '[]';
+    return _currentQuestion!.displayOptions.isEmpty;
   }
 
   @override
@@ -111,16 +109,20 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _loadNextQuestion() {
-    Map<String, dynamic>? nextQ;
+    PracticeQuestionView? nextQ;
 
     if (_previewQuestions != null) {
       if (_previewIndex < _previewQuestions!.length) {
-        nextQ = _previewQuestions![_previewIndex].toMap();
-        nextQ['id'] ??= 'preview_${DateTime.now().millisecondsSinceEpoch}';
+        nextQ = PracticeQuestionViewAdapter.fromLegacyQuestion(
+          _previewQuestions![_previewIndex],
+        );
         _previewIndex++;
       }
     } else {
-      nextQ = ReviewEngineService().popNextQuestion();
+      final persisted = ReviewEngineService().popNextQuestion();
+      if (persisted != null) {
+        nextQ = PracticeQuestionViewAdapter.fromPersisted(persisted);
+      }
     }
 
     if (nextQ == null) {
@@ -135,6 +137,7 @@ class _PracticePageState extends State<PracticePage> {
       _isAiJudging = false;
       _aiFeedback = null;
       _selectedOptionIndex = null;
+      _selectedOptionId = null;
       _subjectiveController.clear();
       _showStandardAnswerDirectly = false;
     });
@@ -211,17 +214,17 @@ class _PracticePageState extends State<PracticePage> {
   Future<void> _submitGrade(int grade) async {
     if (_currentQuestion == null) return;
 
-    final qId = _currentQuestion!['id'] as String;
-    final isPreview = qId.startsWith('preview_');
+    final view = _currentQuestion!;
+    final isPreview = view.isPreview;
 
     if (!isPreview) {
       // 1. 异步触发底层 SQLite 事务落盘 FSRS 数据
       // 不使用 await 阻塞 UI，保障极速切换体验
-      ReviewEngineService().submitReview(qId, grade);
+      ReviewEngineService().submitReview(view.storageId, grade);
 
       // 2. 错题回炉机制：如果是“重来(1)”，O(1) 压入队列尾部
       if (grade == 1) {
-        ReviewEngineService().requeueQuestion(_currentQuestion!);
+        ReviewEngineService().requeueQuestion(view.source!);
       }
     }
 
@@ -381,28 +384,28 @@ class _PracticePageState extends State<PracticePage> {
 
   Widget _buildQuestionContent() {
     if (_currentQuestion == null) return const SizedBox.shrink();
-    final q = Question.fromMap(_currentQuestion!);
-    final opts = _parseOptions(q.options);
+    final view = _currentQuestion!;
+    final opts = view.displayOptions;
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
-        _buildQuestionCard(q),
+        _buildQuestionCard(view),
         const SizedBox(height: 16),
         if (isSubjective)
-          _buildSubjectiveSection(q)
+          _buildSubjectiveSection(view)
         else
           _buildOptionsList(opts),
         if (_isAnswerRevealed && !isSubjective) ...[
           const SizedBox(height: 16),
-          _buildAnalysis(q)
+          _buildAnalysis(view)
         ],
         const SizedBox(height: 16),
       ],
     );
   }
 
-  Widget _buildQuestionCard(Question q) {
+  Widget _buildQuestionCard(PracticeQuestionView view) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -415,38 +418,26 @@ class _PracticePageState extends State<PracticePage> {
                 blurRadius: 10,
                 offset: const Offset(0, 3))
           ]),
-      child: _buildMarkdown(q.content),
+      child: view.isTyped
+          ? RichContentRenderer(content: view.typedStem!, fontSize: 16)
+          : _buildMarkdown(view.legacyStem),
     );
   }
 
-  List<String> _parseOptions(String? raw) {
-    if (raw == null || raw.isEmpty) return [];
-    dynamic d;
-    try {
-      d = json.decode(raw);
-    } catch (_) {
-      return [raw];
-    }
-    if (d is String) {
-      try {
-        d = json.decode(d);
-      } catch (_) {
-        return [d as String];
-      }
-    }
-    if (d is List) return d.map((e) => e.toString()).toList();
-    return [raw];
-  }
-
-  Widget _buildOptionsList(List<String> options) {
+  Widget _buildOptionsList(List<PracticeOptionView> options) {
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: options.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (_, i) {
-        final letter = String.fromCharCode(65 + i);
-        final sel = _selectedOptionIndex == i;
+        final option = options[i];
+        final isTypedOption = option.optionId != null;
+        final letter =
+            isTypedOption ? option.label : String.fromCharCode(65 + i);
+        final sel = isTypedOption
+            ? _selectedOptionId == option.optionId
+            : _selectedOptionIndex == i;
         Color bg = Colors.white, border = Colors.grey.shade200;
         Color lBg = Colors.grey.shade100, lFg = Colors.grey.shade600;
 
@@ -458,14 +449,16 @@ class _PracticePageState extends State<PracticePage> {
         }
 
         if (_isAnswerRevealed && _currentQuestion != null) {
-          final q = Question.fromMap(_currentQuestion!);
-          final correctAns = q.answer.trim().toUpperCase();
-          if (correctAns == letter) {
+          final view = _currentQuestion!;
+          final bool isCorrect = isTypedOption
+              ? view.answerOptionIds.contains(option.optionId)
+              : view.legacyAnswer.trim().toUpperCase() == letter;
+          if (isCorrect) {
             bg = const Color(0xFFE8F8ED);
             border = const Color(0xFF34C759);
             lBg = const Color(0xFF34C759);
             lFg = Colors.white;
-          } else if (sel && correctAns != letter) {
+          } else if (sel && !isCorrect) {
             bg = const Color(0xFFFFEDEC);
             border = const Color(0xFFFF3B30);
             lBg = const Color(0xFFFF3B30);
@@ -476,7 +469,13 @@ class _PracticePageState extends State<PracticePage> {
         return GestureDetector(
           onTap: _isAnswerRevealed
               ? null
-              : () => setState(() => _selectedOptionIndex = i),
+              : () => setState(() {
+                    if (isTypedOption) {
+                      _selectedOptionId = option.optionId;
+                    } else {
+                      _selectedOptionIndex = i;
+                    }
+                  }),
           child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -502,7 +501,18 @@ class _PracticePageState extends State<PracticePage> {
                 Expanded(
                   child: Builder(
                     builder: (context) {
-                      String optStr = options[i].toString().trim();
+                      if (isTypedOption) {
+                        final theme = Theme.of(context);
+                        return RichContentRenderer(
+                          content: option.typedContent!,
+                          fontSize: 15,
+                          textColor: sel
+                              ? theme.primaryColor
+                              : theme.textTheme.bodyLarge?.color,
+                          fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                        );
+                      }
+                      String optStr = (option.legacyRaw ?? '').trim();
                       String stripped = optStr
                           .replaceFirst(
                               RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '')
@@ -522,7 +532,7 @@ class _PracticePageState extends State<PracticePage> {
     );
   }
 
-  Widget _buildAnalysis(Question q) {
+  Widget _buildAnalysis(PracticeQuestionView view) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -541,26 +551,53 @@ class _PracticePageState extends State<PracticePage> {
                   color: _primaryColor)),
         ]),
         const SizedBox(height: 8),
-        Text('正确答案: ${q.answer}',
-            style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade800,
-                fontWeight: FontWeight.bold)),
-        if ((q.rawExplanation != null && q.rawExplanation!.isNotEmpty) ||
-            (q.explanation != null && q.explanation!.isNotEmpty)) ...[
+        if (view.isTyped) ...[
+          Text('正确答案:',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade800,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          if (view.typedAnswer != null)
+            RichContentRenderer(content: view.typedAnswer!, fontSize: 13)
+          else
+            Text('无',
+                style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade800,
+                    fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           const Divider(height: 1),
           const SizedBox(height: 10),
-          _buildMarkdown(
-              (q.rawExplanation != null && q.rawExplanation!.isNotEmpty)
-                  ? q.rawExplanation!
-                  : (q.explanation ?? '暂无解析')),
+          if (view.typedExplanation != null)
+            RichContentRenderer(content: view.typedExplanation!, fontSize: 13)
+          else
+            const Text('无解析',
+                style: TextStyle(fontSize: 13, color: Colors.grey)),
+        ] else ...[
+          Text('正确答案: ${view.legacyAnswer}',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade800,
+                  fontWeight: FontWeight.bold)),
+          if ((view.legacyRawExplanation != null &&
+                  view.legacyRawExplanation!.isNotEmpty) ||
+              (view.legacyExplanation != null &&
+                  view.legacyExplanation!.isNotEmpty)) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            _buildMarkdown((view.legacyRawExplanation != null &&
+                    view.legacyRawExplanation!.isNotEmpty)
+                ? view.legacyRawExplanation!
+                : (view.legacyExplanation ?? '暂无解析')),
+          ],
         ],
       ]),
     );
   }
 
-  Widget _buildSubjectiveSection(Question q) {
+  Widget _buildSubjectiveSection(PracticeQuestionView view) {
     if (_isAnswerRevealed || _showStandardAnswerDirectly) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (_aiFeedback != null)
@@ -594,11 +631,11 @@ class _PracticePageState extends State<PracticePage> {
               ],
             ),
           ),
-        _buildAnalysis(q)
+        _buildAnalysis(view)
       ]);
     }
 
-    final bool isFillInBlank = q.content.contains('___');
+    final bool isFillInBlank = view.stemText.contains('___');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(children: [
@@ -639,7 +676,8 @@ class _PracticePageState extends State<PracticePage> {
 
                         final feedback = await AiDependenciesScope.of(context)
                             .aiService
-                            .judgeAnswer(q.content, q.answer, uAnswer);
+                            .judgeAnswer(
+                                view.stemText, view.answerText, uAnswer);
 
                         if (mounted) {
                           setState(() {
@@ -684,12 +722,13 @@ class _PracticePageState extends State<PracticePage> {
 
   Widget _buildBottomAction() {
     if (_currentQuestion == null) return const SizedBox.shrink();
-    final qId = _currentQuestion!['id'] as String;
-    final isPreview = qId.startsWith('preview_');
+    final view = _currentQuestion!;
+    final isPreview = view.isPreview;
 
     if (!_isAnswerRevealed) {
-      if (isSubjective)
+      if (isSubjective) {
         return const SizedBox.shrink(); // Subjective has its own buttons
+      }
 
       return SafeArea(
         child: Padding(
@@ -705,7 +744,9 @@ class _PracticePageState extends State<PracticePage> {
                 elevation: 0,
               ),
               onPressed: () {
-                if (!isSubjective && _selectedOptionIndex == null) {
+                if (!isSubjective &&
+                    _selectedOptionIndex == null &&
+                    _selectedOptionId == null) {
                   ScaffoldMessenger.of(context)
                       .showSnackBar(const SnackBar(content: Text('请先选择一个答案')));
                   return;
@@ -724,7 +765,7 @@ class _PracticePageState extends State<PracticePage> {
     }
 
     if (isPreview) {
-      return _buildPreviewBottomBar(Question.fromMap(_currentQuestion!));
+      return _buildPreviewBottomBar(view);
     }
 
     // 当答案揭晓时，底部显示四个 FSRS 评级按钮
@@ -779,15 +820,18 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Future<void> _savePreviewQuestion() async {
-    if (_currentQuestion == null) return;
-    final previewQuestion = Question.fromMap(_currentQuestion!);
+    final view = _currentQuestion;
+    if (view == null || !view.isPreview) return;
+    final previewQuestion = view.legacyQuestion!;
     if (previewQuestion.id == null ||
         !previewQuestion.id!.startsWith('preview_')) {
       return;
     }
 
     try {
-      await QuestionRepository.instance.savePreviewQuestion(_currentQuestion!);
+      await QuestionRepository.instance.savePreviewQuestion(
+        previewQuestion.toMap(),
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -803,7 +847,7 @@ class _PracticePageState extends State<PracticePage> {
     }
   }
 
-  Widget _buildPreviewBottomBar(Question question) {
+  Widget _buildPreviewBottomBar(PracticeQuestionView view) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       decoration: BoxDecoration(color: Colors.white, boxShadow: [
@@ -862,8 +906,9 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _generateVariant() async {
-    if (_currentQuestion == null || _isGeneratingVariant) return;
-    final currentQuestion = Question.fromMap(_currentQuestion!);
+    final view = _currentQuestion;
+    if (view == null || _isGeneratingVariant) return;
+    final currentQuestion = view.interactionQuestion!;
 
     setState(() {
       _isGeneratingVariant = true;
@@ -877,7 +922,9 @@ class _PracticePageState extends State<PracticePage> {
 
       if (newQuestion != null) {
         // Enqueue the new variant to be shown immediately next!
-        ReviewEngineService().requeueQuestion(newQuestion.toMap());
+        ReviewEngineService().requeueQuestion(
+          LegacyPersistedQuestion(question: newQuestion),
+        );
 
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -904,9 +951,10 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Future<void> _deleteCurrentQuestion() async {
-    if (_currentQuestion == null) return;
-    final qId = _currentQuestion!['id'] as String?;
-    if (qId == null || qId.startsWith('preview_')) return;
+    final view = _currentQuestion;
+    if (view == null) return;
+    final qId = view.storageId;
+    if (qId.isEmpty || view.isPreview) return;
 
     final confirm = await showDialog<bool>(
       context: context,

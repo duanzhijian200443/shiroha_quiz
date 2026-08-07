@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/persisted_question.dart';
 import '../models/persisted_question_view.dart';
 import 'structured_content_renderer.dart';
 
@@ -78,6 +79,10 @@ class PersistedQuestionCard extends StatelessWidget {
             ],
             const Divider(height: 24),
             _buildAnswerSection(context),
+            if (question.reviewMetrics != null) ...[
+              const Divider(height: 24),
+              _buildReviewMetrics(question.reviewMetrics!),
+            ],
             const Divider(height: 24),
             _buildEditRow(context),
             if (question.isTyped) ...[
@@ -236,6 +241,33 @@ class PersistedQuestionCard extends StatelessWidget {
     );
   }
 
+  /// Wrong-book surface only: the read joined `review_states`, so the card
+  /// shows the lapses/difficulty/stability metrics the old page displayed.
+  Widget _buildReviewMetrics(PersistedQuestionReviewMetrics metrics) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('复习数据'),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _MetricItem(label: '错误次数', value: '${metrics.lapses}'),
+            _MetricItem(
+              label: '难度系数',
+              value: metrics.difficulty.toStringAsFixed(2),
+            ),
+            _MetricItem(
+              label: '稳定性',
+              value: metrics.stability.toStringAsFixed(2),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildEditRow(BuildContext context) {
     final isTyped = question.isTyped;
     final color = isTyped ? Colors.grey : Colors.blueAccent;
@@ -311,6 +343,29 @@ class _SectionLabel extends StatelessWidget {
         fontSize: 12,
         color: Colors.grey,
         fontWeight: FontWeight.bold,
+      ),
+    );
+  }
+}
+
+class _MetricItem extends StatelessWidget {
+  const _MetricItem({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$label：$value',
+        style: TextStyle(fontSize: 12, color: theme.colorScheme.primary),
       ),
     );
   }

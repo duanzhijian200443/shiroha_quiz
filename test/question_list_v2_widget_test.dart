@@ -26,8 +26,6 @@ class _FakeQuestionRepository extends Fake implements QuestionRepository {
   bool failLoad = false;
   bool failDelete = false;
   int persistedCalls = 0;
-  int legacyCalls = 0;
-  int searchCalls = 0;
   final List<String> deletedIds = <String>[];
 
   @override
@@ -37,23 +35,6 @@ class _FakeQuestionRepository extends Fake implements QuestionRepository {
     persistedCalls++;
     if (failLoad) throw StateError('synthetic load failure');
     return List<PersistedQuestion>.from(persisted);
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(
-    String bankName,
-  ) async {
-    legacyCalls++;
-    return const <Map<String, dynamic>>[];
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> searchQuestions(
-    String bankName,
-    String query,
-  ) async {
-    searchCalls++;
-    return const <Map<String, dynamic>>[];
   }
 
   @override
@@ -144,8 +125,6 @@ void main() {
     await _pumpScreen(tester, repository);
 
     expect(repository.persistedCalls, 1);
-    expect(repository.legacyCalls, 0);
-    expect(repository.searchCalls, 0);
   });
 
   testWidgets('54: mixed typed and legacy rows render together',
@@ -193,12 +172,10 @@ void main() {
 
     await _search(tester, 'Legacy content marker');
     expect(find.byType(PersistedQuestionCard), findsOneWidget);
-    expect(repository.searchCalls, 0);
     expect(repository.persistedCalls, 1);
 
     await _search(tester, '');
     expect(find.byType(PersistedQuestionCard), findsNWidgets(2));
-    expect(repository.searchCalls, 0);
   });
 
   testWidgets(
@@ -258,7 +235,6 @@ void main() {
 
     await _search(tester, r'x^2');
     expect(find.byType(PersistedQuestionCard), findsOneWidget);
-    expect(repository.searchCalls, 0);
   });
 
   testWidgets('63: RawFallback payloads cannot be found by search',
@@ -314,7 +290,6 @@ void main() {
 
     await _search(tester, 'Legacy explanation marker');
     expect(find.byType(PersistedQuestionCard), findsOneWidget);
-    expect(repository.searchCalls, 0);
   });
 
   testWidgets('68: typed rows cannot open the legacy editor', (tester) async {
@@ -453,8 +428,6 @@ void main() {
     expect(find.textContaining('synthetic load failure'), findsNothing);
     expect(find.byType(PersistedQuestionCard), findsNothing);
     expect(lastCount, isNull);
-    expect(repository.legacyCalls, 0);
-    expect(repository.searchCalls, 0);
   });
 
   testWidgets('78: retry reloads the union', (tester) async {

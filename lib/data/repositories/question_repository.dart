@@ -497,10 +497,6 @@ class QuestionRepository {
   // Question read / edit
   // ---------------------------------------------------------------------------
 
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(String bankName) {
-    return _databaseHelper.getQuestionsByBank(bankName);
-  }
-
   /// Typed dual-read: V2 sidecar rows decode through the persistence mapper;
   /// wholly legacy rows fall back to [LegacyPersistedQuestion]. Any corrupt,
   /// partial, or unsafe sidecar fails the whole list without V1 fallback.
@@ -514,16 +510,7 @@ class QuestionRepository {
 
     final db = await _databaseHelper.database;
     final rows = trimmedBankName == _globalWrongBookBankName
-        ? await db.rawQuery('''
-            SELECT q.*,
-                   p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
-                   p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
-            FROM questions q
-            JOIN review_states r ON q.id = r.question_id
-            LEFT JOIN question_v2_payloads p ON q.id = p.question_id
-            WHERE r.lapses > 0
-            ORDER BY r.last_lapse_time DESC
-          ''')
+        ? await _queryWrongBookRows(db)
         : await db.rawQuery('''
             SELECT q.*,
                    p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
@@ -534,14 +521,92 @@ class QuestionRepository {
             ORDER BY q.created_at DESC
           ''', [trimmedBankName]);
 
-    return rows.map(_mapper.decodeJoinedRow).toList(growable: false);
+    return rows
+        .map((row) => _attachReviewMetrics(_mapper.decodeJoinedRow(row), row))
+        .toList(growable: false);
   }
 
-  Future<List<Map<String, dynamic>>> searchQuestions(
-    String bankName,
-    String query,
+  /// Typed wrong-book read: lapsed rows from every bank with their review
+  /// metrics. Wrong-book filtering (`lapses > 0`) and ordering (last lapse
+  /// time descending) stay in SQL at the repository boundary; the UI never
+  /// joins `review_states` itself.
+  Future<List<PersistedQuestion>> getPersistedWrongQuestions() async {
+    final db = await _databaseHelper.database;
+    final rows = await _queryWrongBookRows(db);
+    return rows
+        .map((row) => _attachReviewMetrics(_mapper.decodeJoinedRow(row), row))
+        .toList(growable: false);
+  }
+
+  Future<List<Map<String, Object?>>> _queryWrongBookRows(Database db) {
+    return db.rawQuery('''
+      SELECT q.*,
+             r.lapses,
+             r.difficulty,
+             r.stability,
+             r.last_lapse_time,
+             p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+             p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+      FROM questions q
+      JOIN review_states r ON q.id = r.question_id
+      LEFT JOIN question_v2_payloads p ON q.id = p.question_id
+      WHERE r.lapses > 0
+      ORDER BY r.last_lapse_time DESC
+    ''');
+  }
+
+  /// Projects the joined `review_states` columns into [PersistedQuestionReviewMetrics].
+  /// Returns null when the read did not join `review_states` (regular bank
+  /// list). Presentation metrics decode leniently: wrong types or missing
+  /// values degrade to zero rather than failing the whole list.
+  PersistedQuestionReviewMetrics? _decodeReviewMetrics(
+    Map<String, Object?> row,
   ) {
-    return _databaseHelper.searchQuestions(bankName, query);
+    final lapses = row['lapses'];
+    final difficulty = row['difficulty'];
+    final stability = row['stability'];
+    final lastLapseTime = row['last_lapse_time'];
+    if (lapses == null &&
+        difficulty == null &&
+        stability == null &&
+        lastLapseTime == null) {
+      return null;
+    }
+    return PersistedQuestionReviewMetrics(
+      lapses: lapses is num ? lapses.toInt() : 0,
+      difficulty: difficulty is num ? difficulty.toDouble() : 0.0,
+      stability: stability is num ? stability.toDouble() : 0.0,
+      lastLapseTime: lastLapseTime is num ? lastLapseTime.toInt() : 0,
+    );
+  }
+
+  /// Rebuilds the decoded union row with review metrics when the read joined
+  /// `review_states`; otherwise returns the decoded row unchanged.
+  PersistedQuestion _attachReviewMetrics(
+    PersistedQuestion question,
+    Map<String, Object?> row,
+  ) {
+    final metrics = _decodeReviewMetrics(row);
+    if (metrics == null) return question;
+    return switch (question) {
+      TypedPersistedQuestion(
+        :final storageId,
+        :final bankName,
+        :final createdAt,
+        :final draft,
+      ) =>
+        TypedPersistedQuestion(
+          storageId: storageId,
+          bankName: bankName,
+          createdAt: createdAt,
+          draft: draft,
+          reviewMetrics: metrics,
+        ),
+      LegacyPersistedQuestion(:final question) => LegacyPersistedQuestion(
+          question: question,
+          reviewMetrics: metrics,
+        ),
+    };
   }
 
   Future<void> updateQuestion(Map<String, dynamic> question) {

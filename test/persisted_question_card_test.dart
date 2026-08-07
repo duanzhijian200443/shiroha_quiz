@@ -17,13 +17,17 @@ RichContent _text(String text) {
   return RichContent(nodes: <ContentNode>[TextNode(text)]);
 }
 
-PersistedQuestionView _typedView(QuestionDraftV2 draft) {
+PersistedQuestionView _typedView(
+  QuestionDraftV2 draft, {
+  PersistedQuestionReviewMetrics? reviewMetrics,
+}) {
   return PersistedQuestionViewAdapter.fromPersisted(
     TypedPersistedQuestion(
       storageId: _storageId,
       bankName: 'synthetic_bank',
       createdAt: 1,
       draft: draft,
+      reviewMetrics: reviewMetrics,
     ),
   );
 }
@@ -34,6 +38,7 @@ PersistedQuestionView _legacyView({
   String options = '["A. legacy option body"]',
   String answer = 'A',
   String explanation = 'Legacy explanation.',
+  PersistedQuestionReviewMetrics? reviewMetrics,
 }) {
   return PersistedQuestionViewAdapter.fromPersisted(
     LegacyPersistedQuestion(
@@ -47,6 +52,7 @@ PersistedQuestionView _legacyView({
         bankName: 'synthetic_bank',
         explanation: explanation,
       ),
+      reviewMetrics: reviewMetrics,
     ),
   );
 }
@@ -407,6 +413,59 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Typed stem.'), findsOneWidget);
+    });
+  });
+
+  group('review metrics', () {
+    testWidgets('92: typed rows show metrics from reviewMetrics',
+        (tester) async {
+      final view = _typedView(
+        _richTypedDraft(),
+        reviewMetrics: const PersistedQuestionReviewMetrics(
+          lapses: 3,
+          difficulty: 4.5,
+          stability: 2.0,
+          lastLapseTime: 10,
+        ),
+      );
+      await tester.pumpWidget(_host(_card(view)));
+
+      expect(find.text('复习数据'), findsOneWidget);
+      expect(find.text('错误次数：3'), findsOneWidget);
+      expect(find.text('难度系数：4.50'), findsOneWidget);
+      expect(find.text('稳定性：2.00'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('93: legacy rows show metrics from reviewMetrics',
+        (tester) async {
+      final view = _legacyView(
+        reviewMetrics: const PersistedQuestionReviewMetrics(
+          lapses: 5,
+          difficulty: 8.25,
+          stability: 0.5,
+          lastLapseTime: 20,
+        ),
+      );
+      await tester.pumpWidget(_host(_card(view)));
+
+      expect(find.text('复习数据'), findsOneWidget);
+      expect(find.text('错误次数：5'), findsOneWidget);
+      expect(find.text('难度系数：8.25'), findsOneWidget);
+      expect(find.text('稳定性：0.50'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('94: metrics section is hidden when reviewMetrics is null',
+        (tester) async {
+      final view = _typedView(_richTypedDraft());
+      await tester.pumpWidget(_host(_card(view)));
+
+      expect(find.text('复习数据'), findsNothing);
+      expect(find.textContaining('错误次数'), findsNothing);
+      expect(find.textContaining('难度系数'), findsNothing);
+      expect(find.textContaining('稳定性'), findsNothing);
+      expect(tester.takeException(), isNull);
     });
   });
 }

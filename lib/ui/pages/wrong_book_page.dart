@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
-import 'package:shiroha_quiz/core/review_engine_service.dart';
-import 'package:shiroha_quiz/data/models/wrong_book_entry.dart';
-import '../widgets/markdown_extensions.dart';
-
+import '../../data/repositories/question_repository.dart';
+import '../models/persisted_question_view.dart';
+import '../widgets/persisted_question_card.dart';
 import 'question_edit_screen.dart';
 
 class WrongBookPage extends StatefulWidget {
-  const WrongBookPage({super.key});
+  const WrongBookPage({super.key, this.questionRepository});
+
+  /// Injectable for widget tests; defaults to the shared repository.
+  final QuestionRepository? questionRepository;
 
   @override
   State<WrongBookPage> createState() => _WrongBookPageState();
@@ -17,12 +19,97 @@ class _WrongBookPageState extends State<WrongBookPage> {
   static const Color _bgColor = Color(0xFFF4F6FA);
   static const Color _primaryColor = Color(0xFF4C6ED7);
 
-  late Future<List<WrongBookEntry>> _future;
+  List<PersistedQuestionView> _questions = const [];
+  bool _isLoading = true;
+  bool _hasLoadError = false;
+
+  QuestionRepository get _questionRepository =>
+      widget.questionRepository ?? QuestionRepository.instance;
 
   @override
   void initState() {
     super.initState();
-    _future = ReviewEngineService().getWrongBookEntries();
+    _loadQuestions();
+  }
+
+  /// The only wrong-book read: the repository returns lapsed rows from every
+  /// bank (SQL filter `lapses > 0`, `last_lapse_time DESC`) as typed union
+  /// rows with review metrics. The page never touches raw maps or SQLite.
+  Future<void> _loadQuestions() async {
+    setState(() {
+      _isLoading = true;
+      _hasLoadError = false;
+    });
+    try {
+      final persisted = await _questionRepository.getPersistedWrongQuestions();
+      if (!mounted) return;
+      setState(() {
+        _questions = List<PersistedQuestionView>.unmodifiable(
+          persisted.map(PersistedQuestionViewAdapter.fromPersisted),
+        );
+        _isLoading = false;
+      });
+    } catch (_) {
+      debugPrint('Wrong book load failed');
+      if (!mounted) return;
+      setState(() {
+        _questions = const [];
+        _isLoading = false;
+        _hasLoadError = true;
+      });
+    }
+  }
+
+  Future<void> _deleteQuestion(PersistedQuestionView question) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          '确认删除',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: const Text('删除后无法恢复，确定要删除此题目吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    if (question.storageId.isEmpty) return;
+    try {
+      // Typed rows rely on the v15 FK `ON DELETE CASCADE` to remove the
+      // sidecar; clearing review-only state is untouched by this page.
+      await _questionRepository.deleteQuestion(question.storageId);
+      await _loadQuestions();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('删除失败，请稍后重试')),
+      );
+    }
+  }
+
+  void _openLegacyEditor(PersistedQuestionView question) {
+    final payload = question.legacyEditPayload;
+    if (payload == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute<bool>(
+        builder: (_) => QuestionEditScreen(question: payload),
+      ),
+    ).then((modified) {
+      if (modified == true && mounted) _loadQuestions();
+    });
   }
 
   @override
@@ -35,18 +122,59 @@ class _WrongBookPageState extends State<WrongBookPage> {
         foregroundColor: Colors.grey.shade900,
         elevation: 0,
       ),
-      body: FutureBuilder<List<WrongBookEntry>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return _buildEmptyState();
-          }
-          return _buildList(snapshot.data!);
-        },
-      ),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_hasLoadError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                color: Colors.redAccent,
+                size: 48,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '错题本中存在无法安全读取的题目，请重试或修复数据',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadQuestions,
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_questions.isEmpty) {
+      return _buildEmptyState();
+    }
+    return ListView.builder(
+      addRepaintBoundaries: true,
+      padding: const EdgeInsets.all(16),
+      itemCount: _questions.length,
+      itemBuilder: (context, index) {
+        final question = _questions[index];
+        return PersistedQuestionCard(
+          question: question,
+          onDelete: () => _deleteQuestion(question),
+          // Typed rows never get a legacy edit entry (Survey Q7 gap closed).
+          onEditLegacy:
+              question.isTyped ? null : () => _openLegacyEditor(question),
+        );
+      },
     );
   }
 
@@ -96,144 +224,6 @@ class _WrongBookPageState extends State<WrongBookPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildList(List<WrongBookEntry> items) {
-    return ListView.builder(
-      addRepaintBoundaries: true,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        return _buildWrongBookCard(items[index]);
-      },
-    );
-  }
-
-  Widget _buildWrongBookCard(WrongBookEntry entry) {
-    final mdText = StringBuffer();
-    mdText.writeln('### 题目内容');
-    mdText.writeln(entry.content);
-    mdText.writeln();
-
-    if (entry.options.isNotEmpty) {
-      mdText.writeln('#### 选项');
-      for (int i = 0; i < entry.options.length; i++) {
-        String optStr = entry.options[i];
-        String stripped = optStr
-            .replaceFirst(RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '')
-            .trim();
-        if (stripped.isEmpty) stripped = optStr;
-        mdText.writeln('${String.fromCharCode(65 + i)}. $stripped');
-      }
-      mdText.writeln();
-    }
-
-    if (entry.hasAnswerOrExplanation) {
-      mdText
-          .writeln('**正确答案：** `${entry.answer.isEmpty ? "无" : entry.answer}`');
-      if (entry.explanation.isNotEmpty) {
-        mdText.writeln();
-        mdText.writeln('**解析：**');
-        mdText.writeln(entry.explanation);
-      }
-      mdText.writeln();
-    }
-    mdText.writeln('---');
-    mdText.writeln('**复习数据：**');
-    mdText.writeln('- **错误次数：** ${entry.lapses}');
-    mdText.writeln('- **难度系数：** ${entry.difficulty.toStringAsFixed(2)}');
-    mdText.writeln('- **稳定性：** ${entry.stability.toStringAsFixed(2)}');
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      elevation: 0,
-      color: Colors.white,
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: Text(
-          entry.bankName,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-            color: Colors.grey.shade800,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          entry.content,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '错 ${entry.lapses} 次',
-            style: const TextStyle(
-              color: Colors.redAccent,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        children: [
-          buildLatexWidget(
-            context,
-            mdText.toString(),
-          ),
-          if (!entry.hasAnswerOrExplanation)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(top: 8),
-              decoration: BoxDecoration(
-                color: Colors.orangeAccent.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: Colors.orangeAccent.withValues(alpha: 0.3)),
-              ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => QuestionEditScreen(
-                                  question: entry.toQuestionEditMap())))
-                      .then((modified) {
-                    if (modified == true) {
-                      setState(() {
-                        _future = ReviewEngineService().getWrongBookEntries();
-                      });
-                    }
-                  });
-                },
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    children: [
-                      Icon(Icons.edit_note_rounded,
-                          color: Colors.orangeAccent, size: 20),
-                      SizedBox(height: 4),
-                      Text('✍️ 暂无答案，点击手动添加或修改',
-                          style: TextStyle(
-                              color: Colors.orangeAccent,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

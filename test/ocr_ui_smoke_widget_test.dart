@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shiroha_quiz/data/models/persisted_question.dart';
+import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
@@ -32,6 +34,7 @@ class _SmokeQuestionRepository extends Fake implements QuestionRepository {
       ..clear()
       ..addAll(questions.map((question) => {
             'id': 'fixture-${savedQuestions.length}',
+            'bank_name': bankName,
             'type': question.type.code,
             'content': question.content,
             'options': jsonEncode(question.options),
@@ -41,16 +44,16 @@ class _SmokeQuestionRepository extends Fake implements QuestionRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getQuestionsByBank(String bankName) async {
-    return savedQuestions.map(Map<String, dynamic>.from).toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> searchQuestions(
+  Future<List<PersistedQuestion>> getPersistedQuestionsByBank(
     String bankName,
-    String query,
   ) async {
-    return getQuestionsByBank(bankName);
+    return [
+      for (final saved in savedQuestions)
+        if (saved['bank_name'] == bankName)
+          LegacyPersistedQuestion(
+            question: Question.fromMap(saved),
+          ),
+    ];
   }
 }
 
