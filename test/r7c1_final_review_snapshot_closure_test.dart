@@ -145,6 +145,7 @@ class _RecordingCommitService extends ImportCommitService {
   int? lastExpectedReviewDraftRevision;
   String? lastObservedAnswer;
   String? lastObservedExplanation;
+  List<QuestionType>? lastObservedItemTypes;
 
   /// When true the commit is recorded without delegating to the frozen
   /// service lease/repository chain (used only to probe the screen contract).
@@ -170,6 +171,8 @@ class _RecordingCommitService extends ImportCommitService {
         items.isEmpty ? null : items.first.currentDraft.standardAnswer;
     lastObservedExplanation =
         items.isEmpty ? null : items.first.currentDraft.explanation;
+    lastObservedItemTypes =
+        items.map((input) => input.currentDraft.type).toList(growable: false);
     final payloadLabel =
         (lastObservedExplanation == null || lastObservedExplanation!.isEmpty)
             ? 'B'
@@ -591,6 +594,162 @@ void main() {
     expect(repo.legacySaveCalls, 0);
     expect(flushGate.saveCount, 1,
         reason: 'only the final flush may have saved');
+  });
+
+  testWidgets(
+      '18.9 P3-2: selection-mode toolbar gated and selection handlers are '
+      'no-ops while the typed commit is in progress', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
+    final distiller = _GatedDistiller(answer: 'Distilled B');
+    final flushGate = _FlushGate(repo.events);
+    await tester.pumpWidget(buildScreen(
+      questions: <Map<String, dynamic>>[
+        _typedQuestion(
+          number: 1,
+          type: 1,
+          options: const <String>['A', 'B'],
+          content: 'Synthetic choice stem',
+          standardAnswer: 'A',
+          explanation: 'Synthetic explanation',
+        ),
+        _typedQuestion(
+            number: 2,
+            standardAnswer: '',
+            explanation: 'Subjective explanation'),
+      ],
+      diagnostics: _typedDiagnostics(),
+      taskId: _taskId,
+      answerDistiller: distiller,
+      retentionMode: ExplanationRetentionMode.allQuestionTypes,
+      saveTask: flushGate.onSave,
+    ));
+    await tester.pumpAndSettle();
+    service.recordOnly = true;
+
+    // The confirm button is replaced by the selection toolbar once
+    // selection mode starts, so the save flow can only reach `_isSaving`
+    // while the toolbar is visible through a bypassed entry: capture the
+    // real handlers while the UI is still enabled.
+    final validate = captureConfirmHandler(tester);
+    final enterSelection = tester
+        .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.checklist))
+        .onPressed!;
+
+    await tester.tap(find.byIcon(Icons.checklist));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 0 题'), findsOneWidget);
+    await tester.tap(find.text('全选当前'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2 题'), findsOneWidget);
+
+    final changeTypeOpener = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '改题型'))
+        .onPressed!;
+    final deleteSelected = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '删除'))
+        .onPressed!;
+    expect(changeTypeOpener, isNotNull,
+        reason: 'the toolbar must be enabled before the commit starts');
+    expect(deleteSelected, isNotNull,
+        reason: 'the toolbar must be enabled before the commit starts');
+
+    // `_changeSelectedType` has no direct widget handle; the change-type
+    // dialog ListTile is its only production entry, so capture the concrete
+    // selection handler while the dialog is open and keep the dialog open
+    // until the bypass invocation.
+    await tester.tap(find.text('改题型'));
+    await tester.pumpAndSettle();
+    expect(find.text('批量修改题型'), findsOneWidget);
+    final changeToChoice = tester
+        .widget<ListTile>(
+          find.ancestor(
+            of: find.descendant(
+              of: find.byType(AlertDialog),
+              matching: find.text('选择题'),
+            ),
+            matching: find.byType(ListTile),
+          ),
+        )
+        .onTap!;
+
+    flushGate.armed = true;
+    validate();
+    await tester.pumpAndSettle();
+    if (find.text('继续').evaluate().isNotEmpty) {
+      await tester.tap(find.text('继续'));
+      await tester.pumpAndSettle();
+    }
+    await tester.enterText(
+      find.widgetWithText(TextField, '目标题库名称'),
+      'Typed Bank',
+    );
+    await tester.tap(find.text('确定入库'));
+    await pumpFrames(tester);
+    expect(repo.events, contains('final_flush_started'),
+        reason: 'the final flush must be in-flight so _isSaving is true');
+
+    // The selection toolbar stays up during the commit and both
+    // payload-mutating toolbar buttons must be disabled.
+    expect(find.text('已选 2 题'), findsOneWidget,
+        reason: 'selection mode must coexist with the in-flight commit');
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '改题型'))
+          .onPressed,
+      isNull,
+      reason: 'the type-change toolbar button must be disabled while saving',
+    );
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '删除'))
+          .onPressed,
+      isNull,
+      reason: 'the delete toolbar button must be disabled while saving',
+    );
+
+    // Programmatic bypasses are no-ops: no selection change, no delete
+    // dialog, no type change, no enqueued save and no distillation.
+    enterSelection();
+    deleteSelected();
+    changeToChoice();
+    await pumpFrames(tester);
+
+    expect(find.text('已选 2 题'), findsOneWidget,
+        reason: '_enterSelectionMode must not clear the selection while '
+            'saving');
+    expect(find.text('删除选中题目'), findsNothing,
+        reason: '_deleteSelectedWithConfirm must not open its dialog while '
+            'saving');
+    expect(find.text('批量修改题型'), findsNothing,
+        reason: 'the captured type-change handler must close its dialog but '
+            'skip the mutation while saving');
+    expect(distiller.distillCalls, 0);
+    expect(flushGate.saveCount, 1,
+        reason: 'no bypassed handler may enqueue a review-draft save');
+
+    flushGate.gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(service.commitTypedCalls, 1);
+    expect(service.lastExpectedReviewDraftRevision, 1,
+        reason: 'the payload must carry the final flush revision');
+    expect(service.lastObservedItemTypes,
+        [QuestionType.singleChoice, QuestionType.shortAnswer],
+        reason: 'the bypassed type change must be a no-op: both drafts keep '
+            'their flushed types');
+    expect(service.lastObservedAnswer, 'A',
+        reason: 'the commit payload must equal the flushed state, not the '
+            'bypassed distilled answer');
+    expect(service.lastObservedExplanation, 'Synthetic explanation',
+        reason: 'the explanation must stay identical to the flushed state');
+    expect(repo.lastScreenPayloadAnswer, 'A');
+    expect(repo.typedSaveCalls, 1);
+    expect(repo.legacySaveCalls, 0);
+    expect(flushGate.saveCount, 1,
+        reason: 'only the final flush may have saved');
+    expect(find.text('本次导入报告'), findsOneWidget,
+        reason: 'the bypassed save flow must still complete the typed commit '
+            'with the flushed payload');
   });
 
   testWidgets(

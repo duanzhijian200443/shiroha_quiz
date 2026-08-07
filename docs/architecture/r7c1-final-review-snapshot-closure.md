@@ -116,3 +116,83 @@ The typed commit now receives a payload provably rebuilt after the final
 flush, so the R7C.1 revision/lease/transaction gates verify one consistent
 snapshot. Legacy remains on the untouched writer; provider calls stay 0 in
 all acceptance evidence.
+
+## 12. P3-1 closure repair (2026-08-07)
+
+Status remains IMPLEMENTED CLOSURE.
+
+Finding (class B, closure pass 1/1): during `_isSaving` (final flush through
+typed commit) several payload-mutating UI entries remained operable and could
+rewrite `_allItems`/`_explanationOverrides` between the final flush and
+`_buildCurrentTypedCommitInputs()`: the batch and per-item answer
+distillation buttons, the document and per-question explanation retention
+controls, the swipe-to-delete gesture, and the selection-mode batch
+type/delete handlers. A mutation whose save was rejected by the commit lease
+could leave the persisted draft at state A while the commit payload was
+rebuilt as post-mutation state B, weakening the revision N <-> payload proof
+in the narrow window.
+
+Fix (commit SHA: 0e5bcdc74df850f89fbec10bb0b651c111f9049f): every
+payload-mutating entry now carries both a UI disable and a programmatic gate.
+UI: `onPressed`/`onSelected`/`onChanged` become null (and Dismissible uses
+`DismissDirection.none`) while `_isSaving`; the app-bar batch icon and the
+selection toolbar type/delete buttons are disabled too. Programmatic: each
+mutation handler (`_applyBatchResult`, `_deleteSelectedWithConfirm`,
+`_changeSelectedType`, `_setDocumentExplanationRetention`,
+`_setQuestionExplanationRetention`, `_distillSingleAnswer`,
+`_distillAllAnswers`, `_enterSelectionMode`, and Dismissible `onDismissed`)
+returns immediately when `_isSaving`, so a bypassed caller cannot change the
+commit payload or enqueue a review-draft save. The frozen ordering final
+flush -> revision N -> rebuild post-flush inputs -> commitTyped(post-flush
+items, N) is unchanged; legacy path stays untouched.
+
+Verification: `dart format --output=none --set-exit-if-changed` and
+`flutter analyze --no-pub --no-fatal-infos` on the two changed Dart files
+pass; the focused contract matrix
+(`import_staging_typed_commit_widget_test`,
+`r7c1_final_review_snapshot_closure_test`, `import_commit_service_test`,
+`task_manager_typed_commit_lease_test`,
+`r7c1_attempt_aware_typed_commit_acceptance_test`,
+`r7d_v2_first_question_list_acceptance_test`) passes 93/93 serially.
+18.1/20 now land state B before confirm and still assert payload B with
+revision == final flush revision; the new 18.8 asserts all disabled
+controls, programmatic no-ops (`_allItems` unchanged, no enqueued save) and
+payload == flush-saved state. Provider calls stay 0.
+
+## 13. P3-2 test-only closure (2026-08-07)
+
+Status remains IMPLEMENTED CLOSURE; production code unchanged.
+
+Finding (class B, closure pass 1/1): the targeted Closure Reviewer reported
+that 18.8 did not cover the selection-mode toolbar gating (`改题型` at
+`import_staging_screen.dart:1970` and `删除` at :1980 disabled while
+`_isSaving`) nor the programmatic no-ops of `_enterSelectionMode` /
+`_deleteSelectedWithConfirm` / `_changeSelectedType`. The selection toolbar
+replaces the bottom confirm button while active, so the save flow can reach
+`_isSaving` with the toolbar still visible only through a bypassed entry;
+the frozen invariant requires the toolbar handlers to be no-ops in that
+window too.
+
+Closure: test-only. New 18.9 in
+`test/r7c1_final_review_snapshot_closure_test.dart` (same synthetic widget
+harness and Fakes; no harness-behavior change to the existing 11 cases). The
+test enters selection mode, selects both questions, opens the change-type
+dialog, then invokes the captured confirm handler so the final flush runs
+while the selection toolbar is up. It asserts both toolbar buttons are
+disabled (`onPressed == null`) during `_isSaving`, and that programmatic
+`_enterSelectionMode` / `_deleteSelectedWithConfirm` / the captured
+change-type selection handler are no-ops: selection count unchanged, no
+delete dialog, no type change, no enqueued save (`saveCount == 1`) and
+`distillCalls == 0`. After the flush, the commit payload must equal the
+flushed state (2 items, original types singleChoice/shortAnswer, answer and
+explanation unchanged, revision == flush revision, success dialog shown).
+`.github/workflows/pr-contract-checks.yml` already lists the test file and
+needs no change.
+
+Verification: `dart format --output=none --set-exit-if-changed` and
+`flutter analyze --no-pub --no-fatal-infos` on the changed test file pass;
+`flutter test --concurrency=1
+test/r7c1_final_review_snapshot_closure_test.dart
+test/import_staging_typed_commit_widget_test.dart` passes 25/25 serially
+(12/12 + 13/13); `git diff --check` passes. Provider calls stay 0. Commit:
+this test-only closure commit.
