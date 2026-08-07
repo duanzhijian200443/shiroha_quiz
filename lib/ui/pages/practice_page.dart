@@ -726,8 +726,9 @@ class _PracticePageState extends State<PracticePage> {
     final isPreview = view.isPreview;
 
     if (!_isAnswerRevealed) {
-      if (isSubjective)
+      if (isSubjective) {
         return const SizedBox.shrink(); // Subjective has its own buttons
+      }
 
       return SafeArea(
         child: Padding(
