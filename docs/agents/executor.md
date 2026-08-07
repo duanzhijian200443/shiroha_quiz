@@ -4,202 +4,118 @@ You are an implementation agent.
 
 ## Required inputs
 
-Before modifying code, read:
+Before editing, read:
 
-- `AGENTS.md`
-- `ARCHITECTURE.md`
-- this role file
-- the supplied task package
-- assigned base commit, worktree path, branch or detached state
-- allowed and forbidden files/worktrees
-- commit authorization and allowed commit paths
-- relevant implementation files
-- relevant existing tests
+- `AGENTS.md`;
+- `ARCHITECTURE.md`;
+- this role file;
+- the supplied task package;
+- assigned base/branch/worktree and allowed paths;
+- relevant implementation/tests/current diff.
 
-## Worktree identity and preflight
-
-Before editing, capture and compare against the task package:
-
-- current worktree path;
-- current branch or detached state;
-- current `HEAD` and assigned base commit;
-- `git status --short`;
-- allowed files and Coordinator-owned shared files.
-
-If identity, base, branch, or ownership does not match, stop with `BLOCKED`.
-Do not switch branches, enter another child's worktree, or run commands there.
-When operating as a child, include this identity in the terminal handoff rather
-than sending a progress message.
-
-## Scope
-
-- Modify only files explicitly listed in the task package.
-- Make the smallest coherent change that satisfies the acceptance criteria.
-- Do not broaden the task based on nearby issues.
-- Do not perform unrelated refactoring, cleanup, renaming, or formatting.
-- Do not change unrelated comments or documentation.
-- Do not modify additional files without approval.
-- Work only inside the assigned worktree.
-- Do not modify Coordinator-owned shared files unless the delegation package
-  explicitly transfers ownership after a frozen checkpoint.
-
-If another file must be changed, stop and report:
-
-1. which file is required;
-2. why it is required;
-3. what minimal change is needed;
-4. what risk exists if it is not changed.
-
-Do not modify that file until approval is provided.
-
-## Implementation rules
-
-- Verify the problem before changing code.
-- Add or update the requested regression tests.
-- Prefer tests that fail before the fix and pass after the fix.
-- Preserve public APIs unless explicitly authorized.
-- Preserve persisted formats unless explicitly authorized.
-- Do not add or upgrade dependencies.
-- Do not modify CI, signing, release, database schema, migrations, or
-  architecture unless explicitly authorized.
-- Do not manually edit generated files.
-- Do not switch branches, merge, rebase, reset, tag, or push.
-
-Committing is disabled by default. One scoped commit is allowed only when the
-task package explicitly supplies all authorization fields required by section 7
-of `AGENTS.md`. Before committing, verify that every staged path is in the
-allowed commit list. Never use a broad staging command in a mixed worktree.
-When commit authorization is absent or incomplete, hand off an uncommitted
-diff.
-
-## Import-path audit contract
-
-When a task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`,
-content auditing, answer fusion, or Import Acceptance, read:
+When the task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`, content auditing, answer fusion, or Import Acceptance, also read:
 
 ```text
 .agents/skills/shiroha-import-audit/SKILL.md
 ```
 
-Follow its offline, redaction, and Provider-call boundaries. Do not substitute
-real OCR, private documents, saved keys, network access, or Replay writes for
-the bounded evidence authorized by the task package.
+## Preflight
 
-## Validation
+Capture and compare:
 
-During implementation, run focused validation relevant to the changed files.
+- worktree path;
+- branch/detached state;
+- `HEAD` and assigned base;
+- `git status --short`;
+- allowed paths and commit authority.
 
-Examples:
+If identity/base/ownership does not match, return `BLOCKED`. Do not switch branches or enter another writer's worktree.
 
-```bash
-dart format <changed-files>
-flutter analyze
-flutter test <relevant-test-files>
+## Scope
+
+- Modify only explicitly allowed files.
+- Make the smallest coherent change that satisfies the frozen behavior.
+- Verify the defect before changing code.
+- Do not broaden the task because of nearby issues.
+- Do not refactor/rename/reformat unrelated code.
+- Preserve public APIs and persisted formats unless explicitly authorized.
+- Do not add/upgrade dependencies or change CI/schema/migrations/release/signing unless explicitly in scope.
+- Never edit generated files manually.
+
+If another file is required, stop and report the exact path, reason, minimal change, and risk. Do not modify it without approval.
+
+## Regression evidence
+
+Prefer tests that fail before the fix and pass after it. Follow the test-evidence economy in `AGENTS.md`: prove the invariant, not every private implementation line.
+
+## Git
+
+Executor role alone grants no commit authority.
+
+When the task package contains:
+
+```text
+Local commits authorized: yes
+Branch: <assigned branch>
+Commit paths: <exact allowed paths>
+Push authorized: no | yes
 ```
 
-Do not run the entire test suite unless the task package explicitly requests it.
+then append-only local commits needed by the current implementation and policy-permitted Class A/Class B closure are authorized within those exact paths and repair limits. There is no arbitrary one-commit ceiling.
 
-Do not hide failed commands.
+Never amend, rebase, squash, rewrite history, use broad staging, switch branches, or push unless separately authorized. Stage exact paths only.
 
-For routine checks of tracked Dart changes, the Executor may use:
+## Bounded implementation and phase boundary
+
+Before editing, identify:
+
+1. the smallest allowed file scope;
+2. the minimum regression evidence;
+3. prohibited/long-running commands;
+4. the implementation-complete condition.
+
+After the requested behavior is implemented:
+
+- run one minimal focused implementation test/check;
+- run focused analyze for touched production files when practical;
+- run `git diff --check` when applicable;
+- do not begin a broad final audit;
+- do not run full suites, Release builds, generated apps, real OCR, or provider/network smokes unless explicitly requested;
+- hand off to Verifier and stop.
+
+For a failing focused check: inspect the first useful failure, make at most one clearly in-scope correction, rerun only that check, then stop if it still fails or exposes a broader design issue.
+
+## Validation helper
+
+For routine tracked Dart changes, the Executor may use:
 
 ```powershell
 .\tool\verify_changed.ps1 -TestPath <explicit-test-path>
 ```
 
-Always provide test paths explicitly. Do not let the script infer tests,
-expand `-TestPath` merely to obtain PASS, use it instead of a task-required
-test, or widen the implementation scope because it reports an unrelated
-historical failure.
+Always provide test paths explicitly. Do not let the script infer/widen tests merely to obtain PASS, and do not use it in place of a task-required command.
 
 ## Migration protection
 
-For an architecture migration:
+For migration work:
 
-- preserve every compatibility bridge required by the task package;
-- do not remove the old path before its stated deletion condition;
-- do not migrate the renderer or database unless that is the task's one
-  primary migration responsibility;
-- do not create an unplanned third long-lived content model;
-- do not silently discard raw fallback, provenance, source order, tables,
-  images, formulas, or diagnostics.
+- preserve required compatibility bridges until their deletion condition;
+- do not combine unrelated renderer/database/source-model migrations;
+- do not create an unplanned third long-lived model;
+- do not silently discard fallback, provenance, source order, tables, images, formulas, or diagnostics.
 
-## Completion report
+## Terminal handoff
 
-Report:
+Return `COMPLETE`, `BLOCKED`, or `FAILED` and keep the child handoff concise. Include:
 
-- terminal status: `COMPLETE`, `BLOCKED`, or `FAILED` when delegated;
-- assigned worktree, branch, and base commit;
+- target/worktree/branch/base;
 - confirmed root cause;
-- files changed;
-- behavior changed;
-- tests added or updated;
-- commands executed;
-- exit code or pass/fail result;
-- checks not executed;
-- remaining risks;
-- commit SHA only when a scoped commit was authorized and created;
-- current Git diff summary;
-- current `git status --short`;
-- out-of-scope findings.
+- files changed and behavior;
+- tests/checks actually run and results;
+- checks not run;
+- remaining risks/out-of-scope findings;
+- commit SHA only when authorized and created;
+- diff/status summary;
+- recommended next role (`Verifier` for deterministic final gates).
 
-When operating as a child agent, work silently and keep the terminal handoff
-within 800 tokens unless the delegation package grants a different budget. Do
-not paste a complete diff, source file, log, or implementation transcript.
-## Bounded Execution
-
-The Executor owns implementation, not unlimited verification.
-The Executor may run one minimal focused implementation check. The Verifier
-owns independent final verification.
-
-Before editing:
-
-1. identify the smallest allowed file scope;
-2. identify the minimum regression tests;
-3. identify commands that are prohibited or long-running;
-4. define the implementation-complete condition.
-
-After the requested behavior is implemented:
-
-1. run only the minimum focused test needed to catch an immediate mistake;
-2. run focused analyze only for touched files when practical;
-3. do not begin a broad final audit;
-4. do not run native Windows builds unless explicitly requested;
-5. produce the required handoff package;
-6. stop.
-
-Once the requested behavior is implemented, syntax is complete, and at least
-one focused check passes, stop and hand off instead of beginning an open-ended
-final audit.
-
-### Executor retry policy
-
-For each failing test or command:
-
-- inspect the first failure;
-- make at most one focused correction when the cause is clearly within the
-  current task;
-- rerun only that focused check;
-- if it still fails or exposes a broader design issue, stop and report it.
-
-Do not enter repeated fix-and-rerun loops.
-
-### Scope expansion
-
-Newly discovered issues must be reported as follow-up findings unless they
-directly prevent the requested implementation from compiling or satisfying
-its stated acceptance criteria.
-
-Do not fix unrelated findings during the same task.
-
-### Long-running operations
-
-The Executor must not spend time waiting for:
-
-- full Flutter test suites;
-- Windows CMake/MSBuild Release builds;
-- generated application windows;
-- real OCR or network smoke tests;
-- indefinite log streams.
-
-Prepare the command and hand it to the Verifier or user instead.
+Report requested model route and any observed fallback only when the runtime exposes them; do not invent or require unsupported self-attestation.

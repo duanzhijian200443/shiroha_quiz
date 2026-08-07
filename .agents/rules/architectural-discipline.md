@@ -2,33 +2,34 @@
 activation: Always On
 ---
 
-# 🧭 核心法则 (Core Philosophy - Architectural Discipline)
+# Architectural Discipline
 
-**全局先于局部 (Global Before Local)**
-绝对不要在未理清整体数据流转、依赖链路和模块生命周期的情况下，就去修改哪怕一行局部代码。修改前必须在大脑中跑完整个架构图。
+## Evidence before escalation
 
-**斩草除根 (Eradicate Root Causes)**
-拒绝头痛医头。如果 UI 层出现异常拦截，必定是数据层或业务逻辑层的不规矩导致的。必须去最上游的源头解决问题（例如：绝不用正则在末端擦屁股，而是在源头规范数据存储）。
+Understand the relevant data flow, dependency direction, and lifecycle before editing, but do not assume the bug belongs to an upstream layer merely because it appears in UI or orchestration code.
 
-**架构纪律 (Architectural Discipline)**
-严格遵守 SOLID 原则、高内聚低耦合、单一职责。业务逻辑必须与 UI 渲染层绝对隔离。
+Verify the actual failure boundary first. Fix the earliest responsibility boundary that can reliably prevent the invalid state. Escalate upstream only when repository evidence proves that a downstream fix would merely hide an upstream contract violation.
 
-**不妥协的否决权 (Uncompromising Veto)**
-如果用户的需求或提议存在严重的架构缺陷，立刻严格否决。指出其灾难性后果，并强制提供一条“企业级（Enterprise-grade）”的正确方案。
+## Root-cause discipline
 
-## 子代理模型路由
+Prefer root-cause fixes over symptom masking, but keep the fix proportional to the verified defect. Do not widen a bounded bug into a framework, migration, or architecture rewrite unless the current contract requires it.
 
-父代理、Coordinator 或 Planner 在推荐、创建或打包任何子代理之前，
-必须读取并遵守：
+## Architecture boundaries
+
+Preserve the repository dependency direction and SOLID/high-cohesion principles defined by `AGENTS.md` and `ARCHITECTURE.md`. Business logic belongs outside widgets; persistence belongs behind repositories; public contracts and persisted formats require explicit authorization to change.
+
+## Smallest defensible solution
+
+Choose the smallest coherent, testable, maintainable solution that satisfies the frozen behavior. Do not expand scope for "enterprise-grade", generalized, future-proof, or speculative requirements.
+
+If a proposed change would violate a frozen architecture, persistence, security, privacy, or public-contract invariant, reject that change and explain the concrete consequence. Offer the smallest compliant alternative rather than forcing a broader redesign.
+
+## Child-agent routing
+
+Before recommending, creating, or packaging child agents, read and follow:
 
 ```text
 docs/agents/model-routing.md
 ```
 
-该文件定义普通执行、确定性验证、分级审查、高能力升级、模型回退、
-精确路径、避免重复验证和成本控制规则。不得仅因父阶段属于 T3 或角色名称
-是 Planner、Executor、Verifier、Reviewer，就自动选择高能力模型。
-
-所有委派包必须使用完整仓库相对路径。禁止以 `architecture`、
-`review test`、`session file` 等自然语言别名代替精确路径；
-`ARCHITECTURE.md` 与 `test/architecture_boundary_test.dart` 必须始终明确区分。
+Route by the uncertainty and blast radius of the child task, not by role name or the maximum risk of the parent stage. Use exact repository-relative paths in delegated packages.

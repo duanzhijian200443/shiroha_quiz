@@ -228,13 +228,19 @@ if ($workingDiffExitCode -eq 0 -and $cachedDiffExitCode -eq 0) {
 }
 
 Write-Section -Name 'Git status'
-& git status --short
+$statusOutput = @(& git status --short)
 $statusExitCode = $LASTEXITCODE
-if ($statusExitCode -eq 0) {
-    Write-Output 'Git status: PASS'
-} else {
+if ($statusExitCode -ne 0) {
     Write-Output "Git status: FAIL (exit $statusExitCode)"
     $failed = $true
+} elseif ($statusOutput.Count -ne 0) {
+    foreach ($line in $statusOutput) {
+        Write-Output $line
+    }
+    Write-Output 'Git status: FAIL (working tree not clean)'
+    $failed = $true
+} else {
+    Write-Output 'Git status: PASS (clean)'
 }
 
 if ($failed) {

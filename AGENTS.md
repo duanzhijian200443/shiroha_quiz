@@ -6,58 +6,40 @@ These instructions apply to all agent work in this repository.
 
 When instructions conflict:
 
-1. Follow higher-level platform and user instructions.
-2. Follow the more restrictive repository rule.
+1. Follow higher-level platform and explicit current-user instructions.
+2. Follow the more restrictive repository safety/privacy/Git rule.
 3. Follow the active role file.
-4. Stop and ask for approval when the conflict cannot be resolved safely.
+4. Stop for user direction only when the conflict cannot be resolved safely.
 
 Operate only inside this repository unless the user explicitly authorizes otherwise.
 
 ---
 
-## 2. Required context
+## 2. Required context and rule routing
 
-Before any non-trivial task, read:
+Before a non-trivial task, read:
 
-- `ARCHITECTURE.md`
-- only the files under `.agents/rules/` selected by the routing table below
-- the active role file under `docs/agents/`
-- relevant existing tests
-- the implementation surrounding the target code
-- current uncommitted changes affecting the task
+- `ARCHITECTURE.md`;
+- the active role file under `docs/agents/`;
+- relevant implementation and tests;
+- current Git state/diff that affects the task;
+- only the `.agents/rules/` files selected below.
 
 Do not claim a file was reviewed unless it was opened during the current task.
 
-### `.agents/rules/` routing
+| Rule file | Read when |
+|---|---|
+| `.agents/rules/architectural-discipline.md` | Every non-trivial repository task |
+| `.agents/rules/git_work.md` | Git status/diff/staging/commit/branch/history/push decisions are involved |
+| `.agents/rules/reviewer.md` | Only when the first line activates `角色：审查` |
 
-Do not enumerate or read every file under `.agents/rules/` by default. Read
-only the files selected by this table.
-
-A rule file explicitly named as a task target may also be read to inspect,
-modify, review, diagnose, or verify that target. Reading a rule file as task
-evidence does not activate its behavioral instructions; activation still
-follows the table.
-
-| Rule file | Read when | Do not read when | Foundation |
-|---|---|---|---|
-| `architectural-discipline.md` | Every non-trivial task | Only trivial, self-contained requests that need no repository context | Yes |
-| `git_work.md` | The task concerns Git status, diffs, staging, commit preparation, branches, history, tags, or pushing | The task has no Git operation or Git-state decision | No |
-| `reviewer.md` | The first line explicitly activates `角色：审查` | Planner, Executor, Verifier, Diagnostician, or requests without the Reviewer role | No; routing shim only |
-
-Reviewer behavior is defined only by `docs/agents/reviewer.md`; the rule shim
-must not impose Reviewer write restrictions on another role.
-
-There is currently no UI-specific or import/OCR-specific file under
-`.agents/rules/`. Do not invent one or load unrelated rules for those tasks.
-Presentation/UI tasks use this file, `ARCHITECTURE.md`, and the active role.
-OCR, import, Replay, private-document, and diagnostics tasks also follow the
-applicable role's dedicated safety or Skill routing.
+Do not enumerate or load unrelated rule files. Reading a rule file as evidence does not activate its behavioral role unless routing says so.
 
 ---
 
 ## 3. Role activation
 
-The first line of the user request may activate exactly one role:
+The first line may activate exactly one role:
 
 | Identifier | Role file |
 |---|---|
@@ -68,541 +50,294 @@ The first line of the user request may activate exactly one role:
 | `角色：审查` | `docs/agents/reviewer.md` |
 | `角色：诊断` | `docs/agents/diagnostician.md` |
 
-Rules:
-
-- Read the mapped role file before continuing.
-- Then state the active role and loaded role file.
-- If the role file is missing or unreadable, stop.
-- Do not activate more than one role.
-- Do not switch roles during a task unless the user explicitly requests it.
-- Without an explicit role, do not assume a write-enabled role.
+Read the mapped role file before continuing. Do not activate multiple roles or silently switch roles. Without an explicit role, do not assume write authority.
 
 ---
 
-## 4. Architecture
+## 4. Architecture and change discipline
 
-Preserve the dependency direction:
+Preserve:
 
 `UI -> Service -> Repository -> DatabaseHelper`
 
 Requirements:
 
-- UI and Services must not access SQLite or `DatabaseHelper` directly.
+- UI and Services do not access SQLite/`DatabaseHelper` directly.
 - Persistence belongs in Repositories.
-- Business logic belongs in Services.
-- Widgets must not contain domain logic.
+- Business logic belongs in Services/application/domain layers as defined by `ARCHITECTURE.md`.
+- Widgets do not acquire domain logic.
 - Reuse existing abstractions before adding new ones.
-- Follow `ARCHITECTURE.md`.
+- Verify the actual failure boundary before escalating upstream.
+- Make the smallest coherent change that satisfies the frozen contract.
+- Do not refactor, rename, reformat, generalize, or "future-proof" unrelated code.
+- Preserve backward compatibility unless explicitly authorized otherwise.
+- Do not change public APIs, persisted formats, schema, dependencies, CI/release/signing, or security/privacy contracts unless they are explicitly in scope.
+- Preserve unrelated user changes. Report nearby issues instead of fixing them automatically.
+
+High-risk areas include import pipelines, persistence/migrations, async recovery/concurrency, logging/redaction, credentials, OCR/AI merging, and global exception handling. High-risk changes require failure-path and concurrency evidence where applicable.
 
 ---
 
-## 5. Task workflow
+## 5. Normal task workflow
 
-For implementation tasks:
+For implementation:
 
-1. Inspect the relevant code, tests, and current diff.
+1. Inspect relevant code/tests/current diff.
 2. Verify the reported problem exists.
-3. State a concise plan.
-4. Confirm the allowed modification scope.
-5. Add or update regression tests.
-6. Make the smallest coherent change.
-7. Run focused validation.
-8. Report results, remaining risks, and out-of-scope findings.
+3. Freeze the task-specific behavior and allowed scope.
+4. Add/update the minimum regression evidence needed.
+5. Make the smallest coherent change.
+6. Run minimal focused self-checks.
+7. Stop at the Executor phase boundary and hand off to independent verification.
 
 For read-only tasks, do not modify, format, create, rename, or delete files.
 
 ---
 
-## 6. Change discipline
+## 6. Git authority
 
-- Do not modify files outside the declared scope.
-- Stop and request approval before expanding scope.
-- Do not refactor, rename, or reformat unrelated code.
-- Do not silently change public behavior or persisted formats.
-- Preserve backward compatibility unless explicitly authorized.
-- Do not add, remove, or upgrade packages without approval.
-- Never edit generated files manually.
-- Preserve all existing user changes.
-- Report nearby problems instead of fixing them automatically.
+Never run destructive/history-rewriting Git operations, including `git reset --hard`, destructive `git checkout`/`git restore`, `git clean -fd[x]`, force push, or history rewriting.
 
----
+Git authority is action-specific. Staging does not authorize commit; commit does not authorize push; push does not authorize merge/tag/release. Branch/worktree creation also requires explicit authority.
 
-## 7. Git and destructive actions
+Never use `git add .` or `git add -A`. Use exact paths. Do not create/update `DEVELOPMENT_LOG.md` unless it is explicitly in scope.
 
-Never run destructive or history-rewriting commands, including:
+### Local commit authorization
 
-- `git reset --hard`
-- `git clean -fd`
-- `git clean -fdx`
-- destructive `git checkout`
-- destructive `git restore`
-- force push
+An Executor may create local commits only when its package supplies all of:
 
-Do not commit, push, merge, rebase, tag, or create branches unless explicitly requested.
-
-Git authorization is action-specific. Mentioning or authorizing one action
-does not authorize a later action: staging does not authorize commit, commit
-does not authorize push, and push does not authorize merge, tag, or release.
-Never use `git add .` or `git add -A`. Do not automatically create or modify
-`DEVELOPMENT_LOG.md`; it must be explicitly included in the allowed file scope.
-No rule file may broaden the Git authority supplied by the user and this file.
-
-An Executor is not authorized to commit by role alone. It may create one
-scoped commit only when its task package explicitly provides all of:
-
-- `Commit authorized: yes`;
-- the assigned branch;
-- the exact paths allowed in the commit;
-- `Push authorized: no` (unless the user separately authorizes a push).
-
-Without all four fields, the Executor must hand off an uncommitted diff.
-
-Before and after write tasks, inspect:
-
-```bash
-git status --short
+```text
+Local commits authorized: yes
+Branch: <assigned branch>
+Commit paths: <exact allowed paths>
+Push authorized: no | yes
 ```
 
-Do not remove unrelated tracked or untracked files.
+When `Local commits authorized: yes` is present, the authorization covers the current frozen task and any policy-permitted Class A/Class B closure lane on the same assigned branch and within the same commit paths. Necessary append-only local commits are allowed; **commit count is not a safety boundary**.
+
+The following remain forbidden unless separately authorized:
+
+- amend/rebase/squash/history rewrite;
+- paths outside `Commit paths`;
+- repair passes beyond the closure limits;
+- push, PR, merge, tag, or release when not separately authorized.
+
+Without the complete authorization fields, hand off an uncommitted diff.
+
+Before and after write work, inspect `git status --short`. Do not remove unrelated tracked or untracked files.
 
 ---
 
-## 8. Security and privacy
+## 7. Security and privacy
 
-Never access, print, copy, modify, persist, or expose:
+Never expose, copy, persist, test-log, or report secrets such as API keys, tokens, authorization headers, signing material, passwords, credentials, private configuration, or complete private file contents.
 
-- API keys
-- access tokens
-- Authorization headers
-- signing keys
-- keystores
-- passwords
-- credentials
-- environment secrets
-- private configuration
-- complete private file contents
+Avoid logs/reports containing complete prompts, answers/explanations, raw OCR text, provider bodies, Base64 payloads, sensitive absolute paths, or raw exception messages that may contain private data. Prefer counts, IDs, stages, statuses, safe error categories, runtime types, and redacted metrics.
 
-Never write these values to logs, diagnostics, reports, fixtures, or tests.
-
-Also avoid logging:
-
-- complete prompts
-- complete answers or explanations
-- raw OCR text
-- model response bodies
-- Base64 payloads
-- sensitive absolute paths
-- full exception messages when they may contain private data
-
-Prefer safe structured values such as:
-
-- counts
-- IDs
-- stages
-- statuses
-- runtime type names
-- redacted metrics
-
-Network access is disabled by default. Use it only when the task explicitly requires it.
+Network/provider use is disabled by default unless the task explicitly requires it.
 
 ---
 
-## 9. High-risk areas
+## 8. Validation and evidence economy
 
-Treat these as high risk:
-
-- import pipelines
-- logging and redaction
-- global exception handling
-- database migrations
-- async recovery
-- file rotation
-- isolate or multi-process coordination
-- API key storage
-- OCR/AI result merging
-- persisted data compatibility
-
-High-risk changes should include failure-path tests and concurrency tests where applicable.
-
----
-
-## 10. Validation
-
-Use focused validation during implementation.
-
-Typical commands:
+Use focused validation during implementation. Typical checks:
 
 ```bash
-dart format <changed-files>
+dart format --output=none --set-exit-if-changed <changed-dart-files>
 flutter analyze <changed-production-files>
-flutter test <focused-tests>
+flutter test --concurrency=1 <focused-tests>
 git diff --check
 ```
 
 Rules:
 
-- Run Flutter tests serially on Windows unless parallel execution is known to be safe.
 - Do not run full-repository formatting for a focused task.
 - Do not fix unrelated historical analyze findings.
-- Never claim a command passed unless it was executed.
-- Always report skipped or failed validation.
+- Never claim a command passed unless it ran.
+- Report skipped/failed checks.
+- On Windows, run Flutter tests serially unless parallel safety is established.
+- Full workflow (`.\scripts\verify.ps1`) is for explicit release/global acceptance or direct user request.
 
-Run the full workflow only when requested or before release:
+### Test evidence economy
 
-```powershell
-.\scripts\verify.ps1
-```
+Regression tests prove behaviors/invariants, not implementation lines.
+
+For one bounded defect:
+
+- prefer one direct regression reproducing the failure;
+- add one boundary/failure/concurrency test only when materially necessary;
+- reuse existing integration/acceptance coverage;
+- do not create a separate test for every private handler unless the handlers have materially different failure modes;
+- do not add optional coverage during final audit merely because it is possible.
+
+Test volume is not evidence quality.
 
 ---
 
-## 11. Local private PDF test corpus
+## 9. Execution boundaries and command limits
 
-Private smoke-test PDFs are stored under:
+Use the lowest capability/cost route that safely covers actual uncertainty. Deterministic work belongs to a Verifier, local terminal, or CI.
+
+Executor phase boundary: once requested behavior is implemented, syntax is complete, and at least one focused implementation check passes, stop active implementation when the remaining work is mainly verification/formatting/diff/reporting.
+
+Unless explicitly authorized:
+
+- no full repository test suite;
+- no Windows Release build;
+- no generated application launch;
+- no real external API/provider smoke test;
+- no indefinite waits;
+- no more than one retry of the same stalled/failing command;
+- no silent timeout increase.
+
+A command with no meaningful progress for 3 minutes is stalled. Preserve evidence and hand it off; a timeout is incomplete evidence, not proof of product failure.
+
+---
+
+## 10. Prompt economy and delegated package inheritance
+
+Task prompts must inherit shared rules from this file, the active role, and `docs/agents/model-routing.md` instead of repeating them.
+
+A normal delegated package contains only:
 
 ```text
-scratch/test_pdfs/
+角色：<role>
+目标：<one bounded objective>
+
+Base/Branch: <target identity>
+Allowed paths: <exact paths>
+
+Task-specific invariant/constraints: <only deviations or frozen semantics>
+Acceptance: <task-specific criteria>
+Validation: <exact focused commands/timeouts>
+Git authority: <local commit/push fields>
+Model: <preferred route and fallback if overridden>
+Stop only if: <scope/class-C/environment/target-drift conditions>
 ```
 
-Current structure:
+Only include explicit forbidden paths when there is a realistic ambiguity. Do not restate general repository rules, full parent history, generic safety text, or unchanged architecture in every package.
+
+---
+
+## 11. Frozen-target rules
+
+Do not verify or review a moving implementation.
+
+### Committed target
+
+A commit SHA already identifies the complete tracked tree. Freeze only:
 
 ```text
-scratch/test_pdfs/
-└─ math/
-   └─ single/
+Target commit: <SHA>
+git status --short: <expected state of the verification worktree>
 ```
 
-Meaning:
+Do **not** repeat per-file blob hashes for a committed target unless an external sidecar outside that commit can materially change evidence.
 
-- `single/`: one PDF that should import independently
+### Uncommitted target
 
-Future subjects may use the same structure, for example:
+Freeze:
+
+- current `HEAD`;
+- branch/detached state;
+- `git status --short`;
+- exact changed/staged paths;
+- focused diff or one bounded diff identity when needed.
+
+Any target drift invalidates verification/review evidence for the old target.
+
+---
+
+## 12. Findings and bounded repair policy
+
+Use one severity scale:
+
+- **P0 Critical**: secret exposure, destructive corruption, catastrophic security/privacy failure.
+- **P1 Blocking**: data loss, crash, broken core behavior, violated frozen invariant, serious compatibility/concurrency failure.
+- **P2 Merge-blocking correctness**: bounded but meaningful correctness/compatibility/concurrency/required-acceptance gap that should be fixed before merge.
+- **P3 Non-blocking**: maintainability, documentation drift, optional/extra coverage, cleanup, low-impact hardening.
+
+P3 **must not automatically trigger a repair**. Promote it only when concrete evidence proves that it violates an explicit acceptance criterion, frozen invariant, security/privacy boundary, or release gate.
+
+Finding classes:
+
+- **Class A**: one deterministic semantics-preserving correction. Lane: fresh narrow correction -> focused Verifier -> finish; no new semantic Reviewer required.
+- **Class B**: bounded in-scope semantic completion that does not change approved architecture/schema/public API/security posture/file scope. Lane: fresh Repair Executor -> focused Verifier -> one targeted closure Reviewer.
+- **Class C**: material design/scope/security/schema/API/dependency/provider/permission change. Stop for user authorization.
+
+Default closure limits per frozen task:
+
+- one initial full semantic Reviewer;
+- at most one risk-triggered cross-check;
+- at most two Class B repair passes total;
+- at most one Class A terminal correction after the final semantic check;
+- at most one Sol-high full review per stage without new user authorization.
+
+Do not restart a full review after every repair. Targeted closure review covers only explicit findings and direct regression surface.
+
+---
+
+## 13. Multi-agent orchestration
+
+Repository-wide orchestration uses `角色：总控`.
+
+Coordinator responsibilities:
+
+- freeze base/branch/worktree/dirty state and shared contracts;
+- serialize by default and allow parallel writers only with non-overlapping production ownership and isolated worktrees;
+- delegate bounded tasks with exact file ownership;
+- never edit production/test files itself;
+- stop all writers before Verifier/Reviewer work;
+- integrate only when Git integration is explicitly authorized;
+- never automatically push/merge unless explicitly authorized.
+
+Each child activates one role, may not create descendants, switch roles, expand its scope, or decide public architecture/contracts. One active writer per worktree.
+
+Child terminal states are `COMPLETE`, `BLOCKED`, or `FAILED`. Handoffs must be concise and include target identity, files changed, behavior, focused checks/results, skipped checks, remaining risks, commit SHA when authorized, and `git status --short`.
+
+Model/provider selection and closure routing are defined in `docs/agents/model-routing.md`.
+
+---
+
+## 14. Architecture-document hygiene
+
+`docs/architecture/` describes the **current contract and invariant**, not agent execution history.
+
+Do not append commit SHAs, per-run test counts, temporary Reviewer findings, repair chronology, model identity, or handoff transcripts to architecture documents. Keep those in PR descriptions/reviews/CI evidence.
+
+When a repair changes the current contract description, update the existing relevant section instead of appending another historical repair section.
+
+---
+
+## 15. Local private PDF test corpus
+
+Private smoke-test PDFs live only under:
 
 ```text
-politics/single/
-english/single/
+scratch/test_pdfs/<subject>/single/
 ```
 
 Rules:
 
 1. Do not scan outside `scratch/test_pdfs/` for test PDFs.
-2. Do not modify, rename, copy, upload, commit, or track these PDFs.
-3. Do not copy real question text into fixtures, logs, diagnostics, or reports.
+2. Do not modify, rename, copy, upload, commit, or track private PDFs.
+3. Do not copy real question text into fixtures/logs/diagnostics/reports.
 4. Reports may include only filenames, counts, question numbers, stages, statuses, and redacted metrics.
-5. Only `scratch/test_pdfs/<subject>/single/` is an active test corpus.
-6. One PDF corresponds to one independent smoke run and one import task.
-7. Multiple PDFs must not be scanned or automatically merged. Historical
-   `paired/` directories, if still present locally, must not be scanned, read,
-   or executed.
-8. Supplemental-answer document matching is deferred to P6 and requires a
-   newly frozen contract; it must not reuse the old default two-PDF merge.
-9. These assets must remain untracked by Git.
+5. One PDF is one independent smoke run/import task.
+6. Do not scan/read/execute historical `paired/` directories.
+7. Supplemental-answer document matching is deferred to P6 and must use a newly frozen contract rather than reviving the old default two-PDF merge.
 
 ---
 
-## 12. Reporting
+## 16. Reporting
 
-At the end of a task, report only what is relevant:
+Report only relevant results:
 
-- files changed
-- behavior changed
-- tests and commands executed
-- exit status
-- failures or skipped checks
-- remaining risks
-- out-of-scope findings
-- `git status --short`
+- changed files and behavior;
+- commands/tests actually executed and exit/result;
+- skipped/failed checks;
+- remaining risks/out-of-scope findings;
+- commit SHA only when created;
+- `git status --short` when operating in a worktree.
 
-Do not hide failed validation.
-
----
-
-## 13. Prompt economy
-
-Task prompts should not repeat rules already defined here.
-
-A normal task request should contain only:
-
-- role
-- task goal
-- allowed scope
-- task-specific constraints
-- acceptance criteria
-- focused validation
-- stop conditions
-## 14. Agent cost and execution boundaries
-
-Use high-capability agents only for work that requires architectural
-reasoning, uncertain root-cause analysis, security decisions, concurrency,
-database safety, cross-module changes, or high-risk implementation.
-
-Route work by task risk rather than role name alone:
-
-| Tier | Typical work | Default route |
-|---|---|---|
-| T0 | format, analyze, focused tests, status, diff collection | local terminal, CI, Verifier, or ordinary low-cost agent |
-| T1 | one bounded local implementation with frozen behavior | preferred low-cost Executor, then deterministic validation |
-| T2 | cross-file compatibility work or a bounded migration | short Planner/Diagnostician when needed, bounded Executor, independent Reviewer |
-| T3 | public contracts, persistence/database, security, concurrency, or high-risk semantics | high-capability planning and review; delegate only frozen implementation slices |
-
-Use the lowest tier that safely covers the actual uncertainty and impact. A
-role label does not downgrade a T2/T3 task, and a routine role does not by
-itself justify a high-capability model.
-
-Deterministic work must be handed to a Verifier, ordinary agent, local
-terminal, or CI. Deterministic work includes:
-
-- running focused tests;
-- running focused static analysis;
-- formatting already modified files;
-- PowerShell syntax checks;
-- `git diff --check`;
-- `git status --short`;
-- collecting command output;
-- waiting for builds or long-running processes;
-- producing routine validation summaries.
-
-### Phase boundary
-
-An Executor must stop active implementation when all of the following are true:
-
-1. the requested production behavior has been implemented;
-2. the relevant code is syntactically complete;
-3. at least one focused implementation test or analyze pass has succeeded;
-4. the remaining work consists mainly of verification, formatting,
-   long-running commands, diff inspection, or report generation.
-
-At this boundary, the Executor must produce a handoff package and stop.
-It must not continue into an open-ended "final audit".
-
-### Handoff package
-
-The handoff must contain:
-
-1. files modified or created;
-2. implemented behavior;
-3. tests already run and their results;
-4. commands still needing to be run;
-5. known risks and unverified runtime behavior;
-6. the recommended next role;
-7. current `git status --short`.
-
-### Command limits
-
-Unless the user explicitly authorizes otherwise:
-
-- do not run a full repository test suite;
-- do not run Windows Release builds;
-- do not start generated applications;
-- do not invoke real external APIs;
-- do not wait indefinitely for a process;
-- do not retry the same failing or stalled command more than once;
-- do not silently increase a timeout after it has expired.
-
-A command that produces no meaningful progress for 3 minutes must be treated
-as stalled. Stop waiting, preserve its evidence, and report it as incomplete.
-This threshold applies only to an individual command monitored by the active
-agent. It does not define the execution window for an entire silent child
-task, and a Coordinator must not infer that a child is stalled merely because
-the child has not emitted commentary or a terminal handoff.
-
-Any long-running build must have an explicit timeout before it starts.
-A timeout is an incomplete verification result, not proof of build failure.
-
-### Final audit restriction
-
-During final audit, do not:
-
-- discover and implement unrelated improvements;
-- refactor newly noticed code;
-- expand the file scope;
-- add optional tests;
-- clean existing lints;
-- run broad builds or test suites.
-
-Only fix a blocking compile or focused-test failure directly caused by the
-current task. Make at most one focused repair attempt. If it still fails,
-stop and hand the evidence to the next role.
-
-### Model handoff
-
-Agents cannot switch models themselves.
-
-When a task crosses from uncertain implementation into deterministic
-verification, explicitly recommend:
-
-`Next role: Verifier or ordinary low-cost agent`
-
-Do not continue merely because verification has not yet been completed.
-Agents must automatically apply the shared architecture, safety, privacy, Git, validation, and reporting rules from this file.
-
----
-
-## 15. Multi-agent orchestration
-
-Repository roles define responsibilities and permissions. Model/provider
-selection and cost routing normally belong to the host or global Codex
-configuration. The explicit user-authorized repository routing section below
-is the authoritative exception for child agents in this repository.
-
-### 15.1 Parent Coordinator responsibilities
-
-Repository-wide orchestration uses the `角色：总控` role. The Coordinator
-owns:
-
-- inspecting the base commit, current branch, worktrees, and dirty state;
-- choosing serial work or safe parallel work;
-- invoking bounded Planner or Diagnostician tasks when needed;
-- freezing shared architecture, public contracts, public models, persisted
-  formats, database migrations, and cross-module integration order;
-- building the dependency graph and assigning non-overlapping file ownership;
-- creating or assigning branches and worktrees only when explicitly
-  authorized under section 7;
-- dispatching role-specific child task packages and waiting for terminal
-  handoffs without duplicating delegated work;
-- integrating validated work serially when integration is explicitly
-  authorized;
-- freezing the integrated result before final verification and review;
-- reporting to the user without automatically merging or pushing.
-
-The Coordinator must not give two Executors ownership of the same production
-file, delegate shared-contract decisions, skip required verification/review,
-or edit a shared working tree while a child writer is active there.
-
-The Coordinator must never modify production or test files. It may modify only
-explicitly assigned orchestration documentation and may perform explicitly
-authorized Git integration of already frozen, validated work. A production or
-test repair requires a fresh Executor with exact file ownership, or a new user
-decision when the repair exceeds the frozen scope.
-
-### 15.2 Child role activation
-
-Every child task must activate exactly one repository role. Use Planner for a
-bounded repository survey or implementation plan and Diagnostician for failure
-tracing. A child may not switch roles, create descendants, expand its scope, or
-decide public architecture/contracts. Child-agent nesting depth is one.
-
-### 15.3 Delegation package
-
-Every delegated task must state:
-
-1. active role;
-2. objective and necessary background;
-3. base commit;
-4. assigned worktree path;
-5. assigned branch or detached state;
-6. allowed files;
-7. forbidden files and worktrees;
-8. dependencies and required shared-contract checkpoint;
-9. acceptance criteria;
-10. focused validation and per-command timeouts;
-11. child execution window;
-12. commit authorization and allowed commit paths;
-13. stop conditions;
-14. handoff token budget.
-
-Do not copy the complete parent conversation. Supply only the context needed
-to execute the package safely.
-
-### 15.4 Communication and handoff
-
-Child agents work silently and return only at a terminal state:
-
-- `COMPLETE`: the bounded task is complete;
-- `BLOCKED`: a Coordinator decision or new authority is required;
-- `FAILED`: the task cannot be completed within its allowed scope.
-
-Default maximum handoff sizes are:
-
-| Child task or role | Default maximum |
-|---|---:|
-| Bounded repository survey | 700 tokens
-| Planner full task package | 1600 tokens
-| Executor | 800 tokens |
-| Verifier | 800 tokens |
-| Diagnostician | 1200 tokens |
-| Reviewer | 1200 tokens |
-
-A Coordinator may grant a bounded exception for a complex blocker or P1/P2
-finding. Handoffs must not paste complete diffs, source files, logs, or the
-investigation transcript. Keep detailed evidence in the assigned worktree,
-scoped commit, or bounded test output. The Coordinator must not frequently
-poll children or repeat work already delegated to them.
-
-For each pending child set, use one bounded wait operation covering the
-declared execution window. Do not emit heartbeat or elapsed-time messages, use
-model turns as a timer, or repeatedly issue short waits. A new bounded wait is
-allowed only after the pending set changes because a child completed, failed,
-or requested attention. A wait timeout is incomplete evidence; request one
-terminal handoff, stop the affected child, and do not resume that writer.
-
-### 15.5 Worktrees and file ownership
-
-- A working directory may have only one active writer.
-- Read-only agents may share a working directory only when they are not
-  reviewing or verifying a moving implementation target.
-- Two or more concurrent writers require separate Git worktrees.
-- Each writer owns only its assigned files and must not read, modify, or run
-  commands in another child's worktree.
-- Parallel write packages must not overlap production-file ownership.
-- Shared files remain Coordinator-owned until the shared-contract checkpoint
-  is frozen; subsequent changes require Coordinator approval and serialization.
-- A Coordinator must not modify the shared current worktree concurrently with
-  a child writer.
-- Children must not switch branches, merge, rebase, reset, push, or perform
-  any Git action not explicitly authorized by their package.
-
-### 15.6 Freeze and integration gates
-
-Multi-agent work must pass these gates in order:
-
-1. **Shared-contract gate:** freeze common contracts and ownership before
-   parallel writes begin.
-2. **Implementation-freeze gate:** stop all writers before a Verifier or
-   Reviewer examines their target.
-3. **Branch-validation gate:** validate each implementation worktree or target
-   commit before integration.
-4. **Integration gate:** integrate validated work serially, freeze the
-   integrated snapshot, then run integration-level verification and review.
-5. **Human gate:** leave merge and push decisions to the user unless separately
-   authorized.
-
-### 15.7 Writer lifecycle and frozen-target validity
-
-- Implementation, independent verification, and semantic review are separate
-  bounded tasks. An Executor's focused gate is a self-check, not independent
-  verification.
-- A terminal writer handoff is irreversible. After an Executor returns
-  `COMPLETE`, `BLOCKED`, or `FAILED`, or after the Coordinator stops or closes
-  it, that Executor must not be resumed, messaged, or granted write ownership
-  again.
-- Any repair after a terminal handoff must use a fresh Executor with the frozen
-  target, actionable findings, exact file ownership, a bounded repair window,
-  and one minimal focused gate.
-- Before verification or review, capture the branch or detached state, `HEAD`,
-  `git status --short`, and target file identities. Include relevant sidecar
-  file identities when their drift could change the task or evidence.
-- If any captured target identity changes, all verification and review results
-  for the previous target are invalid. Stop affected read-only agents, freeze
-  the new target, and rerun every required gate from the beginning; do not
-  reuse partial PASS evidence.
-
-## 子代理风险与模型路由（用户授权例外）
-
-当父代理或 Coordinator 创建子代理时，先按第 14 节判定 T0-T3 风险，
-再按子任务的实际职责选择模型；不得仅根据 Planner、Executor、Verifier、
-Reviewer 或 Diagnostician 的角色名称固定模型。
-
-- T0 默认使用本地命令、CI、Verifier 或普通低成本代理；不要为机械验证
-  启动高能力代理。
-- T1 的默认且最高优先级子代理模型为
-  `deepseek/deepseek-v4-flash`。
-- T2 的边界清楚实现与机械验证优先使用 DeepSeek；涉及跨模块兼容判断、
-  未确定根因或语义审查时，Planner、Diagnostician 或 Reviewer 可使用宿主
-  提供的高能力模型。
-- T3 必须由高能力模型承担规划、公共契约判断和独立语义审查；DeepSeek
-  只执行已经冻结、边界明确的实现切片或确定性验证。
-- 用户在当前任务中明确声明的模型覆盖上述默认路由。
-- 若首选模型不可用、创建失败或不支持所需工具，允许选择其他可用模型；
-  不得静默回退，必须报告原因及实际 provider/model。
-- 创建子代理后，应在交接中报告风险等级和实际 provider/model；发生回退
-  时还必须报告首选模型不可用的证据类别。
+Do not hide failures. If the host does not expose actual child model identity, report the requested route and any observed fallback; do not require unsupported self-attestation such as `MODEL IDENTITY: UNCONFIRMED`.

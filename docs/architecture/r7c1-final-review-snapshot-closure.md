@@ -1,198 +1,83 @@
 # R7C.1 Final Review Snapshot Closure
 
 Status: IMPLEMENTED CLOSURE
-Base: master@f515fb82911d255096a80d8ce089b9df4ba2daa3
 Database version: 15 (unchanged)
-Scope: `ImportStagingScreen` typed commit orchestration only
+Scope: typed commit orchestration and acceptance evidence for `ImportStagingScreen`
 
-## 1. Original P1
+## Current invariant
 
-`_confirmAndSaveTyped` constructed `TypedReviewCommitInput` items from
-`_allItems` **before** the final review-draft flush, then committed those
-entry-time items with the post-flush revision. Answer distillation
-(`_isDistillingAnswers`) can rewrite the persisted review draft and
-`_allItems`, and neither `_validateBeforeSave` nor the confirm button treated
-distillation as a commit gate. The result: revision N could describe draft B
-while the payload was draft A, so the R7C.1 revision gate could not prove
-revision N <-> payload N.
+A successful typed commit must bind one persisted review revision to the exact payload that is committed:
 
-## 2. Race sequence
+```text
+block payload mutation
+-> final review-draft flush
+-> obtain revision N
+-> rebuild TypedReviewCommitInput from the stable current staging state
+-> commitTyped(post-flush items, N)
+```
 
-1. User confirms while a review-draft mutation (distillation) is pending or
-   lands mid-commit.
-2. Old code: payload = entry-time `_allItems` (A); flush persists the current
-   draft (B) and returns revision N.
-3. Old code: `commitTyped(items: A, expectedReviewDraftRevision: N)`.
-4. The revision gate proves the persisted draft is B at revision N, but the
-   payload is A: revision N and payload N are decoupled.
+Building commit inputs before the final flush and pairing them with a later revision is forbidden.
 
-## 3. Frozen invariant
+## Commit-time mutation gate
 
-A successful typed commit must guarantee:
+While `_isSaving` is true, every staging action that can change the typed commit payload must be unavailable in the UI and a no-op if invoked programmatically. This includes:
 
-final review flush -> revision N -> rebuild `TypedReviewCommitInput` from the
-post-flush `_allItems` -> `commitTyped(post-flush items, N)`.
+- single/batch answer distillation;
+- document/per-question explanation retention;
+- swipe deletion;
+- selection-mode entry;
+- selection-mode type change/delete;
+- batch-result application.
 
-Building inputs before the flush and committing them with a newer revision is
-forbidden.
+This keeps the state used for the final flush stable until the repository commit observes the rebuilt inputs.
 
-## 4. Final flush ordering
+## Distillation gate
 
-`_confirmAndSaveTyped` now validates task/attempt metadata first, sets
-`_isSaving = true`, runs one final `_persistReviewDraft()`, requires
-`saved == true`, and only then rebuilds the payload. `_isSaving` is set before
-the flush so the button and the internal path cannot double-submit.
+A typed commit cannot begin while answer distillation is active.
 
-## 5. Post-flush payload construction
+The confirm UI is disabled while `_isDistillingAnswers`, and the typed save path independently rejects a programmatic bypass with the fixed safe message:
 
-The pure helper `_buildCurrentTypedCommitInputs()` reads the current
-`_allItems`, `_reviewItemIds` and `_snapshotProvenance`, preserves the
-`originalIndex` association, and strictly requires the persisted marker and
-the `_typed_review_v1` envelope for every item. It returns null on any
-invalid binding so the caller shows the fixed `_typedCommitBlockedText`
-without exposing raw state. Derived inputs (`explanationOverrides`,
-`explanationRetentionMode`) are also read from the post-flush state.
+```text
+答案仍在生成中，请等待完成后再入库
+```
 
-## 6. Distillation gate
+The disabled button is not the only protection.
 
-The confirm button's `onPressed` is null when `_isSaving`,
-`_isBlockedByQualityGate` or `_isDistillingAnswers` is true. While answers are
-being generated, the save flow cannot be started from the button at all.
+## Final flush and payload rebuild
 
-## 7. Programmatic gate
+`_confirmAndSaveTyped`:
 
-`_confirmAndSaveTyped` starts with
-`if (_isDistillingAnswers) { _showFixedError('答案仍在生成中，请等待完成后再入库'); return; }`.
-The disabled button is not the only protection: any bypassed save flow that
-reaches the typed commit path while distillation is active is blocked with
-the fixed prompt and zero repository writes.
+1. validates task/attempt metadata;
+2. enters `_isSaving`;
+3. performs the final `_persistReviewDraft()`;
+4. requires a saved result and revision N;
+5. calls `_buildCurrentTypedCommitInputs()` only after that successful flush;
+6. reads derived explanation-retention inputs from the same stable post-flush state;
+7. calls `commitTyped(... expectedReviewDraftRevision: N ...)`.
 
-## 8. Failure behavior
+`_buildCurrentTypedCommitInputs()` preserves `originalIndex` binding to review markers/snapshot provenance and rejects missing typed envelopes with a fixed safe blocked result rather than exposing raw state.
 
-- Final flush not saved (`null`/`failed`/`stale`/`itemMissing`/`commitInProgress`):
-  `校对结果尚未安全保存，无法入库，请重试`, zero `commitTyped` calls.
-- Post-flush provenance invalid (marker/envelope missing): the flush still
-  runs, then `结构化题目缺少必要的审核信息，无法入库，请检查后重试`, zero commits.
-- Distillation active at typed entry: fixed in-progress prompt, zero commits.
-- All downstream lease/revision/repository failures keep the frozen R7C.1
-  behavior: fixed safe exceptions, `pendingReview` task, zero fallback.
+## Failure behavior
 
-## 9. Regression matrix
+- final review draft not safely saved -> zero typed repository writes;
+- missing/invalid post-flush typed provenance -> zero typed repository writes;
+- distillation active -> zero typed repository writes;
+- stale attempt/revision/lease/repository failures retain the R7C.1 fixed-safe-error and no-legacy-fallback behavior;
+- legacy writer behavior remains unchanged by this closure.
 
-`test/r7c1_final_review_snapshot_closure_test.dart` (synthetic widget
-harness, Fake TaskManager/Repository recording event sequences):
+## Acceptance evidence
 
-- 18.1 post-flush inputs: a real review-draft mutation lands while the final
-  flush is in-flight; the commit payload is rebuilt from the post-flush
-  state, `expectedReviewDraftRevision` equals the flush-returned revision.
-- 18.2 distillation active: confirm disabled, no final flush, zero
-  `commitTyped`, zero repository calls.
-- 18.3 programmatic bypass: invoking the captured save handler while answers
-  generate still blocks with the fixed prompt.
-- 18.4 final flush failure: fixed unsafe-save prompt, zero commits.
-- 18.5 post-flush provenance invalid: flush completes, then the fixed blocked
-  text, zero commits. (The reviewItemId-missing branch is defensive: markers
-  always have the task-local fallback for restart tasks.)
-- 18.6 normal typed path: flush -> rebuild -> typed commit, guard carries
-  `typedV2` + `typed_candidate_ready` and the flush revision.
-- 18.7 legacy path: unchanged; no review revision requirement and no
-  distillation typed gate is added to `commitLegacy`.
-- 19 vertical race: delayed distillation completes first, confirm is blocked
-  until then, the final commit binds answer B to the flush revision N; A is
-  never committed.
-- 20 order probe: `final_flush_started < final_flush_saved_revision_N <
-  commit_input_observed:B < repository_commit` asserted strictly, not just by
-  call counts.
+The focused R7C.1 acceptance covers the contract dimensions rather than implementation history:
 
-## 10. Deferred CI hygiene
+- post-flush payload/revision binding;
+- distillation UI and programmatic gates;
+- commit-time payload-mutation gates, including selection-mode controls;
+- final-flush failure and invalid provenance with zero writes;
+- normal typedV2 commit with the final review revision;
+- unchanged legacy path;
+- vertical answer-distillation race ending in the distilled answer;
+- strict ordering from final flush completion to commit input observation to repository commit.
 
-`.github/workflows/pr-contract-checks.yml` only appends the new test to the
-existing focused contract matrix. No runner, action, cache, dependency or
-workflow structure is changed.
+## R7E readiness
 
-## 11. R7E readiness
-
-The typed commit now receives a payload provably rebuilt after the final
-flush, so the R7C.1 revision/lease/transaction gates verify one consistent
-snapshot. Legacy remains on the untouched writer; provider calls stay 0 in
-all acceptance evidence.
-
-## 12. P3-1 closure repair (2026-08-07)
-
-Status remains IMPLEMENTED CLOSURE.
-
-Finding (class B, closure pass 1/1): during `_isSaving` (final flush through
-typed commit) several payload-mutating UI entries remained operable and could
-rewrite `_allItems`/`_explanationOverrides` between the final flush and
-`_buildCurrentTypedCommitInputs()`: the batch and per-item answer
-distillation buttons, the document and per-question explanation retention
-controls, the swipe-to-delete gesture, and the selection-mode batch
-type/delete handlers. A mutation whose save was rejected by the commit lease
-could leave the persisted draft at state A while the commit payload was
-rebuilt as post-mutation state B, weakening the revision N <-> payload proof
-in the narrow window.
-
-Fix (commit SHA: 0e5bcdc74df850f89fbec10bb0b651c111f9049f): every
-payload-mutating entry now carries both a UI disable and a programmatic gate.
-UI: `onPressed`/`onSelected`/`onChanged` become null (and Dismissible uses
-`DismissDirection.none`) while `_isSaving`; the app-bar batch icon and the
-selection toolbar type/delete buttons are disabled too. Programmatic: each
-mutation handler (`_applyBatchResult`, `_deleteSelectedWithConfirm`,
-`_changeSelectedType`, `_setDocumentExplanationRetention`,
-`_setQuestionExplanationRetention`, `_distillSingleAnswer`,
-`_distillAllAnswers`, `_enterSelectionMode`, and Dismissible `onDismissed`)
-returns immediately when `_isSaving`, so a bypassed caller cannot change the
-commit payload or enqueue a review-draft save. The frozen ordering final
-flush -> revision N -> rebuild post-flush inputs -> commitTyped(post-flush
-items, N) is unchanged; legacy path stays untouched.
-
-Verification: `dart format --output=none --set-exit-if-changed` and
-`flutter analyze --no-pub --no-fatal-infos` on the two changed Dart files
-pass; the focused contract matrix
-(`import_staging_typed_commit_widget_test`,
-`r7c1_final_review_snapshot_closure_test`, `import_commit_service_test`,
-`task_manager_typed_commit_lease_test`,
-`r7c1_attempt_aware_typed_commit_acceptance_test`,
-`r7d_v2_first_question_list_acceptance_test`) passes 93/93 serially.
-18.1/20 now land state B before confirm and still assert payload B with
-revision == final flush revision; the new 18.8 asserts all disabled
-controls, programmatic no-ops (`_allItems` unchanged, no enqueued save) and
-payload == flush-saved state. Provider calls stay 0.
-
-## 13. P3-2 test-only closure (2026-08-07)
-
-Status remains IMPLEMENTED CLOSURE; production code unchanged.
-
-Finding (class B, closure pass 1/1): the targeted Closure Reviewer reported
-that 18.8 did not cover the selection-mode toolbar gating (`改题型` at
-`import_staging_screen.dart:1970` and `删除` at :1980 disabled while
-`_isSaving`) nor the programmatic no-ops of `_enterSelectionMode` /
-`_deleteSelectedWithConfirm` / `_changeSelectedType`. The selection toolbar
-replaces the bottom confirm button while active, so the save flow can reach
-`_isSaving` with the toolbar still visible only through a bypassed entry;
-the frozen invariant requires the toolbar handlers to be no-ops in that
-window too.
-
-Closure: test-only. New 18.9 in
-`test/r7c1_final_review_snapshot_closure_test.dart` (same synthetic widget
-harness and Fakes; no harness-behavior change to the existing 11 cases). The
-test enters selection mode, selects both questions, opens the change-type
-dialog, then invokes the captured confirm handler so the final flush runs
-while the selection toolbar is up. It asserts both toolbar buttons are
-disabled (`onPressed == null`) during `_isSaving`, and that programmatic
-`_enterSelectionMode` / `_deleteSelectedWithConfirm` / the captured
-change-type selection handler are no-ops: selection count unchanged, no
-delete dialog, no type change, no enqueued save (`saveCount == 1`) and
-`distillCalls == 0`. After the flush, the commit payload must equal the
-flushed state (2 items, original types singleChoice/shortAnswer, answer and
-explanation unchanged, revision == flush revision, success dialog shown).
-`.github/workflows/pr-contract-checks.yml` already lists the test file and
-needs no change.
-
-Verification: `dart format --output=none --set-exit-if-changed` and
-`flutter analyze --no-pub --no-fatal-infos` on the changed test file pass;
-`flutter test --concurrency=1
-test/r7c1_final_review_snapshot_closure_test.dart
-test/import_staging_typed_commit_widget_test.dart` passes 25/25 serially
-(12/12 + 13/13); `git diff --check` passes. Provider calls stay 0. Commit:
-this test-only closure commit.
+R7C.1 closes the typed finalization race required before full production V2 activation acceptance. R7E may treat the final-review snapshot, attempt/revision guard, atomic typed persistence, and V2-first question-list work as frozen prerequisites rather than reopening their implementation history.
