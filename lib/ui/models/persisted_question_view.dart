@@ -49,6 +49,7 @@ final class PersistedQuestionView {
     required this.typedExplanation,
     required this.legacyExplanation,
     required this.legacyEditPayload,
+    required this.typedDraft,
     required this.searchText,
     this.reviewMetrics,
   });
@@ -76,6 +77,10 @@ final class PersistedQuestionView {
   /// Non-null only for legacy rows: a defensive copy of the legacy
   /// [Question.toMap] payload accepted by the old editor.
   final Map<String, dynamic>? legacyEditPayload;
+
+  /// Non-null only for typed rows: the sidecar draft consumed by the typed
+  /// editor. Legacy rows always carry null (mirroring [legacyEditPayload]).
+  final QuestionDraftV2? typedDraft;
 
   /// In-memory search text. Never contains raw fallback payloads, source or
   /// asset references, issues, storage ids, bank names, or database metadata.
@@ -124,6 +129,7 @@ abstract final class PersistedQuestionViewAdapter {
       typedExplanation: draft.explanation,
       legacyExplanation: '',
       legacyEditPayload: null,
+      typedDraft: draft,
       searchText: _typedSearchText(draft),
       reviewMetrics: typed.reviewMetrics,
     );
@@ -147,6 +153,7 @@ abstract final class PersistedQuestionViewAdapter {
       typedExplanation: null,
       legacyExplanation: question.explanation ?? '',
       legacyEditPayload: Map<String, dynamic>.unmodifiable(question.toMap()),
+      typedDraft: null,
       searchText: _legacySearchText(question),
       reviewMetrics: legacy.reviewMetrics,
     );

@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/ui/pages/question_edit_screen.dart';
+import 'package:shiroha_quiz/ui/pages/typed_answer_repair_screen.dart';
 import 'package:shiroha_quiz/ui/pages/wrong_book_page.dart';
 import 'package:shiroha_quiz/ui/widgets/persisted_question_card.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
@@ -220,10 +221,7 @@ void main() {
 
       expect(find.text('无题干'), findsNothing);
       expect(find.textContaining('Typed wrong stem.'), findsNothing);
-      expect(
-        find.text('暂无答案；结构化题目暂不支持旧编辑器修改'),
-        findsOneWidget,
-      );
+      expect(find.text('暂无答案，点击手动补充'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -275,6 +273,25 @@ void main() {
       await tester.tap(find.text('编辑题目'));
       await tester.pumpAndSettle();
       expect(find.byType(QuestionEditScreen), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    '86b: typed rows open the typed repair screen from the empty prompt',
+    (tester) async {
+      final repository = _FakeQuestionRepository(
+        allQuestions: <PersistedQuestion>[
+          _typedRow('typed_lapsed', stem: _text('Typed stem.')),
+        ],
+      );
+      await _pumpPage(tester, repository);
+
+      await tester.tap(find.text('暂无答案，点击手动补充'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TypedAnswerRepairScreen), findsOneWidget);
+      expect(find.text('Typed stem.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

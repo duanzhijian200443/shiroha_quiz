@@ -6,6 +6,7 @@ import '../../data/repositories/question_repository.dart';
 import '../models/persisted_question_view.dart';
 import '../widgets/persisted_question_card.dart';
 import 'question_edit_screen.dart';
+import 'typed_answer_repair_screen.dart';
 
 class QuestionListScreen extends StatefulWidget {
   final String bankName;
@@ -149,6 +150,23 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     });
   }
 
+  void _openTypedRepair(PersistedQuestionView question) {
+    final draft = question.typedDraft;
+    if (draft == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute<bool>(
+        builder: (_) => TypedAnswerRepairScreen(
+          question: question,
+          draft: draft,
+          repository: widget.questionRepository,
+        ),
+      ),
+    ).then((modified) {
+      if (modified == true && mounted) _loadQuestions();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -237,6 +255,8 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
           onDelete: () => _deleteQuestion(question),
           onEditLegacy:
               question.isTyped ? null : () => _openLegacyEditor(question),
+          onRepairTypedAnswer:
+              question.isTyped ? () => _openTypedRepair(question) : null,
         );
       },
     );

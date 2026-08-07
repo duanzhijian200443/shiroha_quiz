@@ -10,6 +10,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/ui/pages/question_edit_screen.dart';
 import 'package:shiroha_quiz/ui/pages/question_list_screen.dart';
+import 'package:shiroha_quiz/ui/pages/typed_answer_repair_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/persisted_question_card.dart';
 
 const _bankName = 'synthetic_bank';
@@ -304,7 +305,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(QuestionEditScreen), findsNothing);
-    expect(find.text('结构化题目暂不支持在旧编辑器中修改'), findsOneWidget);
+    expect(find.text('结构化题目仅支持修正答案，题干与选项暂不可编辑'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('68b: typed rows open the typed repair screen', (tester) async {
+    final repository = _FakeQuestionRepository(
+      persisted: <PersistedQuestion>[
+        _typedRow(
+          'typed_1',
+          options: <QuestionOption>[
+            QuestionOption(
+              optionId: 'a',
+              label: 'A',
+              content: _text('Option one'),
+            ),
+          ],
+        ),
+      ],
+    );
+    await _pumpScreen(tester, repository);
+
+    await tester.tap(find.text('暂无答案，点击手动补充'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TypedAnswerRepairScreen), findsOneWidget);
+    expect(find.text('Typed stem marker.'), findsOneWidget);
+    expect(find.text('Option one'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

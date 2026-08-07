@@ -4,6 +4,7 @@ import '../../data/repositories/question_repository.dart';
 import '../models/persisted_question_view.dart';
 import '../widgets/persisted_question_card.dart';
 import 'question_edit_screen.dart';
+import 'typed_answer_repair_screen.dart';
 
 class WrongBookPage extends StatefulWidget {
   const WrongBookPage({super.key, this.questionRepository});
@@ -112,6 +113,23 @@ class _WrongBookPageState extends State<WrongBookPage> {
     });
   }
 
+  void _openTypedRepair(PersistedQuestionView question) {
+    final draft = question.typedDraft;
+    if (draft == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute<bool>(
+        builder: (_) => TypedAnswerRepairScreen(
+          question: question,
+          draft: draft,
+          repository: widget.questionRepository,
+        ),
+      ),
+    ).then((modified) {
+      if (modified == true && mounted) _loadQuestions();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -173,6 +191,8 @@ class _WrongBookPageState extends State<WrongBookPage> {
           // Typed rows never get a legacy edit entry (Survey Q7 gap closed).
           onEditLegacy:
               question.isTyped ? null : () => _openLegacyEditor(question),
+          onRepairTypedAnswer:
+              question.isTyped ? () => _openTypedRepair(question) : null,
         );
       },
     );

@@ -103,11 +103,13 @@ Widget _card(
   PersistedQuestionView view, {
   VoidCallback? onDelete,
   VoidCallback? onEditLegacy,
+  VoidCallback? onRepairTypedAnswer,
 }) {
   return PersistedQuestionCard(
     question: view,
     onDelete: onDelete ?? () {},
     onEditLegacy: onEditLegacy,
+    onRepairTypedAnswer: onRepairTypedAnswer,
   );
 }
 
@@ -234,7 +236,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('39: typed null answer shows the fixed empty state',
+    testWidgets('39: typed null answer shows the repair prompt',
         (tester) async {
       final view = _typedView(
         QuestionDraftV2(
@@ -247,10 +249,7 @@ void main() {
       );
       await tester.pumpWidget(_host(_card(view)));
 
-      expect(
-        find.text('暂无答案；结构化题目暂不支持旧编辑器修改'),
-        findsOneWidget,
-      );
+      expect(find.text('暂无答案，点击手动补充'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -349,6 +348,51 @@ void main() {
       await tester.tap(find.text('编辑题目'));
       await tester.pump();
       expect(legacyEditCalls, 0);
+    });
+
+    testWidgets('42b: typed empty answer prompt opens the repair callback',
+        (tester) async {
+      var repairCalls = 0;
+      final view = _typedView(
+        QuestionDraftV2(
+          questionId: 'card_typed_009',
+          kind: QuestionKind.singleChoice,
+          stem: _text('Stem.'),
+          answer: null,
+          explanation: null,
+        ),
+      );
+      await tester.pumpWidget(
+        _host(
+          _card(
+            view,
+            onRepairTypedAnswer: () => repairCalls++,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('暂无答案，点击手动补充'));
+      await tester.pump();
+      expect(repairCalls, 1);
+    });
+
+    testWidgets('42c: typed existing answer shows 修正答案 and opens repair',
+        (tester) async {
+      var repairCalls = 0;
+      final view = _typedView(_richTypedDraft());
+      await tester.pumpWidget(
+        _host(
+          _card(
+            view,
+            onRepairTypedAnswer: () => repairCalls++,
+          ),
+        ),
+      );
+
+      expect(find.text('修正答案'), findsOneWidget);
+      await tester.tap(find.text('修正答案'));
+      await tester.pump();
+      expect(repairCalls, 1);
     });
 
     testWidgets('43/44: legacy edit is enabled and calls the callback',
