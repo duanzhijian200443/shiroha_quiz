@@ -91,7 +91,8 @@ jobs:
               'test/r7b_ocr_typed_candidate_acceptance_test.dart',
               'test/r7c_review_result_writer_activation_acceptance_test.dart',
               'test/r7d_v2_first_question_list_acceptance_test.dart',
-              'test/r7c1_attempt_aware_typed_commit_acceptance_test.dart'
+              'test/r7c1_attempt_aware_typed_commit_acceptance_test.dart',
+              'test/r7c1_final_review_snapshot_closure_test.dart'
             )
 
       - name: Check committed diff
