@@ -22,7 +22,9 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
@@ -116,6 +118,24 @@ class _CountingRepository extends QuestionRepository {
   }
 
   @override
+  Future<TypedImportCommitPersistenceResult> commitQuestionDraftsV2ForImport({
+    required String bankName,
+    String? folderName,
+    required List<QuestionDraftV2> questions,
+    required TypedImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    v2Calls++;
+    return super.commitQuestionDraftsV2ForImport(
+      bankName: bankName,
+      folderName: folderName,
+      questions: questions,
+      guard: guard,
+      completionText: completionText,
+    );
+  }
+
+  @override
   Future<void> saveQuestionDraftsToBank({
     required String bankName,
     required String? folderName,
@@ -143,6 +163,22 @@ class _FileDatabaseHelper extends Fake implements DatabaseHelper {
   @override
   Future<Database> get database async =>
       _database ??= await DatabaseHelper.instance.openPathForTesting(path);
+
+  @override
+  Future<void> saveImportTask(Map<String, dynamic> taskData) async {
+    final db = await database;
+    await db.insert(
+      'import_tasks',
+      taskData,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getAllImportTasks() async {
+    final db = await database;
+    return db.query('import_tasks', orderBy: 'created_at DESC');
+  }
 
   @override
   Future<void> updateBankFolder(String bankName, String folderName) async {
@@ -241,7 +277,9 @@ Future<
       ImportParseResult parseResult,
       ImportTask reloadedTask,
       TaskManager reloadedManager,
-    })> _parseAndReloadTask() async {
+    })> _parseAndReloadTaskWithSaver({
+  required Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
+}) async {
   final client = _FakeOcrDocumentClient(_inlineAnswerDocument());
   final ocrService = OcrImportService(
     engineRepository: _FakeAiEngineRepository(_ocrProfile()),
@@ -293,6 +331,7 @@ Future<
 
   final lastSaved = ImportTask.fromMap(savedMaps.last);
   final reloadedManager = TaskManager.forTesting(
+    saveTask: saveTask,
     loadTasks: () async => <Map<String, dynamic>>[lastSaved.toMap()],
   );
   await reloadedManager.ready;
@@ -345,7 +384,12 @@ void main() {
   test(
       'eligible new OCR activates typedV2 and persists through a real '
       'close/reopen database round trip', () async {
-    final parsed = await _parseAndReloadTask();
+    final path = p.join(tempDir.path, 'r7c_full_chain.db');
+    final firstHelper = _FileDatabaseHelper(path);
+    final taskRepo = ImportTaskRepository(databaseHelper: firstHelper);
+    final parsed = await _parseAndReloadTaskWithSaver(
+      saveTask: (taskMap) => taskRepo.saveImportTask(taskMap),
+    );
 
     expect(parsed.parseResult.storageRoute, ImportStorageRoute.typedV2);
     expect(
@@ -380,6 +424,16 @@ void main() {
     final attemptToken = parsed.reloadedTask.attemptToken!;
     final attemptNumber = parsed.reloadedTask.attemptNumber;
 
+    // Commit-time flush: the staging screen persists the final review draft
+    // before every typed commit, producing the revision passed below.
+    final flush = await parsed.reloadedManager.saveReviewDraft(
+      taskId,
+      questions: parsed.reloadedTask.parsedData!,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+    expect(flush.saved, isTrue);
+    expect(flush.revision, greaterThan(0));
+
     // Capture the exact ReviewResult final drafts the builder produces.
     final built = TypedReviewResultBuilder().build(
       inputs: inputs,
@@ -389,8 +443,6 @@ void main() {
     );
     expect(built.acceptedDrafts, hasLength(2));
 
-    final path = p.join(tempDir.path, 'r7c_full_chain.db');
-    final firstHelper = _FileDatabaseHelper(path);
     final firstRepo = _CountingRepository(databaseHelper: firstHelper);
     final service = ImportCommitService(
       questionRepository: firstRepo,
@@ -404,6 +456,7 @@ void main() {
       taskId: taskId,
       attemptToken: attemptToken,
       attemptNumber: attemptNumber,
+      expectedReviewDraftRevision: flush.revision,
       storageRoute: ImportStorageRoute.typedV2,
       storageReason: ocrTypedCandidateReadyReason,
       explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -449,14 +502,23 @@ void main() {
   test(
       'repository transaction failure leaves zero rows and the task '
       'pendingReview without any legacy fallback', () async {
-    final parsed = await _parseAndReloadTask();
+    final path = p.join(tempDir.path, 'r7c_transaction_failure.db');
+    final helper = _FileDatabaseHelper(path);
+    final taskRepo = ImportTaskRepository(databaseHelper: helper);
+    final parsed = await _parseAndReloadTaskWithSaver(
+      saveTask: (taskMap) => taskRepo.saveImportTask(taskMap),
+    );
     final inputs = _stagingTypedInputs(parsed.reloadedTask.parsedData!);
     final taskId = parsed.reloadedTask.id;
     final attemptToken = parsed.reloadedTask.attemptToken!;
     final attemptNumber = parsed.reloadedTask.attemptNumber;
+    final flush = await parsed.reloadedManager.saveReviewDraft(
+      taskId,
+      questions: parsed.reloadedTask.parsedData!,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+    expect(flush.saved, isTrue);
 
-    final path = p.join(tempDir.path, 'r7c_transaction_failure.db');
-    final helper = _FileDatabaseHelper(path);
     final db = await helper.database;
     await db.execute('''
       CREATE TRIGGER r7c_block_second_payload
@@ -478,15 +540,16 @@ void main() {
         taskId: taskId,
         attemptToken: attemptToken,
         attemptNumber: attemptNumber,
+        expectedReviewDraftRevision: flush.revision,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
       ),
       throwsA(
-        isA<TypedReviewCommitException>().having(
+        isA<TypedReviewCommitAttemptException>().having(
           (error) => error.failure,
           'failure',
-          TypedReviewCommitFailure.persistenceFailed,
+          TypedReviewCommitAttemptFailure.persistenceFailed,
         ),
       ),
     );
@@ -542,6 +605,8 @@ void main() {
         TaskManager.keyImportStorageReason: 'typed_candidate_ready',
         TaskManager.keyAttemptToken: 'r7c-corrupt-attempt',
         TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptState: 'readyForReview',
+        TaskManager.keyReviewDraftRevision: 1,
       },
     ));
     final path = p.join(tempDir.path, 'r7c_corrupt_envelope.db');
@@ -560,6 +625,7 @@ void main() {
         taskId: 'r7c-corrupt-task',
         attemptToken: 'r7c-corrupt-attempt',
         attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,

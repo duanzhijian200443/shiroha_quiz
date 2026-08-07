@@ -69,6 +69,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _typedCommitFailedText = '结构化题库入库失败，题目保持待审状态，请检查后重试';
   static const _typedOptionsBlockedText = '当前结构化题目暂不支持修改选项数量、顺序或标签，请恢复后再入库';
   static const _invalidStorageRouteText = '当前任务的存储路线无效，无法入库';
+  static const _reviewDraftUnsafeText = '校对结果尚未安全保存，无法入库，请重试';
+  static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
+  static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
   static const _safeSnapshotProvenanceKeys = {
     'q_num',
     'question_number',
@@ -696,6 +699,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
     setState(() => _isSaving = true);
     try {
+      // Commit-time review draft flush: wait for the queued tail, persist the
+      // latest draft, and require a successful save before committing.
+      final flushResult = await _persistReviewDraft(showFailurePrompt: false);
+      if (flushResult == null || !flushResult.saved) {
+        _showFixedError(_reviewDraftUnsafeText);
+        return;
+      }
       await _commitService.commitTyped(
         bankName: bankName,
         folderName: folderName,
@@ -703,6 +713,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         taskId: taskId,
         attemptToken: attemptToken,
         attemptNumber: attemptNumber,
+        expectedReviewDraftRevision: flushResult.revision,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: _explanationRetentionMode,
@@ -716,26 +727,40 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       );
       _showSuccessAfterCommit(report, bankName, folderName);
     } on TypedReviewCommitException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            error.failure == TypedReviewCommitFailure.unsupportedOptionEdit
-                ? _typedOptionsBlockedText
-                : _typedCommitFailedText,
-          ),
-          backgroundColor: Colors.redAccent,
-        ));
-      }
+      _showTypedCommitError(error.failure);
+    } on TypedReviewCommitAttemptException catch (error) {
+      _showTypedCommitAttemptError(error.failure);
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(_typedCommitFailedText),
-          backgroundColor: Colors.redAccent,
-        ));
-      }
+      _showFixedError(_typedCommitFailedText);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  void _showTypedCommitError(TypedReviewCommitFailure failure) {
+    _showFixedError(
+      failure == TypedReviewCommitFailure.unsupportedOptionEdit
+          ? _typedOptionsBlockedText
+          : _typedCommitFailedText,
+    );
+  }
+
+  void _showTypedCommitAttemptError(
+    TypedReviewCommitAttemptFailure failure,
+  ) {
+    _showFixedError(
+      switch (failure) {
+        TypedReviewCommitAttemptFailure.taskMissing ||
+        TypedReviewCommitAttemptFailure.taskNotPendingReview ||
+        TypedReviewCommitAttemptFailure.staleAttempt ||
+        TypedReviewCommitAttemptFailure.staleReviewDraft =>
+          _typedTaskExpiredText,
+        TypedReviewCommitAttemptFailure.commitInProgress =>
+          _typedCommitInProgressText,
+        TypedReviewCommitAttemptFailure.persistenceFailed =>
+          _typedCommitFailedText,
+      },
+    );
   }
 
   void _showSuccessAfterCommit(
@@ -933,7 +958,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     return completer.future;
   }
 
-  Future<ReviewDraftSaveResult?> _persistReviewDraft() {
+  Future<ReviewDraftSaveResult?> _persistReviewDraft({
+    bool showFailurePrompt = true,
+  }) {
     final taskId = widget.taskId;
     if (taskId == null || taskId.trim().isEmpty) {
       return Future<ReviewDraftSaveResult?>.value();
@@ -973,7 +1000,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         questions: questions,
         explanationRetentionMode: _explanationRetentionMode,
       );
-      if (!result.saved && mounted) {
+      if (!result.saved && showFailurePrompt && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('校对结果尚未保存，请重试')),
         );

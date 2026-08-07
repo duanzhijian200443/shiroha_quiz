@@ -8,6 +8,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../models/question_draft.dart';
 import '../models/subject_tree_index.dart';
+import '../models/typed_import_commit_guard.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../../utils/ai_data_sanitizer.dart';
 import '../../data/repositories/settings_repository.dart';
@@ -95,44 +96,308 @@ class QuestionRepository {
     if (questions.isEmpty) return;
 
     final nowUtcSeconds = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-    final frozenWrites = <FrozenQuestionV2Write>[
-      for (final draft in questions)
-        _mapper.freezeForWrite(
-          storageId: _uuid.v4(),
-          bankName: trimmedBankName,
-          createdAt: nowUtcSeconds,
-          draft: draft,
-        ),
-    ];
+    final frozenWrites = _freezeV2Writes(
+      bankName: trimmedBankName,
+      questions: questions,
+      createdAt: nowUtcSeconds,
+    );
 
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
-        final resolvedFolderName =
-            await _resolveV2FolderAction(txn, trimmedBankName, folderName);
-        for (final frozenWrite in frozenWrites) {
-          await txn.insert('questions', frozenWrite.questionRow);
-          await txn.insert('question_v2_payloads', frozenWrite.payloadRow);
-          await txn.insert(
-            'review_states',
-            _initialReviewState(frozenWrite.questionRow['id']! as String),
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
-        }
-        if (resolvedFolderName != null) {
-          await txn.insert(
-            'bank_folders',
-            <String, Object?>{
-              'bank_name': trimmedBankName,
-              'folder_name': resolvedFolderName,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
+        await _writeFrozenV2Batch(
+          txn,
+          bankName: trimmedBankName,
+          folderName: folderName,
+          frozenWrites: frozenWrites,
+        );
       });
     } on DatabaseException {
       throw const QuestionV2WriteException(
         QuestionV2WriteFailure.transactionFailed,
+      );
+    }
+  }
+
+  /// Attempt-aware atomic typed import commit.
+  ///
+  /// Runs the persisted `import_tasks` ownership gate, the folder decision,
+  /// the question/payload/review-state writes, the folder mapping upsert and
+  /// the compare-and-set `import_tasks` completion update in one SQLite
+  /// transaction. Any ownership mismatch, CAS mismatch or database failure
+  /// rolls the whole transaction back with zero question rows and the task
+  /// still `pendingReview`.
+  ///
+  /// [guard] carries the exact attempt/revision/route/reason expected from
+  /// the persisted `import_tasks.diagnostics`; the persisted values are
+  /// decoded strictly (no `toString()` repair, no trimming, no guessing).
+  Future<TypedImportCommitPersistenceResult> commitQuestionDraftsV2ForImport({
+    required String bankName,
+    required String? folderName,
+    required List<QuestionDraftV2> questions,
+    required TypedImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    final trimmedBankName = bankName.trim();
+    if (trimmedBankName.isEmpty) {
+      throw ArgumentError('Bank name is required.');
+    }
+    if (questions.isEmpty) {
+      throw ArgumentError('At least one question is required.');
+    }
+    _validateImportCommitGuard(guard);
+
+    final nowUtcSeconds = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final frozenWrites = _freezeV2Writes(
+      bankName: trimmedBankName,
+      questions: questions,
+      createdAt: nowUtcSeconds,
+    );
+
+    try {
+      final db = await _databaseHelper.database;
+      return await db.transaction((txn) async {
+        await _validatePersistedImportTask(txn, guard);
+        await _writeFrozenV2Batch(
+          txn,
+          bankName: trimmedBankName,
+          folderName: folderName,
+          frozenWrites: frozenWrites,
+        );
+        final updated = await txn.update(
+          'import_tasks',
+          <String, Object?>{
+            'status': TypedImportCommitPersistence.completedStatusCode,
+            'progress_text': completionText,
+            'percent': 1.0,
+            'error_msg': null,
+            'parsed_data': null,
+            'completed_at': nowUtcSeconds,
+          },
+          where: 'id = ? AND status = ?',
+          whereArgs: <Object?>[
+            guard.taskId,
+            TypedImportCommitPersistence.pendingReviewStatusCode,
+          ],
+        );
+        if (updated != 1) {
+          throw const TypedImportCommitPersistenceException(
+            TypedImportCommitPersistenceFailure.transactionFailed,
+          );
+        }
+        return TypedImportCommitPersistenceResult(
+          questionCount: frozenWrites.length,
+          completedAt: nowUtcSeconds,
+        );
+      });
+    } on TypedImportCommitPersistenceException {
+      rethrow;
+    } on DatabaseException {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.transactionFailed,
+      );
+    }
+  }
+
+  void _validateImportCommitGuard(TypedImportCommitGuard guard) {
+    final guardValid = guard.taskId.trim().isNotEmpty &&
+        guard.attemptToken.trim().isNotEmpty &&
+        guard.attemptNumber > 0 &&
+        guard.reviewDraftRevision > 0 &&
+        guard.storageRoute == TypedImportCommitPersistence.typedV2RouteValue &&
+        guard.storageReason ==
+            TypedImportCommitPersistence.typedCandidateReadyReasonValue;
+    if (!guardValid) {
+      throw ArgumentError('Typed import commit guard is invalid.');
+    }
+  }
+
+  /// Strict persisted `import_tasks` ownership gate (P2-A, second location).
+  ///
+  /// Must match exactly one row. Every attempt/revision/route/reason value is
+  /// decoded from the diagnostics JSON with strict types; the status must be
+  /// the frozen pendingReview code and `parsed_data` must be non-null.
+  Future<void> _validatePersistedImportTask(
+    DatabaseExecutor txn,
+    TypedImportCommitGuard guard,
+  ) async {
+    final rows = await txn.query(
+      'import_tasks',
+      where: 'id = ?',
+      whereArgs: <Object?>[guard.taskId],
+      limit: 2,
+    );
+    if (rows.isEmpty) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.taskMissing,
+      );
+    }
+    if (rows.length != 1) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    final row = rows.single;
+    final status = row['status'];
+    if (status is! int ||
+        status != TypedImportCommitPersistence.pendingReviewStatusCode) {
+      if (status is int &&
+          status == TypedImportCommitPersistence.completedStatusCode) {
+        throw const TypedImportCommitPersistenceException(
+          TypedImportCommitPersistenceFailure.alreadyCompleted,
+        );
+      }
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.taskNotPendingReview,
+      );
+    }
+    final parsedData = row['parsed_data'];
+    if (parsedData is! String || parsedData.isEmpty) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    final diagnosticsText = row['diagnostics'];
+    if (diagnosticsText is! String || diagnosticsText.isEmpty) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(diagnosticsText);
+    } on FormatException {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (decoded is! Map) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    final diagnostics = <String, Object?>{};
+    for (final entry in decoded.entries) {
+      if (entry.key is! String) {
+        throw const TypedImportCommitPersistenceException(
+          TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+        );
+      }
+      diagnostics[entry.key as String] = entry.value;
+    }
+
+    final attemptToken =
+        diagnostics[TypedImportCommitPersistence.keyAttemptToken];
+    if (attemptToken is! String) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (attemptToken != guard.attemptToken) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.staleAttempt,
+      );
+    }
+
+    final attemptNumber =
+        diagnostics[TypedImportCommitPersistence.keyAttemptNumber];
+    if (attemptNumber is! int || attemptNumber <= 0) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (attemptNumber != guard.attemptNumber) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.staleAttempt,
+      );
+    }
+
+    final attemptState =
+        diagnostics[TypedImportCommitPersistence.keyAttemptState];
+    if (attemptState is! String ||
+        attemptState !=
+            TypedImportCommitPersistence.readyForReviewAttemptStateValue) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
+    final route =
+        diagnostics[TypedImportCommitPersistence.keyImportStorageRoute];
+    if (route is! String ||
+        route != TypedImportCommitPersistence.typedV2RouteValue) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
+    final reason =
+        diagnostics[TypedImportCommitPersistence.keyImportStorageReason];
+    if (reason is! String ||
+        reason != TypedImportCommitPersistence.typedCandidateReadyReasonValue) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
+    final revision =
+        diagnostics[TypedImportCommitPersistence.keyReviewDraftRevision];
+    if (revision is! int || revision <= 0) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (revision != guard.reviewDraftRevision) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.staleReviewDraft,
+      );
+    }
+  }
+
+  /// Shared V2 freeze step used by both public typed write APIs.
+  List<FrozenQuestionV2Write> _freezeV2Writes({
+    required String bankName,
+    required List<QuestionDraftV2> questions,
+    required int createdAt,
+  }) {
+    return <FrozenQuestionV2Write>[
+      for (final draft in questions)
+        _mapper.freezeForWrite(
+          storageId: _uuid.v4(),
+          bankName: bankName,
+          createdAt: createdAt,
+          draft: draft,
+        ),
+    ];
+  }
+
+  /// Shared in-transaction V2 batch write: folder decision, parent rows,
+  /// sidecar rows, initial review states and the folder mapping upsert.
+  Future<void> _writeFrozenV2Batch(
+    DatabaseExecutor txn, {
+    required String bankName,
+    required String? folderName,
+    required List<FrozenQuestionV2Write> frozenWrites,
+  }) async {
+    final resolvedFolderName =
+        await _resolveV2FolderAction(txn, bankName, folderName);
+    for (final frozenWrite in frozenWrites) {
+      await txn.insert('questions', frozenWrite.questionRow);
+      await txn.insert('question_v2_payloads', frozenWrite.payloadRow);
+      await txn.insert(
+        'review_states',
+        _initialReviewState(frozenWrite.questionRow['id']! as String),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+    if (resolvedFolderName != null) {
+      await txn.insert(
+        'bank_folders',
+        <String, Object?>{
+          'bank_name': bankName,
+          'folder_name': resolvedFolderName,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
   }

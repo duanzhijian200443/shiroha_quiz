@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -40,6 +41,23 @@ class _CommitRepository extends Fake implements QuestionRepository {
     v2SaveCalls++;
     savedV2Questions = List<QuestionDraftV2>.unmodifiable(questions);
     if (failure != null) throw failure!;
+  }
+
+  @override
+  Future<TypedImportCommitPersistenceResult> commitQuestionDraftsV2ForImport({
+    required String bankName,
+    String? folderName,
+    required List<QuestionDraftV2> questions,
+    required TypedImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    v2SaveCalls++;
+    savedV2Questions = List<QuestionDraftV2>.unmodifiable(questions);
+    if (failure != null) throw failure!;
+    return TypedImportCommitPersistenceResult(
+      questionCount: questions.length,
+      completedAt: 1700000000,
+    );
   }
 }
 
@@ -585,11 +603,21 @@ void main() {
           id: _typedTaskId,
           title: 'Synthetic typed import',
           status: TaskStatus.pendingReview,
+          parsedData: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': 1,
+              'type': 3,
+              'content': 'Synthetic stem',
+              'standard_answer': 'Conclusion',
+            },
+          ],
           diagnostics: const <String, dynamic>{
             TaskManager.keyAttemptToken: _typedAttemptToken,
             TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptState: 'readyForReview',
             TaskManager.keyImportStorageRoute: 'typedV2',
             TaskManager.keyImportStorageReason: 'typed_candidate_ready',
+            TaskManager.keyReviewDraftRevision: 1,
           },
         ));
       }
@@ -649,6 +677,7 @@ void main() {
         taskId: _typedTaskId,
         attemptToken: _typedAttemptToken,
         attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -672,6 +701,7 @@ void main() {
         taskId: _typedTaskId,
         attemptToken: _typedAttemptToken,
         attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -693,6 +723,7 @@ void main() {
         taskId: _typedTaskId,
         attemptToken: _typedAttemptToken,
         attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -715,15 +746,16 @@ void main() {
           taskId: _typedTaskId,
           attemptToken: _typedAttemptToken,
           attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
           storageRoute: ImportStorageRoute.typedV2,
           storageReason: ocrTypedCandidateReadyReason,
           explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
         ),
         throwsA(
-          isA<TypedReviewCommitException>().having(
+          isA<TypedReviewCommitAttemptException>().having(
             (error) => error.failure,
             'failure',
-            TypedReviewCommitFailure.persistenceFailed,
+            TypedReviewCommitAttemptFailure.persistenceFailed,
           ),
         ),
       );
@@ -746,13 +778,17 @@ void main() {
           taskId: _typedTaskId,
           attemptToken: _typedAttemptToken,
           attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
           storageRoute: ImportStorageRoute.typedV2,
           storageReason: ocrTypedCandidateReadyReason,
           explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
         );
         fail('expected a persistence failure');
-      } on TypedReviewCommitException catch (error) {
-        expect(error.failure, TypedReviewCommitFailure.persistenceFailed);
+      } on TypedReviewCommitAttemptException catch (error) {
+        expect(
+          error.failure,
+          TypedReviewCommitAttemptFailure.persistenceFailed,
+        );
         expect(error.toString(), isNot(contains('synthetic-db-error')));
         expect(error.toString(), isNot(contains('StateError')));
       }
@@ -782,6 +818,7 @@ void main() {
           taskId: _typedTaskId,
           attemptToken: _typedAttemptToken,
           attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
           storageRoute: ImportStorageRoute.typedV2,
           storageReason: ocrTypedCandidateReadyReason,
           explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -812,6 +849,7 @@ void main() {
           taskId: _typedTaskId,
           attemptToken: _typedAttemptToken,
           attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
           storageRoute: ImportStorageRoute.typedV2,
           storageReason: ocrTypedCandidateReadyReason,
           explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -847,6 +885,7 @@ void main() {
             taskId: _typedTaskId,
             attemptToken: _typedAttemptToken,
             attemptNumber: 1,
+            expectedReviewDraftRevision: 1,
             storageRoute: metadata.$1,
             storageReason: metadata.$2 ?? '',
             explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -877,6 +916,7 @@ void main() {
           taskId: _typedTaskId,
           attemptToken: _typedAttemptToken,
           attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
           storageRoute: ImportStorageRoute.typedV2,
           storageReason: ocrTypedCandidateShadowReadyReason,
           explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -924,6 +964,7 @@ void main() {
           taskId: _typedTaskId,
           attemptToken: _typedAttemptToken,
           attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
           storageRoute: ImportStorageRoute.typedV2,
           storageReason: ocrTypedCandidateReadyReason,
           explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
@@ -939,6 +980,221 @@ void main() {
       expect(repository.v2SaveCalls, 0);
       expect(repository.saveCalls, 0);
       expect(manager.tasks.single.status, TaskStatus.pendingReview);
+    });
+
+    test('commitTyped requires a positive review draft revision', () async {
+      final repository = _CommitRepository();
+      final service = typedService(repository);
+
+      await expectLater(
+        service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[_typedInput()],
+          taskId: _typedTaskId,
+          attemptToken: _typedAttemptToken,
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 0,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        throwsA(
+          isA<TypedReviewCommitAttemptException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitAttemptFailure.staleReviewDraft,
+          ),
+        ),
+      );
+      expect(repository.v2SaveCalls, 0);
+      expect(repository.saveCalls, 0);
+    });
+
+    test('missing task blocks before any repository call', () async {
+      final repository = _CommitRepository();
+      final service = typedService(repository, withTask: false);
+
+      await expectLater(
+        service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[_typedInput()],
+          taskId: _typedTaskId,
+          attemptToken: _typedAttemptToken,
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        throwsA(
+          isA<TypedReviewCommitAttemptException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitAttemptFailure.taskMissing,
+          ),
+        ),
+      );
+      expect(repository.v2SaveCalls, 0);
+      expect(repository.saveCalls, 0);
+    });
+
+    test('stale attempt blocks before any repository call', () async {
+      final repository = _CommitRepository();
+      final service = typedService(repository);
+
+      await expectLater(
+        service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[_typedInput()],
+          taskId: _typedTaskId,
+          attemptToken: 'stale-attempt-token',
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        throwsA(
+          isA<TypedReviewCommitAttemptException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitAttemptFailure.staleAttempt,
+          ),
+        ),
+      );
+      expect(repository.v2SaveCalls, 0);
+      expect(repository.saveCalls, 0);
+    });
+
+    test('a second concurrent typed commit is rejected with commitInProgress',
+        () async {
+      final repository = _CommitRepository();
+      final service = typedService(repository);
+
+      Future<ImportCommitResult> commit() {
+        return service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[_typedInput()],
+          taskId: _typedTaskId,
+          attemptToken: _typedAttemptToken,
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        );
+      }
+
+      final firstFuture = commit();
+      final secondFuture = commit();
+      final secondExpectation = expectLater(
+        secondFuture,
+        throwsA(
+          isA<TypedReviewCommitAttemptException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitAttemptFailure.commitInProgress,
+          ),
+        ),
+      );
+
+      final first = await firstFuture;
+      expect(first.questionCount, 1);
+      await secondExpectation;
+    });
+
+    test('typed success never persists the task a second time', () async {
+      var saveCalls = 0;
+      final repository = _CommitRepository();
+      final countingManager = TaskManager.forTesting(
+        saveTask: (taskMap) async {
+          saveCalls++;
+        },
+      );
+      countingManager.tasks.add(ImportTask(
+        id: _typedTaskId,
+        title: 'Synthetic typed import',
+        status: TaskStatus.pendingReview,
+        parsedData: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 3,
+            'content': 'Synthetic stem',
+            'standard_answer': 'Conclusion',
+          },
+        ],
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyAttemptToken: _typedAttemptToken,
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptState: 'readyForReview',
+          TaskManager.keyImportStorageRoute: 'typedV2',
+          TaskManager.keyImportStorageReason: 'typed_candidate_ready',
+          TaskManager.keyReviewDraftRevision: 1,
+        },
+      ));
+      final service = ImportCommitService(
+        questionRepository: repository,
+        taskManager: countingManager,
+      );
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[_typedInput()],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(saveCalls, 0,
+          reason: 'the typed path must never call saveTask again');
+      expect(countingManager.tasks.single.status, TaskStatus.completed);
+    });
+
+    test('a failed typed commit releases the lease and allows retry', () async {
+      final repository = _CommitRepository()..failure = StateError('synthetic');
+      final service = typedService(repository);
+
+      await expectLater(
+        service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[_typedInput()],
+          taskId: _typedTaskId,
+          attemptToken: _typedAttemptToken,
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        throwsA(isA<TypedReviewCommitAttemptException>()),
+      );
+
+      repository.failure = null;
+      final retry = await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[_typedInput()],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(retry.questionCount, 1);
+      expect(manager.tasks.single.status, TaskStatus.completed);
     });
   });
 }
