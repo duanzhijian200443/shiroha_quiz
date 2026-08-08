@@ -41,6 +41,12 @@ function Write-FailedPreflight {
     Write-Output "FAIL ($Reason)"
 }
 
+function Stop-Verification {
+    Write-Section -Name 'Final verdict'
+    Write-Output 'FAIL'
+    exit 1
+}
+
 $repoRootOutput = @(& git rev-parse --show-toplevel 2>$null)
 if ($LASTEXITCODE -ne 0 -or $repoRootOutput.Count -eq 0) {
     Write-FailedPreflight -Reason 'repository_unavailable'
@@ -93,7 +99,7 @@ $changedDartFiles = @()
 if (-not $changeCollectionFailed) {
     $changedDartFiles = @(
         $unstagedFiles + $cachedFiles |
-            ForEach-Object { $_.Trim().Replace('\', '/') } |
+            ForEach-Object { $_.Trim().Replace('\\', '/') } |
             Where-Object { $_ -match '^(lib|test|tool)/.+\.dart$' } |
             Sort-Object -Unique
     )
@@ -118,11 +124,11 @@ foreach ($path in $TestPath) {
         continue
     }
 
-    $normalizedPath = $path.Replace('\', '/')
+    $normalizedPath = $path.Replace('\\', '/')
     $containsParentTraversal = @($normalizedPath.Split('/') | Where-Object { $_ -eq '..' }).Count -gt 0
     if ([System.IO.Path]::IsPathRooted($path) -or
         $containsParentTraversal -or
-        $normalizedPath -notmatch '^test/.+\.dart$') {
+        $normalizedPath -notmatch '^test/.+_test\.dart$') {
         $testPathInvalid = $true
         continue
     }
@@ -130,18 +136,7 @@ foreach ($path in $TestPath) {
     $validatedTestPaths += $normalizedPath
 }
 $validatedTestPaths = @($validatedTestPaths | Sort-Object -Unique)
-
-$changedTestFiles = @(
-    $changedDartFiles |
-        ForEach-Object { $_.Trim().Replace('\', '/') } |
-        Where-Object {
-            $_ -match '^test/.+\.dart$' -and
-            -not [System.IO.Path]::IsPathRooted($_) -and
-            -not ($_.Split('/') -contains '..')
-        } |
-        Sort-Object -Unique
-)
-$testTargets = @($validatedTestPaths + $changedTestFiles | Sort-Object -Unique)
+$testTargets = @($validatedTestPaths)
 
 Write-Section -Name 'Format check'
 if ($changeCollectionFailed) {
@@ -162,7 +157,11 @@ if ($changeCollectionFailed) {
         Write-Output 'Format check: PASS'
     } else {
         Write-Output "Format check: FAIL (exit $formatExitCode)"
-        $failed = $true
+        Write-Output 'Formatter diff:'
+        & dart format @formatTargets | Out-Null
+        & git diff -- @formatTargets
+        & git restore --worktree -- @formatTargets
+        Stop-Verification
     }
 }
 
@@ -185,7 +184,7 @@ if ($changeCollectionFailed) {
         Write-Output 'Analyze: PASS'
     } else {
         Write-Output "Analyze: FAIL (exit $analyzeExitCode)"
-        $failed = $true
+        Stop-Verification
     }
 }
 

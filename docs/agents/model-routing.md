@@ -1,14 +1,15 @@
 # Child-Agent Model Routing and Cost Discipline
 
-This file defines repository-specific model routing for delegated agents. Safety, scope, Git authority, privacy, fixed-target rules, and finding/repair semantics live in `AGENTS.md` and are not repeated here.
+This file defines repository-specific model routing for delegated agents. Safety, scope, Git authority, privacy, fixed-target rules, evidence inheritance, and finding/repair semantics live in `AGENTS.md` and are not repeated here.
 
 ## Principles
 
 - Route by remaining uncertainty and blast radius, not by role name or the maximum risk of the parent stage.
-- Use the cheapest model that safely fits the child task.
+- Use the cheapest model/reasoning level that safely fits the child task.
 - Deterministic verification belongs to local commands/CI/Verifier first; a model interprets evidence rather than replacing it.
 - Do not reload the full parent conversation into every child.
-- Do not duplicate full validation across agents unless a repair changed the frozen target.
+- Reuse parent-attested evidence; do not duplicate topology discovery, hashes, root-cause analysis, or full validation across agents unless drift or contradictory evidence requires it.
+- High/max reasoning is an escalation, not the default merely because a task is non-trivial.
 
 ## Default routes
 
@@ -16,13 +17,13 @@ This file defines repository-specific model routing for delegated agents. Safety
 
 ```text
 Preferred model: deepseek/deepseek-v4-flash
-Reasoning: xhigh
-Fallback: same model at the nearest available high reasoning level
+Reasoning: high
+Fallback: same model at the nearest available standard/high reasoning level
 ```
 
 Use for bounded implementation where behavior/contracts are already frozen, including ordinary production changes, regression tests, adapters/mappers, compatibility glue, and deterministic in-contract repairs.
 
-A T3 parent stage does not make every frozen implementation slice T3 reasoning work.
+Escalate to `max` only when the Executor encounters a concrete unresolved ambiguity involving persistence, concurrency, ownership/revision semantics, security/privacy, cross-module failure behavior, or contradictory authoritative evidence. Do not start ordinary implementation at max merely because the parent stage was high risk.
 
 ### Deterministic verification
 
@@ -31,9 +32,9 @@ Preferred order:
 1. local deterministic runner or CI when available;
 2. Verifier using the host's inexpensive tool-capable model;
 3. `Gemini 3.6 Flash` high when a model route is needed;
-4. `deepseek/deepseek-v4-flash` xhigh when Gemini creation/quota/tools are unavailable.
+4. `deepseek/deepseek-v4-flash` high when Gemini creation/quota/tools are unavailable.
 
-Verifier packages run only exact requested commands/paths. They do not repair failures, widen tests, invoke real providers, or perform optional broad suites.
+Verifier packages run only exact requested commands/paths. They do not repair failures, widen tests, invoke real providers, rediscover the semantic root cause, or perform optional broad suites.
 
 ### Semantic review
 
@@ -56,8 +57,9 @@ Use for small docs/mechanical/test-only/frozen single-file changes with no meani
 #### Ordinary
 
 ```text
-Preferred: deepseek/deepseek-v4-flash max
-Fallback: same model xhigh
+Preferred: deepseek/deepseek-v4-flash
+Reasoning: high
+Fallback: same model max only on a concrete unresolved review ambiguity
 ```
 
 Use for bounded business logic, mapper/projection/state behavior, compatibility work, and multi-file changes under a fully frozen contract.
@@ -120,7 +122,8 @@ Class A
 
 ```text
 Class B
--> fresh Repair Executor
+-> initial full Reviewer has already collected compatible findings
+-> one fresh Repair Executor for the batch
 -> focused Verifier
 -> one targeted closure Reviewer
 ```
@@ -134,6 +137,22 @@ P3 is non-blocking and does not launch automatic repair unless evidence promotes
 
 A targeted closure Reviewer checks only the explicit findings, repaired lines, direct regression surface, and updated Verifier evidence. It must not restart a full review.
 
+Do not use this wasteful order:
+
+```text
+repair -> closure Reviewer -> full Reviewer -> repair -> closure Reviewer
+```
+
+Normal semantic order is:
+
+```text
+implementation -> focused Verifier -> initial full Reviewer
+-> batched Class B repair when needed -> focused Verifier
+-> targeted closure Reviewer -> finish
+```
+
+A deterministic Verifier failure may receive a Class A correction before the initial full Reviewer.
+
 ## Execution economy
 
 ### Executor self-check
@@ -146,20 +165,32 @@ Executor owns implementation plus a minimal immediate check:
 
 It may make one clearly in-scope immediate correction during that first focused check, then rerun only the failed command.
 
+Do not ask the Executor to rerun an authoritative broad matrix already available for the unchanged target.
+
 ### Independent verification
 
-Verifier owns the authoritative focused matrix, target identity, changed/staged paths, and diff gates. Do not make Executor and Verifier both run the same broad matrix without a target-changing repair.
+Verifier owns the authoritative focused matrix and minimal independent target-stability check. It does not need to rediscover worktree topology, root cause, architecture baseline, or per-file hashes already frozen by the parent.
 
-### Diff-first reading
+For committed targets: one target-SHA check before, requested gates, one target-SHA/status check after.
 
-For handoff/verification/review:
+For uncommitted targets: one supplied HEAD/status check before, requested gates, one stability check after.
 
-1. target identity + status;
+### Diff-first review
+
+For handoff/review:
+
+1. inherited target identity + Verifier evidence;
 2. diff stat/name-only;
 3. focused diff;
-4. full files only when needed.
+4. caller/callee/full files only when a concrete question requires them.
 
 For committed targets, the commit SHA identifies tracked file contents; do not require redundant per-file hash inventories.
+
+### Child lifecycle
+
+Terminal child sessions are not retained as working context. Coordinator captures the bounded handoff, closes/releases the child immediately, and spawns a fresh child only when the next role is required. Default global active-child budget is two unless the user/package explicitly authorizes more.
+
+Prefer event/terminal-handoff waiting over periodic status polling.
 
 ## Package model fields
 
@@ -178,7 +209,7 @@ Repair packages additionally include only:
 
 ```text
 Finding class: A | B
-Findings to close: <exact list>
+Findings to close: <exact list or compatible batch>
 Frozen local decisions: <none or exact decisions>
 Closure pass: <n/max>
 ```

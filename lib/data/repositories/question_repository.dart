@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../application/study_query/study_query_dtos.dart';
+import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
@@ -14,8 +16,9 @@ import '../../utils/ai_data_sanitizer.dart';
 import '../../data/repositories/settings_repository.dart';
 
 const String _globalWrongBookBankName = '🔥 全局错题本';
+const String _uncategorizedFolderName = '📁 未分类题库';
 
-class QuestionRepository {
+class QuestionRepository implements StudyQuestionQueryPort {
   QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
         _uuid = uuid ?? const Uuid();
@@ -536,6 +539,278 @@ class QuestionRepository {
     return rows
         .map((row) => _attachReviewMetrics(_mapper.decodeJoinedRow(row), row))
         .toList(growable: false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // T0 read-only study query seam (additive)
+  //
+  // These read APIs back the application study query layer. They are purely
+  // additive: existing method signatures, behavior, and semantics are
+  // untouched. Every failure crosses the boundary as a safe
+  // [StudyQueryRepositoryException]; corrupt or unsafe V2 sidecars hard-fail
+  // without any V1 fallback, and database failures map to the fixed
+  // `unavailable` code with no SQL, path, or raw cause.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<StudyPage<QuestionBankSummary>> listStudyQuestionBanks({
+    required int nowUnixSeconds,
+    required int limit,
+    String? afterBankName,
+  }) async {
+    final rows = await _studyQueryRows((db) {
+      return db.rawQuery(
+        '''
+        SELECT q.bank_name,
+               COALESCE(bf.folder_name, ?) AS folder_name,
+               COUNT(q.id) AS question_count,
+               COALESCE(SUM(CASE WHEN rs.next_review_time <= ? THEN 1 ELSE 0 END), 0) AS due_count,
+               COALESCE(SUM(CASE WHEN rs.state = 3 THEN 1 ELSE 0 END), 0) AS mastered_count
+        FROM questions q
+        LEFT JOIN bank_folders bf ON bf.bank_name = q.bank_name
+        LEFT JOIN review_states rs ON rs.question_id = q.id
+        WHERE (? IS NULL OR q.bank_name > ?)
+        GROUP BY q.bank_name, bf.folder_name
+        ORDER BY q.bank_name ASC
+        LIMIT ?
+      ''',
+        <Object?>[
+          _uncategorizedFolderName,
+          nowUnixSeconds,
+          afterBankName,
+          afterBankName,
+          limit + 1,
+        ],
+      );
+    });
+    return _bankPageFromRows(rows, limit);
+  }
+
+  @override
+  Future<StudyPage<StudyQuestionRead>> searchStudyQuestions({
+    required String bankName,
+    required String query,
+    required int nowUnixSeconds,
+    required int limit,
+    int? afterCreatedAt,
+    String? afterId,
+  }) async {
+    final pattern = '%${_escapeLikePattern(query)}%';
+    final rows = await _studyQueryRows((db) {
+      return db.rawQuery(
+        '''
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps,
+               r.next_review_time, r.lapses, r.last_lapse_time,
+               p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+               p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+        FROM questions q
+        LEFT JOIN review_states r ON r.question_id = q.id
+        LEFT JOIN question_v2_payloads p ON p.question_id = q.id
+        WHERE q.bank_name = ?
+          AND (q.content LIKE ? ESCAPE '\\' OR q.explanation LIKE ? ESCAPE '\\')
+          AND (? IS NULL OR q.created_at < ?
+               OR (q.created_at = ? AND q.id < ?))
+        ORDER BY q.created_at DESC, q.id DESC
+        LIMIT ?
+      ''',
+        <Object?>[
+          bankName,
+          pattern,
+          pattern,
+          afterCreatedAt,
+          afterCreatedAt,
+          afterCreatedAt,
+          afterId,
+          limit + 1,
+        ],
+      );
+    });
+    return _studyPageFromRows(rows, limit, nowUnixSeconds);
+  }
+
+  @override
+  Future<StudyQuestionRead?> getStudyQuestionDetail(
+    String questionId, {
+    required int nowUnixSeconds,
+  }) async {
+    final rows = await _studyQueryRows((db) {
+      return db.rawQuery(
+        '''
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps,
+               r.next_review_time, r.lapses, r.last_lapse_time,
+               p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+               p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+        FROM questions q
+        LEFT JOIN review_states r ON r.question_id = q.id
+        LEFT JOIN question_v2_payloads p ON p.question_id = q.id
+        WHERE q.id = ?
+        LIMIT 2
+      ''',
+        <Object?>[questionId],
+      );
+    });
+    if (rows.isEmpty) return null;
+    final row = rows.single;
+    return _toStudyRead(_decodeJoinedForStudy(row), row, nowUnixSeconds);
+  }
+
+  @override
+  Future<StudyPage<StudyQuestionRead>> listStudyWeakQuestions({
+    required int nowUnixSeconds,
+    required int limit,
+    String? bankName,
+    int? afterLastLapseTime,
+    String? afterId,
+  }) async {
+    final rows = await _studyQueryRows((db) {
+      return db.rawQuery(
+        '''
+        SELECT q.*, r.state, r.difficulty, r.stability, r.reps,
+               r.next_review_time, r.lapses, r.last_lapse_time,
+               p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+               p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+        FROM questions q
+        JOIN review_states r ON r.question_id = q.id
+        LEFT JOIN question_v2_payloads p ON p.question_id = q.id
+        WHERE r.lapses > 0
+          AND (? IS NULL OR q.bank_name = ?)
+          AND (? IS NULL OR COALESCE(r.last_lapse_time, 0) < ?
+               OR (COALESCE(r.last_lapse_time, 0) = ? AND q.id < ?))
+        ORDER BY COALESCE(r.last_lapse_time, 0) DESC, q.id DESC
+        LIMIT ?
+      ''',
+        <Object?>[
+          bankName,
+          bankName,
+          afterLastLapseTime,
+          afterLastLapseTime,
+          afterLastLapseTime,
+          afterId,
+          limit + 1,
+        ],
+      );
+    });
+    return _studyPageFromRows(rows, limit, nowUnixSeconds);
+  }
+
+  /// Runs one study query with the fixed boundary failure mapping. Only
+  /// [StudyQueryRepositoryException] and [DatabaseException] are translated;
+  /// mapper corruption is mapped by [_decodeJoinedForStudy] inside the query.
+  Future<List<Map<String, Object?>>> _studyQueryRows(
+    Future<List<Map<String, Object?>>> Function(Database db) query,
+  ) async {
+    try {
+      final db = await _databaseHelper.database;
+      return await query(db);
+    } on StudyQueryRepositoryException {
+      rethrow;
+    } on DatabaseException {
+      throw const StudyQueryRepositoryException(
+        StudyQueryRepositoryFailure.unavailable,
+      );
+    }
+  }
+
+  StudyPage<QuestionBankSummary> _bankPageFromRows(
+    List<Map<String, Object?>> rows,
+    int limit,
+  ) {
+    final hasMore = rows.length > limit;
+    final items = rows.take(limit).map((row) {
+      return QuestionBankSummary(
+        bankName: row['bank_name']! as String,
+        folderName: row['folder_name']! as String,
+        questionCount: (row['question_count'] as num?)?.toInt() ?? 0,
+        dueCount: (row['due_count'] as num?)?.toInt() ?? 0,
+        masteredCount: (row['mastered_count'] as num?)?.toInt() ?? 0,
+      );
+    }).toList(growable: false);
+    return StudyPage(items: items, hasMore: hasMore);
+  }
+
+  StudyPage<StudyQuestionRead> _studyPageFromRows(
+    List<Map<String, Object?>> rows,
+    int limit,
+    int nowUnixSeconds,
+  ) {
+    final hasMore = rows.length > limit;
+    final items = rows.take(limit).map((row) {
+      return _toStudyRead(_decodeJoinedForStudy(row), row, nowUnixSeconds);
+    }).toList(growable: false);
+    return StudyPage(items: items, hasMore: hasMore);
+  }
+
+  /// Strict typed-aware decode with the fixed repository failure mapping.
+  /// A corrupt, partial, or unsafe sidecar never falls back to V1.
+  PersistedQuestion _decodeJoinedForStudy(Map<String, Object?> row) {
+    try {
+      return _mapper.decodeJoinedRow(row);
+    } on QuestionV2PayloadException {
+      throw const StudyQueryRepositoryException(
+        StudyQueryRepositoryFailure.corruptPayload,
+      );
+    }
+  }
+
+  StudyQuestionRead _toStudyRead(
+    PersistedQuestion question,
+    Map<String, Object?> row,
+    int nowUnixSeconds,
+  ) {
+    final review = _studyReviewFromRow(row, nowUnixSeconds);
+    return switch (question) {
+      TypedPersistedQuestion(
+        :final storageId,
+        :final bankName,
+        :final createdAt,
+        :final draft,
+      ) =>
+        TypedStudyQuestionRead(
+          questionId: storageId,
+          bankName: bankName,
+          createdAt: createdAt,
+          draft: draft,
+          review: review,
+        ),
+      LegacyPersistedQuestion(question: final legacy) =>
+        LegacyStudyQuestionRead(
+          questionId: legacy.id ?? '',
+          bankName: legacy.bankName,
+          createdAt: legacy.createdAt,
+          stemText: legacy.content,
+          optionsText: legacy.options ?? '[]',
+          answerText: legacy.answer,
+          explanationText: legacy.explanation,
+          legacyType: legacy.type,
+          review: review,
+        ),
+    };
+  }
+
+  StudyQuestionReviewState _studyReviewFromRow(
+    Map<String, Object?> row,
+    int nowUnixSeconds,
+  ) {
+    final metrics = _decodeReviewMetrics(row);
+    final nextReviewTime = row['next_review_time'];
+    final nextReviewSeconds =
+        nextReviewTime is num ? nextReviewTime.toInt() : 0;
+    final lastLapse = metrics?.lastLapseTime ?? 0;
+    return StudyQuestionReviewState(
+      due: row['state'] == 0 ||
+          (nextReviewSeconds > 0 && nextReviewSeconds <= nowUnixSeconds),
+      lapseCount: metrics?.lapses ?? 0,
+      difficulty: metrics?.difficulty ?? 0.0,
+      lastLapseTime: lastLapse > 0 ? lastLapse : null,
+    );
+  }
+
+  /// Escapes SQLite LIKE wildcards so user search text matches literally.
+  static String _escapeLikePattern(String value) {
+    return value
+        .replaceAll(r'\', r'\\')
+        .replaceAll('%', r'\%')
+        .replaceAll('_', r'\_');
   }
 
   Future<List<Map<String, Object?>>> _queryWrongBookRows(Database db) {

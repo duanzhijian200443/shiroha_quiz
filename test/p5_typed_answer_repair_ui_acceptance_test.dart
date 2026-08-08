@@ -406,7 +406,7 @@ void main() {
       <String>['opt_b'],
     );
     expect(await readStandardAnswer(tester, db), '乙|||Explanation.');
-    expect(await readUserVersion(tester, db), 15);
+    expect(await readUserVersion(tester, db), 16);
   });
 
   testWidgets('WrongBook: typed row follows the same repair flow and reloads',

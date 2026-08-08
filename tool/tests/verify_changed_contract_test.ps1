@@ -205,6 +205,21 @@ exit /b 0
     Assert-True -Condition ($explicitTestLog -match '(?m)^flutter test --concurrency=1 test/sample_test\.dart\r?$') `
         -Message 'only an explicit TestPath may invoke flutter test'
 
+    Reset-InvocationLog
+    $supportFileResult = Invoke-VerifyChanged -ScriptArguments @(
+        '-SkipAnalyze',
+        '-SkipFormatCheck',
+        '-TestPath',
+        'test/sample_test_support.dart'
+    )
+    $supportFileLog = Get-Content -LiteralPath $script:toolLog -Raw
+    Assert-True -Condition ($supportFileResult.ExitCode -eq 1) `
+        -Message 'test support/helper Dart files must be rejected as standalone test entrypoints'
+    Assert-True -Condition ($supportFileResult.Output -match 'Tests: FAIL \(invalid explicit test path\)') `
+        -Message 'invalid helper TestPath must report an explicit validation failure'
+    Assert-True -Condition ($supportFileLog -notmatch '(?m)^flutter test ') `
+        -Message 'invalid helper TestPath must never reach flutter test'
+
     $env:VERIFY_CHANGED_TEST_EXIT = '7'
     Reset-InvocationLog
     $failedTestResult = Invoke-VerifyChanged -ScriptArguments @(

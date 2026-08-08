@@ -950,7 +950,7 @@ void main() {
       final second = await DatabaseHelper.instance.openPathForTesting(path);
       try {
         final version = await second.rawQuery('PRAGMA user_version');
-        expect(version.single['user_version'], 15);
+        expect(version.single['user_version'], 16);
         final rows = await second.rawQuery('''
           SELECT q.*,
                  p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
