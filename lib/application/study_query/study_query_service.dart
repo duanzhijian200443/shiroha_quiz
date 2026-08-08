@@ -526,11 +526,17 @@ final class StudyQueryService {
   // ---------------------------------------------------------------------------
 
   OpaqueCursor _encodeCursor(String kind, List<Object> parts) {
-    return OpaqueCursor.fromEncoded(
-      base64UrlEncode(
-        utf8.encode(jsonEncode(<Object>['v1', kind, ...parts])),
-      ).replaceAll('=', ''),
-    );
+    final encoded = base64UrlEncode(
+      utf8.encode(jsonEncode(<Object>['v1', kind, ...parts])),
+    ).replaceAll('=', '');
+    try {
+      return OpaqueCursor.fromEncoded(encoded);
+    } on ArgumentError {
+      // A bounded opaque cursor cannot represent this payload (for example
+      // an oversized bank name). Keep the fixed error-code set: the raw
+      // ArgumentError must never escape the application boundary.
+      throw const StudyQueryException(StudyQueryFailure.internalError);
+    }
   }
 
   /// Returns the decoded cursor parts, or null when the token is malformed,

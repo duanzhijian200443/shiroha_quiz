@@ -294,6 +294,38 @@ void main() {
         ),
       );
     });
+
+    test('long bank names map cursor overflow to internalError', () async {
+      final db = await openTestDatabase();
+      final longMath = 'X' * 300;
+      final longPhysics = 'Y' * 300;
+      await insertLegacyQuestion(
+        db,
+        id: 'long_bank_q1',
+        createdAt: 30,
+        bankName: longMath,
+        content: 'Long bank question one',
+      );
+      await insertLegacyQuestion(
+        db,
+        id: 'long_bank_q2',
+        createdAt: 20,
+        bankName: longPhysics,
+        content: 'Long bank question two',
+      );
+
+      final service = _service();
+      StudyQueryException? caught;
+      try {
+        await service.listQuestionBanks(limit: 4);
+      } on StudyQueryException catch (error) {
+        caught = error;
+      }
+      expect(caught, isNotNull);
+      expect(caught!.failure, StudyQueryFailure.internalError);
+      expect(caught.toString(), isNot(contains(longMath)));
+      expect(caught.toString(), isNot(contains(longPhysics)));
+    });
   });
 
   group('B study overview', () {

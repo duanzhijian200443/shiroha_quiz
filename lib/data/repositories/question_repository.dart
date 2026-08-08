@@ -804,7 +804,7 @@ class QuestionRepository implements StudyQuestionQueryPort {
         : 0;
     final lastLapse = metrics?.lastLapseTime ?? 0;
     return StudyQuestionReviewState(
-      due: nextReviewSeconds > 0 && nextReviewSeconds <= nowUnixSeconds,
+      due: nextReviewSeconds <= nowUnixSeconds,
       lapseCount: metrics?.lapses ?? 0,
       difficulty: metrics?.difficulty ?? 0.0,
       lastLapseTime: lastLapse > 0 ? lastLapse : null,

@@ -148,6 +148,17 @@ void main() {
       expect(second.items.single.questionId, 'repo_legacy');
       expect(second.hasMore, isFalse);
     });
+
+    test('state=0 with next_review_time=0 is due', () async {
+      final read = await QuestionRepository().searchStudyQuestions(
+        bankName: bankPhysics,
+        query: 'gamma',
+        nowUnixSeconds: 200,
+        limit: 5,
+      );
+      expect(read.items.single.questionId, 'repo_other');
+      expect(read.items.single.review.due, isTrue);
+    });
   });
 
   group('detail seam', () {
