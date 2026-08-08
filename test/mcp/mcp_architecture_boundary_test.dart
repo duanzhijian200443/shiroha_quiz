@@ -4,7 +4,8 @@
 // persistence or filesystem APIs, the adapter reaches only the T0
 // application layer, the server registers exactly the six frozen tools, and
 // the composition root only assembles the T0 service with its production
-// ports.
+// ports. M0 also freezes local-stdio-only transport, the exact mcp_dart 2.4.0
+// pin, SDK confinement to lib/mcp/**, and protocol-behavior acceptance.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -148,6 +149,64 @@ void main() {
       expect(source, contains('StudyQueryService('));
       expect(source, contains('QuestionRepository()'));
       expect(source, contains('ReviewRepository()'));
+    });
+
+    test('M0 transport is local stdio only, never HTTP/OAuth/remote', () {
+      final server = File(serverPath).readAsStringSync();
+      final root = File(compositionRootPath).readAsStringSync();
+      expect(server, contains('StdioServerTransport'));
+      for (final source in <String>[server, root]) {
+        expect(source, contains('serveStdio'));
+        for (final token in <String>[
+          'StreamableHttp',
+          'OAuth',
+          'Authorization',
+          'WebSocket',
+          'http://',
+          'https://',
+        ]) {
+          expect(
+            source,
+            isNot(contains(token)),
+            reason: 'M0 must stay stdio-only; forbidden token "$token".',
+          );
+        }
+      }
+    });
+
+    test('mcp_dart is pinned exactly to 2.4.0 with no range or prerelease', () {
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      final line = RegExp(r'^\s*mcp_dart:.*$', multiLine: true)
+          .firstMatch(pubspec)!
+          .group(0)!
+          .trim();
+      expect(line, 'mcp_dart: 2.4.0');
+    });
+
+    test('mcp_dart is imported only under lib/mcp and never by T0', () {
+      final offenders = <String>[];
+      for (final entity in Directory('lib').listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) {
+          continue;
+        }
+        final relative = entity.path.replaceAll('\\', '/');
+        if (relative.startsWith('lib/mcp/')) {
+          continue;
+        }
+        if (File(entity.path).readAsStringSync().contains('package:mcp_dart')) {
+          offenders.add(relative);
+        }
+      }
+      expect(offenders, isEmpty);
+    });
+
+    test('M0 acceptance drives the real mcp_dart protocol', () {
+      final acceptance =
+          File('test/mcp/study_mcp_server_test.dart').readAsStringSync();
+      expect(acceptance, contains("import 'package:mcp_dart/mcp_dart.dart';"));
+      expect(acceptance, contains('McpClient('));
+      expect(acceptance, contains('await client.listTools()'));
+      expect(acceptance, contains('await client.callTool('));
     });
   });
 }
