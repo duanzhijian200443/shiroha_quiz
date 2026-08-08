@@ -93,7 +93,7 @@ $changedDartFiles = @()
 if (-not $changeCollectionFailed) {
     $changedDartFiles = @(
         $unstagedFiles + $cachedFiles |
-            ForEach-Object { $_.Trim().Replace('\', '/') } |
+            ForEach-Object { $_.Trim().Replace('\\', '/') } |
             Where-Object { $_ -match '^(lib|test|tool)/.+\.dart$' } |
             Sort-Object -Unique
     )
@@ -118,11 +118,11 @@ foreach ($path in $TestPath) {
         continue
     }
 
-    $normalizedPath = $path.Replace('\', '/')
+    $normalizedPath = $path.Replace('\\', '/')
     $containsParentTraversal = @($normalizedPath.Split('/') | Where-Object { $_ -eq '..' }).Count -gt 0
     if ([System.IO.Path]::IsPathRooted($path) -or
         $containsParentTraversal -or
-        $normalizedPath -notmatch '^test/.+\.dart$') {
+        $normalizedPath -notmatch '^test/.+_test\.dart$') {
         $testPathInvalid = $true
         continue
     }
@@ -130,18 +130,7 @@ foreach ($path in $TestPath) {
     $validatedTestPaths += $normalizedPath
 }
 $validatedTestPaths = @($validatedTestPaths | Sort-Object -Unique)
-
-$changedTestFiles = @(
-    $changedDartFiles |
-        ForEach-Object { $_.Trim().Replace('\', '/') } |
-        Where-Object {
-            $_ -match '^test/.+\.dart$' -and
-            -not [System.IO.Path]::IsPathRooted($_) -and
-            -not ($_.Split('/') -contains '..')
-        } |
-        Sort-Object -Unique
-)
-$testTargets = @($validatedTestPaths + $changedTestFiles | Sort-Object -Unique)
+$testTargets = @($validatedTestPaths)
 
 Write-Section -Name 'Format check'
 if ($changeCollectionFailed) {
