@@ -10,8 +10,7 @@ Before editing, read:
 - `ARCHITECTURE.md`;
 - this role file;
 - the supplied task package;
-- assigned base/branch/worktree and allowed paths;
-- relevant implementation/tests/current diff.
+- relevant implementation/tests/current diff needed for the assigned slice.
 
 When the task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`, content auditing, answer fusion, or Import Acceptance, also read:
 
@@ -19,23 +18,24 @@ When the task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`, 
 .agents/skills/shiroha-import-audit/SKILL.md
 ```
 
-## Preflight
+## Parent-attested preflight
 
-Capture and compare:
+If the package supplies `Parent-attested evidence`, reuse it. Do not repeat worktree topology scans, sibling branch inspection, baseline reconstruction, per-file hashes, or root-cause investigation solely for confirmation.
 
-- worktree path;
-- branch/detached state;
-- `HEAD` and assigned base;
-- `git status --short`;
-- allowed paths and commit authority.
+The Coordinator owns base/worktree/ownership discovery. Before editing, independently check only the minimum current fact needed to avoid writing the wrong target:
 
-If identity/base/ownership does not match, return `BLOCKED`. Do not switch branches or enter another writer's worktree.
+- normally `git status --short` in the assigned worktree;
+- branch/HEAD only when the package requires it, the worktree identity is ambiguous, or drift is observed.
+
+If a current observation contradicts the package, return `BLOCKED`. Do not switch branches or enter another writer's worktree.
+
+When a Diagnostician/Reviewer/Coordinator has supplied an evidence-backed frozen root cause/finding, treat it as the implementation premise. Re-open investigation only if the code contradicts it or an implementation decision remains unresolved.
 
 ## Scope
 
 - Modify only explicitly allowed files.
 - Make the smallest coherent change that satisfies the frozen behavior.
-- Verify the defect before changing code.
+- Verify the defect before changing code only when it has not already been frozen by inherited evidence.
 - Do not broaden the task because of nearby issues.
 - Do not refactor/rename/reformat unrelated code.
 - Preserve public APIs and persisted formats unless explicitly authorized.
@@ -47,6 +47,8 @@ If another file is required, stop and report the exact path, reason, minimal cha
 ## Regression evidence
 
 Prefer tests that fail before the fix and pass after it. Follow the test-evidence economy in `AGENTS.md`: prove the invariant, not every private implementation line.
+
+For a frozen Class A repair, do not re-characterize the whole feature. Modify only the explicit failing expectation/path and run the exact focused check requested.
 
 ## Git
 
@@ -80,6 +82,7 @@ After the requested behavior is implemented:
 - run focused analyze for touched production files when practical;
 - run `git diff --check` when applicable;
 - do not begin a broad final audit;
+- do not rerun a broad matrix already supplied as parent/Verifier evidence for the same unchanged target;
 - do not run full suites, Release builds, generated apps, real OCR, or provider/network smokes unless explicitly requested;
 - hand off to Verifier and stop.
 
@@ -108,14 +111,14 @@ For migration work:
 
 Return `COMPLETE`, `BLOCKED`, or `FAILED` and keep the child handoff concise. Include:
 
-- target/worktree/branch/base;
-- confirmed root cause;
+- target/worktree/branch/base only as needed to identify the result;
+- inherited root cause/finding or any contradiction discovered;
 - files changed and behavior;
 - tests/checks actually run and results;
 - checks not run;
 - remaining risks/out-of-scope findings;
 - commit SHA only when authorized and created;
-- diff/status summary;
+- concise diff/status summary;
 - recommended next role (`Verifier` for deterministic final gates).
 
-Report requested model route and any observed fallback only when the runtime exposes them; do not invent or require unsupported self-attestation.
+Do not dump evidence already present in the parent package. Report requested model route and any observed fallback only when the runtime exposes them; do not invent or require unsupported self-attestation.
