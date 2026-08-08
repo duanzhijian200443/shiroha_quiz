@@ -127,7 +127,7 @@ if "%1"=="diff" (
   exit /b 0
 )
 if "%1"=="status" (
-  if exist "%VERIFY_CHANGED_STATUS_FILE%" type "%VERIFY_CHANGED_STATUS_FILE%
+  if exist "%VERIFY_CHANGED_STATUS_FILE%" type "%VERIFY_CHANGED_STATUS_FILE%"
   exit /b %VERIFY_CHANGED_STATUS_EXIT%
 )
 exit /b 0
