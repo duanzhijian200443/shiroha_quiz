@@ -773,6 +773,7 @@ void main() {
   group('I READ_ONLY proof', () {
     test('six queries leave the core tables byte-identical', () async {
       final db = await openTestDatabase();
+      await insertJ0MetadataRows(db);
       final before = await snapshotCoreTables(db);
       final service = _service();
 

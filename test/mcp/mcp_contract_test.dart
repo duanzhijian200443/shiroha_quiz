@@ -818,6 +818,7 @@ void main() {
   group('H READ_ONLY proof', () {
     test('all six tool calls leave the core tables byte-identical', () async {
       final db = await openTestDatabase();
+      await insertJ0MetadataRows(db);
       final before = await snapshotCoreTables(db);
       final adapter = _adapter();
 
