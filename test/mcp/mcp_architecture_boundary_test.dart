@@ -155,6 +155,13 @@ void main() {
       final server = File(serverPath).readAsStringSync();
       final root = File(compositionRootPath).readAsStringSync();
       expect(server, contains('StdioServerTransport'));
+      expect(server, contains('Future<void> serveStdio()'));
+      expect(server, contains('Future<void> close()'));
+      // The production surface is stdio-only: no public arbitrary-Transport
+      // connect seam may exist on the server.
+      expect(server, isNot(contains('connect(Transport')));
+      expect(server, isNot(contains('Transport transport')));
+      expect(server, isNot(contains('Future<void> connect(')));
       for (final source in <String>[server, root]) {
         expect(source, contains('serveStdio'));
         for (final token in <String>[
@@ -200,13 +207,20 @@ void main() {
       expect(offenders, isEmpty);
     });
 
-    test('M0 acceptance drives the real mcp_dart protocol', () {
+    test('M0 acceptance drives the real mcp_dart protocol over stdio', () {
       final acceptance =
           File('test/mcp/study_mcp_server_test.dart').readAsStringSync();
       expect(acceptance, contains("import 'package:mcp_dart/mcp_dart.dart';"));
       expect(acceptance, contains('McpClient('));
       expect(acceptance, contains('await client.listTools()'));
       expect(acceptance, contains('await client.callTool('));
+      // The lifecycle runs against a real local stdio subprocess fixture,
+      // not an in-process linked transport.
+      expect(acceptance, contains('StdioClientTransport('));
+      expect(acceptance, contains('study_mcp_stdio_fixture.dart'));
+      final fixture = File('test/mcp/fixtures/study_mcp_stdio_fixture.dart');
+      expect(fixture.existsSync(), isTrue);
+      expect(fixture.readAsStringSync(), contains('serveStdio()'));
     });
   });
 }

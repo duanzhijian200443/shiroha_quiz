@@ -18,7 +18,10 @@ const String studyMcpSchemaVersion = 'mcp.study.v0';
 /// Strict lexical form of an offset-bearing RFC 3339 instant:
 /// `YYYY-MM-DDTHH:mm:ss[.fraction](Z|±HH:mm)`.
 final RegExp _rfc3339OffsetInstant = RegExp(
-  r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$',
+  // Capture groups carry the date/time fields so Gregorian and clock ranges
+  // are validated by hand before DateTime.parse, which silently rolls over
+  // out-of-range values.
+  r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$',
 );
 
 /// One tool response: the frozen v0 envelope plus the MCP error flag.
@@ -284,9 +287,28 @@ final class StudyMcpAdapter {
   /// Offset-bearing RFC 3339 timestamp as a UTC instant.
   DateTime _requiredInstant(Map<String, dynamic> args, String key) {
     final raw = _requiredString(args, key);
-    if (!_rfc3339OffsetInstant.hasMatch(raw)) {
+    final match = _rfc3339OffsetInstant.firstMatch(raw);
+    if (match == null) {
       // Reject lax forms DateTime.parse accepts (space separator, colons
       // missing in the offset, lowercase z).
+      throw const StudyQueryException(StudyQueryFailure.invalidRequest);
+    }
+    final offset = match.group(7)!;
+    final offsetHour = offset == 'Z' ? 0 : int.parse(offset.substring(1, 3));
+    final offsetMinute = offset == 'Z' ? 0 : int.parse(offset.substring(4, 6));
+    if (!_isValidGregorianDate(
+          int.parse(match.group(1)!),
+          int.parse(match.group(2)!),
+          int.parse(match.group(3)!),
+        ) ||
+        int.parse(match.group(4)!) > 23 ||
+        int.parse(match.group(5)!) > 59 ||
+        int.parse(match.group(6)!) > 59 ||
+        offsetHour > 23 ||
+        offsetMinute > 59) {
+      // Reject values DateTime.parse silently rolls over (month 13, day
+      // overflow, non-leap February 29, hour 24, minute/second 60, and
+      // out-of-range offsets).
       throw const StudyQueryException(StudyQueryFailure.invalidRequest);
     }
     final DateTime parsed;
@@ -300,6 +322,33 @@ final class StudyMcpAdapter {
       throw const StudyQueryException(StudyQueryFailure.invalidRequest);
     }
     return parsed;
+  }
+
+  /// Days per Gregorian month in a non-leap year.
+  static const List<int> _daysInMonth = <int>[
+    31,
+    28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+
+  /// True for a valid Gregorian calendar date (month 1..12 and day within
+  /// the month, including leap-day rules).
+  static bool _isValidGregorianDate(int year, int month, int day) {
+    if (month < 1 || month > 12 || day < 1) return false;
+    var maxDay = _daysInMonth[month - 1];
+    if (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))) {
+      maxDay = 29;
+    }
+    return day <= maxDay;
   }
 
   // ---------------------------------------------------------------------------

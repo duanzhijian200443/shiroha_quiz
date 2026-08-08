@@ -319,7 +319,12 @@ Output item fields:
 | `stem_preview` | Normalized stem preview: consecutive whitespace collapsed to one U+0020 space and trimmed; maximum 160 Unicode grapheme clusters (over limit: first 159 clusters plus `…`); never derived from RawFallback |
 | `lapse_count` | Count |
 | `difficulty` | Numeric difficulty |
-| `last_lapse_at` | Timestamp |
+| `last_lapse_at` | Timestamp or `null` |
+
+`last_lapse_at` is nullable: `null` is an explicit output when a question has
+no recorded last lapse (historical/legacy rows may carry a lapse count
+without a timestamp). A present value is a UTC RFC 3339 timestamp at
+whole-second precision using `Z`.
 
 This is analysis only: no state mutation, no complete logs, no historical
 answer text, and no AI evaluation.
@@ -559,6 +564,9 @@ testable sentinels; the implementation and acceptance must match them exactly.
 
 - M0 serves only over the process stdin/stdout stdio transport
   (`serveStdio` / `StdioServerTransport`).
+- The production `StudyMcpServer` surface is `serveStdio`/`close` only: no
+  public arbitrary-`Transport` connect seam exists, so tests and embedding
+  cannot bypass the stdio-only boundary.
 - Streamable HTTP, OAuth/Authorization flows, WebSocket, and any remote or
   network server are explicitly forbidden in M0 and are not planned for v0.
 - The server lifecycle is: connect to stdio -> initialize handshake ->
@@ -581,12 +589,17 @@ testable sentinels; the implementation and acceptance must match them exactly.
 
 Acceptance is judged by observable protocol behavior, not by SDK presence or
 internal structure. The M0 suite drives the real mcp_dart protocol
-(`McpClient` initialize, `listTools`, `callTool`, close) and asserts:
+(`McpClient` initialize, `listTools`, `callTool`, close) over a real local
+stdio subprocess running the offline fixture
+(`test/mcp/fixtures/study_mcp_stdio_fixture.dart`); the fixture may use the
+SDK but never enters `lib`, and the suite never binds a network, provider, or
+production database. It asserts:
 
 - exactly six `READ_ONLY` tools with read-only annotations;
 - success and error request/response envelopes with the frozen shapes;
 - the complete error taxonomy and mapping, including malformed requests;
-- the stdio lifecycle (handshake, close, transport teardown);
+- the stdio lifecycle (handshake, close, transport teardown) over the real
+  local stdio subprocess;
 - typed and legacy projections with corrupt-V2 `data_corrupt`, no fallback;
 - no raw-data leakage (raw fallback payloads, SQL, paths, exceptions).
 

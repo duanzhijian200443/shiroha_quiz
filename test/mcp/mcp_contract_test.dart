@@ -435,6 +435,73 @@ void main() {
         <String>['2026-08-08:2', '2026-08-09:1'],
       );
     });
+
+    test('valid RFC 3339 instants preserve leap day, fractions, and offsets',
+        () async {
+      final adapter = _adapter();
+      final leap = _successEnvelope(
+        await adapter.callTool(
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2024-02-29T00:00:00Z',
+            'to': '2024-02-29T00:00:30Z',
+          },
+        ),
+      );
+      expect((leap['data'] as Map<String, Object?>)['scheduled_count'], 0);
+
+      final fraction = _successEnvelope(
+        await adapter.callTool(
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T12:34:56.789Z',
+            'to': '2026-08-08T12:35:26.789Z',
+          },
+        ),
+      );
+      expect((fraction['data'] as Map<String, Object?>)['scheduled_count'], 0);
+
+      // +08:00 carries the same UTC instant as the equivalent Z form, so the
+      // window projection must be identical.
+      final utcWindow = _successEnvelope(
+        await adapter.callTool(
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:00:00Z',
+            'to': '2026-08-08T00:00:30Z',
+          },
+        ),
+      );
+      final offsetWindow = _successEnvelope(
+        await adapter.callTool(
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T08:00:00+08:00',
+            'to': '2026-08-08T08:00:30+08:00',
+          },
+        ),
+      );
+      expect(
+        (offsetWindow['data'] as Map<String, Object?>)['buckets'],
+        (utcWindow['data'] as Map<String, Object?>)['buckets'],
+      );
+
+      final negative = _successEnvelope(
+        await adapter.callTool(
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-07T17:00:00-07:00',
+            'to': '2026-08-07T17:00:30-07:00',
+          },
+        ),
+      );
+      expect((negative['data'] as Map<String, Object?>)['scheduled_count'], 0);
+    });
   });
 
   group('D search questions', () {
@@ -628,6 +695,49 @@ void main() {
         <Object?>[idTyped1, 'legacy_q3'],
       );
     });
+
+    test('no recorded last lapse projects last_lapse_at as explicit null',
+        () async {
+      final db = await openTestDatabase();
+      await insertLegacyQuestion(
+        db,
+        id: 'legacy_null_lapse',
+        createdAt: 30,
+        bankName: bankThird,
+        content: 'Synthetic null-lapse zeta-2',
+        type: 0,
+        options: '["A. one","B. two"]',
+        answer: 'A',
+        explanation: null,
+      );
+      // Historical/legacy rows may carry a lapse count without a timestamp;
+      // the stored column is genuinely NULL here, not a sentinel zero.
+      await db.insert('review_states', <String, Object?>{
+        'question_id': 'legacy_null_lapse',
+        'state': 1,
+        'next_review_time': 0,
+        'lapses': 2,
+        'difficulty': 6.0,
+        'stability': 0.0,
+        'reps': 0,
+        'last_lapse_time': null,
+        'last_review_time': 0,
+      });
+
+      final envelope = _successEnvelope(
+        await _adapter().callTool(
+          'get_weak_questions',
+          <String, dynamic>{'bank_name': bankThird},
+        ),
+      );
+      final items = envelope['items'] as List<Object?>;
+      expect(items, hasLength(1));
+      final item = items.single as Map<String, Object?>;
+      expect(item['question_id'], 'legacy_null_lapse');
+      expect(item['lapse_count'], 2);
+      expect(item.containsKey('last_lapse_at'), isTrue);
+      expect(item['last_lapse_at'], isNull);
+    });
   });
 
   group('G error taxonomy', () {
@@ -687,6 +797,78 @@ void main() {
           <String, dynamic>{
             'timezone': 'UTC',
             'from': '2026-08-08T00:00:00z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-13-08T00:00:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-32T00:00:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-04-31T00:00:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-02-29T00:00:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T24:00:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:60:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:00:60Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:00:00+24:00',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:00:00+08:99',
             'to': '2026-08-10T00:00:00Z',
           },
         ),

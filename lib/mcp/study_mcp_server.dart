@@ -1,10 +1,10 @@
 /// mcp.study.v0 exactly-six READ_ONLY stdio MCP server.
 ///
 /// Owns the MCP server lifecycle: registers exactly the six frozen read-only
-/// tools, exposes a pluggable [Transport] seam for tests, and serves over
-/// stdio through [serveStdio]. Argument parsing and result projection are
-/// delegated to [StudyMcpAdapter]; this file defines no business semantics
-/// and never performs persistence or filesystem access.
+/// tools and serves over stdio through [serveStdio]. The production surface
+/// is stdio-only: the server never accepts an arbitrary [Transport] and this
+/// file defines no business semantics and never performs persistence or
+/// filesystem access.
 library;
 
 import 'dart:async';
@@ -47,9 +47,6 @@ final class StudyMcpServer {
 
   /// Whether the server is connected to a transport.
   bool get isConnected => _server.isConnected;
-
-  /// Connects to an arbitrary transport (tests and embedding).
-  Future<void> connect(Transport transport) => _server.connect(transport);
 
   /// Connects to the process stdin/stdout stdio transport.
   Future<void> serveStdio() => _server.connect(StdioServerTransport());
