@@ -89,6 +89,29 @@ QuestionDraftV2 _singleOptionChoiceDraft({QuestionAnswer? answer}) {
   );
 }
 
+QuestionDraftV2 _twoOptionChoiceDraft({QuestionAnswer? answer}) {
+  return QuestionDraftV2(
+    questionId: 'p5_ui_two_option_q',
+    kind: QuestionKind.singleChoice,
+    questionNumber: 4,
+    stem: _text('Two-option choice stem.'),
+    options: <QuestionOption>[
+      QuestionOption(
+        optionId: 'opt_a',
+        label: '甲',
+        content: _text('first'),
+      ),
+      QuestionOption(
+        optionId: 'opt_b',
+        label: '乙',
+        content: _text('second'),
+      ),
+    ],
+    answer: answer,
+    explanation: _text('Explanation.'),
+  );
+}
+
 /// File-backed DatabaseHelper seam: repository APIs run against a real v15
 /// database opened only through the frozen openPathForTesting seam.
 class _FileDatabaseHelper extends Fake implements DatabaseHelper {
@@ -1143,6 +1166,113 @@ void main() {
     final payload =
         jsonDecode(await readPayloadJson(tester, db)) as Map<String, dynamic>;
     expect(payload['answer'], isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'abnormal ChoiceAnswer with an unknown option id opens the text '
+      'fallback; no-op preserves the payload and a real edit repairs',
+      (tester) async {
+    final helper = newFileHelper('p5_ui_unknown_id.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _twoOptionChoiceDraft(
+          answer: ChoiceAnswer(optionIds: <String>['opt_c']),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    // No checkbox editor for an unrepresentable choice; the existing
+    // identity is shown as text.
+    expect(_inRepair(find.byType(CheckboxListTile)), findsNothing);
+    final field = tester.widget<TextField>(_inRepair(find.byType(TextField)));
+    expect(field.controller!.text, 'opt_c');
+    final db = await openDb(tester, helper);
+    final payloadBefore =
+        await tester.runAsync(() => _payloadJson(db, _storageId));
+
+    // A no-op save never crashes and never rewrites the sidecar payload.
+    await tapSave(tester);
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    expect(await tester.runAsync(() => _payloadJson(db, _storageId)),
+        payloadBefore);
+    var typed = (await tester.runAsync(
+      () async => _reloadTyped(db, _storageId),
+    ))!;
+    expect(typed.draft.answer, ChoiceAnswer(optionIds: <String>['opt_c']));
+
+    // A real edit is still repairable through the text fallback.
+    await openRepairFromButton(tester);
+    await tester.enterText(_inRepair(find.byType(TextField)), 'manual fix');
+    await tester.pump();
+    await tapSave(tester);
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    typed = (await tester.runAsync(
+      () async => _reloadTyped(db, _storageId),
+    ))!;
+    final answer = typed.draft.answer as ContentAnswer;
+    expect((answer.content.nodes.single as TextNode).text, 'manual fix');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'abnormal ChoiceAnswer with duplicate ids opens the text fallback and '
+      'no-op preserves the duplicated answer', (tester) async {
+    final helper = newFileHelper('p5_ui_duplicate_ids.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _choiceDraft(
+          answer: ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    expect(_inRepair(find.byType(CheckboxListTile)), findsNothing);
+    final field = tester.widget<TextField>(_inRepair(find.byType(TextField)));
+    expect(field.controller!.text, '甲, 甲');
+    final db = await openDb(tester, helper);
+    final payloadBefore =
+        await tester.runAsync(() => _payloadJson(db, _storageId));
+
+    await tapSave(tester);
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    expect(await tester.runAsync(() => _payloadJson(db, _storageId)),
+        payloadBefore);
+    final typed = (await tester.runAsync(
+      () async => _reloadTyped(db, _storageId),
+    ))!;
+    expect(
+      typed.draft.answer,
+      ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+    );
     expect(tester.takeException(), isNull);
   });
 }

@@ -882,6 +882,37 @@ void main() {
       );
     });
 
+    test('no-op duplicate choice answer is accepted and rewrites nothing',
+        () async {
+      final helper = newFileHelper('p5_noop_duplicate.db');
+      final repository = QuestionRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertTypedRow(
+        db,
+        _choiceDraft(
+          answer: ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+        ),
+        storageId: _storageId,
+      );
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+
+      final current = await _reloadTyped(db, _storageId);
+      await repository.updateTypedAnswer(
+        storageId: _storageId,
+        expectedDraft: current.draft,
+        newAnswer: ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+      );
+
+      expect(await _payloadJson(db, _storageId), payloadBefore);
+      expect(await _standardAnswer(db, _storageId), standardBefore);
+      final reloaded = await _reloadTyped(db, _storageId);
+      expect(
+        reloaded.draft.answer,
+        ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+      );
+    });
+
     test('unsafe replacement content fails with unsafePayload and zero writes',
         () async {
       final helper = newFileHelper('p5_unsafe.db');

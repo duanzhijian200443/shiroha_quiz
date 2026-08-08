@@ -65,14 +65,35 @@ class _TypedAnswerRepairScreenState extends State<TypedAnswerRepairScreen> {
   String? _errorMessage;
   bool _isSaving = false;
 
-  /// Checkbox editing is used only for reachable choice states with enough
-  /// options and a choice-shaped answer. A `ContentAnswer` on a choice kind
-  /// (legal fallback) and insufficient-option drafts (0/1) always use the
-  /// text editor so manual repair is never blocked.
-  bool get _useCheckboxEditor =>
-      widget.draft.kind == QuestionKind.singleChoice &&
-      widget.draft.options.length >= 2 &&
-      widget.draft.answer is! ContentAnswer;
+  /// Checkbox editing is used only for reachable choice states the checkbox
+  /// editor can represent losslessly: at least two options and either no
+  /// answer or a [ChoiceAnswer] whose option identities are all unique and
+  /// all present in the current options. Unknown, duplicate or mixed
+  /// identities, `ContentAnswer` fallbacks and insufficient-option drafts
+  /// (0/1) always use the text editor so manual repair is never blocked and
+  /// a no-op save never crashes or silently rewrites the answer.
+  bool get _useCheckboxEditor {
+    if (widget.draft.kind != QuestionKind.singleChoice ||
+        widget.draft.options.length < 2) {
+      return false;
+    }
+    return switch (widget.draft.answer) {
+      null => true,
+      ChoiceAnswer(:final optionIds) => _isChoiceRepresentable(optionIds),
+      ContentAnswer() => false,
+    };
+  }
+
+  /// The checkbox editor can represent a choice answer only when every
+  /// option identity is unique and exists in the current draft options.
+  bool _isChoiceRepresentable(List<String> optionIds) {
+    if (optionIds.isEmpty) return false;
+    final optionIdsInDraft = <String>{
+      for (final option in widget.draft.options) option.optionId,
+    };
+    return optionIds.toSet().length == optionIds.length &&
+        optionIds.every(optionIdsInDraft.contains);
+  }
 
   @override
   void initState() {

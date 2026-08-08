@@ -203,26 +203,45 @@ final class TypedAnswerEditorCodec {
   /// Finds the matching closing delimiter with the same nesting rule as the
   /// renderer tokenizer: a nested opening delimiter inside math keeps the
   /// depth positive, and an unmatched closing delimiter outside math is
-  /// ordinary text.
+  /// ordinary text. Delimiter-like LaTeX whose backslash is itself escaped
+  /// (for example `\\[2mm]` inside a block formula) is literal math content
+  /// and never opens or closes a span.
   static int _findClosingDelimiter(String input, int start, String close) {
     final open = close == r'\)' ? r'\(' : r'\[';
     var depth = 0;
     var index = start;
     while (index <= input.length - close.length) {
       if (_startsWith(input, index, close)) {
-        if (depth == 0) return index;
-        depth--;
+        if (!_isEscapedBackslash(input, index)) {
+          if (depth == 0) return index;
+          depth--;
+        }
         index += close.length;
         continue;
       }
       if (_startsWith(input, index, open)) {
-        depth++;
+        if (!_isEscapedBackslash(input, index)) {
+          depth++;
+        }
         index += open.length;
         continue;
       }
       index++;
     }
     return -1;
+  }
+
+  /// True when the backslash at [index] is itself escaped by a preceding
+  /// backslash run of odd length (for example the second backslash in
+  /// `\\[`). Such a delimiter-like sequence is literal LaTeX content.
+  static bool _isEscapedBackslash(String input, int index) {
+    var count = 0;
+    var i = index - 1;
+    while (i >= 0 && input[i] == r'\') {
+      count++;
+      i--;
+    }
+    return count.isOdd;
   }
 
   /// A complete markdown image (`![alt](scheme:...)`) is unsupported in

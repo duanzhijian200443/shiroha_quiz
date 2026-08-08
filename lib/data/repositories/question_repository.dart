@@ -663,14 +663,22 @@ class QuestionRepository {
           );
         }
         if (newAnswer case ChoiceAnswer(:final optionIds)) {
-          final optionIdsInDraft = <String>{
-            for (final option in current.draft.options) option.optionId,
-          };
-          final hasDuplicateIds = optionIds.toSet().length != optionIds.length;
-          if (hasDuplicateIds || !optionIds.every(optionIdsInDraft.contains)) {
-            throw const TypedAnswerMutationException(
-              TypedAnswerMutationFailure.invalidAnswer,
-            );
+          // A no-op (the new answer equals the persisted answer) never
+          // introduces invalid data, so pre-existing unknown or duplicate
+          // choice identities remain no-op repairable. Only real changes are
+          // validated against the current options.
+          if (newAnswer != current.draft.answer) {
+            final optionIdsInDraft = <String>{
+              for (final option in current.draft.options) option.optionId,
+            };
+            final hasDuplicateIds =
+                optionIds.toSet().length != optionIds.length;
+            if (hasDuplicateIds ||
+                !optionIds.every(optionIdsInDraft.contains)) {
+              throw const TypedAnswerMutationException(
+                TypedAnswerMutationFailure.invalidAnswer,
+              );
+            }
           }
         }
         final replacementDraft = QuestionDraftV2(

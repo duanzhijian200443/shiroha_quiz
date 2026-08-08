@@ -69,6 +69,24 @@ void main() {
       );
     });
 
+    test('BlockMathNode with escaped delimiter-like LaTeX survives unchanged',
+        () {
+      _expectRoundTrip(
+        _content(const <ContentNode>[
+          BlockMathNode(r'\begin{array}{l}a\\[2mm]b\end{array}'),
+        ]),
+      );
+    });
+
+    test('escaped closing-like delimiters inside math survive unchanged', () {
+      _expectRoundTrip(
+        _content(const <ContentNode>[
+          BlockMathNode(r'a\\]b'),
+          InlineMathNode(r'a\\)b'),
+        ]),
+      );
+    });
+
     test('text plus inline math mix survives unchanged', () {
       _expectRoundTrip(
         _content(const <ContentNode>[
