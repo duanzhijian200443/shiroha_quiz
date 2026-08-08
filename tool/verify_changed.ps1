@@ -41,6 +41,12 @@ function Write-FailedPreflight {
     Write-Output "FAIL ($Reason)"
 }
 
+function Stop-Verification {
+    Write-Section -Name 'Final verdict'
+    Write-Output 'FAIL'
+    exit 1
+}
+
 $repoRootOutput = @(& git rev-parse --show-toplevel 2>$null)
 if ($LASTEXITCODE -ne 0 -or $repoRootOutput.Count -eq 0) {
     Write-FailedPreflight -Reason 'repository_unavailable'
@@ -151,7 +157,7 @@ if ($changeCollectionFailed) {
         Write-Output 'Format check: PASS'
     } else {
         Write-Output "Format check: FAIL (exit $formatExitCode)"
-        $failed = $true
+        Stop-Verification
     }
 }
 
@@ -174,7 +180,7 @@ if ($changeCollectionFailed) {
         Write-Output 'Analyze: PASS'
     } else {
         Write-Output "Analyze: FAIL (exit $analyzeExitCode)"
-        $failed = $true
+        Stop-Verification
     }
 }
 
