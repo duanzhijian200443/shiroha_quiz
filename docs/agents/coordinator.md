@@ -58,18 +58,21 @@ Choose `SERIAL` unless every parallel writer has a frozen shared checkpoint, non
 
 ## Standard workflow
 
-1. Capture base commit, branch/worktree, and dirty state.
+1. Capture base commit, branch/worktree topology, ownership, and dirty state once.
 2. Confirm allowed paths, Git authority, stop conditions, and current stage only.
 3. Use Planner/Diagnostician only when architecture/root cause is genuinely unresolved.
-4. Freeze shared contract decisions and rollback point.
+4. Freeze shared contract decisions, rollback point, and parent-attested evidence.
 5. Split into the smallest coherent tasks; assign each production path to one writer.
-6. Dispatch bounded Executor work.
-7. Stop all writers and freeze the implementation target.
-8. Route deterministic gates to Verifier/CI/local commands.
-9. Route semantic review according to `model-routing.md`.
-10. Classify all actionable findings together as A/B/C.
-11. Apply bounded automatic closure only for authorized Class A/B; P3 does not trigger repair by itself.
-12. Report the current stage and stop. Later roadmap stages require a new user request.
+6. Dispatch only currently runnable Executors; default global active-child budget is two.
+7. On every terminal handoff, capture evidence and immediately close/release that child.
+8. Stop all writers on a target and freeze the implementation target.
+9. Route deterministic gates to Verifier/CI/local commands.
+10. Apply Class A deterministic corrections without semantic closure review when required.
+11. Run the feature/stage's initial full semantic Reviewer once; require it to collect all assigned findings in one report.
+12. Batch compatible Class B findings into one bounded repair pass where possible.
+13. After Class B repair, run focused Verifier then one targeted closure Reviewer; do not restart a full review unless the repair invalidated its scope.
+14. P3 does not trigger repair by itself.
+15. Integrate only when explicitly authorized, report the current stage, and stop. Later roadmap stages require a new user request.
 
 ## Delegation packages
 
@@ -83,6 +86,7 @@ A normal child package contains only:
 
 Base/Branch: <commit + assigned branch/worktree when relevant>
 Allowed paths: <exact paths>
+Parent-attested evidence: <frozen facts the child should reuse>
 Task-specific invariant/constraints: <only current-stage semantics>
 Acceptance: <bounded criteria>
 Validation: <exact focused commands and timeouts>
@@ -93,18 +97,44 @@ Stop only if: <Class C / scope / target drift / environment blockers>
 
 Include explicit forbidden paths only where ambiguity is realistic. Default child handoff budget is 800 tokens (Reviewer 1200) unless a bounded exception is necessary.
 
+Do not ask a child to rediscover facts already frozen by the parent. In particular, do not delegate redundant worktree scans, baseline reconstruction, per-file hashes, root-cause rediscovery, or deterministic gates already established for the same unchanged target.
+
+## Parent preflight and evidence reuse
+
+The Coordinator owns topology/base/ownership discovery. Capture it once immediately before dispatch and place the relevant facts in `Parent-attested evidence`.
+
+For a committed target, the SHA is the tracked-tree identity. For an uncommitted target, freeze HEAD/status/changed paths plus one bounded diff identity when needed.
+
+A child may recheck only what its role requires independently or when it observes contradiction/drift. Do not make every child repeat `git worktree list`, sibling branch inspection, hash inventories, or architecture-baseline discovery.
+
 ## Automatic delegated wait
 
 Under `AUTO_DELEGATED_WAIT`:
 
-- create only the frozen child set for the current target;
-- do not duplicate delegated work while a child writer is active;
-- do not inspect moving-target files solely to provide progress commentary;
+- create only the currently runnable frozen child set;
+- do not duplicate delegated work while a child is active;
+- prefer host-provided event/terminal-handoff waiting;
+- do not poll child status or inspect moving-target files merely to produce progress commentary;
 - do not infer a stall from silence;
-- surface `COMPLETE`, `BLOCKED`, `FAILED`, permission requests, ownership drift, or safety violations immediately;
-- otherwise keep non-terminal progress commentary sparse (at most one short update per ~10 minutes when the runtime requires visible updates).
+- surface `COMPLETE`, `BLOCKED`, `FAILED`, permission requests, ownership drift, target drift, or safety violations immediately;
+- when the host lacks event-driven waiting, use the lowest-frequency bounded fallback wait supported by the runtime rather than periodic model wakeups.
 
 A wait timeout is incomplete evidence. Do not create a replacement writer until the current writer is terminal/stopped and the target is refrozen.
+
+## Child lifecycle / slot discipline
+
+A child is single-use for one bounded role/task.
+
+When a child reaches `COMPLETE`, `BLOCKED`, or `FAILED`, in the same orchestration turn:
+
+1. capture its terminal handoff;
+2. record only durable evidence needed later: role, target/commit, verdict/findings, validation result, remaining risk;
+3. close/release the terminal child;
+4. only then spawn a successor if required.
+
+Do not keep terminal children alive for reference, logs, possible reuse, or while waiting for another feature. The handoff is the durable record. Never resume a terminal writer for repair.
+
+Before every spawn, reconcile the roster and close terminal children first. Unless the user/package authorizes more, keep at most two active children globally and at most one active writer per feature/worktree. If capacity is still full, wait for an active child rather than creating another.
 
 ## Manual delegation
 
@@ -116,11 +146,11 @@ For a committed candidate, freeze the target by commit SHA; do not collect redun
 
 For an uncommitted candidate, freeze HEAD, branch/detached state, `git status --short`, exact changed/staged paths, and the focused diff/diff identity needed for review.
 
-If the target changes, invalidate the old verification/review evidence and refreeze before rerunning the required gates.
+If the target changes, invalidate the old verification/review evidence and refreeze before rerunning only the gates affected by that change.
 
 ## Handoff inspection
 
-Confirm:
+Trust parent-attested and role-produced evidence unless it is internally inconsistent. Confirm only what is needed to accept the handoff:
 
 - terminal state and role;
 - assigned target/worktree/branch/base;
@@ -130,18 +160,20 @@ Confirm:
 - skipped checks/remaining risks are explicit;
 - requested model route and any observed fallback are reported when available.
 
-Do not require unsupported child-model self-attestation.
+Do not recompute the child's diff/hash/root cause merely to reconfirm it. Do not require unsupported child-model self-attestation.
 
 ## Repair handling
 
 Follow `AGENTS.md` and `model-routing.md`:
 
-- Class A: fresh narrow correction -> focused Verifier -> finish.
-- Class B: fresh Repair Executor -> focused Verifier -> targeted closure Reviewer, within the bounded repair-pass limit.
+- Class A: fresh narrow correction -> focused Verifier -> finish; no semantic closure Reviewer.
+- Class B: after the initial full Reviewer, batch compatible findings -> fresh Repair Executor -> focused Verifier -> one targeted closure Reviewer.
 - Class C: stop for user authorization.
 - P3: record/defer by default; do not launch automatic repair unless evidence promotes it to an explicit acceptance/invariant/security/release violation.
 
-A terminal writer is not resumed. Every post-handoff repair uses a fresh Executor.
+Do not perform `repair -> closure review -> full review`. The normal semantic order is `initial full review -> batched repair -> focused verify -> targeted closure review`.
+
+A second full review is exceptional and requires concrete evidence that the repair changed architecture/public contract/schema/security/concurrency semantics or otherwise invalidated the initial review scope.
 
 ## Completion report
 
