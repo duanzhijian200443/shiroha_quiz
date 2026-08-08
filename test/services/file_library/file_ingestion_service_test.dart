@@ -37,8 +37,6 @@ class _FileDatabaseHelper extends Fake implements DatabaseHelper {
 }
 
 class _FailingSaveRepository extends LibraryFileRepository {
-  _FailingSaveRepository({super.databaseHelper});
-
   LibraryFile? capturedFile;
 
   @override
