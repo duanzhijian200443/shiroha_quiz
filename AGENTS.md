@@ -96,7 +96,7 @@ High-risk areas include import pipelines, persistence/migrations, managed-file l
 For implementation:
 
 1. Inspect relevant code/tests/current diff.
-2. Verify the reported problem exists.
+2. Verify the reported problem exists unless the package supplies a frozen, evidence-backed root cause.
 3. Freeze the task-specific behavior and allowed scope.
 4. Add/update the minimum regression evidence needed.
 5. Make the smallest coherent change.
@@ -207,9 +207,9 @@ A command with no meaningful progress for 3 minutes is stalled. Preserve evidenc
 
 ---
 
-## 10. Prompt economy and delegated package inheritance
+## 10. Prompt economy and delegated evidence inheritance
 
-Task prompts must inherit shared rules from this file, the active role, and `docs/agents/model-routing.md` instead of repeating them.
+Task prompts inherit shared rules from this file, the active role, and `docs/agents/model-routing.md` instead of repeating them.
 
 A normal delegated package contains only:
 
@@ -219,7 +219,7 @@ A normal delegated package contains only:
 
 Base/Branch: <target identity>
 Allowed paths: <exact paths>
-
+Parent-attested evidence: <only facts already frozen by the parent>
 Task-specific invariant/constraints: <only deviations or frozen semantics>
 Acceptance: <task-specific criteria>
 Validation: <exact focused commands/timeouts>
@@ -229,6 +229,28 @@ Stop only if: <scope/class-C/environment/target-drift conditions>
 ```
 
 Only include explicit forbidden paths when there is a realistic ambiguity. Do not restate general repository rules, full parent history, generic safety text, or unchanged architecture in every package.
+
+### Parent-attested evidence
+
+A child inherits explicit parent-attested facts and must not recompute them solely for reassurance. Inheritable evidence includes:
+
+- base/target commit SHA;
+- assigned branch/worktree identity and ownership;
+- clean/dirty state captured immediately before dispatch;
+- allowed changed paths;
+- frozen diff/changed-path identity;
+- completed topology checks;
+- an evidence-backed root cause or finding already frozen by Diagnostician/Reviewer/Coordinator.
+
+Recheck inherited evidence only when:
+
+- the role requires independent target verification;
+- a command contradicts the package;
+- target/ownership drift is observed;
+- security/privacy correctness depends on current state;
+- the package explicitly marks the fact unresolved.
+
+Do not rescan sibling worktrees, re-derive the architecture baseline, recalculate per-file hashes, or rediscover a frozen root cause merely to confirm the parent. A commit SHA identifies the complete tracked tree.
 
 ---
 
@@ -274,19 +296,28 @@ P3 **must not automatically trigger a repair**. Promote it only when concrete ev
 
 Finding classes:
 
-- **Class A**: one deterministic semantics-preserving correction. Lane: fresh narrow correction -> focused Verifier -> finish; no new semantic Reviewer required.
-- **Class B**: bounded in-scope semantic completion that does not change approved architecture/schema/public API/security posture/file scope. Lane: fresh Repair Executor -> focused Verifier -> one targeted closure Reviewer.
+- **Class A**: one deterministic semantics-preserving correction. Lane: fresh narrow correction -> focused Verifier -> finish; no semantic closure Reviewer.
+- **Class B**: bounded in-scope semantic completion that does not change approved architecture/schema/public API/security posture/file scope. Lane: batch all known in-scope Class B findings -> fresh Repair Executor -> focused Verifier -> one targeted closure Reviewer.
 - **Class C**: material design/scope/security/schema/API/dependency/provider/permission change. Stop for user authorization.
 
-Default closure limits per frozen task:
+### Review/repair ordering
+
+- Do not run a targeted closure Reviewer before the stage/feature has received its initial full semantic Review.
+- A deterministic Verifier failure may receive a Class A correction before that full Review.
+- The initial full Reviewer must finish all assigned dimensions and return all non-duplicate P0/P1/P2 findings together before Class B repair begins whenever the target remains reviewable.
+- Do not repair findings one-by-one when they are compatible, in-scope, and can be closed in one bounded pass.
+- Do not restart a full Review after repair merely because the target SHA changed. Use targeted closure review unless the repair changed architecture/public contract/schema/security/concurrency semantics or invalidated the original review scope.
+
+Default closure limits per frozen task/feature:
 
 - one initial full semantic Reviewer;
 - at most one risk-triggered cross-check;
 - at most two Class B repair passes total;
 - at most one Class A terminal correction after the final semantic check;
+- at most one targeted closure Reviewer per Class B pass;
 - at most one Sol-high full review per stage without new user authorization.
 
-Do not restart a full review after every repair. Targeted closure review covers only explicit findings and direct regression surface.
+P3 is recorded/deferred and does not reopen the lane.
 
 ---
 
@@ -296,17 +327,37 @@ Repository-wide orchestration uses `角色：总控`.
 
 Coordinator responsibilities:
 
-- freeze base/branch/worktree/dirty state and shared contracts;
+- freeze base/branch/worktree/dirty state and shared contracts once before dispatch;
 - serialize by default and allow parallel writers only with non-overlapping production ownership and isolated worktrees;
-- delegate bounded tasks with exact file ownership;
+- delegate bounded tasks with exact file ownership and parent-attested evidence;
 - never edit production/test files itself;
-- stop all writers before Verifier/Reviewer work;
+- stop all writers before Verifier/Reviewer work on the same target;
 - integrate only when Git integration is explicitly authorized;
 - never automatically push/merge unless explicitly authorized.
 
 Each child activates one role, may not create descendants, switch roles, expand its scope, or decide public architecture/contracts. One active writer per worktree.
 
-Child terminal states are `COMPLETE`, `BLOCKED`, or `FAILED`. Handoffs must be concise and include target identity, files changed, behavior, focused checks/results, skipped checks, remaining risks, commit SHA when authorized, and `git status --short`.
+### Child lifecycle and slot discipline
+
+A child exists for one bounded role/task only. Terminal states are `COMPLETE`, `BLOCKED`, or `FAILED`.
+
+When a child becomes terminal, the Coordinator must in the same orchestration turn:
+
+1. capture the concise handoff and durable evidence;
+2. record role, target/commit, verdict/findings, validation result and remaining risk;
+3. close/release the terminal child before spawning its successor.
+
+Do not keep terminal children alive for reference, logs, possible reuse, or while waiting on another feature. The handoff is durable evidence; the child session is not. Never resume a terminal writer for repair; use a fresh bounded child.
+
+Before creating a child, reconcile the roster and release terminal children. Default active-child budget is two globally for parallel feature work unless the current user/package explicitly authorizes more. If capacity remains full after cleanup, wait for an active child to reach terminal state rather than spawning duplicates.
+
+### Wait discipline
+
+Prefer host-provided event/terminal-handoff waiting. Do not periodically wake a model merely to report that children are still running.
+
+If the host lacks event-driven waiting, use the lowest-frequency bounded fallback wait the runtime supports. Silence is not evidence of a stall. Surface terminal states, permission requests, ownership drift, target drift, or safety violations immediately.
+
+Child handoffs must be concise and include target identity, files changed, behavior, focused checks/results, skipped checks, remaining risks, commit SHA when authorized, and `git status --short`.
 
 Model/provider selection and closure routing are defined in `docs/agents/model-routing.md`.
 
