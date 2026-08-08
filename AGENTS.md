@@ -56,15 +56,28 @@ Read the mapped role file before continuing. Do not activate multiple roles or s
 
 ## 4. Architecture and change discipline
 
-Preserve:
+Preserve the canonical post-R8 dependency direction defined by `ARCHITECTURE.md`:
 
-`UI -> Service -> Repository -> DatabaseHelper`
+```text
+Flutter UI / Built-in Agent / MCP Adapter
+                  -> Application
+                  -> Domain
+
+Data / Infrastructure -> Application ports / Domain
+```
+
+`main.dart` or another explicit composition root may wire concrete repositories, databases and providers.
 
 Requirements:
 
-- UI and Services do not access SQLite/`DatabaseHelper` directly.
-- Persistence belongs in Repositories.
-- Business logic belongs in Services/application/domain layers as defined by `ARCHITECTURE.md`.
+- UI, Agent and MCP adapters do not access SQLite/`DatabaseHelper` directly.
+- New post-P5 presentation features do not add direct Repository dependencies; existing legacy UI-to-Repository calls are tolerated until the relevant capability is touched and do not justify a repository-wide cleanup.
+- Cross-surface use-case semantics belong in application services/facades so UI, Agent and MCP can reuse them.
+- Persistence belongs in Repositories/data infrastructure.
+- Domain code does not depend on Flutter, SQLite, provider DTOs, HTTP clients or file-system APIs.
+- The built-in Agent does not call the app's own MCP transport; both are peer adapters over application capabilities.
+- New AI/MCP mutation flows must stage through application commands and the frozen approval boundary; adapters never write SQL directly.
+- Preserve typed sidecar authority, strict corrupt-sidecar failure, typed explicit-empty semantics, RichContent structural rendering and review-state/content separation.
 - Widgets do not acquire domain logic.
 - Reuse existing abstractions before adding new ones.
 - Verify the actual failure boundary before escalating upstream.
@@ -74,7 +87,7 @@ Requirements:
 - Do not change public APIs, persisted formats, schema, dependencies, CI/release/signing, or security/privacy contracts unless they are explicitly in scope.
 - Preserve unrelated user changes. Report nearby issues instead of fixing them automatically.
 
-High-risk areas include import pipelines, persistence/migrations, async recovery/concurrency, logging/redaction, credentials, OCR/AI merging, and global exception handling. High-risk changes require failure-path and concurrency evidence where applicable.
+High-risk areas include import pipelines, persistence/migrations, managed-file lifecycle, async recovery/concurrency, logging/redaction, credentials, OCR/AI merging, Agent/MCP write permissions, and global exception handling. High-risk changes require failure-path and concurrency evidence where applicable.
 
 ---
 

@@ -1,7 +1,8 @@
 # Content Model V2 Architecture Baseline
 
-Status: R0A documentation baseline. This document defines migration intent only.
-No V2 model named below exists in production code as part of R0A.
+Status: **Historical R0A migration baseline retained for design provenance.**
+
+R1–R8 are complete. Statements below that describe V2 types as not yet existing, compatibility bridges as future work, or the target dependency direction as a future state are historical observations from R0A and must not be used as current-state facts. Current authority is `../../ARCHITECTURE.md` plus the focused R7/R8 architecture contracts.
 
 ## Current factual data flow
 

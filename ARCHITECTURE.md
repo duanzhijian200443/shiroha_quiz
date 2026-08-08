@@ -1,45 +1,180 @@
-# Shiroha Quiz 架构边界规范 (Architecture Guidelines)
+# Shiroha Quiz Architecture Contract
 
-## 核心架构流 (Core Architecture Flow)
+Status: **Canonical architecture contract after R1–R8 and P5**.
 
-本项目采用严格的**单向依赖分层架构**，以确保业务逻辑的可测试性、数据持久化的安全性和代码的可维护性。
+This file describes the current dependency direction and the boundaries that all new post-P5 work must preserve. Historical R0/R1 migration documents remain useful as design provenance, but they are not current-state authority.
 
-`UI Layer` ➡️ `Service Layer` ➡️ `Repository Layer` ➡️ `DatabaseHelper (SQLite)`
+## 1. Canonical dependency direction
 
-### 1. UI Layer (用户界面层)
-- **职责**：负责页面的渲染、状态的简单控制、用户交互事件的捕捉。
-- **边界限制**：
-  - **绝对禁止** 直接引用 `package:sqflite/sqflite.dart`。
-  - **绝对禁止** 直接调用 `DatabaseHelper.instance` 执行任何数据库读写。
-  - **必须** 通过调用 `Service` 层方法或直接调用 `Repository` 层接口来获取和提交数据。
+```text
+Flutter UI ───────────────┐
+Built-in Agent Adapter ───┼──> Application Layer ──> Domain Layer
+External MCP Adapter ─────┘
+                                  ^
+                                  |
+                    Data / Infrastructure Adapters
+                    - Repositories / SQLite
+                    - Managed file storage
+                    - OCR / AI / Web providers
+```
 
-### 2. Service Layer (业务逻辑与编排层)
-- **职责**：负责核心算法（如 FSRS 复习计算引擎）、异步任务队列编排、大模型对话生成、状态机控制。
-- **边界限制**：
-  - **绝对禁止** 直接引用 `package:sqflite/sqflite.dart`。
-  - **绝对禁止** 直接调用 `DatabaseHelper.instance`。
-  - 业务逻辑需要的模型数据读写，**必须**委托给对应的 `Repository`（如 `ReviewRepository`, `QuestionRepository`, `ExamRepository`）。
-  - Service 应当保持为“纯粹的内存调度器”，方便脱离数据库环境进行单元测试。
+`main.dart` and other explicit composition-root code may know concrete implementations in order to assemble the dependency graph. Feature code must not use the composition root as a service locator.
 
-### 3. Repository Layer (领域仓储层)
-- **职责**：作为数据持久化的统一出口。负责将上层传来的领域模型对象（如 `ImportTask`, `QuestionDraft`）转换为数据库存储格式，或者将数据库行记录还原为领域对象。负责管理并发事务（如 `ReviewRepository.applyReviewStatesTxn`）。
-- **包含组件**：
-  - `AiEngineRepository` (大模型配置)
-  - `ExamRepository` (模考与试卷)
-  - `ImportTaskRepository` (异步导入任务)
-  - `QuestionRepository` (题库核心)
-  - `ReviewRepository` (FSRS引擎数据与统计)
-  - `SettingsRepository` (应用配置)
-  - `LatexMigrationRepository` (历史脚本迁移专用)
-- **边界限制**：
-  - **允许** 持有 `DatabaseHelper` 实例并调用其封装好的增删改查方法。
-  - 不应该包含复杂的业务计算逻辑（那是 Service 的工作）。
+### Migration rule
 
-### 4. DatabaseHelper (底层数据库引擎)
-- **职责**：单例的 SQLite 数据库封装。负责建表（`onCreate`）、升级脚本（`onUpgrade`）、提供基础的 `query`, `insert`, `update`, `delete`, `transaction` 能力。
-- **边界限制**：
-  - 作为项目中最底层的核心模块，除了模型类（Model），**禁止**反向依赖任何 Repository, Service 或 UI 组件。
+The repository still contains pre-N0 screens/services that directly call repositories. N0 does **not** trigger a repository-wide rewrite. However, new post-P5 modules must not add new presentation-to-repository dependencies. When an existing direct dependency is touched for a new cross-surface capability, prefer introducing the smallest application service/facade needed by that capability.
 
-## ⚠️ 架构防腐红线 (Anti-Corruption Lines)
-后续的任何新功能开发、脚本编写，**均不得越级调用**。
-如果发现需要操作数据库的某个新场景，请首先考虑是否能复用现有的 Repository；如果跨度极大，请新建对应的 `XxxRepository`，然后供上层使用。
+## 2. Layer responsibilities
+
+### Presentation adapters
+
+Includes Flutter UI, the built-in Agent adapter, and the external MCP adapter.
+
+Responsibilities:
+
+- render or translate user/protocol interaction;
+- collect bounded input;
+- invoke application use cases/tools;
+- project safe application results to UI/protocol DTOs.
+
+Forbidden:
+
+- direct SQLite / `DatabaseHelper` access;
+- raw SQL or raw database-row handling;
+- joining `question_v2_payloads` in presentation code;
+- making a new post-P5 feature depend directly on a repository;
+- treating provider DTOs or file-system paths as domain truth.
+
+### Application layer
+
+Owns use-case orchestration and cross-surface semantics, including:
+
+- query services;
+- command services;
+- application tool facade used by Agent/MCP/UI;
+- Project-context resolution;
+- Draft / Review / Approval flows;
+- business validation that spans repositories or external ports.
+
+Application code may use repositories and infrastructure ports, but must not expose raw database maps, SQL, provider payloads, or absolute paths to presentation adapters.
+
+### Domain layer
+
+Owns stable business meaning and value objects, including the typed learning core:
+
+- `SourceDocument` / `SourcePart` / `SourceRef`;
+- `QuestionRegion` boundaries and typed assembly concepts;
+- `RichContent` and typed content nodes;
+- `QuestionDraftV2` and typed answers/options;
+- `ReviewSession` semantics;
+- `PersistedQuestion` typed/legacy union semantics.
+
+Domain code must not import Flutter widgets, SQLite, `DatabaseHelper`, provider DTOs, HTTP clients, or file-system APIs.
+
+### Data / infrastructure
+
+Owns physical persistence and external integration:
+
+- SQLite schema, transactions, migrations and row mapping;
+- repositories;
+- managed file storage;
+- OCR/AI/Web provider clients and DTO adaptation.
+
+Persistence formats and provider formats are implementation details, not public application contracts.
+
+## 3. Frozen typed-learning-core invariants
+
+R1–R8 and P5 are closed architecture stages. New features build on them rather than reopening them.
+
+1. For a typed persisted question, the `QuestionDraftV2` sidecar is the content authority.
+2. The V1 `questions` row is a compatibility projection for typed rows, not a second content truth.
+3. A corrupt/unsafe typed sidecar hard-fails; typed consumers must not silently fall back to V1 content.
+4. `null` and explicit typed empty content remain distinct where the typed contract distinguishes them.
+5. `QuestionList`, Practice and WrongBook consume typed questions through the typed-aware persisted-question seam.
+6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
+7. Review/FSRS state is separate from typed question content mutation.
+8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
+9. Current database schema remains **v15** until a later stage explicitly authorizes an additive migration.
+
+## 4. Learning asset expansion boundary
+
+Post-P5 asset work introduces new objects around the typed core rather than replacing it.
+
+```text
+LibraryFile
+  original user-owned file metadata + managed storage identity
+        |
+        v
+ParsedArtifact / SourceDocument
+  reproducible parser/OCR-derived structure
+        |
+        v
+QuestionDraftV2 -> Review -> PersistedQuestion
+  confirmed learning data
+```
+
+Rules:
+
+- Original file bytes belong in app-managed storage, not SQLite blobs.
+- SQLite stores stable file metadata and a managed storage key/relative identity, never a durable absolute platform path.
+- `ParsedArtifact` is derived data and must not replace the original file as the user's source asset.
+- Formal question/review data must survive artifact cache replacement/removal.
+- `Project` is an optional organization/context layer. Assets may exist with no Project.
+- Projects reference files/banks; they do not own or duplicate original file bytes.
+- Existing subject/folder structures remain compatibility/product concepts until a separately authorized migration changes them.
+- Bank identity is a J0 prerequisite decision. N0 does not introduce `bank_registry` or change current bank persistence.
+
+See `docs/architecture/adr-002-learning-asset-lifecycle.md`.
+
+## 5. Agent, MCP and application tools
+
+Built-in Agent and external MCP are **peer adapters** over the same application capabilities:
+
+```text
+Built-in Agent
+      |
+      v
+Application Tool / Query / Command Layer
+      ^
+      |
+MCP Adapter <- External GPT / Claude / other MCP client
+```
+
+The built-in Agent must not call the app's own MCP transport. Shared business semantics live in the application layer, not in MCP protocol code.
+
+MCP v0 remains the exactly-six-tool read-only contract frozen in `docs/architecture/mcp-v0-contract.md`. File/Project tools are MCP v1+ concerns unless that contract is explicitly revised.
+
+Future mutation permissions follow:
+
+```text
+READ        -> adapter may execute within permission scope
+DRAFT/STAGE -> may create a proposal, not formal data
+COMMIT      -> requires explicit user approval through an application command
+DESTRUCTIVE -> additional approval; may remain unavailable in early versions
+```
+
+No Agent or MCP tool may directly execute SQL or bypass the typed persistence/review boundary.
+
+See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
+
+## 6. Evolution discipline
+
+- Do not start another R0–R8-scale rewrite merely to add File Library, Project, Agent, MCP or RAG.
+- Prefer additive, bounded stages around the stable typed core.
+- Do not migrate source model, persistence, Project, Agent and UI in one stage.
+- New cross-surface business capabilities should be introduced once in the application layer and reused by UI/Agent/MCP.
+- RAG is a retrieval implementation behind File/Project/Agent concepts, not a separate user-facing knowledge-base domain.
+- Historical compatibility code is removed only when its legitimate responsibility is proven obsolete; code is not retired merely because it is old.
+
+The canonical post-P5 sequence is maintained in `docs/architecture/n0-post-p5-roadmap.md`.
+
+## 7. Architecture document authority
+
+Current-state authority, in order:
+
+1. `ARCHITECTURE.md` — repository-wide dependency and boundary contract;
+2. active focused contracts in `docs/architecture/` (for example MCP v0 and R7/R8 typed-persistence contracts);
+3. ADRs for accepted post-P5 architectural decisions;
+4. `docs/architecture/n0-post-p5-roadmap.md` for stage ordering and deferred decisions.
+
+Files explicitly marked **Historical baseline** describe how a migration was planned or characterized at that time. They must not override this current contract.
