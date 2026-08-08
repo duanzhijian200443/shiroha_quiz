@@ -1,7 +1,8 @@
 # Import V2 Baseline and Migration Sequence
 
-Status: R0A characterization baseline. Production behavior, database schema and
-Replay data are unchanged by this stage.
+Status: **Historical R0A characterization/migration baseline retained for design provenance.**
+
+R1–R8 are complete and the current database schema is v15. Statements below that describe v14 as current, R6/R7/R8 as future work, or old V1 paths as present-day authority are historical baseline facts and must not override `../../ARCHITECTURE.md` or the focused R7/R8 contracts.
 
 ## Baseline evidence classes
 
