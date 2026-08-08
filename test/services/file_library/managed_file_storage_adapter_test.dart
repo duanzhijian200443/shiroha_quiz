@@ -5,7 +5,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:shiroha_quiz/services/file_library/managed_file_storage.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
 
 const List<String> _unsafeKeys = <String>[

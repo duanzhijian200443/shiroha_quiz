@@ -10,9 +10,7 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/services/file_library/file_ingestion_service.dart';
-import 'package:shiroha_quiz/services/file_library/managed_file_storage.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _abcSha256 =
@@ -39,8 +37,7 @@ class _FileDatabaseHelper extends Fake implements DatabaseHelper {
 }
 
 class _FailingSaveRepository extends LibraryFileRepository {
-  _FailingSaveRepository({DatabaseHelper? databaseHelper})
-      : super(databaseHelper: databaseHelper);
+  _FailingSaveRepository({super.databaseHelper});
 
   LibraryFile? capturedFile;
 

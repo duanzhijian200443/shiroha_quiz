@@ -799,9 +799,7 @@ class QuestionRepository implements StudyQuestionQueryPort {
   ) {
     final metrics = _decodeReviewMetrics(row);
     final nextReviewTime = row['next_review_time'];
-    final nextReviewSeconds = nextReviewTime is num
-        ? nextReviewTime.toInt()
-        : 0;
+    final nextReviewSeconds = nextReviewTime is num ? nextReviewTime.toInt() : 0;
     final lastLapse = metrics?.lastLapseTime ?? 0;
     return StudyQuestionReviewState(
       due:

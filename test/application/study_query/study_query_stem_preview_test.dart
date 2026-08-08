@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_stem_preview.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
-import 'package:shiroha_quiz/domain/content/rich_content.dart';
 
 import 'study_query_test_support.dart';
 
