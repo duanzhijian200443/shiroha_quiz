@@ -655,7 +655,7 @@ void main() {
     await tester.runAsync(() async {
       final db = await readHelper.database;
       final version = await db.rawQuery('PRAGMA user_version');
-      expect(version.single['user_version'], 15);
+      expect(version.single['user_version'], 16);
       expect(await db.query('questions'), hasLength(2));
       final payloads = await db.query('question_v2_payloads');
       expect(payloads, hasLength(2), reason: 'one sidecar per typed row');
