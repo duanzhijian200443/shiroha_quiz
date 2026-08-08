@@ -159,6 +159,29 @@ void main() {
       expect(read.items.single.questionId, 'repo_other');
       expect(read.items.single.review.due, isTrue);
     });
+
+    test('no review_states row is not due', () async {
+      final db = await openTestDatabase();
+      await insertLegacyQuestion(
+        db,
+        id: 'repo_unreviewed',
+        createdAt: 70,
+        bankName: bankPhysics,
+        content: 'Unreviewed delta',
+        type: 3,
+        options: '[]',
+        answer: 'delta',
+        explanation: null,
+      );
+      final read = await QuestionRepository().searchStudyQuestions(
+        bankName: bankPhysics,
+        query: 'delta',
+        nowUnixSeconds: 200,
+        limit: 5,
+      );
+      expect(read.items.single.questionId, 'repo_unreviewed');
+      expect(read.items.single.review.due, isFalse);
+    });
   });
 
   group('detail seam', () {
