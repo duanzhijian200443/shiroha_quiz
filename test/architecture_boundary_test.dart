@@ -595,6 +595,66 @@ import '../../domain/content/content_node.dart'
             'Unsafe R2A API declarations found:\n${violations.join('\n\n')}',
       );
     });
+
+    test('J0 Project layers stay pure and never touch typed persistence', () {
+      const j0PureFiles = <String>[
+        'lib/domain/projects/project.dart',
+        'lib/application/projects/project_repository.dart',
+        'lib/application/projects/project_service.dart',
+      ];
+      for (final path in j0PureFiles) {
+        final file = File(path);
+        expect(
+          file.existsSync(),
+          isTrue,
+          reason: 'Required J0 Project file is missing: $path',
+        );
+        final source = file.readAsStringSync();
+        expect(
+          source,
+          isNot(contains('DatabaseHelper')),
+          reason: '$path must not reach persistence directly.',
+        );
+        expect(
+          source,
+          isNot(contains('sqflite')),
+          reason: '$path must not depend on the low-level database API.',
+        );
+        expect(
+          source,
+          isNot(contains('rawQuery')),
+          reason: '$path must not execute raw SQL.',
+        );
+        expect(
+          source,
+          isNot(contains('.transaction(')),
+          reason: '$path must not own SQLite transactions.',
+        );
+      }
+
+      // J0-I5/J0-I8: the data repository may read `library_files` for
+      // relation integrity, but must never reference typed persistence or
+      // review tables by identifier.
+      final dataRepository =
+          File('lib/data/repositories/project_repository.dart');
+      expect(
+        dataRepository.existsSync(),
+        isTrue,
+        reason: 'Required J0 data repository is missing.',
+      );
+      final dataSource = dataRepository.readAsStringSync();
+      for (final table in const <String>[
+        'question_v2_payloads',
+        'review_states',
+        'review_logs',
+      ]) {
+        expect(
+          dataSource,
+          isNot(contains(table)),
+          reason: 'The J0 Project repository must never read or write $table.',
+        );
+      }
+    });
   });
 }
 
