@@ -511,6 +511,7 @@ ReplayCacheWriteResult writeReplayCache({
 
   String? tmpCurrentPath;
   String? publishedTargetPath;
+  String? publishedVersion;
   List<int>? oldCurrentBytes;
   bool currentPublished = false;
 
@@ -614,6 +615,7 @@ ReplayCacheWriteResult writeReplayCache({
 
     hooks.beforeCurrentReplace?.call();
     tmpCurrentFile.renameSync(p.join(caseRoot, 'current.json'));
+    publishedVersion = version;
     currentPublished = true;
     hooks.afterCurrentPublished?.call();
 
@@ -622,14 +624,14 @@ ReplayCacheWriteResult writeReplayCache({
       caseId: caseId,
       repositoryRoot: repositoryRoot,
     );
-    if (!postWriteLoad.isLoaded ||
-        postWriteLoad.fingerprint != fingerprint ||
-        postWriteLoad.documentHash != documentHash ||
-        postWriteLoad.cacheDirectory != targetPath) {
+    // The immutable target above has already been verified. Another writer may
+    // legitimately replace current.json before this self-test runs, especially
+    // when same-process isolates do not serialize on the platform file lock.
+    // Treat any complete current pointer as success rather than requiring that
+    // this writer still be the latest publisher.
+    if (!postWriteLoad.isLoaded) {
       throw StateError('Post-write load self-test failed');
     }
-
-    _cleanupReplayTransientDirectories(caseRoot);
 
     return ReplayCacheWriteResult(
       caseId: caseId,
@@ -638,9 +640,11 @@ ReplayCacheWriteResult writeReplayCache({
       reusedExistingDirectory: false,
     );
   } catch (_) {
-    if (currentPublished) {
-      _restoreReplayCurrentPointer(
+    var mayDeletePublishedTarget = !currentPublished;
+    if (currentPublished && publishedVersion != null) {
+      mayDeletePublishedTarget = _restoreReplayCurrentPointerIfOwned(
         caseRoot: caseRoot,
+        expectedVersion: publishedVersion,
         oldCurrentBytes: oldCurrentBytes,
       );
     }
@@ -657,7 +661,7 @@ ReplayCacheWriteResult writeReplayCache({
         } catch (_) {}
       }
     }
-    if (publishedTargetPath != null) {
+    if (publishedTargetPath != null && mayDeletePublishedTarget) {
       final publishedTarget = Directory(publishedTargetPath);
       if (publishedTarget.existsSync()) {
         try {
@@ -674,31 +678,41 @@ ReplayCacheWriteResult writeReplayCache({
   }
 }
 
-void _restoreReplayCurrentPointer({
+bool _restoreReplayCurrentPointerIfOwned({
   required String caseRoot,
+  required String expectedVersion,
   required List<int>? oldCurrentBytes,
 }) {
   final currentPath = p.join(caseRoot, 'current.json');
+  final currentFile = File(currentPath);
+
+  // If another complete writer has already replaced current.json, this writer
+  // no longer owns the pointer and must not roll the newer publication back.
+  if (currentFile.existsSync()) {
+    try {
+      final decoded = jsonDecode(currentFile.readAsStringSync());
+      if (decoded is Map<String, dynamic>) {
+        final currentVersion = decoded['version'];
+        if (currentVersion is String && currentVersion != expectedVersion) {
+          return false;
+        }
+      }
+    } catch (_) {
+      // An unreadable pointer cannot be attributed to a newer writer. Restore
+      // the previously known-good pointer below.
+    }
+  }
+
   if (oldCurrentBytes == null) {
-    final currentFile = File(currentPath);
     if (currentFile.existsSync()) currentFile.deleteSync();
-    return;
+    return true;
   }
   final restorePath = p.join(caseRoot,
       'current.json.restore-${DateTime.now().microsecondsSinceEpoch}');
   final restoreFile = File(restorePath)
     ..writeAsBytesSync(oldCurrentBytes, flush: true);
   restoreFile.renameSync(currentPath);
-}
-
-void _cleanupReplayTransientDirectories(String caseRoot) {
-  final versionsDir = Directory(p.join(caseRoot, 'versions'));
-  if (!versionsDir.existsSync()) return;
-  for (final entry in versionsDir.listSync().whereType<Directory>()) {
-    if (p.basename(entry.path).startsWith('.staging-')) {
-      entry.deleteSync(recursive: true);
-    }
-  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
