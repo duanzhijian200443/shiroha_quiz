@@ -2,16 +2,19 @@
 
 | Field | Value |
 |---|---|
-| Status | Frozen design baseline |
-| Implementation status | Not started |
-| Transport status | Not selected |
-| Protocol SDK dependency | None |
+| Status | Frozen contract (P0 semantics + M0 stdio server) |
+| Implementation status | M0 local-stdio server implemented |
+| Transport status | Local stdio only (frozen) |
+| Protocol SDK dependency | `mcp_dart` 2.4.0 exact |
 
 This document freezes the **MCP v0 read-only application-layer tool
-semantics** for Shiroha Quiz. v0 implements no MCP Server, no stdio/SSE/HTTP
-transport, no SDK, no Agent, and no database wiring. Nothing in this document
-creates Dart interfaces, adds packages, or changes existing production code,
-the R6 migration plan, the R4 `ReviewSession` contract, or the R5 renderer.
+semantics** for Shiroha Quiz. P0 froze the application-layer tool semantics;
+M0 implements the local-stdio server exactly as written. M0 adds exactly one
+dependency (`mcp_dart` 2.4.0), binds the SDK only inside `lib/mcp/**`, and
+makes protocol behavior the authority for acceptance. v0 still has no Agent,
+no database wiring beyond T0 reads, no authentication, and no write tools.
+Nothing here changes the R6 migration plan, the R4 `ReviewSession` contract,
+or the R5 renderer.
 
 ## 1. Scope
 
@@ -24,9 +27,11 @@ v0 freezes application tool semantics only:
 - V1/V2 read semantics at the public DTO boundary;
 - the layering that any future MCP implementation must obey.
 
-Explicitly out of scope: Server lifecycle, transport selection, SDK binding,
+P0 froze application tool semantics only; transport, SDK binding, and server
+lifecycle are frozen by the M0 contract in section 12. Still out of scope:
 Agent integration, authentication, write/mutation tools, database schema,
-migration execution, and any Dart public API.
+migration execution, and any Dart public API promise beyond the M0 server
+entrypoints.
 
 ## 2. Layering
 
@@ -545,15 +550,56 @@ class StudyQueryService {
 10 no write/destructive tool
 ```
 
-## 12. Non-goals
+## 12. M0 transport, SDK, and acceptance contract
+
+M0 freezes the following four contracts. They are authoritative and carry
+testable sentinels; the implementation and acceptance must match them exactly.
+
+### 12.1 Transport: local stdio only
+
+- M0 serves only over the process stdin/stdout stdio transport
+  (`serveStdio` / `StdioServerTransport`).
+- Streamable HTTP, OAuth/Authorization flows, WebSocket, and any remote or
+  network server are explicitly forbidden in M0 and are not planned for v0.
+- The server lifecycle is: connect to stdio -> initialize handshake ->
+  `tools/list` + `tools/call` -> close; close must tear down the transport and
+  clear the connection state.
+
+### 12.2 SDK dependency: exact pin
+
+- The dependency is exactly `mcp_dart: 2.4.0` in `pubspec.yaml`.
+- No range, caret, comparison, or prerelease (`dev`/`beta`/`rc`) form is
+  permitted, and no second MCP or transport package may be added.
+
+### 12.3 SDK layering: `lib/mcp/**` only
+
+- `package:mcp_dart` types and imports appear only under `lib/mcp/**`.
+- Application (T0) and all other layers never import or know `mcp_dart`; the
+  adapter converts between protocol arguments and T0 DTOs.
+
+### 12.4 Acceptance authority: protocol behavior
+
+Acceptance is judged by observable protocol behavior, not by SDK presence or
+internal structure. The M0 suite drives the real mcp_dart protocol
+(`McpClient` initialize, `listTools`, `callTool`, close) and asserts:
+
+- exactly six `READ_ONLY` tools with read-only annotations;
+- success and error request/response envelopes with the frozen shapes;
+- the complete error taxonomy and mapping, including malformed requests;
+- the stdio lifecycle (handshake, close, transport teardown);
+- typed and legacy projections with corrupt-V2 `data_corrupt`, no fallback;
+- no raw-data leakage (raw fallback payloads, SQL, paths, exceptions).
+
+## 13. Non-goals
 
 Explicitly not goals of this contract:
 
-- implement an MCP Server, transport (stdio/SSE/HTTP), SDK, or Agent;
-- define or freeze any Dart interface or class;
-- add dependencies or packages;
-- wire any database, schema, or migration;
-- add write, destructive, or audit-style tools to v0;
+- any transport other than local stdio (Streamable HTTP, SSE, WebSocket,
+  OAuth/remote server) in M0/v0;
+- an Agent integration or authentication layer;
+- write, destructive, or audit-style tools in v0;
+- dependencies beyond the exact `mcp_dart: 2.4.0` pin;
+- wire new database, schema, or migration changes;
 - expose SQL, DB rows, raw fallback, OCR, provider data, or internal errors;
 - add a global database revision or expose `ReviewSession` revisions;
 - modify R6, R4 `ReviewSession`, or the R5 renderer.
