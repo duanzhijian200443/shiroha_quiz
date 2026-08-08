@@ -97,7 +97,16 @@ jobs:
               'test/r7e_full_production_v2_activation_acceptance_test.dart',
               'test/r8_legacy_retirement_acceptance_test.dart',
               'test/practice_page_v2_test.dart',
-              'test/wrong_book_page_v2_test.dart'
+              'test/wrong_book_page_v2_test.dart',
+              'test/domain/assets/library_file_test.dart',
+              'test/services/file_library/managed_file_storage_adapter_test.dart',
+              'test/services/file_library/file_ingestion_service_test.dart',
+              'test/data/repositories/library_file_repository_test.dart',
+              'test/core/database/f0_v16_migration_test.dart',
+              'test/application/study_query/study_query_service_test.dart',
+              'test/application/study_query/study_query_stem_preview_test.dart',
+              'test/application/study_query/study_query_time_zone_test.dart',
+              'test/data/repositories/t0_study_query_repository_test.dart'
             )
 
       - name: Check committed diff
