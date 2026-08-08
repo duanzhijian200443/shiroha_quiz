@@ -716,18 +716,15 @@ class QuestionRepository implements StudyQuestionQueryPort {
     int limit,
   ) {
     final hasMore = rows.length > limit;
-    final items = rows
-        .take(limit)
-        .map((row) {
-          return QuestionBankSummary(
-            bankName: row['bank_name']! as String,
-            folderName: row['folder_name']! as String,
-            questionCount: (row['question_count'] as num?)?.toInt() ?? 0,
-            dueCount: (row['due_count'] as num?)?.toInt() ?? 0,
-            masteredCount: (row['mastered_count'] as num?)?.toInt() ?? 0,
-          );
-        })
-        .toList(growable: false);
+    final items = rows.take(limit).map((row) {
+      return QuestionBankSummary(
+        bankName: row['bank_name']! as String,
+        folderName: row['folder_name']! as String,
+        questionCount: (row['question_count'] as num?)?.toInt() ?? 0,
+        dueCount: (row['due_count'] as num?)?.toInt() ?? 0,
+        masteredCount: (row['mastered_count'] as num?)?.toInt() ?? 0,
+      );
+    }).toList(growable: false);
     return StudyPage(items: items, hasMore: hasMore);
   }
 
@@ -737,12 +734,9 @@ class QuestionRepository implements StudyQuestionQueryPort {
     int nowUnixSeconds,
   ) {
     final hasMore = rows.length > limit;
-    final items = rows
-        .take(limit)
-        .map((row) {
-          return _toStudyRead(_decodeJoinedForStudy(row), row, nowUnixSeconds);
-        })
-        .toList(growable: false);
+    final items = rows.take(limit).map((row) {
+      return _toStudyRead(_decodeJoinedForStudy(row), row, nowUnixSeconds);
+    }).toList(growable: false);
     return StudyPage(items: items, hasMore: hasMore);
   }
 
@@ -803,8 +797,7 @@ class QuestionRepository implements StudyQuestionQueryPort {
         nextReviewTime is num ? nextReviewTime.toInt() : 0;
     final lastLapse = metrics?.lastLapseTime ?? 0;
     return StudyQuestionReviewState(
-      due:
-          row['state'] == 0 ||
+      due: row['state'] == 0 ||
           (nextReviewSeconds > 0 && nextReviewSeconds <= nowUnixSeconds),
       lapseCount: metrics?.lapses ?? 0,
       difficulty: metrics?.difficulty ?? 0.0,
