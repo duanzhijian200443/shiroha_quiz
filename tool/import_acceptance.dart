@@ -704,7 +704,9 @@ bool _restoreReplayCurrentPointerIfOwned({
   }
 
   if (oldCurrentBytes == null) {
-    if (currentFile.existsSync()) currentFile.deleteSync();
+    if (currentFile.existsSync()) {
+      currentFile.deleteSync();
+    }
     return true;
   }
   final restorePath = p.join(caseRoot,
