@@ -218,9 +218,9 @@ Future<void> _plantDecoy(Database db, String storageId) async {
   );
 }
 
-Future<void> _assertV16(Database db) async {
+Future<void> _assertV17(Database db) async {
   final version = await db.rawQuery('PRAGMA user_version');
-  expect(version.single['user_version'], 16);
+  expect(version.single['user_version'], 17);
 }
 
 /// Runs one real-async database chunk: the FakeAsync widget-test zone cannot
@@ -344,7 +344,7 @@ void main() {
         nextReviewTime: 100,
       );
       await _plantDecoy(db, _typedStorageIdA);
-      await _assertV16(db);
+      await _assertV17(db);
     });
     await _dbChunk(tester, seedHelper.close);
 
@@ -399,7 +399,7 @@ void main() {
         nextReviewTime: 100,
       );
       await _plantDecoy(db, _typedStorageIdA);
-      await _assertV16(db);
+      await _assertV17(db);
     });
 
     await _pumpPracticeUntilLoaded(tester);
@@ -471,7 +471,7 @@ void main() {
       );
       await _insertReviewState(db, 'legacy_control', lapses: 0);
       await _plantDecoy(db, _typedStorageIdB);
-      await _assertV16(db);
+      await _assertV17(db);
     });
 
     await _pumpScreen(
@@ -523,7 +523,7 @@ void main() {
         where: 'id = ?',
         whereArgs: <Object?>[_typedStorageIdC],
       );
-      await _assertV16(db);
+      await _assertV17(db);
     });
 
     await _pumpPracticeUntilLoaded(tester);
@@ -554,7 +554,7 @@ void main() {
     await _insertLegacy(db, id: _legacyStorageId);
     await _insertReviewState(db, _typedStorageIdA);
     await _insertReviewState(db, _legacyStorageId);
-    await _assertV16(db);
+    await _assertV17(db);
 
     final sidecarBefore = (await db.query(
       'question_v2_payloads',
@@ -692,7 +692,7 @@ void main() {
       await _insertLegacy(db, id: _legacyStorageId);
       await _insertReviewState(db, _typedStorageIdA);
       await _insertReviewState(db, _legacyStorageId);
-      await _assertV16(db);
+      await _assertV17(db);
     });
     await _pumpScreen(
       tester,
@@ -728,7 +728,7 @@ void main() {
       );
       await _insertReviewState(db, _typedStorageIdB, lapses: 1);
       await _insertReviewState(db, _legacyStorageId, lapses: 1);
-      await _assertV16(db);
+      await _assertV17(db);
     });
     await _pumpScreen(
       tester,
@@ -751,7 +751,7 @@ void main() {
       await _insertLegacy(db, id: _legacyStorageId);
       await _insertReviewState(db, _typedStorageIdC);
       await _insertReviewState(db, _legacyStorageId);
-      await _assertV16(db);
+      await _assertV17(db);
     });
     await _dbChunk(
       tester,
@@ -788,7 +788,7 @@ void main() {
         explanation: 'Legacy practice explanation.',
       );
       await _insertReviewState(db, _legacyStorageId);
-      await _assertV16(db);
+      await _assertV17(db);
     });
     await _pumpPracticeUntilLoaded(tester);
     expect(find.text('Legacy practice stem.'), findsOneWidget);
@@ -819,7 +819,7 @@ void main() {
       );
       await _insertReviewState(db, _legacyStorageId, lapses: 3);
       await _insertReviewState(db, 'legacy_row_b', lapses: 0);
-      await _assertV16(db);
+      await _assertV17(db);
     });
 
     final listRepository = _CountingQuestionRepository(
