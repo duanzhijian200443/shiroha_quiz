@@ -99,6 +99,19 @@ final class FrozenQuestionV2Write {
   final Map<String, Object?> payloadRow;
 }
 
+/// Immutable update package for an answer-only typed mutation: the V2
+/// sidecar payload row and the composed V1 `standard_answer` projection
+/// produced by [QuestionV2PersistenceMapper.freezeAnswerUpdate].
+final class FrozenQuestionV2AnswerUpdate {
+  FrozenQuestionV2AnswerUpdate({
+    required Map<String, Object?> payloadRow,
+    required this.standardAnswer,
+  }) : payloadRow = Map<String, Object?>.unmodifiable(payloadRow);
+
+  final Map<String, Object?> payloadRow;
+  final String standardAnswer;
+}
+
 final class QuestionV2PersistenceMapper {
   const QuestionV2PersistenceMapper();
 
@@ -146,10 +159,10 @@ final class QuestionV2PersistenceMapper {
       for (final option in draft.options)
         '${option.label}. ${_projectContent(option.content)}',
     ];
-    final answer =
-        _projectAnswer(draft.answer, draft.options).replaceAll('|||', '｜｜｜');
-    final explanation =
-        draft.explanation == null ? '' : _projectContent(draft.explanation!);
+    final answer = _projectLegacyAnswer(draft.answer, draft.options);
+    final explanation = draft.explanation == null
+        ? ''
+        : _projectLegacyContent(draft.explanation!);
 
     // Every stored V1 textual projection is normalized exactly once; the
     // composed standard_answer reuses already-normalized parts.
@@ -159,20 +172,16 @@ final class QuestionV2PersistenceMapper {
       for (final option in options)
         StorageContentNormalizer.normalizeLegacyProjection(option),
     ];
-    final normalizedAnswer =
-        StorageContentNormalizer.normalizeLegacyProjection(answer);
-    final normalizedExplanation =
-        StorageContentNormalizer.normalizeLegacyProjection(explanation);
 
     final questionRow = <String, Object?>{
       'id': storageId,
       'type': _legacyTypeCode(draft.kind),
       'content': normalizedContent,
       'options': jsonEncode(normalizedOptions),
-      'standard_answer': '$normalizedAnswer|||$normalizedExplanation',
+      'standard_answer': '$answer|||$explanation',
       'created_at': createdAt,
       'bank_name': trimmedBankName,
-      'explanation': normalizedExplanation,
+      'explanation': explanation,
       'raw_explanation': null,
     };
     final payloadRow = <String, Object?>{
@@ -183,6 +192,43 @@ final class QuestionV2PersistenceMapper {
     return FrozenQuestionV2Write(
       questionRow: questionRow,
       payloadRow: payloadRow,
+    );
+  }
+
+  /// Validates the privacy of an answer-only replacement draft, encodes the
+  /// replacement V2 payload, and freezes the sidecar payload row plus the
+  /// composed V1 `standard_answer` projection. The answer and content
+  /// projection rules are the exact shared helpers used by
+  /// [freezeForWrite], so first writes and answer mutations stay
+  /// byte-identical.
+  FrozenQuestionV2AnswerUpdate freezeAnswerUpdate({
+    required String storageId,
+    required QuestionDraftV2 replacementDraft,
+  }) {
+    try {
+      _validatePrivacy(replacementDraft);
+    } on FormatException {
+      throw const QuestionV2PayloadException(
+        QuestionV2PayloadFailure.unsafePayload,
+      );
+    }
+
+    final payloadJson = jsonEncode(
+      const QuestionDraftV2Codec().encode(replacementDraft),
+    );
+    final answer =
+        _projectLegacyAnswer(replacementDraft.answer, replacementDraft.options);
+    final explanation = replacementDraft.explanation == null
+        ? ''
+        : _projectLegacyContent(replacementDraft.explanation!);
+
+    return FrozenQuestionV2AnswerUpdate(
+      payloadRow: <String, Object?>{
+        'question_id': storageId,
+        'payload_schema_version': QuestionDraftV2Codec.schemaVersion,
+        'payload_json': payloadJson,
+      },
+      standardAnswer: '$answer|||$explanation',
     );
   }
 
@@ -374,6 +420,27 @@ String _projectContent(RichContent content) {
     }
   }
   return buffer.toString();
+}
+
+/// Shared V1 answer projection used by first writes and answer mutations:
+/// choice labels in draft order (unknown identities stay as-is), content
+/// projection, null to empty, literal `|||` replaced, then the single legacy
+/// storage normalization pass.
+String _projectLegacyAnswer(
+  QuestionAnswer? answer,
+  List<QuestionOption> options,
+) {
+  return StorageContentNormalizer.normalizeLegacyProjection(
+    _projectAnswer(answer, options).replaceAll('|||', '｜｜｜'),
+  );
+}
+
+/// Shared V1 content projection used by first writes and answer mutations:
+/// math delimiters plus the single legacy storage normalization pass.
+String _projectLegacyContent(RichContent content) {
+  return StorageContentNormalizer.normalizeLegacyProjection(
+    _projectContent(content),
+  );
 }
 
 String _projectAnswer(

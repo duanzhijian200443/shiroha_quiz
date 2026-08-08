@@ -115,6 +115,17 @@ void main() {
       expect(view.createdAt, 1700000000);
       expect(view.isTyped, isFalse);
     });
+
+    test('typed rows expose the sidecar draft for the typed editor', () {
+      final draft = _typedDraft();
+      final view = _typedView(draft);
+      expect(view.typedDraft, same(draft));
+    });
+
+    test('legacy rows never expose a typed draft', () {
+      final view = _legacyView(_legacyQuestion());
+      expect(view.typedDraft, isNull);
+    });
   });
 
   group('kind mapping', () {
@@ -454,6 +465,7 @@ void main() {
       expect(view.typedStem, isNull);
       expect(view.typedAnswer, isNull);
       expect(view.typedExplanation, isNull);
+      expect(view.typedDraft, isNull);
       expect(view.legacyStem, 'Legacy content marker');
       expect(view.legacyAnswer, 'A');
       expect(view.legacyExplanation, 'Legacy explanation marker');

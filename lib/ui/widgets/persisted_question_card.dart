@@ -13,6 +13,7 @@ class PersistedQuestionCard extends StatelessWidget {
     required this.question,
     required this.onDelete,
     this.onEditLegacy,
+    this.onRepairTypedAnswer,
   });
 
   final PersistedQuestionView question;
@@ -21,6 +22,10 @@ class PersistedQuestionCard extends StatelessWidget {
   /// Only non-null for legacy rows; typed rows must pass null so the editor
   /// can never be opened.
   final VoidCallback? onEditLegacy;
+
+  /// Only non-null for typed rows: opens the typed answer-only repair
+  /// screen. Legacy rows pass null.
+  final VoidCallback? onRepairTypedAnswer;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +93,7 @@ class PersistedQuestionCard extends StatelessWidget {
             if (question.isTyped) ...[
               const SizedBox(height: 4),
               const Text(
-                '结构化题目暂不支持在旧编辑器中修改',
+                '结构化题目仅支持修正答案，题干与选项暂不可编辑',
                 style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],
@@ -126,31 +131,7 @@ class PersistedQuestionCard extends StatelessWidget {
 
   Widget _buildAnswerSection(BuildContext context) {
     if (question.isTyped) {
-      final answer = question.typedAnswer;
-      final explanation = question.typedExplanation;
-      if (answer == null && explanation == null) {
-        return _noticeContainer(
-          '暂无答案；结构化题目暂不支持旧编辑器修改',
-        );
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionLabel('标准答案：'),
-          const SizedBox(height: 4),
-          if (answer != null)
-            RichContentRenderer(content: answer, textColor: Colors.green)
-          else
-            const Text('无', style: TextStyle(color: Colors.green)),
-          const SizedBox(height: 12),
-          const _SectionLabel('解析：'),
-          const SizedBox(height: 4),
-          if (explanation != null)
-            RichContentRenderer(content: explanation, textColor: Colors.grey)
-          else
-            const Text('无解析', style: TextStyle(color: Colors.grey)),
-        ],
-      );
+      return _buildTypedAnswerSection();
     }
 
     final hasAnswerOrExplanation = question.legacyAnswer.isNotEmpty ||
@@ -177,6 +158,84 @@ class PersistedQuestionCard extends StatelessWidget {
           textColor: Colors.grey,
         ),
       ],
+    );
+  }
+
+  Widget _buildTypedAnswerSection() {
+    final answer = question.typedAnswer;
+    final explanation = question.typedExplanation;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (answer == null)
+          _typedRepairPrompt()
+        else ...[
+          const _SectionLabel('标准答案：'),
+          const SizedBox(height: 4),
+          RichContentRenderer(content: answer, textColor: Colors.green),
+          const SizedBox(height: 12),
+          _typedRepairButton(),
+        ],
+        if (explanation != null) ...[
+          const SizedBox(height: 12),
+          const _SectionLabel('解析：'),
+          const SizedBox(height: 4),
+          RichContentRenderer(content: explanation, textColor: Colors.grey),
+        ] else if (answer != null) ...[
+          const SizedBox(height: 12),
+          const _SectionLabel('解析：'),
+          const SizedBox(height: 4),
+          const Text('无解析', style: TextStyle(color: Colors.grey)),
+        ],
+      ],
+    );
+  }
+
+  /// Tappable typed empty-answer prompt: opens the typed repair screen.
+  Widget _typedRepairPrompt() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.orangeAccent.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.orangeAccent.withValues(alpha: 0.3),
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onRepairTypedAnswer,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            children: [
+              Icon(Icons.edit_note_rounded, color: Colors.orangeAccent),
+              SizedBox(height: 4),
+              Text(
+                '暂无答案，点击手动补充',
+                style: TextStyle(
+                  color: Colors.orangeAccent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Tappable typed repair entry shown next to an existing typed answer.
+  Widget _typedRepairButton() {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+        onPressed: onRepairTypedAnswer,
+        icon: const Icon(Icons.edit_note_rounded, size: 16, color: Colors.teal),
+        label: const Text('修正答案', style: TextStyle(color: Colors.teal)),
+      ),
     );
   }
 
@@ -209,32 +268,6 @@ class PersistedQuestionCard extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _noticeContainer(String text) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.orangeAccent.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.orangeAccent.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.orangeAccent,
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
           ),
         ),
       ),

@@ -229,6 +229,63 @@ void main() {
       );
     });
 
+    test('P5.2 typed repair stays on the typed mutation path', () {
+      final repair = File('lib/ui/pages/typed_answer_repair_screen.dart');
+      expect(
+        repair.existsSync(),
+        isTrue,
+        reason: 'Required typed repair screen is missing.',
+      );
+      final source = repair.readAsStringSync();
+      expect(
+        source,
+        isNot(contains('question_edit_screen.dart')),
+        reason: 'The typed repair screen must never open the legacy editor.',
+      );
+      expect(
+        source,
+        isNot(contains('updateQuestion(')),
+        reason: 'The typed mutation path must never call the legacy '
+            'updateQuestion(Map) API.',
+      );
+      expect(
+        source,
+        isNot(contains('question_v2_persistence_mapper.dart')),
+        reason: 'The typed repair UI must never depend on the persistence '
+            'mapper or its V1 compatibility projection.',
+      );
+      expect(
+        source,
+        isNot(contains('projectLegacyContent')),
+        reason: 'The typed repair UI must never seed editor text through the '
+            'legacy compatibility projection.',
+      );
+    });
+
+    test('UI files never reference the raw V2 payload table', () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib/ui')) {
+        if (file.readAsStringSync().contains('question_v2_payloads')) {
+          violations.add(_normalizePath(file.path));
+        }
+      }
+      expect(
+        violations,
+        isEmpty,
+        reason: 'UI must reach persistence only through repositories:\n'
+            '${violations.join('\n')}',
+      );
+    });
+
+    test('PracticePage exposes no typed repair entry', () {
+      final practice = File('lib/ui/pages/practice_page.dart');
+      expect(practice.existsSync(), isTrue);
+      final source = practice.readAsStringSync();
+      expect(source, isNot(contains('typed_answer_repair_screen')));
+      expect(source, isNot(contains('TypedAnswerRepairScreen')));
+      expect(source, isNot(contains('onRepairTypedAnswer')));
+    });
+
     test('domain stays independent from platform and infrastructure layers',
         () {
       final violations = <LayerBoundaryViolation>[];
