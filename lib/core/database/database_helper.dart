@@ -17,7 +17,7 @@ class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 15;
+  static const int _dbVersion = 16;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -38,6 +38,36 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
   payload_schema_version INTEGER NOT NULL CHECK(payload_schema_version > 0),
   payload_json TEXT NOT NULL CHECK(length(payload_json) > 0),
   FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+);
+''';
+
+  static const String _libraryFilesTable = 'library_files';
+
+  /// Exact frozen v16 additive F0 table definition. Original file bytes are
+  /// never stored in SQLite; this table holds stable metadata and the safe
+  /// relative managed storage key only.
+  static const String _libraryFilesDdl = '''
+CREATE TABLE library_files (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL CHECK(length(display_name) > 0),
+  mime_type TEXT NOT NULL CHECK(length(mime_type) > 0),
+  size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+  sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+  storage_key TEXT NOT NULL UNIQUE CHECK(length(storage_key) > 0),
+  created_at INTEGER NOT NULL
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen v16 definition.
+  static const String _libraryFilesDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS library_files (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL CHECK(length(display_name) > 0),
+  mime_type TEXT NOT NULL CHECK(length(mime_type) > 0),
+  size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+  sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+  storage_key TEXT NOT NULL UNIQUE CHECK(length(storage_key) > 0),
+  created_at INTEGER NOT NULL
 );
 ''';
 
@@ -267,7 +297,9 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
       );
     ''');
 
+    await db.execute(_libraryFilesDdl);
     await _validateV15Schema(db);
+    await _validateLibraryFilesSchema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -379,7 +411,11 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
     if (oldVersion < 15) {
       await db.execute(_questionV2SidecarDdlIfNotExists);
     }
+    if (oldVersion < 16) {
+      await db.execute(_libraryFilesDdlIfNotExists);
+    }
     await _validateV15Schema(db);
+    await _validateLibraryFilesSchema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -414,6 +450,91 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
     if (violations.isNotEmpty) {
       throw const QuestionV2SchemaException(
         QuestionV2SchemaFailure.foreignKeyViolation,
+      );
+    }
+  }
+
+  static const List<String> _libraryFilesColumnOrder = <String>[
+    'file_id',
+    'display_name',
+    'mime_type',
+    'size_bytes',
+    'sha256',
+    'storage_key',
+    'created_at',
+  ];
+
+  static const List<String> _libraryFilesColumnAffinities = <String>[
+    'TEXT',
+    'TEXT',
+    'TEXT',
+    'INTEGER',
+    'TEXT',
+    'TEXT',
+    'INTEGER',
+  ];
+
+  /// Validates the frozen v16 `library_files` table before the open/upgrade
+  /// can succeed: canonical DDL equality, exact column order/affinity/NOT
+  /// NULL/primary key, and the unique index on `storage_key`. Runs inside
+  /// the SQLite open transaction, so a thrown failure rolls back every DDL
+  /// change and leaves `user_version` and existing rows unchanged.
+  static Future<void> _validateLibraryFilesSchema(Database db) async {
+    final tables = <String, String?>{};
+    for (final row in await db.rawQuery(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'table'",
+    )) {
+      tables[row['name'] as String] = row['sql'] as String?;
+    }
+
+    final storedSql = tables[_libraryFilesTable];
+    if (storedSql == null ||
+        _canonicalizeSql(storedSql) != _canonicalizeSql(_libraryFilesDdl)) {
+      throw const LibraryFilesSchemaException(
+        LibraryFilesSchemaFailure.malformedTable,
+      );
+    }
+
+    final columns = await db.rawQuery('PRAGMA table_info(library_files)');
+    if (columns.length != _libraryFilesColumnOrder.length) {
+      throw const LibraryFilesSchemaException(
+        LibraryFilesSchemaFailure.malformedTable,
+      );
+    }
+    for (var index = 0; index < columns.length; index++) {
+      final column = columns[index];
+      if (column['name'] != _libraryFilesColumnOrder[index] ||
+          column['notnull'] != 1 ||
+          _columnAffinity(column['type'] as String? ?? '') !=
+              _libraryFilesColumnAffinities[index]) {
+        throw const LibraryFilesSchemaException(
+          LibraryFilesSchemaFailure.malformedTable,
+        );
+      }
+    }
+    final primaryKeys = columns.where((column) => column['pk'] != 0).toList();
+    if (primaryKeys.length != 1 || primaryKeys.single['name'] != 'file_id') {
+      throw const LibraryFilesSchemaException(
+        LibraryFilesSchemaFailure.malformedTable,
+      );
+    }
+
+    final indexes = await db.rawQuery('PRAGMA index_list(library_files)');
+    // The primary key also creates a unique autoindex; the frozen contract
+    // requires exactly one UNIQUE-constraint index on `storage_key`.
+    final uniqueIndexes = indexes.where((row) => row['origin'] == 'u').toList();
+    if (uniqueIndexes.length != 1) {
+      throw const LibraryFilesSchemaException(
+        LibraryFilesSchemaFailure.malformedTable,
+      );
+    }
+    final indexColumns = await db.rawQuery(
+      'PRAGMA index_info(${uniqueIndexes.single['name']})',
+    );
+    if (indexColumns.length != 1 ||
+        indexColumns.single['name'] != 'storage_key') {
+      throw const LibraryFilesSchemaException(
+        LibraryFilesSchemaFailure.malformedTable,
       );
     }
   }
@@ -1690,5 +1811,26 @@ CREATE TABLE IF NOT EXISTS question_v2_payloads (
       ORDER BY r.last_lapse_time DESC
       LIMIT ?
     ''', [limit]);
+  }
+}
+
+/// Failure taxonomy of the frozen v16 `library_files` table boundary.
+enum LibraryFilesSchemaFailure { malformedTable }
+
+/// Raised when the v16 `library_files` table cannot be opened or migrated
+/// safely. The exception retains no raw cause, path, SQL, schema text, row,
+/// or SQLite exception; [toString] renders one fixed safe message.
+final class LibraryFilesSchemaException implements Exception {
+  const LibraryFilesSchemaException(this.failure);
+
+  final LibraryFilesSchemaFailure failure;
+
+  @override
+  String toString() {
+    final detail = switch (failure) {
+      LibraryFilesSchemaFailure.malformedTable =>
+        'The library_files table does not match the frozen v16 definition.',
+    };
+    return 'LibraryFilesSchemaException(${failure.name}): $detail';
   }
 }
