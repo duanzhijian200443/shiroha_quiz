@@ -1,11 +1,12 @@
 import 'package:sqflite/sqflite.dart';
+import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 
 const _globalWrongBookBankName = '🔥 全局错题本';
 
-class ReviewRepository {
+class ReviewRepository implements StudyMetricsQueryPort {
   ReviewRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
@@ -232,6 +233,116 @@ class ReviewRepository {
     final lapseRes = await db.rawQuery(
         'SELECT COUNT(question_id) as count FROM review_states WHERE lapses > 0');
     return (lapseRes.first['count'] as int?) ?? 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // T0 read-only study metrics seam (additive)
+  //
+  // These read APIs back the application study query layer and are purely
+  // additive. Failures cross the boundary as a safe
+  // [StudyQueryRepositoryException]; no SQL, path, or raw cause is exposed.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<StudyOverviewCounts> getStudyOverviewCounts({
+    String? bankName,
+    required int nowUnixSeconds,
+    required int todayStartUnixSeconds,
+  }) async {
+    final rows = await _metricsQueryRows((db) {
+      return db.rawQuery(
+        '''
+        SELECT
+          COUNT(DISTINCT q.id) AS question_count,
+          COUNT(DISTINCT CASE WHEN rs.state = 3 THEN q.id END) AS mastered_count,
+          COUNT(DISTINCT CASE WHEN rs.next_review_time <= ? THEN q.id END) AS due_count,
+          COUNT(DISTINCT CASE WHEN rl.review_time >= ? THEN q.id END) AS today_practice_count,
+          COUNT(DISTINCT CASE WHEN rs.lapses > 0 THEN q.id END) AS wrong_count
+        FROM questions q
+        LEFT JOIN review_states rs ON rs.question_id = q.id
+        LEFT JOIN review_logs rl ON rl.question_id = q.id
+        WHERE (? IS NULL OR q.bank_name = ?)
+      ''',
+        <Object?>[nowUnixSeconds, todayStartUnixSeconds, bankName, bankName],
+      );
+    });
+    final row = rows.single;
+    return StudyOverviewCounts(
+      questionCount: (row['question_count'] as num?)?.toInt() ?? 0,
+      masteredCount: (row['mastered_count'] as num?)?.toInt() ?? 0,
+      dueCount: (row['due_count'] as num?)?.toInt() ?? 0,
+      todayPracticeCount: (row['today_practice_count'] as num?)?.toInt() ?? 0,
+      wrongQuestionCount: (row['wrong_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<List<int>> getStudyScheduledReviewTimestamps({
+    String? bankName,
+    required int fromUnixSeconds,
+    required int toUnixSeconds,
+  }) async {
+    final rows = await _metricsQueryRows((db) {
+      final whereParts = <String>[
+        'rs.state > 0',
+        'rs.next_review_time IS NOT NULL',
+        'rs.next_review_time >= ?',
+        'rs.next_review_time < ?',
+      ];
+      final args = <Object?>[fromUnixSeconds, toUnixSeconds];
+      if (bankName != null) {
+        whereParts.add('q.bank_name = ?');
+        args.add(bankName);
+      }
+      return db.rawQuery('''
+        SELECT rs.next_review_time
+        FROM review_states rs
+        JOIN questions q ON q.id = rs.question_id
+        WHERE ${whereParts.join(' AND ')}
+        ORDER BY rs.next_review_time ASC
+      ''', args);
+    });
+    return <int>[
+      for (final row in rows) (row['next_review_time'] as num?)?.toInt() ?? 0,
+    ];
+  }
+
+  @override
+  Future<int> countStudyDueNow({
+    String? bankName,
+    required int nowUnixSeconds,
+  }) async {
+    final rows = await _metricsQueryRows((db) {
+      final whereParts = <String>['rs.next_review_time <= ?'];
+      final args = <Object?>[nowUnixSeconds];
+      if (bankName != null) {
+        whereParts.add('q.bank_name = ?');
+        args.add(bankName);
+      }
+      return db.rawQuery('''
+        SELECT COUNT(*) AS c
+        FROM review_states rs
+        JOIN questions q ON q.id = rs.question_id
+        WHERE ${whereParts.join(' AND ')}
+      ''', args);
+    });
+    return (rows.single['c'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Runs one metrics query with the fixed boundary failure mapping.
+  Future<List<Map<String, Object?>>> _metricsQueryRows(
+    Future<List<Map<String, Object?>>> Function(Database db) query,
+  ) async {
+    try {
+      final db = await _db;
+      return await query(db);
+    } on StudyQueryRepositoryException {
+      rethrow;
+    } on DatabaseException {
+      throw const StudyQueryRepositoryException(
+        StudyQueryRepositoryFailure.unavailable,
+      );
+    }
   }
 
   Future<List<String>> getAllDistinctBankNames() async {
