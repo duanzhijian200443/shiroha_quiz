@@ -93,7 +93,7 @@ For routine tracked Dart changes, the Executor may use:
 .\tool\verify_changed.ps1 -TestPath <explicit-test-path>
 ```
 
-Always provide test paths explicitly. Do not let the script infer/widen tests merely to obtain PASS, and do not use it in place of a task-required command.
+Treat `-TestPath` as an explicit executable-test entrypoint list: each path must be `test/**/*_test.dart`. Files such as `*_support.dart`, `*_fixture.dart`, helpers, and other imported Dart files under `test/` are never standalone `flutter test` targets. Changed-file discovery is for format/analyze scope only; do not infer or widen test targets from changed files merely to obtain PASS. The helper does not replace a task-required command.
 
 ## Migration protection
 
