@@ -17,7 +17,7 @@ class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 16;
+  static const int _dbVersion = 17;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -68,6 +68,79 @@ CREATE TABLE IF NOT EXISTS library_files (
   sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
   storage_key TEXT NOT NULL UNIQUE CHECK(length(storage_key) > 0),
   created_at INTEGER NOT NULL
+);
+''';
+
+  static const String _projectsTable = 'projects';
+
+  /// Exact frozen v17 additive J0 Project metadata definition. Projects are
+  /// optional metadata rows with a stable id and a renameable display name.
+  /// They never own file bytes, banks, questions, sidecars, or review state.
+  static const String _projectsDdl = '''
+CREATE TABLE projects (
+  project_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL CHECK(length(display_name) > 0),
+  created_at INTEGER NOT NULL
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen v17 definition.
+  static const String _projectsDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS projects (
+  project_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL CHECK(length(display_name) > 0),
+  created_at INTEGER NOT NULL
+);
+''';
+
+  static const String _projectFilesTable = 'project_files';
+
+  /// Exact frozen v17 additive J0 many-to-many relation between projects and
+  /// library files. Deleting a project or a library file removes only the
+  /// relation row; the underlying asset metadata is never deleted here.
+  static const String _projectFilesDdl = '''
+CREATE TABLE project_files (
+  project_id TEXT NOT NULL,
+  file_id TEXT NOT NULL,
+  PRIMARY KEY (project_id, file_id),
+  FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+  FOREIGN KEY (file_id) REFERENCES library_files(file_id) ON DELETE CASCADE
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen v17 definition.
+  static const String _projectFilesDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS project_files (
+  project_id TEXT NOT NULL,
+  file_id TEXT NOT NULL,
+  PRIMARY KEY (project_id, file_id),
+  FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+  FOREIGN KEY (file_id) REFERENCES library_files(file_id) ON DELETE CASCADE
+);
+''';
+
+  static const String _projectBanksTable = 'project_banks';
+
+  /// Exact frozen v17 additive J0 many-to-many relation between projects and
+  /// question banks. `bank_name` is the frozen J0-P0 Decision A compatibility
+  /// key, not a stable bank identity; J0 never renames banks or migrates this
+  /// relation to a bank registry.
+  static const String _projectBanksDdl = '''
+CREATE TABLE project_banks (
+  project_id TEXT NOT NULL,
+  bank_name TEXT NOT NULL CHECK(length(bank_name) > 0),
+  PRIMARY KEY (project_id, bank_name),
+  FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen v17 definition.
+  static const String _projectBanksDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS project_banks (
+  project_id TEXT NOT NULL,
+  bank_name TEXT NOT NULL CHECK(length(bank_name) > 0),
+  PRIMARY KEY (project_id, bank_name),
+  FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
 );
 ''';
 
@@ -298,8 +371,12 @@ CREATE TABLE IF NOT EXISTS library_files (
     ''');
 
     await db.execute(_libraryFilesDdl);
+    await db.execute(_projectsDdl);
+    await db.execute(_projectFilesDdl);
+    await db.execute(_projectBanksDdl);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
+    await _validateProjectSchema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -414,8 +491,14 @@ CREATE TABLE IF NOT EXISTS library_files (
     if (oldVersion < 16) {
       await db.execute(_libraryFilesDdlIfNotExists);
     }
+    if (oldVersion < 17) {
+      await db.execute(_projectsDdlIfNotExists);
+      await db.execute(_projectFilesDdlIfNotExists);
+      await db.execute(_projectBanksDdlIfNotExists);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
+    await _validateProjectSchema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -536,6 +619,122 @@ CREATE TABLE IF NOT EXISTS library_files (
       throw const LibraryFilesSchemaException(
         LibraryFilesSchemaFailure.malformedTable,
       );
+    }
+  }
+
+  static const Map<String, List<(String, String, int)>> _projectColumnSpecs =
+      <String, List<(String, String, int)>>{
+    'projects': <(String, String, int)>[
+      ('project_id', 'TEXT', 1),
+      ('display_name', 'TEXT', 1),
+      ('created_at', 'INTEGER', 1),
+    ],
+    'project_files': <(String, String, int)>[
+      ('project_id', 'TEXT', 1),
+      ('file_id', 'TEXT', 1),
+    ],
+    'project_banks': <(String, String, int)>[
+      ('project_id', 'TEXT', 1),
+      ('bank_name', 'TEXT', 1),
+    ],
+  };
+
+  static const Map<String, List<String>> _projectPrimaryKeys =
+      <String, List<String>>{
+    'projects': <String>['project_id'],
+    'project_files': <String>['project_id', 'file_id'],
+    'project_banks': <String>['project_id', 'bank_name'],
+  };
+
+  static const Map<String, Map<String, String>> _projectForeignKeys =
+      <String, Map<String, String>>{
+    'project_files': <String, String>{
+      'project_id': 'projects',
+      'file_id': 'library_files',
+    },
+    'project_banks': <String, String>{
+      'project_id': 'projects',
+    },
+  };
+
+  /// Validates the frozen v17 `projects` / `project_files` / `project_banks`
+  /// tables before the open/upgrade can succeed: canonical DDL equality,
+  /// exact column order/affinity/NOT NULL/primary key, and the exact
+  /// foreign-key targets with cascade deletion. Runs inside the SQLite open
+  /// transaction, so a thrown failure rolls back every DDL change and leaves
+  /// `user_version` and existing rows unchanged.
+  static Future<void> _validateProjectSchema(Database db) async {
+    final tables = <String, String?>{};
+    for (final row in await db.rawQuery(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'table'",
+    )) {
+      tables[row['name'] as String] = row['sql'] as String?;
+    }
+
+    final ddlByTable = <String, String>{
+      _projectsTable: _projectsDdl,
+      _projectFilesTable: _projectFilesDdl,
+      _projectBanksTable: _projectBanksDdl,
+    };
+    for (final entry in ddlByTable.entries) {
+      final storedSql = tables[entry.key];
+      if (storedSql == null ||
+          _canonicalizeSql(storedSql) != _canonicalizeSql(entry.value)) {
+        throw const ProjectSchemaException(
+          ProjectSchemaFailure.malformedTable,
+        );
+      }
+    }
+
+    for (final entry in _projectColumnSpecs.entries) {
+      final columns = await db.rawQuery('PRAGMA table_info(${entry.key})');
+      final spec = entry.value;
+      if (columns.length != spec.length) {
+        throw const ProjectSchemaException(
+          ProjectSchemaFailure.malformedTable,
+        );
+      }
+      for (var index = 0; index < columns.length; index++) {
+        final column = columns[index];
+        final (name, affinity, notNull) = spec[index];
+        if (column['name'] != name ||
+            _columnAffinity(column['type'] as String? ?? '') != affinity ||
+            (notNull == 1 && column['notnull'] != 1)) {
+          throw const ProjectSchemaException(
+            ProjectSchemaFailure.malformedTable,
+          );
+        }
+      }
+      final primaryKeys = columns.where((column) => column['pk'] != 0).toList();
+      final expectedPrimaryKeys = _projectPrimaryKeys[entry.key]!;
+      final pkNames = primaryKeys.map((column) => column['name']).toList();
+      if (pkNames.length != expectedPrimaryKeys.length ||
+          pkNames.asMap().entries.any(
+                (pkEntry) => pkEntry.value != expectedPrimaryKeys[pkEntry.key],
+              ) ||
+          // SQLite reports the 1-based position inside the primary key, so a
+          // single-column PK yields [1] and a composite PK yields [1, 2].
+          primaryKeys.asMap().entries.any(
+                (entry) => entry.value['pk'] != entry.key + 1,
+              )) {
+        throw const ProjectSchemaException(
+          ProjectSchemaFailure.malformedTable,
+        );
+      }
+    }
+
+    for (final entry in _projectForeignKeys.entries) {
+      final foreignKeys =
+          await db.rawQuery('PRAGMA foreign_key_list(${entry.key})');
+      final targets = <String>{
+        for (final row in foreignKeys) row['table'] as String,
+      };
+      if (targets.length != entry.value.length ||
+          entry.value.values.any((target) => !targets.contains(target))) {
+        throw const ProjectSchemaException(
+          ProjectSchemaFailure.malformedTable,
+        );
+      }
     }
   }
 
@@ -1832,5 +2031,27 @@ final class LibraryFilesSchemaException implements Exception {
         'The library_files table does not match the frozen v16 definition.',
     };
     return 'LibraryFilesSchemaException(${failure.name}): $detail';
+  }
+}
+
+/// Failure taxonomy of the frozen v17 J0 Project tables boundary.
+enum ProjectSchemaFailure { malformedTable }
+
+/// Raised when the v17 `projects` / `project_files` / `project_banks` tables
+/// cannot be opened or migrated safely. The exception retains no raw cause,
+/// path, SQL, schema text, row, or SQLite exception; [toString] renders one
+/// fixed safe message.
+final class ProjectSchemaException implements Exception {
+  const ProjectSchemaException(this.failure);
+
+  final ProjectSchemaFailure failure;
+
+  @override
+  String toString() {
+    final detail = switch (failure) {
+      ProjectSchemaFailure.malformedTable =>
+        'The J0 Project tables do not match the frozen v17 definition.',
+    };
+    return 'ProjectSchemaException(${failure.name}): $detail';
   }
 }

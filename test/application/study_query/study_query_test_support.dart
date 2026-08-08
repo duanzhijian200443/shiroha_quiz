@@ -190,13 +190,49 @@ int unixSeconds(String iso) {
   return DateTime.parse(iso).toUtc().millisecondsSinceEpoch ~/ 1000;
 }
 
-/// Canonical row snapshots of the three tables the READ_ONLY proof covers.
+/// Seeds synthetic non-empty rows in the frozen v16/v17 J0 metadata tables
+/// (`library_files`, `projects`, `project_files`, `project_banks`) so the
+/// READ_ONLY proof snapshot covers rows that a write would mutate.
+Future<void> insertJ0MetadataRows(Database db) async {
+  const String fileId = '11111111-1111-4111-8111-aaaaaaaaaaaa';
+  const String projectId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  final createdAt = unixSeconds('2026-08-08T10:00:00Z');
+
+  await db.insert('library_files', <String, Object?>{
+    'file_id': fileId,
+    'display_name': 'Synthetic J0 library file',
+    'mime_type': 'application/pdf',
+    'size_bytes': 1234,
+    'sha256': 'a' * 64,
+    'storage_key': 'j0/synthetic/library.pdf',
+    'created_at': createdAt,
+  });
+  await db.insert('projects', <String, Object?>{
+    'project_id': projectId,
+    'display_name': 'Synthetic J0 project',
+    'created_at': createdAt,
+  });
+  await db.insert('project_files', <String, Object?>{
+    'project_id': projectId,
+    'file_id': fileId,
+  });
+  await db.insert('project_banks', <String, Object?>{
+    'project_id': projectId,
+    'bank_name': bankMath,
+  });
+}
+
+/// Canonical row snapshots of the seven tables the READ_ONLY proof covers.
 Future<List<String>> snapshotCoreTables(Database db) async {
   return <String>[
     for (final table in <String>[
       'questions',
       'question_v2_payloads',
       'review_states',
+      'library_files',
+      'projects',
+      'project_files',
+      'project_banks',
     ])
       jsonEncode(await db.query(table, orderBy: 'rowid')),
   ];

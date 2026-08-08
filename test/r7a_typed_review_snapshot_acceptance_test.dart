@@ -386,10 +386,10 @@ void main() {
       expect(source, isNot(contains('_typed_review_v1')));
     });
 
-    test('database version remains 16', () {
+    test('database version remains 17', () {
       final source =
           File('lib/core/database/database_helper.dart').readAsStringSync();
-      expect(source, contains('static const int _dbVersion = 16'));
+      expect(source, contains('static const int _dbVersion = 17'));
     });
 
     test('v15 sidecar DDL sentinels remain unchanged', () {

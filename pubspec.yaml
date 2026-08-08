@@ -33,6 +33,7 @@ dependencies:
   image_picker: ^1.2.2
   pdfx: ^2.9.2
   fl_chart: ^1.2.0
+  mcp_dart: 2.4.0
 
 dev_dependencies:
   flutter_test:
