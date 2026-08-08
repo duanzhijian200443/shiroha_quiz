@@ -666,7 +666,8 @@ class QuestionRepository {
           final optionIdsInDraft = <String>{
             for (final option in current.draft.options) option.optionId,
           };
-          if (!optionIds.every(optionIdsInDraft.contains)) {
+          final hasDuplicateIds = optionIds.toSet().length != optionIds.length;
+          if (hasDuplicateIds || !optionIds.every(optionIdsInDraft.contains)) {
             throw const TypedAnswerMutationException(
               TypedAnswerMutationFailure.invalidAnswer,
             );

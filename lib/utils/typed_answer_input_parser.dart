@@ -1,7 +1,5 @@
-import '../domain/content/content_node.dart';
 import '../domain/content/rich_content.dart';
-import 'content_normalizer.dart';
-import 'content_tokenizer.dart';
+import '../domain/content/typed_answer_editor_codec.dart';
 
 /// Parsed typed manual answer input. The sealed result never silently drops
 /// content: unsupported input is an explicit safe failure and empty input is
@@ -36,32 +34,29 @@ final class TypedAnswerInputUnsupported extends TypedAnswerInputParseResult {
 
 /// Pure-Dart parser for typed manual answers.
 ///
-/// Flow: [ContentNormalizer.normalizeForStorage] (existing dollar/think
-/// rules, never copied) then [ContentTokenizer.tokenize]. Text, inline math,
-/// and block math tokens become structural nodes; image, blank, and parse
-/// error tokens are safe validation failures; raw fallback nodes are never
-/// produced. Structural nodes are consumed directly by the renderer and
-/// text nodes are not re-parsed into math.
+/// Manual user input is deliberately separated from provider/AI output
+/// normalization: this parser never strips `<think>...</think>` blocks,
+/// never truncates unclosed `<think>` text, and never drops user content.
+/// It delegates the lossless text/structural conversion to the typed editor
+/// boundary ([TypedAnswerEditorCodec]): text, inline math, and block math
+/// become structural nodes; image, blank, and parse error input is a safe
+/// validation failure; raw fallback nodes are never produced. Structural
+/// nodes are consumed directly by the renderer and text nodes are not
+/// re-parsed into math.
 final class TypedAnswerInputParser {
   const TypedAnswerInputParser._();
 
   static TypedAnswerInputParseResult parse(String input) {
-    final normalized = ContentNormalizer.normalizeForStorage(input);
-    if (normalized.trim().isEmpty) return const TypedAnswerInputEmpty();
+    if (input.trim().isEmpty) return const TypedAnswerInputEmpty();
 
-    final nodes = <ContentNode>[];
-    for (final token in ContentTokenizer.tokenize(normalized)) {
-      switch (token) {
-        case TextToken(:final text):
-          nodes.add(TextNode(text));
-        case InlineMathToken(:final tex):
-          nodes.add(InlineMathNode(tex));
-        case BlockMathToken(:final tex):
-          nodes.add(BlockMathNode(tex));
-        case ImageToken() || BlankToken() || ParseErrorToken():
-          return const TypedAnswerInputUnsupported();
-      }
+    switch (TypedAnswerEditorCodec.decode(input)) {
+      case TypedAnswerEditorContent(:final content):
+        return TypedAnswerInputParsed(content);
+      case TypedAnswerEditorText():
+        // decode never produces an editor text form.
+        return const TypedAnswerInputUnsupported();
+      case TypedAnswerEditorUnsupported():
+        return const TypedAnswerInputUnsupported();
     }
-    return TypedAnswerInputParsed(RichContent(nodes: nodes));
   }
 }

@@ -232,15 +232,6 @@ final class QuestionV2PersistenceMapper {
     );
   }
 
-  /// Public editable-text projection used by the typed answer repair screen
-  /// to seed the initial answer text: math delimiters plus the single legacy
-  /// storage normalization pass. This is byte-identical to the answer
-  /// projection shared by [freezeForWrite] and [freezeAnswerUpdate], so the
-  /// seeded text round-trips through the typed input parser into the same
-  /// structural nodes without losing math.
-  String projectLegacyContent(RichContent content) =>
-      _projectLegacyContent(content);
-
   /// Decodes one joined V1/V2 row in the frozen strict order. A wholly
   /// absent sidecar is legacy; any corrupt or unsafe sidecar fails instead of
   /// falling back to the V1 row.

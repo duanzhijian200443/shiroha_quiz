@@ -71,6 +71,24 @@ QuestionDraftV2 _contentDraft({QuestionAnswer? answer}) {
   );
 }
 
+QuestionDraftV2 _singleOptionChoiceDraft({QuestionAnswer? answer}) {
+  return QuestionDraftV2(
+    questionId: 'p5_ui_single_option_q',
+    kind: QuestionKind.singleChoice,
+    questionNumber: 3,
+    stem: _text('Single-option choice stem.'),
+    options: <QuestionOption>[
+      QuestionOption(
+        optionId: 'opt_a',
+        label: '甲',
+        content: _text('first'),
+      ),
+    ],
+    answer: answer,
+    explanation: _text('Explanation.'),
+  );
+}
+
 /// File-backed DatabaseHelper seam: repository APIs run against a real v15
 /// database opened only through the frozen openPathForTesting seam.
 class _FileDatabaseHelper extends Fake implements DatabaseHelper {
@@ -840,6 +858,291 @@ void main() {
       (practiceView.typedAnswer!.nodes.single as TextNode).text,
       '丙',
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'no-op round-trip: literal math-looking text survives a save unchanged',
+      (tester) async {
+    final helper = newFileHelper('p5_ui_noop.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _contentDraft(
+          answer: ContentAnswer(content: _text(r'$x$')),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    // The typed editor boundary escapes the literal dollar so it survives
+    // as a TextNode instead of being re-parsed as math.
+    final field = tester.widget<TextField>(_inRepair(find.byType(TextField)));
+    expect(field.controller!.text, r'\$x\$');
+    await tapSave(tester);
+
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    final typed = (await tester.runAsync(
+      () async => _reloadTyped(await helper.database, _storageId),
+    ))!;
+    final answer = typed.draft.answer as ContentAnswer;
+    expect(answer.content.nodes, hasLength(1));
+    expect((answer.content.nodes.single as TextNode).text, r'$x$');
+    expect(answer.content.nodes.whereType<InlineMathNode>(), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'explicit typed empty answer stays ContentAnswer(empty), never null',
+      (tester) async {
+    final helper = newFileHelper('p5_ui_explicit_empty.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _contentDraft(
+          answer: ContentAnswer(content: RichContent(nodes: <ContentNode>[])),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    final field = tester.widget<TextField>(_inRepair(find.byType(TextField)));
+    expect(field.controller!.text, isEmpty);
+    await tapSave(tester);
+
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    final typed = (await tester.runAsync(
+      () async => _reloadTyped(await helper.database, _storageId),
+    ))!;
+    final answer = typed.draft.answer;
+    expect(answer, isA<ContentAnswer>());
+    expect((answer as ContentAnswer).content.nodes, isEmpty);
+    expect(typed.draft.answer, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'raw fallback answer is read-only with a fixed notice and zero writes',
+      (tester) async {
+    final helper = newFileHelper('p5_ui_raw_fallback.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _contentDraft(
+          answer: ContentAnswer(
+            content: RichContent(nodes: <ContentNode>[
+              const TextNode('safe prefix '),
+              RawFallbackNode(<Object?, Object?>{
+                'type': 'future_diagram',
+                'payload': <Object?, Object?>{'shape': 'synthetic'},
+              }),
+            ]),
+          ),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    // Unsupported content is explicit and read-only; no text field appears
+    // and the save button is disabled.
+    expect(
+      find.text('当前答案包含暂不支持编辑的内容，已保留原答案'),
+      findsOneWidget,
+    );
+    expect(_inRepair(find.byType(TextField)), findsNothing);
+    final saveFinder = _inRepair(find.widgetWithText(FilledButton, '保存'));
+    final save = tester.widget<FilledButton>(saveFinder);
+    expect(save.onPressed, isNull);
+
+    final db = await openDb(tester, helper);
+    final payloadBefore =
+        await tester.runAsync(() => _payloadJson(db, _storageId));
+    final standardBefore =
+        await tester.runAsync(() => _standardAnswer(db, _storageId));
+    await tester.tap(saveFinder, warnIfMissed: false);
+    await tester.pump();
+
+    expect(await tester.runAsync(() => _payloadJson(db, _storageId)),
+        payloadBefore);
+    expect(await tester.runAsync(() => _standardAnswer(db, _storageId)),
+        standardBefore);
+    expect(find.byType(TypedAnswerRepairScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'choice kind with ContentAnswer fallback opens the text editor and '
+      'preserves the existing answer on no-op save', (tester) async {
+    final helper = newFileHelper('p5_ui_choice_content.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _choiceDraft(
+          answer: ContentAnswer(content: _text('fallback answer')),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    expect(_inRepair(find.byType(CheckboxListTile)), findsNothing);
+    final field = tester.widget<TextField>(_inRepair(find.byType(TextField)));
+    expect(field.controller!.text, 'fallback answer');
+    await tapSave(tester);
+
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    final typed = (await tester.runAsync(
+      () async => _reloadTyped(await helper.database, _storageId),
+    ))!;
+    final answer = typed.draft.answer as ContentAnswer;
+    expect((answer.content.nodes.single as TextNode).text, 'fallback answer');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'insufficient choice options fall back to a text editor and stay '
+      'repairable', (tester) async {
+    final helper = newFileHelper('p5_ui_insufficient.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _singleOptionChoiceDraft(
+          answer: ChoiceAnswer(optionIds: <String>['opt_a']),
+        ),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    // No unusable checkbox UI; the existing choice is shown as display text
+    // and a no-op save keeps the original ChoiceAnswer.
+    expect(_inRepair(find.byType(CheckboxListTile)), findsNothing);
+    final field = tester.widget<TextField>(_inRepair(find.byType(TextField)));
+    expect(field.controller!.text, '甲');
+    await tapSave(tester);
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    var typed = (await tester.runAsync(
+      () async => _reloadTyped(await helper.database, _storageId),
+    ))!;
+    expect(typed.draft.answer, ChoiceAnswer(optionIds: <String>['opt_a']));
+
+    // A real edit is not blocked: the text is saved as a typed ContentAnswer.
+    await openRepairFromButton(tester);
+    await tester.enterText(_inRepair(find.byType(TextField)), 'x = 1');
+    await tester.pump();
+    await tapSave(tester);
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    typed = (await tester.runAsync(
+      () async => _reloadTyped(await helper.database, _storageId),
+    ))!;
+    final answer = typed.draft.answer as ContentAnswer;
+    expect((answer.content.nodes.single as TextNode).text, 'x = 1');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('choice answer can be explicitly cleared to null',
+      (tester) async {
+    final helper = newFileHelper('p5_ui_choice_clear.db');
+    final repository = QuestionRepository(databaseHelper: helper);
+    await tester.runAsync(() async {
+      await _insertTypedRow(
+        await helper.database,
+        _choiceDraft(answer: ChoiceAnswer(optionIds: <String>['opt_a'])),
+        storageId: _storageId,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QuestionListScreen(
+          bankName: _bankName,
+          questionRepository: repository,
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('修正答案'));
+    await openRepairFromButton(tester);
+
+    // Deselect the only selected option and save: the answer becomes null.
+    final firstOption = _inRepair(find.text('first'));
+    await tester.ensureVisible(firstOption);
+    await tester.tap(firstOption);
+    await tester.pump();
+    await tapSave(tester);
+
+    await _pumpUntilGone(tester, find.byType(TypedAnswerRepairScreen));
+    await _pumpUntilFound(
+      tester,
+      find.text('暂无答案，点击手动补充'),
+      reason: 'list did not show the cleared choice answer prompt',
+    );
+    final typed = (await tester.runAsync(
+      () async => _reloadTyped(await helper.database, _storageId),
+    ))!;
+    expect(typed.draft.answer, isNull);
+    final db = await openDb(tester, helper);
+    expect(await readStandardAnswer(tester, db), '|||Explanation.');
+    final payload =
+        jsonDecode(await readPayloadJson(tester, db)) as Map<String, dynamic>;
+    expect(payload['answer'], isNull);
     expect(tester.takeException(), isNull);
   });
 }

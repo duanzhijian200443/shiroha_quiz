@@ -248,6 +248,18 @@ void main() {
         reason: 'The typed mutation path must never call the legacy '
             'updateQuestion(Map) API.',
       );
+      expect(
+        source,
+        isNot(contains('question_v2_persistence_mapper.dart')),
+        reason: 'The typed repair UI must never depend on the persistence '
+            'mapper or its V1 compatibility projection.',
+      );
+      expect(
+        source,
+        isNot(contains('projectLegacyContent')),
+        reason: 'The typed repair UI must never seed editor text through the '
+            'legacy compatibility projection.',
+      );
     });
 
     test('UI files never reference the raw V2 payload table', () {

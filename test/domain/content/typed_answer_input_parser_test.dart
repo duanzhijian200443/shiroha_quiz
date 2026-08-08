@@ -51,22 +51,49 @@ void main() {
       expect((node as TextNode).text, 'plain answer');
     });
 
-    test('escaped dollar text stays TextNode and is not re-parsed as math', () {
+    test('escaped dollar decodes to a literal dollar TextNode', () {
       final result = TypedAnswerInputParser.parse(r'\$x\$');
       expect(result, isA<TypedAnswerInputParsed>());
       final node = (result as TypedAnswerInputParsed).content.nodes.single;
       expect(node, isA<TextNode>());
-      expect((node as TextNode).text, r'\$x\$');
+      expect((node as TextNode).text, r'$x$');
     });
 
     test('empty and whitespace-only input is an explicit empty result', () {
-      for (final input in <String>['', '   ', '\t\n', '<think> </think>']) {
+      for (final input in <String>['', '   ', '\t\n']) {
         expect(
           TypedAnswerInputParser.parse(input),
           isA<TypedAnswerInputEmpty>(),
           reason: 'input=$input',
         );
       }
+    });
+
+    test('manual <think> blocks are preserved literally, never stripped', () {
+      const input = '答案 A <think>这是普通用户文字</think> 后续';
+      final result = TypedAnswerInputParser.parse(input);
+      expect(result, isA<TypedAnswerInputParsed>());
+      final nodes = (result as TypedAnswerInputParsed).content.nodes;
+      expect(nodes, hasLength(1));
+      expect((nodes.single as TextNode).text, input);
+    });
+
+    test('unclosed <think> keeps the trailing user text, never truncates', () {
+      const input = '答案 A <think>未闭合但仍是用户输入';
+      final result = TypedAnswerInputParser.parse(input);
+      expect(result, isA<TypedAnswerInputParsed>());
+      final nodes = (result as TypedAnswerInputParsed).content.nodes;
+      expect(nodes, hasLength(1));
+      expect((nodes.single as TextNode).text, input);
+    });
+
+    test('whitespace-only think block is ordinary text, not empty input', () {
+      const input = '<think> </think>';
+      final result = TypedAnswerInputParser.parse(input);
+      expect(result, isA<TypedAnswerInputParsed>());
+      final nodes = (result as TypedAnswerInputParsed).content.nodes;
+      expect(nodes, hasLength(1));
+      expect((nodes.single as TextNode).text, input);
     });
 
     test('image tokens fail safely with fixed redacted text', () {

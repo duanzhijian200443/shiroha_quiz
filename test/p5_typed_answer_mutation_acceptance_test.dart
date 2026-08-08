@@ -843,6 +843,45 @@ void main() {
       expect(await _standardAnswer(db, _storageId), standardBefore);
     });
 
+    test('duplicate choice optionIds fail with invalidAnswer and zero writes',
+        () async {
+      final helper = newFileHelper('p5_duplicate_ids.db');
+      final repository = QuestionRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertTypedRow(
+        db,
+        _choiceDraft(answer: ChoiceAnswer(optionIds: <String>['opt_a'])),
+        storageId: _storageId,
+      );
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+      final statesBefore = await db.query('review_states',
+          where: 'question_id = ?', whereArgs: <Object?>[_storageId]);
+
+      final current = await _reloadTyped(db, _storageId);
+      try {
+        await repository.updateTypedAnswer(
+          storageId: _storageId,
+          expectedDraft: current.draft,
+          newAnswer: ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+        );
+        fail('expected invalidAnswer');
+      } on TypedAnswerMutationException catch (error) {
+        expect(error.failure, TypedAnswerMutationFailure.invalidAnswer);
+        expect(
+          error.toString(),
+          _fixedMutationMessage(TypedAnswerMutationFailure.invalidAnswer),
+        );
+      }
+      expect(await _payloadJson(db, _storageId), payloadBefore);
+      expect(await _standardAnswer(db, _storageId), standardBefore);
+      expect(
+        await db.query('review_states',
+            where: 'question_id = ?', whereArgs: <Object?>[_storageId]),
+        statesBefore,
+      );
+    });
+
     test('unsafe replacement content fails with unsafePayload and zero writes',
         () async {
       final helper = newFileHelper('p5_unsafe.db');
