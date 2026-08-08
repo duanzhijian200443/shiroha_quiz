@@ -15,6 +15,12 @@ import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
 /// Frozen schema version of every mcp.study.v0 response envelope.
 const String studyMcpSchemaVersion = 'mcp.study.v0';
 
+/// Strict lexical form of an offset-bearing RFC 3339 instant:
+/// `YYYY-MM-DDTHH:mm:ss[.fraction](Z|±HH:mm)`.
+final RegExp _rfc3339OffsetInstant = RegExp(
+  r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$',
+);
+
 /// One tool response: the frozen v0 envelope plus the MCP error flag.
 final class StudyMcpToolResult {
   const StudyMcpToolResult({required this.envelope, required this.isError});
@@ -278,6 +284,11 @@ final class StudyMcpAdapter {
   /// Offset-bearing RFC 3339 timestamp as a UTC instant.
   DateTime _requiredInstant(Map<String, dynamic> args, String key) {
     final raw = _requiredString(args, key);
+    if (!_rfc3339OffsetInstant.hasMatch(raw)) {
+      // Reject lax forms DateTime.parse accepts (space separator, colons
+      // missing in the offset, lowercase z).
+      throw const StudyQueryException(StudyQueryFailure.invalidRequest);
+    }
     final DateTime parsed;
     try {
       parsed = DateTime.parse(raw);

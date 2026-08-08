@@ -670,6 +670,30 @@ void main() {
           'get_due_review_summary',
           <String, dynamic>{
             'timezone': 'UTC',
+            'from': '2026-08-08 00:00:00Z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:00:00+0800',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
+            'from': '2026-08-08T00:00:00z',
+            'to': '2026-08-10T00:00:00Z',
+          },
+        ),
+        (
+          'get_due_review_summary',
+          <String, dynamic>{
+            'timezone': 'UTC',
             'from': '2026-08-09T00:00:00Z',
             'to': '2026-08-08T00:00:00Z',
           },
