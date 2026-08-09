@@ -1,6 +1,6 @@
-import 'package:sqflite/sqflite.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/database/sqflite_runtime.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 
@@ -338,6 +338,10 @@ class ReviewRepository implements StudyMetricsQueryPort {
       return await query(db);
     } on StudyQueryRepositoryException {
       rethrow;
+    } on DatabaseRuntimeException {
+      throw const StudyQueryRepositoryException(
+        StudyQueryRepositoryFailure.unavailable,
+      );
     } on DatabaseException {
       throw const StudyQueryRepositoryException(
         StudyQueryRepositoryFailure.unavailable,

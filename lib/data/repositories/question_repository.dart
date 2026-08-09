@@ -1,11 +1,11 @@
 import 'dart:convert';
 
-import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../application/study_query/study_query_dtos.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/database/sqflite_runtime.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../models/question_draft.dart';
@@ -704,6 +704,10 @@ class QuestionRepository implements StudyQuestionQueryPort {
       return await query(db);
     } on StudyQueryRepositoryException {
       rethrow;
+    } on DatabaseRuntimeException {
+      throw const StudyQueryRepositoryException(
+        StudyQueryRepositoryFailure.unavailable,
+      );
     } on DatabaseException {
       throw const StudyQueryRepositoryException(
         StudyQueryRepositoryFailure.unavailable,

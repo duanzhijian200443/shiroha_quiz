@@ -1,16 +1,19 @@
 import 'dart:convert';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+
+import 'package:meta/meta.dart';
+import 'package:path/path.dart';
+
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/persistence/ai_engine_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
 import 'question_v2_schema_exception.dart';
+import 'sqflite_runtime.dart';
 
 enum DatabaseRuntimeProfile {
   production,
   isolatedSmokeInMemory,
+  explicitReadOnly,
 }
 
 class DatabaseHelper implements AiEngineStore {
@@ -151,13 +154,17 @@ CREATE TABLE IF NOT EXISTS project_banks (
       DatabaseRuntimeProfile.production;
   static bool _runtimeProfileConfigured = false;
   static String? _openedDatabasePath;
+  static String? _explicitReadOnlyPath;
 
   static DatabaseRuntimeProfile get runtimeProfile => _runtimeProfile;
 
   @visibleForTesting
   static String? get openedDatabasePathForTesting => _openedDatabasePath;
 
-  static void configureRuntimeProfile(DatabaseRuntimeProfile profile) {
+  static void configureRuntimeProfile(
+    DatabaseRuntimeProfile profile, {
+    String? databasePath,
+  }) {
     if (_runtimeProfileConfigured ||
         _database != null ||
         _openingDatabase != null) {
@@ -165,8 +172,40 @@ CREATE TABLE IF NOT EXISTS project_banks (
         'Database runtime profile can be configured only once before opening.',
       );
     }
+    if (profile == DatabaseRuntimeProfile.explicitReadOnly) {
+      _explicitReadOnlyPath = _resolveExistingAbsolutePath(databasePath);
+    } else if (databasePath != null) {
+      throw const DatabaseRuntimeException(
+        DatabaseRuntimeFailure.unexpectedPath,
+      );
+    }
     _runtimeProfile = profile;
     _runtimeProfileConfigured = true;
+  }
+
+  static String _resolveExistingAbsolutePath(String? databasePath) {
+    if (databasePath == null ||
+        databasePath.trim().isEmpty ||
+        !isAbsolute(databasePath)) {
+      throw const DatabaseRuntimeException(
+        DatabaseRuntimeFailure.invalidPath,
+      );
+    }
+    try {
+      final file = File(databasePath);
+      if (!file.existsSync()) {
+        throw const DatabaseRuntimeException(
+          DatabaseRuntimeFailure.invalidPath,
+        );
+      }
+      return file.resolveSymbolicLinksSync();
+    } on DatabaseRuntimeException {
+      rethrow;
+    } on FileSystemException {
+      throw const DatabaseRuntimeException(
+        DatabaseRuntimeFailure.invalidPath,
+      );
+    }
   }
 
   static DatabaseHelper get instance => _instance ??= DatabaseHelper._();
@@ -205,7 +244,7 @@ CREATE TABLE IF NOT EXISTS project_banks (
     _openedDatabasePath = null;
   }
 
-  /// Opens a database handle with the exact production v15 callbacks.
+  /// Opens a database handle with the current production schema callbacks.
   ///
   /// Available only under `FLUTTER_TEST`. The returned handle is owned by
   /// the caller and must be closed by the caller. This seam never mutates
@@ -228,6 +267,9 @@ CREATE TABLE IF NOT EXISTS project_banks (
   }
 
   Future<Database> _initDatabase() async {
+    if (_runtimeProfile == DatabaseRuntimeProfile.explicitReadOnly) {
+      return _openExplicitReadOnlyDatabase();
+    }
     final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
     final useInMemory = isTest ||
         _runtimeProfile == DatabaseRuntimeProfile.isolatedSmokeInMemory;
@@ -244,6 +286,37 @@ CREATE TABLE IF NOT EXISTS project_banks (
     );
     _openedDatabasePath = path;
     return database;
+  }
+
+  Future<Database> _openExplicitReadOnlyDatabase() async {
+    final path = _explicitReadOnlyPath;
+    if (path == null) {
+      throw const DatabaseRuntimeException(
+        DatabaseRuntimeFailure.invalidPath,
+      );
+    }
+
+    Database? database;
+    try {
+      database = await openDatabase(path, readOnly: true);
+      final versionRows = await database.rawQuery('PRAGMA user_version');
+      final version = versionRows.single['user_version'];
+      if (version != _dbVersion) {
+        throw const DatabaseRuntimeException(
+          DatabaseRuntimeFailure.unsupportedSchemaVersion,
+        );
+      }
+      _openedDatabasePath = path;
+      return database;
+    } on DatabaseRuntimeException {
+      await database?.close();
+      rethrow;
+    } on DatabaseException {
+      await database?.close();
+      throw const DatabaseRuntimeException(
+        DatabaseRuntimeFailure.unavailable,
+      );
+    }
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -1222,7 +1295,8 @@ CREATE TABLE IF NOT EXISTS project_banks (
 
   static Future<void> deleteDatabaseFile() async {
     final isEphemeral = Platform.environment.containsKey('FLUTTER_TEST') ||
-        _runtimeProfile == DatabaseRuntimeProfile.isolatedSmokeInMemory;
+        _runtimeProfile == DatabaseRuntimeProfile.isolatedSmokeInMemory ||
+        _runtimeProfile == DatabaseRuntimeProfile.explicitReadOnly;
     if (isEphemeral) {
       await instance.close();
       return;
@@ -1240,6 +1314,7 @@ CREATE TABLE IF NOT EXISTS project_banks (
     _openedDatabasePath = null;
     _runtimeProfile = DatabaseRuntimeProfile.production;
     _runtimeProfileConfigured = false;
+    _explicitReadOnlyPath = null;
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBanksSummary() async {
@@ -1567,8 +1642,8 @@ CREATE TABLE IF NOT EXISTS project_banks (
       // 热注入清洗：扫描旧有无索引数据填补至虚拟表
       await db.execute(
           'INSERT INTO questions_fts(id, content, options, explanation) SELECT id, content, options, explanation FROM questions WHERE id NOT IN (SELECT id FROM questions_fts)');
-    } catch (e) {
-      debugPrint('FTS5 引擎热启动挂载报警 (继续降级执行): $e');
+    } catch (_) {
+      stderr.writeln('FTS5 引擎热启动挂载失败，继续降级执行。');
     }
 
     if (keyword.trim().isEmpty) return getQuestionsByBank(bankName);
@@ -1582,8 +1657,8 @@ CREATE TABLE IF NOT EXISTS project_banks (
         WHERE q.bank_name = ? AND questions_fts MATCH ?
         ORDER BY rank
       ''', [bankName, safeMatchStr]);
-    } catch (e) {
-      debugPrint('FTS5 O(1)解析受限，强行切换 O(N) 备用引擎: $e');
+    } catch (_) {
+      stderr.writeln('FTS5 查询不可用，切换到备用查询。');
       // 3. 极限降级路由，保证 100% 高可用 (Fallback)
       return await db.rawQuery('''
         SELECT * FROM questions 
@@ -2053,5 +2128,35 @@ final class ProjectSchemaException implements Exception {
         'The J0 Project tables do not match the frozen v17 definition.',
     };
     return 'ProjectSchemaException(${failure.name}): $detail';
+  }
+}
+
+/// Safe failure taxonomy for selecting and opening a database runtime.
+enum DatabaseRuntimeFailure {
+  invalidPath,
+  unexpectedPath,
+  unsupportedSchemaVersion,
+  unavailable,
+}
+
+/// A path-redacted database runtime failure.
+final class DatabaseRuntimeException implements Exception {
+  const DatabaseRuntimeException(this.failure);
+
+  final DatabaseRuntimeFailure failure;
+
+  @override
+  String toString() {
+    final detail = switch (failure) {
+      DatabaseRuntimeFailure.invalidPath =>
+        'The configured database path is invalid or unavailable.',
+      DatabaseRuntimeFailure.unexpectedPath =>
+        'This database runtime profile does not accept an explicit path.',
+      DatabaseRuntimeFailure.unsupportedSchemaVersion =>
+        'The database schema version is not supported by this runtime.',
+      DatabaseRuntimeFailure.unavailable =>
+        'The database runtime is temporarily unavailable.',
+    };
+    return 'DatabaseRuntimeException(${failure.name}): $detail';
   }
 }

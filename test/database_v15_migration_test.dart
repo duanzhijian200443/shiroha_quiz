@@ -355,7 +355,8 @@ void main() {
   }
 
   group('frozen v15 schema', () {
-    test('fresh v15 create matches the frozen sidecar contract', () async {
+    test('fresh production create preserves the frozen v15 sidecar contract',
+        () async {
       final db = await openSeam(inMemoryDatabasePath);
       try {
         expect(await userVersion(db), 17);

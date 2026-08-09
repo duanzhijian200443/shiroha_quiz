@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Frozen contract (P0 semantics + M0 stdio server) |
-| Implementation status | M0 local-stdio server implemented |
+| Status | Frozen contract (P0 semantics + M0/M0.1 stdio closure) |
+| Implementation status | M0.1 production composition and discovery closure |
 | Transport status | Local stdio only (frozen) |
 | Protocol SDK dependency | `mcp_dart` 2.4.0 exact |
 
@@ -427,6 +427,19 @@ Every error includes exactly `code`, `message`, and `retryable`. An error
 envelope never contains the success fields `data`, `items`, or `next_cursor`
 and is mutually exclusive with success envelopes.
 
+M0.1 makes one bounded amendment to the validation/error responsibility:
+
+- `mcp_dart` validates the MCP-visible input schema before invoking the tool
+  callback. Missing required fields, wrong JSON types, frozen scalar bounds,
+  and the frozen offset-bearing RFC 3339 lexical shape therefore return the
+  SDK's MCP-level tool error and do not produce a Shiroha envelope.
+- Requests admitted by the schema continue into the Adapter/Application.
+  Business and cross-field failures (for example an unsupported IANA zone,
+  an invalid half-open window, or an undecodable opaque cursor) use the exact
+  Shiroha error envelope above.
+- This amendment changes no Shiroha error code, envelope field, output DTO, or
+  business meaning. It must not be reused to widen any other v0 contract.
+
 Error payloads carry only a fixed safe `code`, `message`, and `retryable`
 flag. They never contain: SQL or SQLite text, stack traces, paths, keys,
 provider URLs, question content, answers, explanations, raw fallback
@@ -555,10 +568,10 @@ class StudyQueryService {
 10 no write/destructive tool
 ```
 
-## 12. M0 transport, SDK, and acceptance contract
+## 12. M0/M0.1 transport, SDK, runtime, and acceptance contract
 
-M0 freezes the following four contracts. They are authoritative and carry
-testable sentinels; the implementation and acceptance must match them exactly.
+The following contracts are authoritative and carry testable sentinels; the
+implementation and acceptance must match them exactly.
 
 ### 12.1 Transport: local stdio only
 
@@ -596,12 +609,52 @@ SDK but never enters `lib`, and the suite never binds a network, provider, or
 production database. It asserts:
 
 - exactly six `READ_ONLY` tools with read-only annotations;
+- the exact frozen input schema of all six tools through `tools/list`;
 - success and error request/response envelopes with the frozen shapes;
-- the complete error taxonomy and mapping, including malformed requests;
+- SDK-level schema rejection before callbacks and Shiroha envelopes for
+  schema-admitted semantic errors;
 - the stdio lifecycle (handshake, close, transport teardown) over the real
   local stdio subprocess;
 - typed and legacy projections with corrupt-V2 `data_corrupt`, no fallback;
 - no raw-data leakage (raw fallback payloads, SQL, paths, exceptions).
+
+### 12.5 Input schema allowlist
+
+The MCP-visible schemas expose only constraints already frozen in section 3:
+
+- `list_question_banks`: nullable opaque `cursor`; integer `limit` `1..100`
+  with default `50`;
+- `get_study_overview`: required string `timezone`; nullable `bank_name`;
+- `get_due_review_summary`: required offset-bearing RFC 3339 string `from`
+  and `to`; nullable `bank_name` and optional nullable `timezone`;
+- `search_questions`: required string `bank_name`; required string `query`
+  with length `1..200`; nullable opaque `cursor`; integer `limit` `1..50`;
+- `get_question_detail`: required string `question_id` with no UUID or format
+  assumption;
+- `get_weak_questions`: nullable `bank_name` and opaque `cursor`; integer
+  `limit` `1..50`.
+
+The schemas do not close `additionalProperties` and add no cursor charset or
+length, timezone length, question-id format, or non-frozen default. Trimmed
+non-empty strings, IANA membership, cursor decoding, window ordering, the
+90-day cross-field bound, and data access semantics remain Application work.
+
+### 12.6 Production SQLite runtime and acceptance
+
+- Standalone Dart initializes `sqflite_common_ffi`; Flutter retains its
+  existing sqflite runtime.
+- Database infrastructure provides a generic explicit read-only profile. It
+  accepts only an existing absolute path, canonicalizes it, opens it read-only,
+  and requires the current v17 `user_version`. It never creates, migrates, or
+  deletes the selected database.
+- The MCP composition root selects that generic profile from the required
+  `--database-path` process argument. Server, Adapter, Application, and Domain
+  layers never receive the path.
+- Production acceptance runs the real stdio entrypoint with real
+  `QuestionRepository` and `ReviewRepository` over an isolated synthetic v17
+  file. A Flutter-side production-callback handle remains open while the MCP
+  subprocess reads the same canonical path, proving App-open + MCP-read
+  interoperability without user data, network, Provider, OCR, or PDF access.
 
 ## 13. Non-goals
 
@@ -612,7 +665,7 @@ Explicitly not goals of this contract:
 - an Agent integration or authentication layer;
 - write, destructive, or audit-style tools in v0;
 - dependencies beyond the exact `mcp_dart: 2.4.0` pin;
-- wire new database, schema, or migration changes;
+- create a new schema/migration or move the Flutter App database location;
 - expose SQL, DB rows, raw fallback, OCR, provider data, or internal errors;
 - add a global database revision or expose `ReviewSession` revisions;
 - modify R6, R4 `ReviewSession`, or the R5 renderer.

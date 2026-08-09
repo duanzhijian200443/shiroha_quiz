@@ -2,7 +2,8 @@
 // Practice, and WrongBook.
 //
 // Evidence class: fully synthetic and offline. Every scenario seeds a real
-// SQLite v15 database (sqflite FFI, production schema callbacks). File-backed
+// current v17 SQLite database (sqflite FFI, production schema callbacks).
+// File-backed
 // scenarios use the frozen DatabaseHelper.openPathForTesting seam and
 // close/reopen the file to prove persistence; widget scenarios pump the real
 // production pages. The non-injectable Practice session read is additionally

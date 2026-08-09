@@ -16,6 +16,99 @@ import 'package:shiroha_quiz/mcp/study_mcp_server.dart';
 import 'fixtures/study_mcp_stdio_fixture.dart';
 
 const String _fixturePath = 'test/mcp/fixtures/study_mcp_stdio_fixture.dart';
+const String _offsetBearingRfc3339Pattern =
+    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$';
+
+final Map<String, Map<String, dynamic>> _expectedInputSchemas =
+    <String, Map<String, dynamic>>{
+  'list_question_banks': <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'cursor': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'limit': <String, dynamic>{
+        'default': 50,
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 100,
+      },
+    },
+  },
+  'get_study_overview': <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'bank_name': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'timezone': <String, dynamic>{'type': 'string'},
+    },
+    'required': <String>['timezone'],
+  },
+  'get_due_review_summary': <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'bank_name': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'timezone': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'from': <String, dynamic>{
+        'type': 'string',
+        'pattern': _offsetBearingRfc3339Pattern,
+      },
+      'to': <String, dynamic>{
+        'type': 'string',
+        'pattern': _offsetBearingRfc3339Pattern,
+      },
+    },
+    'required': <String>['from', 'to'],
+  },
+  'search_questions': <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'bank_name': <String, dynamic>{'type': 'string'},
+      'query': <String, dynamic>{
+        'type': 'string',
+        'minLength': 1,
+        'maxLength': 200,
+      },
+      'cursor': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'limit': <String, dynamic>{
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 50,
+      },
+    },
+    'required': <String>['bank_name', 'query'],
+  },
+  'get_question_detail': <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'question_id': <String, dynamic>{'type': 'string'},
+    },
+    'required': <String>['question_id'],
+  },
+  'get_weak_questions': <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'bank_name': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'cursor': <String, dynamic>{
+        'type': <String>['string', 'null'],
+      },
+      'limit': <String, dynamic>{
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 50,
+      },
+    },
+  },
+};
 
 /// Resolves the plain Dart executable used to launch the fixture subprocess:
 /// the Dart SDK bundled with the running Flutter toolchain, then FLUTTER_ROOT,
@@ -62,6 +155,7 @@ String _dartExecutable() {
 Future<McpClient> _connectStdioClient() async {
   final client = McpClient(
     const Implementation(name: 'study_mcp_stdio_test', version: '0.1.0'),
+    options: const McpClientOptions(protocol: McpProtocol.legacy),
   );
   await client.connect(
     StdioClientTransport(
@@ -111,6 +205,15 @@ void main() {
         expect(tool.annotations!.readOnlyHint, isTrue);
         expect(tool.annotations!.destructiveHint, isFalse);
         expect(tool.annotations!.idempotentHint, isTrue);
+        expect(
+          tool.inputSchema.toJson(),
+          _expectedInputSchemas[tool.name],
+          reason: 'Unexpected frozen input schema for ${tool.name}.',
+        );
+        expect(
+          tool.inputSchema.toJson(),
+          isNot(contains('additionalProperties')),
+        );
       }
     });
 
@@ -131,13 +234,28 @@ void main() {
       expect(envelope['next_cursor'], isNull);
     });
 
-    test('tools/call round-trips the exact error envelope over stdio',
+    test('schema-invalid calls are rejected before the adapter callback',
         () async {
       final client = await _connectStdioClient();
       addTearDown(client.close);
 
       final result = await client.callTool(
         const CallToolRequest(name: 'get_question_detail'),
+      );
+      expect(result.isError, isTrue);
+      expect(result.hasStructuredContent, isFalse);
+    });
+
+    test('schema-valid semantic errors retain the exact Shiroha envelope',
+        () async {
+      final client = await _connectStdioClient();
+      addTearDown(client.close);
+
+      final result = await client.callTool(
+        const CallToolRequest(
+          name: 'get_study_overview',
+          arguments: <String, Object?>{'timezone': 'Mars/Olympus_Mons'},
+        ),
       );
       expect(result.isError, isTrue);
       final envelope = result.structuredContent!;

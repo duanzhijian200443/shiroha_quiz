@@ -94,7 +94,8 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema remains **v15** until a later stage explicitly authorizes an additive migration.
+9. Current database schema is **v17**: the frozen v15 typed sidecar remains
+   authoritative, with the additive v16 File Library and v17 Project tables.
 
 ## 4. Learning asset expansion boundary
 

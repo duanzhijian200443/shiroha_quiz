@@ -127,12 +127,30 @@ void main() {
       }
     });
 
-    test('composition root only assembles the T0 service and its ports', () {
+    test('composition root owns only runtime configuration and assembly', () {
       final source = File(compositionRootPath).readAsStringSync();
-      _expectForbiddenTokensAbsent(compositionRootPath, source);
       expect(source, isNot(contains('class ')));
+      for (final token in <String>[
+        'rawQuery',
+        'rawInsert',
+        'rawUpdate',
+        'question_v2_payloads',
+        'CREATE TABLE',
+        'SELECT ',
+        'INSERT ',
+        'UPDATE ',
+        'DELETE ',
+      ]) {
+        expect(
+          source,
+          isNot(contains(token)),
+          reason: 'Composition root must not define SQL or persistence logic.',
+        );
+      }
       final allowedUris = <String>[
         'package:shiroha_quiz/application/study_query/study_query_service.dart',
+        'package:shiroha_quiz/core/database/database_helper.dart',
+        'package:shiroha_quiz/core/database/sqflite_runtime.dart',
         'package:shiroha_quiz/data/repositories/question_repository.dart',
         'package:shiroha_quiz/data/repositories/review_repository.dart',
         'study_mcp_adapter.dart',
@@ -149,6 +167,8 @@ void main() {
       expect(source, contains('StudyQueryService('));
       expect(source, contains('QuestionRepository()'));
       expect(source, contains('ReviewRepository()'));
+      expect(source, contains('DatabaseRuntimeProfile.explicitReadOnly'));
+      expect(source, contains("'--database-path'"));
     });
 
     test('M0 transport is local stdio only, never HTTP/OAuth/remote', () {
@@ -221,6 +241,17 @@ void main() {
       final fixture = File('test/mcp/fixtures/study_mcp_stdio_fixture.dart');
       expect(fixture.existsSync(), isTrue);
       expect(fixture.readAsStringSync(), contains('serveStdio()'));
+
+      final productionAcceptance = File(
+        'test/mcp/study_mcp_production_composition_test.dart',
+      );
+      expect(productionAcceptance.existsSync(), isTrue);
+      final productionSource = productionAcceptance.readAsStringSync();
+      expect(productionSource, contains('study_mcp_composition_root.dart'));
+      expect(productionSource, contains("'--database-path'"));
+      expect(productionSource, contains('StdioClientTransport('));
+      expect(productionSource, isNot(contains('_EmptyQuestionQuery')));
+      expect(productionSource, isNot(contains('_EmptyMetricsQuery')));
     });
   });
 }
