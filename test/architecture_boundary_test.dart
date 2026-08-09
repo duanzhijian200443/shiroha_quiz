@@ -669,6 +669,53 @@ import '../../domain/content/content_node.dart'
       }
     });
 
+    test('F0.1 Folder layers stay pure and Folder-only', () {
+      const pureFiles = <String>[
+        'lib/domain/assets/library_folder.dart',
+        'lib/application/file_library/library_folder_repository.dart',
+        'lib/application/file_library/library_folder_service.dart',
+      ];
+      for (final path in pureFiles) {
+        final file = File(path);
+        expect(file.existsSync(), isTrue, reason: 'Missing F0.1 file: $path');
+        final source = file.readAsStringSync();
+        for (final token in const <String>[
+          'DatabaseHelper',
+          'package:sqflite',
+          'rawQuery',
+          '.transaction(',
+          'package:flutter',
+        ]) {
+          expect(
+            source,
+            isNot(contains(token)),
+            reason: '$path must not depend on $token.',
+          );
+        }
+      }
+
+      final repository =
+          File('lib/data/repositories/library_folder_repository.dart');
+      expect(repository.existsSync(), isTrue);
+      final source = repository.readAsStringSync();
+      for (final forbiddenTable in const <String>[
+        'projects',
+        'project_files',
+        'project_banks',
+        'questions',
+        'question_v2_payloads',
+        'review_states',
+        'review_logs',
+        'bank_folders',
+      ]) {
+        expect(
+          source,
+          isNot(contains("'$forbiddenTable'")),
+          reason: 'Folder repository must not reference $forbiddenTable.',
+        );
+      }
+    });
+
     test('U1 presentation depends only on its application facade', () {
       const u1Paths = <String>[
         'lib/ui/pages/main_screen.dart',

@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
 import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
@@ -8,6 +10,7 @@ import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
+import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
@@ -60,6 +63,74 @@ final class _Ingestion implements FileIngestionPort {
     await files.save(value);
     return value;
   }
+}
+
+final class _Folders extends Fake implements LibraryFolderRepositoryPort {
+  _Folders(this.files);
+
+  final _Files files;
+  final Map<String, LibraryFolder> values = <String, LibraryFolder>{};
+  final Map<String, String> memberships = <String, String>{};
+
+  @override
+  Future<void> createFolder(LibraryFolder folder) async {
+    values[folder.folderId] = folder;
+  }
+
+  @override
+  Future<List<LibraryFolder>> listFolders() async => values.values.toList();
+
+  @override
+  Future<LibraryFolder?> findFolder(String folderId) async => values[folderId];
+
+  @override
+  Future<LibraryFolder> renameFolder({
+    required String folderId,
+    required String displayName,
+  }) async {
+    final old = values[folderId]!;
+    return values[folderId] = LibraryFolder(
+      folderId: folderId,
+      displayName: displayName,
+      createdAt: old.createdAt,
+    );
+  }
+
+  @override
+  Future<void> deleteFolder(String folderId) async {
+    values.remove(folderId);
+    memberships.removeWhere((_, value) => value == folderId);
+  }
+
+  @override
+  Future<LibraryFolder?> getFolderForFile(String fileId) async {
+    final folderId = memberships[fileId];
+    return folderId == null ? null : values[folderId];
+  }
+
+  @override
+  Future<void> moveFileToFolder({
+    required String fileId,
+    required String folderId,
+  }) async {
+    memberships[fileId] = folderId;
+  }
+
+  @override
+  Future<void> removeFileFromFolder(String fileId) async {
+    memberships.remove(fileId);
+  }
+
+  @override
+  Future<List<LibraryFile>> listFilesInFolder(String folderId) async =>
+      files.values.values
+          .where((file) => memberships[file.fileId] == folderId)
+          .toList();
+
+  @override
+  Future<List<LibraryFile>> listUnclassifiedFiles() async => files.values.values
+      .where((file) => !memberships.containsKey(file.fileId))
+      .toList();
 }
 
 final class _Projects implements ProjectRepository {
@@ -177,12 +248,14 @@ void main() {
   late _Files files;
   late _Ingestion ingestion;
   late _Projects projects;
+  late _Folders folders;
   late U1WorkspaceFacade facade;
 
   setUp(() {
     files = _Files();
     ingestion = _Ingestion(files);
     projects = _Projects();
+    folders = _Folders(files);
     facade = U1WorkspaceFacade(
       projectService: ProjectService(
         repository: projects,
@@ -190,6 +263,10 @@ void main() {
       ),
       fileRepository: files,
       fileIngestion: ingestion,
+      folderService: LibraryFolderService(
+        repository: folders,
+        folderIdFactory: () => 'folder-new',
+      ),
       studyQueryService: StudyQueryService(
         questionQuery: _QuestionPort(const <QuestionBankSummary>[
           QuestionBankSummary(
@@ -252,13 +329,53 @@ void main() {
     );
   });
 
-  test('unclassified projection uses empty reverse relations', () async {
+  test('Folder and Learning Space unclassified projections stay independent',
+      () async {
     files.values['free-file'] = _file('free-file', 1);
+    files.values['folder-only-file'] = _file('folder-only-file', 2);
+    folders.values['folder-a'] = LibraryFolder(
+      folderId: 'folder-a',
+      displayName: '论文',
+      createdAt: DateTime.utc(2026, 8, 9),
+    );
+    folders.memberships['folder-only-file'] = 'folder-a';
 
-    final result = await facade.getUnclassifiedAssets();
+    final folderUnclassified = await facade.listLibraryFiles(
+      view: FileLibraryView.unclassified,
+    );
+    final projectUnclassified = await facade.getUnclassifiedAssets();
 
-    expect(result.files.single.fileId, 'free-file');
-    expect(result.banks.single.bankName, 'existing-bank');
+    expect(
+        folderUnclassified.map((file) => file.fileId), <String>['free-file']);
+    expect(
+      projectUnclassified.files.map((file) => file.fileId),
+      <String>['folder-only-file', 'free-file'],
+    );
+    expect(projectUnclassified.banks.single.bankName, 'existing-bank');
+  });
+
+  test('Folder CRUD, move, detail, and delete project-independence', () async {
+    files.values['file-a'] = _file('file-a', 1);
+    final project = Project(
+      projectId: 'project-a',
+      displayName: '深度学习',
+      createdAt: DateTime.utc(2026, 8, 9),
+    );
+    projects.projects[project.projectId] = project;
+    projects.files[project.projectId] = <String>{'file-a'};
+
+    final folder = await facade.createLibraryFolder('  论文  ');
+    await facade.moveLibraryFileToFolder(
+      fileId: 'file-a',
+      folderId: folder.folderId,
+    );
+    final detail = await facade.getLibraryFileDetail('file-a');
+    expect(detail!.folder!.displayName, '论文');
+    expect(detail.relatedSpaces.single.projectId, project.projectId);
+
+    await facade.deleteLibraryFolder(folder.folderId);
+    expect((await facade.getLibraryFileDetail('file-a'))!.folder, isNull);
+    expect(projects.files[project.projectId], contains('file-a'));
   });
 
   test('ingestion infers known MIME types and safely falls back', () async {

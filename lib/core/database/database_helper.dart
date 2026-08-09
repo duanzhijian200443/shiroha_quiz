@@ -20,7 +20,7 @@ class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 17;
+  static const int _dbVersion = 18;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -145,6 +145,73 @@ CREATE TABLE IF NOT EXISTS project_banks (
   PRIMARY KEY (project_id, bank_name),
   FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
 );
+''';
+
+  static const String _libraryFoldersTable = 'library_folders';
+  static const String _libraryFileFoldersTable = 'library_file_folders';
+  static const String _libraryFolderNameIndex =
+      'idx_library_folders_display_name_nocase';
+  static const String _libraryFileFolderLookupIndex =
+      'idx_library_file_folders_folder_id';
+
+  /// Exact additive v18 File Library folder metadata definition.
+  static const String _libraryFoldersDdl = '''
+CREATE TABLE library_folders (
+  folder_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL COLLATE NOCASE
+    CHECK(display_name = trim(display_name))
+    CHECK(length(display_name) BETWEEN 1 AND 100),
+  created_at INTEGER NOT NULL
+);
+''';
+
+  static const String _libraryFoldersDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS library_folders (
+  folder_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL COLLATE NOCASE
+    CHECK(display_name = trim(display_name))
+    CHECK(length(display_name) BETWEEN 1 AND 100),
+  created_at INTEGER NOT NULL
+);
+''';
+
+  /// One row per file enforces the v1 maximum-one-folder cardinality.
+  static const String _libraryFileFoldersDdl = '''
+CREATE TABLE library_file_folders (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  folder_id TEXT NOT NULL,
+  FOREIGN KEY(file_id) REFERENCES library_files(file_id) ON DELETE CASCADE,
+  FOREIGN KEY(folder_id) REFERENCES library_folders(folder_id) ON DELETE CASCADE
+);
+''';
+
+  static const String _libraryFileFoldersDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS library_file_folders (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  folder_id TEXT NOT NULL,
+  FOREIGN KEY(file_id) REFERENCES library_files(file_id) ON DELETE CASCADE,
+  FOREIGN KEY(folder_id) REFERENCES library_folders(folder_id) ON DELETE CASCADE
+);
+''';
+
+  static const String _libraryFolderNameIndexDdl = '''
+CREATE UNIQUE INDEX idx_library_folders_display_name_nocase
+  ON library_folders(display_name COLLATE NOCASE);
+''';
+
+  static const String _libraryFolderNameIndexDdlIfNotExists = '''
+CREATE UNIQUE INDEX IF NOT EXISTS idx_library_folders_display_name_nocase
+  ON library_folders(display_name COLLATE NOCASE);
+''';
+
+  static const String _libraryFileFolderLookupIndexDdl = '''
+CREATE INDEX idx_library_file_folders_folder_id
+  ON library_file_folders(folder_id);
+''';
+
+  static const String _libraryFileFolderLookupIndexDdlIfNotExists = '''
+CREATE INDEX IF NOT EXISTS idx_library_file_folders_folder_id
+  ON library_file_folders(folder_id);
 ''';
 
   static DatabaseHelper? _instance;
@@ -447,9 +514,14 @@ CREATE TABLE IF NOT EXISTS project_banks (
     await db.execute(_projectsDdl);
     await db.execute(_projectFilesDdl);
     await db.execute(_projectBanksDdl);
+    await db.execute(_libraryFoldersDdl);
+    await db.execute(_libraryFileFoldersDdl);
+    await db.execute(_libraryFolderNameIndexDdl);
+    await db.execute(_libraryFileFolderLookupIndexDdl);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
+    await _validateLibraryFolderSchema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -569,9 +641,16 @@ CREATE TABLE IF NOT EXISTS project_banks (
       await db.execute(_projectFilesDdlIfNotExists);
       await db.execute(_projectBanksDdlIfNotExists);
     }
+    if (oldVersion < 18) {
+      await db.execute(_libraryFoldersDdlIfNotExists);
+      await db.execute(_libraryFileFoldersDdlIfNotExists);
+      await db.execute(_libraryFolderNameIndexDdlIfNotExists);
+      await db.execute(_libraryFileFolderLookupIndexDdlIfNotExists);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
+    await _validateLibraryFolderSchema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -809,6 +888,137 @@ CREATE TABLE IF NOT EXISTS project_banks (
         );
       }
     }
+  }
+
+  /// Validates the exact additive v18 Folder tables and indexes. A failure
+  /// aborts the SQLite open transaction, preserving the prior user_version
+  /// and all v17 rows.
+  static Future<void> _validateLibraryFolderSchema(Database db) async {
+    final tables = <String, String?>{};
+    for (final row in await db.rawQuery(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'table'",
+    )) {
+      tables[row['name'] as String] = row['sql'] as String?;
+    }
+
+    final expectedTables = <String, String>{
+      _libraryFoldersTable: _libraryFoldersDdl,
+      _libraryFileFoldersTable: _libraryFileFoldersDdl,
+    };
+    for (final entry in expectedTables.entries) {
+      final storedSql = tables[entry.key];
+      if (storedSql == null ||
+          _canonicalizeSql(storedSql) != _canonicalizeSql(entry.value)) {
+        throw const LibraryFolderSchemaException(
+          LibraryFolderSchemaFailure.malformedSchema,
+        );
+      }
+    }
+
+    final folderColumns = await db.rawQuery(
+      'PRAGMA table_info($_libraryFoldersTable)',
+    );
+    if (!_matchesColumns(folderColumns, const <(String, String, int, int)>[
+      ('folder_id', 'TEXT', 1, 1),
+      ('display_name', 'TEXT', 1, 0),
+      ('created_at', 'INTEGER', 1, 0),
+    ])) {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+
+    final relationColumns = await db.rawQuery(
+      'PRAGMA table_info($_libraryFileFoldersTable)',
+    );
+    if (!_matchesColumns(relationColumns, const <(String, String, int, int)>[
+      ('file_id', 'TEXT', 1, 1),
+      ('folder_id', 'TEXT', 1, 0),
+    ])) {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+
+    final foreignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list($_libraryFileFoldersTable)',
+    );
+    final foreignKeyTargets = <String, (String, String)>{
+      for (final row in foreignKeys)
+        row['from'] as String: (
+          row['table'] as String,
+          (row['on_delete'] as String).toUpperCase(),
+        ),
+    };
+    if (foreignKeyTargets.length != 2 ||
+        foreignKeyTargets['file_id'] != ('library_files', 'CASCADE') ||
+        foreignKeyTargets['folder_id'] != ('library_folders', 'CASCADE')) {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+
+    final folderIndexes = await db.rawQuery(
+      'PRAGMA index_list($_libraryFoldersTable)',
+    );
+    final nameIndex = folderIndexes.where(
+      (row) => row['name'] == _libraryFolderNameIndex,
+    );
+    if (nameIndex.length != 1 || nameIndex.single['unique'] != 1) {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+    final nameIndexColumns = await db.rawQuery(
+      'PRAGMA index_xinfo($_libraryFolderNameIndex)',
+    );
+    final nameKeys = nameIndexColumns.where((row) => row['key'] == 1).toList();
+    if (nameKeys.length != 1 ||
+        nameKeys.single['name'] != 'display_name' ||
+        (nameKeys.single['coll'] as String).toUpperCase() != 'NOCASE') {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+
+    final relationIndexes = await db.rawQuery(
+      'PRAGMA index_list($_libraryFileFoldersTable)',
+    );
+    final lookupIndex = relationIndexes.where(
+      (row) => row['name'] == _libraryFileFolderLookupIndex,
+    );
+    if (lookupIndex.length != 1 || lookupIndex.single['unique'] != 0) {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+    final lookupColumns = await db.rawQuery(
+      'PRAGMA index_info($_libraryFileFolderLookupIndex)',
+    );
+    if (lookupColumns.length != 1 ||
+        lookupColumns.single['name'] != 'folder_id') {
+      throw const LibraryFolderSchemaException(
+        LibraryFolderSchemaFailure.malformedSchema,
+      );
+    }
+  }
+
+  static bool _matchesColumns(
+    List<Map<String, Object?>> columns,
+    List<(String, String, int, int)> expected,
+  ) {
+    if (columns.length != expected.length) return false;
+    for (var index = 0; index < columns.length; index++) {
+      final column = columns[index];
+      final (name, affinity, notNull, primaryKey) = expected[index];
+      if (column['name'] != name ||
+          _columnAffinity(column['type'] as String? ?? '') != affinity ||
+          column['notnull'] != notNull ||
+          column['pk'] != primaryKey) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static const List<String> _sidecarColumnOrder = <String>[
@@ -2128,6 +2338,21 @@ final class ProjectSchemaException implements Exception {
         'The J0 Project tables do not match the frozen v17 definition.',
     };
     return 'ProjectSchemaException(${failure.name}): $detail';
+  }
+}
+
+enum LibraryFolderSchemaFailure { malformedSchema }
+
+/// Fixed, path/SQL/row-free failure for the additive v18 Folder boundary.
+final class LibraryFolderSchemaException implements Exception {
+  const LibraryFolderSchemaException(this.failure);
+
+  final LibraryFolderSchemaFailure failure;
+
+  @override
+  String toString() {
+    return 'LibraryFolderSchemaException(${failure.name}): '
+        'The File Library Folder tables do not match the frozen v18 definition.';
   }
 }
 

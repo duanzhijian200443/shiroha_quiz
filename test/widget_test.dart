@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
 import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
@@ -19,6 +21,7 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
+import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/main.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
@@ -36,6 +39,15 @@ final class _EmptyFiles extends Fake implements LibraryFileRepositoryPort {
 }
 
 final class _EmptyIngestion extends Fake implements FileIngestionPort {}
+
+final class _EmptyFolders extends Fake implements LibraryFolderRepositoryPort {
+  @override
+  Future<List<LibraryFolder>> listFolders() async => const <LibraryFolder>[];
+
+  @override
+  Future<List<LibraryFile>> listUnclassifiedFiles() async =>
+      const <LibraryFile>[];
+}
 
 final class _EmptyProjects extends Fake implements ProjectRepository {
   @override
@@ -62,6 +74,10 @@ U1WorkspaceFacade _emptyWorkspaceFacade() {
     projectService: ProjectService(repository: _EmptyProjects()),
     fileRepository: _EmptyFiles(),
     fileIngestion: _EmptyIngestion(),
+    folderService: LibraryFolderService(
+      repository: _EmptyFolders(),
+      folderIdFactory: () => 'folder-empty',
+    ),
     studyQueryService: StudyQueryService(
       questionQuery: _EmptyQuestions(),
       metricsQuery: _EmptyMetrics(),

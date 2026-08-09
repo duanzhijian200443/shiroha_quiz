@@ -153,9 +153,11 @@ Subject       -> metadata / filter
 ```
 
 Folder must not become a universal tree containing Bank, Conversation, Exam,
-or other product objects. Whether the first Folder release uses
-`File -> 0..1 Folder` is reserved for the F0.1 contract. U1-P0 introduces no
-Folder schema or implementation.
+or other product objects. F0.1 freezes the first Folder release as
+`File -> 0..1 Folder`, with flat folders and a virtual unclassified view.
+Folder membership is independent of Learning Space membership. U1-P0 itself
+introduced no Folder schema or implementation; the subsequent additive v18
+stage supplies it.
 
 ## 7. Subject compatibility
 
@@ -267,11 +269,14 @@ U1-P0 freezes IA and graduates Presentation naming. It explicitly does not:
 - change Project domain semantics;
 - change F0, J0, T0, or M0 contracts.
 
-The near-term product sequence after this freeze is:
+The near-term product sequence after the delivered F0.1 stage is:
+### Unclassified terminology
 
+- File Library「未分类」：没有 Folder relation 的 LibraryFile。
+- Learning Space「未归类内容」：没有 Project relation 的资产。
+- 两者属于不同维度的 virtual view，不应合并或互换。
 ```text
-F0.1 File Library Folder
--> B0 Backup
+B0 Backup
 -> C0 Conversation
 -> A0 Built-in Agent
 ```

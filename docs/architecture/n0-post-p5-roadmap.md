@@ -12,18 +12,18 @@ of that historical order. The following stages are now complete:
 
 ```text
 F0
+F0.1
 J0
 T0
 M0 / M0.1
 U1-R1
+U1-P0
 ```
 
 The current near-term execution order is:
 
 ```text
-U1-P0 Final Agent-first IA Freeze / Presentation Graduation
--> F0.1 File Library Folder
--> B0 Backup
+B0 Backup
 -> C0 Conversation
 -> A0 Built-in Agent
 ```
@@ -109,6 +109,10 @@ Rules:
 - importing a file into a question bank is one possible action, not the file's lifecycle owner;
 - deleting/replacing a ParsedArtifact does not delete confirmed questions;
 - no full artifact-history framework is required in F0.
+
+F0.1 adds flat, manual File Library Folder classification through additive v18
+metadata/relation tables. A file has at most one Folder; unclassified is the
+absence of a relation; Folder and Project relations remain independent.
 
 ### J0 — Project
 

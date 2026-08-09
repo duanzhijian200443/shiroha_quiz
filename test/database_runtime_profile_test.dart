@@ -168,9 +168,9 @@ void main() {
     );
   });
 
-  test('explicit read-only opens existing v17 without permitting writes',
+  test('explicit read-only opens existing v18 without permitting writes',
       () async {
-    final path = p.join(tempDir.path, 'read_only_v17.db');
+    final path = p.join(tempDir.path, 'read_only_v18.db');
     final created = await DatabaseHelper.instance.openPathForTesting(path);
     try {
       await created.insert('bank_folders', <String, Object?>{
@@ -222,7 +222,7 @@ void main() {
     expect(File(path).existsSync(), isTrue);
   });
 
-  test('explicit read-only rejects non-v17 without migrating it', () async {
+  test('explicit read-only rejects non-v18 without migrating it', () async {
     final path = p.join(tempDir.path, 'read_only_v16.db');
     final raw = await databaseFactory.openDatabase(path);
     try {

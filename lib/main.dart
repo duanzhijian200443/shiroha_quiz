@@ -4,7 +4,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:uuid/uuid.dart';
 
+import 'application/file_library/library_folder_service.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
 import 'application/projects/project_service.dart';
@@ -13,6 +15,7 @@ import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
 import 'data/repositories/library_file_repository.dart';
+import 'data/repositories/library_folder_repository.dart';
 import 'data/repositories/project_repository.dart';
 import 'data/repositories/question_repository.dart';
 import 'data/repositories/review_repository.dart';
@@ -101,6 +104,13 @@ void main() {
     final projectService = ProjectService(
       repository: SqliteProjectRepository(databaseHelper: databaseHelper),
     );
+    const uuid = Uuid();
+    final folderService = LibraryFolderService(
+      repository: SqliteLibraryFolderRepository(
+        databaseHelper: databaseHelper,
+      ),
+      folderIdFactory: uuid.v4,
+    );
     final questionRepository = QuestionRepository(
       databaseHelper: databaseHelper,
     );
@@ -108,6 +118,7 @@ void main() {
       projectService: projectService,
       fileRepository: libraryFileRepository,
       fileIngestion: fileIngestionService,
+      folderService: folderService,
       studyQueryService: StudyQueryService(
         questionQuery: questionRepository,
         metricsQuery: ReviewRepository(databaseHelper: databaseHelper),

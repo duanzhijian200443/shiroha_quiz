@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../application/study_query/study_query_dtos.dart';
+import '../../application/file_library/library_folder_repository.dart';
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 
@@ -143,7 +144,9 @@ class FileLibraryController extends ChangeNotifier {
 
   FileLibraryView view = FileLibraryView.all;
   List<LibraryFileSummary> files = const <LibraryFileSummary>[];
+  List<LibraryFolderSummary> folders = const <LibraryFolderSummary>[];
   List<LearningSpaceSummary> spaces = const <LearningSpaceSummary>[];
+  String? selectedFolderId;
   LibraryFileDetail? selectedDetail;
   bool isLoading = false;
   String query = '';
@@ -158,18 +161,96 @@ class FileLibraryController extends ChangeNotifier {
   }
 
   Future<void> load({FileLibraryView? nextView}) async {
-    if (nextView != null) view = nextView;
+    if (nextView != null) {
+      view = nextView;
+      selectedFolderId = null;
+    }
     isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
-      files = await facade.listLibraryFiles(view: view);
+      folders = await facade.listLibraryFolders();
+      final folderId = selectedFolderId;
+      files = folderId == null
+          ? await facade.listLibraryFiles(view: view)
+          : await facade.listFilesInLibraryFolder(folderId);
       spaces = await facade.listLearningSpaces();
     } catch (_) {
       errorMessage = '暂时无法读取文件库，请稍后重试';
     } finally {
       isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> selectFolder(String folderId) async {
+    selectedFolderId = folderId;
+    await load();
+  }
+
+  Future<LibraryFolderSummary?> createFolder(String displayName) async {
+    try {
+      final created = await facade.createLibraryFolder(displayName);
+      await load();
+      return created;
+    } catch (error) {
+      errorMessage = _folderError(error, action: '创建');
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<bool> renameFolder(String folderId, String displayName) async {
+    try {
+      await facade.renameLibraryFolder(
+        folderId: folderId,
+        displayName: displayName,
+      );
+      await load();
+      return true;
+    } catch (error) {
+      errorMessage = _folderError(error, action: '重命名');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteFolder(String folderId) async {
+    try {
+      await facade.deleteLibraryFolder(folderId);
+      if (selectedFolderId == folderId) {
+        selectedFolderId = null;
+        view = FileLibraryView.unclassified;
+      }
+      await load();
+      return true;
+    } catch (error) {
+      errorMessage = _folderError(error, action: '删除');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> moveFile({
+    required String fileId,
+    String? folderId,
+  }) async {
+    try {
+      if (folderId == null) {
+        await facade.removeLibraryFileFromFolder(fileId);
+      } else {
+        await facade.moveLibraryFileToFolder(
+          fileId: fileId,
+          folderId: folderId,
+        );
+      }
+      await load();
+      if (selectedDetail?.file.fileId == fileId) await select(fileId);
+      return true;
+    } catch (error) {
+      errorMessage = _folderError(error, action: '移动');
+      notifyListeners();
+      return false;
     }
   }
 
@@ -223,5 +304,21 @@ class FileLibraryController extends ChangeNotifier {
       errorMessage = '无法更新文件关联，请稍后重试';
       notifyListeners();
     }
+  }
+
+  String _folderError(Object error, {required String action}) {
+    if (error is LibraryFolderException) {
+      return switch (error.failure) {
+        LibraryFolderFailure.invalidName => '文件夹名称无效',
+        LibraryFolderFailure.duplicateName => '已存在同名文件夹',
+        LibraryFolderFailure.folderNotFound => '文件夹已不存在',
+        LibraryFolderFailure.fileNotFound => '文件已不存在',
+        LibraryFolderFailure.folderIdConflict ||
+        LibraryFolderFailure.dataCorrupt ||
+        LibraryFolderFailure.temporarilyUnavailable =>
+          '暂时无法$action文件夹，请稍后重试',
+      };
+    }
+    return '暂时无法$action文件夹，请稍后重试';
   }
 }

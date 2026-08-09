@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
 import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
@@ -9,8 +11,10 @@ import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
+import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
+import 'package:shiroha_quiz/ui/assistant/global_sidebar.dart';
 import 'package:shiroha_quiz/ui/assistant/learning_spaces_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart'
     show workspaceSafeError;
@@ -48,6 +52,74 @@ final class _Ingestion implements FileIngestionPort {
   }) {
     throw UnimplementedError();
   }
+}
+
+final class _Folders extends Fake implements LibraryFolderRepositoryPort {
+  _Folders(this.files);
+
+  final _Files files;
+  final Map<String, LibraryFolder> values = <String, LibraryFolder>{};
+  final Map<String, String> memberships = <String, String>{};
+
+  @override
+  Future<void> createFolder(LibraryFolder folder) async {
+    values[folder.folderId] = folder;
+  }
+
+  @override
+  Future<List<LibraryFolder>> listFolders() async => values.values.toList();
+
+  @override
+  Future<LibraryFolder?> findFolder(String folderId) async => values[folderId];
+
+  @override
+  Future<LibraryFolder> renameFolder({
+    required String folderId,
+    required String displayName,
+  }) async {
+    final old = values[folderId]!;
+    return values[folderId] = LibraryFolder(
+      folderId: folderId,
+      displayName: displayName,
+      createdAt: old.createdAt,
+    );
+  }
+
+  @override
+  Future<void> deleteFolder(String folderId) async {
+    values.remove(folderId);
+    memberships.removeWhere((_, value) => value == folderId);
+  }
+
+  @override
+  Future<LibraryFolder?> getFolderForFile(String fileId) async {
+    final folderId = memberships[fileId];
+    return folderId == null ? null : values[folderId];
+  }
+
+  @override
+  Future<void> moveFileToFolder({
+    required String fileId,
+    required String folderId,
+  }) async {
+    memberships[fileId] = folderId;
+  }
+
+  @override
+  Future<void> removeFileFromFolder(String fileId) async {
+    memberships.remove(fileId);
+  }
+
+  @override
+  Future<List<LibraryFile>> listFilesInFolder(String folderId) async =>
+      files.values.values
+          .where((file) => memberships[file.fileId] == folderId)
+          .toList();
+
+  @override
+  Future<List<LibraryFile>> listUnclassifiedFiles() async => files.values.values
+      .where((file) => !memberships.containsKey(file.fileId))
+      .toList();
 }
 
 final class _Projects extends Fake implements ProjectRepository {
@@ -169,7 +241,11 @@ final class _QuestionPort extends Fake implements StudyQuestionQueryPort {
 
 final class _Metrics extends Fake implements StudyMetricsQueryPort {}
 
-U1WorkspaceFacade _facade({_Files? files, _Projects? projects}) {
+U1WorkspaceFacade _facade({
+  _Files? files,
+  _Projects? projects,
+  _Folders? folders,
+}) {
   final resolvedFiles = files ?? _Files();
   resolvedFiles.values['file-notes'] = LibraryFile(
     fileId: 'file-notes',
@@ -181,6 +257,13 @@ U1WorkspaceFacade _facade({_Files? files, _Projects? projects}) {
     createdAt: DateTime.utc(2026, 8, 9),
   );
   final resolvedProjects = projects ?? _Projects();
+  final resolvedFolders = folders ?? _Folders(resolvedFiles);
+  resolvedFolders.values['folder-papers'] = LibraryFolder(
+    folderId: 'folder-papers',
+    displayName: '论文',
+    createdAt: DateTime.utc(2026, 8, 9),
+  );
+  resolvedFolders.memberships['file-notes'] = 'folder-papers';
   resolvedProjects.projects['project-deep'] = Project(
     projectId: 'project-deep',
     displayName: '深度学习',
@@ -195,6 +278,10 @@ U1WorkspaceFacade _facade({_Files? files, _Projects? projects}) {
     ),
     fileRepository: resolvedFiles,
     fileIngestion: _Ingestion(),
+    folderService: LibraryFolderService(
+      repository: resolvedFolders,
+      folderIdFactory: () => 'folder-created',
+    ),
     studyQueryService: StudyQueryService(
       questionQuery: _QuestionPort(),
       metricsQuery: _Metrics(),
@@ -235,7 +322,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(FileLibraryWorkspace), findsOneWidget);
     expect(find.text('notes.md'), findsOneWidget);
-    expect(find.text('文件夹（后续版本）'), findsOneWidget);
+    expect(find.text('论文'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('u1-ux01-file-file-notes')),
@@ -264,6 +351,135 @@ void main() {
     expect(find.text('已配置 / 可用'), findsOneWidget);
     expect(find.text('Local stdio'), findsOneWidget);
     expect(find.textContaining('不代表'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Folder local navigation supports CRUD, move, and safe delete',
+      (tester) async {
+    final files = _Files();
+    final folders = _Folders(files);
+    final facade = _facade(files: files, folders: folders);
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: AssistantWorkspaceShell(facade: facade),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(GlobalSidebar),
+        matching: find.text('论文'),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-folder-folder-papers')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('notes.md'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-move-file-file-notes')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-move-unclassified')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('notes.md'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-view-unclassified')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('notes.md'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-create-folder')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('f0-1-folder-name-input')),
+      '新资料',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-folder-name-save')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('新资料'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-folder-menu-folder-created')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重命名').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('f0-1-folder-name-input')),
+      '重命名资料',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-folder-name-save')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('重命名资料'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-folder-menu-folder-papers')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('删除文件夹不会删除其中的文件，文件将移动到“未分类”。'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('f0-1-confirm-delete-folder')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('f0-1-folder-folder-papers')),
+      findsNothing,
+    );
+    expect(find.text('notes.md'), findsOneWidget);
+  });
+
+  testWidgets('mobile File Library keeps Folder in local navigation',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: AssistantWorkspaceShell(facade: _facade()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('f0-1-mobile-folder-section')),
+      findsOneWidget,
+    );
+    expect(find.text('论文'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

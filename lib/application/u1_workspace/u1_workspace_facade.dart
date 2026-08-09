@@ -1,8 +1,10 @@
 library;
 
 import '../../domain/assets/library_file.dart';
+import '../../domain/assets/library_folder.dart';
 import '../../domain/projects/project.dart';
 import '../file_library/file_library_ports.dart';
+import '../file_library/library_folder_service.dart';
 import '../projects/project_service.dart';
 import '../study_query/study_query_dtos.dart';
 import '../study_query/study_query_service.dart';
@@ -14,11 +16,13 @@ final class U1WorkspaceFacade {
     required ProjectService projectService,
     required LibraryFileRepositoryPort fileRepository,
     required FileIngestionPort fileIngestion,
+    required LibraryFolderService folderService,
     required StudyQueryService studyQueryService,
     required this.mcpProjection,
   })  : _projectService = projectService,
         _fileRepository = fileRepository,
         _fileIngestion = fileIngestion,
+        _folderService = folderService,
         _studyQueryService = studyQueryService;
 
   static const int recentFileLimit = 20;
@@ -26,6 +30,7 @@ final class U1WorkspaceFacade {
   final ProjectService _projectService;
   final LibraryFileRepositoryPort _fileRepository;
   final FileIngestionPort _fileIngestion;
+  final LibraryFolderService _folderService;
   final StudyQueryService _studyQueryService;
   final McpWorkspaceProjection mcpProjection;
 
@@ -106,6 +111,14 @@ final class U1WorkspaceFacade {
   Future<List<LibraryFileSummary>> listLibraryFiles({
     FileLibraryView view = FileLibraryView.all,
   }) async {
+    if (view == FileLibraryView.unclassified) {
+      final unclassified = <LibraryFileSummary>[
+        for (final file in await _folderService.listUnclassifiedFiles())
+          _fileSummary(file),
+      ]..sort(_newestFileFirst);
+      return List<LibraryFileSummary>.unmodifiable(unclassified);
+    }
+
     final files = <LibraryFileSummary>[
       for (final file in await _fileRepository.findAll()) _fileSummary(file),
     ]..sort(_newestFileFirst);
@@ -118,20 +131,58 @@ final class U1WorkspaceFacade {
           files.take(recentFileLimit),
         );
       case FileLibraryView.unclassified:
-        final unclassified = <LibraryFileSummary>[];
-        for (final file in files) {
-          if ((await _projectService.listProjectIdsForFile(file.fileId))
-              .isEmpty) {
-            unclassified.add(file);
-          }
-        }
-        return List<LibraryFileSummary>.unmodifiable(unclassified);
+        throw StateError('Unreachable File Library view.');
     }
   }
+
+  Future<List<LibraryFolderSummary>> listLibraryFolders() async {
+    return List<LibraryFolderSummary>.unmodifiable(
+      (await _folderService.listFolders()).map(_folderSummary),
+    );
+  }
+
+  Future<LibraryFolderSummary> createLibraryFolder(String displayName) async {
+    return _folderSummary(await _folderService.createFolder(displayName));
+  }
+
+  Future<LibraryFolderSummary> renameLibraryFolder({
+    required String folderId,
+    required String displayName,
+  }) async {
+    return _folderSummary(
+      await _folderService.renameFolder(
+        folderId: folderId,
+        displayName: displayName,
+      ),
+    );
+  }
+
+  Future<void> deleteLibraryFolder(String folderId) =>
+      _folderService.deleteFolder(folderId);
+
+  Future<List<LibraryFileSummary>> listFilesInLibraryFolder(
+    String folderId,
+  ) async {
+    final files = <LibraryFileSummary>[
+      for (final file in await _folderService.listFilesInFolder(folderId))
+        _fileSummary(file),
+    ]..sort(_newestFileFirst);
+    return List<LibraryFileSummary>.unmodifiable(files);
+  }
+
+  Future<void> moveLibraryFileToFolder({
+    required String fileId,
+    required String folderId,
+  }) =>
+      _folderService.moveFileToFolder(fileId: fileId, folderId: folderId);
+
+  Future<void> removeLibraryFileFromFolder(String fileId) =>
+      _folderService.removeFileFromFolder(fileId);
 
   Future<LibraryFileDetail?> getLibraryFileDetail(String fileId) async {
     final file = await _fileRepository.findById(fileId);
     if (file == null) return null;
+    final folder = await _folderService.getFolderForFile(fileId);
     final relatedIds =
         (await _projectService.listProjectIdsForFile(fileId)).toSet();
     final relatedSpaces = (await listLearningSpaces())
@@ -139,6 +190,7 @@ final class U1WorkspaceFacade {
         .toList(growable: false);
     return LibraryFileDetail(
       file: _fileSummary(file),
+      folder: folder == null ? null : _folderSummary(folder),
       relatedSpaces: List<LearningSpaceSummary>.unmodifiable(relatedSpaces),
     );
   }
@@ -175,7 +227,13 @@ final class U1WorkspaceFacade {
   }
 
   Future<UnclassifiedAssets> getUnclassifiedAssets() async {
-    final files = await listLibraryFiles(view: FileLibraryView.unclassified);
+    final files = <LibraryFileSummary>[];
+    for (final file in await _fileRepository.findAll()) {
+      if ((await _projectService.listProjectIdsForFile(file.fileId)).isEmpty) {
+        files.add(_fileSummary(file));
+      }
+    }
+    files.sort(_newestFileFirst);
     final banks = <QuestionBankSummary>[];
     for (final bank in await listQuestionBanks()) {
       if ((await _projectService.listProjectIdsForBank(bank.bankName))
@@ -184,7 +242,7 @@ final class U1WorkspaceFacade {
       }
     }
     return UnclassifiedAssets(
-      files: files,
+      files: List<LibraryFileSummary>.unmodifiable(files),
       banks: List<QuestionBankSummary>.unmodifiable(banks),
     );
   }
@@ -249,6 +307,14 @@ final class U1WorkspaceFacade {
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
       createdAt: file.createdAt,
+    );
+  }
+
+  static LibraryFolderSummary _folderSummary(LibraryFolder folder) {
+    return LibraryFolderSummary(
+      folderId: folder.folderId,
+      displayName: folder.displayName,
+      createdAt: folder.createdAt,
     );
   }
 

@@ -94,8 +94,9 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v17**: the frozen v15 typed sidecar remains
-   authoritative, with the additive v16 File Library and v17 Project tables.
+9. Current database schema is **v18**: the frozen v15 typed sidecar remains
+   authoritative, with the additive v16 File Library, v17 Project, and v18
+   flat File Library Folder tables.
 
 ## 4. Learning asset expansion boundary
 
@@ -122,6 +123,11 @@ Rules:
 - Formal question/review data must survive artifact cache replacement/removal.
 - `Project` is an optional organization/context layer. Assets may exist with no Project.
 - Projects reference files/banks; they do not own or duplicate original file bytes.
+- A File Library Folder is a flat, optional manual classification for
+  `LibraryFile` only. One file has at most one Folder, while Project/Learning
+  Space relations remain independently many-to-many.
+- Folder deletion removes Folder membership only; the `LibraryFile`, managed
+  bytes, Project relations, banks, questions, sidecars, and review state remain.
 - Existing subject/folder structures remain compatibility/product concepts until a separately authorized migration changes them.
 - Bank identity is a J0 prerequisite decision. N0 does not introduce `bank_registry` or change current bank persistence.
 

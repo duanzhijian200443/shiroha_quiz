@@ -31,7 +31,10 @@ class FileLibraryWorkspace extends StatelessWidget {
       displayName: selected.name,
     );
     if (context.mounted) {
-      _feedback(context, success ? '文件已添加到文件库' : controller.errorMessage!);
+      _feedback(
+        context,
+        success ? '文件已添加到“未分类”' : controller.errorMessage!,
+      );
     }
   }
 
@@ -98,22 +101,38 @@ class _FileFilters extends StatelessWidget {
       (FileLibraryView.unclassified, '未归类', Icons.inbox_outlined),
     ];
     if (compact) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-        child: Row(
-          children: [
-            for (final choice in choices)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(choice.$2),
-                  selected: controller.view == choice.$1,
-                  onSelected: (_) => controller.load(nextView: choice.$1),
-                ),
-              ),
-          ],
-        ),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Row(
+              children: [
+                for (final choice in choices)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      key: ValueKey<String>(
+                        'f0-1-view-${choice.$1.name}',
+                      ),
+                      label: Text(choice.$2),
+                      selected: controller.selectedFolderId == null &&
+                          controller.view == choice.$1,
+                      onSelected: (_) => controller.load(nextView: choice.$1),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          ExpansionTile(
+            key: const ValueKey<String>('f0-1-mobile-folder-section'),
+            initiallyExpanded: true,
+            leading: const Icon(Icons.folder_outlined),
+            title: const Text('文件夹'),
+            children: _folderTiles(context),
+          ),
+        ],
       );
     }
     return Material(
@@ -123,20 +142,58 @@ class _FileFilters extends StatelessWidget {
         children: [
           for (final choice in choices)
             ListTile(
-              selected: controller.view == choice.$1,
+              key: ValueKey<String>('f0-1-view-${choice.$1.name}'),
+              selected: controller.selectedFolderId == null &&
+                  controller.view == choice.$1,
               leading: Icon(choice.$3),
               title: Text(choice.$2),
               onTap: () => controller.load(nextView: choice.$1),
             ),
           const Divider(),
           const ListTile(
-            enabled: false,
-            leading: Icon(Icons.create_new_folder_outlined),
-            title: Text('文件夹（后续版本）'),
+            dense: true,
+            title: Text(
+              '文件夹',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
+          ..._folderTiles(context),
         ],
       ),
     );
+  }
+
+  List<Widget> _folderTiles(BuildContext context) {
+    return <Widget>[
+      for (final folder in controller.folders)
+        ListTile(
+          key: ValueKey<String>('f0-1-folder-${folder.folderId}'),
+          selected: controller.selectedFolderId == folder.folderId,
+          leading: const Icon(Icons.folder_outlined),
+          title: Text(folder.displayName),
+          onTap: () => controller.selectFolder(folder.folderId),
+          trailing: PopupMenuButton<String>(
+            key: ValueKey<String>('f0-1-folder-menu-${folder.folderId}'),
+            onSelected: (action) async {
+              if (action == 'rename') {
+                await _renameFolder(context, controller, folder);
+              } else if (action == 'delete') {
+                await _deleteFolder(context, controller, folder);
+              }
+            },
+            itemBuilder: (_) => const <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(value: 'rename', child: Text('重命名')),
+              PopupMenuItem<String>(value: 'delete', child: Text('删除')),
+            ],
+          ),
+        ),
+      ListTile(
+        key: const ValueKey<String>('f0-1-create-folder'),
+        leading: const Icon(Icons.create_new_folder_outlined),
+        title: const Text('新建文件夹'),
+        onTap: () => _createFolder(context, controller),
+      ),
+    ];
   }
 }
 
@@ -189,7 +246,18 @@ class _FileLibraryContent extends StatelessWidget {
                         subtitle: Text(
                           '${file.mimeType} · ${_size(file.sizeBytes)} · ${_date(file.createdAt)}',
                         ),
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: IconButton(
+                          key: ValueKey<String>(
+                            'f0-1-move-file-${file.fileId}',
+                          ),
+                          tooltip: '移动到文件夹',
+                          onPressed: () => _moveFile(
+                            context,
+                            controller,
+                            file.fileId,
+                          ),
+                          icon: const Icon(Icons.drive_file_move_outlined),
+                        ),
                         onTap: () async {
                           await controller.select(file.fileId);
                           if (!context.mounted ||
@@ -257,6 +325,13 @@ class _FileDetailScreen extends StatelessWidget {
                 ListTile(
                     title: const Text('添加时间'),
                     subtitle: Text(_date(detail.file.createdAt))),
+                ListTile(
+                  key: const ValueKey<String>('f0-1-file-folder-detail'),
+                  title: const Text('文件夹'),
+                  subtitle: Text(detail.folder?.displayName ?? '未分类'),
+                  trailing: const Icon(Icons.drive_file_move_outlined),
+                  onTap: () => _moveFile(context, controller, fileId),
+                ),
                 const Divider(height: 30),
                 Text(
                   '关联学习空间',
@@ -705,4 +780,135 @@ void _feedback(BuildContext context, String message) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+Future<String?> _folderNameDialog(
+  BuildContext context, {
+  required String title,
+  String initialValue = '',
+}) async {
+  var input = initialValue;
+  final result = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: TextFormField(
+        key: const ValueKey<String>('f0-1-folder-name-input'),
+        initialValue: initialValue,
+        autofocus: true,
+        maxLength: 100,
+        onChanged: (value) => input = value,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('f0-1-folder-name-save'),
+          onPressed: () => Navigator.pop(dialogContext, input),
+          child: const Text('保存'),
+        ),
+      ],
+    ),
+  );
+  return result;
+}
+
+Future<void> _createFolder(
+  BuildContext context,
+  FileLibraryController controller,
+) async {
+  final name = await _folderNameDialog(context, title: '新建文件夹');
+  if (name == null || !context.mounted) return;
+  final created = await controller.createFolder(name);
+  if (!context.mounted) return;
+  if (created == null) {
+    _feedback(context, controller.errorMessage!);
+  } else {
+    _feedback(context, '文件夹已创建');
+  }
+}
+
+Future<void> _renameFolder(
+  BuildContext context,
+  FileLibraryController controller,
+  LibraryFolderSummary folder,
+) async {
+  final name = await _folderNameDialog(
+    context,
+    title: '重命名文件夹',
+    initialValue: folder.displayName,
+  );
+  if (name == null || !context.mounted) return;
+  final success = await controller.renameFolder(folder.folderId, name);
+  if (!context.mounted) return;
+  _feedback(context, success ? '文件夹已重命名' : controller.errorMessage!);
+}
+
+Future<void> _deleteFolder(
+  BuildContext context,
+  FileLibraryController controller,
+  LibraryFolderSummary folder,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('删除文件夹？'),
+      content: const Text('删除文件夹不会删除其中的文件，文件将移动到“未分类”。'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('f0-1-confirm-delete-folder'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('删除'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  final success = await controller.deleteFolder(folder.folderId);
+  if (!context.mounted) return;
+  _feedback(context, success ? '文件夹已删除' : controller.errorMessage!);
+}
+
+Future<void> _moveFile(
+  BuildContext context,
+  FileLibraryController controller,
+  String fileId,
+) async {
+  final folderId = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          const ListTile(title: Text('移动到文件夹')),
+          ListTile(
+            key: const ValueKey<String>('f0-1-move-unclassified'),
+            leading: const Icon(Icons.inbox_outlined),
+            title: const Text('未分类'),
+            onTap: () => Navigator.pop(sheetContext, ''),
+          ),
+          for (final folder in controller.folders)
+            ListTile(
+              key: ValueKey<String>('f0-1-move-${folder.folderId}'),
+              leading: const Icon(Icons.folder_outlined),
+              title: Text(folder.displayName),
+              onTap: () => Navigator.pop(sheetContext, folder.folderId),
+            ),
+        ],
+      ),
+    ),
+  );
+  if (folderId == null || !context.mounted) return;
+  final success = await controller.moveFile(
+    fileId: fileId,
+    folderId: folderId.isEmpty ? null : folderId,
+  );
+  if (!context.mounted) return;
+  _feedback(context, success ? '文件分类已更新' : controller.errorMessage!);
 }

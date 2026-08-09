@@ -40,6 +40,18 @@ final class LibraryFileSummary {
   final DateTime createdAt;
 }
 
+final class LibraryFolderSummary {
+  const LibraryFolderSummary({
+    required this.folderId,
+    required this.displayName,
+    required this.createdAt,
+  });
+
+  final String folderId;
+  final String displayName;
+  final DateTime createdAt;
+}
+
 final class LearningSpaceSummary {
   const LearningSpaceSummary({
     required this.projectId,
@@ -83,10 +95,12 @@ final class LearningSpaceDetail {
 final class LibraryFileDetail {
   const LibraryFileDetail({
     required this.file,
+    required this.folder,
     required this.relatedSpaces,
   });
 
   final LibraryFileSummary file;
+  final LibraryFolderSummary? folder;
   final List<LearningSpaceSummary> relatedSpaces;
 }
 
