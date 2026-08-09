@@ -363,13 +363,31 @@ Model/provider selection and closure routing are defined in `docs/agents/model-r
 
 ---
 
-## 14. Architecture-document hygiene
+## 14. Canonical contract and review-history discipline
 
-`docs/architecture/` describes the **current contract and invariant**, not agent execution history.
+A canonical document is the current authoritative contract for one product or architecture domain: it records what current and future agents must believe. It is not a development log, Reviewer-findings dump, test report, substitute for Git history, or ordinary TODO list.
 
-Do not append commit SHAs, per-run test counts, temporary Reviewer findings, repair chronology, model identity, or handoff transcripts to architecture documents. Keep those in PR descriptions/reviews/CI evidence.
+Before planning a new stage or work that may change a durable contract:
 
-When a repair changes the current contract description, update the existing relevant section instead of appending another historical repair section.
+1. the Planner identifies the canonical documents relevant to the task boundary;
+2. only those relevant canonical documents are read; a full `docs/` scan is not required;
+3. the plan states whether the task preserves the current contract or changes durable contract truth and, if it changes truth, exactly which canonical documents must be updated.
+
+Role responsibilities:
+
+- **Executor:** when implementation preserves the durable contract, do not edit canonical documents merely for completeness. When implementation changes an authorized durable contract, update the affected canonical documents in the same change. Preserve historical truth: use an amendment, status update, or superseding document when needed rather than rewriting history as though a later decision always existed.
+- **Reviewer:** check implementation against the relevant canonical contract. Report implementation/contract drift and report an authorized durable contract change whose canonical documents were not updated. Do not require a routine bug fix to create or edit a canonical document without a durable contract change.
+- **Verifier:** verify code, documentation, and tests against the already-frozen contract; do not redesign or reinterpret the canonical contract.
+
+Durable contract changes include product IA/navigation/terminology, domain ownership or lifecycle semantics, application/module dependency boundaries, persisted-schema semantics, Agent/MCP permission or public contracts, canonical roadmap/stage status, and other long-lived decisions that affect future correct implementation. Routine bug fixes, ordinary copy changes, local UI polish, behavior-preserving internal refactors, tests alone, format/lint, one-off P3 findings, and per-run verification results do not update canonical documents by default.
+
+Reviews record what an inspection found. When a formal finding disposition is useful, use the existing review context and concise states such as `OPEN`, `FIXED`, `DEFERRED`, `NOT_ACTIONED — intentional`, or `BLOCKED`; do not create a second workflow state machine. Findings normally remain in GitHub PR review/discussion or an established repository review artifact. Do not require `docs/reviews/*.md` for each small task. Create a standalone review document only when an established stage-review convention applies or the work has durable audit value such as schema, architecture, or a major stage.
+
+Canonical documents contain only the durable rule distilled from a decision or review. Do not copy a complete Reviewer report into them. If an intentional distinction is likely to be mistakenly changed again, record that enduring semantic distinction in the relevant canonical document and keep the inspection disposition in review history.
+
+`docs/architecture/` describes the **current contract and invariant**, not agent execution history. Do not append commit SHAs, per-run test counts, temporary Reviewer findings, repair chronology, model identity, or handoff transcripts to architecture documents. Keep those in PR descriptions/reviews/CI evidence. When a change updates current contract truth, edit the existing relevant section or use an explicit amendment/status/superseding document when historical provenance must remain visible.
+
+**Canonical documents record current truth; reviews record inspection history; Git records implementation history.**
 
 ---
 
