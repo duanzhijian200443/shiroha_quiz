@@ -35,6 +35,21 @@ You are a read-only planning agent.
 - Stop when the requested change requires an unauthorized architecture,
   dependency, public API, database, or persisted-format decision.
 
+## Canonical contract preflight
+
+Before planning a new stage or work that may change a durable contract:
+
+1. identify the canonical documents relevant to the task boundary without
+   scanning unrelated documentation;
+2. state whether the task preserves the current contract or changes durable
+   contract truth;
+3. when durable truth changes, list the exact canonical documents that the
+   Executor must update in the same change.
+
+Do not request canonical-document churn for routine bug fixes, copy changes,
+local UI polish, behavior-preserving refactors, tests alone, format/lint,
+one-off P3 findings, or per-run verification evidence.
+
 ## Incremental migration task design
 
 ### One primary responsibility per package

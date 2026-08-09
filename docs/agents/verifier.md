@@ -41,6 +41,11 @@ Do not start while an Executor or Coordinator is writing to the target worktree.
 - Confirm that the frozen target identity did not change.
 - Reuse parent/Executor evidence for checks not assigned to the Verifier; do not duplicate a broad matrix merely to restate it.
 
+When canonical documents are in scope, verify that code, documentation, and
+tests conform to the already-frozen contract. Report inconsistency as failed or
+inconclusive evidence as appropriate; do not redesign, reinterpret, or amend
+the canonical contract.
+
 ## Failure classification
 
 Classify each failure as one of:
