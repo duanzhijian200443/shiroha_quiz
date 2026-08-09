@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'u1_ux0_global_sidebar.dart';
-import 'u1_ux0_mock_pages.dart';
-import 'u1_ux0_workspace_controller.dart';
-import 'u1_ux0_workspace_pages.dart';
+import 'global_sidebar.dart';
+import 'learning_spaces_screen.dart';
+import 'workspace_controller.dart';
+import 'workspace_pages.dart';
 
-/// Disposable Assistant conversation surface for the U1-UX0 spikes.
-class U1Ux0AssistantScreen extends StatefulWidget {
-  const U1Ux0AssistantScreen({
+/// Shiroha conversation presentation shell.
+class AssistantScreen extends StatefulWidget {
+  const AssistantScreen({
     super.key,
     required this.spacesController,
     required this.fileController,
@@ -19,10 +19,10 @@ class U1Ux0AssistantScreen extends StatefulWidget {
   final bool showGlobalMenu;
 
   @override
-  State<U1Ux0AssistantScreen> createState() => _U1Ux0AssistantScreenState();
+  State<AssistantScreen> createState() => _AssistantScreenState();
 }
 
-class _U1Ux0AssistantScreenState extends State<U1Ux0AssistantScreen> {
+class _AssistantScreenState extends State<AssistantScreen> {
   final TextEditingController _composerController = TextEditingController();
   final List<_MockContextItem> _selectedContexts = <_MockContextItem>[];
   String? _currentProjectId;
@@ -55,7 +55,7 @@ class _U1Ux0AssistantScreenState extends State<U1Ux0AssistantScreen> {
       _selectedContexts.clear();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _feedback('已开始一段新的 mock 对话');
+      if (mounted) _feedback('已开始一段新的对话预览');
     });
   }
 
@@ -125,7 +125,7 @@ class _U1Ux0AssistantScreenState extends State<U1Ux0AssistantScreen> {
                   Navigator.pop(sheetContext);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => U1Ux0LearningSpacesScreen(
+                      builder: (_) => LearningSpacesScreen(
                         controller: widget.spacesController,
                         fileController: widget.fileController,
                       ),
@@ -174,7 +174,7 @@ class _U1Ux0AssistantScreenState extends State<U1Ux0AssistantScreen> {
     await widget.spacesController.select(projectId);
     if (!mounted) return;
     _pushFromDrawer(
-      U1Ux0LearningSpaceHomeWorkspace(
+      LearningSpaceHomeWorkspace(
         controller: widget.spacesController,
         fileController: widget.fileController,
         projectId: projectId,
@@ -188,24 +188,24 @@ class _U1Ux0AssistantScreenState extends State<U1Ux0AssistantScreen> {
       _feedback('先写下你想问 Shiroha 的问题');
       return;
     }
-    _feedback('UI Spike 不会发送或保存消息');
+    _feedback('当前版本暂不支持发送或保存消息');
     _composerController.clear();
   }
 
   Drawer? _buildDrawer() {
     if (!widget.showGlobalMenu) return null;
     return Drawer(
-      child: U1Ux01GlobalSidebar(
+      child: GlobalSidebar(
         controller: widget.spacesController,
         onNewConversation: _startNewConversation,
-        onOpenFileLibrary: () => _pushFromDrawer(U1Ux0FileLibraryWorkspace(
+        onOpenFileLibrary: () => _pushFromDrawer(FileLibraryWorkspace(
           controller: widget.fileController,
         )),
-        onOpenLearningSpaces: () => _pushFromDrawer(U1Ux0LearningSpacesScreen(
+        onOpenLearningSpaces: () => _pushFromDrawer(LearningSpacesScreen(
           controller: widget.spacesController,
           fileController: widget.fileController,
         )),
-        onOpenMcp: () => _pushFromDrawer(U1Ux0McpWorkspace(
+        onOpenMcp: () => _pushFromDrawer(McpWorkspace(
           projection: widget.spacesController.mcpProjection,
         )),
         onOpenConversation: _openConversation,
@@ -305,7 +305,7 @@ class _U1Ux0AssistantScreenState extends State<U1Ux0AssistantScreen> {
                       Text(
                         _activeConversation == null
                             ? '从一个问题开始，或试试下面的建议'
-                            : '这是静态 mock 对话，不会调用 Agent runtime',
+                            : '这是对话界面预览，当前版本不会发送或保存消息',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colors.onSurfaceVariant,
@@ -430,7 +430,7 @@ class _AssistantInsightCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '示例数据（mock）',
+                  '示例数据',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colors.onSurfaceVariant,
                   ),
@@ -440,11 +440,11 @@ class _AssistantInsightCard extends StatelessWidget {
                   spacing: 8,
                   children: [
                     OutlinedButton(
-                      onPressed: () => _mockFeedback(context, '查看错题仅为 mock 反馈'),
+                      onPressed: () => _mockFeedback(context, '当前版本暂未接入查看错题'),
                       child: const Text('查看错题'),
                     ),
                     FilledButton.tonal(
-                      onPressed: () => _mockFeedback(context, '开始训练仅为 mock 反馈'),
+                      onPressed: () => _mockFeedback(context, '当前版本暂未接入开始训练'),
                       child: const Text('开始训练'),
                     ),
                   ],

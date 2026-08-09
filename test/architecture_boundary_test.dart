@@ -672,12 +672,12 @@ import '../../domain/content/content_node.dart'
     test('U1 presentation depends only on its application facade', () {
       const u1Paths = <String>[
         'lib/ui/pages/main_screen.dart',
-        'lib/ui/spikes/u1_ux0/u1_ux0_assistant_screen.dart',
-        'lib/ui/spikes/u1_ux0/u1_ux0_global_sidebar.dart',
-        'lib/ui/spikes/u1_ux0/u1_ux0_mock_pages.dart',
-        'lib/ui/spikes/u1_ux0/u1_ux0_workspace_controller.dart',
-        'lib/ui/spikes/u1_ux0/u1_ux0_workspace_pages.dart',
-        'lib/ui/spikes/u1_ux0/u1_ux0_workspace_shell.dart',
+        'lib/ui/assistant/assistant_screen.dart',
+        'lib/ui/assistant/assistant_workspace_shell.dart',
+        'lib/ui/assistant/global_sidebar.dart',
+        'lib/ui/assistant/learning_spaces_screen.dart',
+        'lib/ui/assistant/workspace_controller.dart',
+        'lib/ui/assistant/workspace_pages.dart',
       ];
       const forbidden = <String>[
         'DatabaseHelper',

@@ -82,7 +82,8 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('App exposes the U1-UX0 candidate navigation and selected state',
+  testWidgets(
+      'App exposes the canonical Assistant navigation and selected state',
       (WidgetTester tester) async {
     final engineRepository = AiEngineRepository(store: DatabaseHelper.instance);
     final taskManager = TaskManager.forTesting();

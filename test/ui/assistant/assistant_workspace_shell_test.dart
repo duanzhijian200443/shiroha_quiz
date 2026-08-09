@@ -10,11 +10,11 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
-import 'package:shiroha_quiz/ui/spikes/u1_ux0/u1_ux0_mock_pages.dart';
-import 'package:shiroha_quiz/ui/spikes/u1_ux0/u1_ux0_workspace_controller.dart'
-    show u1WorkspaceSafeError;
-import 'package:shiroha_quiz/ui/spikes/u1_ux0/u1_ux0_workspace_pages.dart';
-import 'package:shiroha_quiz/ui/spikes/u1_ux0/u1_ux0_workspace_shell.dart';
+import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
+import 'package:shiroha_quiz/ui/assistant/learning_spaces_screen.dart';
+import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart'
+    show workspaceSafeError;
+import 'package:shiroha_quiz/ui/assistant/workspace_pages.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
@@ -223,7 +223,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.darkTheme,
-        home: U1Ux01WorkspaceShell(facade: _facade()),
+        home: AssistantWorkspaceShell(facade: _facade()),
       ),
     );
     await tester.pumpAndSettle();
@@ -233,7 +233,7 @@ void main() {
       find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
     );
     await tester.pumpAndSettle();
-    expect(find.byType(U1Ux0FileLibraryWorkspace), findsOneWidget);
+    expect(find.byType(FileLibraryWorkspace), findsOneWidget);
     expect(find.text('notes.md'), findsOneWidget);
     expect(find.text('文件夹（后续版本）'), findsOneWidget);
 
@@ -260,7 +260,7 @@ void main() {
       find.byKey(const ValueKey<String>('u1-ux01-open-mcp')),
     );
     await tester.pumpAndSettle();
-    expect(find.byType(U1Ux0McpWorkspace), findsOneWidget);
+    expect(find.byType(McpWorkspace), findsOneWidget);
     expect(find.text('已配置 / 可用'), findsOneWidget);
     expect(find.text('Local stdio'), findsOneWidget);
     expect(find.textContaining('不代表'), findsOneWidget);
@@ -274,7 +274,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
-        home: U1Ux01WorkspaceShell(facade: _facade()),
+        home: AssistantWorkspaceShell(facade: _facade()),
       ),
     );
     await tester.pumpAndSettle();
@@ -288,7 +288,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(U1Ux0LearningSpacesScreen), findsOneWidget);
+    expect(find.byType(LearningSpacesScreen), findsOneWidget);
     expect(find.text('未归类内容'), findsOneWidget);
     expect(find.text('按旧分类浏览'), findsOneWidget);
     expect(find.text('2 个题库 · 1 个文件'), findsOneWidget);
@@ -304,7 +304,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.darkTheme,
-        home: U1Ux01WorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(facade: facade),
       ),
     );
     await tester.pumpAndSettle();
@@ -319,7 +319,7 @@ void main() {
       find.byKey(const ValueKey<String>('u1-ux0-error-state')),
       findsOneWidget,
     );
-    expect(find.text(u1WorkspaceSafeError), findsWidgets);
+    expect(find.text(workspaceSafeError), findsWidgets);
 
     projects.failReads = false;
     await tester.tap(
@@ -346,7 +346,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
-        home: U1Ux01WorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(facade: facade),
       ),
     );
     await tester.pumpAndSettle();
@@ -370,7 +370,7 @@ void main() {
       find.byKey(const ValueKey<String>('u1-ux0-error-state')),
       findsOneWidget,
     );
-    expect(find.text(u1WorkspaceSafeError), findsOneWidget);
+    expect(find.text(workspaceSafeError), findsOneWidget);
 
     projects.failReads = false;
     await tester.tap(
@@ -404,7 +404,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.darkTheme,
-        home: U1Ux01WorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(facade: facade),
       ),
     );
     await tester.pumpAndSettle();

@@ -4,7 +4,7 @@ import 'home_page.dart';
 import 'mock_center_screen.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
-import '../spikes/u1_ux0/u1_ux0_workspace_shell.dart';
+import '../assistant/assistant_workspace_shell.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key, required this.u1WorkspaceFacade});
@@ -22,8 +22,7 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       const HomePage(), // Tab 0
-      // U1-UX0 spike only. Restore DataCenterScreen here to revert the IA.
-      U1Ux01WorkspaceShell(facade: widget.u1WorkspaceFacade), // Tab 1
+      AssistantWorkspaceShell(facade: widget.u1WorkspaceFacade), // Tab 1
       const MockCenterScreen(), // Tab 2 — 模考中心
       ProfileScreen(engineRepository: dependencies.engineRepository), // Tab 3
     ];

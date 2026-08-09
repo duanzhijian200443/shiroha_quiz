@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../application/study_query/study_query_dtos.dart';
-import '../../../application/u1_workspace/u1_workspace_dtos.dart';
-import '../../../application/u1_workspace/u1_workspace_facade.dart';
+import '../../application/study_query/study_query_dtos.dart';
+import '../../application/u1_workspace/u1_workspace_dtos.dart';
+import '../../application/u1_workspace/u1_workspace_facade.dart';
 
-const String u1WorkspaceSafeError = '暂时无法读取学习空间数据，请稍后重试';
+const String workspaceSafeError = '暂时无法读取学习空间数据，请稍后重试';
 
 class LearningSpacesController extends ChangeNotifier {
   LearningSpacesController(this.facade);
@@ -28,7 +28,7 @@ class LearningSpacesController extends ChangeNotifier {
       spaces = await facade.listLearningSpaces();
       availableBanks = await facade.listQuestionBanks();
     } catch (_) {
-      errorMessage = u1WorkspaceSafeError;
+      errorMessage = workspaceSafeError;
     } finally {
       isLoading = false;
       notifyListeners();
@@ -40,7 +40,7 @@ class LearningSpacesController extends ChangeNotifier {
       unclassifiedAssets = await facade.getUnclassifiedAssets();
       errorMessage = null;
     } catch (_) {
-      errorMessage = u1WorkspaceSafeError;
+      errorMessage = workspaceSafeError;
     }
     notifyListeners();
   }
@@ -53,7 +53,7 @@ class LearningSpacesController extends ChangeNotifier {
       selectedDetail = await facade.getLearningSpace(projectId);
       if (selectedDetail == null) errorMessage = '学习空间已不存在';
     } catch (_) {
-      errorMessage = u1WorkspaceSafeError;
+      errorMessage = workspaceSafeError;
     } finally {
       isLoading = false;
       notifyListeners();

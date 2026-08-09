@@ -4,6 +4,36 @@ Status: **Canonical post-P5 stage ordering**.
 
 R1–R8 core refactor and P5 typed manual answer repair are complete. This roadmap supersedes the old near-term sequence `P5 -> P6 -> P7` as the default implementation order. Historical plans remain useful as provenance but must not be treated as current scheduling authority.
 
+## Current-stage status amendment
+
+The canonical sequence below records the original post-P5 dependency and stage
+decisions. Delivery has since advanced some independent read-side stages ahead
+of that historical order. The following stages are now complete:
+
+```text
+F0
+J0
+T0
+M0 / M0.1
+U1-R1
+```
+
+The current near-term execution order is:
+
+```text
+U1-P0 Final Agent-first IA Freeze / Presentation Graduation
+-> F0.1 File Library Folder
+-> B0 Backup
+-> C0 Conversation
+-> A0 Built-in Agent
+```
+
+This amendment updates current scheduling status without rewriting the
+historical sequence as if it had originally been delivered in this order.
+`docs/product/u1-agent-first-ia-freeze.md` is the current authority for U1
+Presentation and Navigation semantics; retained U0 domain/lifecycle semantics
+remain valid as described there.
+
 ## 1. Product/architecture direction
 
 Shiroha now grows around three stable layers:

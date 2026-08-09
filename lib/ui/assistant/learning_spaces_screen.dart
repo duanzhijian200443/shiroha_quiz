@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../pages/data_center_screen.dart';
-import 'u1_ux0_workspace_controller.dart';
-import 'u1_ux0_workspace_pages.dart';
+import '../pages/data_center_screen.dart';
+import 'workspace_controller.dart';
+import 'workspace_pages.dart';
 
-class U1Ux0LearningSpacesScreen extends StatelessWidget {
-  const U1Ux0LearningSpacesScreen({
+class LearningSpacesScreen extends StatelessWidget {
+  const LearningSpacesScreen({
     super.key,
     required this.controller,
     this.fileController,
@@ -63,7 +63,7 @@ class U1Ux0LearningSpacesScreen extends StatelessWidget {
     if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => U1Ux0LearningSpaceHomeWorkspace(
+        builder: (_) => LearningSpaceHomeWorkspace(
           controller: controller,
           fileController: files,
           projectId: projectId,
@@ -186,7 +186,7 @@ class _UnclassifiedAssetsScreen extends StatelessWidget {
             if (assets == null) {
               final error = controller.errorMessage;
               if (error != null) {
-                return U1Ux0ErrorState(
+                return WorkspaceErrorState(
                   message: error,
                   onRetry: controller.loadUnclassified,
                 );

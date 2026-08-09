@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'u1_ux0_workspace_controller.dart';
+import 'workspace_controller.dart';
 
-class U1Ux01GlobalSidebar extends StatelessWidget {
-  const U1Ux01GlobalSidebar({
+class GlobalSidebar extends StatelessWidget {
+  const GlobalSidebar({
     super.key,
     required this.controller,
     required this.onNewConversation,
@@ -77,7 +77,7 @@ class U1Ux01GlobalSidebar extends StatelessWidget {
                 key: const ValueKey<String>('u1-ux01-open-mcp'),
               ),
               const Divider(height: 28),
-              const _SidebarLabel('最近（对话原型）'),
+              const _SidebarLabel('最近对话（预览）'),
               for (final title in const <String>[
                 '分析数学一错题',
                 '今天该复习什么',

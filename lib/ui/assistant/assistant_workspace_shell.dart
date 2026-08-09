@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../application/u1_workspace/u1_workspace_facade.dart';
-import 'u1_ux0_assistant_screen.dart';
-import 'u1_ux0_global_sidebar.dart';
-import 'u1_ux0_mock_pages.dart';
-import 'u1_ux0_workspace_controller.dart';
-import 'u1_ux0_workspace_pages.dart';
+import '../../application/u1_workspace/u1_workspace_facade.dart';
+import 'assistant_screen.dart';
+import 'global_sidebar.dart';
+import 'learning_spaces_screen.dart';
+import 'workspace_controller.dart';
+import 'workspace_pages.dart';
 
 enum _WorkspaceDestination {
   conversation,
@@ -15,16 +15,17 @@ enum _WorkspaceDestination {
   mcp,
 }
 
-class U1Ux01WorkspaceShell extends StatefulWidget {
-  const U1Ux01WorkspaceShell({super.key, required this.facade});
+class AssistantWorkspaceShell extends StatefulWidget {
+  const AssistantWorkspaceShell({super.key, required this.facade});
 
   final U1WorkspaceFacade facade;
 
   @override
-  State<U1Ux01WorkspaceShell> createState() => _U1Ux01WorkspaceShellState();
+  State<AssistantWorkspaceShell> createState() =>
+      _AssistantWorkspaceShellState();
 }
 
-class _U1Ux01WorkspaceShellState extends State<U1Ux01WorkspaceShell> {
+class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
   late final LearningSpacesController _spacesController;
   late final FileLibraryController _fileController;
   _WorkspaceDestination _destination = _WorkspaceDestination.conversation;
@@ -104,10 +105,10 @@ class _U1Ux01WorkspaceShellState extends State<U1Ux01WorkspaceShell> {
                     .colorScheme
                     .primaryContainer
                     .withValues(alpha: 0.55),
-                child: Text('Mock 对话 · $title'),
+                child: Text('对话预览 · $title'),
               ),
             Expanded(
-              child: U1Ux0AssistantScreen(
+              child: AssistantScreen(
                 spacesController: _spacesController,
                 fileController: _fileController,
                 showGlobalMenu: false,
@@ -115,17 +116,16 @@ class _U1Ux01WorkspaceShellState extends State<U1Ux01WorkspaceShell> {
             ),
           ],
         ),
-      _WorkspaceDestination.fileLibrary => U1Ux0FileLibraryWorkspace(
+      _WorkspaceDestination.fileLibrary => FileLibraryWorkspace(
           controller: _fileController,
         ),
-      _WorkspaceDestination.learningSpaces => U1Ux0LearningSpacesScreen(
+      _WorkspaceDestination.learningSpaces => LearningSpacesScreen(
           controller: _spacesController,
           fileController: _fileController,
           onOpenProject: _openSpaceHome,
           onCreateProject: _createSpace,
         ),
-      _WorkspaceDestination.learningSpaceHome =>
-        U1Ux0LearningSpaceHomeWorkspace(
+      _WorkspaceDestination.learningSpaceHome => LearningSpaceHomeWorkspace(
           controller: _spacesController,
           fileController: _fileController,
           projectId: _projectId!,
@@ -134,7 +134,7 @@ class _U1Ux01WorkspaceShellState extends State<U1Ux01WorkspaceShell> {
             _destination = _WorkspaceDestination.learningSpaces;
           }),
         ),
-      _WorkspaceDestination.mcp => U1Ux0McpWorkspace(
+      _WorkspaceDestination.mcp => McpWorkspace(
           projection: _spacesController.mcpProjection,
         ),
     };
@@ -145,7 +145,7 @@ class _U1Ux01WorkspaceShellState extends State<U1Ux01WorkspaceShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 900) {
-          return U1Ux0AssistantScreen(
+          return AssistantScreen(
             spacesController: _spacesController,
             fileController: _fileController,
           );
@@ -156,7 +156,7 @@ class _U1Ux01WorkspaceShellState extends State<U1Ux01WorkspaceShell> {
             children: [
               SizedBox(
                 width: 300,
-                child: U1Ux01GlobalSidebar(
+                child: GlobalSidebar(
                   controller: _spacesController,
                   onNewConversation: () => setState(() {
                     _conversationTitle = null;

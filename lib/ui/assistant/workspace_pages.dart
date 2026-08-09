@@ -1,20 +1,20 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../../../application/u1_workspace/u1_workspace_dtos.dart';
-import 'u1_ux0_workspace_controller.dart';
+import '../../application/u1_workspace/u1_workspace_dtos.dart';
+import 'workspace_controller.dart';
 
-typedef U1FilePicker = Future<FilePickerResult?> Function();
+typedef LibraryFilePicker = Future<FilePickerResult?> Function();
 
-class U1Ux0FileLibraryWorkspace extends StatelessWidget {
-  const U1Ux0FileLibraryWorkspace({
+class FileLibraryWorkspace extends StatelessWidget {
+  const FileLibraryWorkspace({
     super.key,
     required this.controller,
     this.pickFile,
   });
 
   final FileLibraryController controller;
-  final U1FilePicker? pickFile;
+  final LibraryFilePicker? pickFile;
 
   Future<void> _addFile(BuildContext context) async {
     final result = await (pickFile?.call() ??
@@ -232,7 +232,7 @@ class _FileDetailScreen extends StatelessWidget {
             if (detail == null || detail.file.fileId != fileId) {
               final error = controller.errorMessage;
               if (error != null) {
-                return U1Ux0ErrorState(
+                return WorkspaceErrorState(
                   message: error,
                   onRetry: () => controller.select(fileId),
                 );
@@ -287,8 +287,8 @@ class _FileDetailScreen extends StatelessWidget {
       );
 }
 
-class U1Ux0LearningSpaceHomeWorkspace extends StatefulWidget {
-  const U1Ux0LearningSpaceHomeWorkspace({
+class LearningSpaceHomeWorkspace extends StatefulWidget {
+  const LearningSpaceHomeWorkspace({
     super.key,
     required this.controller,
     required this.fileController,
@@ -302,12 +302,12 @@ class U1Ux0LearningSpaceHomeWorkspace extends StatefulWidget {
   final VoidCallback onDeleted;
 
   @override
-  State<U1Ux0LearningSpaceHomeWorkspace> createState() =>
-      _U1Ux0LearningSpaceHomeWorkspaceState();
+  State<LearningSpaceHomeWorkspace> createState() =>
+      _LearningSpaceHomeWorkspaceState();
 }
 
-class _U1Ux0LearningSpaceHomeWorkspaceState
-    extends State<U1Ux0LearningSpaceHomeWorkspace> {
+class _LearningSpaceHomeWorkspaceState
+    extends State<LearningSpaceHomeWorkspace> {
   @override
   void initState() {
     super.initState();
@@ -447,7 +447,7 @@ class _U1Ux0LearningSpaceHomeWorkspaceState
           final error = widget.controller.errorMessage;
           if (error != null) {
             return Scaffold(
-              body: U1Ux0ErrorState(
+              body: WorkspaceErrorState(
                 message: error,
                 onRetry: () => widget.controller.select(widget.projectId),
               ),
@@ -570,8 +570,8 @@ class _U1Ux0LearningSpaceHomeWorkspaceState
   }
 }
 
-class U1Ux0McpWorkspace extends StatelessWidget {
-  const U1Ux0McpWorkspace({super.key, required this.projection});
+class McpWorkspace extends StatelessWidget {
+  const McpWorkspace({super.key, required this.projection});
 
   final McpWorkspaceProjection projection;
 
@@ -651,10 +651,10 @@ IconData _fileIcon(String mimeType) {
   return Icons.description_outlined;
 }
 
-/// Shared failure state for the U1-UX0 spike surfaces: shows a safe message
+/// Shared failure state for the Assistant workspace: shows a safe message
 /// with a retry action instead of an indefinite loading indicator.
-class U1Ux0ErrorState extends StatelessWidget {
-  const U1Ux0ErrorState({
+class WorkspaceErrorState extends StatelessWidget {
+  const WorkspaceErrorState({
     super.key,
     required this.message,
     required this.onRetry,
