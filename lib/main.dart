@@ -7,10 +7,21 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
+import 'application/projects/project_service.dart';
+import 'application/study_query/study_query_service.dart';
+import 'application/u1_workspace/u1_workspace_dtos.dart';
+import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
+import 'data/repositories/library_file_repository.dart';
+import 'data/repositories/project_repository.dart';
+import 'data/repositories/question_repository.dart';
+import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
+import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
+import 'services/file_library/file_ingestion_service.dart';
+import 'services/file_library/managed_file_storage_adapter.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
 import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
@@ -79,6 +90,35 @@ void main() {
     }
 
     final databaseHelper = DatabaseHelper.instance;
+    final libraryFileRepository = LibraryFileRepository(
+      databaseHelper: databaseHelper,
+    );
+    final managedFileStorage = await ManagedFileStorageAdapter.appManaged();
+    final fileIngestionService = FileIngestionService(
+      storage: managedFileStorage,
+      repository: libraryFileRepository,
+    );
+    final projectService = ProjectService(
+      repository: SqliteProjectRepository(databaseHelper: databaseHelper),
+    );
+    final questionRepository = QuestionRepository(
+      databaseHelper: databaseHelper,
+    );
+    final u1WorkspaceFacade = U1WorkspaceFacade(
+      projectService: projectService,
+      fileRepository: libraryFileRepository,
+      fileIngestion: fileIngestionService,
+      studyQueryService: StudyQueryService(
+        questionQuery: questionRepository,
+        metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
+      ),
+      mcpProjection: McpWorkspaceProjection(
+        state: McpCapabilityState.configuredAvailable,
+        transport: McpTransport.localStdio,
+        permission: McpPermission.readOnly,
+        toolNames: StudyMcpAdapter.toolNames,
+      ),
+    );
     final engineRepository = AiEngineRepository(store: databaseHelper);
     final taskManager = TaskManager.instance;
     final aiService = AiService(
@@ -121,6 +161,7 @@ void main() {
       aiService: aiService,
       importPipelineService: importPipelineService,
       importTaskCoordinator: importTaskCoordinator,
+      u1WorkspaceFacade: u1WorkspaceFacade,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -140,12 +181,14 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
+    required this.u1WorkspaceFacade,
   });
 
   final AiEngineRepository engineRepository;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
+  final U1WorkspaceFacade u1WorkspaceFacade;
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +206,7 @@ class ShirohaQuizApp extends StatelessWidget {
             scaffoldMessengerKey: rootScaffoldMessengerKey, // 挂载全局钥匙
             debugShowCheckedModeBanner: false,
             theme: AppTheme.getTheme(themeName),
-            home: const MainScreen(),
+            home: MainScreen(u1WorkspaceFacade: u1WorkspaceFacade),
           ),
         );
       },
@@ -175,7 +218,9 @@ class ShirohaQuizApp extends StatelessWidget {
 /// in the background. On success, replaces itself with [HomePage].
 /// On failure, shows an error with a retry button.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({super.key, required this.u1WorkspaceFacade});
+
+  final U1WorkspaceFacade u1WorkspaceFacade;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -204,7 +249,11 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _navigateToHome() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainScreen()),
+      MaterialPageRoute(
+        builder: (_) => MainScreen(
+          u1WorkspaceFacade: widget.u1WorkspaceFacade,
+        ),
+      ),
     );
   }
 

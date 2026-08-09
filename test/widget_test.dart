@@ -8,8 +8,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/projects/project_repository.dart';
+import 'package:shiroha_quiz/application/projects/project_service.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
+import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
+import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/domain/assets/library_file.dart';
+import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/main.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
@@ -20,6 +30,51 @@ import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+final class _EmptyFiles extends Fake implements LibraryFileRepositoryPort {
+  @override
+  Future<List<LibraryFile>> findAll() async => const <LibraryFile>[];
+}
+
+final class _EmptyIngestion extends Fake implements FileIngestionPort {}
+
+final class _EmptyProjects extends Fake implements ProjectRepository {
+  @override
+  Future<List<Project>> listProjects() async => const <Project>[];
+}
+
+final class _EmptyQuestions extends Fake implements StudyQuestionQueryPort {
+  @override
+  Future<StudyPage<QuestionBankSummary>> listStudyQuestionBanks({
+    required int nowUnixSeconds,
+    required int limit,
+    String? afterBankName,
+  }) async =>
+      const StudyPage<QuestionBankSummary>(
+        items: <QuestionBankSummary>[],
+        hasMore: false,
+      );
+}
+
+final class _EmptyMetrics extends Fake implements StudyMetricsQueryPort {}
+
+U1WorkspaceFacade _emptyWorkspaceFacade() {
+  return U1WorkspaceFacade(
+    projectService: ProjectService(repository: _EmptyProjects()),
+    fileRepository: _EmptyFiles(),
+    fileIngestion: _EmptyIngestion(),
+    studyQueryService: StudyQueryService(
+      questionQuery: _EmptyQuestions(),
+      metricsQuery: _EmptyMetrics(),
+    ),
+    mcpProjection: McpWorkspaceProjection(
+      state: McpCapabilityState.configuredAvailable,
+      transport: McpTransport.localStdio,
+      permission: McpPermission.readOnly,
+      toolNames: const <String>[],
+    ),
+  );
+}
+
 void main() {
   setUpAll(() {
     // Initialize sqflite ffi for desktop/testing
@@ -27,7 +82,7 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('App starts and highlights the selected profile navigation item',
+  testWidgets('App exposes the U1-UX0 candidate navigation and selected state',
       (WidgetTester tester) async {
     final engineRepository = AiEngineRepository(store: DatabaseHelper.instance);
     final taskManager = TaskManager.forTesting();
@@ -53,10 +108,29 @@ void main() {
       aiService: aiService,
       importPipelineService: importPipelineService,
       importTaskCoordinator: importTaskCoordinator,
+      u1WorkspaceFacade: _emptyWorkspaceFacade(),
     ));
 
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
+    expect(find.text('今日'), findsOneWidget);
+    expect(find.text('助手'), findsOneWidget);
+    expect(find.text('模考'), findsOneWidget);
+    expect(find.text('我的'), findsOneWidget);
+
+    await tester.tap(find.text('助手'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .currentIndex,
+      1,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux0-assistant-shell')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('我的'));
     await tester.pump();

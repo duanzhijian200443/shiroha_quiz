@@ -668,6 +668,40 @@ import '../../domain/content/content_node.dart'
         );
       }
     });
+
+    test('U1 presentation depends only on its application facade', () {
+      const u1Paths = <String>[
+        'lib/ui/pages/main_screen.dart',
+        'lib/ui/spikes/u1_ux0/u1_ux0_assistant_screen.dart',
+        'lib/ui/spikes/u1_ux0/u1_ux0_global_sidebar.dart',
+        'lib/ui/spikes/u1_ux0/u1_ux0_mock_pages.dart',
+        'lib/ui/spikes/u1_ux0/u1_ux0_workspace_controller.dart',
+        'lib/ui/spikes/u1_ux0/u1_ux0_workspace_pages.dart',
+        'lib/ui/spikes/u1_ux0/u1_ux0_workspace_shell.dart',
+      ];
+      const forbidden = <String>[
+        'DatabaseHelper',
+        'package:sqflite',
+        '/data/repositories/',
+        r'\data\repositories\',
+        'LibraryFileRepository(',
+        'SqliteProjectRepository(',
+        'QuestionRepository(',
+      ];
+
+      for (final path in u1Paths) {
+        final file = File(path);
+        expect(file.existsSync(), isTrue, reason: 'Missing U1 file: $path');
+        final source = file.readAsStringSync();
+        for (final token in forbidden) {
+          expect(
+            source,
+            isNot(contains(token)),
+            reason: '$path must not depend on U1-forbidden token $token.',
+          );
+        }
+      }
+    });
   });
 }
 

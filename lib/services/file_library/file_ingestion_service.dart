@@ -1,6 +1,6 @@
 import 'package:uuid/uuid.dart';
 
-import '../../data/repositories/library_file_repository.dart';
+import '../../application/file_library/file_library_ports.dart';
 import '../../domain/assets/library_file.dart';
 import 'managed_file_storage.dart';
 
@@ -17,22 +17,23 @@ import 'managed_file_storage.dart';
 ///
 /// Presentation code depends on this service, not on the repository or the
 /// storage adapter directly.
-class FileIngestionService {
+class FileIngestionService implements FileIngestionPort {
   FileIngestionService({
     required ManagedFileStorage storage,
-    required LibraryFileRepository repository,
+    required LibraryFileRepositoryPort repository,
     Uuid? uuid,
   })  : _storage = storage,
         _repository = repository,
         _uuid = uuid ?? const Uuid();
 
   final ManagedFileStorage _storage;
-  final LibraryFileRepository _repository;
+  final LibraryFileRepositoryPort _repository;
   final Uuid _uuid;
 
   /// Ingests the file at [externalPath] into app-managed storage and records
   /// its metadata. [mimeType] defaults to `application/octet-stream` when
   /// omitted.
+  @override
   Future<LibraryFile> ingest({
     required String externalPath,
     required String displayName,

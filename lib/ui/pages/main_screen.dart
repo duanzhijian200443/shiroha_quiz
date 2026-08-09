@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'home_page.dart';
-import 'data_center_screen.dart';
 import 'mock_center_screen.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../spikes/u1_ux0/u1_ux0_workspace_shell.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  const MainScreen({super.key, required this.u1WorkspaceFacade});
+
+  final U1WorkspaceFacade u1WorkspaceFacade;
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -19,7 +22,8 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       const HomePage(), // Tab 0
-      const DataCenterScreen(), // Tab 1
+      // U1-UX0 spike only. Restore DataCenterScreen here to revert the IA.
+      U1Ux01WorkspaceShell(facade: widget.u1WorkspaceFacade), // Tab 1
       const MockCenterScreen(), // Tab 2 — 模考中心
       ProfileScreen(engineRepository: dependencies.engineRepository), // Tab 3
     ];
@@ -32,8 +36,8 @@ class _MainScreenState extends State<MainScreen> {
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF5B8DF8),
-        unselectedItemColor: Colors.grey,
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.psychology_outlined),
@@ -41,15 +45,15 @@ class _MainScreenState extends State<MainScreen> {
               icon: Icons.psychology_outlined,
               itemKey: ValueKey<String>('main-nav-selected-home'),
             ),
-            label: '今日面板',
+            label: '今日',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.my_library_books_outlined),
+            icon: Icon(Icons.auto_awesome_outlined),
             activeIcon: _SelectedNavigationIcon(
-              icon: Icons.my_library_books_outlined,
-              itemKey: ValueKey<String>('main-nav-selected-library'),
+              icon: Icons.auto_awesome_outlined,
+              itemKey: ValueKey<String>('main-nav-selected-assistant'),
             ),
-            label: '学科库',
+            label: '助手',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.pending_actions_outlined),
@@ -57,7 +61,7 @@ class _MainScreenState extends State<MainScreen> {
               icon: Icons.pending_actions_outlined,
               itemKey: ValueKey<String>('main-nav-selected-mock'),
             ),
-            label: '模考中心',
+            label: '模考',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.school_outlined),
@@ -84,14 +88,18 @@ class _SelectedNavigationIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       key: itemKey,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF1FF),
+        color: isDark
+            ? theme.colorScheme.primary.withValues(alpha: 0.16)
+            : const Color(0xFFEAF1FF),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Icon(icon),
+      child: Icon(icon, color: theme.colorScheme.primary),
     );
   }
 }

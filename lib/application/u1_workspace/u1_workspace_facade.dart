@@ -1,0 +1,262 @@
+library;
+
+import '../../domain/assets/library_file.dart';
+import '../../domain/projects/project.dart';
+import '../file_library/file_library_ports.dart';
+import '../projects/project_service.dart';
+import '../study_query/study_query_dtos.dart';
+import '../study_query/study_query_service.dart';
+import 'u1_workspace_dtos.dart';
+
+/// U1-R1 application boundary shared by the Agent-first presentation shell.
+final class U1WorkspaceFacade {
+  U1WorkspaceFacade({
+    required ProjectService projectService,
+    required LibraryFileRepositoryPort fileRepository,
+    required FileIngestionPort fileIngestion,
+    required StudyQueryService studyQueryService,
+    required this.mcpProjection,
+  })  : _projectService = projectService,
+        _fileRepository = fileRepository,
+        _fileIngestion = fileIngestion,
+        _studyQueryService = studyQueryService;
+
+  static const int recentFileLimit = 20;
+
+  final ProjectService _projectService;
+  final LibraryFileRepositoryPort _fileRepository;
+  final FileIngestionPort _fileIngestion;
+  final StudyQueryService _studyQueryService;
+  final McpWorkspaceProjection mcpProjection;
+
+  Future<List<LearningSpaceSummary>> listLearningSpaces() async {
+    final projects = await _projectService.listProjects();
+    final summaries = await Future.wait(projects.map(_projectSummary));
+    summaries.sort((a, b) {
+      final created = a.createdAt.compareTo(b.createdAt);
+      return created != 0 ? created : a.projectId.compareTo(b.projectId);
+    });
+    return List<LearningSpaceSummary>.unmodifiable(summaries);
+  }
+
+  Future<LearningSpaceDetail?> getLearningSpace(String projectId) async {
+    final project = await _projectService.getProject(projectId);
+    if (project == null) return null;
+
+    final fileIds = await _projectService.listProjectFileIds(projectId);
+    final bankNames = await _projectService.listProjectBankNames(projectId);
+    final files = <LibraryFileSummary>[];
+    for (final fileId in fileIds) {
+      final file = await _fileRepository.findById(fileId);
+      if (file != null) files.add(_fileSummary(file));
+    }
+    files.sort(_newestFileFirst);
+
+    final catalog = <String, QuestionBankSummary>{
+      for (final bank in await listQuestionBanks()) bank.bankName: bank,
+    };
+    final banks = <LearningSpaceBankReference>[
+      for (final bankName in bankNames)
+        LearningSpaceBankReference(
+          bankName: bankName,
+          summary: catalog[bankName],
+        ),
+    ];
+
+    return LearningSpaceDetail(
+      summary: LearningSpaceSummary(
+        projectId: project.projectId,
+        displayName: project.displayName,
+        createdAt: project.createdAt,
+        fileCount: fileIds.length,
+        bankCount: bankNames.length,
+      ),
+      files: List<LibraryFileSummary>.unmodifiable(files),
+      banks: List<LearningSpaceBankReference>.unmodifiable(banks),
+    );
+  }
+
+  Future<LearningSpaceSummary> createLearningSpace(String displayName) async {
+    final project = await _projectService.createProject(
+      displayName: displayName,
+    );
+    return LearningSpaceSummary(
+      projectId: project.projectId,
+      displayName: project.displayName,
+      createdAt: project.createdAt,
+      fileCount: 0,
+      bankCount: 0,
+    );
+  }
+
+  Future<LearningSpaceSummary> renameLearningSpace({
+    required String projectId,
+    required String displayName,
+  }) async {
+    final project = await _projectService.renameProject(
+      projectId: projectId,
+      displayName: displayName,
+    );
+    return _projectSummary(project);
+  }
+
+  Future<void> deleteLearningSpace(String projectId) =>
+      _projectService.deleteProject(projectId);
+
+  Future<List<LibraryFileSummary>> listLibraryFiles({
+    FileLibraryView view = FileLibraryView.all,
+  }) async {
+    final files = <LibraryFileSummary>[
+      for (final file in await _fileRepository.findAll()) _fileSummary(file),
+    ]..sort(_newestFileFirst);
+
+    switch (view) {
+      case FileLibraryView.all:
+        return List<LibraryFileSummary>.unmodifiable(files);
+      case FileLibraryView.recent:
+        return List<LibraryFileSummary>.unmodifiable(
+          files.take(recentFileLimit),
+        );
+      case FileLibraryView.unclassified:
+        final unclassified = <LibraryFileSummary>[];
+        for (final file in files) {
+          if ((await _projectService.listProjectIdsForFile(file.fileId))
+              .isEmpty) {
+            unclassified.add(file);
+          }
+        }
+        return List<LibraryFileSummary>.unmodifiable(unclassified);
+    }
+  }
+
+  Future<LibraryFileDetail?> getLibraryFileDetail(String fileId) async {
+    final file = await _fileRepository.findById(fileId);
+    if (file == null) return null;
+    final relatedIds =
+        (await _projectService.listProjectIdsForFile(fileId)).toSet();
+    final relatedSpaces = (await listLearningSpaces())
+        .where((space) => relatedIds.contains(space.projectId))
+        .toList(growable: false);
+    return LibraryFileDetail(
+      file: _fileSummary(file),
+      relatedSpaces: List<LearningSpaceSummary>.unmodifiable(relatedSpaces),
+    );
+  }
+
+  Future<LibraryFileSummary> ingestSelectedFile({
+    required String externalPath,
+    required String displayName,
+    String? mimeType,
+  }) async {
+    final file = await _fileIngestion.ingest(
+      externalPath: externalPath,
+      displayName: displayName,
+      mimeType: mimeType ?? mimeTypeForDisplayName(displayName),
+    );
+    return _fileSummary(file);
+  }
+
+  Future<List<QuestionBankSummary>> listQuestionBanks() async {
+    final banks = <QuestionBankSummary>[];
+    OpaqueCursor? cursor;
+    final seenCursors = <String>{};
+    do {
+      final page = await _studyQueryService.listQuestionBanks(
+        cursor: cursor,
+        limit: 100,
+      );
+      banks.addAll(page.items);
+      cursor = page.nextCursor;
+      if (cursor != null && !seenCursors.add(cursor.value)) {
+        throw StateError('Question-bank pagination did not advance.');
+      }
+    } while (cursor != null);
+    return List<QuestionBankSummary>.unmodifiable(banks);
+  }
+
+  Future<UnclassifiedAssets> getUnclassifiedAssets() async {
+    final files = await listLibraryFiles(view: FileLibraryView.unclassified);
+    final banks = <QuestionBankSummary>[];
+    for (final bank in await listQuestionBanks()) {
+      if ((await _projectService.listProjectIdsForBank(bank.bankName))
+          .isEmpty) {
+        banks.add(bank);
+      }
+    }
+    return UnclassifiedAssets(
+      files: files,
+      banks: List<QuestionBankSummary>.unmodifiable(banks),
+    );
+  }
+
+  Future<void> attachFile({
+    required String projectId,
+    required String fileId,
+  }) =>
+      _projectService.attachFile(projectId: projectId, fileId: fileId);
+
+  Future<void> detachFile({
+    required String projectId,
+    required String fileId,
+  }) =>
+      _projectService.detachFile(projectId: projectId, fileId: fileId);
+
+  Future<void> attachBank({
+    required String projectId,
+    required String bankName,
+  }) =>
+      _projectService.attachBank(projectId: projectId, bankName: bankName);
+
+  Future<void> detachBank({
+    required String projectId,
+    required String bankName,
+  }) =>
+      _projectService.detachBank(projectId: projectId, bankName: bankName);
+
+  static String mimeTypeForDisplayName(String displayName) {
+    final lower = displayName.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    if (lower.endsWith('.md')) return 'text/markdown';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      return 'image/jpeg';
+    }
+    if (lower.endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (lower.endsWith('.zip')) return 'application/zip';
+    return 'application/octet-stream';
+  }
+
+  Future<LearningSpaceSummary> _projectSummary(Project project) async {
+    final fileIds = await _projectService.listProjectFileIds(project.projectId);
+    final bankNames =
+        await _projectService.listProjectBankNames(project.projectId);
+    return LearningSpaceSummary(
+      projectId: project.projectId,
+      displayName: project.displayName,
+      createdAt: project.createdAt,
+      fileCount: fileIds.length,
+      bankCount: bankNames.length,
+    );
+  }
+
+  static LibraryFileSummary _fileSummary(LibraryFile file) {
+    return LibraryFileSummary(
+      fileId: file.fileId,
+      displayName: file.displayName,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      createdAt: file.createdAt,
+    );
+  }
+
+  static int _newestFileFirst(
+    LibraryFileSummary left,
+    LibraryFileSummary right,
+  ) {
+    final created = right.createdAt.compareTo(left.createdAt);
+    return created != 0 ? created : left.fileId.compareTo(right.fileId);
+  }
+}
