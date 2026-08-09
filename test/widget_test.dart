@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
+import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
@@ -22,6 +24,7 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/main.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
@@ -68,6 +71,26 @@ final class _EmptyQuestions extends Fake implements StudyQuestionQueryPort {
 }
 
 final class _EmptyMetrics extends Fake implements StudyMetricsQueryPort {}
+
+final class _EmptyConversations extends Fake
+    implements ConversationRepositoryPort {
+  @override
+  Future<List<ConversationFileRef>> listAttachableFiles(
+          {required int limit}) async =>
+      const <ConversationFileRef>[];
+
+  @override
+  Future<List<Conversation>> listRecentConversations(
+          {required int limit}) async =>
+      const <Conversation>[];
+}
+
+ConversationService _emptyConversationService() => ConversationService(
+      repository: _EmptyConversations(),
+      conversationIdFactory: () => 'conversation-empty',
+      messageIdFactory: () => 'message-empty',
+      clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+    );
 
 U1WorkspaceFacade _emptyWorkspaceFacade() {
   return U1WorkspaceFacade(
@@ -126,6 +149,7 @@ void main() {
       importPipelineService: importPipelineService,
       importTaskCoordinator: importTaskCoordinator,
       u1WorkspaceFacade: _emptyWorkspaceFacade(),
+      conversationService: _emptyConversationService(),
     ));
 
     // Verify that MainScreen is shown initially.

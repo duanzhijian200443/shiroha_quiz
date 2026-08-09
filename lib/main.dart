@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
+import 'application/conversations/conversation_service.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
@@ -14,6 +15,7 @@ import 'application/study_query/study_query_service.dart';
 import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
+import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/library_file_repository.dart';
 import 'data/repositories/library_folder_repository.dart';
 import 'data/repositories/project_repository.dart';
@@ -105,6 +107,12 @@ void main() {
       repository: SqliteProjectRepository(databaseHelper: databaseHelper),
     );
     const uuid = Uuid();
+    final conversationService = ConversationService(
+      repository: SqliteConversationRepository(databaseHelper: databaseHelper),
+      conversationIdFactory: uuid.v4,
+      messageIdFactory: uuid.v4,
+      clock: () => DateTime.now().toUtc(),
+    );
     final folderService = LibraryFolderService(
       repository: SqliteLibraryFolderRepository(
         databaseHelper: databaseHelper,
@@ -173,6 +181,7 @@ void main() {
       importPipelineService: importPipelineService,
       importTaskCoordinator: importTaskCoordinator,
       u1WorkspaceFacade: u1WorkspaceFacade,
+      conversationService: conversationService,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -193,6 +202,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.importPipelineService,
     required this.importTaskCoordinator,
     required this.u1WorkspaceFacade,
+    required this.conversationService,
   });
 
   final AiEngineRepository engineRepository;
@@ -200,6 +210,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
   final U1WorkspaceFacade u1WorkspaceFacade;
+  final ConversationService conversationService;
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +228,10 @@ class ShirohaQuizApp extends StatelessWidget {
             scaffoldMessengerKey: rootScaffoldMessengerKey, // 挂载全局钥匙
             debugShowCheckedModeBanner: false,
             theme: AppTheme.getTheme(themeName),
-            home: MainScreen(u1WorkspaceFacade: u1WorkspaceFacade),
+            home: MainScreen(
+              u1WorkspaceFacade: u1WorkspaceFacade,
+              conversationService: conversationService,
+            ),
           ),
         );
       },
@@ -229,9 +243,14 @@ class ShirohaQuizApp extends StatelessWidget {
 /// in the background. On success, replaces itself with [HomePage].
 /// On failure, shows an error with a retry button.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key, required this.u1WorkspaceFacade});
+  const SplashScreen({
+    super.key,
+    required this.u1WorkspaceFacade,
+    required this.conversationService,
+  });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
+  final ConversationService conversationService;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -263,6 +282,7 @@ class _SplashScreenState extends State<SplashScreen> {
       MaterialPageRoute(
         builder: (_) => MainScreen(
           u1WorkspaceFacade: widget.u1WorkspaceFacade,
+          conversationService: widget.conversationService,
         ),
       ),
     );

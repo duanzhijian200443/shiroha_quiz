@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../application/conversations/conversation_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'home_page.dart';
 import 'mock_center_screen.dart';
@@ -7,9 +8,14 @@ import '../dependencies/ai_dependencies_scope.dart';
 import '../assistant/assistant_workspace_shell.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key, required this.u1WorkspaceFacade});
+  const MainScreen({
+    super.key,
+    required this.u1WorkspaceFacade,
+    required this.conversationService,
+  });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
+  final ConversationService conversationService;
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -22,7 +28,10 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       const HomePage(), // Tab 0
-      AssistantWorkspaceShell(facade: widget.u1WorkspaceFacade), // Tab 1
+      AssistantWorkspaceShell(
+        facade: widget.u1WorkspaceFacade,
+        conversationService: widget.conversationService,
+      ), // Tab 1
       const MockCenterScreen(), // Tab 2 — 模考中心
       ProfileScreen(engineRepository: dependencies.engineRepository), // Tab 3
     ];

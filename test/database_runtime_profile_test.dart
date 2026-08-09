@@ -168,9 +168,9 @@ void main() {
     );
   });
 
-  test('explicit read-only opens existing v18 without permitting writes',
+  test('explicit read-only opens existing v19 without permitting writes',
       () async {
-    final path = p.join(tempDir.path, 'read_only_v18.db');
+    final path = p.join(tempDir.path, 'read_only_v19.db');
     final created = await DatabaseHelper.instance.openPathForTesting(path);
     try {
       await created.insert('bank_folders', <String, Object?>{
@@ -222,11 +222,11 @@ void main() {
     expect(File(path).existsSync(), isTrue);
   });
 
-  test('explicit read-only rejects non-v18 without migrating it', () async {
-    final path = p.join(tempDir.path, 'read_only_v16.db');
+  test('explicit read-only rejects v18 without migrating it', () async {
+    final path = p.join(tempDir.path, 'read_only_v18.db');
     final raw = await databaseFactory.openDatabase(path);
     try {
-      await raw.execute('PRAGMA user_version = 16');
+      await raw.execute('PRAGMA user_version = 18');
     } finally {
       await raw.close();
     }
@@ -250,7 +250,7 @@ void main() {
     final reopened = await databaseFactory.openDatabase(path);
     try {
       final version = await reopened.rawQuery('PRAGMA user_version');
-      expect(version.single['user_version'], 16);
+      expect(version.single['user_version'], 18);
     } finally {
       await reopened.close();
     }

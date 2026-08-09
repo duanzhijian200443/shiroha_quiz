@@ -716,11 +716,12 @@ import '../../domain/content/content_node.dart'
       }
     });
 
-    test('U1 presentation depends only on its application facade', () {
+    test('U1/C0 presentation depends only on application boundaries', () {
       const u1Paths = <String>[
         'lib/ui/pages/main_screen.dart',
         'lib/ui/assistant/assistant_screen.dart',
         'lib/ui/assistant/assistant_workspace_shell.dart',
+        'lib/ui/assistant/conversation_controller.dart',
         'lib/ui/assistant/global_sidebar.dart',
         'lib/ui/assistant/learning_spaces_screen.dart',
         'lib/ui/assistant/workspace_controller.dart',
@@ -747,6 +748,32 @@ import '../../domain/content/content_node.dart'
             reason: '$path must not depend on U1-forbidden token $token.',
           );
         }
+      }
+    });
+
+    test('C0 repository stays inside frozen Project and File boundaries', () {
+      final repository =
+          File('lib/data/repositories/conversation_repository.dart');
+      expect(repository.existsSync(), isTrue);
+      final source = repository.readAsStringSync();
+      for (final forbiddenTable in const <String>[
+        'library_folders',
+        'library_folder_files',
+        'questions',
+        'question_v2_payloads',
+        'review_states',
+        'review_logs',
+        'project_banks',
+        'bank_registry',
+        'mcp_',
+        'providers',
+      ]) {
+        expect(
+          source,
+          isNot(contains("'$forbiddenTable'")),
+          reason:
+              'Conversation repository must not read or write $forbiddenTable.',
+        );
       }
     });
   });

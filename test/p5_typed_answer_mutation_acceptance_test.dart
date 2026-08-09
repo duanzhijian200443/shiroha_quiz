@@ -232,7 +232,7 @@ void main() {
   }
 
   group('A: null answer to manual answer', () {
-    test('durable across close and reopen with user_version 16', () async {
+    test('durable across close and reopen with current user_version', () async {
       final helper = newFileHelper('p5a.db');
       final repository = QuestionRepository(databaseHelper: helper);
       final db = await helper.database;
@@ -249,7 +249,7 @@ void main() {
       final reopened = newFileHelper('p5a.db');
       final reopenedRepository = QuestionRepository(databaseHelper: reopened);
       final db2 = await reopened.database;
-      expect(await _userVersion(db2), 16);
+      expect(await _userVersion(db2), 19);
       final typed = await _reloadTyped(db2, _storageId);
       final answer = typed.draft.answer as ContentAnswer;
       expect((answer.content.nodes.single as TextNode).text, 'manual answer');

@@ -1,7 +1,7 @@
 // M0.1 production-composition acceptance.
 //
 // Evidence class: fully synthetic and offline. A Flutter-side handle keeps an
-// isolated file-backed v18 database open while a plain-Dart MCP subprocess
+// isolated file-backed v19 database open while a plain-Dart MCP subprocess
 // opens the same canonical path through the generic explicit-read-only
 // runtime. No fake query ports, user database, network, Provider, OCR, PDF, or
 // private source data is used.
@@ -100,7 +100,7 @@ void main() {
 
   test('App-open database is read through the real production MCP chain',
       () async {
-    final databasePath = p.join(tempDir.path, 'shared_v18.db');
+    final databasePath = p.join(tempDir.path, 'shared_v19.db');
     Database? appDatabase;
     Database? probe;
     McpClient? client;
@@ -186,7 +186,7 @@ void main() {
       expect(File(databasePath).existsSync(), isTrue);
       probe = await DatabaseHelper.instance.openPathForTesting(databasePath);
       final version = await probe.rawQuery('PRAGMA user_version');
-      expect(version.single['user_version'], 18);
+      expect(version.single['user_version'], 19);
       expect(await snapshotCoreTables(probe), before);
     } finally {
       await client?.close();

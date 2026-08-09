@@ -129,7 +129,7 @@ void main() {
 
     final version =
         await (await secondHelper.database).rawQuery('PRAGMA user_version');
-    expect(version.single['user_version'], 18);
+    expect(version.single['user_version'], 19);
     await secondHelper.close();
   });
 

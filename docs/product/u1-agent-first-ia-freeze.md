@@ -82,9 +82,9 @@ Learning Space
 ```
 
 This expansion is only for fast context and conversation switching. A
-Learning Space home opens an independent Main Workspace. Conversation
-persistence and the expansion's runtime data are C0 concerns and are not
-implemented by this freeze.
+Learning Space home opens an independent Main Workspace. C0 supplies the
+expansion with lazily loaded persisted conversations, while the home remains an
+independent destination.
 
 ### 4.2 File Library
 
@@ -168,9 +168,9 @@ The legacy Subject/Folder capability remains accessible until a separately
 authorized migration changes or retires it. U1 does not modify its persisted
 data or behavior.
 
-## 8. Conversation scope candidate
+## 8. Conversation scope
 
-The target scope shape is recorded for C0 without introducing persistence:
+The current C0 scope contract is:
 
 ```text
 ConversationScope
@@ -181,10 +181,14 @@ ConversationScope
 - Scope is selected when a conversation is created.
 - After the first message is sent, the Learning Space must not change silently.
 - Moving a conversation must be an explicit future action.
-- Explicit File/Bank attachments are separate from conversation scope.
-
-U1-P0 does not create conversation or message tables, schema migrations, or a
-Conversation domain implementation.
+- Deleting the Project preserves the conversation as an unavailable
+  LearningSpace scope; it never converts to Global.
+- Clicking New Conversation creates only a transient draft. The first valid
+  User Message atomically persists the Conversation, Message, and selected File
+  relations.
+- Explicit File attachments are separate from conversation scope and from
+  Project/Folder membership. Bank attachments remain deferred until stable Bank
+  identity exists.
 
 ## 9. Assistant context semantics
 
@@ -193,12 +197,12 @@ Conversation scope = implicit long-term context
 Composer attachments = explicit context for this conversation
 ```
 
-The composer `+` means:
+The composer `+` currently means:
 
 ```text
 添加到本次对话
-├─ 文件
-└─ 题库
+├─ 文件（真实 File Library 候选）
+└─ 题库（deferred）
 ```
 
 It must not create a Learning Space, perform global file ingestion, or silently
@@ -238,8 +242,9 @@ It does not expose:
 
 Future model and Provider settings belong under `我的 -> AI 与联网`.
 
-U1-P0 graduates the validated Presentation shell only. It does not implement
-Agent runtime, message persistence, RAG, Web Search, or autonomous actions.
+C0 retains the single Shiroha identity and adds local Conversation/User Message
+persistence. It still does not implement Agent runtime, RAG, Web Search, or
+autonomous actions.
 
 ## 12. Canonical Presentation module
 
@@ -249,19 +254,16 @@ The production Assistant Presentation lives under:
 lib/ui/assistant/
 ```
 
-It consumes the existing `U1WorkspaceFacade` application boundary. UI code
-must not depend directly on SQLite, `DatabaseHelper`, or repositories. The
-module graduation preserves the validated layout, navigation, failure/retry
-states, and current application semantics.
+It consumes the existing `U1WorkspaceFacade` and the dedicated
+`ConversationService` application boundary. C0 does not expand the workspace
+facade. UI code must not depend directly on SQLite, `DatabaseHelper`, or
+repositories.
 
 ## 13. Stage boundary
 
-U1-P0 freezes IA and graduates Presentation naming. It explicitly does not:
+The C0 transition preserves the U1 IA while adding persisted conversation
+foundation. It explicitly does not:
 
-- add a business feature;
-- change schema or persisted formats;
-- implement Folder;
-- implement Conversation persistence;
 - implement Agent runtime, RAG, or Web Search;
 - change MCP runtime or contract;
 - redesign `U1WorkspaceFacade`;
@@ -269,14 +271,15 @@ U1-P0 freezes IA and graduates Presentation naming. It explicitly does not:
 - change Project domain semantics;
 - change F0, J0, T0, or M0 contracts.
 
-The near-term product sequence after the delivered F0.1 stage is:
+Sending stores the User Message and displays the non-persisted status
+`Shiroha 回复能力尚未接入，消息已保存`. It must not create a mock Assistant row.
+
+The current transition is `F0.1 -> C0 -> A0`.
+
 ### Unclassified terminology
 
 - File Library「未分类」：没有 Folder relation 的 LibraryFile。
 - Learning Space「未归类内容」：没有 Project relation 的资产。
 - 两者属于不同维度的 virtual view，不应合并或互换。
-```text
-B0 Backup
--> C0 Conversation
--> A0 Built-in Agent
-```
+
+B0 Backup is deferred, not cancelled.

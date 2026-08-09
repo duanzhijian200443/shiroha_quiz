@@ -645,13 +645,13 @@ non-empty strings, IANA membership, cursor decoding, window ordering, the
   existing sqflite runtime.
 - Database infrastructure provides a generic explicit read-only profile. It
   accepts only an existing absolute path, canonicalizes it, opens it read-only,
-  and requires the current v18 `user_version`. It never creates, migrates, or
+  and requires the current v19 `user_version`. It never creates, migrates, or
   deletes the selected database.
 - The MCP composition root selects that generic profile from the required
   `--database-path` process argument. Server, Adapter, Application, and Domain
   layers never receive the path.
 - Production acceptance runs the real stdio entrypoint with real
-  `QuestionRepository` and `ReviewRepository` over an isolated synthetic v18
+  `QuestionRepository` and `ReviewRepository` over an isolated synthetic v19
   file. A Flutter-side production-callback handle remains open while the MCP
   subprocess reads the same canonical path, proving App-open + MCP-read
   interoperability without user data, network, Provider, OCR, or PDF access.

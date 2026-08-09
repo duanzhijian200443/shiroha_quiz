@@ -1,21 +1,27 @@
 import 'package:flutter/material.dart';
 
+import '../../application/conversations/conversation_repository.dart';
+import '../../domain/conversations/conversation.dart';
+import '../../domain/conversations/conversation_message.dart';
+import 'conversation_controller.dart';
 import 'global_sidebar.dart';
 import 'learning_spaces_screen.dart';
 import 'workspace_controller.dart';
 import 'workspace_pages.dart';
 
-/// Shiroha conversation presentation shell.
+/// Shiroha conversation presentation backed by the C0 application boundary.
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({
     super.key,
     required this.spacesController,
     required this.fileController,
+    required this.conversationController,
     this.showGlobalMenu = true,
   });
 
   final LearningSpacesController spacesController;
   final FileLibraryController fileController;
+  final ConversationController conversationController;
   final bool showGlobalMenu;
 
   @override
@@ -24,15 +30,16 @@ class AssistantScreen extends StatefulWidget {
 
 class _AssistantScreenState extends State<AssistantScreen> {
   final TextEditingController _composerController = TextEditingController();
-  final List<_MockContextItem> _selectedContexts = <_MockContextItem>[];
-  String? _currentProjectId;
-  String? _activeConversation;
 
   String get _currentSpace {
+    final scope = widget.conversationController.currentScope;
+    if (scope.kind == ConversationScopeKind.global) return '全局对话';
+    final projectId = scope.projectId;
+    if (projectId == null) return '原学习空间已删除';
     for (final space in widget.spacesController.spaces) {
-      if (space.projectId == _currentProjectId) return space.displayName;
+      if (space.projectId == projectId) return space.displayName;
     }
-    return '未选择学习空间';
+    return '学习空间不可用';
   }
 
   @override
@@ -49,19 +56,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   void _startNewConversation() {
     if (widget.showGlobalMenu) Navigator.maybePop(context);
-    setState(() {
-      _activeConversation = null;
-      _composerController.clear();
-      _selectedContexts.clear();
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _feedback('已开始一段新的对话预览');
-    });
+    widget.conversationController.startNew();
+    _composerController.clear();
   }
 
-  void _openConversation(String title) {
+  Future<void> _openConversation(String conversationId) async {
     if (widget.showGlobalMenu) Navigator.pop(context);
-    setState(() => _activeConversation = title);
+    await widget.conversationController.openConversation(conversationId);
   }
 
   void _drawerFeedback(String message) {
@@ -77,19 +78,24 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   Future<void> _showContextPicker() async {
-    final selected = await showModalBottomSheet<_MockContextItem>(
+    final fileId = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => const _MockContextPicker(),
+      builder: (_) => _FileContextPicker(
+        controller: widget.conversationController,
+      ),
     );
-    if (!mounted || selected == null || _selectedContexts.contains(selected)) {
-      return;
-    }
-    setState(() => _selectedContexts.add(selected));
+    if (!mounted || fileId == null) return;
+    await widget.conversationController.toggleFile(fileId);
   }
 
   Future<void> _showSpacePicker() async {
+    if (!widget.conversationController.isDraft) {
+      _feedback('对话范围已在首条消息发送时锁定');
+      return;
+    }
+    final currentProjectId = widget.conversationController.draftScope.projectId;
     final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -100,11 +106,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                title: const Text('切换学习空间'),
+                title: const Text('选择对话范围'),
                 titleTextStyle: Theme.of(sheetContext)
                     .textTheme
                     .titleLarge
                     ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              ListTile(
+                leading: const Icon(Icons.public_rounded),
+                title: const Text('全局对话'),
+                trailing: currentProjectId == null
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, ''),
               ),
               if (widget.spacesController.spaces.isEmpty)
                 const ListTile(title: Text('暂无学习空间')),
@@ -112,7 +126,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 ListTile(
                   leading: const Icon(Icons.space_dashboard_outlined),
                   title: Text(space.displayName),
-                  trailing: _currentProjectId == space.projectId
+                  trailing: currentProjectId == space.projectId
                       ? const Icon(Icons.check_rounded)
                       : null,
                   onTap: () => Navigator.pop(sheetContext, space.projectId),
@@ -138,9 +152,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ),
       ),
     );
-    if (mounted && selected != null) {
-      setState(() => _currentProjectId = selected);
-    }
+    if (!mounted || selected == null) return;
+    widget.conversationController.selectDraftScope(
+      selected.isEmpty
+          ? ConversationScope.global()
+          : ConversationScope.learningSpace(selected),
+    );
   }
 
   Future<void> _createSpace() async {
@@ -165,8 +182,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
     input.dispose();
     if (name == null || name.isEmpty) return;
     final created = await widget.spacesController.create(name);
-    if (created != null && mounted) {
-      setState(() => _currentProjectId = created.projectId);
+    if (created != null && mounted && widget.conversationController.isDraft) {
+      widget.conversationController.selectDraftScope(
+        ConversationScope.learningSpace(created.projectId),
+      );
     }
   }
 
@@ -178,18 +197,47 @@ class _AssistantScreenState extends State<AssistantScreen> {
         controller: widget.spacesController,
         fileController: widget.fileController,
         projectId: projectId,
-        onDeleted: () => Navigator.maybePop(context),
+        onDeleted: () {
+          widget.conversationController.refreshAfterProjectDeleted(projectId);
+          Navigator.maybePop(context);
+        },
       ),
     );
   }
 
-  void _sendMockMessage() {
-    if (_composerController.text.trim().isEmpty) {
+  Future<void> _sendMessage() async {
+    final content = _composerController.text;
+    if (content.trim().isEmpty) {
       _feedback('先写下你想问 Shiroha 的问题');
       return;
     }
-    _feedback('当前版本暂不支持发送或保存消息');
-    _composerController.clear();
+    final saved = await widget.conversationController.send(content);
+    if (saved) _composerController.clear();
+  }
+
+  Future<void> _deleteConversation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除对话？'),
+        content: const Text('对话和消息将被删除；文件、学习空间和题库不会被删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('c0-confirm-delete-conversation'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.conversationController.deleteActiveConversation();
+      _composerController.clear();
+    }
   }
 
   Drawer? _buildDrawer() {
@@ -197,17 +245,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
     return Drawer(
       child: GlobalSidebar(
         controller: widget.spacesController,
+        conversationController: widget.conversationController,
         onNewConversation: _startNewConversation,
-        onOpenFileLibrary: () => _pushFromDrawer(FileLibraryWorkspace(
-          controller: widget.fileController,
-        )),
-        onOpenLearningSpaces: () => _pushFromDrawer(LearningSpacesScreen(
-          controller: widget.spacesController,
-          fileController: widget.fileController,
-        )),
-        onOpenMcp: () => _pushFromDrawer(McpWorkspace(
-          projection: widget.spacesController.mcpProjection,
-        )),
+        onOpenFileLibrary: () => _pushFromDrawer(
+          FileLibraryWorkspace(controller: widget.fileController),
+        ),
+        onOpenLearningSpaces: () => _pushFromDrawer(
+          LearningSpacesScreen(
+            controller: widget.spacesController,
+            fileController: widget.fileController,
+          ),
+        ),
+        onOpenMcp: () => _pushFromDrawer(
+          McpWorkspace(projection: widget.spacesController.mcpProjection),
+        ),
         onOpenConversation: _openConversation,
         onOpenSpaceHome: _openSpaceHome,
         onCreateSpace: _createSpace,
@@ -218,8 +269,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[
+        widget.spacesController,
+        widget.conversationController,
+      ]),
+      builder: (context, _) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final conversations = widget.conversationController;
+    final active = conversations.activeThread;
     return Scaffold(
       key: const ValueKey<String>('u1-ux0-assistant-shell'),
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -262,7 +325,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       ),
                     ),
                     Icon(
-                      Icons.keyboard_arrow_down_rounded,
+                      conversations.isDraft
+                          ? Icons.keyboard_arrow_down_rounded
+                          : Icons.lock_outline_rounded,
                       size: 17,
                       color: colors.onSurfaceVariant,
                     ),
@@ -273,6 +338,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ],
         ),
         actions: [
+          if (active != null)
+            IconButton(
+              key: const ValueKey<String>('c0-delete-conversation'),
+              tooltip: '删除对话',
+              onPressed: _deleteConversation,
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
           IconButton(
             key: const ValueKey<String>('u1-ux0-new-conversation'),
             tooltip: '新对话',
@@ -289,62 +361,100 @@ class _AssistantScreenState extends State<AssistantScreen> {
             constraints: const BoxConstraints(maxWidth: 760),
             child: Column(
               children: [
-                Expanded(
-                  child: ListView(
-                    key: const ValueKey<String>('u1-ux0-assistant-content'),
-                    padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-                    children: [
-                      Text(
-                        _activeConversation ?? '今天想学什么？',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _activeConversation == null
-                            ? '从一个问题开始，或试试下面的建议'
-                            : '这是对话界面预览，当前版本不会发送或保存消息',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      _PromptCard(
-                        icon: Icons.insights_outlined,
-                        text: '分析我最近的错题',
-                        onTap: () => setState(
-                          () => _composerController.text = '分析我最近的错题',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _PromptCard(
-                        icon: Icons.event_note_outlined,
-                        text: '帮我规划今天的复习',
-                        onTap: () => setState(
-                          () => _composerController.text = '帮我规划今天的复习',
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      const _AssistantInsightCard(),
-                    ],
-                  ),
-                ),
+                Expanded(child: _buildConversationContent(theme)),
                 _Composer(
                   controller: _composerController,
-                  selectedContexts: _selectedContexts,
+                  selectedFiles: conversations.selectedFiles,
+                  isSending: conversations.isSending,
                   onAddContext: _showContextPicker,
-                  onRemoveContext: (item) =>
-                      setState(() => _selectedContexts.remove(item)),
-                  onSend: _sendMockMessage,
+                  onRemoveContext: (file) {
+                    conversations.toggleFile(file.fileId);
+                  },
+                  onSend: _sendMessage,
                 ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildConversationContent(ThemeData theme) {
+    final controller = widget.conversationController;
+    final active = controller.activeThread;
+    final colors = theme.colorScheme;
+    if (controller.isLoading && active == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return ListView(
+      key: const ValueKey<String>('u1-ux0-assistant-content'),
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+      children: [
+        Text(
+          active?.conversation.title ?? '今天想学什么？',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          active == null ? '从一个问题开始，或试试下面的建议' : '消息历史已保存到本地',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+        if (controller.currentScope.isUnavailableLearningSpace) ...[
+          const SizedBox(height: 16),
+          const _StatusCard(
+            icon: Icons.warning_amber_rounded,
+            message: '原学习空间已删除；历史仍可查看，但不能继续发送消息。',
+          ),
+        ],
+        if (controller.errorMessage case final error?) ...[
+          const SizedBox(height: 16),
+          _StatusCard(icon: Icons.error_outline, message: error),
+        ],
+        if (active == null) ...[
+          const SizedBox(height: 24),
+          _PromptCard(
+            icon: Icons.insights_outlined,
+            text: '分析我最近的错题',
+            onTap: () => _composerController.text = '分析我最近的错题',
+          ),
+          const SizedBox(height: 12),
+          _PromptCard(
+            icon: Icons.event_note_outlined,
+            text: '帮我规划今天的复习',
+            onTap: () => _composerController.text = '帮我规划今天的复习',
+          ),
+        ] else ...[
+          if (active.hasMoreBefore) ...[
+            const SizedBox(height: 20),
+            Center(
+              child: TextButton(
+                key: const ValueKey<String>('c0-load-older-messages'),
+                onPressed: controller.isLoadingOlder
+                    ? null
+                    : controller.loadOlderMessages,
+                child: Text(controller.isLoadingOlder ? '加载中…' : '加载更早消息'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          for (final message in active.messages) ...[
+            _MessageBubble(message: message),
+            const SizedBox(height: 12),
+          ],
+        ],
+        const SizedBox(height: 20),
+        const _StatusCard(
+          icon: Icons.info_outline_rounded,
+          message: 'Shiroha 回复能力尚未接入；发送的内容会保存为用户消息。',
+        ),
+      ],
     );
   }
 }
@@ -379,79 +489,52 @@ class _PromptCard extends StatelessWidget {
   }
 }
 
-class _AssistantInsightCard extends StatelessWidget {
-  const _AssistantInsightCard();
+class _MessageBubble extends StatelessWidget {
+  const _MessageBubble({required this.message});
+
+  final ConversationMessage message;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: colors.primaryContainer.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: colors.primary.withValues(alpha: 0.14)),
+    final colors = Theme.of(context).colorScheme;
+    final isUser = message.role == ConversationMessageRole.user;
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        key: ValueKey<String>('c0-message-${message.messageId}'),
+        constraints: const BoxConstraints(maxWidth: 600),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isUser ? colors.primaryContainer : colors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(message.content),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+}
+
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Row(
         children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: colors.primary,
-                foregroundColor: colors.onPrimary,
-                child: const Icon(Icons.auto_awesome_rounded, size: 18),
-              ),
-              const SizedBox(width: 10),
-              const Text('Shiroha',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Text('你最近“极限与连续”的错误率比较高，建议今天优先复习这一部分。'),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('极限与连续',
-                    style: TextStyle(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text(
-                  '最近正确率 58% · 错题 12',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '示例数据',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    OutlinedButton(
-                      onPressed: () => _mockFeedback(context, '当前版本暂未接入查看错题'),
-                      child: const Text('查看错题'),
-                    ),
-                    FilledButton.tonal(
-                      onPressed: () => _mockFeedback(context, '当前版本暂未接入开始训练'),
-                      child: const Text('开始训练'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          Icon(icon, color: colors.primary),
+          const SizedBox(width: 10),
+          Expanded(child: Text(message)),
         ],
       ),
     );
@@ -461,16 +544,18 @@ class _AssistantInsightCard extends StatelessWidget {
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
-    required this.selectedContexts,
+    required this.selectedFiles,
+    required this.isSending,
     required this.onAddContext,
     required this.onRemoveContext,
     required this.onSend,
   });
 
   final TextEditingController controller;
-  final List<_MockContextItem> selectedContexts;
+  final List<ConversationFileRef> selectedFiles;
+  final bool isSending;
   final VoidCallback onAddContext;
-  final ValueChanged<_MockContextItem> onRemoveContext;
+  final ValueChanged<ConversationFileRef> onRemoveContext;
   final VoidCallback onSend;
 
   @override
@@ -497,17 +582,17 @@ class _Composer extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (selectedContexts.isNotEmpty)
+            if (selectedFiles.isNotEmpty)
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  for (final item in selectedContexts)
+                  for (final file in selectedFiles)
                     InputChip(
-                      key: ValueKey<String>('u1-ux0-context-${item.id}'),
-                      label: Text(item.label),
-                      avatar: Icon(item.icon, size: 17),
-                      onDeleted: () => onRemoveContext(item),
+                      key: ValueKey<String>('c0-context-${file.fileId}'),
+                      label: Text(file.displayName),
+                      avatar: const Icon(Icons.description_outlined, size: 17),
+                      onDeleted: () => onRemoveContext(file),
                     ),
                 ],
               ),
@@ -535,8 +620,13 @@ class _Composer extends StatelessWidget {
                 IconButton.filled(
                   key: const ValueKey<String>('u1-ux0-send'),
                   tooltip: '发送',
-                  onPressed: onSend,
-                  icon: const Icon(Icons.arrow_upward_rounded),
+                  onPressed: isSending ? null : onSend,
+                  icon: isSending
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded),
                 ),
               ],
             ),
@@ -547,14 +637,18 @@ class _Composer extends StatelessWidget {
   }
 }
 
-class _MockContextPicker extends StatelessWidget {
-  const _MockContextPicker();
+class _FileContextPicker extends StatelessWidget {
+  const _FileContextPicker({required this.controller});
+
+  final ConversationController controller;
 
   @override
   Widget build(BuildContext context) {
+    final selected =
+        controller.selectedFiles.map((file) => file.fileId).toSet();
     return SafeArea(
       child: ListView(
-        key: const ValueKey<String>('u1-ux0-context-picker'),
+        key: const ValueKey<String>('c0-context-picker'),
         shrinkWrap: true,
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
         children: [
@@ -565,77 +659,33 @@ class _MockContextPicker extends StatelessWidget {
                 .titleLarge
                 ?.copyWith(fontWeight: FontWeight.w800),
           ),
-          const _ContextHeader(Icons.description_outlined, '文件'),
-          for (final item in _mockFiles)
-            ListTile(
-              leading: Icon(item.icon),
-              title: Text(item.label),
-              onTap: () => Navigator.pop(context, item),
-            ),
+          const ListTile(
+            leading: Icon(Icons.description_outlined),
+            title: Text('文件'),
+          ),
+          if (controller.attachableFiles.isEmpty)
+            const ListTile(title: Text('文件库中暂无文件'))
+          else
+            for (final file in controller.attachableFiles)
+              ListTile(
+                key: ValueKey<String>('c0-context-file-${file.fileId}'),
+                leading: const Icon(Icons.description_outlined),
+                title: Text(file.displayName),
+                subtitle: Text(file.mimeType),
+                trailing: selected.contains(file.fileId)
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(context, file.fileId),
+              ),
           const Divider(),
-          const _ContextHeader(Icons.library_books_outlined, '题库'),
-          for (final item in _mockBanks)
-            ListTile(
-              leading: Icon(item.icon),
-              title: Text(item.label),
-              onTap: () => Navigator.pop(context, item),
-            ),
+          const ListTile(
+            leading: Icon(Icons.library_books_outlined),
+            title: Text('题库'),
+            subtitle: Text('题库附件将在稳定题库身份建立后接入'),
+            enabled: false,
+          ),
         ],
       ),
     );
   }
-}
-
-class _ContextHeader extends StatelessWidget {
-  const _ContextHeader(this.icon, this.text);
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 19, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(width: 8),
-          Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-}
-
-@immutable
-class _MockContextItem {
-  const _MockContextItem(this.id, this.label, this.icon);
-
-  final String id;
-  final String label;
-  final IconData icon;
-}
-
-const _mockFiles = <_MockContextItem>[
-  _MockContextItem(
-    'math-2019-pdf',
-    '2019数学一真题.pdf',
-    Icons.picture_as_pdf_outlined,
-  ),
-  _MockContextItem(
-    'backprop-notes',
-    '反向传播笔记.md',
-    Icons.description_outlined,
-  ),
-];
-
-const _mockBanks = <_MockContextItem>[
-  _MockContextItem('math-2019-bank', '2019数学一', Icons.menu_book_outlined),
-  _MockContextItem('limits-bank', '极限专项训练', Icons.library_books_outlined),
-];
-
-void _mockFeedback(BuildContext context, String message) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
 }

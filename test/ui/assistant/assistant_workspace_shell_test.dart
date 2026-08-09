@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
+import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
@@ -12,8 +14,11 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
+import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 import 'package:shiroha_quiz/ui/assistant/global_sidebar.dart';
 import 'package:shiroha_quiz/ui/assistant/learning_spaces_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart'
@@ -22,6 +27,74 @@ import 'package:shiroha_quiz/ui/assistant/workspace_pages.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+
+final class _EmptyConversations extends Fake
+    implements ConversationRepositoryPort {
+  @override
+  Future<List<ConversationFileRef>> listAttachableFiles(
+          {required int limit}) async =>
+      const <ConversationFileRef>[];
+
+  @override
+  Future<List<Conversation>> listRecentConversations(
+          {required int limit}) async =>
+      const <Conversation>[];
+}
+
+final class _MemoryConversations extends Fake
+    implements ConversationRepositoryPort {
+  bool failListReads = false;
+  final List<Conversation> conversations = <Conversation>[];
+  final List<ConversationMessage> messages = <ConversationMessage>[];
+  final List<ConversationFileRef> candidates = <ConversationFileRef>[
+    const ConversationFileRef(
+      fileId: 'file-notes',
+      displayName: 'notes.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 12,
+    ),
+  ];
+
+  @override
+  Future<ConversationThreadSlice> createWithFirstMessage({
+    required Conversation conversation,
+    required ConversationMessage firstMessage,
+    required List<String> fileIds,
+    required DateTime attachedAt,
+  }) async {
+    conversations.add(conversation);
+    messages.add(firstMessage);
+    return ConversationThreadSlice(
+      conversation: conversation,
+      messages: <ConversationMessage>[firstMessage],
+      files: candidates
+          .where((file) => fileIds.contains(file.fileId))
+          .toList(growable: false),
+      hasMoreBefore: false,
+      nextBeforeSequence: null,
+    );
+  }
+
+  @override
+  Future<List<ConversationFileRef>> listAttachableFiles(
+          {required int limit}) async =>
+      candidates.take(limit).toList(growable: false);
+
+  @override
+  Future<List<Conversation>> listRecentConversations(
+      {required int limit}) async {
+    if (failListReads) throw StateError('list read failure');
+    return conversations.reversed.take(limit).toList(growable: false);
+  }
+}
+
+ConversationService _conversationService({ConversationRepositoryPort? repo}) =>
+    ConversationService(
+      repository: repo ?? _EmptyConversations(),
+      conversationIdFactory: () => 'conversation-test',
+      messageIdFactory: () => 'message-test',
+      clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+    );
 
 final class _Files implements LibraryFileRepositoryPort {
   bool failReads = false;
@@ -303,6 +376,73 @@ U1WorkspaceFacade _facade({
 }
 
 void main() {
+  testWidgets(
+      'C0 first send persists one User Message with selected File context',
+      (tester) async {
+    final conversations = _MemoryConversations();
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.darkTheme,
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(repo: conversations),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(conversations.conversations, isEmpty);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux0-add-context')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('c0-context-file-file-notes')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('c0-context-file-notes')),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      '  first question  ',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('u1-ux0-send')));
+    await tester.pumpAndSettle();
+
+    expect(conversations.conversations, hasLength(1));
+    expect(conversations.messages, hasLength(1));
+    expect(conversations.messages.single.role, ConversationMessageRole.user);
+    expect(conversations.messages.single.content, 'first question');
+    expect(
+      find.byKey(const ValueKey<String>('c0-message-message-test')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('c0-recent-conversation-test')),
+      findsOneWidget,
+    );
+  });
+
+  test('send stays successful when the post-save recency refresh fails',
+      () async {
+    final repo = _MemoryConversations()..failListReads = true;
+    final controller = ConversationController(
+      _conversationService(repo: repo),
+    );
+
+    final saved = await controller.send('first message');
+
+    expect(saved, isTrue);
+    expect(controller.activeThread!.messages, hasLength(1));
+    expect(controller.errorMessage, conversationReadSafeError);
+    expect(controller.errorMessage, isNot(conversationWriteSafeError));
+  });
+
   testWidgets('desktop shell renders real files, relations, and MCP capability',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1300, 800));
@@ -310,7 +450,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.darkTheme,
-        home: AssistantWorkspaceShell(facade: _facade()),
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -364,7 +507,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
-        home: AssistantWorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(
+          facade: facade,
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -461,7 +607,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
-        home: AssistantWorkspaceShell(facade: _facade()),
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -490,7 +639,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
-        home: AssistantWorkspaceShell(facade: _facade()),
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -520,7 +672,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.darkTheme,
-        home: AssistantWorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(
+          facade: facade,
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -562,7 +717,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
-        home: AssistantWorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(
+          facade: facade,
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -620,7 +778,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.darkTheme,
-        home: AssistantWorkspaceShell(facade: facade),
+        home: AssistantWorkspaceShell(
+          facade: facade,
+          conversationService: _conversationService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();

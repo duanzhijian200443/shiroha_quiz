@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../application/conversations/conversation_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'assistant_screen.dart';
+import 'conversation_controller.dart';
 import 'global_sidebar.dart';
 import 'learning_spaces_screen.dart';
 import 'workspace_controller.dart';
@@ -16,9 +18,14 @@ enum _WorkspaceDestination {
 }
 
 class AssistantWorkspaceShell extends StatefulWidget {
-  const AssistantWorkspaceShell({super.key, required this.facade});
+  const AssistantWorkspaceShell({
+    super.key,
+    required this.facade,
+    required this.conversationService,
+  });
 
   final U1WorkspaceFacade facade;
+  final ConversationService conversationService;
 
   @override
   State<AssistantWorkspaceShell> createState() =>
@@ -28,8 +35,8 @@ class AssistantWorkspaceShell extends StatefulWidget {
 class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
   late final LearningSpacesController _spacesController;
   late final FileLibraryController _fileController;
+  late final ConversationController _conversationController;
   _WorkspaceDestination _destination = _WorkspaceDestination.conversation;
-  String? _conversationTitle;
   String? _projectId;
 
   @override
@@ -37,12 +44,15 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
     super.initState();
     _spacesController = LearningSpacesController(widget.facade)..load();
     _fileController = FileLibraryController(widget.facade)..load();
+    _conversationController = ConversationController(widget.conversationService)
+      ..load();
   }
 
   @override
   void dispose() {
     _spacesController.dispose();
     _fileController.dispose();
+    _conversationController.dispose();
     super.dispose();
   }
 
@@ -59,6 +69,12 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
       _projectId = projectId;
       _destination = _WorkspaceDestination.learningSpaceHome;
     });
+  }
+
+  Future<void> _openConversation(String conversationId) async {
+    await _conversationController.openConversation(conversationId);
+    if (!mounted || _conversationController.activeThread == null) return;
+    setState(() => _destination = _WorkspaceDestination.conversation);
   }
 
   Future<void> _createSpace() async {
@@ -95,22 +111,11 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
     return switch (_destination) {
       _WorkspaceDestination.conversation => Column(
           children: [
-            if (_conversationTitle case final title?)
-              Container(
-                key: const ValueKey<String>('u1-ux01-conversation-banner'),
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                color: Theme.of(context)
-                    .colorScheme
-                    .primaryContainer
-                    .withValues(alpha: 0.55),
-                child: Text('对话预览 · $title'),
-              ),
             Expanded(
               child: AssistantScreen(
                 spacesController: _spacesController,
                 fileController: _fileController,
+                conversationController: _conversationController,
                 showGlobalMenu: false,
               ),
             ),
@@ -132,6 +137,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
           onDeleted: () => setState(() {
             _projectId = null;
             _destination = _WorkspaceDestination.learningSpaces;
+            _conversationController.load();
           }),
         ),
       _WorkspaceDestination.mcp => McpWorkspace(
@@ -148,6 +154,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
           return AssistantScreen(
             spacesController: _spacesController,
             fileController: _fileController,
+            conversationController: _conversationController,
           );
         }
         return Scaffold(
@@ -158,8 +165,9 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                 width: 300,
                 child: GlobalSidebar(
                   controller: _spacesController,
+                  conversationController: _conversationController,
                   onNewConversation: () => setState(() {
-                    _conversationTitle = null;
+                    _conversationController.startNew();
                     _destination = _WorkspaceDestination.conversation;
                   }),
                   onOpenFileLibrary: () => setState(
@@ -171,10 +179,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                   onOpenMcp: () => setState(
                     () => _destination = _WorkspaceDestination.mcp,
                   ),
-                  onOpenConversation: (title) => setState(() {
-                    _conversationTitle = title;
-                    _destination = _WorkspaceDestination.conversation;
-                  }),
+                  onOpenConversation: _openConversation,
                   onOpenSpaceHome: _openSpaceHome,
                   onCreateSpace: _createSpace,
                   onFeedback: _feedback,

@@ -20,7 +20,7 @@ class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 18;
+  static const int _dbVersion = 19;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -212,6 +212,167 @@ CREATE INDEX idx_library_file_folders_folder_id
   static const String _libraryFileFolderLookupIndexDdlIfNotExists = '''
 CREATE INDEX IF NOT EXISTS idx_library_file_folders_folder_id
   ON library_file_folders(folder_id);
+''';
+
+  static const String _conversationsTable = 'conversations';
+  static const String _conversationMessagesTable = 'conversation_messages';
+  static const String _conversationFilesTable = 'conversation_files';
+  static const String _conversationsRecentIndex = 'idx_conversations_recent';
+  static const String _conversationsProjectRecentIndex =
+      'idx_conversations_project_recent';
+  static const String _conversationMessagesOrderIndex =
+      'idx_conversation_messages_order';
+  static const String _conversationFilesOrderIndex =
+      'idx_conversation_files_order';
+  static const String _conversationFilesFileIndex =
+      'idx_conversation_files_file_id';
+
+  static const String _conversationsDdl = '''
+CREATE TABLE conversations (
+  conversation_id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(conversation_id) BETWEEN 1 AND 128),
+  scope_kind TEXT NOT NULL
+    CHECK(scope_kind IN ('global', 'learning_space')),
+  project_id TEXT
+    CHECK(project_id IS NULL OR length(project_id) BETWEEN 1 AND 128),
+  title TEXT NOT NULL
+    CHECK(title = trim(title))
+    CHECK(length(title) BETWEEN 1 AND 40),
+  created_at INTEGER NOT NULL CHECK(created_at >= 0),
+  updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+  CHECK(
+    (scope_kind = 'global' AND project_id IS NULL)
+    OR scope_kind = 'learning_space'
+  ),
+  FOREIGN KEY(project_id) REFERENCES projects(project_id)
+    ON UPDATE NO ACTION ON DELETE SET NULL
+);
+''';
+
+  static const String _conversationsDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS conversations (
+  conversation_id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(conversation_id) BETWEEN 1 AND 128),
+  scope_kind TEXT NOT NULL
+    CHECK(scope_kind IN ('global', 'learning_space')),
+  project_id TEXT
+    CHECK(project_id IS NULL OR length(project_id) BETWEEN 1 AND 128),
+  title TEXT NOT NULL
+    CHECK(title = trim(title))
+    CHECK(length(title) BETWEEN 1 AND 40),
+  created_at INTEGER NOT NULL CHECK(created_at >= 0),
+  updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+  CHECK(
+    (scope_kind = 'global' AND project_id IS NULL)
+    OR scope_kind = 'learning_space'
+  ),
+  FOREIGN KEY(project_id) REFERENCES projects(project_id)
+    ON UPDATE NO ACTION ON DELETE SET NULL
+);
+''';
+
+  static const String _conversationMessagesDdl = '''
+CREATE TABLE conversation_messages (
+  message_id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(message_id) BETWEEN 1 AND 128),
+  conversation_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK(sequence > 0),
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content TEXT NOT NULL CHECK(length(content) > 0),
+  created_at INTEGER NOT NULL CHECK(created_at >= 0),
+  FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
+    ON UPDATE NO ACTION ON DELETE CASCADE
+);
+''';
+
+  static const String _conversationMessagesDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS conversation_messages (
+  message_id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(message_id) BETWEEN 1 AND 128),
+  conversation_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK(sequence > 0),
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content TEXT NOT NULL CHECK(length(content) > 0),
+  created_at INTEGER NOT NULL CHECK(created_at >= 0),
+  FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
+    ON UPDATE NO ACTION ON DELETE CASCADE
+);
+''';
+
+  static const String _conversationFilesDdl = '''
+CREATE TABLE conversation_files (
+  conversation_id TEXT NOT NULL,
+  file_id TEXT NOT NULL,
+  attached_at INTEGER NOT NULL CHECK(attached_at >= 0),
+  PRIMARY KEY(conversation_id, file_id),
+  FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
+    ON UPDATE NO ACTION ON DELETE CASCADE,
+  FOREIGN KEY(file_id) REFERENCES library_files(file_id)
+    ON UPDATE NO ACTION ON DELETE CASCADE
+);
+''';
+
+  static const String _conversationFilesDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS conversation_files (
+  conversation_id TEXT NOT NULL,
+  file_id TEXT NOT NULL,
+  attached_at INTEGER NOT NULL CHECK(attached_at >= 0),
+  PRIMARY KEY(conversation_id, file_id),
+  FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
+    ON UPDATE NO ACTION ON DELETE CASCADE,
+  FOREIGN KEY(file_id) REFERENCES library_files(file_id)
+    ON UPDATE NO ACTION ON DELETE CASCADE
+);
+''';
+
+  static const String _conversationsRecentIndexDdl = '''
+CREATE INDEX idx_conversations_recent
+  ON conversations(updated_at DESC, conversation_id ASC);
+''';
+
+  static const String _conversationsRecentIndexDdlIfNotExists = '''
+CREATE INDEX IF NOT EXISTS idx_conversations_recent
+  ON conversations(updated_at DESC, conversation_id ASC);
+''';
+
+  static const String _conversationsProjectRecentIndexDdl = '''
+CREATE INDEX idx_conversations_project_recent
+  ON conversations(project_id, updated_at DESC, conversation_id ASC);
+''';
+
+  static const String _conversationsProjectRecentIndexDdlIfNotExists = '''
+CREATE INDEX IF NOT EXISTS idx_conversations_project_recent
+  ON conversations(project_id, updated_at DESC, conversation_id ASC);
+''';
+
+  static const String _conversationMessagesOrderIndexDdl = '''
+CREATE UNIQUE INDEX idx_conversation_messages_order
+  ON conversation_messages(conversation_id, sequence);
+''';
+
+  static const String _conversationMessagesOrderIndexDdlIfNotExists = '''
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_messages_order
+  ON conversation_messages(conversation_id, sequence);
+''';
+
+  static const String _conversationFilesOrderIndexDdl = '''
+CREATE INDEX idx_conversation_files_order
+  ON conversation_files(conversation_id, attached_at ASC, file_id ASC);
+''';
+
+  static const String _conversationFilesOrderIndexDdlIfNotExists = '''
+CREATE INDEX IF NOT EXISTS idx_conversation_files_order
+  ON conversation_files(conversation_id, attached_at ASC, file_id ASC);
+''';
+
+  static const String _conversationFilesFileIndexDdl = '''
+CREATE INDEX idx_conversation_files_file_id
+  ON conversation_files(file_id);
+''';
+
+  static const String _conversationFilesFileIndexDdlIfNotExists = '''
+CREATE INDEX IF NOT EXISTS idx_conversation_files_file_id
+  ON conversation_files(file_id);
 ''';
 
   static DatabaseHelper? _instance;
@@ -518,10 +679,19 @@ CREATE INDEX IF NOT EXISTS idx_library_file_folders_folder_id
     await db.execute(_libraryFileFoldersDdl);
     await db.execute(_libraryFolderNameIndexDdl);
     await db.execute(_libraryFileFolderLookupIndexDdl);
+    await db.execute(_conversationsDdl);
+    await db.execute(_conversationMessagesDdl);
+    await db.execute(_conversationFilesDdl);
+    await db.execute(_conversationsRecentIndexDdl);
+    await db.execute(_conversationsProjectRecentIndexDdl);
+    await db.execute(_conversationMessagesOrderIndexDdl);
+    await db.execute(_conversationFilesOrderIndexDdl);
+    await db.execute(_conversationFilesFileIndexDdl);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
     await _validateLibraryFolderSchema(db);
+    await _validateConversationSchema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -647,10 +817,21 @@ CREATE INDEX IF NOT EXISTS idx_library_file_folders_folder_id
       await db.execute(_libraryFolderNameIndexDdlIfNotExists);
       await db.execute(_libraryFileFolderLookupIndexDdlIfNotExists);
     }
+    if (oldVersion < 19) {
+      await db.execute(_conversationsDdlIfNotExists);
+      await db.execute(_conversationMessagesDdlIfNotExists);
+      await db.execute(_conversationFilesDdlIfNotExists);
+      await db.execute(_conversationsRecentIndexDdlIfNotExists);
+      await db.execute(_conversationsProjectRecentIndexDdlIfNotExists);
+      await db.execute(_conversationMessagesOrderIndexDdlIfNotExists);
+      await db.execute(_conversationFilesOrderIndexDdlIfNotExists);
+      await db.execute(_conversationFilesFileIndexDdlIfNotExists);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
     await _validateLibraryFolderSchema(db);
+    await _validateConversationSchema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -1001,6 +1182,154 @@ CREATE INDEX IF NOT EXISTS idx_library_file_folders_folder_id
         LibraryFolderSchemaFailure.malformedSchema,
       );
     }
+  }
+
+  /// Validates the exact additive v19 Conversation tables, indexes, and
+  /// lifecycle foreign keys. A failure aborts the open transaction and leaves
+  /// the v18 database unchanged.
+  static Future<void> _validateConversationSchema(Database db) async {
+    final objects = <String, String?>{};
+    for (final row in await db.rawQuery(
+      "SELECT name, sql FROM sqlite_master WHERE type IN ('table', 'index')",
+    )) {
+      objects[row['name'] as String] = row['sql'] as String?;
+    }
+
+    final expectedSql = <String, String>{
+      _conversationsTable: _conversationsDdl,
+      _conversationMessagesTable: _conversationMessagesDdl,
+      _conversationFilesTable: _conversationFilesDdl,
+      _conversationsRecentIndex: _conversationsRecentIndexDdl,
+      _conversationsProjectRecentIndex: _conversationsProjectRecentIndexDdl,
+      _conversationMessagesOrderIndex: _conversationMessagesOrderIndexDdl,
+      _conversationFilesOrderIndex: _conversationFilesOrderIndexDdl,
+      _conversationFilesFileIndex: _conversationFilesFileIndexDdl,
+    };
+    for (final entry in expectedSql.entries) {
+      final storedSql = objects[entry.key];
+      if (storedSql == null ||
+          _canonicalizeSql(storedSql) != _canonicalizeSql(entry.value)) {
+        throw const ConversationSchemaException(
+          ConversationSchemaFailure.malformedSchema,
+        );
+      }
+    }
+
+    final conversations = await db.rawQuery(
+      'PRAGMA table_info($_conversationsTable)',
+    );
+    if (!_matchesColumns(conversations, const <(String, String, int, int)>[
+      ('conversation_id', 'TEXT', 1, 1),
+      ('scope_kind', 'TEXT', 1, 0),
+      ('project_id', 'TEXT', 0, 0),
+      ('title', 'TEXT', 1, 0),
+      ('created_at', 'INTEGER', 1, 0),
+      ('updated_at', 'INTEGER', 1, 0),
+    ])) {
+      throw const ConversationSchemaException(
+        ConversationSchemaFailure.malformedSchema,
+      );
+    }
+
+    final messages = await db.rawQuery(
+      'PRAGMA table_info($_conversationMessagesTable)',
+    );
+    if (!_matchesColumns(messages, const <(String, String, int, int)>[
+      ('message_id', 'TEXT', 1, 1),
+      ('conversation_id', 'TEXT', 1, 0),
+      ('sequence', 'INTEGER', 1, 0),
+      ('role', 'TEXT', 1, 0),
+      ('content', 'TEXT', 1, 0),
+      ('created_at', 'INTEGER', 1, 0),
+    ])) {
+      throw const ConversationSchemaException(
+        ConversationSchemaFailure.malformedSchema,
+      );
+    }
+
+    final files = await db.rawQuery(
+      'PRAGMA table_info($_conversationFilesTable)',
+    );
+    if (!_matchesColumns(files, const <(String, String, int, int)>[
+      ('conversation_id', 'TEXT', 1, 1),
+      ('file_id', 'TEXT', 1, 2),
+      ('attached_at', 'INTEGER', 1, 0),
+    ])) {
+      throw const ConversationSchemaException(
+        ConversationSchemaFailure.malformedSchema,
+      );
+    }
+
+    final conversationForeignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list($_conversationsTable)',
+    );
+    if (conversationForeignKeys.length != 1 ||
+        !_matchesConversationForeignKey(
+          conversationForeignKeys,
+          from: 'project_id',
+          table: 'projects',
+          onUpdate: 'NO ACTION',
+          onDelete: 'SET NULL',
+        )) {
+      throw const ConversationSchemaException(
+        ConversationSchemaFailure.malformedSchema,
+      );
+    }
+
+    final messageForeignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list($_conversationMessagesTable)',
+    );
+    if (messageForeignKeys.length != 1 ||
+        !_matchesConversationForeignKey(
+          messageForeignKeys,
+          from: 'conversation_id',
+          table: 'conversations',
+          onUpdate: 'NO ACTION',
+          onDelete: 'CASCADE',
+        )) {
+      throw const ConversationSchemaException(
+        ConversationSchemaFailure.malformedSchema,
+      );
+    }
+
+    final fileForeignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list($_conversationFilesTable)',
+    );
+    if (fileForeignKeys.length != 2 ||
+        !_matchesConversationForeignKey(
+          fileForeignKeys,
+          from: 'conversation_id',
+          table: 'conversations',
+          onUpdate: 'NO ACTION',
+          onDelete: 'CASCADE',
+        ) ||
+        !_matchesConversationForeignKey(
+          fileForeignKeys,
+          from: 'file_id',
+          table: 'library_files',
+          onUpdate: 'NO ACTION',
+          onDelete: 'CASCADE',
+        )) {
+      throw const ConversationSchemaException(
+        ConversationSchemaFailure.malformedSchema,
+      );
+    }
+  }
+
+  static bool _matchesConversationForeignKey(
+    List<Map<String, Object?>> rows, {
+    required String from,
+    required String table,
+    required String onUpdate,
+    required String onDelete,
+  }) {
+    return rows.any(
+      (row) =>
+          row['from'] == from &&
+          row['table'] == table &&
+          (row['on_update'] as String).toUpperCase() == onUpdate &&
+          (row['on_delete'] as String).toUpperCase() == onDelete,
+    );
   }
 
   static bool _matchesColumns(
@@ -2353,6 +2682,21 @@ final class LibraryFolderSchemaException implements Exception {
   String toString() {
     return 'LibraryFolderSchemaException(${failure.name}): '
         'The File Library Folder tables do not match the frozen v18 definition.';
+  }
+}
+
+enum ConversationSchemaFailure { malformedSchema }
+
+/// Fixed, SQL/path/row-free failure for the additive v19 C0 schema.
+final class ConversationSchemaException implements Exception {
+  const ConversationSchemaException(this.failure);
+
+  final ConversationSchemaFailure failure;
+
+  @override
+  String toString() {
+    return 'ConversationSchemaException(${failure.name}): '
+        'The Conversation tables do not match the frozen v19 definition.';
   }
 }
 

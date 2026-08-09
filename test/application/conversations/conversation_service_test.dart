@@ -1,0 +1,159 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
+import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
+
+final class _Repository extends Fake implements ConversationRepositoryPort {
+  Conversation? createdConversation;
+  ConversationMessage? createdMessage;
+  List<String>? createdFileIds;
+  String? appendedContent;
+  int? receivedLimit;
+  int? receivedBeforeSequence;
+
+  @override
+  Future<ConversationThreadSlice> createWithFirstMessage({
+    required Conversation conversation,
+    required ConversationMessage firstMessage,
+    required List<String> fileIds,
+    required DateTime attachedAt,
+  }) async {
+    createdConversation = conversation;
+    createdMessage = firstMessage;
+    createdFileIds = fileIds;
+    return ConversationThreadSlice(
+      conversation: conversation,
+      messages: <ConversationMessage>[firstMessage],
+      files: const <ConversationFileRef>[],
+      hasMoreBefore: false,
+      nextBeforeSequence: null,
+    );
+  }
+
+  @override
+  Future<AppendMessageResult> appendMessage({
+    required String conversationId,
+    required String messageId,
+    required ConversationMessageRole role,
+    required String content,
+    required DateTime createdAt,
+  }) async {
+    appendedContent = content;
+    final message = ConversationMessage(
+      messageId: messageId,
+      conversationId: conversationId,
+      sequence: 2,
+      role: role,
+      content: content,
+      createdAt: createdAt,
+    );
+    return AppendMessageResult(
+      conversation: Conversation(
+        conversationId: conversationId,
+        scope: ConversationScope.global(),
+        title: 'title',
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+      message: message,
+    );
+  }
+
+  @override
+  Future<ConversationThreadSlice> loadConversation({
+    required String conversationId,
+    required int limit,
+    int? beforeSequence,
+  }) async {
+    receivedLimit = limit;
+    receivedBeforeSequence = beforeSequence;
+    final now = DateTime.utc(2026, 8, 10);
+    return ConversationThreadSlice(
+      conversation: Conversation(
+        conversationId: conversationId,
+        scope: ConversationScope.global(),
+        title: 'title',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      messages: const <ConversationMessage>[],
+      files: const <ConversationFileRef>[],
+      hasMoreBefore: false,
+      nextBeforeSequence: null,
+    );
+  }
+}
+
+void main() {
+  late _Repository repository;
+  late ConversationService service;
+  var conversationSequence = 0;
+  var messageSequence = 0;
+
+  setUp(() {
+    repository = _Repository();
+    service = ConversationService(
+      repository: repository,
+      conversationIdFactory: () => 'conversation-${++conversationSequence}',
+      messageIdFactory: () => 'message-${++messageSequence}',
+      clock: () => DateTime.utc(2026, 8, 10, 12),
+    );
+  });
+
+  test('start normalizes title/content and deduplicates transient files',
+      () async {
+    final result = await service.startWithUserMessage(
+      scope: ConversationScope.learningSpace('project-a'),
+      content: '  first\r\n question  ',
+      fileIds: const <String>['file-a', 'file-a', 'file-b'],
+    );
+
+    expect(result.conversation.title, 'first question');
+    expect(result.messages.single.content, 'first\n question');
+    expect(result.messages.single.role, ConversationMessageRole.user);
+    expect(repository.createdFileIds, <String>['file-a', 'file-b']);
+  });
+
+  test('C0 append is User-only and uses normalized content', () async {
+    final result = await service.appendUserMessage(
+      conversationId: 'conversation-a',
+      content: '  next\rline  ',
+    );
+
+    expect(repository.appendedContent, 'next\nline');
+    expect(result.message.role, ConversationMessageRole.user);
+  });
+
+  test('unavailable scope and invalid limits fail before persistence',
+      () async {
+    await expectLater(
+      service.startWithUserMessage(
+        scope: ConversationScope.unavailableLearningSpace(),
+        content: 'question',
+      ),
+      throwsA(
+        isA<ConversationException>().having(
+          (error) => error.failure,
+          'failure',
+          ConversationFailure.scopeUnavailable,
+        ),
+      ),
+    );
+    expect(
+      () => service.listRecentConversations(limit: 101),
+      throwsA(isA<ConversationException>()),
+    );
+    expect(repository.createdConversation, isNull);
+  });
+
+  test('load forwards bounded before-sequence slicing', () async {
+    await service.loadConversation(
+      conversationId: 'conversation-a',
+      beforeSequence: 10,
+      limit: 20,
+    );
+    expect(repository.receivedLimit, 20);
+    expect(repository.receivedBeforeSequence, 10);
+  });
+}

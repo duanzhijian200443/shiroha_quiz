@@ -20,13 +20,16 @@ U1-R1
 U1-P0
 ```
 
-The current near-term execution order is:
+The current-stage amendment is:
 
 ```text
-B0 Backup
--> C0 Conversation
+F0.1 File Library Folder
+-> C0 Conversation Foundation
 -> A0 Built-in Agent
 ```
+
+`B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
+Messages before a `.shiroha` backup/export package exists.
 
 This amendment updates current scheduling status without rewriting the
 historical sequence as if it had originally been delivered in this order.
@@ -64,6 +67,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **J0** | Project v0 | Optional Project plus file/bank references; no file duplication | additive migration candidate |
 | **U1** | Information-architecture migration | Replace the primary Subject-library navigation role with Project-aware UI while retaining compatibility surfaces | normally unchanged beyond F0/J0 |
 | **B0** | Backup/export foundation | Versioned `.shiroha` package covering DB + managed user assets | unchanged unless package metadata needs additive support |
+| **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
 | **A0** | Built-in Agent v0 | DeepSeek/selected provider + web capability + local read tools | unchanged |
@@ -161,6 +165,22 @@ M0 implements `docs/architecture/mcp-v0-contract.md` as written. v0 stays exactl
 - `get_weak_questions`.
 
 Do not add File/Project tools to `mcp.study.v0`. They belong in a later contract/version.
+
+### C0 — Conversation foundation
+
+C0 adds a dedicated `ConversationService`, v19 Conversation/Message/File
+relations, and real history navigation. New Conversation remains transient
+until the first valid User Message; first persistence and all later append or
+attachment recency mutations are transactional. Message ordering uses an
+explicit per-conversation sequence.
+
+Learning Space deletion preserves history through `SET NULL` without changing
+the scope to Global. File context is independent of Project and Folder
+membership and never owns file bytes. Bank attachment remains deferred because
+the compatibility `bank_name` is not stable durable identity.
+
+C0 does not add Provider, Agent, Web, RAG, MCP tools, or a fake Assistant reply.
+It exposes only the additive Assistant-message seam needed by A0.
 
 ### A0 — Built-in Agent
 

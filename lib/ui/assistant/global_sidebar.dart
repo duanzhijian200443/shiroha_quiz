@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import 'conversation_controller.dart';
 import 'workspace_controller.dart';
 
 class GlobalSidebar extends StatelessWidget {
   const GlobalSidebar({
     super.key,
     required this.controller,
+    required this.conversationController,
     required this.onNewConversation,
     required this.onOpenFileLibrary,
     required this.onOpenLearningSpaces,
@@ -17,6 +19,7 @@ class GlobalSidebar extends StatelessWidget {
   });
 
   final LearningSpacesController controller;
+  final ConversationController conversationController;
   final VoidCallback onNewConversation;
   final VoidCallback onOpenFileLibrary;
   final VoidCallback onOpenLearningSpaces;
@@ -30,7 +33,10 @@ class GlobalSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge(<Listenable>[
+        controller,
+        conversationController,
+      ]),
       builder: (context, _) => Material(
         key: const ValueKey<String>('u1-ux01-global-sidebar'),
         color: colors.surfaceContainerLow,
@@ -77,17 +83,26 @@ class GlobalSidebar extends StatelessWidget {
                 key: const ValueKey<String>('u1-ux01-open-mcp'),
               ),
               const Divider(height: 28),
-              const _SidebarLabel('最近对话（预览）'),
-              for (final title in const <String>[
-                '分析数学一错题',
-                '今天该复习什么',
-              ])
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.chat_bubble_outline_rounded),
-                  title: Text(title),
-                  onTap: () => onOpenConversation(title),
-                ),
+              const _SidebarLabel('最近对话'),
+              if (conversationController.isLoading)
+                const Center(child: CircularProgressIndicator())
+              else if (conversationController.recent.isEmpty)
+                const ListTile(
+                  leading: Icon(Icons.inbox_outlined),
+                  title: Text('暂无最近对话'),
+                )
+              else
+                for (final conversation in conversationController.recent)
+                  ListTile(
+                    key: ValueKey<String>(
+                      'c0-recent-${conversation.conversationId}',
+                    ),
+                    dense: true,
+                    leading: const Icon(Icons.chat_bubble_outline_rounded),
+                    title: Text(conversation.title),
+                    onTap: () =>
+                        onOpenConversation(conversation.conversationId),
+                  ),
               const Divider(height: 28),
               const _SidebarLabel('学习空间'),
               if (controller.isLoading)
@@ -99,23 +114,67 @@ class GlobalSidebar extends StatelessWidget {
                 )
               else
                 for (final space in controller.spaces)
-                  ListTile(
+                  ExpansionTile(
                     key: ValueKey<String>('u1-space-${space.projectId}'),
-                    dense: true,
                     leading: const Icon(Icons.space_dashboard_outlined),
-                    title: Text(space.displayName),
+                    title: Row(
+                      children: [
+                        Expanded(child: Text(space.displayName)),
+                        IconButton(
+                          key: ValueKey<String>(
+                            'u1-ux01-space-home-${space.projectId}',
+                          ),
+                          tooltip: '主页',
+                          onPressed: () => onOpenSpaceHome(space.projectId),
+                          icon: const Icon(Icons.home_outlined),
+                        ),
+                      ],
+                    ),
                     subtitle: Text(
                       '${space.bankCount} 个题库 · ${space.fileCount} 个文件',
                     ),
-                    trailing: IconButton(
-                      key: ValueKey<String>(
-                        'u1-ux01-space-home-${space.projectId}',
-                      ),
-                      tooltip: '${space.displayName}主页',
-                      onPressed: () => onOpenSpaceHome(space.projectId),
-                      icon: const Icon(Icons.home_outlined),
-                    ),
-                    onTap: () => onOpenSpaceHome(space.projectId),
+                    onExpansionChanged: (expanded) {
+                      if (expanded) {
+                        conversationController.loadProjectConversations(
+                          space.projectId,
+                        );
+                      }
+                    },
+                    children: [
+                      if (conversationController.loadingProjectIds
+                          .contains(space.projectId))
+                        const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(),
+                        )
+                      else if ((conversationController
+                                  .projectConversations[space.projectId] ??
+                              const [])
+                          .isEmpty)
+                        const ListTile(
+                          dense: true,
+                          leading: Icon(Icons.inbox_outlined),
+                          title: Text('暂无对话'),
+                        )
+                      else
+                        for (final conversation in conversationController
+                            .projectConversations[space.projectId]!)
+                          ListTile(
+                            key: ValueKey<String>(
+                              'c0-space-conversation-'
+                              '${conversation.conversationId}',
+                            ),
+                            dense: true,
+                            contentPadding:
+                                const EdgeInsets.only(left: 48, right: 16),
+                            leading:
+                                const Icon(Icons.chat_bubble_outline_rounded),
+                            title: Text(conversation.title),
+                            onTap: () => onOpenConversation(
+                              conversation.conversationId,
+                            ),
+                          ),
+                    ],
                   ),
               ListTile(
                 key: const ValueKey<String>('u1-sidebar-create-space'),
@@ -130,6 +189,15 @@ class GlobalSidebar extends StatelessWidget {
                   title: Text(error),
                   trailing: IconButton(
                     onPressed: controller.load,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ),
+              if (conversationController.errorMessage case final error?)
+                ListTile(
+                  leading: const Icon(Icons.error_outline),
+                  title: Text(error),
+                  trailing: IconButton(
+                    onPressed: conversationController.load,
                     icon: const Icon(Icons.refresh),
                   ),
                 ),

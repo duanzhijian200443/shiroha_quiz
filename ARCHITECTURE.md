@@ -68,6 +68,8 @@ Owns stable business meaning and value objects, including the typed learning cor
 - `QuestionDraftV2` and typed answers/options;
 - `ReviewSession` semantics;
 - `PersistedQuestion` typed/legacy union semantics.
+- `Conversation`, `ConversationScope`, and ordered `ConversationMessage`
+  semantics.
 
 Domain code must not import Flutter widgets, SQLite, `DatabaseHelper`, provider DTOs, HTTP clients, or file-system APIs.
 
@@ -94,9 +96,10 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v18**: the frozen v15 typed sidecar remains
+9. Current database schema is **v19**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, and v18
-   flat File Library Folder tables.
+   flat File Library Folder tables, plus additive C0 Conversation, Message,
+   and Conversation/File relation tables.
 
 ## 4. Learning asset expansion boundary
 
@@ -128,12 +131,35 @@ Rules:
   Space relations remain independently many-to-many.
 - Folder deletion removes Folder membership only; the `LibraryFile`, managed
   bytes, Project relations, banks, questions, sidecars, and review state remain.
+
+## 5. Conversation foundation boundary
+
+Conversation Presentation consumes a dedicated `ConversationService` alongside
+the existing workspace facade. The service owns safe application failures and
+uses a `ConversationRepositoryPort`; SQLite wiring remains in the composition
+root.
+
+- A new conversation is a transient draft until its first valid User Message.
+- First persistence atomically creates the Conversation, sequence-1 Message,
+  and selected `conversation_files` relations.
+- Message order is the explicit per-conversation `sequence`, never a timestamp.
+- A Conversation is either Global or scoped to a Learning Space. Project
+  deletion uses `SET NULL` while preserving `scope_kind = learning_space`, so
+  the orphan remains readable but unavailable for further message appends.
+- Conversation/File relations are context references, independent of Project
+  and Folder membership. They never own or duplicate file bytes.
+- Conversation deletion cascades only to Messages and Conversation/File
+  relations. File deletion removes only the relation.
+- C0 persists User Messages only. Assistant persistence is an additive A0 seam;
+  C0 does not synthesize an Assistant reply.
+- Bank attachments, Provider, Web, RAG, Agent runtime, and MCP expansion remain
+  outside C0.
 - Existing subject/folder structures remain compatibility/product concepts until a separately authorized migration changes them.
 - Bank identity is a J0 prerequisite decision. N0 does not introduce `bank_registry` or change current bank persistence.
 
 See `docs/architecture/adr-002-learning-asset-lifecycle.md`.
 
-## 5. Agent, MCP and application tools
+## 6. Agent, MCP and application tools
 
 Built-in Agent and external MCP are **peer adapters** over the same application capabilities:
 
@@ -164,7 +190,7 @@ No Agent or MCP tool may directly execute SQL or bypass the typed persistence/re
 
 See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
 
-## 6. Evolution discipline
+## 7. Evolution discipline
 
 - Do not start another R0–R8-scale rewrite merely to add File Library, Project, Agent, MCP or RAG.
 - Prefer additive, bounded stages around the stable typed core.
@@ -175,7 +201,7 @@ See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
 
 The canonical post-P5 sequence is maintained in `docs/architecture/n0-post-p5-roadmap.md`.
 
-## 7. Architecture document authority
+## 8. Architecture document authority
 
 Current-state authority, in order:
 

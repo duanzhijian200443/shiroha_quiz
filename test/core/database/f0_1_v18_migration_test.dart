@@ -132,10 +132,11 @@ void main() {
     });
   }
 
-  test('fresh v18 creates exact Folder tables and constraints', () async {
+  test('fresh current schema retains exact v18 Folder tables and constraints',
+      () async {
     final db = await openSeam(inMemoryDatabasePath);
     try {
-      expect(await userVersion(db), 18);
+      expect(await userVersion(db), 19);
       await expectV18Shape(db);
       expect(await db.query('library_folders'), isEmpty);
       expect(await db.query('library_file_folders'), isEmpty);
@@ -160,7 +161,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 18);
+      expect(await userVersion(upgraded), 19);
       await expectV18Shape(upgraded);
       expect(await upgraded.query('library_folders'), isEmpty);
       expect(await upgraded.query('library_file_folders'), isEmpty);
