@@ -65,11 +65,13 @@ final class ConversationService {
       content: normalizedContent,
       createdAt: now,
     );
-    return _repository.createWithFirstMessage(
-      conversation: conversation,
-      firstMessage: firstMessage,
-      fileIds: normalizedFileIds,
-      attachedAt: now,
+    return _repositoryCall(
+      () => _repository.createWithFirstMessage(
+        conversation: conversation,
+        firstMessage: firstMessage,
+        fileIds: normalizedFileIds,
+        attachedAt: now,
+      ),
     );
   }
 
@@ -79,12 +81,14 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     final normalizedContent = _normalizeContent(content);
-    return _repository.appendMessage(
-      conversationId: conversationId,
-      messageId: _newId(_messageIdFactory, label: 'Message'),
-      role: ConversationMessageRole.user,
-      content: normalizedContent,
-      createdAt: normalizeConversationTimestamp(_clock()),
+    return _repositoryCall(
+      () => _repository.appendMessage(
+        conversationId: conversationId,
+        messageId: _newId(_messageIdFactory, label: 'Message'),
+        role: ConversationMessageRole.user,
+        content: normalizedContent,
+        createdAt: normalizeConversationTimestamp(_clock()),
+      ),
     );
   }
 
@@ -94,10 +98,12 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     _validateInputId(fileId, label: 'File');
-    return _repository.attachFile(
-      conversationId: conversationId,
-      fileId: fileId,
-      attachedAt: normalizeConversationTimestamp(_clock()),
+    return _repositoryCall(
+      () => _repository.attachFile(
+        conversationId: conversationId,
+        fileId: fileId,
+        attachedAt: normalizeConversationTimestamp(_clock()),
+      ),
     );
   }
 
@@ -107,23 +113,27 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     _validateInputId(fileId, label: 'File');
-    return _repository.detachFile(
-      conversationId: conversationId,
-      fileId: fileId,
-      detachedAt: normalizeConversationTimestamp(_clock()),
+    return _repositoryCall(
+      () => _repository.detachFile(
+        conversationId: conversationId,
+        fileId: fileId,
+        detachedAt: normalizeConversationTimestamp(_clock()),
+      ),
     );
   }
 
   Future<List<ConversationFileRef>> listAttachableFiles({int limit = 100}) {
     _validateLimit(limit);
-    return _repository.listAttachableFiles(limit: limit);
+    return _repositoryCall(() => _repository.listAttachableFiles(limit: limit));
   }
 
   Future<List<Conversation>> listRecentConversations({
     int limit = defaultConversationLimit,
   }) {
     _validateLimit(limit);
-    return _repository.listRecentConversations(limit: limit);
+    return _repositoryCall(
+      () => _repository.listRecentConversations(limit: limit),
+    );
   }
 
   Future<List<Conversation>> listConversationsForProject({
@@ -132,9 +142,11 @@ final class ConversationService {
   }) {
     _validateInputId(projectId, label: 'Project');
     _validateLimit(limit);
-    return _repository.listConversationsForProject(
-      projectId: projectId,
-      limit: limit,
+    return _repositoryCall(
+      () => _repository.listConversationsForProject(
+        projectId: projectId,
+        limit: limit,
+      ),
     );
   }
 
@@ -148,16 +160,18 @@ final class ConversationService {
     if (beforeSequence != null && beforeSequence <= 1) {
       throw const ConversationException(ConversationFailure.invalidInput);
     }
-    return _repository.loadConversation(
-      conversationId: conversationId,
-      beforeSequence: beforeSequence,
-      limit: limit,
+    return _repositoryCall(
+      () => _repository.loadConversation(
+        conversationId: conversationId,
+        beforeSequence: beforeSequence,
+        limit: limit,
+      ),
     );
   }
 
   Future<void> deleteConversation(String conversationId) {
     _validateInputId(conversationId, label: 'Conversation');
-    return _repository.deleteConversation(conversationId);
+    return _repositoryCall(() => _repository.deleteConversation(conversationId));
   }
 
   String _newId(String Function() factory, {required String label}) {
@@ -189,6 +203,16 @@ final class ConversationService {
   void _validateLimit(int limit) {
     if (limit < 1 || limit > maxQueryLimit) {
       throw const ConversationException(ConversationFailure.invalidInput);
+    }
+  }
+
+  Future<T> _repositoryCall<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on ConversationException {
+      rethrow;
+    } on ArgumentError {
+      throw const ConversationException(ConversationFailure.dataCorrupt);
     }
   }
 
