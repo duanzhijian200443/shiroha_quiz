@@ -44,6 +44,18 @@ When a Diagnostician/Reviewer/Coordinator has supplied an evidence-backed frozen
 
 If another file is required, stop and report the exact path, reason, minimal change, and risk. Do not modify it without approval.
 
+## Canonical contract discipline
+
+- If the implementation preserves the durable contract, do not modify a
+  canonical document merely for completeness.
+- If an authorized implementation changes durable contract truth, update every
+  affected canonical document in the same change and within the allowed scope.
+- Preserve historical truth. Use an amendment, status update, or superseding
+  document when needed; do not rewrite an older decision as though the later
+  decision had always existed.
+- Keep Reviewer findings, test results, commit history, and handoff chronology
+  out of canonical documents.
+
 ## Regression evidence
 
 Prefer tests that fail before the fix and pass after it. Follow the test-evidence economy in `AGENTS.md`: prove the invariant, not every private implementation line.

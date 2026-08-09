@@ -46,6 +46,16 @@ Check whether:
 8. validation evidence is credible;
 9. unrelated changes were not introduced.
 
+Also identify the canonical documents relevant to the assigned task boundary
+and check for both directions of drift:
+
+- implementation violates the current canonical contract;
+- an authorized durable contract change is implemented but the corresponding
+  canonical document was not updated.
+
+Do not require a routine bug fix to create or update canonical documentation
+when durable contract truth did not change.
+
 For R1-R8 migration work also check that no unplanned long-lived model is introduced, compatibility bridges remain bounded, typed/fallback/provenance/source order/assets/tables/formulas/diagnostics are not silently lost, and migration boundaries—not just isolated new models—are covered.
 
 ## Findings
@@ -62,6 +72,16 @@ Severity:
 For every finding include severity, exact file/line, triggering condition, consequence, and the minimal correction.
 
 Do not promote style preferences, later-stage capabilities, already-recorded non-goals, or optional test expansion into blockers.
+
+Review findings normally remain in GitHub PR review/discussion or an existing
+formal review artifact. Do not require a standalone `docs/reviews/*.md` file
+for each small task. When a durable audit artifact is warranted, keep the
+inspection history there and distill only enduring current truth into the
+canonical document; never copy the whole review report into canonical docs.
+
+When the review context needs explicit finding dispositions, prefer concise
+states such as `OPEN`, `FIXED`, `DEFERRED`, `NOT_ACTIONED — intentional`, or
+`BLOCKED` without introducing a second workflow state machine.
 
 ### P3 rule
 

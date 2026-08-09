@@ -5,11 +5,13 @@ This file defines repository-specific model routing for delegated agents. Safety
 ## Principles
 
 - Route by remaining uncertainty and blast radius, not by role name or the maximum risk of the parent stage.
-- Use the cheapest model/reasoning level that safely fits the child task.
+- Use the cheapest model route that safely fits the child task.
 - Deterministic verification belongs to local commands/CI/Verifier first; a model interprets evidence rather than replacing it.
 - Do not reload the full parent conversation into every child.
 - Reuse parent-attested evidence; do not duplicate topology discovery, hashes, root-cause analysis, or full validation across agents unless drift or contradictory evidence requires it.
-- High/max reasoning is an escalation, not the default merely because a task is non-trivial.
+- **DeepSeek default reasoning = MAX.** Whenever a DeepSeek route is selected, use the provider/host's highest supported reasoning setting (`max` in the current repository syntax) unless the current user explicitly overrides it.
+- Risk tier and review difficulty still determine model/provider choice, role routing, escalation, allowed scope, and validation strength. They do not lower DeepSeek reasoning for deterministic, low-risk, or otherwise cheaper tasks.
+- Sol, Terra, Luna, Gemini, and other providers retain their independent routing and reasoning rules.
 
 ## Default routes
 
@@ -17,13 +19,14 @@ This file defines repository-specific model routing for delegated agents. Safety
 
 ```text
 Preferred model: deepseek/deepseek-v4-flash
-Reasoning: high
-Fallback: same model at the nearest available standard/high reasoning level
+Reasoning: max
+Fallback: same model at the highest supported reasoning setting
 ```
 
 Use for bounded implementation where behavior/contracts are already frozen, including ordinary production changes, regression tests, adapters/mappers, compatibility glue, and deterministic in-contract repairs.
 
-Escalate to `max` only when the Executor encounters a concrete unresolved ambiguity involving persistence, concurrency, ownership/revision semantics, security/privacy, cross-module failure behavior, or contradictory authoritative evidence. Do not start ordinary implementation at max merely because the parent stage was high risk.
+Task risk may select a different provider or require planning/review escalation,
+but it does not downshift DeepSeek reasoning below `max`.
 
 ### Deterministic verification
 
@@ -32,7 +35,7 @@ Preferred order:
 1. local deterministic runner or CI when available;
 2. Verifier using the host's inexpensive tool-capable model;
 3. `Gemini 3.6 Flash` high when a model route is needed;
-4. `deepseek/deepseek-v4-flash` high when Gemini creation/quota/tools are unavailable.
+4. `deepseek/deepseek-v4-flash` max when Gemini creation/quota/tools are unavailable.
 
 Verifier packages run only exact requested commands/paths. They do not repair failures, widen tests, invoke real providers, rediscover the semantic root cause, or perform optional broad suites.
 
@@ -58,8 +61,8 @@ Use for small docs/mechanical/test-only/frozen single-file changes with no meani
 
 ```text
 Preferred: deepseek/deepseek-v4-flash
-Reasoning: high
-Fallback: same model max only on a concrete unresolved review ambiguity
+Reasoning: max
+Fallback: same model at the highest supported reasoning setting
 ```
 
 Use for bounded business logic, mapper/projection/state behavior, compatibility work, and multi-file changes under a fully frozen contract.
@@ -202,6 +205,10 @@ Reasoning: <level>
 Routing reason: <one sentence when non-obvious>
 Fallback: <route or none>
 ```
+
+For any DeepSeek package, `Reasoning` defaults to `max`; do not derive a lower
+DeepSeek reasoning level from T0/T1/T2/T3, review difficulty, determinism, or
+cost. Non-DeepSeek packages continue to use their provider-specific level.
 
 High review also includes the specific escalation reason and whether it is the stage's final full review.
 
