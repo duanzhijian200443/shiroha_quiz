@@ -50,6 +50,16 @@ PathPredicate _under(String prefix) {
 bool _isMain(String path) =>
     path == 'lib/main.dart' || path == 'lib/main_ocr_ui_smoke.dart';
 
+/// M0.1: the stdio composition root owns runtime bootstrap and concrete
+/// repository wiring; it is the only MCP-layer file allowed to configure
+/// the database runtime.
+bool _isStudyMcpCompositionRoot(String path) =>
+    path == 'lib/mcp/study_mcp_composition_root.dart';
+
+/// M0.1: the standalone SQLite runtime bridge owns the FFI bootstrap.
+bool _isStandaloneDatabaseRuntime(String path) =>
+    path == 'lib/core/database/sqflite_runtime_standalone.dart';
+
 final _dbAllowedPaths = <PathPredicate>[
   _under('lib/core/database/'),
   _under('lib/data/repositories/'),
@@ -58,6 +68,7 @@ final _dbAllowedPaths = <PathPredicate>[
 final _dbBootstrapAllowedPaths = <PathPredicate>[
   ..._dbAllowedPaths,
   _isMain,
+  _isStudyMcpCompositionRoot,
 ];
 
 final _rules = <LayerBoundaryRule>[
@@ -72,14 +83,16 @@ final _rules = <LayerBoundaryRule>[
     name: 'sqflite-ffi-bootstrap-boundary',
     pattern: RegExp(
         r'''import\s+['"]package:sqflite_common_ffi/sqflite_ffi\.dart['"]'''),
-    reason: 'sqflite FFI setup belongs in app/test bootstrap code only.',
-    allowedPaths: [_isMain],
+    reason: 'sqflite FFI setup belongs in app/test bootstrap code and the '
+        'standalone database runtime bridge only.',
+    allowedPaths: [_isMain, _isStandaloneDatabaseRuntime],
   ),
   LayerBoundaryRule(
     name: 'database-helper-boundary',
     pattern: RegExp(r'\bDatabaseHelper\b'),
-    reason:
-        'UI, service, and domain logic must reach persistence through repositories.',
+    reason: 'UI, service, and domain logic must reach persistence through '
+        'repositories; only the MCP stdio composition root may own runtime '
+        'bootstrap outside data layers.',
     allowedPaths: _dbBootstrapAllowedPaths,
   ),
   LayerBoundaryRule(
