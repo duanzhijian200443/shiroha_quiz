@@ -104,10 +104,10 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
         if (continuationState is _DeepSeekResponsesContinuationState)
           ...continuationState._outputItems,
         ...request.toolOutputs.map((output) => <String, Object?>{
-          'type': 'function_call_output',
-          'call_id': output.callId,
-          'output': output.output,
-        }),
+              'type': 'function_call_output',
+              'call_id': output.callId,
+              'output': output.output,
+            }),
       ];
       await for (final event in _parser.parse(
         response.stream.timeout(_requestTimeout),
