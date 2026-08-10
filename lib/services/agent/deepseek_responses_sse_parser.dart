@@ -5,8 +5,11 @@ import '../../application/agent/agent_provider.dart';
 final class DeepSeekResponsesSseParser {
   const DeepSeekResponsesSseParser();
 
-  Stream<AgentProviderEvent> parse(Stream<List<int>> source) async* {
-    final decoder = _ResponsesEventDecoder();
+  Stream<AgentProviderEvent> parse(
+    Stream<List<int>> source, {
+    void Function(Map<String, Object?> item)? onContinuationItem,
+  }) async* {
+    final decoder = _ResponsesEventDecoder(onContinuationItem);
     String? eventName;
     final dataLines = <String>[];
     var completed = false;
@@ -60,9 +63,14 @@ final class DeepSeekResponsesSseParser {
 }
 
 final class _ResponsesEventDecoder {
+  _ResponsesEventDecoder(this._onContinuationItem);
+
+  final void Function(Map<String, Object?> item)? _onContinuationItem;
   final Map<String, _FunctionCallAccumulator> _functionCalls =
       <String, _FunctionCallAccumulator>{};
   final Set<String> _emittedCallIds = <String>{};
+  final Set<AgentProviderWebSearchPhase> _emittedWebPhases =
+      <AgentProviderWebSearchPhase>{};
 
   List<AgentProviderEvent> decode(String? eventName, List<String> dataLines) {
     if (dataLines.isEmpty) return const <AgentProviderEvent>[];
@@ -93,13 +101,11 @@ final class _ResponsesEventDecoder {
         'response.output_item.done' => _outputItemDone(decoded),
         'response.web_search_call.in_progress' ||
         'response.web_search_call.searching' =>
-          const <AgentProviderEvent>[
-            AgentProviderWebSearchEvent(AgentProviderWebSearchPhase.searching),
-          ],
-        'response.web_search_call.completed' => const <AgentProviderEvent>[
-            AgentProviderWebSearchEvent(AgentProviderWebSearchPhase.completed),
-          ],
+          _webSearchPhase(AgentProviderWebSearchPhase.searching),
+        'response.web_search_call.completed' =>
+          _webSearchPhase(AgentProviderWebSearchPhase.completed),
         'response.completed' => _completed(decoded),
+        'response.incomplete' => _incomplete(),
         'response.failed' || 'error' => _providerFailure(decoded),
         _ => const <AgentProviderEvent>[],
       };
@@ -122,9 +128,7 @@ final class _ResponsesEventDecoder {
     final itemType = item['type'];
     if (_isHiddenType(itemType)) return const <AgentProviderEvent>[];
     if (itemType == 'web_search_call') {
-      return const <AgentProviderEvent>[
-        AgentProviderWebSearchEvent(AgentProviderWebSearchPhase.searching),
-      ];
+      return _webSearchPhase(AgentProviderWebSearchPhase.searching);
     }
     if (itemType != 'function_call') return const <AgentProviderEvent>[];
 
@@ -172,11 +176,10 @@ final class _ResponsesEventDecoder {
     final item = payload['item'];
     if (item is! Map<String, dynamic>) return _malformed();
     final itemType = item['type'];
+    _captureContinuationItem(item);
     if (_isHiddenType(itemType)) return const <AgentProviderEvent>[];
     if (itemType == 'web_search_call') {
-      return const <AgentProviderEvent>[
-        AgentProviderWebSearchEvent(AgentProviderWebSearchPhase.completed),
-      ];
+      return _webSearchPhase(AgentProviderWebSearchPhase.completed);
     }
     if (itemType != 'function_call') return const <AgentProviderEvent>[];
 
@@ -249,6 +252,29 @@ final class _ResponsesEventDecoder {
         : payload['response_id'] ?? payload['id'];
     if (responseId is! String) return _malformed();
     return <AgentProviderEvent>[AgentProviderCompleted(responseId)];
+  }
+
+  Never _incomplete() {
+    throw const AgentProviderException(
+      AgentProviderFailure.incompleteResponse,
+    );
+  }
+
+  void _captureContinuationItem(Map<String, dynamic> item) {
+    final itemType = item['type'];
+    if (itemType == 'reasoning' ||
+        itemType == 'function_call' ||
+        itemType == 'web_search_call' ||
+        itemType == 'message') {
+      _onContinuationItem?.call(Map<String, Object?>.from(item));
+    }
+  }
+
+  List<AgentProviderEvent> _webSearchPhase(
+    AgentProviderWebSearchPhase phase,
+  ) {
+    if (!_emittedWebPhases.add(phase)) return const <AgentProviderEvent>[];
+    return <AgentProviderEvent>[AgentProviderWebSearchEvent(phase)];
   }
 
   Never _providerFailure(Map<String, dynamic> payload) {

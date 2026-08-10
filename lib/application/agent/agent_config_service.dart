@@ -66,8 +66,6 @@ final class AgentProviderProfile {
     required String apiKey,
     required String baseUrl,
     required String modelName,
-    required double temperature,
-    required String reasoningEffort,
   }) {
     final normalizedId = profileId.trim();
     final normalizedKey = apiKey.trim();
@@ -77,8 +75,7 @@ final class AgentProviderProfile {
         normalizedKey.isEmpty ||
         normalizedKey.contains('\u0000') ||
         !_isSafeValue(normalizedBaseUrl, maxRunes: 2048) ||
-        !_isSafeValue(normalizedModel, maxRunes: 200) ||
-        !temperature.isFinite) {
+        !_isSafeValue(normalizedModel, maxRunes: 200)) {
       throw const AgentProfileException(AgentProfileFailure.dataCorrupt);
     }
     return AgentProviderProfile._(
@@ -86,8 +83,6 @@ final class AgentProviderProfile {
       apiKey: normalizedKey,
       baseUrl: normalizedBaseUrl,
       modelName: normalizedModel,
-      temperature: temperature,
-      reasoningEffort: reasoningEffort.trim(),
     );
   }
 
@@ -96,16 +91,12 @@ final class AgentProviderProfile {
     required this.apiKey,
     required this.baseUrl,
     required this.modelName,
-    required this.temperature,
-    required this.reasoningEffort,
   });
 
   final String profileId;
   final String apiKey;
   final String baseUrl;
   final String modelName;
-  final double temperature;
-  final String reasoningEffort;
 
   @override
   String toString() => 'AgentProviderProfile(REDACTED)';

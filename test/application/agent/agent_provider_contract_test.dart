@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime_limits.dart';
 
@@ -22,13 +23,16 @@ void main() {
       callId: 'call-1',
       output: '{"ok":true}',
     );
+    final continuationState = _FixtureContinuationState();
     final request = AgentProviderRequest(
       systemPrompt: 'You are Shiroha.',
       messages: messages,
       tools: tools,
       toolOutputs: <AgentFunctionToolOutput>[output],
-      previousResponseId: 'response-1',
+      continuationState: continuationState,
       enableNativeWebSearch: true,
+      temperature: 0.75,
+      reasoningEffort: AgentReasoningEffort.max,
     );
 
     messages.clear();
@@ -37,15 +41,19 @@ void main() {
     expect(request.messages, hasLength(1));
     expect(request.tools, hasLength(1));
     expect(request.toolOutputs, <AgentFunctionToolOutput>[output]);
-    expect(request.previousResponseId, 'response-1');
+    expect(request.continuationState, same(continuationState));
     expect(request.enableNativeWebSearch, isTrue);
     expect(request.maxOutputTokens, 4096);
+    expect(request.temperature, 0.75);
+    expect(request.reasoningEffort, AgentReasoningEffort.max);
 
     expect(
       () => AgentProviderRequest(
         systemPrompt: 'You are Shiroha.',
         messages: request.messages,
         toolOutputs: <AgentFunctionToolOutput>[output],
+        temperature: 1.0,
+        reasoningEffort: AgentReasoningEffort.high,
       ),
       throwsA(isA<AgentProviderException>()),
     );
@@ -63,7 +71,10 @@ void main() {
       const AgentProviderWebSearchEvent(
         AgentProviderWebSearchPhase.searching,
       ),
-      AgentProviderCompleted('response-1'),
+      AgentProviderCompleted(
+        'response-1',
+        continuationState: _FixtureContinuationState(),
+      ),
     ];
 
     expect(events.whereType<AgentProviderTextDelta>().single.text, 'answer');
@@ -74,6 +85,10 @@ void main() {
     expect(
       events.whereType<AgentProviderCompleted>().single.responseId,
       'response-1',
+    );
+    expect(
+      events.whereType<AgentProviderCompleted>().single.continuationState,
+      isA<AgentProviderContinuationState>(),
     );
   });
 
@@ -116,3 +131,6 @@ void main() {
     expect(limits.maxOutputTokens, 4096);
   });
 }
+
+final class _FixtureContinuationState
+    implements AgentProviderContinuationState {}

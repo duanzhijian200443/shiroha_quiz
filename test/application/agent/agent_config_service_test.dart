@@ -7,6 +7,8 @@ void main() {
   final config = AgentConfig(
     providerKind: AgentProviderKind.deepSeekResponses,
     mainProfileId: 'profile-main',
+    temperature: 1.25,
+    reasoningEffort: AgentReasoningEffort.max,
   );
   final summary = AgentProfileSummary(
     profileId: 'profile-main',
@@ -20,6 +22,8 @@ void main() {
     expect(codec.decode(encoded), config);
     expect(encoded, contains('"schema_version":1'));
     expect(encoded, contains('"web_enabled":false'));
+    expect(encoded, contains('"temperature":1.25'));
+    expect(encoded, contains('"reasoning_effort":"max"'));
     expect(encoded, isNot(contains('api_key')));
     expect(encoded, isNot(contains('base_url')));
     expect(encoded, isNot(contains('model_name')));
@@ -27,12 +31,21 @@ void main() {
     for (final invalid in <String>[
       '{}',
       '{"schema_version":2,"provider_kind":"deepseek_responses",'
-          '"main_profile_id":"profile-main","web_enabled":false}',
+          '"main_profile_id":"profile-main","web_enabled":false,'
+          '"temperature":1.0,"reasoning_effort":"high"}',
       '{"schema_version":1,"provider_kind":"unknown",'
-          '"main_profile_id":"profile-main","web_enabled":false}',
+          '"main_profile_id":"profile-main","web_enabled":false,'
+          '"temperature":1.0,"reasoning_effort":"high"}',
       '{"schema_version":1,"provider_kind":"deepseek_responses",'
           '"main_profile_id":"profile-main","web_enabled":false,'
+          '"temperature":1.0,"reasoning_effort":"high",'
           '"unexpected":true}',
+      '{"schema_version":1,"provider_kind":"deepseek_responses",'
+          '"main_profile_id":"profile-main","web_enabled":false,'
+          '"temperature":2.1,"reasoning_effort":"high"}',
+      '{"schema_version":1,"provider_kind":"deepseek_responses",'
+          '"main_profile_id":"profile-main","web_enabled":false,'
+          '"temperature":1.0,"reasoning_effort":"low"}',
     ]) {
       expect(
         () => codec.decode(invalid),
@@ -41,6 +54,32 @@ void main() {
             (error) => error.failure,
             'failure',
             AgentConfigFailure.corruptStoredConfig,
+          ),
+        ),
+      );
+    }
+  });
+
+  test('agent tuning defaults and input bounds are independent and typed', () {
+    final defaults = AgentConfig(
+      providerKind: AgentProviderKind.deepSeekResponses,
+      mainProfileId: 'profile-main',
+    );
+
+    expect(defaults.temperature, 1.0);
+    expect(defaults.reasoningEffort, AgentReasoningEffort.high);
+    for (final temperature in <double>[-0.01, 2.01, double.nan]) {
+      expect(
+        () => AgentConfig(
+          providerKind: AgentProviderKind.deepSeekResponses,
+          mainProfileId: 'profile-main',
+          temperature: temperature,
+        ),
+        throwsA(
+          isA<AgentConfigException>().having(
+            (error) => error.failure,
+            'failure',
+            AgentConfigFailure.invalidInput,
           ),
         ),
       );
@@ -103,8 +142,6 @@ void main() {
       apiKey: 'fixture-secret-value',
       baseUrl: 'https://example.invalid/v1',
       modelName: 'fixture-model',
-      temperature: 0.3,
-      reasoningEffort: 'high',
     );
     final resolver = AgentRuntimeConfigResolver(
       configStore: _ConfigStore(encoded: codec.encode(config)),
@@ -114,6 +151,8 @@ void main() {
     final resolved = await resolver.resolve();
 
     expect(resolved.config, config);
+    expect(resolved.config.temperature, 1.25);
+    expect(resolved.config.reasoningEffort, AgentReasoningEffort.max);
     expect(resolved.profile, same(profile));
     expect(resolved.toString(), isNot(contains('fixture-secret-value')));
     expect(profile.toString(), isNot(contains('fixture-secret-value')));

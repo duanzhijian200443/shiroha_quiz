@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
 import 'package:shiroha_quiz/services/agent/deepseek_responses_provider.dart';
@@ -36,7 +37,7 @@ void main() {
             .stream(request, AgentCancellationController().token)
             .toList();
         final body = jsonDecode(client.requestBody!) as Map<String, dynamic>;
-        final messages = body['messages']! as List<dynamic>;
+        final input = body['input']! as List<dynamic>;
         final tools = body['tools']! as List<dynamic>;
 
         expect(provider.capabilities.functionTools, isTrue);
@@ -46,10 +47,12 @@ void main() {
         expect(client.authorization, 'Bearer fixture-secret');
         expect(client.accept, 'text/event-stream');
         expect(body['stream'], isTrue);
-        expect(body['model'], 'fixture-model');
+        expect(body['model'], 'deepseek-v4-flash');
+        expect(body['instructions'], 'system fixture');
         expect(body['max_output_tokens'], 321);
-        expect(messages, <Object?>[
-          <String, Object?>{'role': 'system', 'content': 'system fixture'},
+        expect(body['temperature'], 1.25);
+        expect(body['reasoning'], <String, Object?>{'effort': 'max'});
+        expect(input, <Object?>[
           <String, Object?>{'role': 'user', 'content': 'user fixture'},
         ]);
         expect(tools, <Object?>[
@@ -66,6 +69,8 @@ void main() {
           },
           <String, Object?>{'type': 'web_search'},
         ]);
+        expect(body, isNot(containsPair('messages', anything)));
+        expect(body, isNot(containsPair('previous_response_id', anything)));
         expect(client.requestBody, isNot(contains('third_party')));
         expect(
           events.whereType<AgentProviderTextDelta>().map((event) => event.text),
@@ -74,6 +79,14 @@ void main() {
         expect(
           events.whereType<AgentProviderCompleted>().single.responseId,
           'resp-text-1',
+        );
+        expect(
+          events
+              .whereType<AgentProviderCompleted>()
+              .single
+              .continuationState
+              .toString(),
+          isNot(contains('PRIVATE_REASONING')),
         );
         expect(
           events.map((event) => event.toString()).join(),
@@ -86,15 +99,48 @@ void main() {
     );
 
     test(
-      'maps continuation to previous response and function outputs',
+      'manually replays opaque output items and function output statelessly',
       () async {
-        final client = _FixtureClient(textDeltaAndCompletedSse);
-        final provider = _provider(client: client);
+        final initialClient = _FixtureClient(functionAndWebSse);
+        final continuationClient = _FixtureClient(textDeltaAndCompletedSse);
+        var clientIndex = 0;
+        final provider = _provider(
+          clientFactory: () => <http.Client>[
+            initialClient,
+            continuationClient,
+          ][clientIndex++],
+        );
+        final tool = AgentFunctionToolDefinition(
+          name: 'search_questions',
+          description: 'Search the local question bank.',
+          inputSchema: <String, Object?>{'type': 'object'},
+        );
+        final initialEvents = await provider
+            .stream(
+              _request(
+                tools: <AgentFunctionToolDefinition>[tool],
+                enableNativeWebSearch: true,
+              ),
+              AgentCancellationController().token,
+            )
+            .toList();
+        final continuationState = initialEvents
+            .whereType<AgentProviderCompleted>()
+            .single
+            .continuationState;
+        expect(continuationState, isNotNull);
+        expect(
+          continuationState.toString(),
+          isNot(contains('PRIVATE_REASONING')),
+        );
+
         final request = _request(
-          previousResponseId: 'resp-before',
+          continuationState: continuationState,
+          tools: <AgentFunctionToolDefinition>[tool],
+          enableNativeWebSearch: true,
           toolOutputs: <AgentFunctionToolOutput>[
             AgentFunctionToolOutput(
-              callId: 'call-before',
+              callId: 'call-1',
               output: '{"count":2}',
             ),
           ],
@@ -103,18 +149,41 @@ void main() {
         await provider
             .stream(request, AgentCancellationController().token)
             .drain<void>();
-        final body = jsonDecode(client.requestBody!) as Map<String, dynamic>;
+        final body =
+            jsonDecode(continuationClient.requestBody!) as Map<String, dynamic>;
+        final input = body['input']! as List<dynamic>;
 
-        expect(body['previous_response_id'], 'resp-before');
-        expect(body['messages'], <Object?>[
+        expect(body['instructions'], 'system fixture');
+        expect(input.first, <String, Object?>{
+          'role': 'user',
+          'content': 'user fixture',
+        });
+        expect(input.map((item) => (item as Map)['type']), <Object?>[
+          null,
+          'reasoning',
+          'function_call',
+          'web_search_call',
+          'function_call_output',
+        ]);
+        expect(input.last, <String, Object?>{
+          'type': 'function_call_output',
+          'call_id': 'call-1',
+          'output': '{"count":2}',
+        });
+        expect(input.toString(), contains('PRIVATE_REASONING_MARKER'));
+        expect(body['tools'], <Object?>[
           <String, Object?>{
-            'type': 'function_call_output',
-            'call_id': 'call-before',
-            'output': '{"count":2}',
+            'type': 'function',
+            'name': 'search_questions',
+            'description': 'Search the local question bank.',
+            'parameters': <String, Object?>{'type': 'object'},
+          },
+          <String, Object?>{
+            'type': 'web_search',
           },
         ]);
-        expect(body, isNot(containsPair('tools', anything)));
-        expect(body['messages'].toString(), isNot(contains('system fixture')));
+        expect(body, isNot(containsPair('messages', anything)));
+        expect(body, isNot(containsPair('previous_response_id', anything)));
       },
     );
 
@@ -159,6 +228,10 @@ void main() {
         events.whereType<AgentProviderCompleted>().single.responseId,
         'resp-tool-1',
       );
+      expect(
+        events.whereType<AgentProviderCompleted>().single.continuationState,
+        isNotNull,
+      );
     });
 
     test(
@@ -183,6 +256,35 @@ void main() {
   });
 
   group('DeepSeekResponsesProvider safe failures', () {
+    test('rejects unsupported Responses model before sending HTTP', () async {
+      final client = _FixtureClient(textDeltaAndCompletedSse);
+      final provider = _provider(
+        client: client,
+        modelName: 'deepseek-v4-pro',
+      );
+
+      await expectLater(
+        provider.stream(_request(), AgentCancellationController().token),
+        emitsError(_providerFailure(AgentProviderFailure.unsupportedModel)),
+      );
+      expect(client.sendCalls, 0);
+      expect(client.requestBody, isNull);
+    });
+
+    test('maps response.incomplete to a typed terminal failure', () async {
+      final provider = _provider(client: _FixtureClient(incompleteSse));
+
+      await expectLater(
+        provider.stream(_request(), AgentCancellationController().token),
+        emitsInOrder(<Object>[
+          isA<AgentProviderTextDelta>(),
+          emitsError(
+            _providerFailure(AgentProviderFailure.incompleteResponse),
+          ),
+        ]),
+      );
+    });
+
     for (final entry in <(int, AgentProviderFailure)>[
       (401, AgentProviderFailure.authentication),
       (429, AgentProviderFailure.rateLimited),
@@ -276,19 +378,20 @@ void main() {
 }
 
 DeepSeekResponsesProvider _provider({
-  required http.Client client,
+  http.Client? client,
+  AgentHttpClientFactory? clientFactory,
   Duration requestTimeout = const Duration(seconds: 1),
+  String modelName = 'deepseek-v4-flash',
 }) {
+  assert(client != null || clientFactory != null);
   return DeepSeekResponsesProvider(
     profile: AgentProviderProfile(
       profileId: 'fixture-profile',
       apiKey: 'fixture-secret',
       baseUrl: 'https://provider.invalid/v1',
-      modelName: 'fixture-model',
-      temperature: 0.2,
-      reasoningEffort: 'high',
+      modelName: modelName,
     ),
-    clientFactory: () => client,
+    clientFactory: clientFactory ?? () => client!,
     requestTimeout: requestTimeout,
   );
 }
@@ -297,7 +400,7 @@ AgentProviderRequest _request({
   List<AgentFunctionToolDefinition> tools =
       const <AgentFunctionToolDefinition>[],
   List<AgentFunctionToolOutput> toolOutputs = const <AgentFunctionToolOutput>[],
-  String? previousResponseId,
+  AgentProviderContinuationState? continuationState,
   bool enableNativeWebSearch = false,
 }) {
   return AgentProviderRequest(
@@ -310,9 +413,11 @@ AgentProviderRequest _request({
     ],
     tools: tools,
     toolOutputs: toolOutputs,
-    previousResponseId: previousResponseId,
+    continuationState: continuationState,
     enableNativeWebSearch: enableNativeWebSearch,
     maxOutputTokens: 321,
+    temperature: 1.25,
+    reasoningEffort: AgentReasoningEffort.max,
   );
 }
 
@@ -335,9 +440,11 @@ class _FixtureClient extends http.BaseClient {
   String? accept;
   String? requestBody;
   int closeCalls = 0;
+  int sendCalls = 0;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    sendCalls++;
     requestUrl = request.url.toString();
     method = request.method;
     authorization = request.headers['authorization'];

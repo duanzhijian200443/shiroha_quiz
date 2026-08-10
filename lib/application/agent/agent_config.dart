@@ -17,20 +17,46 @@ enum AgentProviderKind {
   }
 }
 
+enum AgentReasoningEffort {
+  high('high'),
+  max('max');
+
+  const AgentReasoningEffort(this.storageValue);
+
+  final String storageValue;
+
+  static AgentReasoningEffort parse(Object? value) {
+    return switch (value) {
+      'high' => AgentReasoningEffort.high,
+      'max' => AgentReasoningEffort.max,
+      _ => throw const AgentConfigException(
+          AgentConfigFailure.corruptStoredConfig,
+        ),
+    };
+  }
+}
+
 final class AgentConfig {
   factory AgentConfig({
     required AgentProviderKind providerKind,
     required String mainProfileId,
     bool webEnabled = false,
+    double temperature = 1.0,
+    AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   }) {
     final normalizedProfileId = mainProfileId.trim();
-    if (!_isBoundedIdentifier(normalizedProfileId)) {
+    if (!_isBoundedIdentifier(normalizedProfileId) ||
+        !temperature.isFinite ||
+        temperature < 0.0 ||
+        temperature > 2.0) {
       throw const AgentConfigException(AgentConfigFailure.invalidInput);
     }
     return AgentConfig._(
       providerKind: providerKind,
       mainProfileId: normalizedProfileId,
       webEnabled: webEnabled,
+      temperature: temperature,
+      reasoningEffort: reasoningEffort,
     );
   }
 
@@ -38,11 +64,15 @@ final class AgentConfig {
     required this.providerKind,
     required this.mainProfileId,
     required this.webEnabled,
+    required this.temperature,
+    required this.reasoningEffort,
   });
 
   final AgentProviderKind providerKind;
   final String mainProfileId;
   final bool webEnabled;
+  final double temperature;
+  final AgentReasoningEffort reasoningEffort;
 
   @override
   bool operator ==(Object other) =>
@@ -50,10 +80,18 @@ final class AgentConfig {
       other is AgentConfig &&
           providerKind == other.providerKind &&
           mainProfileId == other.mainProfileId &&
-          webEnabled == other.webEnabled;
+          webEnabled == other.webEnabled &&
+          temperature == other.temperature &&
+          reasoningEffort == other.reasoningEffort;
 
   @override
-  int get hashCode => Object.hash(providerKind, mainProfileId, webEnabled);
+  int get hashCode => Object.hash(
+        providerKind,
+        mainProfileId,
+        webEnabled,
+        temperature,
+        reasoningEffort,
+      );
 }
 
 final class AgentConfigCodec {
@@ -65,6 +103,8 @@ final class AgentConfigCodec {
     'provider_kind',
     'main_profile_id',
     'web_enabled',
+    'temperature',
+    'reasoning_effort',
   };
 
   String encode(AgentConfig config) {
@@ -73,6 +113,8 @@ final class AgentConfigCodec {
       'provider_kind': config.providerKind.storageValue,
       'main_profile_id': config.mainProfileId,
       'web_enabled': config.webEnabled,
+      'temperature': config.temperature,
+      'reasoning_effort': config.reasoningEffort.storageValue,
     });
   }
 
@@ -84,7 +126,8 @@ final class AgentConfigCodec {
           _keys.difference(decoded.keys.toSet()).isNotEmpty ||
           decoded['schema_version'] != schemaVersion ||
           decoded['main_profile_id'] is! String ||
-          decoded['web_enabled'] is! bool) {
+          decoded['web_enabled'] is! bool ||
+          decoded['temperature'] is! num) {
         throw const AgentConfigException(
           AgentConfigFailure.corruptStoredConfig,
         );
@@ -93,6 +136,10 @@ final class AgentConfigCodec {
         providerKind: AgentProviderKind.parse(decoded['provider_kind']),
         mainProfileId: decoded['main_profile_id']! as String,
         webEnabled: decoded['web_enabled']! as bool,
+        temperature: (decoded['temperature']! as num).toDouble(),
+        reasoningEffort: AgentReasoningEffort.parse(
+          decoded['reasoning_effort'],
+        ),
       );
     } on AgentConfigException catch (error) {
       if (error.failure == AgentConfigFailure.invalidInput) {

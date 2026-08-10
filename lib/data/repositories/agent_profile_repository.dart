@@ -46,8 +46,6 @@ final class AiEngineAgentProfileRepository
       apiKey: profile.apiKey,
       baseUrl: profile.baseUrl,
       modelName: profile.modelName,
-      temperature: profile.temperature,
-      reasoningEffort: profile.reasoningEffort,
     );
   }
 

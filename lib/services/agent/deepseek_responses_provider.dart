@@ -25,6 +25,10 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
   final Duration _requestTimeout;
   final DeepSeekResponsesSseParser _parser;
 
+  static const Set<String> _supportedModels = <String>{
+    'deepseek-v4-flash',
+  };
+
   @override
   AgentProviderCapabilities get capabilities => const AgentProviderCapabilities(
         functionTools: true,
@@ -67,7 +71,13 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
 
     try {
       cancellationToken.throwIfCancelled();
+      if (!_supportedModels.contains(_profile.modelName)) {
+        throw const AgentProviderException(
+          AgentProviderFailure.unsupportedModel,
+        );
+      }
       final endpoint = buildEndpoint(_profile.baseUrl);
+      final requestBody = _requestBody(request);
       client = _clientFactory();
       unawaited(cancellationToken.whenCancelled.then((_) => closeClient()));
 
@@ -77,18 +87,31 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
           'Authorization': 'Bearer ${_profile.apiKey}',
           'Content-Type': 'application/json',
         })
-        ..body = jsonEncode(_requestBody(request));
+        ..body = jsonEncode(requestBody);
       final response = await client.send(httpRequest).timeout(_requestTimeout);
       cancellationToken.throwIfCancelled();
       if (response.statusCode != 200) {
         throw AgentProviderException(_httpFailure(response.statusCode));
       }
 
+      final continuationItems = <Map<String, Object?>>[];
       await for (final event in _parser.parse(
         response.stream.timeout(_requestTimeout),
+        onContinuationItem: (item) {
+          continuationItems.add(_freezeJsonMap(item));
+        },
       )) {
         cancellationToken.throwIfCancelled();
-        yield event;
+        if (event case AgentProviderCompleted(:final responseId)) {
+          yield AgentProviderCompleted(
+            responseId,
+            continuationState: continuationItems.isEmpty
+                ? null
+                : _DeepSeekResponsesContinuationState(continuationItems),
+          );
+        } else {
+          yield event;
+        }
       }
       cancellationToken.throwIfCancelled();
     } catch (error) {
@@ -111,33 +134,31 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
   }
 
   Map<String, Object?> _requestBody(AgentProviderRequest request) {
-    final isToolContinuation =
-        request.previousResponseId != null && request.toolOutputs.isNotEmpty;
-    final messages = isToolContinuation
-        ? request.toolOutputs
-            .map<Map<String, Object?>>(
-              (output) => <String, Object?>{
-                'type': 'function_call_output',
-                'call_id': output.callId,
-                'output': output.output,
-              },
-            )
-            .toList(growable: false)
-        : <Map<String, Object?>>[
-            <String, Object?>{
-              'role': 'system',
-              'content': request.systemPrompt,
-            },
-            ...request.messages.map(
-              (message) => <String, Object?>{
-                'role': switch (message.role) {
-                  AgentProviderMessageRole.user => 'user',
-                  AgentProviderMessageRole.assistant => 'assistant',
-                },
-                'content': message.content,
-              },
-            ),
-          ];
+    final continuationState = request.continuationState;
+    if (continuationState != null &&
+        continuationState is! _DeepSeekResponsesContinuationState) {
+      throw const AgentProviderException(AgentProviderFailure.invalidRequest);
+    }
+    final input = <Map<String, Object?>>[
+      ...request.messages.map(
+        (message) => <String, Object?>{
+          'role': switch (message.role) {
+            AgentProviderMessageRole.user => 'user',
+            AgentProviderMessageRole.assistant => 'assistant',
+          },
+          'content': message.content,
+        },
+      ),
+      if (continuationState is _DeepSeekResponsesContinuationState)
+        ...continuationState._outputItems,
+      ...request.toolOutputs.map(
+        (output) => <String, Object?>{
+          'type': 'function_call_output',
+          'call_id': output.callId,
+          'output': output.output,
+        },
+      ),
+    ];
     final tools = <Map<String, Object?>>[
       ...request.tools.map(
         (tool) => <String, Object?>{
@@ -154,10 +175,13 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
     return <String, Object?>{
       'stream': true,
       'model': _profile.modelName,
-      'messages': messages,
+      'instructions': request.systemPrompt,
+      'input': input,
       'max_output_tokens': request.maxOutputTokens,
-      if (request.previousResponseId case final previousResponseId?)
-        'previous_response_id': previousResponseId,
+      'temperature': request.temperature,
+      'reasoning': <String, Object?>{
+        'effort': request.reasoningEffort.storageValue,
+      },
       if (tools.isNotEmpty) 'tools': tools,
     };
   }
@@ -172,4 +196,40 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
       _ => AgentProviderFailure.internalError,
     };
   }
+}
+
+final class _DeepSeekResponsesContinuationState
+    implements AgentProviderContinuationState {
+  _DeepSeekResponsesContinuationState(List<Map<String, Object?>> outputItems)
+      : _outputItems = List<Map<String, Object?>>.unmodifiable(outputItems);
+
+  final List<Map<String, Object?>> _outputItems;
+
+  @override
+  String toString() => 'DeepSeekResponsesContinuationState(REDACTED)';
+}
+
+Map<String, Object?> _freezeJsonMap(Map<String, Object?> source) {
+  return Map<String, Object?>.unmodifiable(
+    source.map(
+      (key, value) => MapEntry<String, Object?>(key, _freezeJsonValue(value)),
+    ),
+  );
+}
+
+Object? _freezeJsonValue(Object? value) {
+  if (value is Map) {
+    return Map<String, Object?>.unmodifiable(
+      value.map(
+        (key, nested) => MapEntry<String, Object?>(
+          key.toString(),
+          _freezeJsonValue(nested),
+        ),
+      ),
+    );
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(value.map(_freezeJsonValue));
+  }
+  return value;
 }

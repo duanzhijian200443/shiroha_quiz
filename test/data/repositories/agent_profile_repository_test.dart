@@ -46,6 +46,8 @@ void main() {
     expect(
         summaries.single.toString(), isNot(contains('fixture-secret-value')));
     expect(resolved?.apiKey, 'fixture-secret-value');
+    expect(complete.temperature, 0.2);
+    expect(complete.reasoningEffort, 'high');
     expect(resolved.toString(), isNot(contains('fixture-secret-value')));
     expect(engineRepository.requestedTypes, <AiEngineType>[
       AiEngineType.text,

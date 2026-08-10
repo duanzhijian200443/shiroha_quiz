@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'agent_config.dart';
+
 final class AgentProviderCapabilities {
   const AgentProviderCapabilities({
     required this.functionTools,
@@ -77,6 +79,8 @@ final class AgentFunctionToolOutput {
   final String output;
 }
 
+abstract interface class AgentProviderContinuationState {}
+
 final class AgentProviderRequest {
   factory AgentProviderRequest({
     required String systemPrompt,
@@ -85,17 +89,19 @@ final class AgentProviderRequest {
         const <AgentFunctionToolDefinition>[],
     List<AgentFunctionToolOutput> toolOutputs =
         const <AgentFunctionToolOutput>[],
-    String? previousResponseId,
+    AgentProviderContinuationState? continuationState,
     bool enableNativeWebSearch = false,
     int maxOutputTokens = 4096,
+    required double temperature,
+    required AgentReasoningEffort reasoningEffort,
   }) {
-    final normalizedPreviousId = previousResponseId?.trim();
     if (!_isSafeText(systemPrompt, maxRunes: 32000) ||
         messages.isEmpty ||
         maxOutputTokens <= 0 ||
-        (normalizedPreviousId != null &&
-            !_isSafeToken(normalizedPreviousId, maxRunes: 256)) ||
-        (toolOutputs.isNotEmpty && normalizedPreviousId == null)) {
+        !temperature.isFinite ||
+        temperature < 0.0 ||
+        temperature > 2.0 ||
+        (toolOutputs.isNotEmpty) != (continuationState != null)) {
       throw const AgentProviderException(AgentProviderFailure.invalidRequest);
     }
     return AgentProviderRequest._(
@@ -103,9 +109,11 @@ final class AgentProviderRequest {
       messages: List<AgentProviderMessage>.unmodifiable(messages),
       tools: List<AgentFunctionToolDefinition>.unmodifiable(tools),
       toolOutputs: List<AgentFunctionToolOutput>.unmodifiable(toolOutputs),
-      previousResponseId: normalizedPreviousId,
+      continuationState: continuationState,
       enableNativeWebSearch: enableNativeWebSearch,
       maxOutputTokens: maxOutputTokens,
+      temperature: temperature,
+      reasoningEffort: reasoningEffort,
     );
   }
 
@@ -114,18 +122,22 @@ final class AgentProviderRequest {
     required this.messages,
     required this.tools,
     required this.toolOutputs,
-    required this.previousResponseId,
+    required this.continuationState,
     required this.enableNativeWebSearch,
     required this.maxOutputTokens,
+    required this.temperature,
+    required this.reasoningEffort,
   });
 
   final String systemPrompt;
   final List<AgentProviderMessage> messages;
   final List<AgentFunctionToolDefinition> tools;
   final List<AgentFunctionToolOutput> toolOutputs;
-  final String? previousResponseId;
+  final AgentProviderContinuationState? continuationState;
   final bool enableNativeWebSearch;
   final int maxOutputTokens;
+  final double temperature;
+  final AgentReasoningEffort reasoningEffort;
 }
 
 sealed class AgentProviderEvent {
@@ -187,19 +199,23 @@ final class AgentProviderWebSearchEvent extends AgentProviderEvent {
 }
 
 final class AgentProviderCompleted extends AgentProviderEvent {
-  factory AgentProviderCompleted(String responseId) {
+  factory AgentProviderCompleted(
+    String responseId, {
+    AgentProviderContinuationState? continuationState,
+  }) {
     final normalized = responseId.trim();
     if (!_isSafeToken(normalized, maxRunes: 256)) {
       throw const AgentProviderException(
         AgentProviderFailure.malformedResponse,
       );
     }
-    return AgentProviderCompleted._(normalized);
+    return AgentProviderCompleted._(normalized, continuationState);
   }
 
-  const AgentProviderCompleted._(this.responseId);
+  const AgentProviderCompleted._(this.responseId, this.continuationState);
 
   final String responseId;
+  final AgentProviderContinuationState? continuationState;
 }
 
 abstract interface class AgentProviderPort {
@@ -219,6 +235,8 @@ enum AgentProviderFailure {
   timeout,
   cancelled,
   unsupportedCapability,
+  unsupportedModel,
+  incompleteResponse,
   malformedResponse,
   internalError,
 }
