@@ -94,7 +94,21 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
         throw AgentProviderException(_httpFailure(response.statusCode));
       }
 
-      final continuationItems = <Map<String, Object?>>[];
+      final continuationState = request.continuationState;
+      if (continuationState != null &&
+          continuationState is! _DeepSeekResponsesContinuationState) {
+        throw const AgentProviderException(AgentProviderFailure.invalidRequest);
+      }
+
+      final continuationItems = <Map<String, Object?>>[
+        if (continuationState is _DeepSeekResponsesContinuationState)
+          ...continuationState._outputItems,
+        ...request.toolOutputs.map((output) => <String, Object?>{
+          'type': 'function_call_output',
+          'call_id': output.callId,
+          'output': output.output,
+        }),
+      ];
       await for (final event in _parser.parse(
         response.stream.timeout(_requestTimeout),
         onContinuationItem: (item) {
