@@ -171,7 +171,8 @@ final class ConversationService {
 
   Future<void> deleteConversation(String conversationId) {
     _validateInputId(conversationId, label: 'Conversation');
-    return _repositoryCall(() => _repository.deleteConversation(conversationId));
+    return _repositoryCall(
+        () => _repository.deleteConversation(conversationId));
   }
 
   String _newId(String Function() factory, {required String label}) {
