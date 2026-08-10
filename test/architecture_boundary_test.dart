@@ -751,6 +751,59 @@ import '../../domain/content/content_node.dart'
       }
     });
 
+    test('A0-1 application contracts stay provider and infrastructure neutral',
+        () {
+      final agentDirectory = Directory('lib/application/agent');
+      expect(agentDirectory.existsSync(), isTrue);
+      final files = agentDirectory
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.dart'))
+          .toList(growable: false);
+      expect(files, isNotEmpty);
+
+      for (final file in files) {
+        final source = file.readAsStringSync();
+        for (final forbidden in const <String>[
+          'package:flutter',
+          'package:http',
+          'package:sqflite',
+          'DatabaseHelper',
+          '/data/',
+          r'\data\',
+          '/mcp/',
+          r'\mcp\',
+          'U1WorkspaceFacade',
+          'ManagedFileStorage',
+          'ImportPipeline',
+          'Ocr',
+          'Vision',
+        ]) {
+          expect(
+            source,
+            isNot(contains(forbidden)),
+            reason: '${file.path} must not depend on $forbidden.',
+          );
+        }
+      }
+
+      final configSource =
+          File('lib/application/agent/agent_config.dart').readAsStringSync();
+      for (final secretField in const <String>[
+        'apiKey',
+        'api_key',
+        'Authorization',
+      ]) {
+        expect(configSource, isNot(contains(secretField)));
+      }
+
+      final profileAdapter = File(
+        'lib/data/repositories/agent_profile_repository.dart',
+      ).readAsStringSync();
+      expect(profileAdapter, isNot(contains('setActiveEngine(')));
+      expect(profileAdapter, isNot(contains('setActiveAiEngine(')));
+    });
+
     test('C0 repository stays inside frozen Project and File boundaries', () {
       final repository =
           File('lib/data/repositories/conversation_repository.dart');
