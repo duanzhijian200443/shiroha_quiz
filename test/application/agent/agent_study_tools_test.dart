@@ -293,29 +293,29 @@ final class _QuestionPort implements StudyQuestionQueryPort {
   }
 
   StudyQuestionRead get _question => TypedStudyQuestionRead(
-    questionId: 'q1',
-    bankName: bankName,
-    createdAt: 1,
-    draft: QuestionDraftV2(
-      questionId: 'q1',
-      kind: QuestionKind.shortAnswer,
-      stem: RichContent(
-        nodes: <ContentNode>[
-          const TextNode('Safe stem'),
-          RawFallbackNode(<String, Object?>{
-            'type': 'raw_fallback',
-            'payload': <String, Object?>{'private': 'private-marker'},
-          }),
-        ],
-      ),
-    ),
-    review: const StudyQuestionReviewState(
-      due: true,
-      lapseCount: 2,
-      difficulty: 6.5,
-      lastLapseTime: 1786363200,
-    ),
-  );
+        questionId: 'q1',
+        bankName: bankName,
+        createdAt: 1,
+        draft: QuestionDraftV2(
+          questionId: 'q1',
+          kind: QuestionKind.shortAnswer,
+          stem: RichContent(
+            nodes: <ContentNode>[
+              const TextNode('Safe stem'),
+              RawFallbackNode(<String, Object?>{
+                'type': 'raw_fallback',
+                'payload': <String, Object?>{'private': 'private-marker'},
+              }),
+            ],
+          ),
+        ),
+        review: const StudyQuestionReviewState(
+          due: true,
+          lapseCount: 2,
+          difficulty: 6.5,
+          lastLapseTime: 1786363200,
+        ),
+      );
 
   @override
   Future<StudyPage<QuestionBankSummary>> listStudyQuestionBanks({

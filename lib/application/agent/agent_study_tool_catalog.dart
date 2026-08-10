@@ -6,8 +6,8 @@ import 'agent_provider.dart';
 final class AgentStudyToolCatalog {
   const AgentStudyToolCatalog();
 
-  static final List<AgentFunctionToolDefinition>
-  definitions = List<AgentFunctionToolDefinition>.unmodifiable(
+  static final List<AgentFunctionToolDefinition> definitions =
+      List<AgentFunctionToolDefinition>.unmodifiable(
     <AgentFunctionToolDefinition>[
       AgentFunctionToolDefinition(
         name: 'list_question_banks',
@@ -115,8 +115,8 @@ final class AgentStudyToolCatalog {
   );
 
   static List<String> get toolNames => List<String>.unmodifiable(
-    definitions.map((definition) => definition.name),
-  );
+        definitions.map((definition) => definition.name),
+      );
 }
 
 const Map<String, Object?> _nullableString = <String, Object?>{

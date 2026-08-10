@@ -17,8 +17,8 @@ final class AgentStudyToolDispatcher {
   AgentStudyToolDispatcher({
     required StudyQueryService service,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
-  }) : _service = service,
-       _limits = limits;
+  })  : _service = service,
+        _limits = limits;
 
   final StudyQueryService _service;
   final AgentRuntimeLimits _limits;
@@ -310,17 +310,17 @@ final class AgentStudyToolDispatcher {
   Map<String, Object?> _nodeOf(StudyContentNode node) {
     return switch (node) {
       StudyTextNode(:final text) => <String, Object?>{
-        'type': 'text',
-        'text': text,
-      },
+          'type': 'text',
+          'text': text,
+        },
       StudyInlineMathNode(:final latex) => <String, Object?>{
-        'type': 'inline_math',
-        'latex': latex,
-      },
+          'type': 'inline_math',
+          'latex': latex,
+        },
       StudyBlockMathNode(:final latex) => <String, Object?>{
-        'type': 'block_math',
-        'latex': latex,
-      },
+          'type': 'block_math',
+          'latex': latex,
+        },
       StudyUnsupportedNode() => <String, Object?>{'type': 'unsupported'},
     };
   }
