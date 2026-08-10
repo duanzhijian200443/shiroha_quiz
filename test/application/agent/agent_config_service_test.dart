@@ -223,16 +223,14 @@ final class _ConfigStore implements AgentConfigStorePort {
 }
 
 final class _ProfileCatalog implements AgentProfileCatalogPort {
-  _ProfileCatalog(this.profiles, {this.failure});
+  _ProfileCatalog(this.profiles);
 
   final List<AgentProfileSummary> profiles;
-  final AgentProfileException? failure;
   int listCalls = 0;
 
   @override
   Future<List<AgentProfileSummary>> listMainProfiles() async {
     listCalls++;
-    if (failure case final error?) throw error;
     return profiles;
   }
 }
