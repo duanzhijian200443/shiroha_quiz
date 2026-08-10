@@ -77,6 +77,8 @@ final class AgentTurnWebSearchEvent extends AgentTurnEvent {
   const AgentTurnWebSearchEvent(this.phase);
 
   final AgentProviderWebSearchPhase phase;
+
+  bool get isSearching => phase == AgentProviderWebSearchPhase.searching;
 }
 
 /// A local study tool invocation started.
@@ -119,3 +121,11 @@ final class AgentTurnSession {
   /// Requests user cancellation of this turn.
   final void Function() cancel;
 }
+
+/// Presentation-facing start seam for a turn bound to a persisted User
+/// Message. Production passes [ShirohaAgentRuntime.startTurn]; widget tests can
+/// provide a deterministic session without constructing provider adapters.
+typedef AgentTurnStarter = AgentTurnSession Function({
+  required String conversationId,
+  required String userMessageId,
+});

@@ -3,9 +3,14 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
+import 'application/agent/agent_config_service.dart';
+import 'application/agent/agent_runtime.dart';
+import 'application/agent/agent_study_tool_dispatcher.dart';
+import 'application/agent/agent_turn.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'core/database/database_helper.dart';
@@ -15,6 +20,8 @@ import 'application/study_query/study_query_service.dart';
 import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
+import 'data/repositories/agent_config_repository.dart';
+import 'data/repositories/agent_profile_repository.dart';
 import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/library_file_repository.dart';
 import 'data/repositories/library_folder_repository.dart';
@@ -24,6 +31,7 @@ import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
+import 'services/agent/deepseek_responses_provider.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
@@ -122,15 +130,16 @@ void main() {
     final questionRepository = QuestionRepository(
       databaseHelper: databaseHelper,
     );
+    final studyQueryService = StudyQueryService(
+      questionQuery: questionRepository,
+      metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
+    );
     final u1WorkspaceFacade = U1WorkspaceFacade(
       projectService: projectService,
       fileRepository: libraryFileRepository,
       fileIngestion: fileIngestionService,
       folderService: folderService,
-      studyQueryService: StudyQueryService(
-        questionQuery: questionRepository,
-        metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
-      ),
+      studyQueryService: studyQueryService,
       mcpProjection: McpWorkspaceProjection(
         state: McpCapabilityState.configuredAvailable,
         transport: McpTransport.localStdio,
@@ -139,6 +148,27 @@ void main() {
       ),
     );
     final engineRepository = AiEngineRepository(store: databaseHelper);
+    final agentConfigStore =
+        SqliteAgentConfigStore(databaseHelper: databaseHelper);
+    final agentProfileRepository = AiEngineAgentProfileRepository(
+      engineRepository: engineRepository,
+    );
+    final agentSettingsService = AgentSettingsService(
+      configStore: agentConfigStore,
+      profileCatalog: agentProfileRepository,
+    );
+    final agentRuntime = ShirohaAgentRuntime(
+      conversationService: conversationService,
+      configResolver: AgentRuntimeConfigResolver(
+        configStore: agentConfigStore,
+        profileResolver: agentProfileRepository,
+      ),
+      providerFactory: (resolved) => DeepSeekResponsesProvider(
+        profile: resolved.profile,
+        clientFactory: () => http.Client(),
+      ),
+      toolDispatcher: AgentStudyToolDispatcher(service: studyQueryService),
+    );
     final taskManager = TaskManager.instance;
     final aiService = AiService(
       engineRepository: engineRepository,
@@ -182,6 +212,8 @@ void main() {
       importTaskCoordinator: importTaskCoordinator,
       u1WorkspaceFacade: u1WorkspaceFacade,
       conversationService: conversationService,
+      agentSettingsService: agentSettingsService,
+      startAgentTurn: agentRuntime.startTurn,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -203,6 +235,8 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.importTaskCoordinator,
     required this.u1WorkspaceFacade,
     required this.conversationService,
+    required this.agentSettingsService,
+    required this.startAgentTurn,
   });
 
   final AiEngineRepository engineRepository;
@@ -211,6 +245,8 @@ class ShirohaQuizApp extends StatelessWidget {
   final ImportTaskCoordinator importTaskCoordinator;
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
+  final AgentSettingsService agentSettingsService;
+  final AgentTurnStarter startAgentTurn;
 
   @override
   Widget build(BuildContext context) {
@@ -231,6 +267,8 @@ class ShirohaQuizApp extends StatelessWidget {
             home: MainScreen(
               u1WorkspaceFacade: u1WorkspaceFacade,
               conversationService: conversationService,
+              agentSettingsService: agentSettingsService,
+              startAgentTurn: startAgentTurn,
             ),
           ),
         );
@@ -247,10 +285,14 @@ class SplashScreen extends StatefulWidget {
     super.key,
     required this.u1WorkspaceFacade,
     required this.conversationService,
+    required this.agentSettingsService,
+    required this.startAgentTurn,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
+  final AgentSettingsService agentSettingsService;
+  final AgentTurnStarter startAgentTurn;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -283,6 +325,8 @@ class _SplashScreenState extends State<SplashScreen> {
         builder: (_) => MainScreen(
           u1WorkspaceFacade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
+          agentSettingsService: widget.agentSettingsService,
+          startAgentTurn: widget.startAgentTurn,
         ),
       ),
     );

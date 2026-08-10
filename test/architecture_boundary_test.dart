@@ -922,6 +922,58 @@ import '../../domain/content/content_node.dart'
         );
       }
     });
+
+    test('A0-5 presentation and composition keep Agent boundaries', () {
+      const presentationFiles = <String>[
+        'lib/ui/assistant/conversation_controller.dart',
+        'lib/ui/assistant/assistant_screen.dart',
+        'lib/ui/assistant/assistant_workspace_shell.dart',
+        'lib/ui/pages/agent_settings_screen.dart',
+      ];
+      for (final path in presentationFiles) {
+        final source = File(path).readAsStringSync();
+        for (final token in const <String>[
+          'DatabaseHelper',
+          'package:sqflite',
+          'SqliteAgentConfigStore',
+          'AiEngineRepository',
+          'DeepSeekResponsesProvider',
+          'StudyMcpAdapter',
+          'AiService',
+        ]) {
+          expect(
+            source,
+            isNot(contains(token)),
+            reason: '$path must not wire concrete Agent infrastructure: $token',
+          );
+        }
+      }
+
+      final settings = File(
+        'lib/ui/pages/agent_settings_screen.dart',
+      ).readAsStringSync();
+      expect(settings, contains('AgentSettingsService'));
+      expect(settings, isNot(contains('apiKey')));
+      expect(settings, isNot(contains('Authorization')));
+
+      final mainSource = File('lib/main.dart').readAsStringSync();
+      for (final requiredComposition in const <String>[
+        'SqliteAgentConfigStore',
+        'AiEngineAgentProfileRepository',
+        'AgentSettingsService',
+        'AgentRuntimeConfigResolver',
+        'AgentStudyToolDispatcher',
+        'DeepSeekResponsesProvider',
+        'ShirohaAgentRuntime',
+        'agentRuntime.startTurn',
+      ]) {
+        expect(
+          mainSource,
+          contains(requiredComposition),
+          reason: 'main.dart must compose $requiredComposition.',
+        );
+      }
+    });
   });
 }
 

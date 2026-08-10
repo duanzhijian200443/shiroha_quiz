@@ -348,7 +348,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
           IconButton(
             key: const ValueKey<String>('u1-ux0-new-conversation'),
             tooltip: '新对话',
-            onPressed: _startNewConversation,
+            onPressed:
+                conversations.hasActiveTurn ? null : _startNewConversation,
             icon: const Icon(Icons.add_comment_outlined),
           ),
           const SizedBox(width: 4),
@@ -366,11 +367,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   controller: _composerController,
                   selectedFiles: conversations.selectedFiles,
                   isSending: conversations.isSending,
+                  hasActiveTurn: conversations.hasActiveTurn,
                   onAddContext: _showContextPicker,
                   onRemoveContext: (file) {
                     conversations.toggleFile(file.fileId);
                   },
                   onSend: _sendMessage,
+                  onCancel: conversations.cancelActiveTurn,
                 ),
               ],
             ),
@@ -413,7 +416,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
             message: '原学习空间已删除；历史仍可查看，但不能继续发送消息。',
           ),
         ],
-        if (controller.errorMessage case final error?) ...[
+        if (controller.errorMessage case final error?
+            when controller.turnPhase != AssistantTurnPhase.failed &&
+                controller.turnPhase != AssistantTurnPhase.cancelled) ...[
           const SizedBox(height: 16),
           _StatusCard(icon: Icons.error_outline, message: error),
         ],
@@ -449,11 +454,45 @@ class _AssistantScreenState extends State<AssistantScreen> {
             const SizedBox(height: 12),
           ],
         ],
-        const SizedBox(height: 20),
-        const _StatusCard(
-          icon: Icons.info_outline_rounded,
-          message: 'Shiroha 回复能力尚未接入；发送的内容会保存为用户消息。',
-        ),
+        if (controller.transientAssistantText.isNotEmpty) ...[
+          _TransientAssistantBubble(
+            text: controller.transientAssistantText,
+            isUnsaved: controller.turnPhase == AssistantTurnPhase.failed ||
+                controller.turnPhase == AssistantTurnPhase.cancelled,
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (controller.turnStatusMessage case final status?) ...[
+          _StatusCard(
+            key: const ValueKey<String>('a0-agent-turn-status'),
+            icon: _turnStatusIcon(controller.turnPhase),
+            message: status,
+          ),
+          if (controller.turnPhase == AssistantTurnPhase.failed ||
+              controller.turnPhase == AssistantTurnPhase.cancelled) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (controller.canRetry)
+                  FilledButton.icon(
+                    key: const ValueKey<String>('a0-agent-retry'),
+                    onPressed: controller.retryLastTurn,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('重试'),
+                  ),
+                if (controller.needsAgentSettings)
+                  const Chip(
+                    key: ValueKey<String>('a0-agent-settings-hint'),
+                    avatar: Icon(Icons.settings_outlined, size: 18),
+                    label: Text('请前往“我的 → Shiroha Agent 设置”'),
+                  ),
+              ],
+            ),
+          ],
+        ],
       ],
     );
   }
@@ -514,8 +553,57 @@ class _MessageBubble extends StatelessWidget {
   }
 }
 
+class _TransientAssistantBubble extends StatelessWidget {
+  const _TransientAssistantBubble({
+    required this.text,
+    required this.isUnsaved,
+  });
+
+  final String text;
+  final bool isUnsaved;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey<String>('a0-transient-assistant'),
+        constraints: const BoxConstraints(maxWidth: 600),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isUnsaved
+                ? colors.error
+                : colors.primary.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(text),
+            const SizedBox(height: 6),
+            Text(
+              isUnsaved ? '未保存' : '正在生成',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: isUnsaved ? colors.error : colors.primary,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.icon, required this.message});
+  const _StatusCard({
+    super.key,
+    required this.icon,
+    required this.message,
+  });
 
   final IconData icon;
   final String message;
@@ -546,17 +634,21 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.selectedFiles,
     required this.isSending,
+    required this.hasActiveTurn,
     required this.onAddContext,
     required this.onRemoveContext,
     required this.onSend,
+    required this.onCancel,
   });
 
   final TextEditingController controller;
   final List<ConversationFileRef> selectedFiles;
   final bool isSending;
+  final bool hasActiveTurn;
   final VoidCallback onAddContext;
   final ValueChanged<ConversationFileRef> onRemoveContext;
   final VoidCallback onSend;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -583,17 +675,31 @@ class _Composer extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (selectedFiles.isNotEmpty)
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final file in selectedFiles)
-                    InputChip(
-                      key: ValueKey<String>('c0-context-${file.fileId}'),
-                      label: Text(file.displayName),
-                      avatar: const Icon(Icons.description_outlined, size: 17),
-                      onDeleted: () => onRemoveContext(file),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final file in selectedFiles)
+                        InputChip(
+                          key: ValueKey<String>('c0-context-${file.fileId}'),
+                          label: Text(file.displayName),
+                          avatar:
+                              const Icon(Icons.description_outlined, size: 17),
+                          onDeleted:
+                              isSending ? null : () => onRemoveContext(file),
+                        ),
+                    ],
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(8, 4, 8, 0),
+                    child: Text(
+                      '当前 Shiroha 可识别附件信息，文件内容理解将在后续版本接入。',
+                      style: TextStyle(fontSize: 11),
                     ),
+                  ),
                 ],
               ),
             Row(
@@ -602,13 +708,14 @@ class _Composer extends StatelessWidget {
                 IconButton(
                   key: const ValueKey<String>('u1-ux0-add-context'),
                   tooltip: '添加上下文',
-                  onPressed: onAddContext,
+                  onPressed: isSending ? null : onAddContext,
                   icon: const Icon(Icons.add_circle_outline_rounded),
                 ),
                 Expanded(
                   child: TextField(
                     key: const ValueKey<String>('u1-ux0-composer'),
                     controller: controller,
+                    enabled: !isSending,
                     minLines: 1,
                     maxLines: 4,
                     decoration: const InputDecoration(
@@ -618,15 +725,23 @@ class _Composer extends StatelessWidget {
                   ),
                 ),
                 IconButton.filled(
-                  key: const ValueKey<String>('u1-ux0-send'),
-                  tooltip: '发送',
-                  onPressed: isSending ? null : onSend,
-                  icon: isSending
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.arrow_upward_rounded),
+                  key: ValueKey<String>(
+                    hasActiveTurn ? 'a0-agent-cancel' : 'u1-ux0-send',
+                  ),
+                  tooltip: hasActiveTurn ? '停止' : '发送',
+                  onPressed: hasActiveTurn
+                      ? onCancel
+                      : isSending
+                          ? null
+                          : onSend,
+                  icon: hasActiveTurn
+                      ? const Icon(Icons.stop_rounded)
+                      : isSending
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.arrow_upward_rounded),
                 ),
               ],
             ),
@@ -635,6 +750,16 @@ class _Composer extends StatelessWidget {
       ),
     );
   }
+}
+
+IconData _turnStatusIcon(AssistantTurnPhase phase) {
+  return switch (phase) {
+    AssistantTurnPhase.searchingWeb => Icons.travel_explore_rounded,
+    AssistantTurnPhase.usingLocalTool => Icons.manage_search_rounded,
+    AssistantTurnPhase.failed => Icons.error_outline_rounded,
+    AssistantTurnPhase.cancelled => Icons.stop_circle_outlined,
+    _ => Icons.auto_awesome_rounded,
+  };
 }
 
 class _FileContextPicker extends StatelessWidget {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../application/agent/agent_config_service.dart';
+import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'assistant_screen.dart';
@@ -22,10 +24,14 @@ class AssistantWorkspaceShell extends StatefulWidget {
     super.key,
     required this.facade,
     required this.conversationService,
+    required this.agentSettingsService,
+    required this.startAgentTurn,
   });
 
   final U1WorkspaceFacade facade;
   final ConversationService conversationService;
+  final AgentSettingsService agentSettingsService;
+  final AgentTurnStarter startAgentTurn;
 
   @override
   State<AssistantWorkspaceShell> createState() =>
@@ -44,8 +50,11 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
     super.initState();
     _spacesController = LearningSpacesController(widget.facade)..load();
     _fileController = FileLibraryController(widget.facade)..load();
-    _conversationController = ConversationController(widget.conversationService)
-      ..load();
+    _conversationController = ConversationController(
+      widget.conversationService,
+      agentSettingsService: widget.agentSettingsService,
+      startAgentTurn: widget.startAgentTurn,
+    )..load();
   }
 
   @override

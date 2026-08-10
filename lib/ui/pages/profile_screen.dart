@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../application/agent/agent_config_service.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
+import 'agent_settings_screen.dart';
 import 'ai_settings_screen.dart';
 import 'knowledge_base_screen.dart';
 import 'wrong_book_page.dart';
@@ -14,10 +16,12 @@ class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
     required this.engineRepository,
+    required this.agentSettingsService,
     this.heatmapLoader,
   });
 
   final AiEngineRepository engineRepository;
+  final AgentSettingsService agentSettingsService;
   final ProfileHeatmapLoader? heatmapLoader;
 
   @override
@@ -211,6 +215,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 8),
                   _SettingsCard(
                     children: [
+                      _SettingsRow(
+                        key: const ValueKey<String>(
+                          'profile-agent-settings-row',
+                        ),
+                        icon: Icons.auto_awesome_outlined,
+                        title: 'Shiroha Agent 设置',
+                        subtitle: '主模型、联网、温度与推理强度',
+                        onTap: () => _push(
+                          AgentSettingsScreen(
+                            settingsService: widget.agentSettingsService,
+                            onOpenProfileSettings: () => _push(
+                              AiSettingsScreen(
+                                engineRepository: widget.engineRepository,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       _SettingsRow(
                         key: const ValueKey<String>('profile-wrong-book-row'),
                         icon: Icons.assignment_late_outlined,

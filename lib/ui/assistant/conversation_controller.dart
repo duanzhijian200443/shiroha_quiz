@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../../application/agent/agent_config.dart';
+import '../../application/agent/agent_config_service.dart';
+import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../domain/conversations/conversation.dart';
@@ -8,10 +13,28 @@ import '../../domain/conversations/conversation_message.dart';
 const String conversationReadSafeError = '暂时无法读取对话，请稍后重试';
 const String conversationWriteSafeError = '暂时无法保存对话，请稍后重试';
 
+enum AssistantTurnPhase {
+  idle,
+  thinking,
+  searchingWeb,
+  usingLocalTool,
+  streaming,
+  saving,
+  failed,
+  cancelled,
+}
+
 final class ConversationController extends ChangeNotifier {
-  ConversationController(this.service);
+  ConversationController(
+    this.service, {
+    required AgentSettingsService agentSettingsService,
+    required AgentTurnStarter startAgentTurn,
+  })  : _agentSettingsService = agentSettingsService,
+        _startAgentTurn = startAgentTurn;
 
   final ConversationService service;
+  final AgentSettingsService _agentSettingsService;
+  final AgentTurnStarter _startAgentTurn;
 
   List<Conversation> recent = const <Conversation>[];
   List<ConversationFileRef> attachableFiles = const <ConversationFileRef>[];
@@ -28,10 +51,45 @@ final class ConversationController extends ChangeNotifier {
   String? errorMessage;
   String? statusMessage;
 
+  AssistantTurnPhase turnPhase = AssistantTurnPhase.idle;
+  String transientAssistantText = '';
+  AgentTurnFailure? turnFailure;
+  String? activeToolName;
+
+  AgentTurnSession? _activeSession;
+  StreamSubscription<AgentTurnEvent>? _turnEvents;
+  String? _retryConversationId;
+  String? _retryUserMessageId;
+  int _turnEpoch = 0;
+  int _threadRevision = 0;
+  bool _disposed = false;
+
   ConversationScope get currentScope =>
       activeThread?.conversation.scope ?? draftScope;
 
   bool get isDraft => activeThread == null;
+  bool get hasActiveTurn => _activeSession != null;
+  bool get canRetry =>
+      !hasActiveTurn &&
+      _retryConversationId != null &&
+      _retryUserMessageId != null &&
+      activeThread?.conversation.conversationId == _retryConversationId;
+
+  bool get needsAgentSettings =>
+      turnFailure == AgentTurnFailure.agentUnconfigured ||
+      turnFailure == AgentTurnFailure.profileUnavailable;
+
+  String? get turnStatusMessage => switch (turnPhase) {
+        AssistantTurnPhase.idle => statusMessage,
+        AssistantTurnPhase.thinking => 'Shiroha 正在思考…',
+        AssistantTurnPhase.searchingWeb => '正在搜索网页…',
+        AssistantTurnPhase.usingLocalTool => _toolStatus(activeToolName),
+        AssistantTurnPhase.streaming => 'Shiroha 正在回复…',
+        AssistantTurnPhase.saving => '正在保存回复…',
+        AssistantTurnPhase.failed =>
+          turnFailure == null ? '生成失败，请重试' : _agentFailureMessage(turnFailure!),
+        AssistantTurnPhase.cancelled => '已停止生成',
+      };
 
   List<ConversationFileRef> get selectedFiles {
     final active = activeThread;
@@ -62,9 +120,16 @@ final class ConversationController extends ChangeNotifier {
   }
 
   void startNew({ConversationScope? scope}) {
+    if (hasActiveTurn) {
+      errorMessage = '请先停止当前生成';
+      notifyListeners();
+      return;
+    }
     activeThread = null;
+    _threadRevision++;
     draftScope = scope ?? ConversationScope.global();
     draftFileIds.clear();
+    _clearTurnPresentation(clearRetry: true);
     errorMessage = null;
     statusMessage = null;
     notifyListeners();
@@ -78,6 +143,11 @@ final class ConversationController extends ChangeNotifier {
   }
 
   Future<bool> openConversation(String conversationId) async {
+    if (hasActiveTurn) {
+      errorMessage = '请先停止当前生成';
+      notifyListeners();
+      return false;
+    }
     isLoading = true;
     errorMessage = null;
     notifyListeners();
@@ -85,8 +155,10 @@ final class ConversationController extends ChangeNotifier {
       activeThread = await service.loadConversation(
         conversationId: conversationId,
       );
+      _threadRevision++;
       draftFileIds.clear();
-      statusMessage = 'Shiroha 回复能力尚未接入，消息已保存';
+      _clearTurnPresentation(clearRetry: true);
+      statusMessage = null;
       return true;
     } on ConversationException catch (error) {
       errorMessage = _safeReadError(error.failure);
@@ -101,50 +173,262 @@ final class ConversationController extends ChangeNotifier {
   }
 
   Future<bool> send(String content) async {
+    if (isSending || hasActiveTurn) {
+      errorMessage = _agentFailureMessage(AgentTurnFailure.alreadyRunning);
+      notifyListeners();
+      return false;
+    }
     isSending = true;
     errorMessage = null;
+    statusMessage = null;
+    turnFailure = null;
     notifyListeners();
+
+    final configurationFailure = await _loadConfigurationFailure();
+    if (configurationFailure != null) {
+      _showTurnFailure(configurationFailure);
+      isSending = false;
+      notifyListeners();
+      return false;
+    }
+
+    late final ConversationMessage target;
+    late final String conversationId;
     try {
       final active = activeThread;
       if (active == null) {
-        activeThread = await service.startWithUserMessage(
+        final created = await service.startWithUserMessage(
           scope: draftScope,
           content: content,
           fileIds: draftFileIds,
         );
+        activeThread = created;
+        conversationId = created.conversation.conversationId;
+        target = created.messages.last;
         draftFileIds.clear();
       } else {
         final appended = await service.appendUserMessage(
           conversationId: active.conversation.conversationId,
           content: content,
         );
+        conversationId = active.conversation.conversationId;
+        target = appended.message;
         activeThread = ConversationThreadSlice(
           conversation: appended.conversation,
-          messages: <ConversationMessage>[...active.messages, appended.message],
+          messages: <ConversationMessage>[...active.messages, target],
           files: active.files,
           hasMoreBefore: active.hasMoreBefore,
           nextBeforeSequence: active.nextBeforeSequence,
         );
       }
-      statusMessage = 'Shiroha 回复能力尚未接入，消息已保存';
-      try {
-        await _refreshLists();
-      } catch (_) {
-        // The message is already persisted; a failed recency refresh must
-        // not be reported as a save failure, or the composer would keep the
-        // text and a retry would persist a duplicate message.
-        errorMessage = conversationReadSafeError;
-      }
-      return true;
+      _threadRevision++;
     } on ConversationException catch (error) {
+      isSending = false;
       errorMessage = _safeWriteError(error.failure);
+      notifyListeners();
       return false;
     } catch (_) {
-      errorMessage = conversationWriteSafeError;
-      return false;
-    } finally {
       isSending = false;
+      errorMessage = conversationWriteSafeError;
       notifyListeners();
+      return false;
+    }
+
+    _retryConversationId = conversationId;
+    _retryUserMessageId = target.messageId;
+    try {
+      _beginTurn(
+        conversationId: conversationId,
+        userMessageId: target.messageId,
+      );
+    } catch (_) {
+      isSending = false;
+      _showTurnFailure(AgentTurnFailure.internalError);
+    }
+    try {
+      await _refreshLists();
+    } catch (_) {
+      errorMessage = conversationReadSafeError;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> retryLastTurn() async {
+    final conversationId = _retryConversationId;
+    final userMessageId = _retryUserMessageId;
+    if (!canRetry || conversationId == null || userMessageId == null) {
+      return false;
+    }
+    isSending = true;
+    errorMessage = null;
+    statusMessage = null;
+    transientAssistantText = '';
+    turnFailure = null;
+    notifyListeners();
+    final configurationFailure = await _loadConfigurationFailure();
+    if (configurationFailure != null) {
+      isSending = false;
+      _showTurnFailure(configurationFailure);
+      notifyListeners();
+      return false;
+    }
+    try {
+      _beginTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      return true;
+    } catch (_) {
+      isSending = false;
+      _showTurnFailure(AgentTurnFailure.internalError);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void cancelActiveTurn() {
+    final session = _activeSession;
+    if (session == null) return;
+    session.cancel();
+    statusMessage = '正在停止生成…';
+    notifyListeners();
+  }
+
+  void _beginTurn({
+    required String conversationId,
+    required String userMessageId,
+  }) {
+    final epoch = ++_turnEpoch;
+    transientAssistantText = '';
+    activeToolName = null;
+    turnFailure = null;
+    turnPhase = AssistantTurnPhase.thinking;
+    final session = _startAgentTurn(
+      conversationId: conversationId,
+      userMessageId: userMessageId,
+    );
+    _activeSession = session;
+    _turnEvents = session.events.listen(
+      (event) => _projectTurnEvent(event, session, epoch),
+      onError: (_) {},
+    );
+    unawaited(_awaitTurnResult(session, epoch));
+    notifyListeners();
+  }
+
+  void _projectTurnEvent(
+    AgentTurnEvent event,
+    AgentTurnSession session,
+    int epoch,
+  ) {
+    if (_activeSession != session || _turnEpoch != epoch || _disposed) return;
+    switch (event) {
+      case AgentTurnTextDelta(:final text):
+        transientAssistantText += text;
+        turnPhase = AssistantTurnPhase.streaming;
+      case AgentTurnWebSearchEvent(:final isSearching):
+        turnPhase = isSearching
+            ? AssistantTurnPhase.searchingWeb
+            : transientAssistantText.isEmpty
+                ? AssistantTurnPhase.thinking
+                : AssistantTurnPhase.streaming;
+      case AgentTurnToolCall(:final name):
+        activeToolName = name;
+        turnPhase = AssistantTurnPhase.usingLocalTool;
+      case AgentTurnCompleted() || AgentTurnFailedEvent():
+        return;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _awaitTurnResult(AgentTurnSession session, int epoch) async {
+    AgentTurnResult result;
+    try {
+      result = await session.result;
+    } catch (_) {
+      result = const AgentTurnFailed(AgentTurnFailure.internalError);
+    }
+    if (_activeSession != session || _turnEpoch != epoch) return;
+    await _turnEvents?.cancel();
+    _turnEvents = null;
+    _activeSession = null;
+    isSending = false;
+
+    switch (result) {
+      case AgentTurnSuccess(:final assistantMessage) ||
+            AgentTurnAlreadyCompleted(:final assistantMessage):
+        turnPhase = AssistantTurnPhase.saving;
+        if (!_disposed) notifyListeners();
+        _showPersistedAssistant(assistantMessage);
+        transientAssistantText = '';
+        activeToolName = null;
+        turnFailure = null;
+        turnPhase = AssistantTurnPhase.idle;
+        statusMessage = null;
+        try {
+          await _refreshLists();
+        } catch (_) {
+          errorMessage = conversationReadSafeError;
+        }
+      case AgentTurnFailed(:final failure):
+        _showTurnFailure(failure);
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  void _showPersistedAssistant(ConversationMessage message) {
+    final active = activeThread;
+    if (active == null ||
+        active.conversation.conversationId != message.conversationId ||
+        active.messages
+            .any((candidate) => candidate.messageId == message.messageId)) {
+      return;
+    }
+    final messages = <ConversationMessage>[...active.messages, message]
+      ..sort((left, right) => left.sequence.compareTo(right.sequence));
+    activeThread = ConversationThreadSlice(
+      conversation: active.conversation,
+      messages: messages,
+      files: active.files,
+      hasMoreBefore: active.hasMoreBefore,
+      nextBeforeSequence: active.nextBeforeSequence,
+    );
+    _threadRevision++;
+  }
+
+  void _showTurnFailure(AgentTurnFailure failure) {
+    turnFailure = failure;
+    turnPhase = failure == AgentTurnFailure.cancelled
+        ? AssistantTurnPhase.cancelled
+        : AssistantTurnPhase.failed;
+    errorMessage = _agentFailureMessage(failure);
+    statusMessage = failure == AgentTurnFailure.cancelled ? '已停止生成' : null;
+  }
+
+  Future<AgentTurnFailure?> _loadConfigurationFailure() async {
+    try {
+      final snapshot = await _agentSettingsService.load();
+      return switch (snapshot.state) {
+        AgentSettingsState.ready => null,
+        AgentSettingsState.unconfigured => AgentTurnFailure.agentUnconfigured,
+        AgentSettingsState.profileUnavailable =>
+          AgentTurnFailure.profileUnavailable,
+      };
+    } on AgentConfigException catch (error) {
+      return switch (error.failure) {
+        AgentConfigFailure.unconfigured ||
+        AgentConfigFailure.corruptStoredConfig =>
+          AgentTurnFailure.agentUnconfigured,
+        AgentConfigFailure.profileNotFound ||
+        AgentConfigFailure.profileIncomplete =>
+          AgentTurnFailure.profileUnavailable,
+        AgentConfigFailure.temporarilyUnavailable =>
+          AgentTurnFailure.temporarilyUnavailable,
+        AgentConfigFailure.invalidInput => AgentTurnFailure.internalError,
+      };
+    } catch (_) {
+      return AgentTurnFailure.temporarilyUnavailable;
     }
   }
 
@@ -152,21 +436,30 @@ final class ConversationController extends ChangeNotifier {
     final active = activeThread;
     final before = active?.nextBeforeSequence;
     if (active == null || !active.hasMoreBefore || before == null) return;
+    final conversationId = active.conversation.conversationId;
+    final revision = _threadRevision;
     isLoadingOlder = true;
     errorMessage = null;
     notifyListeners();
     try {
       final older = await service.loadConversation(
-        conversationId: active.conversation.conversationId,
+        conversationId: conversationId,
         beforeSequence: before,
       );
+      final current = activeThread;
+      if (current == null ||
+          current.conversation.conversationId != conversationId ||
+          _threadRevision != revision) {
+        return;
+      }
       activeThread = ConversationThreadSlice(
         conversation: older.conversation,
-        messages: <ConversationMessage>[...older.messages, ...active.messages],
+        messages: <ConversationMessage>[...older.messages, ...current.messages],
         files: older.files,
         hasMoreBefore: older.hasMoreBefore,
         nextBeforeSequence: older.nextBeforeSequence,
       );
+      _threadRevision++;
     } on ConversationException catch (error) {
       errorMessage = _safeReadError(error.failure);
     } catch (_) {
@@ -214,6 +507,7 @@ final class ConversationController extends ChangeNotifier {
           nextBeforeSequence: active.nextBeforeSequence,
         );
       }
+      _threadRevision++;
       errorMessage = null;
       await _refreshLists();
       notifyListeners();
@@ -234,7 +528,10 @@ final class ConversationController extends ChangeNotifier {
     if (active == null) return false;
     try {
       await service.deleteConversation(active.conversation.conversationId);
-      startNew();
+      activeThread = null;
+      _threadRevision++;
+      draftScope = ConversationScope.global();
+      draftFileIds.clear();
       await _refreshLists();
       notifyListeners();
       return true;
@@ -281,6 +578,25 @@ final class ConversationController extends ChangeNotifier {
     }
   }
 
+  void _clearTurnPresentation({required bool clearRetry}) {
+    transientAssistantText = '';
+    activeToolName = null;
+    turnFailure = null;
+    turnPhase = AssistantTurnPhase.idle;
+    if (clearRetry) {
+      _retryConversationId = null;
+      _retryUserMessageId = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _activeSession?.cancel();
+    unawaited(_turnEvents?.cancel());
+    super.dispose();
+  }
+
   String _safeReadError(ConversationFailure failure) {
     return switch (failure) {
       ConversationFailure.conversationNotFound => '对话已不存在',
@@ -299,4 +615,39 @@ final class ConversationController extends ChangeNotifier {
       _ => conversationWriteSafeError,
     };
   }
+}
+
+String _agentFailureMessage(AgentTurnFailure failure) {
+  return switch (failure) {
+    AgentTurnFailure.invalidTarget => '无法确认要回复的消息，请重新打开对话',
+    AgentTurnFailure.alreadyRunning => 'Shiroha 正在回复当前对话',
+    AgentTurnFailure.conversationUnavailable => '对话已删除，回复未保存',
+    AgentTurnFailure.scopeUnavailable => '学习空间已删除，无法保存回复',
+    AgentTurnFailure.agentUnconfigured => '请先在“我的”中配置 Shiroha Agent',
+    AgentTurnFailure.profileUnavailable => 'Shiroha Agent 的主模型配置不可用',
+    AgentTurnFailure.unsupportedModel ||
+    AgentTurnFailure.unsupportedCapability =>
+      '当前模型暂不支持 Shiroha Agent',
+    AgentTurnFailure.authentication => 'API 认证失败，请检查模型配置',
+    AgentTurnFailure.rateLimited => '请求过于频繁，请稍后重试',
+    AgentTurnFailure.temporarilyUnavailable => '服务暂时不可用，请稍后重试',
+    AgentTurnFailure.timeout => '生成超时，请重试',
+    AgentTurnFailure.cancelled => '已停止生成',
+    AgentTurnFailure.toolLimitExceeded => '学习工具调用达到限制，请简化问题后重试',
+    AgentTurnFailure.historyLimitExceeded => '当前消息过长，无法生成回复',
+    AgentTurnFailure.providerMalformed => '模型返回异常，请重试',
+    AgentTurnFailure.persistenceFailed => '保存回复失败，请重试',
+    AgentTurnFailure.internalError => '生成失败，请稍后重试',
+  };
+}
+
+String _toolStatus(String? toolName) {
+  return switch (toolName) {
+    'search_questions' => '正在搜索题目…',
+    'get_study_overview' || 'get_due_review_summary' => '正在读取学习概览…',
+    'list_question_banks' => '正在读取题库…',
+    'get_question_detail' => '正在读取题目详情…',
+    'get_weak_questions' => '正在查询薄弱题目…',
+    _ => '正在查询学习数据…',
+  };
 }

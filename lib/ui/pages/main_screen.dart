@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../application/agent/agent_config_service.dart';
+import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'home_page.dart';
@@ -12,10 +14,14 @@ class MainScreen extends StatefulWidget {
     super.key,
     required this.u1WorkspaceFacade,
     required this.conversationService,
+    required this.agentSettingsService,
+    required this.startAgentTurn,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
+  final AgentSettingsService agentSettingsService;
+  final AgentTurnStarter startAgentTurn;
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -31,9 +37,14 @@ class _MainScreenState extends State<MainScreen> {
       AssistantWorkspaceShell(
         facade: widget.u1WorkspaceFacade,
         conversationService: widget.conversationService,
+        agentSettingsService: widget.agentSettingsService,
+        startAgentTurn: widget.startAgentTurn,
       ), // Tab 1
       const MockCenterScreen(), // Tab 2 — 模考中心
-      ProfileScreen(engineRepository: dependencies.engineRepository), // Tab 3
+      ProfileScreen(
+        engineRepository: dependencies.engineRepository,
+        agentSettingsService: widget.agentSettingsService,
+      ), // Tab 3
     ];
     return Scaffold(
       body: IndexedStack(

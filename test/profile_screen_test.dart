@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -32,6 +33,10 @@ void main() {
         ),
         home: ProfileScreen(
           engineRepository: engineRepository,
+          agentSettingsService: AgentSettingsService(
+            configStore: _ProfileAgentConfigStore(),
+            profileCatalog: _ProfileAgentCatalog(),
+          ),
           heatmapLoader: () async => <DateTime, int>{},
         ),
       ),
@@ -52,6 +57,7 @@ void main() {
     expect(find.text('AI 与知识库'), findsOneWidget);
     expect(find.text('我的知识库'), findsOneWidget);
     expect(find.text('AI 服务'), findsOneWidget);
+    expect(find.text('Shiroha Agent 设置'), findsOneWidget);
     expect(find.text('设置与数据'), findsOneWidget);
     expect(find.text('外观设置'), findsOneWidget);
 
@@ -114,6 +120,19 @@ void main() {
     expect(find.text('外观设置'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+final class _ProfileAgentConfigStore implements AgentConfigStorePort {
+  @override
+  Future<String?> readAgentConfig() async => null;
+
+  @override
+  Future<void> writeAgentConfig(String encodedConfig) async {}
+}
+
+final class _ProfileAgentCatalog implements AgentProfileCatalogPort {
+  @override
+  Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
 }
 
 class _ProfileAiEngineStore implements AiEngineStore {

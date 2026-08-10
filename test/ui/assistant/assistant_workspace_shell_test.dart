@@ -1,5 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/agent/agent_config.dart';
+import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
+import 'package:shiroha_quiz/application/agent/agent_provider.dart';
+import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
@@ -27,6 +33,100 @@ import 'package:shiroha_quiz/ui/assistant/workspace_pages.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+
+bool _isUserMessage(ConversationMessage message) =>
+    message.role == ConversationMessageRole.user;
+
+final class _AgentConfigStore implements AgentConfigStorePort {
+  String? encoded = const AgentConfigCodec().encode(
+    AgentConfig(
+      providerKind: AgentProviderKind.deepSeekResponses,
+      mainProfileId: 'profile-test',
+    ),
+  );
+
+  @override
+  Future<String?> readAgentConfig() async => encoded;
+
+  @override
+  Future<void> writeAgentConfig(String encodedConfig) async {
+    encoded = encodedConfig;
+  }
+}
+
+final class _AgentProfiles implements AgentProfileCatalogPort {
+  @override
+  Future<List<AgentProfileSummary>> listMainProfiles() async =>
+      <AgentProfileSummary>[
+        AgentProfileSummary(
+          profileId: 'profile-test',
+          displayName: 'Test model',
+          modelName: 'deepseek-v4-flash',
+        ),
+      ];
+}
+
+AgentSettingsService _agentSettingsService() => AgentSettingsService(
+      configStore: _AgentConfigStore(),
+      profileCatalog: _AgentProfiles(),
+    );
+
+AgentTurnSession _failedAgentTurn({
+  required String conversationId,
+  required String userMessageId,
+}) {
+  return AgentTurnSession(
+    events: const Stream<AgentTurnEvent>.empty(),
+    result: Future<AgentTurnResult>.value(
+      const AgentTurnFailed(AgentTurnFailure.temporarilyUnavailable),
+    ),
+    cancel: () {},
+  );
+}
+
+final class _UiTurnHarness {
+  final StreamController<AgentTurnEvent> events =
+      StreamController<AgentTurnEvent>.broadcast();
+  final Completer<AgentTurnResult> result = Completer<AgentTurnResult>();
+  bool cancelled = false;
+
+  late final AgentTurnSession session = AgentTurnSession(
+    events: events.stream,
+    result: result.future,
+    cancel: _cancel,
+  );
+
+  AgentTurnSession start({
+    required String conversationId,
+    required String userMessageId,
+  }) =>
+      session;
+
+  void complete(AgentTurnResult terminal) {
+    if (result.isCompleted) return;
+    result.complete(terminal);
+    if (!events.isClosed) unawaited(events.close());
+  }
+
+  void _cancel() {
+    cancelled = true;
+    complete(const AgentTurnFailed(AgentTurnFailure.cancelled));
+  }
+}
+
+Future<void> _dragAssistantContentUntilBuilt(
+  WidgetTester tester,
+  Finder target,
+) async {
+  final content = find.byKey(
+    const ValueKey<String>('u1-ux0-assistant-content'),
+  );
+  expect(content, findsOneWidget);
+  for (var attempt = 0; attempt < 8 && target.evaluate().isEmpty; attempt++) {
+    await tester.drag(content, const Offset(0, -320));
+    await tester.pump();
+  }
+}
 
 final class _EmptyConversations extends Fake
     implements ConversationRepositoryPort {
@@ -388,6 +488,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: _facade(),
           conversationService: _conversationService(repo: conversations),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -433,6 +535,8 @@ void main() {
     final repo = _MemoryConversations()..failListReads = true;
     final controller = ConversationController(
       _conversationService(repo: repo),
+      agentSettingsService: _agentSettingsService(),
+      startAgentTurn: _failedAgentTurn,
     );
 
     final saved = await controller.send('first message');
@@ -441,6 +545,149 @@ void main() {
     expect(controller.activeThread!.messages, hasLength(1));
     expect(controller.errorMessage, conversationReadSafeError);
     expect(controller.errorMessage, isNot(conversationWriteSafeError));
+  });
+
+  testWidgets('Assistant projects thinking, Web, tool, stream, and completion',
+      (tester) async {
+    final conversations = _MemoryConversations();
+    final turn = _UiTurnHarness();
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    addTearDown(() async => turn.events.close());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(repo: conversations),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: turn.start,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      'stream this',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('u1-ux0-send')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Shiroha 正在思考…'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-cancel')),
+      findsOneWidget,
+    );
+
+    turn.events.add(
+      const AgentTurnWebSearchEvent(AgentProviderWebSearchPhase.searching),
+    );
+    await tester.pump();
+    expect(find.text('正在搜索网页…'), findsOneWidget);
+
+    turn.events.add(
+      const AgentTurnToolCall(callId: 'hidden', name: 'search_questions'),
+    );
+    await tester.pump();
+    expect(find.text('正在搜索题目…'), findsOneWidget);
+    expect(find.text('hidden'), findsNothing);
+
+    turn.events
+      ..add(const AgentTurnTextDelta('A'))
+      ..add(const AgentTurnTextDelta('B'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('a0-transient-assistant')),
+      findsOneWidget,
+    );
+    expect(find.text('AB'), findsOneWidget);
+
+    final assistant = ConversationMessage(
+      messageId: 'assistant-ui',
+      conversationId: 'conversation-test',
+      sequence: 2,
+      role: ConversationMessageRole.assistant,
+      content: 'AB',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+    );
+    turn.complete(AgentTurnSuccess(assistantMessage: assistant));
+    await tester.pumpAndSettle();
+    await _dragAssistantContentUntilBuilt(
+      tester,
+      find.byKey(const ValueKey<String>('c0-message-assistant-ui')),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('c0-message-assistant-ui')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('a0-transient-assistant')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('failed stream stays unsaved and retries the same User target',
+      (tester) async {
+    final conversations = _MemoryConversations();
+    final turns = <_UiTurnHarness>[_UiTurnHarness(), _UiTurnHarness()];
+    final targets = <String>[];
+    var startIndex = 0;
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(repo: conversations),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: ({
+            required conversationId,
+            required userMessageId,
+          }) {
+            targets.add(userMessageId);
+            return turns[startIndex++].session;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      'retry once',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('u1-ux0-send')));
+    await tester.pump();
+    turns.first.events.add(const AgentTurnTextDelta('partial'));
+    await tester.pump();
+    turns.first.complete(
+      const AgentTurnFailed(AgentTurnFailure.temporarilyUnavailable),
+    );
+    await tester.pump();
+    await tester.pump();
+    await _dragAssistantContentUntilBuilt(
+      tester,
+      find.byKey(const ValueKey<String>('a0-agent-retry')),
+    );
+
+    expect(find.text('未保存'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-retry')),
+      findsOneWidget,
+    );
+    expect(conversations.messages.where(_isUserMessage), hasLength(1));
+
+    await tester.tap(find.byKey(const ValueKey<String>('a0-agent-retry')));
+    await tester.pump();
+    expect(targets, <String>[targets.first, targets.first]);
+    expect(conversations.messages.where(_isUserMessage), hasLength(1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(turns.last.cancelled, isTrue);
+    expect(turns.last.result.isCompleted, isTrue);
+    expect(turns.last.events.isClosed, isTrue);
   });
 
   testWidgets('desktop shell renders real files, relations, and MCP capability',
@@ -453,6 +700,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: _facade(),
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -510,6 +759,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: facade,
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -610,6 +861,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: _facade(),
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -642,6 +895,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: _facade(),
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -675,6 +930,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: facade,
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -720,6 +977,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: facade,
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );
@@ -781,6 +1040,8 @@ void main() {
         home: AssistantWorkspaceShell(
           facade: facade,
           conversationService: _conversationService(),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
         ),
       ),
     );

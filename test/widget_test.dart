@@ -5,9 +5,13 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
+import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
@@ -85,6 +89,31 @@ final class _EmptyConversations extends Fake
       const <Conversation>[];
 }
 
+final class _EmptyAgentConfigStore implements AgentConfigStorePort {
+  @override
+  Future<String?> readAgentConfig() async => null;
+
+  @override
+  Future<void> writeAgentConfig(String encodedConfig) async {}
+}
+
+final class _EmptyAgentProfiles implements AgentProfileCatalogPort {
+  @override
+  Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
+}
+
+AgentTurnSession _unusedAgentTurn({
+  required String conversationId,
+  required String userMessageId,
+}) =>
+    AgentTurnSession(
+      events: const Stream<AgentTurnEvent>.empty(),
+      result: Future<AgentTurnResult>.value(
+        const AgentTurnFailed(AgentTurnFailure.internalError),
+      ),
+      cancel: () {},
+    );
+
 ConversationService _emptyConversationService() => ConversationService(
       repository: _EmptyConversations(),
       conversationIdFactory: () => 'conversation-empty',
@@ -150,6 +179,11 @@ void main() {
       importTaskCoordinator: importTaskCoordinator,
       u1WorkspaceFacade: _emptyWorkspaceFacade(),
       conversationService: _emptyConversationService(),
+      agentSettingsService: AgentSettingsService(
+        configStore: _EmptyAgentConfigStore(),
+        profileCatalog: _EmptyAgentProfiles(),
+      ),
+      startAgentTurn: _unusedAgentTurn,
     ));
 
     // Verify that MainScreen is shown initially.
