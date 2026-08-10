@@ -187,6 +187,183 @@ void main() {
       },
     );
 
+    test(
+      'cumulates two tool rounds into the third continuation request',
+      () async {
+        final roundOneClient = _FixtureClient(functionAndWebSse);
+        final roundTwoClient = _FixtureClient(functionCallOnlySse);
+        final roundThreeClient = _FixtureClient(textDeltaAndCompletedSse);
+        var clientIndex = 0;
+        final provider = _provider(
+          clientFactory: () => <http.Client>[
+            roundOneClient,
+            roundTwoClient,
+            roundThreeClient,
+          ][clientIndex++],
+        );
+        final tool = AgentFunctionToolDefinition(
+          name: 'search_questions',
+          description: 'Search the local question bank.',
+          inputSchema: <String, Object?>{'type': 'object'},
+        );
+
+        final roundOneEvents = await provider
+            .stream(
+              _request(
+                tools: <AgentFunctionToolDefinition>[tool],
+                enableNativeWebSearch: true,
+              ),
+              AgentCancellationController().token,
+            )
+            .toList();
+        final stateOne = roundOneEvents
+            .whereType<AgentProviderCompleted>()
+            .single
+            .continuationState;
+        expect(stateOne, isNotNull);
+        expect(stateOne.toString(), isNot(contains('PRIVATE_')));
+
+        final roundTwoEvents = await provider
+            .stream(
+              _request(
+                continuationState: stateOne,
+                tools: <AgentFunctionToolDefinition>[tool],
+                enableNativeWebSearch: true,
+                toolOutputs: <AgentFunctionToolOutput>[
+                  AgentFunctionToolOutput(
+                    callId: 'call-1',
+                    output: '{"count":2}',
+                  ),
+                ],
+              ),
+              AgentCancellationController().token,
+            )
+            .toList();
+        final stateTwo = roundTwoEvents
+            .whereType<AgentProviderCompleted>()
+            .single
+            .continuationState;
+        expect(stateTwo, isNotNull);
+        expect(stateTwo.toString(), isNot(contains('PRIVATE_')));
+
+        final roundTwoBody =
+            jsonDecode(roundTwoClient.requestBody!) as Map<String, dynamic>;
+        final roundTwoInput = roundTwoBody['input']! as List<dynamic>;
+        expect(roundTwoInput.map((item) => (item as Map)['type']), <Object?>[
+          null,
+          'reasoning',
+          'function_call',
+          'web_search_call',
+          'function_call_output',
+        ]);
+        expect(
+          roundTwoInput
+              .whereType<Map>()
+              .where((item) => item['type'] == 'function_call')
+              .map((item) => item['call_id']),
+          <Object?>['call-1'],
+        );
+        expect(roundTwoInput.last, <String, Object?>{
+          'type': 'function_call_output',
+          'call_id': 'call-1',
+          'output': '{"count":2}',
+        });
+        expect(
+          roundTwoBody,
+          isNot(containsPair('previous_response_id', anything)),
+        );
+        expect(roundTwoBody, isNot(containsPair('messages', anything)));
+
+        final roundThreeEvents = await provider
+            .stream(
+              _request(
+                continuationState: stateTwo,
+                tools: <AgentFunctionToolDefinition>[tool],
+                enableNativeWebSearch: true,
+                toolOutputs: <AgentFunctionToolOutput>[
+                  AgentFunctionToolOutput(
+                    callId: 'call-2',
+                    output: '{"count":1}',
+                  ),
+                ],
+              ),
+              AgentCancellationController().token,
+            )
+            .toList();
+        final roundThreeBody =
+            jsonDecode(roundThreeClient.requestBody!) as Map<String, dynamic>;
+        final roundThreeInput = roundThreeBody['input']! as List<dynamic>;
+        expect(roundThreeInput.map((item) => (item as Map)['type']), <Object?>[
+          null,
+          'reasoning',
+          'function_call',
+          'web_search_call',
+          'function_call_output',
+          'reasoning',
+          'function_call',
+          'function_call_output',
+        ]);
+        expect(
+          roundThreeInput
+              .whereType<Map>()
+              .where((item) => item['type'] == 'function_call')
+              .map((item) => item['call_id']),
+          <Object?>['call-1', 'call-2'],
+        );
+        expect(
+          roundThreeInput
+              .whereType<Map>()
+              .where((item) => item['type'] == 'function_call_output')
+              .map(
+                (item) => <String, Object?>{
+                  'call_id': item['call_id'] as String,
+                  'output': item['output'] as String,
+                },
+              ),
+          <Object?>[
+            <String, Object?>{
+              'call_id': 'call-1',
+              'output': '{"count":2}',
+            },
+            <String, Object?>{
+              'call_id': 'call-2',
+              'output': '{"count":1}',
+            },
+          ],
+        );
+        expect(
+          roundThreeInput.toString(),
+          allOf(
+            contains('PRIVATE_REASONING_MARKER'),
+            contains('SECOND_ROUND_PRIVATE_REASONING'),
+          ),
+        );
+        expect(
+          roundThreeBody,
+          isNot(containsPair('previous_response_id', anything)),
+        );
+        expect(roundThreeBody, isNot(containsPair('messages', anything)));
+        expect(
+          roundThreeEvents.map((event) => event.toString()).join(),
+          isNot(
+            anyOf(
+              contains('PRIVATE_REASONING_MARKER'),
+              contains('SECOND_ROUND_PRIVATE_REASONING'),
+              contains('PRIVATE_THINKING_MARKER'),
+            ),
+          ),
+        );
+        expect(
+          roundThreeEvents
+              .whereType<AgentProviderCompleted>()
+              .single
+              .continuationState
+              .toString(),
+          isNot(contains('PRIVATE_')),
+        );
+      },
+    );
+
     test('normalizes both supported endpoint base shapes', () {
       expect(
         DeepSeekResponsesProvider.buildEndpoint(

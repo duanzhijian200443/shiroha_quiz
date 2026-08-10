@@ -55,6 +55,30 @@ data: {"type":"response.completed","response":{"id":"resp-tool-1"}}
 
 ''';
 
+const functionCallOnlySse = r'''
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"reasoning-tool-2","type":"reasoning","content":[{"type":"reasoning_text","text":"SECOND_ROUND_PRIVATE_REASONING"}]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"item-call-2","type":"function_call","call_id":"call-2","name":"search_questions","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"item-call-2","output_index":1,"delta":"{\"query\":"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"item-call-2","output_index":1,"delta":"\"fixture\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"item-call-2","output_index":1,"arguments":"{\"query\":\"fixture\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"item-call-2","type":"function_call","call_id":"call-2","name":"search_questions","arguments":"{\"query\":\"fixture\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp-tool-2"}}
+
+''';
+
 const incompleteSse = r'''
 event: response.output_text.delta
 data: {"type":"response.output_text.delta","delta":"partial answer"}
