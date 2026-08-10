@@ -82,7 +82,8 @@ final _rules = <LayerBoundaryRule>[
   LayerBoundaryRule(
     name: 'sqflite-ffi-bootstrap-boundary',
     pattern: RegExp(
-        r'''import\s+['"]package:sqflite_common_ffi/sqflite_ffi\.dart['"]'''),
+      r'''import\s+['"]package:sqflite_common_ffi/sqflite_ffi\.dart['"]''',
+    ),
     reason: 'sqflite FFI setup belongs in app/test bootstrap code and the '
         'standalone database runtime bridge only.',
     allowedPaths: [_isMain, _isStandaloneDatabaseRuntime],
@@ -110,8 +111,9 @@ final _rules = <LayerBoundaryRule>[
   ),
 ];
 
-final _domainDirectivePattern =
-    RegExp(r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''');
+final _domainDirectivePattern = RegExp(
+  r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''',
+);
 
 final _applicationImportDirectivePattern = RegExp(
   r'^\s*import\b[\s\S]*?;',
@@ -122,10 +124,7 @@ final _dartSingleLineStringPattern = RegExp(
   r'''(?:r)?'(?:\\.|[^'\\])*'|(?:r)?"(?:\\.|[^"\\])*"''',
 );
 
-const _forbiddenDomainUris = <String>{
-  'dart:io',
-  'dart:ui',
-};
+const _forbiddenDomainUris = <String>{'dart:io', 'dart:ui'};
 
 const _forbiddenDomainPackagePrefixes = <String>[
   'package:flutter/',
@@ -143,8 +142,9 @@ const _allowedApplicationSdkUris = <String>{
   'dart:typed_data',
 };
 
-final _forbiddenProjectLayerPattern =
-    RegExp(r'(?:^|/)(?:core|data|services|ui)(?:/|$)');
+final _forbiddenProjectLayerPattern = RegExp(
+  r'(?:^|/)(?:core|data|services|ui)(?:/|$)',
+);
 
 const _r1bDomainValueObjectPaths = <String>[
   'lib/domain/source/source_ref.dart',
@@ -299,42 +299,45 @@ void main() {
       expect(source, isNot(contains('onRepairTypedAnswer')));
     });
 
-    test('domain stays independent from platform and infrastructure layers',
-        () {
-      final violations = <LayerBoundaryViolation>[];
+    test(
+      'domain stays independent from platform and infrastructure layers',
+      () {
+        final violations = <LayerBoundaryViolation>[];
 
-      for (final file in _dartFilesUnder('lib/domain')) {
-        final normalizedPath = _normalizePath(file.path);
-        final lines = file.readAsLinesSync();
+        for (final file in _dartFilesUnder('lib/domain')) {
+          final normalizedPath = _normalizePath(file.path);
+          final lines = file.readAsLinesSync();
 
-        for (var index = 0; index < lines.length; index++) {
-          final source = lines[index];
-          final match = _domainDirectivePattern.firstMatch(source);
-          if (match == null) continue;
+          for (var index = 0; index < lines.length; index++) {
+            final source = lines[index];
+            final match = _domainDirectivePattern.firstMatch(source);
+            if (match == null) continue;
 
-          final uri = match.group(1)!;
-          if (!_isForbiddenDomainUri(uri)) continue;
+            final uri = match.group(1)!;
+            if (!_isForbiddenDomainUri(uri)) continue;
 
-          violations.add(
-            LayerBoundaryViolation(
-              ruleName: 'domain-dependency-boundary',
-              path: normalizedPath,
-              line: index + 1,
-              source: source.trim(),
-              reason:
-                  'Domain code must not depend on platform, infrastructure, '
-                  'provider, persistence, service, or UI libraries.',
-            ),
-          );
+            violations.add(
+              LayerBoundaryViolation(
+                ruleName: 'domain-dependency-boundary',
+                path: normalizedPath,
+                line: index + 1,
+                source: source.trim(),
+                reason:
+                    'Domain code must not depend on platform, infrastructure, '
+                    'provider, persistence, service, or UI libraries.',
+              ),
+            );
+          }
         }
-      }
 
-      expect(
-        violations,
-        isEmpty,
-        reason: 'Domain boundary violations found:\n${violations.join('\n\n')}',
-      );
-    });
+        expect(
+          violations,
+          isEmpty,
+          reason:
+              'Domain boundary violations found:\n${violations.join('\n\n')}',
+        );
+      },
+    );
 
     test('application stays pure and depends only on domain or application',
         () {
@@ -344,8 +347,9 @@ void main() {
         final normalizedPath = _normalizePath(file.path);
         final source = file.readAsStringSync();
 
-        for (final directive
-            in _applicationImportDirectivePattern.allMatches(source)) {
+        for (final directive in _applicationImportDirectivePattern.allMatches(
+          source,
+        )) {
           final directiveSource = directive.group(0)!;
           final line =
               '\n'.allMatches(source.substring(0, directive.start)).length + 1;
@@ -451,14 +455,11 @@ import '../../domain/content/content_node.dart'
     if (dart.library.html) '../../ui/screens/import_screen.dart';
 """;
 
-        expect(
-          _applicationImportUris(source),
-          [
-            '../../domain/content/content_node.dart',
-            '../../services/import_service.dart',
-            '../../ui/screens/import_screen.dart',
-          ],
-        );
+        expect(_applicationImportUris(source), [
+          '../../domain/content/content_node.dart',
+          '../../services/import_service.dart',
+          '../../ui/screens/import_screen.dart',
+        ]);
       });
 
       test('C allows an unprefixed sibling relative import', () {
@@ -583,8 +584,9 @@ import '../../domain/content/content_node.dart'
           final source = lines[index];
           final declarationSource = _withoutDartStringsAndLineComment(source);
           for (final name in _forbiddenR2aApiNames) {
-            if (!RegExp('\\b${RegExp.escape(name)}\\b')
-                .hasMatch(declarationSource)) {
+            if (!RegExp(
+              '\\b${RegExp.escape(name)}\\b',
+            ).hasMatch(declarationSource)) {
               continue;
             }
             violations.add(
@@ -648,8 +650,9 @@ import '../../domain/content/content_node.dart'
       // J0-I5/J0-I8: the data repository may read `library_files` for
       // relation integrity, but must never reference typed persistence or
       // review tables by identifier.
-      final dataRepository =
-          File('lib/data/repositories/project_repository.dart');
+      final dataRepository = File(
+        'lib/data/repositories/project_repository.dart',
+      );
       expect(
         dataRepository.existsSync(),
         isTrue,
@@ -694,8 +697,9 @@ import '../../domain/content/content_node.dart'
         }
       }
 
-      final repository =
-          File('lib/data/repositories/library_folder_repository.dart');
+      final repository = File(
+        'lib/data/repositories/library_folder_repository.dart',
+      );
       expect(repository.existsSync(), isTrue);
       final source = repository.readAsStringSync();
       for (final forbiddenTable in const <String>[
@@ -751,62 +755,66 @@ import '../../domain/content/content_node.dart'
       }
     });
 
-    test('A0-1 application contracts stay provider and infrastructure neutral',
-        () {
-      final agentDirectory = Directory('lib/application/agent');
-      expect(agentDirectory.existsSync(), isTrue);
-      final files = agentDirectory
-          .listSync()
-          .whereType<File>()
-          .where((file) => file.path.endsWith('.dart'))
-          .toList(growable: false);
-      expect(files, isNotEmpty);
+    test(
+      'A0-1 application contracts stay provider and infrastructure neutral',
+      () {
+        final agentDirectory = Directory('lib/application/agent');
+        expect(agentDirectory.existsSync(), isTrue);
+        final files = agentDirectory
+            .listSync()
+            .whereType<File>()
+            .where((file) => file.path.endsWith('.dart'))
+            .toList(growable: false);
+        expect(files, isNotEmpty);
 
-      for (final file in files) {
-        final source = file.readAsStringSync();
-        for (final forbidden in const <String>[
-          'package:flutter',
-          'package:http',
-          'package:sqflite',
-          'DatabaseHelper',
-          '/data/',
-          r'\data\',
-          '/mcp/',
-          r'\mcp\',
-          'U1WorkspaceFacade',
-          'ManagedFileStorage',
-          'ImportPipeline',
-          'Ocr',
-          'Vision',
-        ]) {
-          expect(
-            source,
-            isNot(contains(forbidden)),
-            reason: '${file.path} must not depend on $forbidden.',
-          );
+        for (final file in files) {
+          final source = file.readAsStringSync();
+          for (final forbidden in const <String>[
+            'package:flutter',
+            'package:http',
+            'package:sqflite',
+            'DatabaseHelper',
+            '/data/',
+            r'\data\',
+            '/mcp/',
+            r'\mcp\',
+            'U1WorkspaceFacade',
+            'ManagedFileStorage',
+            'ImportPipeline',
+            'Ocr',
+            'Vision',
+          ]) {
+            expect(
+              source,
+              isNot(contains(forbidden)),
+              reason: '${file.path} must not depend on $forbidden.',
+            );
+          }
         }
-      }
 
-      final configSource =
-          File('lib/application/agent/agent_config.dart').readAsStringSync();
-      for (final secretField in const <String>[
-        'apiKey',
-        'api_key',
-        'Authorization',
-      ]) {
-        expect(configSource, isNot(contains(secretField)));
-      }
+        final configSource = File(
+          'lib/application/agent/agent_config.dart',
+        ).readAsStringSync();
+        for (final secretField in const <String>[
+          'apiKey',
+          'api_key',
+          'Authorization',
+        ]) {
+          expect(configSource, isNot(contains(secretField)));
+        }
 
-      final profileAdapter = File(
-        'lib/data/repositories/agent_profile_repository.dart',
-      ).readAsStringSync();
-      expect(profileAdapter, isNot(contains('setActiveEngine(')));
-      expect(profileAdapter, isNot(contains('setActiveAiEngine(')));
-    });
+        final profileAdapter = File(
+          'lib/data/repositories/agent_profile_repository.dart',
+        ).readAsStringSync();
+        expect(profileAdapter, isNot(contains('setActiveEngine(')));
+        expect(profileAdapter, isNot(contains('setActiveAiEngine(')));
+      },
+    );
 
     test('C0 repository stays inside frozen Project and File boundaries', () {
-      final repository =
-          File('lib/data/repositories/conversation_repository.dart');
+      final repository = File(
+        'lib/data/repositories/conversation_repository.dart',
+      );
       expect(repository.existsSync(), isTrue);
       final source = repository.readAsStringSync();
       for (final forbiddenTable in const <String>[
@@ -826,6 +834,91 @@ import '../../domain/content/content_node.dart'
           isNot(contains("'$forbiddenTable'")),
           reason:
               'Conversation repository must not read or write $forbiddenTable.',
+        );
+      }
+    });
+
+    test('A0-4 runtime stays on frozen application seams', () {
+      const runtimeFiles = <String>[
+        'lib/application/agent/agent_runtime.dart',
+        'lib/application/agent/agent_turn.dart',
+        'lib/application/agent/agent_history.dart',
+        'lib/application/agent/shiroha_system_prompt.dart',
+      ];
+      const forbidden = <String>[
+        'DatabaseHelper',
+        'package:sqflite',
+        '/data/',
+        r'\data\',
+        'ConversationRepositoryPort',
+        'SqliteConversationRepository',
+        '/mcp/',
+        r'\mcp\',
+        'StudyMcp',
+        'AiService',
+        'U1WorkspaceFacade',
+        'ManagedFileStorage',
+        'package:http',
+        'package:flutter',
+        'DeepSeekResponsesProvider',
+      ];
+      for (final path in runtimeFiles) {
+        final file = File(path);
+        expect(file.existsSync(), isTrue, reason: 'Missing A0-4 file: $path');
+        final source = file.readAsStringSync();
+        for (final token in forbidden) {
+          expect(
+            source,
+            isNot(contains(token)),
+            reason: '$path must not depend on $token.',
+          );
+        }
+      }
+
+      final provider = File(
+        'lib/services/agent/deepseek_responses_provider.dart',
+      ).readAsStringSync();
+      for (final token in const <String>[
+        'ConversationService',
+        'ConversationRepository',
+        'appendMessage',
+        'appendAssistantMessage',
+        'sqflite',
+      ]) {
+        expect(
+          provider,
+          isNot(contains(token)),
+          reason: 'DeepSeek provider must not persist conversations.',
+        );
+      }
+
+      final service = File(
+        'lib/application/conversations/conversation_service.dart',
+      ).readAsStringSync();
+      for (final token in const <String>[
+        'AgentProvider',
+        'agent_provider',
+        'DeepSeek',
+      ]) {
+        expect(
+          service,
+          isNot(contains(token)),
+          reason: 'ConversationService must not depend on providers.',
+        );
+      }
+
+      final controller = File(
+        'lib/ui/assistant/conversation_controller.dart',
+      ).readAsStringSync();
+      for (final token in const <String>[
+        'AgentProvider',
+        'DeepSeekResponsesProvider',
+        'ShirohaAgentRuntime',
+      ]) {
+        expect(
+          controller,
+          isNot(contains(token)),
+          reason: 'A0-4 UI must not wire providers directly.',
         );
       }
     });

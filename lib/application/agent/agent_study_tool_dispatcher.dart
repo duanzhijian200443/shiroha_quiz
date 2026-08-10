@@ -13,7 +13,7 @@ final RegExp _rfc3339OffsetInstant = RegExp(
   r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$',
 );
 
-final class AgentStudyToolDispatcher {
+class AgentStudyToolDispatcher {
   AgentStudyToolDispatcher({
     required StudyQueryService service,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
