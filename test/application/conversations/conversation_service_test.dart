@@ -9,6 +9,11 @@ final class _Repository extends Fake implements ConversationRepositoryPort {
   ConversationMessage? createdMessage;
   List<String>? createdFileIds;
   String? appendedContent;
+  ConversationMessageRole? appendedRole;
+  String? appendedMessageId;
+  DateTime? appendedCreatedAt;
+  int nextAppendedSequence = 2;
+  ConversationFailure? appendFailure;
   int? receivedLimit;
   int? receivedBeforeSequence;
 
@@ -40,10 +45,17 @@ final class _Repository extends Fake implements ConversationRepositoryPort {
     required DateTime createdAt,
   }) async {
     appendedContent = content;
+    appendedRole = role;
+    appendedMessageId = messageId;
+    appendedCreatedAt = createdAt;
+    final failure = appendFailure;
+    if (failure != null) {
+      throw ConversationException(failure);
+    }
     final message = ConversationMessage(
       messageId: messageId,
       conversationId: conversationId,
-      sequence: 2,
+      sequence: nextAppendedSequence++,
       role: role,
       content: content,
       createdAt: createdAt,
@@ -101,19 +113,21 @@ void main() {
     );
   });
 
-  test('start normalizes title/content and deduplicates transient files',
-      () async {
-    final result = await service.startWithUserMessage(
-      scope: ConversationScope.learningSpace('project-a'),
-      content: '  first\r\n question  ',
-      fileIds: const <String>['file-a', 'file-a', 'file-b'],
-    );
+  test(
+    'start normalizes title/content and deduplicates transient files',
+    () async {
+      final result = await service.startWithUserMessage(
+        scope: ConversationScope.learningSpace('project-a'),
+        content: '  first\r\n question  ',
+        fileIds: const <String>['file-a', 'file-a', 'file-b'],
+      );
 
-    expect(result.conversation.title, 'first question');
-    expect(result.messages.single.content, 'first\n question');
-    expect(result.messages.single.role, ConversationMessageRole.user);
-    expect(repository.createdFileIds, <String>['file-a', 'file-b']);
-  });
+      expect(result.conversation.title, 'first question');
+      expect(result.messages.single.content, 'first\n question');
+      expect(result.messages.single.role, ConversationMessageRole.user);
+      expect(repository.createdFileIds, <String>['file-a', 'file-b']);
+    },
+  );
 
   test('C0 append is User-only and uses normalized content', () async {
     final result = await service.appendUserMessage(
@@ -122,15 +136,60 @@ void main() {
     );
 
     expect(repository.appendedContent, 'next\nline');
+    expect(repository.appendedRole, ConversationMessageRole.user);
     expect(result.message.role, ConversationMessageRole.user);
   });
 
-  test('unavailable scope and invalid limits fail before persistence',
-      () async {
-    await expectLater(
-      service.startWithUserMessage(
-        scope: ConversationScope.unavailableLearningSpace(),
+  test('appendAssistantMessage is Assistant-only and normalized', () async {
+    final result = await service.appendAssistantMessage(
+      conversationId: 'conversation-a',
+      content: '  hello\r\nworld  ',
+    );
+
+    expect(repository.appendedRole, ConversationMessageRole.assistant);
+    expect(repository.appendedContent, 'hello\nworld');
+    expect(repository.appendedCreatedAt, DateTime.utc(2026, 8, 10, 12));
+    expect(result.message.role, ConversationMessageRole.assistant);
+    expect(repository.appendedMessageId, startsWith('message-'));
+  });
+
+  test(
+    'appendAssistantMessage keeps sequence in the shared append seam',
+    () async {
+      await service.appendUserMessage(
+        conversationId: 'conversation-a',
         content: 'question',
+      );
+      final assistant = await service.appendAssistantMessage(
+        conversationId: 'conversation-a',
+        content: 'answer',
+      );
+
+      expect(assistant.message.sequence, 3);
+    },
+  );
+
+  test('appendAssistantMessage propagates typed storage failures', () async {
+    repository.appendFailure = ConversationFailure.conversationNotFound;
+    await expectLater(
+      service.appendAssistantMessage(
+        conversationId: 'conversation-a',
+        content: 'answer',
+      ),
+      throwsA(
+        isA<ConversationException>().having(
+          (error) => error.failure,
+          'failure',
+          ConversationFailure.conversationNotFound,
+        ),
+      ),
+    );
+
+    repository.appendFailure = ConversationFailure.scopeUnavailable;
+    await expectLater(
+      service.appendAssistantMessage(
+        conversationId: 'conversation-a',
+        content: 'answer',
       ),
       throwsA(
         isA<ConversationException>().having(
@@ -140,12 +199,31 @@ void main() {
         ),
       ),
     );
-    expect(
-      () => service.listRecentConversations(limit: 101),
-      throwsA(isA<ConversationException>()),
-    );
-    expect(repository.createdConversation, isNull);
   });
+
+  test(
+    'unavailable scope and invalid limits fail before persistence',
+    () async {
+      await expectLater(
+        service.startWithUserMessage(
+          scope: ConversationScope.unavailableLearningSpace(),
+          content: 'question',
+        ),
+        throwsA(
+          isA<ConversationException>().having(
+            (error) => error.failure,
+            'failure',
+            ConversationFailure.scopeUnavailable,
+          ),
+        ),
+      );
+      expect(
+        () => service.listRecentConversations(limit: 101),
+        throwsA(isA<ConversationException>()),
+      );
+      expect(repository.createdConversation, isNull);
+    },
+  );
 
   test('load forwards bounded before-sequence slicing', () async {
     await service.loadConversation(

@@ -92,6 +92,30 @@ final class ConversationService {
     );
   }
 
+  /// Appends one Assistant message through the same C0 append seam.
+  ///
+  /// The Agent runtime never writes Assistant rows itself: the repository
+  /// keeps sequence, transaction, and recency ownership, while this service
+  /// keeps message identity, canonical content normalization, and clock
+  /// ownership. The API is intentionally Assistant-only; Presentation cannot
+  /// write arbitrary roles through it.
+  Future<AppendMessageResult> appendAssistantMessage({
+    required String conversationId,
+    required String content,
+  }) {
+    _validateInputId(conversationId, label: 'Conversation');
+    final normalizedContent = _normalizeContent(content);
+    return _repositoryCall(
+      () => _repository.appendMessage(
+        conversationId: conversationId,
+        messageId: _newId(_messageIdFactory, label: 'Message'),
+        role: ConversationMessageRole.assistant,
+        content: normalizedContent,
+        createdAt: normalizeConversationTimestamp(_clock()),
+      ),
+    );
+  }
+
   Future<AppendFileResult> attachFile({
     required String conversationId,
     required String fileId,
@@ -172,7 +196,8 @@ final class ConversationService {
   Future<void> deleteConversation(String conversationId) {
     _validateInputId(conversationId, label: 'Conversation');
     return _repositoryCall(
-        () => _repository.deleteConversation(conversationId));
+      () => _repository.deleteConversation(conversationId),
+    );
   }
 
   String _newId(String Function() factory, {required String label}) {
