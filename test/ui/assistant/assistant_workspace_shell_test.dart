@@ -18,11 +18,17 @@ import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_proposal.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
@@ -484,7 +490,9 @@ Future<void> _waitForControllerState(
   if (condition()) return;
   final ready = Completer<void>();
   void listener() {
-    if (condition() && !ready.isCompleted) ready.complete();
+    if (condition() && !ready.isCompleted) {
+      ready.complete();
+    }
   }
 
   controller.addListener(listener);
@@ -1229,4 +1237,226 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  group('W0 proposal approval presentation', () {
+    testWidgets(
+      'renders the exact preview card and approves through the proposal '
+      'identity',
+      (tester) async {
+        final facade = _facade();
+        final turn = _UiTurnHarness();
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = ConversationController(
+          _conversationService(repo: _MemoryConversations()),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: turn.start,
+          proposalService: service,
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.send('question');
+        final proposal = await _primeProposal(persistence, service);
+        final staged = _waitForControllerState(
+          controller,
+          () => controller.hasProposalCard,
+        );
+        turn.events.add(
+          AgentTurnProposalStaged(
+            proposalId: proposal.id,
+            outcome: 'pending',
+            preview: _proposalPreviewMap(),
+          ),
+        );
+        await staged;
+
+        await tester.binding.setSurfaceSize(const Size(1300, 800));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AssistantScreen(
+              spacesController: LearningSpacesController(facade),
+              fileController: FileLibraryController(facade),
+              conversationController: controller,
+              showGlobalMenu: false,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const ValueKey<String>('w0-proposal-card')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('w0_u1_synthetic_bank'), findsOneWidget);
+        expect(find.textContaining('Stem.'), findsOneWidget);
+        expect(find.textContaining('A. first'), findsOneWidget);
+        expect(
+          find.text('\u5f53\u524d\u7b54\u6848\uff1a\u672a\u586b\u5199'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('\u62df\u5199\u5165\u7b54\u6848\uff1aanswer'),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey<String>('w0-proposal-approve')),
+              )
+              .onPressed,
+          isNull,
+        );
+
+        final assistant = ConversationMessage(
+          messageId: 'assistant-ui',
+          conversationId: 'conversation-test',
+          sequence: 2,
+          role: ConversationMessageRole.assistant,
+          content: 'done',
+          createdAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+        );
+        await tester.runAsync<void>(() async {
+          final terminal = _waitForControllerState(
+            controller,
+            () => !controller.hasActiveTurn,
+          );
+          turn.complete(AgentTurnSuccess(assistantMessage: assistant));
+          await terminal;
+        });
+        await tester.pump();
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey<String>('w0-proposal-approve')),
+              )
+              .onPressed,
+          isNotNull,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('w0-proposal-approve')),
+        );
+        await tester.pump();
+        await _waitForControllerState(
+          controller,
+          () =>
+              controller.proposalOutcome == AgentWriteProposalOutcome.committed,
+        );
+        await tester.pump();
+
+        expect(
+          find.textContaining('\u5df2\u5199\u5165\u7b54\u6848'),
+          findsOneWidget,
+        );
+        expect(persistence.commitCalls, hasLength(1));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('failed admission leaves no preview card', (tester) async {
+      final prepared = (await tester.runAsync(_prepareSuccessPresentation))!;
+      addTearDown(prepared.dispose);
+      await tester.binding.setSurfaceSize(const Size(1300, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AssistantScreen(
+            spacesController: prepared.spacesController,
+            fileController: prepared.fileController,
+            conversationController: prepared.conversationController,
+            showGlobalMenu: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('w0-proposal-card')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+}
+
+final class _FakeProposalPersistence implements AgentWritePersistencePort {
+  _FakeProposalPersistence({AgentWriteAdmissionResult? admissionResult})
+      : admissionResult = admissionResult ??
+            AgentWriteAdmissionGranted(
+              AgentWriteAdmittedTarget(
+                storageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+                bankName: 'w0_u1_synthetic_bank',
+                draft: _w0Draft(),
+              ),
+            );
+
+  AgentWriteAdmissionResult admissionResult;
+  final commitCalls = <AgentWriteCommitRequest>[];
+
+  @override
+  Future<AgentWriteAdmissionResult> admitStagingTarget(
+    AgentWriteAdmissionRequest request,
+  ) async {
+    return admissionResult;
+  }
+
+  @override
+  Future<void> commitApproved(AgentWriteCommitRequest request) async {
+    commitCalls.add(request);
+  }
+}
+
+RichContent _w0Text(String text) {
+  return RichContent(nodes: <ContentNode>[TextNode(text)]);
+}
+
+QuestionDraftV2 _w0Draft() {
+  return QuestionDraftV2(
+    questionId: 'w0_u1_content_q',
+    kind: QuestionKind.shortAnswer,
+    questionNumber: 1,
+    stem: _w0Text('Stem.'),
+    explanation: _w0Text('Explanation.'),
+  );
+}
+
+/// Structured preview mirroring the Application-owned tool contract.
+Map<String, Object?> _proposalPreviewMap() {
+  return <String, Object?>{
+    'bank_name': 'w0_u1_synthetic_bank',
+    'stem': <Map<String, Object?>>[
+      <String, Object?>{'type': 'text', 'text': 'Stem.'},
+    ],
+    'options': <Map<String, Object?>>[
+      <String, Object?>{
+        'label': 'A',
+        'content': <Map<String, Object?>>[
+          <String, Object?>{'type': 'text', 'text': 'first'},
+        ],
+      },
+    ],
+    'proposed_answer': <String, Object?>{
+      'kind': 'content',
+      'nodes': <Map<String, Object?>>[
+        <String, Object?>{'type': 'text', 'text': 'answer'},
+      ],
+    },
+  };
+}
+
+Future<AgentWriteProposal> _primeProposal(
+  _FakeProposalPersistence persistence,
+  AgentWriteProposalService service,
+) async {
+  final staged = await service.stageProposal(
+    admissionRequest: AgentWriteAdmissionRequest(
+      sourceConversationId: 'conversation-test',
+      sourceMessageId: 'message-1',
+      scope: ConversationScope.global(),
+      targetStorageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+    ),
+    proposedAnswer: ContentAnswer(content: _w0Text('answer')),
+  );
+  return (staged as AgentWriteStageResultStaged).proposal;
 }
