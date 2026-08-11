@@ -40,6 +40,8 @@ Presentation and Navigation semantics; retained U0 domain/lifecycle semantics
 remain valid as described there.
 `docs/product/A0 Built-in Agent v0.md` is the current authority for the bounded
 A0 runtime/product contract.
+`docs/product/W0 Safe Agent Write.md` is the focused authority for the current
+W0 proposal, approval, scope, replay and typed-write contract.
 
 ## 1. Product/architecture direction
 
@@ -208,9 +210,11 @@ A0 does not include destructive writes or a generic Agent framework.
 
 ### W0 — Safe write
 
-W0 is the current stage. Its future implementation must preserve the permission
-and typed-persistence boundary below; this roadmap status does not itself
-implement or further design W0.
+W0 is the current stage. Its first capability is frozen as a Built-in Agent
+proposal to fill a missing answer on an existing typed question. The Agent may
+stage only `null -> structurally non-empty` answer proposals; existing manual
+typed-answer repair retains its replace and clear semantics through the shared
+typed persistence authority.
 
 Permission model:
 
@@ -222,6 +226,29 @@ DESTRUCTIVE extra approval or unavailable
 ```
 
 Agent/MCP never call SQLite directly. Formal question creation/answer mutation must converge on typed application commands and existing typed persistence semantics.
+
+Proposal staging must complete scope/target admission before loading or
+returning preview-visible target content. Learning Space staging uses the
+current Project and current name-based `project_banks` relation as compatibility
+authority. Unauthorized and nonexistent targets share a safe non-enumerating
+failure boundary.
+
+COMMIT requires an explicit Presentation approval bound to one exact transient
+proposal. One dedicated data-layer transaction must revalidate the source
+Conversation/User Message, scope, current Project relation, target bank, full
+typed-draft compare-and-set and formal typed write. Application must not compose
+independent repository checks and call them atomic. W0 adds no schema migration
+and does not expand MCP v0.
+
+Deterministic proposal fingerprints deduplicate semantic replay. Each source
+User turn has at most one active/pending write proposal; a different payload
+creates a new identity and supersedes the older active proposal.
+
+W0 remains CURRENT until the final W0-CL canonical closure checkpoint confirms
+focused verification, semantic review and no unresolved P0/P1/P2 findings.
+W0-CL may mark W0 COMPLETE but does not automatically activate F1, P6 or P7.
+
+See `docs/product/W0 Safe Agent Write.md`.
 
 ### P6/P7 — Answer candidate producers
 
@@ -268,5 +295,7 @@ Until separately authorized:
 - ADRs under `docs/architecture/adr-*` record accepted post-P5 decisions.
 - This file is the canonical stage ordering.
 - `mcp-v0-contract.md` remains the authority for MCP v0 semantics.
+- `docs/product/W0 Safe Agent Write.md` is the focused W0 write-boundary
+  authority while W0 is current.
 - R7/R8 focused documents remain the authority for frozen typed persistence/consumer invariants.
 - R0-era files marked historical describe the migration origin, not the current runtime state.
