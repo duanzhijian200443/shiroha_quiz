@@ -89,6 +89,24 @@ final class AgentTurnToolCall extends AgentTurnEvent {
   final String name;
 }
 
+/// A W0 proposal was staged (or a semantic replay returned the existing
+/// proposal with its current outcome). Carries typed proposal data only;
+/// the UI never parses model prose.
+final class AgentTurnProposalStaged extends AgentTurnEvent {
+  const AgentTurnProposalStaged({
+    required this.proposalId,
+    required this.outcome,
+    required this.preview,
+  });
+
+  final String proposalId;
+  final String outcome;
+
+  /// Structured preview from the Application-owned tool contract
+  /// (`bank_name`/stem/options/proposed_answer); never LLM-authored prose.
+  final Map<String, Object?> preview;
+}
+
 /// The turn completed and the final visible Assistant text was persisted.
 final class AgentTurnCompleted extends AgentTurnEvent {
   const AgentTurnCompleted(this.assistantMessage);
