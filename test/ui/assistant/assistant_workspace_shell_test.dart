@@ -35,9 +35,6 @@ import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
-bool _isUserMessage(ConversationMessage message) =>
-    message.role == ConversationMessageRole.user;
-
 final class _AgentConfigStore implements AgentConfigStorePort {
   String? encoded = const AgentConfigCodec().encode(
     AgentConfig(
