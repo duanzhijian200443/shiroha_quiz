@@ -1,3 +1,4 @@
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import 'question_v2_persistence_mapper.dart';
@@ -21,47 +22,6 @@ abstract interface class TypedAnswerTransactionExecutor {
     String? where,
     List<Object?>? whereArgs,
   });
-}
-
-/// Failure taxonomy of the frozen typed manual answer mutation boundary.
-enum TypedAnswerMutationFailure {
-  notFound,
-  notTyped,
-  stale,
-  corruptPayload,
-  invalidAnswer,
-  unsafePayload,
-  transactionFailed,
-}
-
-/// Raised when a typed manual answer mutation cannot be applied atomically.
-/// The exception retains no raw cause, message, SQL, payload, path, storage
-/// id, bank, or user content.
-final class TypedAnswerMutationException implements Exception {
-  const TypedAnswerMutationException(this.failure);
-
-  final TypedAnswerMutationFailure failure;
-
-  @override
-  String toString() {
-    final detail = switch (failure) {
-      TypedAnswerMutationFailure.notFound =>
-        'The typed question cannot be found.',
-      TypedAnswerMutationFailure.notTyped =>
-        'The question is not stored as a typed question.',
-      TypedAnswerMutationFailure.stale =>
-        'The question changed after it was loaded.',
-      TypedAnswerMutationFailure.corruptPayload =>
-        'The typed question payload cannot be read safely.',
-      TypedAnswerMutationFailure.invalidAnswer =>
-        'The answer does not match the typed question options.',
-      TypedAnswerMutationFailure.unsafePayload =>
-        'The typed answer contains unsafe content.',
-      TypedAnswerMutationFailure.transactionFailed =>
-        'The typed answer cannot be saved atomically.',
-    };
-    return 'TypedAnswerMutationException(${failure.name}): $detail';
-  }
 }
 
 /// Transaction-scoped shared kernel for answer-only typed mutations.

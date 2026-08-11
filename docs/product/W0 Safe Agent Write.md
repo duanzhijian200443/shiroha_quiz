@@ -233,6 +233,19 @@ the complete transaction.
 - Concurrent approval of one proposal shares one in-flight operation and must
   not issue duplicate formal writes.
 - Reapproval of a committed proposal reports the existing committed outcome.
+- COMMIT entry and explicit Reject on the same active/pending proposal share
+  one atomic lifecycle gate: the single linearization point for that proposal.
+  Exactly one transition wins, either `pending -> committing` (approval wins)
+  or `pending -> rejected` (reject wins); the losing attempt does not start or
+  cancel a formal write and observes/reports the winner's outcome.
+- Once `pending -> committing` has won, a later explicit Reject must not
+  transition the proposal to rejected; it reports the existing committing or
+  final committed outcome and must not cancel or interfere with the
+  authoritative COMMIT that has already entered the formal write.
+- Once `pending -> rejected` has won, a later Approve must not start COMMIT; it
+  reports the existing rejected outcome and performs zero formal writes.
+- An approval attempt on a terminal rejected proposal reports the existing
+  rejected outcome and performs no write.
 - Concurrent proposals for one target rely on the transaction-level structural
   compare-and-set; at most one incompatible mutation succeeds.
 - Target edits, target deletion, bank changes, relation detachment, Project

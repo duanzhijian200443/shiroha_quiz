@@ -15,7 +15,13 @@ import '../models/typed_import_commit_guard.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
 
-export '../persistence/typed_answer_persistence.dart'
+// Legacy compatibility export only: existing callers (for example the P5.2
+// typed repair screen) still resolve the typed mutation failure contract
+// through QuestionRepository. The authoritative definitions live in the
+// Application layer; new Presentation/Agent callers must import
+// package:shiroha_quiz/application/safe_write/typed_answer_command.dart
+// directly and must not rely on this data-layer re-export.
+export '../../application/safe_write/typed_answer_command.dart'
     show TypedAnswerMutationException, TypedAnswerMutationFailure;
 
 import '../../utils/ai_data_sanitizer.dart';

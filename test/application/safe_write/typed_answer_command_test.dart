@@ -84,4 +84,48 @@ void main() {
       throwsA(isA<StateError>()),
     );
   });
+
+  group('application failure contract', () {
+    test('every typed mutation failure kind is distinguishable', () {
+      const failures = <TypedAnswerMutationFailure>[
+        TypedAnswerMutationFailure.notFound,
+        TypedAnswerMutationFailure.notTyped,
+        TypedAnswerMutationFailure.stale,
+        TypedAnswerMutationFailure.corruptPayload,
+        TypedAnswerMutationFailure.invalidAnswer,
+        TypedAnswerMutationFailure.unsafePayload,
+        TypedAnswerMutationFailure.transactionFailed,
+      ];
+      expect(failures.toSet(), hasLength(7));
+      for (final failure in failures) {
+        final error = TypedAnswerMutationException(failure);
+        expect(error.failure, failure);
+        expect(error.toString(), contains(failure.name));
+      }
+    });
+
+    test('command surfaces the application failure taxonomy unchanged',
+        () async {
+      for (final failure in TypedAnswerMutationFailure.values) {
+        final port = _RecordingPort()
+          ..error = TypedAnswerMutationException(failure);
+        final command = TypedAnswerCommand(port);
+
+        await expectLater(
+          command.updateTypedAnswer(
+            storageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+            expectedDraft: _draft(),
+            newAnswer: null,
+          ),
+          throwsA(
+            isA<TypedAnswerMutationException>().having(
+              (error) => error.failure,
+              'failure',
+              failure,
+            ),
+          ),
+        );
+      }
+    });
+  });
 }
