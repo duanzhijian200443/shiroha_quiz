@@ -42,3 +42,50 @@ final class TypedAnswerCommand {
     );
   }
 }
+
+/// Application-owned failure taxonomy for typed answer mutations.
+///
+/// This is the single authoritative typed mutation failure contract shared by
+/// the persistence port, the command, and future Presentation/Agent callers.
+/// It never exposes SQL, raw payloads, paths, storage identity, provider, or
+/// internal exception detail; data adapters map persistence-specific failures
+/// onto this contract at the boundary.
+enum TypedAnswerMutationFailure {
+  notFound,
+  notTyped,
+  stale,
+  corruptPayload,
+  invalidAnswer,
+  unsafePayload,
+  transactionFailed,
+}
+
+/// Raised when a typed manual answer mutation cannot be applied atomically.
+/// The exception retains no raw cause, message, SQL, payload, path, storage
+/// id, bank, or user content.
+final class TypedAnswerMutationException implements Exception {
+  const TypedAnswerMutationException(this.failure);
+
+  final TypedAnswerMutationFailure failure;
+
+  @override
+  String toString() {
+    final detail = switch (failure) {
+      TypedAnswerMutationFailure.notFound =>
+        'The typed question cannot be found.',
+      TypedAnswerMutationFailure.notTyped =>
+        'The question is not stored as a typed question.',
+      TypedAnswerMutationFailure.stale =>
+        'The question changed after it was loaded.',
+      TypedAnswerMutationFailure.corruptPayload =>
+        'The typed question payload cannot be read safely.',
+      TypedAnswerMutationFailure.invalidAnswer =>
+        'The answer does not match the typed question options.',
+      TypedAnswerMutationFailure.unsafePayload =>
+        'The typed answer contains unsafe content.',
+      TypedAnswerMutationFailure.transactionFailed =>
+        'The typed answer cannot be saved atomically.',
+    };
+    return 'TypedAnswerMutationException(${failure.name}): $detail';
+  }
+}
