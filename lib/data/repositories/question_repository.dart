@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../application/study_query/study_query_dtos.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
@@ -12,13 +13,19 @@ import '../models/question_draft.dart';
 import '../models/subject_tree_index.dart';
 import '../models/typed_import_commit_guard.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
+import '../persistence/typed_answer_persistence.dart';
+
+export '../persistence/typed_answer_persistence.dart'
+    show TypedAnswerMutationException, TypedAnswerMutationFailure;
+
 import '../../utils/ai_data_sanitizer.dart';
 import '../../data/repositories/settings_repository.dart';
 
 const String _globalWrongBookBankName = '🔥 全局错题本';
 const String _uncategorizedFolderName = '📁 未分类题库';
 
-class QuestionRepository implements StudyQuestionQueryPort {
+class QuestionRepository
+    implements StudyQuestionQueryPort, TypedAnswerPersistencePort {
   QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
         _uuid = uuid ?? const Uuid();
@@ -29,6 +36,8 @@ class QuestionRepository implements StudyQuestionQueryPort {
   final Uuid _uuid;
   static const QuestionV2PersistenceMapper _mapper =
       QuestionV2PersistenceMapper();
+  static const TypedAnswerPersistenceKernel _typedAnswerKernel =
+      TypedAnswerPersistenceKernel();
 
   Future<void> saveQuestionsToBank({
     required String bankName,
@@ -894,15 +903,14 @@ class QuestionRepository implements StudyQuestionQueryPort {
 
   /// Atomic typed manual answer mutation (P5.1).
   ///
-  /// Inside one SQLite transaction the joined row is read strictly, the
-  /// decoded current draft must equal [expectedDraft] structurally, the new
-  /// answer is validated against the current options, and a replacement
-  /// draft with every other field preserved is encoded through the shared
-  /// mapper privacy/codec/projection rules. The V2 sidecar and the V1
-  /// `standard_answer` compatibility projection are then updated; each
+  /// Opens one SQLite transaction and delegates the strict joined-row read,
+  /// structural compare-and-set, answer validation, privacy admission and
+  /// the atomic sidecar/V1 `standard_answer` update to the shared
+  /// [TypedAnswerPersistenceKernel] on the caller-owned transaction. Each
   /// UPDATE must touch exactly one row and `review_states` is never
   /// modified. Every failure throws [TypedAnswerMutationException] with zero
   /// writes.
+  @override
   Future<void> updateTypedAnswer({
     required String storageId,
     required QuestionDraftV2 expectedDraft,
@@ -911,104 +919,12 @@ class QuestionRepository implements StudyQuestionQueryPort {
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
-        final rows = await txn.rawQuery(
-          '''
-          SELECT q.*,
-                 p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
-                 p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
-          FROM questions q
-          LEFT JOIN question_v2_payloads p ON q.id = p.question_id
-          WHERE q.id = ?
-          ''',
-          <Object?>[storageId],
+        await _typedAnswerKernel.applyAnswerUpdate(
+          txn: _TypedAnswerTxnExecutor(txn),
+          storageId: storageId,
+          expectedDraft: expectedDraft,
+          newAnswer: newAnswer,
         );
-        if (rows.isEmpty) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.notFound,
-          );
-        }
-        final row = rows.single;
-        if (row[QuestionV2PersistenceMapper.payloadSchemaVersionAlias] ==
-                null &&
-            row[QuestionV2PersistenceMapper.payloadJsonAlias] == null) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.notTyped,
-          );
-        }
-        final current = _decodeTypedForMutation(row);
-        if (current.draft != expectedDraft) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.stale,
-          );
-        }
-        if (newAnswer case ChoiceAnswer(:final optionIds)) {
-          // A no-op (the new answer equals the persisted answer) never
-          // introduces invalid data, so pre-existing unknown or duplicate
-          // choice identities remain no-op repairable. Only real changes are
-          // validated against the current options.
-          if (newAnswer != current.draft.answer) {
-            final optionIdsInDraft = <String>{
-              for (final option in current.draft.options) option.optionId,
-            };
-            final hasDuplicateIds =
-                optionIds.toSet().length != optionIds.length;
-            if (hasDuplicateIds ||
-                !optionIds.every(optionIdsInDraft.contains)) {
-              throw const TypedAnswerMutationException(
-                TypedAnswerMutationFailure.invalidAnswer,
-              );
-            }
-          }
-        }
-        final replacementDraft = QuestionDraftV2(
-          questionId: current.draft.questionId,
-          kind: current.draft.kind,
-          questionNumber: current.draft.questionNumber,
-          stem: current.draft.stem,
-          options: current.draft.options,
-          answer: newAnswer,
-          explanation: current.draft.explanation,
-          sourceRefs: current.draft.sourceRefs,
-          assetRefs: current.draft.assetRefs,
-          issues: current.draft.issues,
-        );
-        final FrozenQuestionV2AnswerUpdate update;
-        try {
-          update = _mapper.freezeAnswerUpdate(
-            storageId: storageId,
-            replacementDraft: replacementDraft,
-          );
-        } on QuestionV2PayloadException {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.unsafePayload,
-          );
-        }
-        final payloadUpdated = await txn.update(
-          'question_v2_payloads',
-          <String, Object?>{
-            'payload_schema_version':
-                update.payloadRow['payload_schema_version'],
-            'payload_json': update.payloadRow['payload_json'],
-          },
-          where: 'question_id = ?',
-          whereArgs: <Object?>[storageId],
-        );
-        if (payloadUpdated != 1) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.transactionFailed,
-          );
-        }
-        final questionUpdated = await txn.update(
-          'questions',
-          <String, Object?>{'standard_answer': update.standardAnswer},
-          where: 'id = ?',
-          whereArgs: <Object?>[storageId],
-        );
-        if (questionUpdated != 1) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.transactionFailed,
-          );
-        }
       });
     } on TypedAnswerMutationException {
       rethrow;
@@ -1017,29 +933,6 @@ class QuestionRepository implements StudyQuestionQueryPort {
         TypedAnswerMutationFailure.transactionFailed,
       );
     }
-  }
-
-  /// Strict joined-row decode for the typed mutation path. Corrupt sidecars
-  /// map to [TypedAnswerMutationFailure.corruptPayload] and privacy
-  /// admission failures to [TypedAnswerMutationFailure.unsafePayload],
-  /// reusing [QuestionV2PersistenceMapper.decodeJoinedRow] semantics.
-  TypedPersistedQuestion _decodeTypedForMutation(Map<String, Object?> row) {
-    final PersistedQuestion decoded;
-    try {
-      decoded = _mapper.decodeJoinedRow(row);
-    } on QuestionV2PayloadException catch (error) {
-      throw TypedAnswerMutationException(
-        error.failure == QuestionV2PayloadFailure.unsafePayload
-            ? TypedAnswerMutationFailure.unsafePayload
-            : TypedAnswerMutationFailure.corruptPayload,
-      );
-    }
-    if (decoded is! TypedPersistedQuestion) {
-      throw const TypedAnswerMutationException(
-        TypedAnswerMutationFailure.notTyped,
-      );
-    }
-    return decoded;
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBanksSummary() {
@@ -1230,43 +1123,34 @@ final class QuestionV2WriteException implements Exception {
   }
 }
 
-/// Failure taxonomy of the frozen typed manual answer mutation boundary.
-enum TypedAnswerMutationFailure {
-  notFound,
-  notTyped,
-  stale,
-  corruptPayload,
-  invalidAnswer,
-  unsafePayload,
-  transactionFailed,
-}
+/// Adapts the caller-owned SQLite transaction to the kernel's minimal
+/// transaction surface. The repository owns the transaction; the kernel
+/// never starts or nests one.
+final class _TypedAnswerTxnExecutor implements TypedAnswerTransactionExecutor {
+  _TypedAnswerTxnExecutor(this._txn);
 
-/// Raised when a typed manual answer mutation cannot be applied atomically.
-/// The exception retains no raw cause, message, SQL, payload, path, storage
-/// id, bank, or user content.
-final class TypedAnswerMutationException implements Exception {
-  const TypedAnswerMutationException(this.failure);
-
-  final TypedAnswerMutationFailure failure;
+  final DatabaseExecutor _txn;
 
   @override
-  String toString() {
-    final detail = switch (failure) {
-      TypedAnswerMutationFailure.notFound =>
-        'The typed question cannot be found.',
-      TypedAnswerMutationFailure.notTyped =>
-        'The question is not stored as a typed question.',
-      TypedAnswerMutationFailure.stale =>
-        'The question changed after it was loaded.',
-      TypedAnswerMutationFailure.corruptPayload =>
-        'The typed question payload cannot be read safely.',
-      TypedAnswerMutationFailure.invalidAnswer =>
-        'The answer does not match the typed question options.',
-      TypedAnswerMutationFailure.unsafePayload =>
-        'The typed answer contains unsafe content.',
-      TypedAnswerMutationFailure.transactionFailed =>
-        'The typed answer cannot be saved atomically.',
-    };
-    return 'TypedAnswerMutationException(${failure.name}): $detail';
+  Future<List<Map<String, Object?>>> queryRaw(
+    String sql, [
+    List<Object?>? arguments,
+  ]) {
+    return _txn.rawQuery(sql, arguments);
+  }
+
+  @override
+  Future<int> update(
+    String table,
+    Map<String, Object?> values, {
+    String? where,
+    List<Object?>? whereArgs,
+  }) {
+    return _txn.update(
+      table,
+      values,
+      where: where,
+      whereArgs: whereArgs,
+    );
   }
 }
