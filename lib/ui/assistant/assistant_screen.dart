@@ -29,7 +29,33 @@ class AssistantScreen extends StatefulWidget {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
+  static const double _nearBottomThreshold = 120;
+
   final TextEditingController _composerController = TextEditingController();
+  final ScrollController _messageScrollController = ScrollController();
+  bool _followLatest = true;
+  bool _scrollScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.conversationController.addListener(_handleConversationChanged);
+    _scheduleScrollToLatest();
+  }
+
+  @override
+  void didUpdateWidget(covariant AssistantScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversationController == widget.conversationController) {
+      return;
+    }
+    oldWidget.conversationController.removeListener(
+      _handleConversationChanged,
+    );
+    widget.conversationController.addListener(_handleConversationChanged);
+    _followLatest = true;
+    _scheduleScrollToLatest();
+  }
 
   String get _currentSpace {
     final scope = widget.conversationController.currentScope;
@@ -44,8 +70,34 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   @override
   void dispose() {
+    widget.conversationController.removeListener(_handleConversationChanged);
+    _messageScrollController.dispose();
     _composerController.dispose();
     super.dispose();
+  }
+
+  void _handleConversationChanged() {
+    if (_followLatest) _scheduleScrollToLatest();
+  }
+
+  bool _handleUserScroll(UserScrollNotification notification) {
+    _followLatest = notification.metrics.extentAfter <= _nearBottomThreshold;
+    return false;
+  }
+
+  void _scheduleScrollToLatest({bool force = false}) {
+    if (force) _followLatest = true;
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollScheduled = false;
+      if (!mounted || !_followLatest || !_messageScrollController.hasClients) {
+        return;
+      }
+      final position = _messageScrollController.position;
+      if (position.pixels == position.maxScrollExtent) return;
+      position.jumpTo(position.maxScrollExtent);
+    });
   }
 
   void _feedback(String message) {
@@ -62,7 +114,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _openConversation(String conversationId) async {
     if (widget.showGlobalMenu) Navigator.pop(context);
+    _followLatest = true;
     await widget.conversationController.openConversation(conversationId);
+    _scheduleScrollToLatest();
   }
 
   void _drawerFeedback(String message) {
@@ -212,7 +266,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
       return;
     }
     final saved = await widget.conversationController.send(content);
-    if (saved) _composerController.clear();
+    if (saved) {
+      _composerController.clear();
+      _scheduleScrollToLatest(force: true);
+    }
   }
 
   Future<void> _deleteConversation() async {
@@ -390,110 +447,114 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (controller.isLoading && active == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    return ListView(
-      key: const ValueKey<String>('u1-ux0-assistant-content'),
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-      children: [
-        Text(
-          active?.conversation.title ?? '今天想学什么？',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w800,
+    return NotificationListener<UserScrollNotification>(
+      onNotification: _handleUserScroll,
+      child: ListView(
+        key: const ValueKey<String>('u1-ux0-assistant-content'),
+        controller: _messageScrollController,
+        padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+        children: [
+          Text(
+            active?.conversation.title ?? '今天想学什么？',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          active == null ? '从一个问题开始，或试试下面的建议' : '消息历史已保存到本地',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.onSurfaceVariant,
+          const SizedBox(height: 8),
+          Text(
+            active == null ? '从一个问题开始，或试试下面的建议' : '消息历史已保存到本地',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.onSurfaceVariant,
+            ),
           ),
-        ),
-        if (controller.currentScope.isUnavailableLearningSpace) ...[
-          const SizedBox(height: 16),
-          const _StatusCard(
-            icon: Icons.warning_amber_rounded,
-            message: '原学习空间已删除；历史仍可查看，但不能继续发送消息。',
-          ),
-        ],
-        if (controller.errorMessage case final error?
-            when controller.turnPhase != AssistantTurnPhase.failed &&
-                controller.turnPhase != AssistantTurnPhase.cancelled) ...[
-          const SizedBox(height: 16),
-          _StatusCard(icon: Icons.error_outline, message: error),
-        ],
-        if (active == null) ...[
-          const SizedBox(height: 24),
-          _PromptCard(
-            icon: Icons.insights_outlined,
-            text: '分析我最近的错题',
-            onTap: () => _composerController.text = '分析我最近的错题',
-          ),
-          const SizedBox(height: 12),
-          _PromptCard(
-            icon: Icons.event_note_outlined,
-            text: '帮我规划今天的复习',
-            onTap: () => _composerController.text = '帮我规划今天的复习',
-          ),
-        ] else ...[
-          if (active.hasMoreBefore) ...[
-            const SizedBox(height: 20),
-            Center(
-              child: TextButton(
-                key: const ValueKey<String>('c0-load-older-messages'),
-                onPressed: controller.isLoadingOlder
-                    ? null
-                    : controller.loadOlderMessages,
-                child: Text(controller.isLoadingOlder ? '加载中…' : '加载更早消息'),
-              ),
+          if (controller.currentScope.isUnavailableLearningSpace) ...[
+            const SizedBox(height: 16),
+            const _StatusCard(
+              icon: Icons.warning_amber_rounded,
+              message: '原学习空间已删除；历史仍可查看，但不能继续发送消息。',
             ),
           ],
-          const SizedBox(height: 20),
-          for (final message in active.messages) ...[
-            _MessageBubble(message: message),
+          if (controller.errorMessage case final error?
+              when controller.turnPhase != AssistantTurnPhase.failed &&
+                  controller.turnPhase != AssistantTurnPhase.cancelled) ...[
+            const SizedBox(height: 16),
+            _StatusCard(icon: Icons.error_outline, message: error),
+          ],
+          if (active == null) ...[
+            const SizedBox(height: 24),
+            _PromptCard(
+              icon: Icons.insights_outlined,
+              text: '分析我最近的错题',
+              onTap: () => _composerController.text = '分析我最近的错题',
+            ),
+            const SizedBox(height: 12),
+            _PromptCard(
+              icon: Icons.event_note_outlined,
+              text: '帮我规划今天的复习',
+              onTap: () => _composerController.text = '帮我规划今天的复习',
+            ),
+          ] else ...[
+            if (active.hasMoreBefore) ...[
+              const SizedBox(height: 20),
+              Center(
+                child: TextButton(
+                  key: const ValueKey<String>('c0-load-older-messages'),
+                  onPressed: controller.isLoadingOlder
+                      ? null
+                      : controller.loadOlderMessages,
+                  child: Text(controller.isLoadingOlder ? '加载中…' : '加载更早消息'),
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            for (final message in active.messages) ...[
+              _MessageBubble(message: message),
+              const SizedBox(height: 12),
+            ],
+          ],
+          if (controller.transientAssistantText.isNotEmpty) ...[
+            _TransientAssistantBubble(
+              text: controller.transientAssistantText,
+              isUnsaved: controller.turnPhase == AssistantTurnPhase.failed ||
+                  controller.turnPhase == AssistantTurnPhase.cancelled,
+            ),
             const SizedBox(height: 12),
           ],
-        ],
-        if (controller.transientAssistantText.isNotEmpty) ...[
-          _TransientAssistantBubble(
-            text: controller.transientAssistantText,
-            isUnsaved: controller.turnPhase == AssistantTurnPhase.failed ||
-                controller.turnPhase == AssistantTurnPhase.cancelled,
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (controller.turnStatusMessage case final status?) ...[
-          _StatusCard(
-            key: const ValueKey<String>('a0-agent-turn-status'),
-            icon: _turnStatusIcon(controller.turnPhase),
-            message: status,
-          ),
-          if (controller.turnPhase == AssistantTurnPhase.failed ||
-              controller.turnPhase == AssistantTurnPhase.cancelled) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (controller.canRetry)
-                  FilledButton.icon(
-                    key: const ValueKey<String>('a0-agent-retry'),
-                    onPressed: controller.retryLastTurn,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('重试'),
-                  ),
-                if (controller.needsAgentSettings)
-                  const Chip(
-                    key: ValueKey<String>('a0-agent-settings-hint'),
-                    avatar: Icon(Icons.settings_outlined, size: 18),
-                    label: Text('请前往“我的 → Shiroha Agent 设置”'),
-                  ),
-              ],
+          if (controller.turnStatusMessage case final status?) ...[
+            _StatusCard(
+              key: const ValueKey<String>('a0-agent-turn-status'),
+              icon: _turnStatusIcon(controller.turnPhase),
+              message: status,
             ),
+            if (controller.turnPhase == AssistantTurnPhase.failed ||
+                controller.turnPhase == AssistantTurnPhase.cancelled) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (controller.canRetry)
+                    FilledButton.icon(
+                      key: const ValueKey<String>('a0-agent-retry'),
+                      onPressed: controller.retryLastTurn,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('重试'),
+                    ),
+                  if (controller.needsAgentSettings)
+                    const Chip(
+                      key: ValueKey<String>('a0-agent-settings-hint'),
+                      avatar: Icon(Icons.settings_outlined, size: 18),
+                      label: Text('请前往“我的 → Shiroha Agent 设置”'),
+                    ),
+                ],
+              ),
+            ],
           ],
         ],
-      ],
+      ),
     );
   }
 }
