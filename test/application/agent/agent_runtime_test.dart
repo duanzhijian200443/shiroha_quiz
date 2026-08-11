@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
@@ -9,10 +10,17 @@ import 'package:shiroha_quiz/application/agent/agent_runtime_limits.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_catalog.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
+import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_catalog.dart';
+import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 
 typedef _Script = Stream<AgentProviderEvent> Function(
   AgentProviderRequest request,
@@ -344,6 +352,203 @@ void main() {
       final output = harness.provider.requests[1].toolOutputs.single.output;
       expect(output, contains('internal_error'));
       expect(output, isNot(contains('private-marker')));
+    });
+  });
+
+  group('W0 proposal integration', () {
+    test(
+        'exposes only the six read tools until the proposal dispatcher is '
+        'wired', () async {
+      final unwired = _Harness(scripts: <_Script>[_finalAnswer('ok')]);
+      final (unwiredConversationId, unwiredMessageId) =
+          await unwired.seedUser('question');
+      final unwiredResult = await unwired.runtime
+          .startTurn(
+            conversationId: unwiredConversationId,
+            userMessageId: unwiredMessageId,
+          )
+          .result;
+      expect(unwiredResult, isA<AgentTurnSuccess>());
+      expect(
+        unwired.provider.requests.single.tools.map((tool) => tool.name),
+        AgentStudyToolCatalog.toolNames,
+      );
+
+      final wired = _Harness(
+        wireProposal: true,
+        scripts: <_Script>[_finalAnswer('ok')],
+      );
+      final (wiredConversationId, wiredMessageId) =
+          await wired.seedUser('question');
+      final wiredResult = await wired.runtime
+          .startTurn(
+            conversationId: wiredConversationId,
+            userMessageId: wiredMessageId,
+          )
+          .result;
+      expect(wiredResult, isA<AgentTurnSuccess>());
+      expect(
+        wired.provider.requests.single.tools.map((tool) => tool.name),
+        <String>[
+          ...AgentStudyToolCatalog.toolNames,
+          AgentWriteProposalToolCatalog.toolName,
+        ],
+      );
+    });
+
+    test(
+        'routes proposal calls with runtime-injected source context and emits '
+        'a typed staged event', () async {
+      const state = _TestContinuationState('s');
+      final harness = _Harness(
+        wireProposal: true,
+        scripts: <_Script>[
+          _toolRound(
+            <AgentProviderFunctionCall>[_proposalCall('p-1')],
+            state,
+          ),
+          _finalAnswer('answer'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final events = <AgentTurnEvent>[];
+      session.events.listen(events.add);
+
+      final result = await session.result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(harness.proposalPersistence.admissionRequests, isNotEmpty);
+      final admission = harness.proposalPersistence.admissionRequests.first;
+      expect(admission.sourceConversationId, conversationId);
+      expect(admission.sourceMessageId, userMessageId);
+      expect(admission.scope, ConversationScope.global());
+      expect(harness.proposalPersistence.commitCalls, isEmpty);
+      expect(harness.dispatcher.calls, isEmpty);
+      final staged = events.whereType<AgentTurnProposalStaged>();
+      expect(staged, hasLength(1));
+      expect(staged.single.outcome, 'pending');
+      expect(staged.single.proposalId, isNotEmpty);
+      expect(staged.single.preview, contains('bank_name'));
+      expect(
+        harness.provider.requests[1].toolOutputs.single.output,
+        contains('proposal_id'),
+      );
+    });
+
+    test('semantic replay within one turn reuses the same proposal id',
+        () async {
+      const state = _TestContinuationState('s');
+      final harness = _Harness(
+        wireProposal: true,
+        scripts: <_Script>[
+          _toolRound(
+            <AgentProviderFunctionCall>[
+              _proposalCall('p-1'),
+              _proposalCall('p-2'),
+            ],
+            state,
+          ),
+          _finalAnswer('answer'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+
+      final result = await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      final outputs = harness.provider.requests[1].toolOutputs;
+      expect(outputs, hasLength(2));
+      final firstId = (jsonDecode(outputs[0].output)
+          as Map<String, dynamic>)['result']['proposal_id'];
+      final secondId = (jsonDecode(outputs[1].output)
+          as Map<String, dynamic>)['result']['proposal_id'];
+      expect(firstId, isNotEmpty);
+      expect(secondId, firstId);
+    });
+
+    test('turn failure after staging performs no formal write', () async {
+      const state = _TestContinuationState('s');
+      final harness = _Harness(
+        wireProposal: true,
+        scripts: <_Script>[
+          _toolRound(
+            <AgentProviderFunctionCall>[_proposalCall('p-1')],
+            state,
+          ),
+          (request, token) async* {
+            yield AgentProviderTextDelta('partial');
+            throw const AgentProviderException(
+              AgentProviderFailure.internalError,
+            );
+          },
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+
+      final result = await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+
+      expect(_failureOf(result), AgentTurnFailure.internalError);
+      expect(harness.proposalPersistence.commitCalls, isEmpty);
+      final messages = await harness.messagesOf(conversationId);
+      expect(messages, hasLength(1));
+    });
+
+    test('cancellation after staging performs no formal write', () async {
+      const state = _TestContinuationState('s');
+      final deltaYielded = Completer<void>();
+      final harness = _Harness(
+        wireProposal: true,
+        scripts: <_Script>[
+          _toolRound(
+            <AgentProviderFunctionCall>[_proposalCall('p-1')],
+            state,
+          ),
+          (request, token) async* {
+            yield AgentProviderTextDelta('partial');
+            deltaYielded.complete();
+            await token.whenCancelled;
+            throw const AgentProviderException(
+              AgentProviderFailure.cancelled,
+            );
+          },
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+
+      await deltaYielded.future;
+      session.cancel();
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.cancelled);
+      expect(harness.proposalPersistence.commitCalls, isEmpty);
+      final messages = await harness.messagesOf(conversationId);
+      expect(messages, hasLength(1));
     });
   });
 
@@ -1219,6 +1424,7 @@ final class _Harness {
     AgentProviderCapabilities? capabilities,
     AgentRuntimeLimits? limits,
     bool webEnabled = false,
+    bool wireProposal = false,
     double temperature = 1.0,
     AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   })  : repository = _FakeConversationRepository(),
@@ -1249,6 +1455,13 @@ final class _Harness {
           ),
     );
     dispatcher = _FakeDispatcher();
+    proposalPersistence = _FakeAgentWritePersistence();
+    proposalDispatcher = wireProposal
+        ? AgentWriteProposalToolDispatcher(
+            persistence: proposalPersistence,
+            proposalService: AgentWriteProposalService(proposalPersistence),
+          )
+        : null;
     runtime = ShirohaAgentRuntime(
       conversationService: conversationService,
       configResolver: AgentRuntimeConfigResolver(
@@ -1257,6 +1470,7 @@ final class _Harness {
       ),
       providerFactory: (_) => provider,
       toolDispatcher: dispatcher,
+      proposalDispatcher: proposalDispatcher,
       limits: limits ?? const AgentRuntimeLimits(),
     );
   }
@@ -1267,6 +1481,8 @@ final class _Harness {
   late final ConversationService conversationService;
   late final _ScriptedProvider provider;
   late final _FakeDispatcher dispatcher;
+  late final _FakeAgentWritePersistence proposalPersistence;
+  late final AgentWriteProposalToolDispatcher? proposalDispatcher;
   late final ShirohaAgentRuntime runtime;
   var _conversationSequence = 0;
   var _messageSequence = 0;
@@ -1567,6 +1783,49 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
   }
 }
 
+final class _FakeAgentWritePersistence implements AgentWritePersistencePort {
+  _FakeAgentWritePersistence({AgentWriteAdmissionResult? admissionResult})
+      : admissionResult = admissionResult ??
+            AgentWriteAdmissionGranted(
+              AgentWriteAdmittedTarget(
+                storageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+                bankName: 'w0_a2_synthetic_bank',
+                draft: _w0ContentDraft(),
+              ),
+            );
+
+  AgentWriteAdmissionResult admissionResult;
+  final admissionRequests = <AgentWriteAdmissionRequest>[];
+  final commitCalls = <AgentWriteCommitRequest>[];
+
+  @override
+  Future<AgentWriteAdmissionResult> admitStagingTarget(
+    AgentWriteAdmissionRequest request,
+  ) async {
+    admissionRequests.add(request);
+    return admissionResult;
+  }
+
+  @override
+  Future<void> commitApproved(AgentWriteCommitRequest request) async {
+    commitCalls.add(request);
+  }
+}
+
+RichContent _w0Text(String text) {
+  return RichContent(nodes: <ContentNode>[TextNode(text)]);
+}
+
+QuestionDraftV2 _w0ContentDraft() {
+  return QuestionDraftV2(
+    questionId: 'w0_a2_content_q',
+    kind: QuestionKind.shortAnswer,
+    questionNumber: 1,
+    stem: _w0Text('Stem.'),
+    explanation: _w0Text('Explanation.'),
+  );
+}
+
 final class _TestContinuationState implements AgentProviderContinuationState {
   const _TestContinuationState(this.label);
 
@@ -1610,6 +1869,18 @@ AgentProviderFunctionCall _call(
     callId: callId,
     name: name,
     argumentsJson: arguments,
+  );
+}
+
+const String _proposalArgumentsJson =
+    '{"target":"a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b",'
+    '"answer":{"content":{"nodes":[{"type":"text","text":"answer"}]}}}';
+
+AgentProviderFunctionCall _proposalCall(String callId) {
+  return AgentProviderFunctionCall(
+    callId: callId,
+    name: AgentWriteProposalToolCatalog.toolName,
+    argumentsJson: _proposalArgumentsJson,
   );
 }
 

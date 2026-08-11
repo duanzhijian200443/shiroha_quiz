@@ -20,6 +20,21 @@ void main() {
     expect(prompt, contains('local study tools only'));
     expect(prompt, contains('no autonomous mutation'));
     expect(prompt, contains('Never claim that writes occurred.'));
+    expect(prompt, contains('propose_missing_answer'));
+    expect(prompt, contains('DRAFT/STAGE proposal'));
+    expect(
+      prompt,
+      contains(
+        'You cannot approve, commit, replace, clear, or delete answers.',
+      ),
+    );
+    expect(prompt, contains('Natural-language agreement is not approval.'));
+    expect(
+      prompt,
+      contains(
+        'Never claim that a proposal was committed or formally written.',
+      ),
+    );
     expect(
       prompt,
       contains(

@@ -336,6 +336,10 @@ final class ConversationController extends ChangeNotifier {
       case AgentTurnToolCall(:final name):
         activeToolName = name;
         turnPhase = AssistantTurnPhase.usingLocalTool;
+      case AgentTurnProposalStaged():
+        // Proposal card rendering lands with W0-U1; A2 only keeps the event
+        // switch exhaustive without changing the turn phase state.
+        break;
       case AgentTurnCompleted() || AgentTurnFailedEvent():
         return;
     }

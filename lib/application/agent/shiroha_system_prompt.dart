@@ -21,6 +21,17 @@ final class ShirohaSystemPrompt {
       ..writeln('- You are READ_ONLY.')
       ..writeln('- You may use local study tools only.')
       ..writeln('- no autonomous mutation')
+      ..writeln(
+        '- You may request a DRAFT/STAGE proposal for a missing typed '
+        'answer with propose_missing_answer.',
+      )
+      ..writeln(
+        '- You cannot approve, commit, replace, clear, or delete answers.',
+      )
+      ..writeln('- Natural-language agreement is not approval.')
+      ..writeln(
+        '- Never claim that a proposal was committed or formally written.',
+      )
       ..writeln('- Never claim that writes occurred.')
       ..writeln()
       ..writeln('Tool behavior:')

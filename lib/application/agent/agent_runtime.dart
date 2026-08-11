@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
 import '../conversations/conversation_repository.dart';
 import '../conversations/conversation_service.dart';
@@ -16,6 +17,8 @@ import 'agent_runtime_limits.dart';
 import 'agent_study_tool_catalog.dart';
 import 'agent_study_tool_dispatcher.dart';
 import 'agent_turn.dart';
+import 'agent_write_proposal_tool_catalog.dart';
+import 'agent_write_proposal_tool_dispatcher.dart';
 import 'shiroha_system_prompt.dart';
 
 /// Minimal provider construction boundary.
@@ -37,11 +40,13 @@ final class ShirohaAgentRuntime {
     required AgentRuntimeConfigResolver configResolver,
     required AgentProviderFactory providerFactory,
     required AgentStudyToolDispatcher toolDispatcher,
+    AgentWriteProposalToolDispatcher? proposalDispatcher,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
   })  : _conversationService = conversationService,
         _configResolver = configResolver,
         _providerFactory = providerFactory,
         _toolDispatcher = toolDispatcher,
+        _proposalDispatcher = proposalDispatcher,
         _limits = limits,
         _systemPrompt = const ShirohaSystemPrompt();
 
@@ -49,6 +54,7 @@ final class ShirohaAgentRuntime {
   final AgentRuntimeConfigResolver _configResolver;
   final AgentProviderFactory _providerFactory;
   final AgentStudyToolDispatcher _toolDispatcher;
+  final AgentWriteProposalToolDispatcher? _proposalDispatcher;
   final AgentRuntimeLimits _limits;
   final ShirohaSystemPrompt _systemPrompt;
 
@@ -210,6 +216,12 @@ final class ShirohaAgentRuntime {
       scope: slice.conversation.scope,
       files: slice.files,
     );
+    final tools = _proposalDispatcher == null
+        ? AgentStudyToolCatalog.definitions
+        : <AgentFunctionToolDefinition>[
+            ...AgentStudyToolCatalog.definitions,
+            AgentWriteProposalToolCatalog.definition,
+          ];
 
     AgentProviderContinuationState? continuationState;
     var toolOutputs = const <AgentFunctionToolOutput>[];
@@ -217,7 +229,7 @@ final class ShirohaAgentRuntime {
       final request = AgentProviderRequest(
         systemPrompt: systemPrompt,
         messages: history.messages,
-        tools: AgentStudyToolCatalog.definitions,
+        tools: tools,
         toolOutputs: toolOutputs,
         continuationState: continuationState,
         enableNativeWebSearch:
@@ -280,7 +292,13 @@ final class ShirohaAgentRuntime {
       for (final call in round.functionCalls) {
         _throwIfCancelled(turn);
         _emit(turn, AgentTurnToolCall(callId: call.callId, name: call.name));
-        final output = await _dispatchTool(turn, call);
+        final output = await _dispatchTool(
+          turn,
+          call,
+          conversationId: conversationId,
+          userMessageId: userMessageId,
+          scope: slice.conversation.scope,
+        );
         outputs.add(
           AgentFunctionToolOutput(callId: call.callId, output: output),
         );
@@ -386,20 +404,39 @@ final class ShirohaAgentRuntime {
 
   Future<String> _dispatchTool(
     _ActiveTurn turn,
-    AgentProviderFunctionCall call,
-  ) async {
+    AgentProviderFunctionCall call, {
+    required String conversationId,
+    required String userMessageId,
+    required ConversationScope scope,
+  }) async {
     final remaining = turn.remainingBudget();
     if (remaining <= Duration.zero) {
       throw const _TurnTimeoutException();
     }
     try {
+      final dispatcher = _proposalDispatcher;
+      if (call.name == AgentWriteProposalToolCatalog.toolName &&
+          dispatcher != null) {
+        final output = await dispatcher
+            .dispatch(
+              AgentWriteProposalToolCall(
+                argumentsJson: call.argumentsJson,
+                sourceConversationId: conversationId,
+                sourceMessageId: userMessageId,
+                scope: scope,
+              ),
+            )
+            .timeout(remaining);
+        _maybeEmitProposalStaged(turn, output);
+        return output;
+      }
       return await _toolDispatcher
           .dispatch(call.name, call.argumentsJson)
           .timeout(remaining);
     } on TimeoutException {
       throw const _TurnTimeoutException();
     } catch (_) {
-      // A local READ tool must never leak an exception to the Provider/UI:
+      // A local tool must never leak an exception to the Provider/UI:
       // unexpected dispatcher failures become the same safe structured
       // internal_error output used by the dispatcher's own failure path.
       return jsonEncode(const <String, Object?>{
@@ -410,6 +447,33 @@ final class ShirohaAgentRuntime {
           'retryable': false,
         },
       });
+    }
+  }
+
+  /// Emits a typed proposal-staged event when the proposal tool returned a
+  /// successful staging/replay result. Event shaping never fails the turn.
+  void _maybeEmitProposalStaged(_ActiveTurn turn, String output) {
+    try {
+      final decoded = jsonDecode(output);
+      if (decoded is! Map<String, dynamic> || decoded['ok'] != true) return;
+      final result = decoded['result'];
+      if (result is! Map<String, dynamic>) return;
+      final proposalId = result['proposal_id'];
+      final outcome = result['outcome'];
+      final preview = result['preview'];
+      if (proposalId is! String || outcome is! String || preview is! Map) {
+        return;
+      }
+      _emit(
+        turn,
+        AgentTurnProposalStaged(
+          proposalId: proposalId,
+          outcome: outcome,
+          preview: Map<String, Object?>.from(preview),
+        ),
+      );
+    } catch (_) {
+      // The tool output is still returned to the Provider unchanged.
     }
   }
 
