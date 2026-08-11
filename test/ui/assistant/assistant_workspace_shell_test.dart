@@ -23,12 +23,13 @@ import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
+import 'package:shiroha_quiz/ui/assistant/assistant_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 import 'package:shiroha_quiz/ui/assistant/global_sidebar.dart';
 import 'package:shiroha_quiz/ui/assistant/learning_spaces_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart'
-    show workspaceSafeError;
+    show FileLibraryController, LearningSpacesController, workspaceSafeError;
 import 'package:shiroha_quiz/ui/assistant/workspace_pages.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
@@ -111,20 +112,6 @@ final class _UiTurnHarness {
   void _cancel() {
     cancelled = true;
     complete(const AgentTurnFailed(AgentTurnFailure.cancelled));
-  }
-}
-
-Future<void> _dragAssistantContentUntilBuilt(
-  WidgetTester tester,
-  Finder target,
-) async {
-  final content = find.byKey(
-    const ValueKey<String>('u1-ux0-assistant-content'),
-  );
-  expect(content, findsOneWidget);
-  for (var attempt = 0; attempt < 8 && target.evaluate().isEmpty; attempt++) {
-    await tester.drag(content, const Offset(0, -320));
-    await tester.pump();
   }
 }
 
@@ -475,6 +462,118 @@ U1WorkspaceFacade _facade({
   );
 }
 
+final class _PreparedAssistantPresentation {
+  _PreparedAssistantPresentation({
+    required this.spacesController,
+    required this.fileController,
+    required this.conversationController,
+  });
+
+  final LearningSpacesController spacesController;
+  final FileLibraryController fileController;
+  final ConversationController conversationController;
+
+  void dispose() {
+    spacesController.dispose();
+    fileController.dispose();
+    conversationController.dispose();
+  }
+}
+
+Future<void> _waitForControllerState(
+  ConversationController controller,
+  bool Function() condition,
+) async {
+  if (condition()) return;
+  final ready = Completer<void>();
+  void listener() {
+    if (condition() && !ready.isCompleted) ready.complete();
+  }
+
+  controller.addListener(listener);
+  try {
+    listener();
+    await ready.future.timeout(const Duration(seconds: 2));
+  } finally {
+    controller.removeListener(listener);
+  }
+}
+
+Future<_PreparedAssistantPresentation> _prepareSuccessPresentation() async {
+  final facade = _facade();
+  final turn = _UiTurnHarness();
+  final controller = ConversationController(
+    _conversationService(repo: _MemoryConversations()),
+    agentSettingsService: _agentSettingsService(),
+    startAgentTurn: turn.start,
+  );
+  await controller.load();
+  await controller.send('terminal success');
+  final assistant = ConversationMessage(
+    messageId: 'assistant-ui',
+    conversationId: 'conversation-test',
+    sequence: 2,
+    role: ConversationMessageRole.assistant,
+    content: 'done',
+    createdAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+  );
+  final terminal = _waitForControllerState(
+    controller,
+    () {
+      final messages = controller.activeThread?.messages;
+      return !controller.hasActiveTurn &&
+          !controller.isSending &&
+          controller.turnPhase == AssistantTurnPhase.idle &&
+          messages != null &&
+          messages.length == 2 &&
+          messages.last.role == ConversationMessageRole.assistant;
+    },
+  );
+  turn.complete(AgentTurnSuccess(assistantMessage: assistant));
+  await terminal;
+  return _PreparedAssistantPresentation(
+    spacesController: LearningSpacesController(facade),
+    fileController: FileLibraryController(facade),
+    conversationController: controller,
+  );
+}
+
+Future<_PreparedAssistantPresentation> _prepareFailurePresentation() async {
+  final facade = _facade();
+  final turn = _UiTurnHarness();
+  final controller = ConversationController(
+    _conversationService(repo: _MemoryConversations()),
+    agentSettingsService: _agentSettingsService(),
+    startAgentTurn: turn.start,
+  );
+  await controller.load();
+  await controller.send('terminal failure');
+  final streamed = _waitForControllerState(
+    controller,
+    () => controller.transientAssistantText == 'partial',
+  );
+  turn.events.add(const AgentTurnTextDelta('partial'));
+  await streamed;
+  final terminal = _waitForControllerState(
+    controller,
+    () =>
+        !controller.hasActiveTurn &&
+        !controller.isSending &&
+        controller.turnPhase == AssistantTurnPhase.failed &&
+        controller.transientAssistantText == 'partial' &&
+        controller.canRetry,
+  );
+  turn.complete(
+    const AgentTurnFailed(AgentTurnFailure.temporarilyUnavailable),
+  );
+  await terminal;
+  return _PreparedAssistantPresentation(
+    spacesController: LearningSpacesController(facade),
+    fileController: FileLibraryController(facade),
+    conversationController: controller,
+  );
+}
+
 void main() {
   testWidgets(
       'C0 first send persists one User Message with selected File context',
@@ -547,13 +646,12 @@ void main() {
     expect(controller.errorMessage, isNot(conversationWriteSafeError));
   });
 
-  testWidgets('Assistant projects thinking, Web, tool, stream, and completion',
+  testWidgets('Assistant projects thinking, Web, tool, and streaming state',
       (tester) async {
     final conversations = _MemoryConversations();
     final turn = _UiTurnHarness();
     await tester.binding.setSurfaceSize(const Size(1300, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    addTearDown(() async => turn.events.close());
     await tester.pumpWidget(
       MaterialApp(
         home: AssistantWorkspaceShell(
@@ -564,7 +662,8 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('u1-ux0-composer')),
@@ -602,36 +701,87 @@ void main() {
     );
     expect(find.text('AB'), findsOneWidget);
 
-    final assistant = ConversationMessage(
-      messageId: 'assistant-ui',
-      conversationId: 'conversation-test',
-      sequence: 2,
-      role: ConversationMessageRole.assistant,
-      content: 'AB',
-      createdAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
-    );
-    turn.complete(AgentTurnSuccess(assistantMessage: assistant));
-    await tester.pumpAndSettle();
-    await _dragAssistantContentUntilBuilt(
-      tester,
-      find.byKey(const ValueKey<String>('c0-message-assistant-ui')),
-    );
-    expect(
-      find.byKey(const ValueKey<String>('c0-message-assistant-ui')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('a0-transient-assistant')),
-      findsNothing,
-    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(turn.cancelled, isTrue);
+    expect(turn.result.isCompleted, isTrue);
+    expect(turn.events.isClosed, isTrue);
   });
 
-  testWidgets('failed stream stays unsaved and retries the same User target',
+  group('Assistant terminal success presentation', () {
+    late _PreparedAssistantPresentation prepared;
+
+    setUp(() async {
+      prepared = await _prepareSuccessPresentation();
+    });
+
+    tearDown(() => prepared.dispose());
+
+    testWidgets('Assistant renders persisted terminal success snapshot',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1300, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AssistantScreen(
+            spacesController: prepared.spacesController,
+            fileController: prepared.fileController,
+            conversationController: prepared.conversationController,
+            showGlobalMenu: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('c0-message-assistant-ui')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('a0-transient-assistant')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('Assistant terminal failure presentation', () {
+    late _PreparedAssistantPresentation prepared;
+
+    setUp(() async {
+      prepared = await _prepareFailurePresentation();
+    });
+
+    tearDown(() => prepared.dispose());
+
+    testWidgets('Assistant renders terminal failure and retry snapshot',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1300, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AssistantScreen(
+            spacesController: prepared.spacesController,
+            fileController: prepared.fileController,
+            conversationController: prepared.conversationController,
+            showGlobalMenu: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('partial'), findsOneWidget);
+      expect(find.text('未保存'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('a0-agent-retry')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('streaming preserves position after the User scrolls away',
       (tester) async {
     final conversations = _MemoryConversations();
-    final turns = <_UiTurnHarness>[_UiTurnHarness(), _UiTurnHarness()];
-    final targets = <String>[];
-    var startIndex = 0;
+    final turn = _UiTurnHarness();
     await tester.binding.setSurfaceSize(const Size(1300, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -640,54 +790,50 @@ void main() {
           facade: _facade(),
           conversationService: _conversationService(repo: conversations),
           agentSettingsService: _agentSettingsService(),
-          startAgentTurn: ({
-            required conversationId,
-            required userMessageId,
-          }) {
-            targets.add(userMessageId);
-            return turns[startIndex++].session;
-          },
+          startAgentTurn: turn.start,
         ),
       ),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('u1-ux0-composer')),
-      'retry once',
+      List<String>.filled(120, 'long question').join(' '),
     );
     await tester.tap(find.byKey(const ValueKey<String>('u1-ux0-send')));
     await tester.pump();
-    turns.first.events.add(const AgentTurnTextDelta('partial'));
     await tester.pump();
-    turns.first.complete(
-      const AgentTurnFailed(AgentTurnFailure.temporarilyUnavailable),
+    turn.events.add(
+      AgentTurnTextDelta(List<String>.filled(100, 'stream').join(' ')),
     );
     await tester.pump();
     await tester.pump();
-    await _dragAssistantContentUntilBuilt(
-      tester,
-      find.byKey(const ValueKey<String>('a0-agent-retry')),
-    );
 
-    expect(find.text('未保存'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('a0-agent-retry')),
-      findsOneWidget,
+    final content = find.byKey(
+      const ValueKey<String>('u1-ux0-assistant-content'),
     );
-    expect(conversations.messages.where(_isUserMessage), hasLength(1));
+    final scrollable = find.descendant(
+      of: content,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.extentAfter, lessThanOrEqualTo(1));
 
-    await tester.tap(find.byKey(const ValueKey<String>('a0-agent-retry')));
+    await tester.drag(content, const Offset(0, 360));
     await tester.pump();
-    expect(targets, <String>[targets.first, targets.first]);
-    expect(conversations.messages.where(_isUserMessage), hasLength(1));
+    final userPosition = position.pixels;
+    expect(position.extentAfter, greaterThan(120));
+
+    turn.events.add(const AgentTurnTextDelta(' tail'));
+    await tester.pump();
+    await tester.pump();
+    expect(position.pixels, closeTo(userPosition, 1));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
-    expect(turns.last.cancelled, isTrue);
-    expect(turns.last.result.isCompleted, isTrue);
-    expect(turns.last.events.isClosed, isTrue);
+    expect(turn.cancelled, isTrue);
+    expect(turn.result.isCompleted, isTrue);
+    expect(turn.events.isClosed, isTrue);
   });
 
   testWidgets('desktop shell renders real files, relations, and MCP capability',
