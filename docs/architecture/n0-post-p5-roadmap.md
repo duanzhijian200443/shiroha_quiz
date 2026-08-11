@@ -18,14 +18,16 @@ T0
 M0 / M0.1
 U1-R1
 U1-P0
+C0
+A0
 ```
 
 The current-stage amendment is:
 
 ```text
-F0.1 File Library Folder
--> C0 Conversation Foundation
--> A0 Built-in Agent
+C0 Conversation Foundation — COMPLETE
+A0 Built-in Agent v0 — COMPLETE
+W0 Safe Agent Write — CURRENT
 ```
 
 `B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
@@ -36,6 +38,8 @@ historical sequence as if it had originally been delivered in this order.
 `docs/product/u1-agent-first-ia-freeze.md` is the current authority for U1
 Presentation and Navigation semantics; retained U0 domain/lifecycle semantics
 remain valid as described there.
+`docs/product/A0 Built-in Agent v0.md` is the current authority for the bounded
+A0 runtime/product contract.
 
 ## 1. Product/architecture direction
 
@@ -70,7 +74,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
-| **A0** | Built-in Agent v0 | DeepSeek/selected provider + web capability + local read tools | unchanged |
+| **A0** | Built-in Agent v0 | Supported configured provider + optional provider-native Web + local read tools | unchanged |
 | **W0** | Safe Agent write | Draft/Stage -> Review -> explicit user approval -> application command -> typed persistence | preferably unchanged |
 | **F1** | Parsed Artifact lifecycle | Reparse/version/cache identity needed by P6/Agent/RAG; may be split into small sub-stages | only if required |
 | **P6** | Supplemental-answer matching | Produce supplemental `AnswerCandidate` values from files; do not invent a new write path | preferably unchanged |
@@ -184,19 +188,29 @@ It exposes only the additive Assistant-message seam needed by A0.
 
 ### A0 — Built-in Agent
 
-The Agent calls the same application query/tool layer as UI/MCP, but does not route through MCP transport.
+A0 is complete. The Agent calls the same application query/tool layer as
+UI/MCP, but does not route through MCP transport.
 
-A0 proves read-side behavior first:
+A0 closes the following bounded read-side behavior:
 
 ```text
 conversation
-+ provider-native web search (where supported)
++ provider-native Web (when enabled and supported)
 + Shiroha read tools
 ```
 
-Do not combine A0 with destructive writes or a generic Agent framework.
+The current provider/model allowlist and runtime limits remain implementation
+parameters rather than canonical roadmap commitments. The complete current A0
+contract and accepted limitations are recorded in
+`docs/product/A0 Built-in Agent v0.md`.
+
+A0 does not include destructive writes or a generic Agent framework.
 
 ### W0 — Safe write
+
+W0 is the current stage. Its future implementation must preserve the permission
+and typed-persistence boundary below; this roadmap status does not itself
+implement or further design W0.
 
 Permission model:
 

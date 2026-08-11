@@ -170,7 +170,7 @@ data or behavior.
 
 ## 8. Conversation scope
 
-The current C0 scope contract is:
+The Conversation scope contract established by C0 and retained by A0 is:
 
 ```text
 ConversationScope
@@ -208,6 +208,11 @@ The composer `+` currently means:
 It must not create a Learning Space, perform global file ingestion, or silently
 change conversation scope.
 
+A0 supplies attached File metadata to Shiroha as explicit Conversation context.
+It does not supply file bytes, extracted text, PDF pages, images, OCR output, or
+vision input. The metadata-only attachment boundary does not change File
+ownership or Conversation scope.
+
 ## 10. MCP Presentation
 
 The MCP page is Shiroha's external-capability entry. Its current contract is:
@@ -229,22 +234,39 @@ server process currently running
 U1-P0 does not change the MCP contract, add File/Project tools, add transports,
 start a server, or modify runtime composition.
 
-## 11. Agent UI v0 non-goals
+## 11. Agent UI v0 and A0 amendment
 
-The first Agent-first Presentation exposes one assistant identity: `Shiroha`.
-It does not expose:
+The first Agent-first Presentation established one assistant identity:
+`Shiroha`. That U1 decision remains current. The product does not expose
+multiple Agent roles or wrong-question, planning, or material Agent selectors.
 
-- multiple Agent roles;
-- wrong-question, planning, or material Agent selectors;
-- model or Provider selectors;
-- `temperature`;
-- `reasoning_effort`.
+At C0 completion, the Presentation intentionally had no Agent runtime, Web
+capability, model-profile selection, temperature, or reasoning-effort controls.
+It persisted Conversation/User Message history while showing a non-persisted
+placeholder status. This remains the historical C0 boundary.
 
-Future model and Provider settings belong under `我的 -> AI 与联网`.
+Before A0, U1 assigned future model and Provider settings to
+`我的 -> AI 与联网`. That was the pre-A0 placement decision and remains
+historical U1/C0 truth.
 
-C0 retains the single Shiroha identity and adds local Conversation/User Message
-persistence. It still does not implement Agent runtime, RAG, Web Search, or
-autonomous actions.
+A0 supersedes that runtime/settings state and refines the settings route without
+changing the U1 identity or primary navigation contract:
+
+- the Assistant starts a real Agent turn over a persisted User Message;
+- streamed text and Web/tool progress are transient;
+- only the final persisted Assistant Message enters Conversation history;
+- Agent-specific profile selection, Web and tuning live at
+  `我的 -> Shiroha Agent 设置` and reference an existing complete main
+  text-model profile;
+- Provider credentials remain owned by the separate
+  `我的 -> AI 与知识库 -> AI 服务` surface and are neither edited nor duplicated
+  by Agent settings;
+- Web remains optional and available only when enabled and supported by the
+  selected provider.
+
+A0 still does not add autonomous mutations, Agent writes, RAG, file-content
+reading, or multiple Agent identities. The full current runtime contract is
+`docs/product/A0 Built-in Agent v0.md`.
 
 ## 12. Canonical Presentation module
 
@@ -259,10 +281,17 @@ It consumes the existing `U1WorkspaceFacade` and the dedicated
 facade. UI code must not depend directly on SQLite, `DatabaseHelper`, or
 repositories.
 
-## 13. Stage boundary
+A0 adds injected Agent settings and turn-start seams to this Presentation
+module. The UI projects safe transient events and persisted terminal results;
+it does not call provider adapters, MCP transport, repositories, or SQLite
+directly.
 
-The C0 transition preserves the U1 IA while adding persisted conversation
-foundation. It explicitly does not:
+## 13. Stage boundary and A0 supersession
+
+### 13.1 Historical C0 boundary
+
+The C0 transition preserved the U1 IA while adding persisted conversation
+foundation. At C0 completion it explicitly did not:
 
 - implement Agent runtime, RAG, or Web Search;
 - change MCP runtime or contract;
@@ -274,7 +303,20 @@ foundation. It explicitly does not:
 Sending stores the User Message and displays the non-persisted status
 `Shiroha 回复能力尚未接入，消息已保存`. It must not create a mock Assistant row.
 
-The current transition is `F0.1 -> C0 -> A0`.
+That placeholder behavior is historical C0 truth; it is not the current A0
+runtime behavior.
+
+### 13.2 A0 amendment
+
+A0 preserves the U1 IA and C0 Conversation lifecycle while adding the bounded
+READ_ONLY Shiroha runtime. A send now persists the User Message before starting
+the Agent turn, projects streaming as transient state, and adds only the final
+persisted Assistant Message to history. Retry targets the same persisted User
+Message, and one Conversation has at most one active turn.
+
+Attached Files remain explicit Conversation context but are metadata-only in
+A0. A0 does not add RAG, file-content access, Agent writes, MCP expansion, or a
+schema change. The current roadmap transition is `A0 COMPLETE -> W0 CURRENT`.
 
 ### Unclassified terminology
 
