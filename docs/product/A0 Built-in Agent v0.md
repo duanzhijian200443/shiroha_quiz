@@ -166,6 +166,9 @@ explicitly freezes them:
 - exact system-prompt wording, failure enum names, UI status text and widget
   layout.
 
-Future W0 mutation behavior must be specified by its own canonical contract and
-must preserve the approval and typed-persistence boundary. It is not part of
-A0.
+W0 mutation behavior is specified separately in
+`docs/product/W0 Safe Agent Write.md`. W0 may add a distinct Built-in
+Agent-only DRAFT/STAGE proposal capability while preserving the exactly-six A0
+read-tool catalog and the exactly-six MCP v0 contract. This does not
+retroactively change the bounded READ_ONLY behavior delivered by A0; approval,
+COMMIT and typed-write semantics belong to W0.
