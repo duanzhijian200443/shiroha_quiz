@@ -22,6 +22,8 @@ import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
@@ -100,6 +102,17 @@ final class _EmptyAgentConfigStore implements AgentConfigStorePort {
 final class _EmptyAgentProfiles implements AgentProfileCatalogPort {
   @override
   Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
+}
+
+final class _EmptyWritePersistence implements AgentWritePersistencePort {
+  @override
+  Future<AgentWriteAdmissionResult> admitStagingTarget(
+    AgentWriteAdmissionRequest request,
+  ) async =>
+      const AgentWriteAdmissionDenied();
+
+  @override
+  Future<void> commitApproved(AgentWriteCommitRequest request) async {}
 }
 
 AgentTurnSession _unusedAgentTurn({
@@ -184,6 +197,7 @@ void main() {
         profileCatalog: _EmptyAgentProfiles(),
       ),
       startAgentTurn: _unusedAgentTurn,
+      proposalService: AgentWriteProposalService(_EmptyWritePersistence()),
     ));
 
     // Verify that MainScreen is shown initially.

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime_limits.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_catalog.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_dispatcher.dart';
+import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_catalog.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_clock.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
@@ -88,6 +89,35 @@ void main() {
         expect(schema['type'], 'object');
         expect(schema.containsKey('additionalProperties'), isFalse);
       }
+    });
+
+    test('W0 adds exactly one proposal tool to the six read tools', () {
+      expect(AgentWriteProposalToolCatalog.toolName, 'propose_missing_answer');
+      expect(AgentStudyToolCatalog.toolNames, hasLength(6));
+      expect(
+        AgentStudyToolCatalog.toolNames,
+        isNot(contains('propose_missing_answer')),
+      );
+      expect(
+        <String>[
+          ...AgentStudyToolCatalog.toolNames,
+          AgentWriteProposalToolCatalog.toolName,
+        ],
+        <String>[
+          'list_question_banks',
+          'get_study_overview',
+          'get_due_review_summary',
+          'search_questions',
+          'get_question_detail',
+          'get_weak_questions',
+          'propose_missing_answer',
+        ],
+      );
+
+      final schema = AgentWriteProposalToolCatalog.definition.inputSchema;
+      expect(schema['type'], 'object');
+      expect(schema['required'], <String>['target', 'answer']);
+      expect(schema['additionalProperties'], isNull);
     });
   });
 

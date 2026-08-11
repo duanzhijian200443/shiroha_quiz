@@ -11,8 +11,10 @@ import 'application/agent/agent_config_service.dart';
 import 'application/agent/agent_runtime.dart';
 import 'application/agent/agent_study_tool_dispatcher.dart';
 import 'application/agent/agent_turn.dart';
+import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/file_library/library_folder_service.dart';
+import 'application/safe_write/agent_write_proposal_service.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
 import 'application/projects/project_service.dart';
@@ -22,6 +24,7 @@ import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
 import 'data/repositories/agent_config_repository.dart';
 import 'data/repositories/agent_profile_repository.dart';
+import 'data/repositories/approved_agent_write_repository.dart';
 import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/library_file_repository.dart';
 import 'data/repositories/library_folder_repository.dart';
@@ -157,6 +160,12 @@ void main() {
       configStore: agentConfigStore,
       profileCatalog: agentProfileRepository,
     );
+    // W0 composition enablement point: removing this dispatcher registration
+    // (and the proposalService wiring below) turns the proposal capability
+    // off while keeping the six read tools.
+    final agentWritePersistence = ApprovedAgentWriteRepository.instance;
+    final agentWriteProposalService =
+        AgentWriteProposalService(agentWritePersistence);
     final agentRuntime = ShirohaAgentRuntime(
       conversationService: conversationService,
       configResolver: AgentRuntimeConfigResolver(
@@ -168,6 +177,10 @@ void main() {
         clientFactory: () => http.Client(),
       ),
       toolDispatcher: AgentStudyToolDispatcher(service: studyQueryService),
+      proposalDispatcher: AgentWriteProposalToolDispatcher(
+        persistence: agentWritePersistence,
+        proposalService: agentWriteProposalService,
+      ),
     );
     final taskManager = TaskManager.instance;
     final aiService = AiService(
@@ -214,6 +227,7 @@ void main() {
       conversationService: conversationService,
       agentSettingsService: agentSettingsService,
       startAgentTurn: agentRuntime.startTurn,
+      proposalService: agentWriteProposalService,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -237,6 +251,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.proposalService,
   });
 
   final AiEngineRepository engineRepository;
@@ -247,6 +262,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final AgentWriteProposalService? proposalService;
 
   @override
   Widget build(BuildContext context) {
@@ -269,6 +285,7 @@ class ShirohaQuizApp extends StatelessWidget {
               conversationService: conversationService,
               agentSettingsService: agentSettingsService,
               startAgentTurn: startAgentTurn,
+              proposalService: proposalService,
             ),
           ),
         );
@@ -287,12 +304,14 @@ class SplashScreen extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.proposalService,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final AgentWriteProposalService? proposalService;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -327,6 +346,7 @@ class _SplashScreenState extends State<SplashScreen> {
           conversationService: widget.conversationService,
           agentSettingsService: widget.agentSettingsService,
           startAgentTurn: widget.startAgentTurn,
+          proposalService: widget.proposalService,
         ),
       ),
     );
