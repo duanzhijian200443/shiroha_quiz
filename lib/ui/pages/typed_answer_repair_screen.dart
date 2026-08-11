@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../data/repositories/question_repository.dart';
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/content/typed_answer_editor_codec.dart';
 import '../../domain/question/question_draft_v2.dart';
@@ -14,15 +14,15 @@ import '../widgets/structured_content_renderer.dart';
 /// stem and choice options render read-only through the RichContent
 /// renderer, and every other draft field (kind, questionNumber, options,
 /// explanation, sourceRefs, assetRefs, issues) plus the review state is
-/// preserved by the frozen repository mutation. Input is typed view/domain
-/// data only; legacy rows and raw `Map<String, dynamic>` payloads are never
-/// accepted here.
+/// preserved by the shared typed-answer application command. Input is typed
+/// view/domain data only; legacy rows and raw `Map<String, dynamic>` payloads
+/// are never accepted here.
 class TypedAnswerRepairScreen extends StatefulWidget {
   const TypedAnswerRepairScreen({
     super.key,
     required this.question,
     required this.draft,
-    this.repository,
+    required this.command,
   });
 
   final PersistedQuestionView question;
@@ -30,8 +30,9 @@ class TypedAnswerRepairScreen extends StatefulWidget {
   /// `question.typedDraft`; the caller guarantees a non-null typed draft.
   final QuestionDraftV2 draft;
 
-  /// Injectable for widget tests; defaults to the shared repository.
-  final QuestionRepository? repository;
+  /// Shared typed-answer application command supplied by the caller (wired
+  /// over the repository at the page boundary).
+  final TypedAnswerCommand command;
 
   @override
   State<TypedAnswerRepairScreen> createState() =>
@@ -197,9 +198,8 @@ class _TypedAnswerRepairScreenState extends State<TypedAnswerRepairScreen> {
       _isSaving = true;
       _errorMessage = null;
     });
-    final repository = widget.repository ?? QuestionRepository.instance;
     try {
-      await repository.updateTypedAnswer(
+      await widget.command.updateTypedAnswer(
         storageId: widget.question.storageId,
         expectedDraft: widget.draft,
         newAnswer: newAnswer,
