@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../application/conversations/conversation_repository.dart';
+import '../../application/safe_write/agent_write_proposal.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'conversation_controller.dart';
@@ -522,6 +523,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
             const SizedBox(height: 12),
           ],
+          if (controller.hasProposalCard) ...[
+            const SizedBox(height: 12),
+            _ProposalCard(controller: controller),
+          ],
           if (controller.turnStatusMessage case final status?) ...[
             _StatusCard(
               key: const ValueKey<String>('a0-agent-turn-status'),
@@ -688,6 +693,163 @@ class _StatusCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// W0 proposal approval card rendered from the typed staged-event preview.
+/// Approve submits only the proposal identity; Reject performs zero writes.
+class _ProposalCard extends StatelessWidget {
+  const _ProposalCard({required this.controller});
+
+  final ConversationController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preview = controller.proposalPreview;
+    final bankName = preview['bank_name'];
+    final stem = _proposalNodesText(preview['stem']);
+    final options = _proposalOptions(preview['options']);
+    final answer = _proposalAnswerText(preview['proposed_answer']);
+    final status = controller.proposalStatusText;
+    final actionMessage = controller.proposalActionMessage;
+
+    return Card(
+      key: const ValueKey<String>('w0-proposal-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'Agent \u63d0\u8bae\u8865\u5168\u7b54\u6848',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (bankName is String && bankName.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('\u9898\u5e93\uff1a$bankName'),
+            ],
+            if (stem.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(stem),
+            ],
+            for (final option in options) ...[
+              const SizedBox(height: 4),
+              Text('${option.$1}. ${option.$2}'),
+            ],
+            const SizedBox(height: 8),
+            const Text('\u5f53\u524d\u7b54\u6848\uff1a\u672a\u586b\u5199'),
+            const SizedBox(height: 4),
+            Text('\u62df\u5199\u5165\u7b54\u6848\uff1a$answer'),
+            const Divider(height: 16),
+            Text(
+              '\u53ea\u4fee\u6539\u7b54\u6848\uff0c\u590d\u4e60\u72b6\u6001'
+              '\u4e0d\u53d8',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (status != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                status,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            if (actionMessage != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                actionMessage,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            if (controller.proposalOutcome ==
+                AgentWriteProposalOutcome.pending) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  OutlinedButton(
+                    key: const ValueKey<String>('w0-proposal-reject'),
+                    onPressed: controller.canRejectProposal
+                        ? controller.rejectProposal
+                        : null,
+                    child: const Text('\u62d2\u7edd'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const ValueKey<String>('w0-proposal-approve'),
+                    onPressed: controller.canApproveProposal
+                        ? controller.approveProposal
+                        : null,
+                    child: const Text('\u6279\u51c6\u5e76\u5199\u5165'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Projects the structured tool-contract node list into bounded display
+/// text. Unsupported nodes render as a fixed placeholder.
+String _proposalNodesText(Object? rawNodes) {
+  if (rawNodes is! List) return '';
+  final buffer = StringBuffer();
+  for (final item in rawNodes) {
+    if (item is! Map) continue;
+    switch (item['type']) {
+      case 'text':
+        final text = item['text'];
+        if (text is String) buffer.write(text);
+      case 'inline_math':
+        final latex = item['latex'];
+        if (latex is String) buffer.write('\\($latex\\)');
+      case 'block_math':
+        final latex = item['latex'];
+        if (latex is String) buffer.write('\\[$latex\\]');
+      default:
+        buffer.write('[Unsupported content]');
+    }
+  }
+  return buffer.toString();
+}
+
+/// Parses the preview `options` list into (label, projected content) pairs.
+List<(String, String)> _proposalOptions(Object? rawOptions) {
+  if (rawOptions is! List) return const <(String, String)>[];
+  final options = <(String, String)>[];
+  for (final item in rawOptions) {
+    if (item is! Map) continue;
+    final label = item['label'];
+    if (label is! String) continue;
+    options.add((label, _proposalNodesText(item['content'])));
+  }
+  return options;
+}
+
+/// Projects the preview `proposed_answer` into bounded display text.
+String _proposalAnswerText(Object? rawAnswer) {
+  if (rawAnswer is! Map) return '';
+  return switch (rawAnswer['kind']) {
+    'choice' => _proposalLabelsText(rawAnswer['labels']),
+    'content' => _proposalNodesText(rawAnswer['nodes']),
+    _ => '',
+  };
+}
+
+String _proposalLabelsText(Object? rawLabels) {
+  if (rawLabels is! List) return '';
+  return rawLabels.whereType<String>().join(', ');
 }
 
 class _Composer extends StatelessWidget {

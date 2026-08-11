@@ -7,6 +7,8 @@ import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/conversations/conversation_service.dart';
+import '../../application/safe_write/agent_write_proposal.dart';
+import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
 
@@ -29,12 +31,15 @@ final class ConversationController extends ChangeNotifier {
     this.service, {
     required AgentSettingsService agentSettingsService,
     required AgentTurnStarter startAgentTurn,
+    AgentWriteProposalService? proposalService,
   })  : _agentSettingsService = agentSettingsService,
-        _startAgentTurn = startAgentTurn;
+        _startAgentTurn = startAgentTurn,
+        _proposalService = proposalService;
 
   final ConversationService service;
   final AgentSettingsService _agentSettingsService;
   final AgentTurnStarter _startAgentTurn;
+  final AgentWriteProposalService? _proposalService;
 
   List<Conversation> recent = const <Conversation>[];
   List<ConversationFileRef> attachableFiles = const <ConversationFileRef>[];
@@ -55,6 +60,11 @@ final class ConversationController extends ChangeNotifier {
   String transientAssistantText = '';
   AgentTurnFailure? turnFailure;
   String? activeToolName;
+  String? proposalId;
+  AgentWriteProposalOutcome? proposalOutcome;
+  Map<String, Object?> proposalPreview = const <String, Object?>{};
+  bool proposalActionPending = false;
+  String? proposalActionMessage;
 
   AgentTurnSession? _activeSession;
   StreamSubscription<AgentTurnEvent>? _turnEvents;
@@ -78,6 +88,34 @@ final class ConversationController extends ChangeNotifier {
   bool get needsAgentSettings =>
       turnFailure == AgentTurnFailure.agentUnconfigured ||
       turnFailure == AgentTurnFailure.profileUnavailable;
+
+  bool get hasProposalCard => proposalId != null && proposalOutcome != null;
+  bool get canApproveProposal =>
+      proposalOutcome == AgentWriteProposalOutcome.pending &&
+      !hasActiveTurn &&
+      !proposalActionPending;
+  bool get canRejectProposal =>
+      proposalOutcome == AgentWriteProposalOutcome.pending &&
+      !proposalActionPending;
+
+  /// Fixed safe user-facing text for the proposal lifecycle outcome.
+  String? get proposalStatusText => switch (proposalOutcome) {
+        null => null,
+        AgentWriteProposalOutcome.pending => null,
+        AgentWriteProposalOutcome.committing =>
+          '\u6b63\u5728\u5199\u5165\u2026',
+        AgentWriteProposalOutcome.committed => '\u5df2\u5199\u5165\u7b54\u6848',
+        AgentWriteProposalOutcome.rejected =>
+          '\u5df2\u62d2\u7edd\u8be5\u63d0\u6848',
+        AgentWriteProposalOutcome.superseded =>
+          '\u8be5\u63d0\u6848\u5df2\u88ab\u65b0\u63d0\u6848\u66ff\u4ee3',
+        AgentWriteProposalOutcome.stale =>
+          '\u9898\u76ee\u5df2\u53d8\u5316\uff0c\u63d0\u6848\u5df2\u5931\u6548',
+        AgentWriteProposalOutcome.invalid => '\u8be5\u63d0\u6848\u65e0\u6548',
+        AgentWriteProposalOutcome.unknownOutcome =>
+          '\u5199\u5165\u7ed3\u679c\u6682\u65e0\u6cd5\u786e\u8ba4\uff0c'
+              '\u8bf7\u5237\u65b0\u540e\u67e5\u770b',
+      };
 
   String? get turnStatusMessage => switch (turnPhase) {
         AssistantTurnPhase.idle => statusMessage,
@@ -302,6 +340,7 @@ final class ConversationController extends ChangeNotifier {
     final epoch = ++_turnEpoch;
     transientAssistantText = '';
     activeToolName = null;
+    _clearProposal();
     turnFailure = null;
     turnPhase = AssistantTurnPhase.thinking;
     final session = _startAgentTurn(
@@ -336,9 +375,16 @@ final class ConversationController extends ChangeNotifier {
       case AgentTurnToolCall(:final name):
         activeToolName = name;
         turnPhase = AssistantTurnPhase.usingLocalTool;
-      case AgentTurnProposalStaged():
-        // Proposal card rendering lands with W0-U1; A2 only keeps the event
-        // switch exhaustive without changing the turn phase state.
+      case AgentTurnProposalStaged(
+          :final proposalId,
+          :final outcome,
+          :final preview
+        ):
+        _setProposal(
+          proposalId: proposalId,
+          outcome: _proposalOutcomeOf(outcome),
+          preview: preview,
+        );
         break;
       case AgentTurnCompleted() || AgentTurnFailedEvent():
         return;
@@ -527,6 +573,64 @@ final class ConversationController extends ChangeNotifier {
     }
   }
 
+  /// Approves the current proposal. Only the proposal identity leaves the
+  /// Presentation layer; the outcome is projected from the Application
+  /// service result.
+  Future<void> approveProposal() async {
+    final service = _proposalService;
+    final id = proposalId;
+    if (service == null ||
+        id == null ||
+        proposalOutcome != AgentWriteProposalOutcome.pending ||
+        proposalActionPending) {
+      return;
+    }
+    proposalActionPending = true;
+    proposalActionMessage = null;
+    notifyListeners();
+    try {
+      final updated = await service.approveProposal(id);
+      if (!_disposed && proposalId == id) {
+        proposalOutcome = updated.outcome;
+      }
+    } catch (_) {
+      if (!_disposed && proposalId == id) {
+        proposalActionMessage =
+            '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
+      }
+    } finally {
+      if (!_disposed && proposalId == id) {
+        proposalActionPending = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Rejects the current proposal with zero formal writes.
+  void rejectProposal() {
+    final service = _proposalService;
+    final id = proposalId;
+    if (service == null ||
+        id == null ||
+        proposalOutcome != AgentWriteProposalOutcome.pending ||
+        proposalActionPending) {
+      return;
+    }
+    proposalActionPending = true;
+    proposalActionMessage = null;
+    notifyListeners();
+    try {
+      final updated = service.rejectProposal(id);
+      proposalOutcome = updated.outcome;
+    } catch (_) {
+      proposalActionMessage =
+          '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
+    } finally {
+      proposalActionPending = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> deleteActiveConversation() async {
     final active = activeThread;
     if (active == null) return false;
@@ -585,12 +689,49 @@ final class ConversationController extends ChangeNotifier {
   void _clearTurnPresentation({required bool clearRetry}) {
     transientAssistantText = '';
     activeToolName = null;
+    _clearProposal();
     turnFailure = null;
     turnPhase = AssistantTurnPhase.idle;
     if (clearRetry) {
       _retryConversationId = null;
       _retryUserMessageId = null;
     }
+  }
+
+  void _clearProposal() {
+    proposalId = null;
+    proposalOutcome = null;
+    proposalPreview = const <String, Object?>{};
+    proposalActionPending = false;
+    proposalActionMessage = null;
+  }
+
+  void _setProposal({
+    required String proposalId,
+    required AgentWriteProposalOutcome outcome,
+    required Map<String, Object?> preview,
+  }) {
+    this.proposalId = proposalId;
+    proposalOutcome = outcome;
+    proposalPreview = Map<String, Object?>.unmodifiable(preview);
+    proposalActionPending = false;
+    proposalActionMessage = null;
+  }
+
+  /// Maps the stable tool-contract outcome string onto the application
+  /// outcome. Unknown strings fail safe as invalid.
+  AgentWriteProposalOutcome _proposalOutcomeOf(String value) {
+    return switch (value) {
+      'pending' => AgentWriteProposalOutcome.pending,
+      'committing' => AgentWriteProposalOutcome.committing,
+      'committed' => AgentWriteProposalOutcome.committed,
+      'rejected' => AgentWriteProposalOutcome.rejected,
+      'superseded' => AgentWriteProposalOutcome.superseded,
+      'stale' => AgentWriteProposalOutcome.stale,
+      'invalid' => AgentWriteProposalOutcome.invalid,
+      'unknown_outcome' => AgentWriteProposalOutcome.unknownOutcome,
+      _ => AgentWriteProposalOutcome.invalid,
+    };
   }
 
   @override

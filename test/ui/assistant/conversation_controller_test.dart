@@ -7,8 +7,15 @@ import 'package:shiroha_quiz/application/agent/agent_provider.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_proposal.dart';
+import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
+import 'package:shiroha_quiz/application/safe_write/typed_answer_command.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 
 void main() {
@@ -199,12 +206,254 @@ void main() {
     expect(controller.errorMessage, '学习空间已删除，无法保存回复');
     expect(repository.messages.where(_isAssistant), isEmpty);
   });
+
+  group('W0 proposal approval', () {
+    test(
+        'staged event projects the card and approve stays disabled while the '
+        'turn is active', () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      final proposal = await _stagePendingProposal(turns, persistence, service);
+
+      expect(controller.hasProposalCard, isTrue);
+      expect(controller.proposalId, proposal.id);
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+      expect(controller.canApproveProposal, isFalse);
+      expect(controller.canRejectProposal, isTrue);
+
+      await _completeTurn(turns, controller);
+      expect(controller.canApproveProposal, isTrue);
+    });
+
+    test('approve submits only the proposal identity and reports committed',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      await _stagePendingProposal(turns, persistence, service);
+      await _completeTurn(turns, controller);
+
+      await controller.approveProposal();
+
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.committed);
+      expect(persistence.commitCalls, hasLength(1));
+      expect(
+        persistence.commitCalls.single.proposedAnswer,
+        ContentAnswer(content: _w0Text('answer')),
+      );
+    });
+
+    test('late approval result never overwrites a newer staged proposal',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final commitBarrier = Completer<void>();
+      final persistence = _FakeProposalPersistence()
+        ..commitBarrier = commitBarrier;
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('first question'), isTrue);
+      final proposalA =
+          await _stagePendingProposal(turns, persistence, service);
+      await _completeTurn(turns, controller);
+
+      final approvalA = controller.approveProposal();
+      await _waitUntil(() => persistence.commitCalls.length == 1);
+      expect(controller.proposalActionPending, isTrue);
+
+      expect(await controller.send('second question'), isTrue);
+      final stagedB = await service.stageProposal(
+        admissionRequest: AgentWriteAdmissionRequest(
+          sourceConversationId: 'conversation-1',
+          sourceMessageId: 'message-2',
+          scope: ConversationScope.global(),
+          targetStorageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+        ),
+        proposedAnswer: ContentAnswer(content: _w0Text('second answer')),
+      );
+      final proposalB = (stagedB as AgentWriteStageResultStaged).proposal;
+      turns[1].emit(
+        AgentTurnProposalStaged(
+          proposalId: proposalB.id,
+          outcome: 'pending',
+          preview: _proposalPreviewMap(),
+        ),
+      );
+      await _flush();
+      expect(proposalB.id, isNot(proposalA.id));
+      expect(controller.proposalId, proposalB.id);
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+
+      commitBarrier.complete();
+      await approvalA;
+
+      expect(persistence.commitCalls, hasLength(1));
+      expect(persistence.commitCalls.single.sourceMessageId, 'message-1');
+      expect(controller.proposalId, proposalB.id);
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+
+      turns[1].complete(
+        AgentTurnSuccess(
+          assistantMessage: ConversationMessage(
+            messageId: 'assistant-2',
+            conversationId: 'conversation-1',
+            sequence: 3,
+            role: ConversationMessageRole.assistant,
+            content: 'ok',
+            createdAt: DateTime.fromMillisecondsSinceEpoch(3, isUtc: true),
+          ),
+        ),
+      );
+      await _waitUntil(() => !controller.hasActiveTurn);
+      expect(controller.proposalId, proposalB.id);
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+      expect(controller.canApproveProposal, isTrue);
+    });
+
+    test('reject reports rejected with zero formal writes', () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      await _stagePendingProposal(turns, persistence, service);
+      await _completeTurn(turns, controller);
+
+      controller.rejectProposal();
+
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.rejected);
+      expect(persistence.commitCalls, isEmpty);
+    });
+
+    test('natural-language agreement never triggers a commit', () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('\u597d\u7684'), isTrue);
+      await _completeTurn(turns, controller);
+
+      expect(controller.hasProposalCard, isFalse);
+      expect(persistence.commitCalls, isEmpty);
+    });
+
+    test('commit failures project safe stale and unknown outcomes', () async {
+      final stalePersistence = _FakeProposalPersistence()
+        ..commitError = const TypedAnswerMutationException(
+          TypedAnswerMutationFailure.stale,
+        );
+      final staleService = AgentWriteProposalService(stalePersistence);
+      final staleTurns = <_TurnHarness>[];
+      final staleController = _controller(
+        _MemoryRepository(),
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          staleTurns.add(turn);
+          return turn.session;
+        },
+        proposalService: staleService,
+      );
+      expect(await staleController.send('question'), isTrue);
+      await _stagePendingProposal(staleTurns, stalePersistence, staleService);
+      await _completeTurn(staleTurns, staleController);
+      await staleController.approveProposal();
+      expect(
+        staleController.proposalOutcome,
+        AgentWriteProposalOutcome.stale,
+      );
+      expect(staleController.proposalStatusText, isNotNull);
+
+      final ambiguousPersistence = _FakeProposalPersistence()
+        ..commitError = const TypedAnswerMutationException(
+          TypedAnswerMutationFailure.transactionFailed,
+        );
+      final ambiguousService = AgentWriteProposalService(ambiguousPersistence);
+      final ambiguousTurns = <_TurnHarness>[];
+      final ambiguousController = _controller(
+        _MemoryRepository(),
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          ambiguousTurns.add(turn);
+          return turn.session;
+        },
+        proposalService: ambiguousService,
+      );
+      expect(await ambiguousController.send('question'), isTrue);
+      await _stagePendingProposal(
+        ambiguousTurns,
+        ambiguousPersistence,
+        ambiguousService,
+      );
+      await _completeTurn(ambiguousTurns, ambiguousController);
+      await ambiguousController.approveProposal();
+      expect(
+        ambiguousController.proposalOutcome,
+        AgentWriteProposalOutcome.unknownOutcome,
+      );
+      expect(ambiguousController.proposalStatusText, isNotNull);
+    });
+  });
 }
 
 ConversationController _controller(
   _MemoryRepository repository, {
   required AgentTurnStarter start,
   bool configured = true,
+  AgentWriteProposalService? proposalService,
 }) {
   final configStore = _ConfigStore(
     configured
@@ -228,6 +477,7 @@ ConversationController _controller(
       profileCatalog: _Profiles(),
     ),
     startAgentTurn: start,
+    proposalService: proposalService,
   );
 }
 
@@ -270,6 +520,136 @@ final class _TurnHarness {
     _result.complete(result);
     unawaited(_events.close());
   }
+}
+
+final class _FakeProposalPersistence implements AgentWritePersistencePort {
+  _FakeProposalPersistence({AgentWriteAdmissionResult? admissionResult})
+      : admissionResult = admissionResult ??
+            AgentWriteAdmissionGranted(
+              AgentWriteAdmittedTarget(
+                storageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+                bankName: 'w0_u1_synthetic_bank',
+                draft: _w0Draft(),
+              ),
+            );
+
+  AgentWriteAdmissionResult admissionResult;
+  Object? commitError;
+  Completer<void>? commitBarrier;
+  final commitCalls = <AgentWriteCommitRequest>[];
+
+  @override
+  Future<AgentWriteAdmissionResult> admitStagingTarget(
+    AgentWriteAdmissionRequest request,
+  ) async {
+    return admissionResult;
+  }
+
+  @override
+  Future<void> commitApproved(AgentWriteCommitRequest request) async {
+    commitCalls.add(request);
+    final barrier = commitBarrier;
+    if (barrier != null) await barrier.future;
+    final failure = commitError;
+    if (failure != null) throw failure;
+  }
+}
+
+RichContent _w0Text(String text) {
+  return RichContent(nodes: <ContentNode>[TextNode(text)]);
+}
+
+QuestionDraftV2 _w0Draft() {
+  return QuestionDraftV2(
+    questionId: 'w0_u1_content_q',
+    kind: QuestionKind.shortAnswer,
+    questionNumber: 1,
+    stem: _w0Text('Stem.'),
+    explanation: _w0Text('Explanation.'),
+  );
+}
+
+/// Structured preview mirroring the Application-owned tool contract.
+Map<String, Object?> _proposalPreviewMap() {
+  return <String, Object?>{
+    'bank_name': 'w0_u1_synthetic_bank',
+    'stem': <Map<String, Object?>>[
+      <String, Object?>{'type': 'text', 'text': 'Stem.'},
+    ],
+    'options': <Map<String, Object?>>[
+      <String, Object?>{
+        'label': 'A',
+        'content': <Map<String, Object?>>[
+          <String, Object?>{'type': 'text', 'text': 'first'},
+        ],
+      },
+    ],
+    'proposed_answer': <String, Object?>{
+      'kind': 'content',
+      'nodes': <Map<String, Object?>>[
+        <String, Object?>{'type': 'text', 'text': 'answer'},
+      ],
+    },
+  };
+}
+
+Future<AgentWriteProposal> _primeProposal(
+  _FakeProposalPersistence persistence,
+  AgentWriteProposalService service,
+) async {
+  final staged = await service.stageProposal(
+    admissionRequest: AgentWriteAdmissionRequest(
+      sourceConversationId: 'conversation-1',
+      sourceMessageId: 'message-1',
+      scope: ConversationScope.global(),
+      targetStorageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+    ),
+    proposedAnswer: ContentAnswer(content: _w0Text('answer')),
+  );
+  return (staged as AgentWriteStageResultStaged).proposal;
+}
+
+Future<AgentWriteProposal> _stagePendingProposal(
+  List<_TurnHarness> turns,
+  _FakeProposalPersistence persistence,
+  AgentWriteProposalService service,
+) async {
+  final proposal = await _primeProposal(persistence, service);
+  turns.single.emit(
+    AgentTurnProposalStaged(
+      proposalId: proposal.id,
+      outcome: 'pending',
+      preview: _proposalPreviewMap(),
+    ),
+  );
+  await _flush();
+  return proposal;
+}
+
+Future<void> _completeTurn(
+  List<_TurnHarness> turns,
+  ConversationController controller,
+) async {
+  turns.single.complete(
+    AgentTurnSuccess(
+      assistantMessage: ConversationMessage(
+        messageId: 'assistant-1',
+        conversationId: 'conversation-1',
+        sequence: 2,
+        role: ConversationMessageRole.assistant,
+        content: 'ok',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      ),
+    ),
+  );
+  await _waitUntil(() => !controller.hasActiveTurn);
+}
+
+Future<void> _waitUntil(bool Function() condition) async {
+  for (var attempt = 0; attempt < 50 && !condition(); attempt++) {
+    await _flush();
+  }
+  expect(condition(), isTrue);
 }
 
 final class _ConfigStore implements AgentConfigStorePort {
