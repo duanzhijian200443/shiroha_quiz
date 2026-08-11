@@ -172,10 +172,10 @@ void main() {
       )) as AgentWriteStageResultStaged;
 
       expect(second.proposal.id, first.proposal.id);
-      final active = [
+      final active = {
         service.proposalById(first.proposal.id),
         service.proposalById(second.proposal.id),
-      ].toSet().where((p) => p.outcome == AgentWriteProposalOutcome.pending);
+      }.where((p) => p.outcome == AgentWriteProposalOutcome.pending);
       expect(active, hasLength(1));
     });
 
