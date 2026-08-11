@@ -966,6 +966,11 @@ import '../../domain/content/content_node.dart'
         'DeepSeekResponsesProvider',
         'ShirohaAgentRuntime',
         'agentRuntime.startTurn',
+        'ApprovedAgentWriteRepository',
+        'AgentWriteProposalService',
+        'AgentWriteProposalToolDispatcher',
+        'proposalDispatcher:',
+        'proposalService:',
       ]) {
         expect(
           mainSource,

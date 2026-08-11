@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
+import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'assistant_screen.dart';
 import 'conversation_controller.dart';
@@ -26,12 +27,14 @@ class AssistantWorkspaceShell extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.proposalService,
   });
 
   final U1WorkspaceFacade facade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final AgentWriteProposalService? proposalService;
 
   @override
   State<AssistantWorkspaceShell> createState() =>
@@ -54,6 +57,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
       widget.conversationService,
       agentSettingsService: widget.agentSettingsService,
       startAgentTurn: widget.startAgentTurn,
+      proposalService: widget.proposalService,
     )..load();
   }
 
