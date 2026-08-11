@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../models/persisted_question_view.dart';
 import '../widgets/persisted_question_card.dart';
@@ -122,7 +123,7 @@ class _WrongBookPageState extends State<WrongBookPage> {
         builder: (_) => TypedAnswerRepairScreen(
           question: question,
           draft: draft,
-          repository: widget.questionRepository,
+          command: TypedAnswerCommand(_questionRepository),
         ),
       ),
     ).then((modified) {
