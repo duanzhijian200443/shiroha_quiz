@@ -226,9 +226,7 @@ int _validateNonNegative(int value, String label) {
 }
 
 String _validateFingerprint(String value) {
-  if (value.isEmpty ||
-      value.length > 128 ||
-      _controlPattern.hasMatch(value)) {
+  if (value.isEmpty || value.length > 128 || _controlPattern.hasMatch(value)) {
     throw const FormatException(
       'Cache fingerprints must be bounded opaque strings.',
     );
