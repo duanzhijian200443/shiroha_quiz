@@ -100,6 +100,8 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    authoritative, with the additive v16 File Library, v17 Project, and v18
    flat File Library Folder tables, plus additive C0 Conversation, Message,
    and Conversation/File relation tables.
+   F1-D1 carries an approved additive v20 requirement (two new tables) that is
+   not implemented in F1-P0.
 
 ## 4. Learning asset expansion boundary
 
@@ -131,6 +133,32 @@ Rules:
   Space relations remain independently many-to-many.
 - Folder deletion removes Folder membership only; the `LibraryFile`, managed
   bytes, Project relations, banks, questions, sidecars, and review state remain.
+
+### ParsedArtifact lifecycle invariants
+
+- Identity is generation-scoped: `SourceDocument.sourceId = artifactId`, never
+  `fileId`; page, block, asset, and issue provenance bind to one specific
+  artifact generation.
+- Confirmed learning data is independent: artifact replacement, removal, or
+  corruption never deletes or rewrites a confirmed `QuestionDraftV2`, persisted
+  questions, or review/FSRS state, and the draft's existing `SourceRef` values
+  remain unchanged.
+- F1 v0 keeps one current artifact per file; it implements no artifact history
+  or tombstone registry, and replaced or deleted historical artifacts are not
+  guaranteed to be re-dereferenceable from unchanged `SourceRef` values.
+- Consumers reach artifacts only through the Application lifecycle seam with
+  safe outcomes and typed failures; adapters never receive SQLite rows,
+  absolute paths, `ParsedDocument`, or provider DTOs.
+- Storage is SQLite current metadata plus managed immutable sidecars; the
+  SQLite commit is the only publish visibility point, and CAS conflicts
+  preserve the current artifact.
+- Persisted payloads admit only `SourceDocument`/`SourcePart`/`SourceRef`/
+  `RichContent`/`ImportIssue`/safe `AssetRef` metadata, never provider bodies,
+  raw diagnostics, absolute paths, or binary image bytes.
+- Current runtime schema is v19; the approved additive v20 for F1-D1 is not
+  implemented in F1-P0.
+
+See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
 ## 5. Conversation foundation boundary
 
@@ -206,7 +234,7 @@ The canonical post-P5 sequence is maintained in `docs/architecture/n0-post-p5-ro
 Current-state authority, in order:
 
 1. `ARCHITECTURE.md` — repository-wide dependency and boundary contract;
-2. active focused contracts in `docs/architecture/` (for example MCP v0 and R7/R8 typed-persistence contracts);
+2. active focused contracts in `docs/architecture/` (for example MCP v0, F1 parsed-artifact lifecycle, and R7/R8 typed-persistence contracts);
 3. ADRs for accepted post-P5 architectural decisions;
 4. `docs/architecture/n0-post-p5-roadmap.md` for stage ordering and deferred decisions.
 
