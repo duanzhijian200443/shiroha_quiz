@@ -303,10 +303,9 @@ final class AgentWriteProposalService {
       return switch (result) {
         AgentWriteReconciliationCommitted() =>
           AgentWriteProposalOutcome.committed,
-        AgentWriteReconciliationBaseline() =>
-          _isActiveProposalForTurn(proposal)
-              ? AgentWriteProposalOutcome.pending
-              : AgentWriteProposalOutcome.superseded,
+        AgentWriteReconciliationBaseline() => _isActiveProposalForTurn(proposal)
+            ? AgentWriteProposalOutcome.pending
+            : AgentWriteProposalOutcome.superseded,
         AgentWriteReconciliationConflicted() => AgentWriteProposalOutcome.stale,
         AgentWriteReconciliationUnavailable() =>
           AgentWriteProposalOutcome.unknownOutcome,

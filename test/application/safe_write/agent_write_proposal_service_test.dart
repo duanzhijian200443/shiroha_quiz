@@ -870,7 +870,8 @@ void main() {
         final active = <AgentWriteProposal>[
           service.proposalById(first.proposal.id),
           service.proposalById(second.proposal.id),
-        ].where((proposal) => proposal.outcome == AgentWriteProposalOutcome.pending);
+        ].where((proposal) =>
+            proposal.outcome == AgentWriteProposalOutcome.pending);
         expect(active, hasLength(1));
 
         final approvedOld = await service.approveProposal(first.proposal.id);
