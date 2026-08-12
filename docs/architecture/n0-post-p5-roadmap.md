@@ -28,6 +28,9 @@ The current-stage amendment is:
 C0 Conversation Foundation — COMPLETE
 A0 Built-in Agent v0 — COMPLETE
 W0 Safe Agent Write — COMPLETE
+F1-P0 Parsed Artifact canonical contract — COMPLETE
+F1-D0 and later stages — NOT STARTED
+Current runtime schema — v19
 ```
 
 `B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
@@ -78,7 +81,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
 | **A0** | Built-in Agent v0 | Supported configured provider + optional provider-native Web + local read tools | unchanged |
 | **W0** | Safe Agent write | Draft/Stage -> Review -> explicit user approval -> application command -> typed persistence | preferably unchanged |
-| **F1** | Parsed Artifact lifecycle | Reparse/version/cache identity needed by P6/Agent/RAG; may be split into small sub-stages | only if required |
+| **F1** | Parsed Artifact lifecycle | Reparse/version/cache identity needed by P6/Agent/RAG; split into F1-P0..F1-CL sub-stages | approved additive v20 requirement; not implemented in F1-P0 |
 | **P6** | Supplemental-answer matching | Produce supplemental `AnswerCandidate` values from files; do not invent a new write path | preferably unchanged |
 | **P7** | AI answer candidates | Produce AI `AnswerCandidate` values; confirmation uses the same answer command boundary | unchanged |
 | **RAG** | Project retrieval enhancement | full-text/chunk/embedding/hybrid retrieval behind File/Project/Agent concepts | later |
@@ -250,6 +253,33 @@ automatically activate F1, P6 or P7.
 
 See `docs/product/W0 Safe Agent Write.md`.
 
+### F1 — Parsed Artifact lifecycle
+
+F1-P0 is COMPLETE. It wrote canonical documents only and froze the parsed
+artifact contract in `docs/architecture/f1-parsed-artifact-lifecycle.md` and
+ADR-002; it implemented no production code, tests, or schema migration.
+
+Frozen stage graph:
+
+```text
+F1-P0 -> F1-D0 -> F1-D1 -> F1-A1 -> F1-I1 -> F1-I2 -> F1-CL
+```
+
+Schema expectation: the current runtime schema is v19; F1-D1 adds an approved
+additive v20 (two new tables) that is not implemented in F1-P0.
+
+Governance:
+
+- all F1 stages are `SERIAL`; a checkpoint must complete and freeze before the
+  next stage starts, and later stages never auto-activate;
+- F1-CL is the closure point: focused verification followed by the final full
+  semantic review;
+- mid-stage review escalation is allowed only for a truly unresolved Class C
+  decision or still-unfrozen schema/CAS semantics;
+- there is no F1-U; UI entry/redesign remains deferred.
+
+See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
+
 ### P6/P7 — Answer candidate producers
 
 The long-term shared shape is:
@@ -298,4 +328,6 @@ Until separately authorized:
 - `docs/product/W0 Safe Agent Write.md` is the focused W0 write-boundary
   authority.
 - R7/R8 focused documents remain the authority for frozen typed persistence/consumer invariants.
+- `docs/architecture/f1-parsed-artifact-lifecycle.md` is the focused F1
+  authority.
 - R0-era files marked historical describe the migration origin, not the current runtime state.
