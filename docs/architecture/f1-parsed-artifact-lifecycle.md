@@ -301,20 +301,22 @@ F1-P0 -> F1-D0 -> F1-D1 -> F1-A1 -> F1-I1 -> F1-I2 -> F1-CL
 
 Ownership:
 
-- `F1-P0`: canonical docs (this stage, COMPLETE).
+- `F1-P0`: canonical docs — COMPLETE.
 - `F1-D0`: ParsedArtifact domain, SourceDocument codec, payload codec —
   COMPLETE.
 - `F1-D1`: v20 migration, repository, managed sidecar storage — COMPLETE.
-- `F1-A1`: cache/reparse/CAS/removal/GC orchestration — NOT STARTED.
+- `F1-A1`: Application lifecycle seam and orchestration — COMPLETE.
 - `F1-I1`: deterministic routes on existing parser truth — NOT STARTED.
 - `F1-I2`: explicit OCR offline integration — NOT STARTED.
 - `F1-CL`: focused verification, final full semantic review, canonical
   closure — NOT STARTED.
 
-Current state: F1-P0, F1-D0, and F1-D1 are COMPLETE. The v20 tables and the
-D1 persistence/storage primitives exist in production. F1-A1 lifecycle
-orchestration (cache/reparse semantics, per-file locking, full publish
-sequence, cleanup scheduling) has not begun.
+Current state: F1-P0 through F1-A1 are COMPLETE. The v20 tables, the D1
+persistence/storage primitives, and the A1 lifecycle seam (get/ensure/reparse/
+remove, cache fingerprint v1, per-file mutation gate, publish and best-effort
+cleanup orchestration, and the 11-item Application failure taxonomy) exist in
+production. F1-I1 deterministic parser routes and F1-I2 explicit OCR
+integration are NOT STARTED; there is no UI, Agent, or MCP activation.
 
 Governance:
 
