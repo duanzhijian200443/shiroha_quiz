@@ -107,6 +107,7 @@ jobs:
               'test/core/database/f1_v20_migration_test.dart',
               'test/data/repositories/parsed_artifact_repository_test.dart',
               'test/services/file_library/managed_artifact_storage_adapter_test.dart',
+              'test/services/parsed_artifacts/parsed_artifact_lifecycle_service_test.dart',
               'test/domain/conversations/conversation_test.dart',
               'test/application/conversations/conversation_service_test.dart',
               'test/data/repositories/conversation_repository_test.dart',
