@@ -128,7 +128,7 @@ void main() {
       () async {
     final db = await openSeam(inMemoryDatabasePath);
     try {
-      expect(await userVersion(db), 19);
+      expect(await userVersion(db), 20);
       expect((await c0Schema(db)).keys.toSet(), _c0Objects);
       final conversationFk = await db.rawQuery(
         'PRAGMA foreign_key_list(conversations)',
@@ -161,7 +161,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 19);
+      expect(await userVersion(upgraded), 20);
       expect(await c0Schema(upgraded), freshSchema);
       expect(await upgraded.query('conversations'), isEmpty);
       expect(await upgraded.query('conversation_messages'), isEmpty);

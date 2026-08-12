@@ -20,7 +20,7 @@ class DatabaseHelper implements AiEngineStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = 19;
+  static const int _dbVersion = 20;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -375,6 +375,89 @@ CREATE INDEX IF NOT EXISTS idx_conversation_files_file_id
   ON conversation_files(file_id);
 ''';
 
+  static const String _parsedArtifactHeadsTable = 'parsed_artifact_heads';
+  static const String _parsedArtifactsTable = 'parsed_artifacts';
+
+  /// Exact frozen v20 additive F1-D1 head definition. The head retains
+  /// revision continuity after current removal; deleting a LibraryFile
+  /// cascades both head and current artifact metadata.
+  static const String _parsedArtifactHeadsDdl = '''
+CREATE TABLE parsed_artifact_heads (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  last_revision INTEGER NOT NULL CHECK(last_revision >= 0),
+  FOREIGN KEY(file_id)
+    REFERENCES library_files(file_id) ON DELETE CASCADE
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen v20 head definition.
+  static const String _parsedArtifactHeadsDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS parsed_artifact_heads (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  last_revision INTEGER NOT NULL CHECK(last_revision >= 0),
+  FOREIGN KEY(file_id)
+    REFERENCES library_files(file_id) ON DELETE CASCADE
+);
+''';
+
+  /// Exact frozen v20 additive F1-D1 current-artifact definition. At most
+  /// one current row per file; `artifact_id` and `storage_key` are globally
+  /// unique. No status/history/chunk/vector/provider/options JSON, question,
+  /// bank, Project, or Conversation fields are stored here.
+  static const String _parsedArtifactsDdl = '''
+CREATE TABLE parsed_artifacts (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  artifact_id TEXT NOT NULL UNIQUE,
+  revision INTEGER NOT NULL CHECK(revision > 0),
+  source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
+  cache_key_version INTEGER NOT NULL CHECK(cache_key_version > 0),
+  cache_fingerprint TEXT NOT NULL
+    CHECK(length(cache_fingerprint) BETWEEN 1 AND 128),
+  parser_route TEXT NOT NULL
+    CHECK(length(parser_route) BETWEEN 1 AND 64),
+  parser_version TEXT NOT NULL
+    CHECK(length(parser_version) BETWEEN 1 AND 64),
+  options_schema_version INTEGER NOT NULL
+    CHECK(options_schema_version > 0),
+  payload_schema_version INTEGER NOT NULL
+    CHECK(payload_schema_version > 0),
+  storage_key TEXT NOT NULL UNIQUE CHECK(length(storage_key) > 0),
+  payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256) = 64),
+  size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+  published_at INTEGER NOT NULL CHECK(published_at >= 0),
+  FOREIGN KEY(file_id)
+    REFERENCES parsed_artifact_heads(file_id) ON DELETE CASCADE
+);
+''';
+
+  /// Idempotent upgrade variant of the same frozen v20 current-artifact
+  /// definition.
+  static const String _parsedArtifactsDdlIfNotExists = '''
+CREATE TABLE IF NOT EXISTS parsed_artifacts (
+  file_id TEXT PRIMARY KEY NOT NULL,
+  artifact_id TEXT NOT NULL UNIQUE,
+  revision INTEGER NOT NULL CHECK(revision > 0),
+  source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
+  cache_key_version INTEGER NOT NULL CHECK(cache_key_version > 0),
+  cache_fingerprint TEXT NOT NULL
+    CHECK(length(cache_fingerprint) BETWEEN 1 AND 128),
+  parser_route TEXT NOT NULL
+    CHECK(length(parser_route) BETWEEN 1 AND 64),
+  parser_version TEXT NOT NULL
+    CHECK(length(parser_version) BETWEEN 1 AND 64),
+  options_schema_version INTEGER NOT NULL
+    CHECK(options_schema_version > 0),
+  payload_schema_version INTEGER NOT NULL
+    CHECK(payload_schema_version > 0),
+  storage_key TEXT NOT NULL UNIQUE CHECK(length(storage_key) > 0),
+  payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256) = 64),
+  size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+  published_at INTEGER NOT NULL CHECK(published_at >= 0),
+  FOREIGN KEY(file_id)
+    REFERENCES parsed_artifact_heads(file_id) ON DELETE CASCADE
+);
+''';
+
   static DatabaseHelper? _instance;
   static Database? _database;
   static Future<Database>? _openingDatabase;
@@ -687,11 +770,14 @@ CREATE INDEX IF NOT EXISTS idx_conversation_files_file_id
     await db.execute(_conversationMessagesOrderIndexDdl);
     await db.execute(_conversationFilesOrderIndexDdl);
     await db.execute(_conversationFilesFileIndexDdl);
+    await db.execute(_parsedArtifactHeadsDdl);
+    await db.execute(_parsedArtifactsDdl);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
     await _validateLibraryFolderSchema(db);
     await _validateConversationSchema(db);
+    await _validateParsedArtifactSchema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -827,11 +913,16 @@ CREATE INDEX IF NOT EXISTS idx_conversation_files_file_id
       await db.execute(_conversationFilesOrderIndexDdlIfNotExists);
       await db.execute(_conversationFilesFileIndexDdlIfNotExists);
     }
+    if (oldVersion < 20) {
+      await db.execute(_parsedArtifactHeadsDdlIfNotExists);
+      await db.execute(_parsedArtifactsDdlIfNotExists);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
     await _validateLibraryFolderSchema(db);
     await _validateConversationSchema(db);
+    await _validateParsedArtifactSchema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -1312,6 +1403,114 @@ CREATE INDEX IF NOT EXISTS idx_conversation_files_file_id
         )) {
       throw const ConversationSchemaException(
         ConversationSchemaFailure.malformedSchema,
+      );
+    }
+  }
+
+  /// Validates the frozen v20 parsed-artifact tables before the open/upgrade
+  /// can succeed.
+  ///
+  /// The open callbacks already run inside the SQLite open transaction, so
+  /// this method must not start a nested transaction; a thrown failure
+  /// aborts the open, preserving the prior user_version and existing rows.
+  static Future<void> _validateParsedArtifactSchema(Database db) async {
+    final objects = <String, String?>{};
+    for (final row in await db.rawQuery(
+      "SELECT name, sql FROM sqlite_master WHERE type IN ('table', 'index')",
+    )) {
+      objects[row['name'] as String] = row['sql'] as String?;
+    }
+
+    final expectedSql = <String, String>{
+      _parsedArtifactHeadsTable: _parsedArtifactHeadsDdl,
+      _parsedArtifactsTable: _parsedArtifactsDdl,
+    };
+    for (final entry in expectedSql.entries) {
+      final storedSql = objects[entry.key];
+      if (storedSql == null ||
+          _canonicalizeSql(storedSql) != _canonicalizeSql(entry.value)) {
+        throw const ParsedArtifactSchemaException(
+          ParsedArtifactSchemaFailure.malformedSchema,
+        );
+      }
+    }
+
+    final unexpectedIndexes = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index' "
+      "AND tbl_name IN ('$_parsedArtifactHeadsTable', '$_parsedArtifactsTable') "
+      "AND name NOT LIKE 'sqlite_autoindex%'",
+    );
+    if (unexpectedIndexes.isNotEmpty) {
+      throw const ParsedArtifactSchemaException(
+        ParsedArtifactSchemaFailure.malformedSchema,
+      );
+    }
+
+    final heads = await db.rawQuery(
+      'PRAGMA table_info($_parsedArtifactHeadsTable)',
+    );
+    if (!_matchesColumns(heads, const <(String, String, int, int)>[
+      ('file_id', 'TEXT', 1, 1),
+      ('last_revision', 'INTEGER', 1, 0),
+    ])) {
+      throw const ParsedArtifactSchemaException(
+        ParsedArtifactSchemaFailure.malformedSchema,
+      );
+    }
+
+    final artifacts = await db.rawQuery(
+      'PRAGMA table_info($_parsedArtifactsTable)',
+    );
+    if (!_matchesColumns(artifacts, const <(String, String, int, int)>[
+      ('file_id', 'TEXT', 1, 1),
+      ('artifact_id', 'TEXT', 1, 0),
+      ('revision', 'INTEGER', 1, 0),
+      ('source_sha256', 'TEXT', 1, 0),
+      ('cache_key_version', 'INTEGER', 1, 0),
+      ('cache_fingerprint', 'TEXT', 1, 0),
+      ('parser_route', 'TEXT', 1, 0),
+      ('parser_version', 'TEXT', 1, 0),
+      ('options_schema_version', 'INTEGER', 1, 0),
+      ('payload_schema_version', 'INTEGER', 1, 0),
+      ('storage_key', 'TEXT', 1, 0),
+      ('payload_sha256', 'TEXT', 1, 0),
+      ('size_bytes', 'INTEGER', 1, 0),
+      ('published_at', 'INTEGER', 1, 0),
+    ])) {
+      throw const ParsedArtifactSchemaException(
+        ParsedArtifactSchemaFailure.malformedSchema,
+      );
+    }
+
+    final headForeignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list($_parsedArtifactHeadsTable)',
+    );
+    if (headForeignKeys.length != 1 ||
+        !_matchesConversationForeignKey(
+          headForeignKeys,
+          from: 'file_id',
+          table: 'library_files',
+          onUpdate: 'NO ACTION',
+          onDelete: 'CASCADE',
+        )) {
+      throw const ParsedArtifactSchemaException(
+        ParsedArtifactSchemaFailure.malformedSchema,
+      );
+    }
+
+    final artifactForeignKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list($_parsedArtifactsTable)',
+    );
+    if (artifactForeignKeys.length != 1 ||
+        !_matchesConversationForeignKey(
+          artifactForeignKeys,
+          from: 'file_id',
+          table: 'parsed_artifact_heads',
+          onUpdate: 'NO ACTION',
+          onDelete: 'CASCADE',
+        )) {
+      throw const ParsedArtifactSchemaException(
+        ParsedArtifactSchemaFailure.malformedSchema,
       );
     }
   }
@@ -2697,6 +2896,21 @@ final class ConversationSchemaException implements Exception {
   String toString() {
     return 'ConversationSchemaException(${failure.name}): '
         'The Conversation tables do not match the frozen v19 definition.';
+  }
+}
+
+enum ParsedArtifactSchemaFailure { malformedSchema }
+
+/// Fixed, SQL/path/row-free failure for the additive v20 F1-D1 schema.
+final class ParsedArtifactSchemaException implements Exception {
+  const ParsedArtifactSchemaException(this.failure);
+
+  final ParsedArtifactSchemaFailure failure;
+
+  @override
+  String toString() {
+    return 'ParsedArtifactSchemaException(${failure.name}): '
+        'The parsed artifact tables do not match the frozen v20 definition.';
   }
 }
 

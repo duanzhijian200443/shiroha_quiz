@@ -318,7 +318,7 @@ void main() {
       final reopened = _FileDatabaseHelper(path);
       final reopenedDb = await reopened.database;
       final version = await reopenedDb.rawQuery('PRAGMA user_version');
-      expect(version.single['user_version'], 19);
+      expect(version.single['user_version'], 20);
       expect(await reopenedDb.query('questions'), hasLength(2));
       expect(await reopenedDb.query('question_v2_payloads'), hasLength(1));
       await reopened.close();

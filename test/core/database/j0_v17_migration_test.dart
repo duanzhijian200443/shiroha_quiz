@@ -221,7 +221,7 @@ void main() {
   test('fresh v17 create matches the frozen J0 Project contract', () async {
     final db = await openSeam(inMemoryDatabasePath);
     try {
-      expect(await userVersion(db), 19);
+      expect(await userVersion(db), 20);
       expect(
         (await db.rawQuery('PRAGMA foreign_keys')).single.values.single,
         1,
@@ -253,7 +253,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 19);
+      expect(await userVersion(upgraded), 20);
       await expectCanonicalProjectTables(upgraded);
       expect(await upgraded.query('projects'), isEmpty);
       expect(await upgraded.query('project_files'), isEmpty);
@@ -316,7 +316,7 @@ void main() {
     // Reopen at v17 is idempotent and retains everything.
     final reopened = await openSeam(path);
     try {
-      expect(await userVersion(reopened), 19);
+      expect(await userVersion(reopened), 20);
       expect(
         await reopened.query(
           'question_v2_payloads',
@@ -348,7 +348,7 @@ void main() {
 
       final upgraded = await openSeam(path);
       try {
-        expect(await userVersion(upgraded), 19);
+        expect(await userVersion(upgraded), 20);
         await expectCanonicalProjectTables(upgraded);
         expect(
           (await upgraded.query(
