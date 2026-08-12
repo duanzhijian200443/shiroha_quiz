@@ -770,10 +770,15 @@ void main() {
         // rejected.
         const authorizedParsedCaller = 'lib/services/parsed_artifacts/'
             'deterministic_parsed_artifact_generation_adapter.dart';
-        // R7B frozen typed-candidate seam: the only authorized production
-        // caller of OcrSourceDocumentAdapter.
-        const authorizedOcrCaller =
-            'lib/services/import_pipeline/ocr_typed_candidate.dart';
+        // F1-I2 Class C amendment: OcrSourceDocumentAdapter is activated for
+        // exactly two production consumers - the frozen R7B typed-candidate
+        // seam and the F1-I2 explicit OCR artifact generation seam. Every
+        // other production caller stays rejected.
+        const authorizedOcrCallers = <String>{
+          'lib/services/import_pipeline/ocr_typed_candidate.dart',
+          'lib/services/parsed_artifacts/'
+              'ocr_parsed_artifact_generation_adapter.dart',
+        };
         final offenders = <String>[];
         for (final entity in Directory('lib').listSync(recursive: true)) {
           if (entity is! File || !entity.path.endsWith('.dart')) continue;
@@ -785,7 +790,7 @@ void main() {
             offenders.add('$normalized references ParsedSourceDocumentAdapter');
           }
           if (content.contains('OcrSourceDocumentAdapter') &&
-              normalized != authorizedOcrCaller) {
+              !authorizedOcrCallers.contains(normalized)) {
             offenders.add('$normalized references OcrSourceDocumentAdapter');
           }
         }
@@ -798,7 +803,10 @@ void main() {
               'deterministic_parsed_artifact_generation_adapter.dart); '
               'OcrSourceDocumentAdapter is allowed only in the frozen '
               'typed-candidate seam '
-              '(lib/services/import_pipeline/ocr_typed_candidate.dart)',
+              '(lib/services/import_pipeline/ocr_typed_candidate.dart) and '
+              'the F1-I2 OCR artifact generation seam '
+              '(lib/services/parsed_artifacts/'
+              'ocr_parsed_artifact_generation_adapter.dart)',
         );
       },
     );

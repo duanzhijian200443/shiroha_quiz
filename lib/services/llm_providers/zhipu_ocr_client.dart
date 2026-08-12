@@ -66,7 +66,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
 
     final file = File(filePath);
     final length = await file.length();
-    final mimeType = _mimeTypeForPath(filePath);
+    final mimeType = _mimeTypeFor(filePath, sourceName);
     final isPdf = mimeType == 'application/pdf';
     if (isPdf && length > maxPdfBytes) {
       throw Exception('GLM-OCR PDF file exceeds 50MB limit.');
@@ -172,14 +172,28 @@ class ZhipuOcrClient implements OcrDocumentClient {
     }
   }
 
-  String _mimeTypeForPath(String filePath) {
-    final lower = filePath.toLowerCase();
+  /// Resolves the media type for OCR admission.
+  ///
+  /// The physical [filePath] is tried first (its extension, when present, is
+  /// authoritative). When the managed path has no supported extension, the
+  /// caller-provided [sourceName] is tried, so privacy-neutral runtime names
+  /// such as `<artifactId>.pdf` / `.png` / `.jpg` can carry the MIME signal.
+  String _mimeTypeFor(String filePath, String sourceName) {
+    final fromPath = _tryMimeForPath(filePath);
+    if (fromPath != null) return fromPath;
+    final fromSource = _tryMimeForPath(sourceName);
+    if (fromSource != null) return fromSource;
+    throw ArgumentError('GLM-OCR only supports PDF, JPG, JPEG, and PNG.');
+  }
+
+  String? _tryMimeForPath(String value) {
+    final lower = value.toLowerCase();
     if (lower.endsWith('.pdf')) return 'application/pdf';
     if (lower.endsWith('.png')) return 'image/png';
     if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
       return 'image/jpeg';
     }
-    throw ArgumentError('GLM-OCR only supports PDF, JPG, JPEG, and PNG.');
+    return null;
   }
 
   int _readPdfPageCount(List<int> bytes) {

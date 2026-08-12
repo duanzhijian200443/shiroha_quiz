@@ -33,7 +33,8 @@ F1-D0 Parsed Artifact domain/codec — COMPLETE
 F1-D1 v20 parsed artifact persistence — COMPLETE
 F1-A1 Parsed Artifact lifecycle orchestration — COMPLETE
 F1-I1 Deterministic generation adapter — COMPLETE
-F1-I2 and later stages — NOT STARTED
+F1-I2 Explicit OCR generation — COMPLETE
+F1-CL and later stages — NOT STARTED
 Current runtime schema — v20
 ```
 
@@ -264,9 +265,12 @@ production code, tests, or schema migration. F1-D0 (ParsedArtifact domain and
 codecs), F1-D1 (v20 parsed artifact persistence), and F1-A1 (Application
 lifecycle seam and orchestration) are also COMPLETE. F1-I1 (deterministic
 production generation adapter for `pdf_text`/`docx_text`/`txt`/`markdown`)
-is COMPLETE and reuses the existing parser truth; F1-I2 (explicit OCR
-integration) and later stages are NOT STARTED. There is no UI, Agent, or MCP
-activation.
+is COMPLETE and reuses the existing parser truth. F1-I2 (explicit
+`ocr_pdf`/`ocr_image` ParsedArtifact generation through
+`OcrDocumentClient -> OcrSourceDocumentAdapter`) is COMPLETE with offline/mock
+testing only; `auto` never triggers OCR, and the question OCR pipeline is not
+part of artifact generation. F1-CL and later stages are NOT STARTED. There is
+no UI, Agent, or MCP activation.
 
 Frozen stage graph:
 
