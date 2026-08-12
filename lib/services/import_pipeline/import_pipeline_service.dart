@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
@@ -21,6 +20,7 @@ import 'docx_text_first_parse_service.dart';
 import 'parsed_document.dart';
 import 'adapters/txt_document_adapter.dart';
 import 'adapters/markdown_document_adapter.dart';
+import 'adapters/pdf_text_extractor_adapter.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
 import 'adapters/zip_document_adapter.dart';
 import 'import_attempt_context.dart';
@@ -249,10 +249,9 @@ class ImportPipelineService {
           ParsedDocument? parsedDoc;
 
           if (format == ImportFormat.pdf) {
-            final bytes = await file.readAsBytes();
-            final document = PdfDocument(inputBytes: bytes);
-            rawText = PdfTextExtractor(document).extractText();
-            document.dispose();
+            rawText = await PdfTextExtractorAdapter.extractText(
+              filePath: filePath,
+            );
             if (rawText.trim().isEmpty) {
               allWarnings.add('未检测到可提取文字，请改用视觉或 OCR 模式。');
             }
