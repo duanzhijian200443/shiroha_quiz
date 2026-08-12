@@ -787,6 +787,94 @@ void main() {
     );
 
     test(
+      'a superseded semantic replay cannot hide the current pending proposal '
+      'for the same source turn',
+      () async {
+        final repository = _MemoryRepository();
+        final turns = <_TurnHarness>[];
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            turns.add(turn);
+            return turn.session;
+          },
+          proposalService: service,
+        );
+        await repository.seedConversation(
+          'conversation-other',
+          'message-seed',
+        );
+
+        expect(await controller.send('question'), isTrue);
+        final proposalA =
+            await _stagePendingProposal(turns, persistence, service);
+        final request = AgentWriteAdmissionRequest(
+          sourceConversationId: proposalA.sourceConversationId,
+          sourceMessageId: proposalA.sourceMessageId,
+          scope: proposalA.scope,
+          targetStorageId: proposalA.targetStorageId,
+        );
+        final answerB = ContentAnswer(content: _w0Text('second answer'));
+        final stagedB = await service.stageProposal(
+          admissionRequest: request,
+          proposedAnswer: answerB,
+        );
+        final proposalB = (stagedB as AgentWriteStageResultStaged).proposal;
+        turns.single.emit(
+          AgentTurnProposalStaged(
+            proposalId: proposalB.id,
+            outcome: 'pending',
+            preview: _proposalPreviewMap(),
+          ),
+        );
+        await _flush();
+
+        expect(
+          service.proposalById(proposalA.id).outcome,
+          AgentWriteProposalOutcome.superseded,
+        );
+        expect(proposalB.outcome, AgentWriteProposalOutcome.pending);
+        expect(controller.proposalId, proposalB.id);
+
+        final replayed = await service.stageProposal(
+          admissionRequest: request,
+          proposedAnswer: proposalA.proposedAnswer,
+        );
+        final replayedA = (replayed as AgentWriteStageResultStaged).proposal;
+        turns.single.emit(
+          AgentTurnProposalStaged(
+            proposalId: replayedA.id,
+            outcome: 'superseded',
+            preview: _proposalPreviewMap(),
+          ),
+        );
+        await _flush();
+
+        expect(replayedA.id, proposalA.id);
+        expect(replayedA.outcome, AgentWriteProposalOutcome.superseded);
+        expect(controller.proposalId, proposalB.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+
+        await _completeTurn(turns, controller);
+        expect(await controller.openConversation('conversation-other'), isTrue);
+        expect(await controller.openConversation('conversation-1'), isTrue);
+
+        expect(controller.proposalId, proposalB.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+        expect(controller.canApproveProposal, isTrue);
+
+        await controller.approveProposal();
+
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.committed);
+        expect(persistence.commitCalls, hasLength(1));
+        expect(persistence.commitCalls.single.proposedAnswer, answerB);
+      },
+    );
+
+    test(
       'deleting the source conversation drops the binding; a fresh service '
       'restores nothing',
       () async {
