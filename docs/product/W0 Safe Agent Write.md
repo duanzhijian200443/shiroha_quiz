@@ -1,7 +1,6 @@
 # W0 Safe Agent Write
 
-Status: **Canonical W0 product/application contract. W0 is CURRENT and is not
-yet COMPLETE.**
+Status: **Canonical W0 product/application contract. W0 is COMPLETE.**
 
 ## 1. Authority and bounded first capability
 
@@ -295,9 +294,8 @@ W0 v0 does not include:
 
 ## 12. Stage and closure status
 
-W0 remains CURRENT until implementation, focused independent verification, and
-semantic review close all required acceptance without unresolved P0/P1/P2
-findings. A final **W0-CL canonical closure checkpoint** then marks this
-document and the roadmap COMPLETE. W0-CL must not rewrite this contract to
-excuse an implementation deviation; a material deviation reopens contract
-approval.
+W0 is COMPLETE. Implementation, focused independent verification, and semantic
+review closed all required acceptance without unresolved P0/P1/P2 findings,
+and the **W0-CL canonical closure checkpoint** marked this document and the
+roadmap COMPLETE. W0-CL did not rewrite this contract to excuse an
+implementation deviation; a material deviation reopens contract approval.
