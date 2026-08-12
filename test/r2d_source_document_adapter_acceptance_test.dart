@@ -756,7 +756,7 @@ void main() {
     });
 
     test(
-      'only the frozen typed-candidate seam may reference the OCR adapter',
+      'adapter production callers stay on the exact frozen allowlist',
       () {
         const skip = <String>{
           'lib/services/import_pipeline/adapters/'
@@ -764,6 +764,12 @@ void main() {
           'lib/services/import_pipeline/adapters/'
               'ocr_source_document_adapter.dart',
         };
+        // F1-I1 Class C amendment: ParsedSourceDocumentAdapter is activated
+        // for exactly one production consumer, the deterministic parsed
+        // artifact generation adapter. Every other production caller stays
+        // rejected.
+        const authorizedParsedCaller = 'lib/services/parsed_artifacts/'
+            'deterministic_parsed_artifact_generation_adapter.dart';
         // R7B frozen typed-candidate seam: the only authorized production
         // caller of OcrSourceDocumentAdapter.
         const authorizedOcrCaller =
@@ -774,7 +780,8 @@ void main() {
           final normalized = entity.path.replaceAll('\\', '/');
           if (skip.contains(normalized)) continue;
           final content = entity.readAsStringSync();
-          if (content.contains('ParsedSourceDocumentAdapter')) {
+          if (content.contains('ParsedSourceDocumentAdapter') &&
+              normalized != authorizedParsedCaller) {
             offenders.add('$normalized references ParsedSourceDocumentAdapter');
           }
           if (content.contains('OcrSourceDocumentAdapter') &&
@@ -785,8 +792,10 @@ void main() {
         expect(
           offenders,
           isEmpty,
-          reason:
-              'ParsedSourceDocumentAdapter must have no production callers; '
+          reason: 'ParsedSourceDocumentAdapter is allowed only in the F1-I1 '
+              'deterministic generation adapter '
+              '(lib/services/parsed_artifacts/'
+              'deterministic_parsed_artifact_generation_adapter.dart); '
               'OcrSourceDocumentAdapter is allowed only in the frozen '
               'typed-candidate seam '
               '(lib/services/import_pipeline/ocr_typed_candidate.dart)',

@@ -306,17 +306,25 @@ Ownership:
   COMPLETE.
 - `F1-D1`: v20 migration, repository, managed sidecar storage — COMPLETE.
 - `F1-A1`: Application lifecycle seam and orchestration — COMPLETE.
-- `F1-I1`: deterministic routes on existing parser truth — NOT STARTED.
+- `F1-I1`: deterministic production generation adapter on existing parser
+  truth — COMPLETE.
 - `F1-I2`: explicit OCR offline integration — NOT STARTED.
 - `F1-CL`: focused verification, final full semantic review, canonical
   closure — NOT STARTED.
 
-Current state: F1-P0 through F1-A1 are COMPLETE. The v20 tables, the D1
+Current state: F1-P0 through F1-I1 are COMPLETE. The v20 tables, the D1
 persistence/storage primitives, and the A1 lifecycle seam (get/ensure/reparse/
 remove, cache fingerprint v1, per-file mutation gate, publish and best-effort
 cleanup orchestration, and the 11-item Application failure taxonomy) exist in
-production. F1-I1 deterministic parser routes and F1-I2 explicit OCR
-integration are NOT STARTED; there is no UI, Agent, or MCP activation.
+production. F1-I1 wires deterministic artifact generation through the A1
+generation port for `pdf_text`/`docx_text`/`txt`/`markdown`, reusing the
+existing parser truth (shared Syncfusion PDF text extraction,
+`DocxDocumentAdapter`, `TxtDocumentAdapter`, `MarkdownDocumentAdapter`) and
+projecting every result through `ParsedSourceDocumentAdapter`. Under the F1-I1
+Class C amendment, `ParsedSourceDocumentAdapter` is activated for exactly one
+production consumer (the deterministic generation adapter); the R2D
+acceptance allowlist keeps rejecting every other caller. F1-I2 explicit OCR
+integration is NOT STARTED; there is no UI, Agent, or MCP activation.
 
 Governance:
 
