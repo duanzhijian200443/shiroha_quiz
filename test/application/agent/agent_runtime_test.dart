@@ -357,11 +357,12 @@ void main() {
 
   group('W0 proposal integration', () {
     test(
-        'exposes only the six read tools until the proposal dispatcher is '
-        'wired', () async {
+        'keeps prompt and tool surface in agreement whether or not the '
+        'proposal dispatcher is wired', () async {
       final unwired = _Harness(scripts: <_Script>[_finalAnswer('ok')]);
-      final (unwiredConversationId, unwiredMessageId) =
-          await unwired.seedUser('question');
+      final (unwiredConversationId, unwiredMessageId) = await unwired.seedUser(
+        'question',
+      );
       final unwiredResult = await unwired.runtime
           .startTurn(
             conversationId: unwiredConversationId,
@@ -373,13 +374,19 @@ void main() {
         unwired.provider.requests.single.tools.map((tool) => tool.name),
         AgentStudyToolCatalog.toolNames,
       );
+      final unwiredPrompt = unwired.provider.requests.single.systemPrompt;
+      expect(unwiredPrompt, contains('You are READ_ONLY.'));
+      expect(unwiredPrompt, isNot(contains('propose_missing_answer')));
+      expect(unwiredPrompt, isNot(contains('DRAFT/STAGE')));
+      expect(unwiredPrompt, isNot(contains('proposal')));
 
       final wired = _Harness(
         wireProposal: true,
         scripts: <_Script>[_finalAnswer('ok')],
       );
-      final (wiredConversationId, wiredMessageId) =
-          await wired.seedUser('question');
+      final (wiredConversationId, wiredMessageId) = await wired.seedUser(
+        'question',
+      );
       final wiredResult = await wired.runtime
           .startTurn(
             conversationId: wiredConversationId,
@@ -394,6 +401,31 @@ void main() {
           AgentWriteProposalToolCatalog.toolName,
         ],
       );
+      final wiredPrompt = wired.provider.requests.single.systemPrompt;
+      expect(
+        wiredPrompt,
+        contains(
+          'You may request a DRAFT/STAGE proposal for a missing typed '
+          'answer with propose_missing_answer.',
+        ),
+      );
+      expect(
+        wiredPrompt,
+        contains(
+          'You cannot approve, commit, replace, clear, or delete answers.',
+        ),
+      );
+      expect(
+        wiredPrompt,
+        contains('Natural-language agreement is not approval.'),
+      );
+      expect(
+        wiredPrompt,
+        contains(
+          'Never claim that a proposal was committed or formally written.',
+        ),
+      );
+      expect(wiredPrompt, contains('Never claim that writes occurred.'));
     });
 
     test(
@@ -403,10 +435,7 @@ void main() {
       final harness = _Harness(
         wireProposal: true,
         scripts: <_Script>[
-          _toolRound(
-            <AgentProviderFunctionCall>[_proposalCall('p-1')],
-            state,
-          ),
+          _toolRound(<AgentProviderFunctionCall>[_proposalCall('p-1')], state),
           _finalAnswer('answer'),
         ],
       );
@@ -441,53 +470,49 @@ void main() {
       );
     });
 
-    test('semantic replay within one turn reuses the same proposal id',
-        () async {
-      const state = _TestContinuationState('s');
-      final harness = _Harness(
-        wireProposal: true,
-        scripts: <_Script>[
-          _toolRound(
-            <AgentProviderFunctionCall>[
+    test(
+      'semantic replay within one turn reuses the same proposal id',
+      () async {
+        const state = _TestContinuationState('s');
+        final harness = _Harness(
+          wireProposal: true,
+          scripts: <_Script>[
+            _toolRound(<AgentProviderFunctionCall>[
               _proposalCall('p-1'),
               _proposalCall('p-2'),
-            ],
-            state,
-          ),
-          _finalAnswer('answer'),
-        ],
-      );
-      final (conversationId, userMessageId) = await harness.seedUser(
-        'question',
-      );
+            ], state),
+            _finalAnswer('answer'),
+          ],
+        );
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+        );
 
-      final result = await harness.runtime
-          .startTurn(
-            conversationId: conversationId,
-            userMessageId: userMessageId,
-          )
-          .result;
+        final result = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
 
-      expect(result, isA<AgentTurnSuccess>());
-      final outputs = harness.provider.requests[1].toolOutputs;
-      expect(outputs, hasLength(2));
-      final firstId = (jsonDecode(outputs[0].output)
-          as Map<String, dynamic>)['result']['proposal_id'];
-      final secondId = (jsonDecode(outputs[1].output)
-          as Map<String, dynamic>)['result']['proposal_id'];
-      expect(firstId, isNotEmpty);
-      expect(secondId, firstId);
-    });
+        expect(result, isA<AgentTurnSuccess>());
+        final outputs = harness.provider.requests[1].toolOutputs;
+        expect(outputs, hasLength(2));
+        final firstId = (jsonDecode(outputs[0].output)
+            as Map<String, dynamic>)['result']['proposal_id'];
+        final secondId = (jsonDecode(outputs[1].output)
+            as Map<String, dynamic>)['result']['proposal_id'];
+        expect(firstId, isNotEmpty);
+        expect(secondId, firstId);
+      },
+    );
 
     test('turn failure after staging performs no formal write', () async {
       const state = _TestContinuationState('s');
       final harness = _Harness(
         wireProposal: true,
         scripts: <_Script>[
-          _toolRound(
-            <AgentProviderFunctionCall>[_proposalCall('p-1')],
-            state,
-          ),
+          _toolRound(<AgentProviderFunctionCall>[_proposalCall('p-1')], state),
           (request, token) async* {
             yield AgentProviderTextDelta('partial');
             throw const AgentProviderException(
@@ -519,17 +544,12 @@ void main() {
       final harness = _Harness(
         wireProposal: true,
         scripts: <_Script>[
-          _toolRound(
-            <AgentProviderFunctionCall>[_proposalCall('p-1')],
-            state,
-          ),
+          _toolRound(<AgentProviderFunctionCall>[_proposalCall('p-1')], state),
           (request, token) async* {
             yield AgentProviderTextDelta('partial');
             deltaYielded.complete();
             await token.whenCancelled;
-            throw const AgentProviderException(
-              AgentProviderFailure.cancelled,
-            );
+            throw const AgentProviderException(AgentProviderFailure.cancelled);
           },
         ],
       );
@@ -550,6 +570,48 @@ void main() {
       final messages = await harness.messagesOf(conversationId);
       expect(messages, hasLength(1));
     });
+
+    test(
+      'proposal admission completing after turn timeout leaves no hidden '
+      'proposal',
+      () async {
+        const state = _TestContinuationState('s');
+        final harness = _Harness(
+          wireProposal: true,
+          limits: const AgentRuntimeLimits(
+            turnTimeout: Duration(milliseconds: 120),
+          ),
+          scripts: <_Script>[
+            _toolRound(
+                <AgentProviderFunctionCall>[_proposalCall('p-1')], state),
+          ],
+        );
+        final admissionGate = Completer<void>();
+        harness.proposalPersistence.admissionGate = admissionGate;
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+        );
+
+        final result = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
+        expect(_failureOf(result), AgentTurnFailure.timeout);
+        expect(harness.proposalPersistence.admissionRequests, hasLength(1));
+
+        admissionGate.complete();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          () => harness.proposalService!.proposalById('proposal_0'),
+          throwsArgumentError,
+        );
+        expect(harness.proposalPersistence.commitCalls, isEmpty);
+      },
+    );
   });
 
   group('web and capabilities', () {
@@ -1456,10 +1518,12 @@ final class _Harness {
     );
     dispatcher = _FakeDispatcher();
     proposalPersistence = _FakeAgentWritePersistence();
+    proposalService =
+        wireProposal ? AgentWriteProposalService(proposalPersistence) : null;
     proposalDispatcher = wireProposal
         ? AgentWriteProposalToolDispatcher(
             persistence: proposalPersistence,
-            proposalService: AgentWriteProposalService(proposalPersistence),
+            proposalService: proposalService!,
           )
         : null;
     runtime = ShirohaAgentRuntime(
@@ -1482,6 +1546,7 @@ final class _Harness {
   late final _ScriptedProvider provider;
   late final _FakeDispatcher dispatcher;
   late final _FakeAgentWritePersistence proposalPersistence;
+  late final AgentWriteProposalService? proposalService;
   late final AgentWriteProposalToolDispatcher? proposalDispatcher;
   late final ShirohaAgentRuntime runtime;
   var _conversationSequence = 0;
@@ -1795,6 +1860,7 @@ final class _FakeAgentWritePersistence implements AgentWritePersistencePort {
             );
 
   AgentWriteAdmissionResult admissionResult;
+  Completer<void>? admissionGate;
   final admissionRequests = <AgentWriteAdmissionRequest>[];
   final commitCalls = <AgentWriteCommitRequest>[];
 
@@ -1803,6 +1869,8 @@ final class _FakeAgentWritePersistence implements AgentWritePersistencePort {
     AgentWriteAdmissionRequest request,
   ) async {
     admissionRequests.add(request);
+    final gate = admissionGate;
+    if (gate != null) await gate.future;
     return admissionResult;
   }
 

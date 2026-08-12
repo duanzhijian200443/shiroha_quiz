@@ -1,7 +1,9 @@
 /// Stable, runtime-owned Shiroha system prompt.
 ///
 /// The prompt is built by the Application runtime (never by UI), is not
-/// persisted, and is not stored as a Conversation Message.
+/// persisted, and is not stored as a Conversation Message. The runtime passes
+/// one capability truth derived from actual dispatcher availability so the
+/// prompt never advertises a proposal tool that is not wired.
 library;
 
 import '../../domain/conversations/conversation.dart';
@@ -12,6 +14,7 @@ final class ShirohaSystemPrompt {
 
   String build({
     required ConversationScope scope,
+    required bool proposalCapabilityEnabled,
     List<ConversationFileRef> files = const <ConversationFileRef>[],
   }) {
     final buffer = StringBuffer()
@@ -21,18 +24,22 @@ final class ShirohaSystemPrompt {
       ..writeln('- You are READ_ONLY.')
       ..writeln('- You may use local study tools only.')
       ..writeln('- no autonomous mutation')
-      ..writeln(
-        '- You may request a DRAFT/STAGE proposal for a missing typed '
-        'answer with propose_missing_answer.',
-      )
-      ..writeln(
-        '- You cannot approve, commit, replace, clear, or delete answers.',
-      )
-      ..writeln('- Natural-language agreement is not approval.')
-      ..writeln(
-        '- Never claim that a proposal was committed or formally written.',
-      )
-      ..writeln('- Never claim that writes occurred.')
+      ..writeln('- Never claim that writes occurred.');
+    if (proposalCapabilityEnabled) {
+      buffer
+        ..writeln(
+          '- You may request a DRAFT/STAGE proposal for a missing typed '
+          'answer with propose_missing_answer.',
+        )
+        ..writeln(
+          '- You cannot approve, commit, replace, clear, or delete answers.',
+        )
+        ..writeln('- Natural-language agreement is not approval.')
+        ..writeln(
+          '- Never claim that a proposal was committed or formally written.',
+        );
+    }
+    buffer
       ..writeln()
       ..writeln('Tool behavior:')
       ..writeln('- Use local study tools when study data is needed.')

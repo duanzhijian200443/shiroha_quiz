@@ -447,6 +447,387 @@ void main() {
       expect(ambiguousController.proposalStatusText, isNotNull);
     });
   });
+
+  group('W0 proposal passive-dismissal restoration', () {
+    test(
+      'switching away and back restores the exact pending proposal and '
+      'preview',
+      () async {
+        final repository = _MemoryRepository();
+        final turns = <_TurnHarness>[];
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            turns.add(turn);
+            return turn.session;
+          },
+          proposalService: service,
+        );
+        await repository.seedConversation(
+          'conversation-other',
+          'message-seed',
+        );
+
+        expect(await controller.send('question'), isTrue);
+        final proposal =
+            await _stagePendingProposal(turns, persistence, service);
+        await _completeTurn(turns, controller);
+        expect(controller.proposalId, proposal.id);
+
+        expect(await controller.openConversation('conversation-other'), isTrue);
+        expect(controller.hasProposalCard, isFalse);
+
+        expect(await controller.openConversation('conversation-1'), isTrue);
+        expect(controller.proposalId, proposal.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+        expect(controller.proposalPreview['bank_name'], 'w0_u1_synthetic_bank');
+        expect(controller.proposalPreview['proposed_answer'], isA<Map>());
+        expect(controller.canApproveProposal, isTrue);
+      },
+    );
+
+    test(
+      'rejected and committed outcomes restore accurately when previously '
+      'bound',
+      () async {
+        final rejectedRepository = _MemoryRepository();
+        final rejectedTurns = <_TurnHarness>[];
+        final rejectedPersistence = _FakeProposalPersistence();
+        final rejectedService = AgentWriteProposalService(rejectedPersistence);
+        final rejectedController = _controller(
+          rejectedRepository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            rejectedTurns.add(turn);
+            return turn.session;
+          },
+          proposalService: rejectedService,
+        );
+        await rejectedRepository.seedConversation(
+          'conversation-other',
+          'message-seed',
+        );
+        await rejectedController.send('question');
+        final rejectedProposal = await _stagePendingProposal(
+          rejectedTurns,
+          rejectedPersistence,
+          rejectedService,
+        );
+        await _completeTurn(rejectedTurns, rejectedController);
+        rejectedController.rejectProposal();
+        expect(
+          rejectedController.proposalOutcome,
+          AgentWriteProposalOutcome.rejected,
+        );
+        await rejectedController.openConversation('conversation-other');
+        await rejectedController.openConversation('conversation-1');
+        expect(rejectedController.proposalId, rejectedProposal.id);
+        expect(
+          rejectedController.proposalOutcome,
+          AgentWriteProposalOutcome.rejected,
+        );
+
+        final committedRepository = _MemoryRepository();
+        final committedTurns = <_TurnHarness>[];
+        final committedPersistence = _FakeProposalPersistence();
+        final committedService =
+            AgentWriteProposalService(committedPersistence);
+        final committedController = _controller(
+          committedRepository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            committedTurns.add(turn);
+            return turn.session;
+          },
+          proposalService: committedService,
+        );
+        await committedRepository.seedConversation(
+          'conversation-other',
+          'message-seed',
+        );
+        await committedController.send('question');
+        final committedProposal = await _stagePendingProposal(
+          committedTurns,
+          committedPersistence,
+          committedService,
+        );
+        await _completeTurn(committedTurns, committedController);
+        await committedController.approveProposal();
+        expect(
+          committedController.proposalOutcome,
+          AgentWriteProposalOutcome.committed,
+        );
+        await committedController.openConversation('conversation-other');
+        await committedController.openConversation('conversation-1');
+        expect(committedController.proposalId, committedProposal.id);
+        expect(
+          committedController.proposalOutcome,
+          AgentWriteProposalOutcome.committed,
+        );
+      },
+    );
+
+    test(
+      'superseded and stale outcomes restore accurately when previously '
+      'bound',
+      () async {
+        final supersededRepository = _MemoryRepository();
+        final supersededTurns = <_TurnHarness>[];
+        final supersededPersistence = _FakeProposalPersistence();
+        final supersededService =
+            AgentWriteProposalService(supersededPersistence);
+        final supersededController = _controller(
+          supersededRepository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            supersededTurns.add(turn);
+            return turn.session;
+          },
+          proposalService: supersededService,
+        );
+        await supersededRepository.seedConversation(
+          'conversation-other',
+          'message-seed',
+        );
+        await supersededController.send('question');
+        final boundProposal = await _stagePendingProposal(
+          supersededTurns,
+          supersededPersistence,
+          supersededService,
+        );
+        await _completeTurn(supersededTurns, supersededController);
+        // A different payload on the same source turn supersedes the bound
+        // proposal before any new event is projected.
+        final superseding = (await supersededService.stageProposal(
+          admissionRequest: AgentWriteAdmissionRequest(
+            sourceConversationId: 'conversation-1',
+            sourceMessageId: 'message-1',
+            scope: ConversationScope.global(),
+            targetStorageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+          ),
+          proposedAnswer: ContentAnswer(content: _w0Text('second answer')),
+        )) as AgentWriteStageResultStaged;
+        expect(superseding.proposal.id, isNot(boundProposal.id));
+        expect(
+          supersededService.proposalById(boundProposal.id).outcome,
+          AgentWriteProposalOutcome.superseded,
+        );
+        await supersededController.openConversation('conversation-other');
+        await supersededController.openConversation('conversation-1');
+        expect(supersededController.proposalId, boundProposal.id);
+        expect(
+          supersededController.proposalOutcome,
+          AgentWriteProposalOutcome.superseded,
+        );
+        expect(supersededController.canApproveProposal, isFalse);
+
+        final staleRepository = _MemoryRepository();
+        final staleTurns = <_TurnHarness>[];
+        final stalePersistence = _FakeProposalPersistence()
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.stale,
+          );
+        final staleService = AgentWriteProposalService(stalePersistence);
+        final staleController = _controller(
+          staleRepository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            staleTurns.add(turn);
+            return turn.session;
+          },
+          proposalService: staleService,
+        );
+        await staleRepository.seedConversation(
+          'conversation-other',
+          'message-seed',
+        );
+        await staleController.send('question');
+        final staleProposal = await _stagePendingProposal(
+          staleTurns,
+          stalePersistence,
+          staleService,
+        );
+        await _completeTurn(staleTurns, staleController);
+        await staleController.approveProposal();
+        expect(
+          staleController.proposalOutcome,
+          AgentWriteProposalOutcome.stale,
+        );
+        await staleController.openConversation('conversation-other');
+        await staleController.openConversation('conversation-1');
+        expect(staleController.proposalId, staleProposal.id);
+        expect(
+          staleController.proposalOutcome,
+          AgentWriteProposalOutcome.stale,
+        );
+      },
+    );
+
+    test(
+      'different conversations restore their own exact proposal ids without '
+      'collapsing to one per-Conversation rule',
+      () async {
+        final repository = _MemoryRepository();
+        final turns = <_TurnHarness>[];
+        final targets = <(String, String)>[];
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            targets.add((conversationId, userMessageId));
+            final turn = _TurnHarness();
+            turns.add(turn);
+            return turn.session;
+          },
+          proposalService: service,
+        );
+
+        expect(await controller.send('question in A'), isTrue);
+        final proposalA =
+            await _stagePendingProposal(turns, persistence, service);
+        await _completeTurn(turns, controller);
+
+        await repository.seedConversation(
+          'conversation-2',
+          'message-seed-2',
+        );
+        expect(await controller.openConversation('conversation-2'), isTrue);
+        expect(await controller.send('question in B'), isTrue);
+        final (conversationB, messageB) = targets[1];
+        final proposalB = await _stageProposalOn(
+          turns[1],
+          persistence,
+          service,
+          conversationId: conversationB,
+          messageId: messageB,
+        );
+        await _completeTurnOn(turns[1], controller);
+        expect(proposalB.id, isNot(proposalA.id));
+        expect(controller.proposalId, proposalB.id);
+
+        expect(await controller.openConversation('conversation-1'), isTrue);
+        expect(controller.proposalId, proposalA.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+
+        expect(await controller.openConversation('conversation-2'), isTrue);
+        expect(controller.proposalId, proposalB.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+      },
+    );
+
+    test(
+      'different source turns in one conversation remain reachable in '
+      'deterministic order',
+      () async {
+        final repository = _MemoryRepository();
+        final turns = <_TurnHarness>[];
+        final targets = <(String, String)>[];
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            targets.add((conversationId, userMessageId));
+            final turn = _TurnHarness();
+            turns.add(turn);
+            return turn.session;
+          },
+          proposalService: service,
+        );
+
+        expect(await controller.send('first question'), isTrue);
+        final proposalA =
+            await _stagePendingProposal(turns, persistence, service);
+        await _completeTurn(turns, controller);
+
+        expect(await controller.send('second question'), isTrue);
+        expect(controller.proposalId, proposalA.id);
+        final (conversationId, messageId) = targets[1];
+        final proposalB = await _stageProposalOn(
+          turns[1],
+          persistence,
+          service,
+          conversationId: conversationId,
+          messageId: messageId,
+        );
+        await _completeTurnOn(turns[1], controller);
+
+        expect(proposalB.id, isNot(proposalA.id));
+        expect(controller.proposalId, proposalA.id);
+        expect(service.proposalById(proposalA.id).outcome,
+            AgentWriteProposalOutcome.pending);
+        expect(service.proposalById(proposalB.id).outcome,
+            AgentWriteProposalOutcome.pending);
+
+        final projectedProposalIds = <String?>[];
+        void recordProjection() {
+          projectedProposalIds.add(controller.proposalId);
+        }
+
+        controller.addListener(recordProjection);
+        await controller.approveProposal();
+        controller.removeListener(recordProjection);
+
+        expect(service.proposalById(proposalA.id).outcome,
+            AgentWriteProposalOutcome.committed);
+        expect(controller.proposalId, proposalB.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+        expect(controller.canApproveProposal, isTrue);
+        expect(
+          projectedProposalIds,
+          contains(proposalB.id),
+          reason: 'Presentation listeners must observe the controller advance '
+              'to the next pending proposal after async approval.',
+        );
+      },
+    );
+
+    test(
+      'deleting the source conversation drops the binding; a fresh service '
+      'restores nothing',
+      () async {
+        final repository = _MemoryRepository();
+        final turns = <_TurnHarness>[];
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            final turn = _TurnHarness();
+            turns.add(turn);
+            return turn.session;
+          },
+          proposalService: service,
+        );
+        await controller.send('question');
+        await _stagePendingProposal(turns, persistence, service);
+        await _completeTurn(turns, controller);
+        expect(controller.hasProposalCard, isTrue);
+
+        // Process/service replacement analogue: a fresh controller and a
+        // fresh in-memory service know no proposal identity.
+        final freshController = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            return _TurnHarness().session;
+          },
+          proposalService:
+              AgentWriteProposalService(_FakeProposalPersistence()),
+        );
+        await freshController.openConversation('conversation-1');
+        expect(freshController.hasProposalCard, isFalse);
+
+        expect(await controller.deleteActiveConversation(), isTrue);
+        expect(controller.hasProposalCard, isFalse);
+        await controller.openConversation('conversation-1');
+        expect(controller.hasProposalCard, isFalse);
+      },
+    );
+  });
 }
 
 ConversationController _controller(
@@ -626,6 +1007,34 @@ Future<AgentWriteProposal> _stagePendingProposal(
   return proposal;
 }
 
+Future<AgentWriteProposal> _stageProposalOn(
+  _TurnHarness turn,
+  _FakeProposalPersistence persistence,
+  AgentWriteProposalService service, {
+  required String conversationId,
+  required String messageId,
+}) async {
+  final staged = await service.stageProposal(
+    admissionRequest: AgentWriteAdmissionRequest(
+      sourceConversationId: conversationId,
+      sourceMessageId: messageId,
+      scope: ConversationScope.global(),
+      targetStorageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+    ),
+    proposedAnswer: ContentAnswer(content: _w0Text('answer')),
+  );
+  final proposal = (staged as AgentWriteStageResultStaged).proposal;
+  turn.emit(
+    AgentTurnProposalStaged(
+      proposalId: proposal.id,
+      outcome: 'pending',
+      preview: _proposalPreviewMap(),
+    ),
+  );
+  await _flush();
+  return proposal;
+}
+
 Future<void> _completeTurn(
   List<_TurnHarness> turns,
   ConversationController controller,
@@ -635,6 +1044,25 @@ Future<void> _completeTurn(
       assistantMessage: ConversationMessage(
         messageId: 'assistant-1',
         conversationId: 'conversation-1',
+        sequence: 2,
+        role: ConversationMessageRole.assistant,
+        content: 'ok',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      ),
+    ),
+  );
+  await _waitUntil(() => !controller.hasActiveTurn);
+}
+
+Future<void> _completeTurnOn(
+  _TurnHarness turn,
+  ConversationController controller,
+) async {
+  turn.complete(
+    AgentTurnSuccess(
+      assistantMessage: ConversationMessage(
+        messageId: 'assistant-turn',
+        conversationId: controller.activeThread!.conversation.conversationId,
         sequence: 2,
         role: ConversationMessageRole.assistant,
         content: 'ok',
@@ -681,6 +1109,7 @@ final class _Profiles implements AgentProfileCatalogPort {
 final class _MemoryRepository extends Fake
     implements ConversationRepositoryPort {
   Conversation? conversation;
+  final Map<String, Conversation> _conversationsById = <String, Conversation>{};
   final List<ConversationMessage> messages = <ConversationMessage>[];
   var _messageCounter = 0;
   var _milliseconds = 1;
@@ -689,6 +1118,28 @@ final class _MemoryRepository extends Fake
   DateTime tick() =>
       DateTime.fromMillisecondsSinceEpoch(_milliseconds++, isUtc: true);
 
+  Future<void> seedConversation(String conversationId, String messageId) {
+    return createWithFirstMessage(
+      conversation: Conversation(
+        conversationId: conversationId,
+        scope: ConversationScope.global(),
+        title: 'Synthetic $conversationId',
+        createdAt: tick(),
+        updatedAt: tick(),
+      ),
+      firstMessage: ConversationMessage(
+        messageId: messageId,
+        conversationId: conversationId,
+        sequence: 1,
+        role: ConversationMessageRole.user,
+        content: 'seeded',
+        createdAt: tick(),
+      ),
+      fileIds: const <String>[],
+      attachedAt: tick(),
+    );
+  }
+
   @override
   Future<ConversationThreadSlice> createWithFirstMessage({
     required Conversation conversation,
@@ -696,9 +1147,10 @@ final class _MemoryRepository extends Fake
     required List<String> fileIds,
     required DateTime attachedAt,
   }) async {
+    _conversationsById[conversation.conversationId] = conversation;
     this.conversation = conversation;
     messages.add(firstMessage);
-    return _slice();
+    return _sliceFor(conversation.conversationId);
   }
 
   @override
@@ -709,7 +1161,7 @@ final class _MemoryRepository extends Fake
     required String content,
     required DateTime createdAt,
   }) async {
-    final current = conversation;
+    final current = _conversationsById[conversationId];
     if (current == null) {
       throw const ConversationException(
           ConversationFailure.conversationNotFound);
@@ -717,21 +1169,29 @@ final class _MemoryRepository extends Fake
     final message = ConversationMessage(
       messageId: messageId,
       conversationId: conversationId,
-      sequence: messages.length + 1,
+      sequence: messages
+              .where((message) => message.conversationId == conversationId)
+              .length +
+          1,
       role: role,
       content: content,
       createdAt: createdAt,
     );
     messages.add(message);
     conversation = current.withUpdatedAt(createdAt);
+    _conversationsById[conversationId] = conversation!;
     return AppendMessageResult(conversation: conversation!, message: message);
   }
 
   ConversationMessage persistAssistant(String content) {
+    final conversationId = conversation!.conversationId;
     final message = ConversationMessage(
       messageId: nextMessageId(),
-      conversationId: conversation!.conversationId,
-      sequence: messages.length + 1,
+      conversationId: conversationId,
+      sequence: messages
+              .where((message) => message.conversationId == conversationId)
+              .length +
+          1,
       role: ConversationMessageRole.assistant,
       content: content,
       createdAt: tick(),
@@ -745,15 +1205,30 @@ final class _MemoryRepository extends Fake
     required String conversationId,
     required int limit,
     int? beforeSequence,
-  }) async =>
-      _slice();
+  }) async {
+    if (!_conversationsById.containsKey(conversationId)) {
+      throw const ConversationException(
+        ConversationFailure.conversationNotFound,
+      );
+    }
+    return _sliceFor(conversationId);
+  }
+
+  @override
+  Future<void> deleteConversation(String conversationId) async {
+    _conversationsById.remove(conversationId);
+    messages.removeWhere(
+      (message) => message.conversationId == conversationId,
+    );
+    if (conversation?.conversationId == conversationId) {
+      conversation = null;
+    }
+  }
 
   @override
   Future<List<Conversation>> listRecentConversations(
           {required int limit}) async =>
-      conversation == null
-          ? const <Conversation>[]
-          : <Conversation>[conversation!];
+      _conversationsById.values.toList();
 
   @override
   Future<List<Conversation>> listConversationsForProject({
@@ -767,9 +1242,12 @@ final class _MemoryRepository extends Fake
           {required int limit}) async =>
       const <ConversationFileRef>[];
 
-  ConversationThreadSlice _slice() => ConversationThreadSlice(
-        conversation: conversation!,
-        messages: messages,
+  ConversationThreadSlice _sliceFor(String conversationId) =>
+      ConversationThreadSlice(
+        conversation: _conversationsById[conversationId]!,
+        messages: messages
+            .where((message) => message.conversationId == conversationId)
+            .toList(),
         files: const <ConversationFileRef>[],
         hasMoreBefore: false,
         nextBeforeSequence: null,

@@ -7,6 +7,7 @@ void main() {
   test('covers identity, permission, tool, web, reasoning, and security', () {
     final prompt = const ShirohaSystemPrompt().build(
       scope: ConversationScope.global(),
+      proposalCapabilityEnabled: true,
     );
 
     expect(
@@ -75,9 +76,40 @@ void main() {
     );
   });
 
+  test(
+      'with the proposal capability disabled, stays READ_ONLY truthful and '
+      'does not advertise the proposal tool', () {
+    final prompt = const ShirohaSystemPrompt().build(
+      scope: ConversationScope.global(),
+      proposalCapabilityEnabled: false,
+    );
+
+    expect(prompt, contains('You are READ_ONLY.'));
+    expect(prompt, contains('local study tools only'));
+    expect(prompt, contains('no autonomous mutation'));
+    expect(prompt, isNot(contains('propose_missing_answer')));
+    expect(prompt, isNot(contains('DRAFT/STAGE')));
+    expect(prompt, isNot(contains('proposal')));
+    expect(
+      prompt,
+      isNot(contains('approve, commit, replace, clear, or delete')),
+    );
+    expect(prompt, isNot(contains('Natural-language agreement')));
+    expect(prompt, contains('Never claim that writes occurred.'));
+    expect(prompt, contains('Never invent tool results.'));
+    expect(
+      prompt,
+      contains(
+        'Never claim that browsing happened when the capability is '
+        'unavailable.',
+      ),
+    );
+  });
+
   test('declares files as metadata-only and never readable', () {
     final prompt = const ShirohaSystemPrompt().build(
       scope: ConversationScope.global(),
+      proposalCapabilityEnabled: true,
       files: const <ConversationFileRef>[
         ConversationFileRef(
           fileId: 'file-private-id',
@@ -105,6 +137,7 @@ void main() {
   test('states the conversation scope deterministically', () {
     final global = const ShirohaSystemPrompt().build(
       scope: ConversationScope.global(),
+      proposalCapabilityEnabled: true,
     );
     expect(global, contains('This conversation is Global.'));
     expect(
@@ -117,6 +150,7 @@ void main() {
 
     final learningSpace = const ShirohaSystemPrompt().build(
       scope: ConversationScope.learningSpace('project-a'),
+      proposalCapabilityEnabled: true,
     );
     expect(
       learningSpace,
@@ -128,6 +162,7 @@ void main() {
 
     final unavailable = const ShirohaSystemPrompt().build(
       scope: ConversationScope.unavailableLearningSpace(),
+      proposalCapabilityEnabled: true,
     );
     expect(
       unavailable,

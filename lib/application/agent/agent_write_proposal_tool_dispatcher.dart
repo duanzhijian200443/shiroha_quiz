@@ -56,7 +56,10 @@ final class AgentWriteProposalToolDispatcher {
   static const int _maxTextRunes = 2048;
   static const int _maxLatexRunes = 1024;
 
-  Future<String> dispatch(AgentWriteProposalToolCall call) async {
+  Future<String> dispatch(
+    AgentWriteProposalToolCall call, {
+    bool Function()? proposalMutationAllowed,
+  }) async {
     if (utf8.encode(call.argumentsJson).length >
         _limits.maxToolArgumentUtf8Bytes) {
       return _failure(_ToolFailure.invalidRequest);
@@ -73,13 +76,28 @@ final class AgentWriteProposalToolDispatcher {
     }
     try {
       final parsed = _parseArguments(arguments);
-      final result = await _handle(parsed, call);
-      final encoded =
-          jsonEncode(<String, Object?>{'ok': true, 'result': result});
+      final result = await _handle(
+        parsed,
+        call,
+        proposalMutationAllowed: proposalMutationAllowed,
+      );
+      final encoded = jsonEncode(<String, Object?>{
+        'ok': true,
+        'result': result,
+      });
       if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
         return _failure(_ToolFailure.internal);
       }
       return encoded;
+    } on AgentWriteStageResultTooLargeException {
+      // The pre-activation result-size gate rejected the exact candidate
+      // before any lifecycle mutation; the transport can never deliver it.
+      return _failure(_ToolFailure.internal);
+    } on AgentWriteStageCancelledException {
+      // A runtime timeout/cancellation guard refused the final synchronous
+      // activation gate. The enclosing turn owns the visible failure; this
+      // bounded response is relevant only if dispatch is still observed.
+      return _failure(_ToolFailure.internal);
     } on _ToolFailureException catch (error) {
       return _failure(error.failure);
     } on ArgumentError {
@@ -91,8 +109,9 @@ final class AgentWriteProposalToolDispatcher {
 
   Future<Map<String, Object?>> _handle(
     _ParsedToolArguments parsed,
-    AgentWriteProposalToolCall call,
-  ) async {
+    AgentWriteProposalToolCall call, {
+    bool Function()? proposalMutationAllowed,
+  }) async {
     final request = AgentWriteAdmissionRequest(
       sourceConversationId: call.sourceConversationId,
       sourceMessageId: call.sourceMessageId,
@@ -126,6 +145,8 @@ final class AgentWriteProposalToolDispatcher {
     final staged = await _proposalService.stageProposal(
       admissionRequest: request,
       proposedAnswer: answer,
+      resultSizeGate: _resultFits,
+      lifecycleMutationAllowed: proposalMutationAllowed,
     );
     switch (staged) {
       case AgentWriteStageResultStaged(:final proposal):
@@ -135,6 +156,24 @@ final class AgentWriteProposalToolDispatcher {
       case AgentWriteStageResultIneligible():
         throw const _ToolFailureException(_ToolFailure.ineligible);
     }
+  }
+
+  /// Returns whether the exact encoded tool result for [candidate] fits the
+  /// transport limit.
+  ///
+  /// [candidate] is the exact proposal the service would activate (real
+  /// proposal id, frozen preview and current pending outcome), so the
+  /// encoding is byte-identical to the eventual success result. The service
+  /// invokes this gate before any lifecycle mutation, so an oversized result
+  /// can never leave a hidden pending proposal or supersede an older one.
+  /// The post-encoding check in [dispatch] remains only as defense-in-depth
+  /// (for example replay results whose outcome spelling differs).
+  bool _resultFits(AgentWriteProposal candidate) {
+    final encoded = jsonEncode(<String, Object?>{
+      'ok': true,
+      'result': _successResult(candidate),
+    });
+    return utf8.encode(encoded).length <= _limits.maxToolResultUtf8Bytes;
   }
 
   _ParsedToolArguments _parseArguments(Map<String, dynamic> arguments) {
@@ -250,18 +289,21 @@ final class AgentWriteProposalToolDispatcher {
     return raw;
   }
 
+  /// Builds the success payload exclusively from the exact staged [proposal]
+  /// preview, identity and outcome returned by the service, so the tool
+  /// result can never show a snapshot different from the one the proposal
+  /// fingerprint/expectedDraft/approval path uses.
   Map<String, Object?> _successResult(AgentWriteProposal proposal) {
-    final preview = proposal.preview;
     return <String, Object?>{
       'proposal_id': proposal.id,
       'outcome': _outcomeOf(proposal.outcome),
       'preview': <String, Object?>{
-        'bank_name': preview.bankName,
+        'bank_name': proposal.preview.bankName,
         'stem': <Map<String, Object?>>[
-          for (final node in preview.stem.nodes) _nodeOf(node),
+          for (final node in proposal.preview.stem.nodes) _nodeOf(node),
         ],
         'options': <Map<String, Object?>>[
-          for (final option in preview.options)
+          for (final option in proposal.preview.options)
             <String, Object?>{
               'label': option.label,
               'content': <Map<String, Object?>>[
@@ -269,7 +311,10 @@ final class AgentWriteProposalToolDispatcher {
               ],
             },
         ],
-        'proposed_answer': _answerOf(preview.proposedAnswer, preview.options),
+        'proposed_answer': _answerOf(
+          proposal.preview.proposedAnswer,
+          proposal.preview.options,
+        ),
       },
     };
   }
@@ -322,11 +367,11 @@ final class AgentWriteProposalToolDispatcher {
       TextNode(:final text) => <String, Object?>{'type': 'text', 'text': text},
       InlineMathNode(:final latex) => <String, Object?>{
           'type': 'inline_math',
-          'latex': latex
+          'latex': latex,
         },
       BlockMathNode(:final latex) => <String, Object?>{
           'type': 'block_math',
-          'latex': latex
+          'latex': latex,
         },
       RawFallbackNode() => <String, Object?>{'type': 'unsupported'},
     };

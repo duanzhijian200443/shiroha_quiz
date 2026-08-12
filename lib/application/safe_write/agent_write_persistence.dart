@@ -118,3 +118,81 @@ final class AgentWriteCommitRequest {
   final QuestionDraftV2 expectedDraft;
   final QuestionAnswer proposedAnswer;
 }
+
+/// Application-owned permission-aware read used to reconcile one ambiguous
+/// COMMIT outcome (for example a `transactionFailed` persistence failure
+/// that may or may not have become durable).
+///
+/// The read revalidates the same source Conversation / User Message / scope /
+/// Project / `project_banks` / target authority as staging and COMMIT and
+/// never performs a formal write. Denied, unavailable and unconfirmable
+/// results carry no target identity or content.
+abstract interface class AgentWriteReconciliationPort {
+  /// Reads whether an approved fill-missing-answer COMMIT became durable.
+  ///
+  /// Only the exact expected baseline and the exact post-image (expected
+  /// baseline draft with only the proposed answer applied) are
+  /// distinguished; any other confirmed draft is a conflict. Every failed
+  /// authority/read precondition maps to [AgentWriteReconciliationUnavailable]
+  /// so no target content can leak through the ambiguity.
+  Future<AgentWriteReconciliationResult> reconcileAfterAmbiguousCommit(
+    AgentWriteReconciliationRequest request,
+  );
+}
+
+/// One fill-missing-answer ambiguous COMMIT to reconcile. Carries the same
+/// frozen inputs as the failed [AgentWriteCommitRequest] so the read can
+/// compare the exact baseline and post-image.
+final class AgentWriteReconciliationRequest {
+  const AgentWriteReconciliationRequest({
+    required this.sourceConversationId,
+    required this.sourceMessageId,
+    required this.scope,
+    required this.targetStorageId,
+    required this.expectedBankName,
+    required this.expectedDraft,
+    required this.proposedAnswer,
+  });
+
+  final String sourceConversationId;
+  final String sourceMessageId;
+  final ConversationScope scope;
+  final String targetStorageId;
+  final String expectedBankName;
+  final QuestionDraftV2 expectedDraft;
+  final QuestionAnswer proposedAnswer;
+}
+
+sealed class AgentWriteReconciliationResult {
+  const AgentWriteReconciliationResult();
+}
+
+/// The target now structurally equals the exact post-image: the ambiguous
+/// COMMIT became durable.
+final class AgentWriteReconciliationCommitted
+    extends AgentWriteReconciliationResult {
+  const AgentWriteReconciliationCommitted();
+}
+
+/// The target still structurally equals the exact baseline: the ambiguous
+/// COMMIT did not become durable and only an explicit user retry may re-enter
+/// COMMIT.
+final class AgentWriteReconciliationBaseline
+    extends AgentWriteReconciliationResult {
+  const AgentWriteReconciliationBaseline();
+}
+
+/// The target is confirmed but differs from both the exact baseline and the
+/// exact post-image.
+final class AgentWriteReconciliationConflicted
+    extends AgentWriteReconciliationResult {
+  const AgentWriteReconciliationConflicted();
+}
+
+/// Denied, unavailable or unconfirmable read. Carries no target identity or
+/// content; the ambiguous outcome stays unresolved and must not be retried
+/// automatically.
+final class AgentWriteReconciliationUnavailable
+    extends AgentWriteReconciliationResult {
+  const AgentWriteReconciliationUnavailable();
+}
