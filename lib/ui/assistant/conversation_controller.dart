@@ -596,6 +596,7 @@ final class ConversationController extends ChangeNotifier {
     proposalActionPending = true;
     proposalActionMessage = null;
     notifyListeners();
+    var shouldNotify = false;
     try {
       final updated = await service.approveProposal(id);
       if (!_disposed && proposalId == id) {
@@ -605,15 +606,20 @@ final class ConversationController extends ChangeNotifier {
           preview: _previewMapOf(updated.preview),
         );
         _showNextPendingProposalAfter(updated);
+        shouldNotify = true;
       }
     } catch (_) {
       if (!_disposed && proposalId == id) {
         proposalActionMessage =
             '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
+        shouldNotify = true;
       }
     } finally {
       if (!_disposed && proposalId == id) {
         proposalActionPending = false;
+        shouldNotify = true;
+      }
+      if (!_disposed && shouldNotify) {
         notifyListeners();
       }
     }

@@ -763,13 +763,26 @@ void main() {
         expect(service.proposalById(proposalB.id).outcome,
             AgentWriteProposalOutcome.pending);
 
-        controller.rejectProposal();
+        final projectedProposalIds = <String?>[];
+        void recordProjection() {
+          projectedProposalIds.add(controller.proposalId);
+        }
+
+        controller.addListener(recordProjection);
+        await controller.approveProposal();
+        controller.removeListener(recordProjection);
 
         expect(service.proposalById(proposalA.id).outcome,
-            AgentWriteProposalOutcome.rejected);
+            AgentWriteProposalOutcome.committed);
         expect(controller.proposalId, proposalB.id);
         expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
         expect(controller.canApproveProposal, isTrue);
+        expect(
+          projectedProposalIds,
+          contains(proposalB.id),
+          reason: 'Presentation listeners must observe the controller advance '
+              'to the next pending proposal after async approval.',
+        );
       },
     );
 
