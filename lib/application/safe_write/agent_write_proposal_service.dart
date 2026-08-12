@@ -65,6 +65,7 @@ final class AgentWriteProposalService {
     required AgentWriteAdmissionRequest admissionRequest,
     required QuestionAnswer proposedAnswer,
     bool Function(AgentWriteProposal candidate)? resultSizeGate,
+    bool Function()? lifecycleMutationAllowed,
   }) async {
     if (!_answerPolicy.isStructurallyValidPayload(proposedAnswer)) {
       return const AgentWriteStageResultIneligible();
@@ -104,6 +105,9 @@ final class AgentWriteProposalService {
         );
         if (resultSizeGate != null && !resultSizeGate(proposal)) {
           throw const AgentWriteStageResultTooLargeException();
+        }
+        if (lifecycleMutationAllowed != null && !lifecycleMutationAllowed()) {
+          throw const AgentWriteStageCancelledException();
         }
         _supersedePendingForTurn(
           admissionRequest.sourceConversationId,
@@ -250,12 +254,11 @@ final class AgentWriteProposalService {
       );
       return _setOutcome(proposal.id, AgentWriteProposalOutcome.committed);
     } on TypedAnswerMutationException catch (error) {
-      final outcome = await _outcomeAfterCommitFailure(error, proposal);
-      return _setOutcome(proposal.id, outcome);
+      return _applyCommitFailure(error, proposal);
     }
   }
 
-  Future<AgentWriteProposalOutcome> _outcomeAfterCommitFailure(
+  Future<AgentWriteProposal> _applyCommitFailure(
     TypedAnswerMutationException error,
     AgentWriteProposal proposal,
   ) async {
@@ -265,10 +268,11 @@ final class AgentWriteProposalService {
       TypedAnswerMutationFailure.corruptPayload ||
       TypedAnswerMutationFailure.invalidAnswer ||
       TypedAnswerMutationFailure.unsafePayload =>
-        AgentWriteProposalOutcome.invalid,
-      TypedAnswerMutationFailure.stale => AgentWriteProposalOutcome.stale,
+        _setOutcome(proposal.id, AgentWriteProposalOutcome.invalid),
+      TypedAnswerMutationFailure.stale =>
+        _setOutcome(proposal.id, AgentWriteProposalOutcome.stale),
       TypedAnswerMutationFailure.transactionFailed =>
-        await _reconcileAmbiguousOutcome(proposal),
+        await _reconcileAndApplyAmbiguousOutcome(proposal),
     };
   }
 
@@ -281,12 +285,15 @@ final class AgentWriteProposalService {
   /// this one was committing keeps the older proposal superseded; any other
   /// confirmed draft reports stale, and a denied/unavailable/unconfirmable
   /// read keeps unknownOutcome with zero automatic retry.
-  Future<AgentWriteProposalOutcome> _reconcileAmbiguousOutcome(
+  Future<AgentWriteProposal> _reconcileAndApplyAmbiguousOutcome(
     AgentWriteProposal proposal,
   ) async {
     final reconciliation = _reconciliation;
     if (reconciliation == null) {
-      return AgentWriteProposalOutcome.unknownOutcome;
+      return _setOutcome(
+        proposal.id,
+        AgentWriteProposalOutcome.unknownOutcome,
+      );
     }
     try {
       final result = await reconciliation.reconcileAfterAmbiguousCommit(
@@ -300,7 +307,11 @@ final class AgentWriteProposalService {
           proposedAnswer: proposal.proposedAnswer,
         ),
       );
-      return switch (result) {
+      // No await may separate this active-identity check from the final
+      // lifecycle write. Staging a replacement either happens before this
+      // synchronous gate (and the old proposal stays superseded) or after it
+      // (and supersedes the restored pending proposal).
+      final outcome = switch (result) {
         AgentWriteReconciliationCommitted() =>
           AgentWriteProposalOutcome.committed,
         AgentWriteReconciliationBaseline() => _isActiveProposalForTurn(proposal)
@@ -310,10 +321,14 @@ final class AgentWriteProposalService {
         AgentWriteReconciliationUnavailable() =>
           AgentWriteProposalOutcome.unknownOutcome,
       };
+      return _setOutcome(proposal.id, outcome);
     } catch (_) {
       // A failed reconciliation read must never crash the lifecycle or
       // trigger an automatic retry; the outcome stays unconfirmable.
-      return AgentWriteProposalOutcome.unknownOutcome;
+      return _setOutcome(
+        proposal.id,
+        AgentWriteProposalOutcome.unknownOutcome,
+      );
     }
   }
 
@@ -346,4 +361,11 @@ final class AgentWriteProposalService {
 /// activated or superseded, and no fingerprint entry was created for it.
 final class AgentWriteStageResultTooLargeException implements Exception {
   const AgentWriteStageResultTooLargeException();
+}
+
+/// Staging became cancelled or expired before its synchronous lifecycle
+/// mutation gate. The candidate was never inserted, activated, fingerprinted
+/// or allowed to supersede an existing proposal.
+final class AgentWriteStageCancelledException implements Exception {
+  const AgentWriteStageCancelledException();
 }

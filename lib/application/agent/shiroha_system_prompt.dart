@@ -23,7 +23,8 @@ final class ShirohaSystemPrompt {
       ..writeln('Permission:')
       ..writeln('- You are READ_ONLY.')
       ..writeln('- You may use local study tools only.')
-      ..writeln('- no autonomous mutation');
+      ..writeln('- no autonomous mutation')
+      ..writeln('- Never claim that writes occurred.');
     if (proposalCapabilityEnabled) {
       buffer
         ..writeln(
@@ -36,8 +37,7 @@ final class ShirohaSystemPrompt {
         ..writeln('- Natural-language agreement is not approval.')
         ..writeln(
           '- Never claim that a proposal was committed or formally written.',
-        )
-        ..writeln('- Never claim that writes occurred.');
+        );
     }
     buffer
       ..writeln()

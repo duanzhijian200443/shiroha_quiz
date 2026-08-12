@@ -56,7 +56,10 @@ final class AgentWriteProposalToolDispatcher {
   static const int _maxTextRunes = 2048;
   static const int _maxLatexRunes = 1024;
 
-  Future<String> dispatch(AgentWriteProposalToolCall call) async {
+  Future<String> dispatch(
+    AgentWriteProposalToolCall call, {
+    bool Function()? proposalMutationAllowed,
+  }) async {
     if (utf8.encode(call.argumentsJson).length >
         _limits.maxToolArgumentUtf8Bytes) {
       return _failure(_ToolFailure.invalidRequest);
@@ -73,7 +76,11 @@ final class AgentWriteProposalToolDispatcher {
     }
     try {
       final parsed = _parseArguments(arguments);
-      final result = await _handle(parsed, call);
+      final result = await _handle(
+        parsed,
+        call,
+        proposalMutationAllowed: proposalMutationAllowed,
+      );
       final encoded = jsonEncode(<String, Object?>{
         'ok': true,
         'result': result,
@@ -86,6 +93,11 @@ final class AgentWriteProposalToolDispatcher {
       // The pre-activation result-size gate rejected the exact candidate
       // before any lifecycle mutation; the transport can never deliver it.
       return _failure(_ToolFailure.internal);
+    } on AgentWriteStageCancelledException {
+      // A runtime timeout/cancellation guard refused the final synchronous
+      // activation gate. The enclosing turn owns the visible failure; this
+      // bounded response is relevant only if dispatch is still observed.
+      return _failure(_ToolFailure.internal);
     } on _ToolFailureException catch (error) {
       return _failure(error.failure);
     } on ArgumentError {
@@ -97,8 +109,9 @@ final class AgentWriteProposalToolDispatcher {
 
   Future<Map<String, Object?>> _handle(
     _ParsedToolArguments parsed,
-    AgentWriteProposalToolCall call,
-  ) async {
+    AgentWriteProposalToolCall call, {
+    bool Function()? proposalMutationAllowed,
+  }) async {
     final request = AgentWriteAdmissionRequest(
       sourceConversationId: call.sourceConversationId,
       sourceMessageId: call.sourceMessageId,
@@ -133,6 +146,7 @@ final class AgentWriteProposalToolDispatcher {
       admissionRequest: request,
       proposedAnswer: answer,
       resultSizeGate: _resultFits,
+      lifecycleMutationAllowed: proposalMutationAllowed,
     );
     switch (staged) {
       case AgentWriteStageResultStaged(:final proposal):

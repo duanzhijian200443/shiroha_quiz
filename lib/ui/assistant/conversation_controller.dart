@@ -76,10 +76,12 @@ final class ConversationController extends ChangeNotifier {
   int _threadRevision = 0;
   bool _disposed = false;
 
-  /// Passive-dismissal Presentation state: the exact proposal identity last
-  /// projected for each source Conversation. Never implies durable proposal
-  /// state and never invents one-proposal-per-Conversation semantics.
-  final Map<String, String> _proposalIdByConversation = <String, String>{};
+  /// Passive-dismissal Presentation state: one exact proposal identity per
+  /// source User turn, grouped by source Conversation. This remains transient
+  /// and permits proposals from different source turns to coexist without
+  /// hiding an older pending proposal behind a newer turn.
+  final Map<String, Map<String, String>> _proposalIdByTurnByConversation =
+      <String, Map<String, String>>{};
 
   ConversationScope get currentScope =>
       activeThread?.conversation.scope ?? draftScope;
@@ -345,7 +347,7 @@ final class ConversationController extends ChangeNotifier {
     final epoch = ++_turnEpoch;
     transientAssistantText = '';
     activeToolName = null;
-    _clearProposal();
+    _restoreProposalBinding(conversationId);
     turnFailure = null;
     turnPhase = AssistantTurnPhase.thinking;
     final session = _startAgentTurn(
@@ -385,7 +387,7 @@ final class ConversationController extends ChangeNotifier {
           :final outcome,
           :final preview,
         ):
-        _setProposal(
+        _projectStagedProposal(
           proposalId: proposalId,
           outcome: _proposalOutcomeOf(outcome),
           preview: preview,
@@ -597,7 +599,12 @@ final class ConversationController extends ChangeNotifier {
     try {
       final updated = await service.approveProposal(id);
       if (!_disposed && proposalId == id) {
-        proposalOutcome = updated.outcome;
+        _setProposal(
+          proposalId: updated.id,
+          outcome: updated.outcome,
+          preview: _previewMapOf(updated.preview),
+        );
+        _showNextPendingProposalAfter(updated);
       }
     } catch (_) {
       if (!_disposed && proposalId == id) {
@@ -627,7 +634,12 @@ final class ConversationController extends ChangeNotifier {
     notifyListeners();
     try {
       final updated = service.rejectProposal(id);
-      proposalOutcome = updated.outcome;
+      _setProposal(
+        proposalId: updated.id,
+        outcome: updated.outcome,
+        preview: _previewMapOf(updated.preview),
+      );
+      _showNextPendingProposalAfter(updated);
     } catch (_) {
       proposalActionMessage =
           '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
@@ -642,7 +654,9 @@ final class ConversationController extends ChangeNotifier {
     if (active == null) return false;
     try {
       await service.deleteConversation(active.conversation.conversationId);
-      _proposalIdByConversation.remove(active.conversation.conversationId);
+      _proposalIdByTurnByConversation.remove(
+        active.conversation.conversationId,
+      );
       _clearProposal();
       activeThread = null;
       _threadRevision++;
@@ -724,10 +738,48 @@ final class ConversationController extends ChangeNotifier {
     proposalPreview = Map<String, Object?>.unmodifiable(preview);
     proposalActionPending = false;
     proposalActionMessage = null;
-    final active = activeThread;
-    if (active != null) {
-      _proposalIdByConversation[active.conversation.conversationId] =
-          proposalId;
+    _bindProposalIdentity(proposalId);
+  }
+
+  void _projectStagedProposal({
+    required String proposalId,
+    required AgentWriteProposalOutcome outcome,
+    required Map<String, Object?> preview,
+  }) {
+    _bindProposalIdentity(proposalId);
+    final currentId = this.proposalId;
+    final service = _proposalService;
+    if (currentId != null && service != null) {
+      try {
+        final current = service.proposalById(currentId);
+        if (current.sourceConversationId ==
+                activeThread?.conversation.conversationId &&
+            current.outcome == AgentWriteProposalOutcome.pending) {
+          return;
+        }
+      } catch (_) {
+        // Fall through and project the newly staged proposal.
+      }
+    }
+    _setProposal(
+      proposalId: proposalId,
+      outcome: outcome,
+      preview: preview,
+    );
+  }
+
+  void _bindProposalIdentity(String proposalId) {
+    final service = _proposalService;
+    if (service == null) return;
+    try {
+      final proposal = service.proposalById(proposalId);
+      final byTurn = _proposalIdByTurnByConversation.putIfAbsent(
+        proposal.sourceConversationId,
+        () => <String, String>{},
+      );
+      byTurn[proposal.sourceMessageId] = proposal.id;
+    } catch (_) {
+      // Unknown transient identities cannot be restored and are not retained.
     }
   }
 
@@ -739,20 +791,59 @@ final class ConversationController extends ChangeNotifier {
   /// Switching itself never approves, rejects or commits a proposal.
   void _restoreProposalBinding(String conversationId) {
     final service = _proposalService;
-    final boundId = _proposalIdByConversation[conversationId];
-    if (service == null || boundId == null) {
+    final byTurn = _proposalIdByTurnByConversation[conversationId];
+    if (service == null || byTurn == null || byTurn.isEmpty) {
       _clearProposal();
       return;
     }
-    try {
-      final proposal = service.proposalById(boundId);
-      _setProposal(
-        proposalId: proposal.id,
-        outcome: proposal.outcome,
-        preview: _previewMapOf(proposal.preview),
-      );
-    } catch (_) {
+    final available = <AgentWriteProposal>[];
+    for (final entry in byTurn.entries.toList()) {
+      try {
+        available.add(service.proposalById(entry.value));
+      } catch (_) {
+        byTurn.remove(entry.key);
+      }
+    }
+    if (available.isEmpty) {
+      _proposalIdByTurnByConversation.remove(conversationId);
       _clearProposal();
+      return;
+    }
+    final proposal = available.firstWhere(
+      (candidate) => candidate.outcome == AgentWriteProposalOutcome.pending,
+      orElse: () => available.last,
+    );
+    _setProposal(
+      proposalId: proposal.id,
+      outcome: proposal.outcome,
+      preview: _previewMapOf(proposal.preview),
+    );
+  }
+
+  void _showNextPendingProposalAfter(AgentWriteProposal current) {
+    if (current.outcome == AgentWriteProposalOutcome.pending ||
+        current.outcome == AgentWriteProposalOutcome.committing) {
+      return;
+    }
+    final service = _proposalService;
+    final byTurn =
+        _proposalIdByTurnByConversation[current.sourceConversationId];
+    if (service == null || byTurn == null) return;
+    for (final proposalId in byTurn.values) {
+      if (proposalId == current.id) continue;
+      try {
+        final proposal = service.proposalById(proposalId);
+        if (proposal.outcome == AgentWriteProposalOutcome.pending) {
+          _setProposal(
+            proposalId: proposal.id,
+            outcome: proposal.outcome,
+            preview: _previewMapOf(proposal.preview),
+          );
+          return;
+        }
+      } catch (_) {
+        // Missing transient identities are pruned on the next restoration.
+      }
     }
   }
 

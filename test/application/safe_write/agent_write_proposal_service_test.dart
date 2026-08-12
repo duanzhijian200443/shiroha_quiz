@@ -79,6 +79,7 @@ class _FakePersistence
   final commitCalls = <AgentWriteCommitRequest>[];
   final reconciliationCalls = <AgentWriteReconciliationRequest>[];
   Completer<void>? commitGate;
+  Completer<void>? reconciliationGate;
 
   @override
   Future<AgentWriteAdmissionResult> admitStagingTarget(
@@ -101,6 +102,8 @@ class _FakePersistence
     AgentWriteReconciliationRequest request,
   ) async {
     reconciliationCalls.add(request);
+    final gate = reconciliationGate;
+    if (gate != null) await gate.future;
     final error = reconciliationError;
     if (error != null) throw error;
     return reconciliationResult;
@@ -884,6 +887,64 @@ void main() {
           reason: 'The superseded proposal must not retry automatically or '
               'accept another approval.',
         );
+      },
+    );
+
+    test(
+      'baseline reconciliation and replacement staging share one lifecycle '
+      'linearization point',
+      () async {
+        final reconciliationGate = Completer<void>();
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationBaseline()
+          ..reconciliationGate = reconciliationGate;
+        final service = AgentWriteProposalService(persistence);
+        final first = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('first answer')),
+        )) as AgentWriteStageResultStaged;
+        final firstApproval = service.approveProposal(first.proposal.id);
+        await Future<void>.delayed(Duration.zero);
+        expect(persistence.reconciliationCalls, hasLength(1));
+
+        // Completing reconciliation schedules its continuation first. Starting
+        // staging immediately afterwards schedules the admitted replacement
+        // in the exact window that used to separate the baseline active check
+        // from the old proposal's final pending write.
+        reconciliationGate.complete();
+        final secondFuture = service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('second answer')),
+        );
+        final results = await Future.wait<Object>(<Future<Object>>[
+          firstApproval,
+          secondFuture,
+        ]);
+        final reconciledFirst = results[0] as AgentWriteProposal;
+        final second = results[1] as AgentWriteStageResultStaged;
+
+        expect(reconciledFirst.outcome, AgentWriteProposalOutcome.pending);
+        expect(
+          service.proposalById(first.proposal.id).outcome,
+          AgentWriteProposalOutcome.superseded,
+          reason: 'The approval Future is an immutable snapshot; the service '
+              'holds the authoritative post-staging lifecycle.',
+        );
+        expect(second.proposal.outcome, AgentWriteProposalOutcome.pending);
+        final pending = <AgentWriteProposal>[
+          service.proposalById(first.proposal.id),
+          service.proposalById(second.proposal.id),
+        ].where(
+          (proposal) => proposal.outcome == AgentWriteProposalOutcome.pending,
+        );
+        expect(pending, hasLength(1));
       },
     );
 

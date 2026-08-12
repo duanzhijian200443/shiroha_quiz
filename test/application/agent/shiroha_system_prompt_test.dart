@@ -95,7 +95,7 @@ void main() {
       isNot(contains('approve, commit, replace, clear, or delete')),
     );
     expect(prompt, isNot(contains('Natural-language agreement')));
-    expect(prompt, isNot(contains('Never claim that writes occurred.')));
+    expect(prompt, contains('Never claim that writes occurred.'));
     expect(prompt, contains('Never invent tool results.'));
     expect(
       prompt,

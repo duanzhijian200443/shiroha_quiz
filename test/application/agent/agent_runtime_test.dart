@@ -570,6 +570,48 @@ void main() {
       final messages = await harness.messagesOf(conversationId);
       expect(messages, hasLength(1));
     });
+
+    test(
+      'proposal admission completing after turn timeout leaves no hidden '
+      'proposal',
+      () async {
+        const state = _TestContinuationState('s');
+        final harness = _Harness(
+          wireProposal: true,
+          limits: const AgentRuntimeLimits(
+            turnTimeout: Duration(milliseconds: 120),
+          ),
+          scripts: <_Script>[
+            _toolRound(
+                <AgentProviderFunctionCall>[_proposalCall('p-1')], state),
+          ],
+        );
+        final admissionGate = Completer<void>();
+        harness.proposalPersistence.admissionGate = admissionGate;
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+        );
+
+        final result = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
+        expect(_failureOf(result), AgentTurnFailure.timeout);
+        expect(harness.proposalPersistence.admissionRequests, hasLength(1));
+
+        admissionGate.complete();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          () => harness.proposalService!.proposalById('proposal_0'),
+          throwsArgumentError,
+        );
+        expect(harness.proposalPersistence.commitCalls, isEmpty);
+      },
+    );
   });
 
   group('web and capabilities', () {
@@ -1476,10 +1518,12 @@ final class _Harness {
     );
     dispatcher = _FakeDispatcher();
     proposalPersistence = _FakeAgentWritePersistence();
+    proposalService =
+        wireProposal ? AgentWriteProposalService(proposalPersistence) : null;
     proposalDispatcher = wireProposal
         ? AgentWriteProposalToolDispatcher(
             persistence: proposalPersistence,
-            proposalService: AgentWriteProposalService(proposalPersistence),
+            proposalService: proposalService!,
           )
         : null;
     runtime = ShirohaAgentRuntime(
@@ -1502,6 +1546,7 @@ final class _Harness {
   late final _ScriptedProvider provider;
   late final _FakeDispatcher dispatcher;
   late final _FakeAgentWritePersistence proposalPersistence;
+  late final AgentWriteProposalService? proposalService;
   late final AgentWriteProposalToolDispatcher? proposalDispatcher;
   late final ShirohaAgentRuntime runtime;
   var _conversationSequence = 0;
@@ -1815,6 +1860,7 @@ final class _FakeAgentWritePersistence implements AgentWritePersistencePort {
             );
 
   AgentWriteAdmissionResult admissionResult;
+  Completer<void>? admissionGate;
   final admissionRequests = <AgentWriteAdmissionRequest>[];
   final commitCalls = <AgentWriteCommitRequest>[];
 
@@ -1823,6 +1869,8 @@ final class _FakeAgentWritePersistence implements AgentWritePersistencePort {
     AgentWriteAdmissionRequest request,
   ) async {
     admissionRequests.add(request);
+    final gate = admissionGate;
+    if (gate != null) await gate.future;
     return admissionResult;
   }
 

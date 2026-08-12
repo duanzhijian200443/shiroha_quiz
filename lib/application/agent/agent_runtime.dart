@@ -427,6 +427,9 @@ final class ShirohaAgentRuntime {
                 sourceMessageId: userMessageId,
                 scope: scope,
               ),
+              proposalMutationAllowed: () =>
+                  !turn.cancellation.token.isCancelled &&
+                  turn.remainingBudget() > Duration.zero,
             )
             .timeout(remaining);
         _maybeEmitProposalStaged(turn, output);

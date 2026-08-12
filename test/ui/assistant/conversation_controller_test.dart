@@ -720,6 +720,60 @@ void main() {
     );
 
     test(
+      'different source turns in one conversation remain reachable in '
+      'deterministic order',
+      () async {
+        final repository = _MemoryRepository();
+        final turns = <_TurnHarness>[];
+        final targets = <(String, String)>[];
+        final persistence = _FakeProposalPersistence();
+        final service = AgentWriteProposalService(persistence);
+        final controller = _controller(
+          repository,
+          start: ({required conversationId, required userMessageId}) {
+            targets.add((conversationId, userMessageId));
+            final turn = _TurnHarness();
+            turns.add(turn);
+            return turn.session;
+          },
+          proposalService: service,
+        );
+
+        expect(await controller.send('first question'), isTrue);
+        final proposalA =
+            await _stagePendingProposal(turns, persistence, service);
+        await _completeTurn(turns, controller);
+
+        expect(await controller.send('second question'), isTrue);
+        expect(controller.proposalId, proposalA.id);
+        final (conversationId, messageId) = targets[1];
+        final proposalB = await _stageProposalOn(
+          turns[1],
+          persistence,
+          service,
+          conversationId: conversationId,
+          messageId: messageId,
+        );
+        await _completeTurnOn(turns[1], controller);
+
+        expect(proposalB.id, isNot(proposalA.id));
+        expect(controller.proposalId, proposalA.id);
+        expect(service.proposalById(proposalA.id).outcome,
+            AgentWriteProposalOutcome.pending);
+        expect(service.proposalById(proposalB.id).outcome,
+            AgentWriteProposalOutcome.pending);
+
+        controller.rejectProposal();
+
+        expect(service.proposalById(proposalA.id).outcome,
+            AgentWriteProposalOutcome.rejected);
+        expect(controller.proposalId, proposalB.id);
+        expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+        expect(controller.canApproveProposal, isTrue);
+      },
+    );
+
+    test(
       'deleting the source conversation drops the binding; a fresh service '
       'restores nothing',
       () async {
