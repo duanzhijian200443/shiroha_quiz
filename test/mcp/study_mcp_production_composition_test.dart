@@ -186,7 +186,7 @@ void main() {
       expect(File(databasePath).existsSync(), isTrue);
       probe = await DatabaseHelper.instance.openPathForTesting(databasePath);
       final version = await probe.rawQuery('PRAGMA user_version');
-      expect(version.single['user_version'], 19);
+      expect(version.single['user_version'], 20);
       expect(await snapshotCoreTables(probe), before);
     } finally {
       await client?.close();

@@ -359,7 +359,7 @@ void main() {
         () async {
       final db = await openSeam(inMemoryDatabasePath);
       try {
-        expect(await userVersion(db), 19);
+        expect(await userVersion(db), 20);
         expect(
           (await db.rawQuery('PRAGMA foreign_keys')).single.values.single,
           1,
@@ -516,7 +516,7 @@ void main() {
         await raw.close();
 
         final upgraded = await openSeam(path);
-        expect(await userVersion(upgraded), 19, reason: 'v$oldVersion');
+        expect(await userVersion(upgraded), 20, reason: 'v$oldVersion');
         expect(
           (await upgraded.rawQuery('PRAGMA foreign_keys')).single.values.single,
           1,
@@ -646,7 +646,7 @@ void main() {
       await created.close();
 
       final upgraded = await openSeam(path);
-      expect(await userVersion(upgraded), 19);
+      expect(await userVersion(upgraded), 20);
       expect(await snapshotTables(upgraded), before);
       await upgraded.close();
 
@@ -655,7 +655,7 @@ void main() {
       await setUserVersion(second, 14);
       await second.close();
       final upgradedAgain = await openSeam(path);
-      expect(await userVersion(upgradedAgain), 19);
+      expect(await userVersion(upgradedAgain), 20);
       expect(await snapshotTables(upgradedAgain), before);
       await upgradedAgain.close();
     });
@@ -1156,7 +1156,7 @@ void main() {
 
       final upgraded = await openSeam(path);
       try {
-        expect(await userVersion(upgraded), 19);
+        expect(await userVersion(upgraded), 20);
         expect(await upgraded.query('sidecar_probe_audit'), isEmpty);
         expect((await upgraded.query('question_v2_payloads')).length, 2);
         expect(
@@ -1263,7 +1263,7 @@ void main() {
 
       final upgraded = await openSeam(path);
       try {
-        expect(await userVersion(upgraded), 19);
+        expect(await userVersion(upgraded), 20);
         final trapIds = (await upgraded.rawQuery(
           "SELECT id FROM questions WHERE id LIKE 'r6b_v15_probe_parent_%'",
         ))
@@ -1309,7 +1309,7 @@ void main() {
 
       final upgraded = await openSeam(path);
       try {
-        expect(await userVersion(upgraded), 19);
+        expect(await userVersion(upgraded), 20);
         final ids = (await upgraded.rawQuery(
           "SELECT id FROM questions WHERE id LIKE 'r6b_v15_probe_parent_%'",
         ))
@@ -1392,7 +1392,7 @@ void main() {
       );
       final upgraded = await openSeam(acceptedPath);
       try {
-        expect(await userVersion(upgraded), 19);
+        expect(await userVersion(upgraded), 20);
         final sidecarSql = (await upgraded.rawQuery(
           "SELECT sql FROM sqlite_master WHERE type = 'table' "
           "AND name = 'question_v2_payloads'",
@@ -1491,7 +1491,7 @@ void main() {
       final path = dbPath('seam_isolated.db');
       final seamDb = await DatabaseHelper.instance.openPathForTesting(path);
       try {
-        expect(await userVersion(seamDb), 19);
+        expect(await userVersion(seamDb), 20);
         expect(
           DatabaseHelper.runtimeProfile,
           DatabaseRuntimeProfile.isolatedSmokeInMemory,
@@ -1503,7 +1503,7 @@ void main() {
           DatabaseHelper.openedDatabasePathForTesting,
           inMemoryDatabasePath,
         );
-        expect(await userVersion(singletonDb), 19);
+        expect(await userVersion(singletonDb), 20);
       } finally {
         await seamDb.close();
         await DatabaseHelper.instance.close();

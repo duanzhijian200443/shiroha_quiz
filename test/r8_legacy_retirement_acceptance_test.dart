@@ -2,7 +2,7 @@
 // Practice, and WrongBook.
 //
 // Evidence class: fully synthetic and offline. Every scenario seeds a real
-// current v19 SQLite database (sqflite FFI, production schema callbacks).
+// current v20 SQLite database (sqflite FFI, production schema callbacks).
 // File-backed
 // scenarios use the frozen DatabaseHelper.openPathForTesting seam and
 // close/reopen the file to prove persistence; widget scenarios pump the real
@@ -221,7 +221,7 @@ Future<void> _plantDecoy(Database db, String storageId) async {
 
 Future<void> _assertV18(Database db) async {
   final version = await db.rawQuery('PRAGMA user_version');
-  expect(version.single['user_version'], 19);
+  expect(version.single['user_version'], 20);
 }
 
 /// Runs one real-async database chunk: the FakeAsync widget-test zone cannot
