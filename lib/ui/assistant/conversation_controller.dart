@@ -783,6 +783,17 @@ final class ConversationController extends ChangeNotifier {
         proposal.sourceConversationId,
         () => <String, String>{},
       );
+      final boundId = byTurn[proposal.sourceMessageId];
+      if (boundId != null && boundId != proposal.id) {
+        try {
+          final bound = service.proposalById(boundId);
+          if (bound.outcome == AgentWriteProposalOutcome.pending) {
+            return;
+          }
+        } catch (_) {
+          // A missing transient binding may be replaced by the known proposal.
+        }
+      }
       byTurn[proposal.sourceMessageId] = proposal.id;
     } catch (_) {
       // Unknown transient identities cannot be restored and are not retained.
