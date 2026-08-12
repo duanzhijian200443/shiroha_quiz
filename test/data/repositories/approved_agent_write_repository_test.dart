@@ -41,21 +41,9 @@ QuestionDraftV2 _choiceDraft({QuestionAnswer? answer}) {
     questionNumber: 1,
     stem: _text('Choice stem.'),
     options: <QuestionOption>[
-      QuestionOption(
-        optionId: 'opt_a',
-        label: 'A',
-        content: _text('first'),
-      ),
-      QuestionOption(
-        optionId: 'opt_b',
-        label: 'B',
-        content: _text('second'),
-      ),
-      QuestionOption(
-        optionId: 'opt_c',
-        label: 'C',
-        content: _text('third'),
-      ),
+      QuestionOption(optionId: 'opt_a', label: 'A', content: _text('first')),
+      QuestionOption(optionId: 'opt_b', label: 'B', content: _text('second')),
+      QuestionOption(optionId: 'opt_c', label: 'C', content: _text('third')),
     ],
     answer: answer,
     explanation: _text('Explanation.'),
@@ -313,42 +301,49 @@ void main() {
   });
 
   group('admission', () {
-    test('Global scope grants an eligible typed target with its snapshot',
-        () async {
-      final helper = _FileDatabaseHelper(
-        p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'a.db'),
-      );
-      addTearDown(helper.close);
-      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
-      final db = await helper.database;
-      await _insertConversation(
-        db,
-        conversationId: _globalConversation,
-        scope: ConversationScope.global(),
-      );
-      await _insertMessage(
-        db,
-        messageId: _globalMessage,
-        conversationId: _globalConversation,
-        role: 'user',
-      );
-      await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
+    test(
+      'Global scope grants an eligible typed target with its snapshot',
+      () async {
+        final helper = _FileDatabaseHelper(
+          p.join(
+            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+            'a.db',
+          ),
+        );
+        addTearDown(helper.close);
+        final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+        final db = await helper.database;
+        await _insertConversation(
+          db,
+          conversationId: _globalConversation,
+          scope: ConversationScope.global(),
+        );
+        await _insertMessage(
+          db,
+          messageId: _globalMessage,
+          conversationId: _globalConversation,
+          role: 'user',
+        );
+        await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
 
-      final result = await repository
-          .admitStagingTarget(_globalAdmissionRequest(_storageId));
+        final result = await repository.admitStagingTarget(
+          _globalAdmissionRequest(_storageId),
+        );
 
-      expect(result, isA<AgentWriteAdmissionGranted>());
-      final granted = result as AgentWriteAdmissionGranted;
-      expect(granted.target.storageId, _storageId);
-      expect(granted.target.bankName, _bankName);
-      expect(granted.target.draft, _choiceDraft());
-    });
+        expect(result, isA<AgentWriteAdmissionGranted>());
+        final granted = result as AgentWriteAdmissionGranted;
+        expect(granted.target.storageId, _storageId);
+        expect(granted.target.bankName, _bankName);
+        expect(granted.target.draft, _choiceDraft());
+      },
+    );
 
     test('nonexistent target is denied without identity or content', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'b.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'b.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -365,8 +360,9 @@ void main() {
         role: 'user',
       );
 
-      final result = await repository
-          .admitStagingTarget(_globalAdmissionRequest('missing_target'));
+      final result = await repository.admitStagingTarget(
+        _globalAdmissionRequest('missing_target'),
+      );
 
       expect(result, isA<AgentWriteAdmissionDenied>());
     });
@@ -374,7 +370,9 @@ void main() {
     test('Learning Space grants only with project and bank relation', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'c.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'c.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -394,8 +392,9 @@ void main() {
       await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
       await _insertBankRelation(db);
 
-      final result = await repository
-          .admitStagingTarget(_learningAdmissionRequest(_storageId));
+      final result = await repository.admitStagingTarget(
+        _learningAdmissionRequest(_storageId),
+      );
 
       expect(result, isA<AgentWriteAdmissionGranted>());
     });
@@ -405,7 +404,9 @@ void main() {
         'denied shape', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'd.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'd.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -425,10 +426,12 @@ void main() {
       await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
       // No project_banks relation: the target exists but is unauthorized.
 
-      final unauthorized = await repository
-          .admitStagingTarget(_learningAdmissionRequest(_storageId));
-      final nonexistent = await repository
-          .admitStagingTarget(_learningAdmissionRequest('missing_target'));
+      final unauthorized = await repository.admitStagingTarget(
+        _learningAdmissionRequest(_storageId),
+      );
+      final nonexistent = await repository.admitStagingTarget(
+        _learningAdmissionRequest('missing_target'),
+      );
 
       expect(unauthorized, isA<AgentWriteAdmissionDenied>());
       expect(nonexistent, isA<AgentWriteAdmissionDenied>());
@@ -440,7 +443,9 @@ void main() {
         'is denied', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'e.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'e.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -458,73 +463,81 @@ void main() {
       );
       await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
 
-      final result = await repository
-          .admitStagingTarget(_learningAdmissionRequest(_storageId));
+      final result = await repository.admitStagingTarget(
+        _learningAdmissionRequest(_storageId),
+      );
 
       expect(result, isA<AgentWriteAdmissionDenied>());
     });
 
-    test('assistant message, foreign message and scope mismatch are denied',
-        () async {
-      final helper = _FileDatabaseHelper(
-        p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'f.db'),
-      );
-      addTearDown(helper.close);
-      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
-      final db = await helper.database;
-      await _insertConversation(
-        db,
-        conversationId: _globalConversation,
-        scope: ConversationScope.global(),
-      );
-      await _insertMessage(
-        db,
-        messageId: _globalMessage,
-        conversationId: _globalConversation,
-        role: 'assistant',
-      );
-      await _insertConversation(
-        db,
-        conversationId: 'conv_foreign_001',
-        scope: ConversationScope.global(),
-      );
-      await _insertMessage(
-        db,
-        messageId: 'msg_foreign_user_001',
-        conversationId: 'conv_foreign_001',
-        role: 'user',
-      );
-      await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
-
-      final assistantMessage = await repository
-          .admitStagingTarget(_globalAdmissionRequest(_storageId));
-      final foreignMessage = await repository.admitStagingTarget(
-        AgentWriteAdmissionRequest(
-          sourceConversationId: _globalConversation,
-          sourceMessageId: 'msg_foreign_user_001',
+    test(
+      'assistant message, foreign message and scope mismatch are denied',
+      () async {
+        final helper = _FileDatabaseHelper(
+          p.join(
+            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+            'f.db',
+          ),
+        );
+        addTearDown(helper.close);
+        final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+        final db = await helper.database;
+        await _insertConversation(
+          db,
+          conversationId: _globalConversation,
           scope: ConversationScope.global(),
-          targetStorageId: _storageId,
-        ),
-      );
-      final scopeMismatch = await repository.admitStagingTarget(
-        AgentWriteAdmissionRequest(
-          sourceConversationId: _globalConversation,
-          sourceMessageId: _globalMessage,
-          scope: ConversationScope.learningSpace(_projectId),
-          targetStorageId: _storageId,
-        ),
-      );
+        );
+        await _insertMessage(
+          db,
+          messageId: _globalMessage,
+          conversationId: _globalConversation,
+          role: 'assistant',
+        );
+        await _insertConversation(
+          db,
+          conversationId: 'conv_foreign_001',
+          scope: ConversationScope.global(),
+        );
+        await _insertMessage(
+          db,
+          messageId: 'msg_foreign_user_001',
+          conversationId: 'conv_foreign_001',
+          role: 'user',
+        );
+        await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
 
-      expect(assistantMessage, isA<AgentWriteAdmissionDenied>());
-      expect(foreignMessage, isA<AgentWriteAdmissionDenied>());
-      expect(scopeMismatch, isA<AgentWriteAdmissionDenied>());
-    });
+        final assistantMessage = await repository.admitStagingTarget(
+          _globalAdmissionRequest(_storageId),
+        );
+        final foreignMessage = await repository.admitStagingTarget(
+          AgentWriteAdmissionRequest(
+            sourceConversationId: _globalConversation,
+            sourceMessageId: 'msg_foreign_user_001',
+            scope: ConversationScope.global(),
+            targetStorageId: _storageId,
+          ),
+        );
+        final scopeMismatch = await repository.admitStagingTarget(
+          AgentWriteAdmissionRequest(
+            sourceConversationId: _globalConversation,
+            sourceMessageId: _globalMessage,
+            scope: ConversationScope.learningSpace(_projectId),
+            targetStorageId: _storageId,
+          ),
+        );
+
+        expect(assistantMessage, isA<AgentWriteAdmissionDenied>());
+        expect(foreignMessage, isA<AgentWriteAdmissionDenied>());
+        expect(scopeMismatch, isA<AgentWriteAdmissionDenied>());
+      },
+    );
 
     test('unavailable Learning Space scope is denied', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'g.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'g.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -549,7 +562,9 @@ void main() {
     test('corrupt typed sidecar is a distinct unavailable result', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'h.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'h.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -580,8 +595,9 @@ void main() {
         'payload_json': '{corrupt',
       });
 
-      final result = await repository
-          .admitStagingTarget(_globalAdmissionRequest(_storageId));
+      final result = await repository.admitStagingTarget(
+        _globalAdmissionRequest(_storageId),
+      );
 
       expect(result, isA<AgentWriteAdmissionUnavailable>());
     });
@@ -589,7 +605,9 @@ void main() {
     test('legacy target is denied like a nonexistent one', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'i.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+          'i.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -607,98 +625,111 @@ void main() {
       );
       await _insertLegacyRow(db, id: _storageId);
 
-      final result = await repository
-          .admitStagingTarget(_globalAdmissionRequest(_storageId));
+      final result = await repository.admitStagingTarget(
+        _globalAdmissionRequest(_storageId),
+      );
 
       expect(result, isA<AgentWriteAdmissionDenied>());
     });
 
     test(
-        'an already-answered target still admits (fill-only is proposal layer)',
-        () async {
-      final helper = _FileDatabaseHelper(
-        p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path, 'j.db'),
-      );
-      addTearDown(helper.close);
-      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
-      final db = await helper.database;
-      await _insertConversation(
-        db,
-        conversationId: _globalConversation,
-        scope: ConversationScope.global(),
-      );
-      await _insertMessage(
-        db,
-        messageId: _globalMessage,
-        conversationId: _globalConversation,
-        role: 'user',
-      );
-      await _insertTypedRow(
-        db,
-        _choiceDraft(answer: ChoiceAnswer(optionIds: <String>['opt_a'])),
-        storageId: _storageId,
-      );
+      'an already-answered target still admits (fill-only is proposal layer)',
+      () async {
+        final helper = _FileDatabaseHelper(
+          p.join(
+            (await Directory.systemTemp.createTemp('w0_d1_adm_')).path,
+            'j.db',
+          ),
+        );
+        addTearDown(helper.close);
+        final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+        final db = await helper.database;
+        await _insertConversation(
+          db,
+          conversationId: _globalConversation,
+          scope: ConversationScope.global(),
+        );
+        await _insertMessage(
+          db,
+          messageId: _globalMessage,
+          conversationId: _globalConversation,
+          role: 'user',
+        );
+        await _insertTypedRow(
+          db,
+          _choiceDraft(answer: ChoiceAnswer(optionIds: <String>['opt_a'])),
+          storageId: _storageId,
+        );
 
-      final result = await repository
-          .admitStagingTarget(_globalAdmissionRequest(_storageId));
+        final result = await repository.admitStagingTarget(
+          _globalAdmissionRequest(_storageId),
+        );
 
-      expect(result, isA<AgentWriteAdmissionGranted>());
-    });
+        expect(result, isA<AgentWriteAdmissionGranted>());
+      },
+    );
   });
 
   group('commit', () {
-    test('Global success writes sidecar and V1 and keeps review state',
-        () async {
-      final helper = _FileDatabaseHelper(
-        p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'a.db'),
-      );
-      addTearDown(helper.close);
-      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
-      final db = await helper.database;
-      await _insertConversation(
-        db,
-        conversationId: _globalConversation,
-        scope: ConversationScope.global(),
-      );
-      await _insertMessage(
-        db,
-        messageId: _globalMessage,
-        conversationId: _globalConversation,
-        role: 'user',
-      );
-      await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
-      final expectedDraft = (await _reloadTyped(db, _storageId)).draft;
-      final reviewBefore = await _reviewStates(db, _storageId);
-      final proposed = ContentAnswer(content: _text('manual answer'));
+    test(
+      'Global success writes sidecar and V1 and keeps review state',
+      () async {
+        final helper = _FileDatabaseHelper(
+          p.join(
+            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+            'a.db',
+          ),
+        );
+        addTearDown(helper.close);
+        final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+        final db = await helper.database;
+        await _insertConversation(
+          db,
+          conversationId: _globalConversation,
+          scope: ConversationScope.global(),
+        );
+        await _insertMessage(
+          db,
+          messageId: _globalMessage,
+          conversationId: _globalConversation,
+          role: 'user',
+        );
+        await _insertTypedRow(db, _contentDraft(), storageId: _storageId);
+        final expectedDraft = (await _reloadTyped(db, _storageId)).draft;
+        final reviewBefore = await _reviewStates(db, _storageId);
+        final proposed = ContentAnswer(content: _text('manual answer'));
 
-      await repository.commitApproved(
-        _globalCommitRequest(
-          storageId: _storageId,
-          expectedDraft: expectedDraft,
-          proposedAnswer: proposed,
-        ),
-      );
+        await repository.commitApproved(
+          _globalCommitRequest(
+            storageId: _storageId,
+            expectedDraft: expectedDraft,
+            proposedAnswer: proposed,
+          ),
+        );
 
-      final typed = await _reloadTyped(db, _storageId);
-      expect(typed.draft.answer, proposed);
-      expect(await _standardAnswer(db, _storageId),
-          'manual answer|||Explanation.');
-      final payload = jsonDecode(await _payloadJson(db, _storageId))
-          as Map<String, dynamic>;
-      expect(
-        (payload['answer'] as Map<String, dynamic>)['content']['nodes'][0]
-            ['text'],
-        'manual answer',
-      );
-      expect(await _reviewStates(db, _storageId), reviewBefore);
-    });
+        final typed = await _reloadTyped(db, _storageId);
+        expect(typed.draft.answer, proposed);
+        expect(
+          await _standardAnswer(db, _storageId),
+          'manual answer|||Explanation.',
+        );
+        final payload = jsonDecode(await _payloadJson(db, _storageId))
+            as Map<String, dynamic>;
+        expect(
+          (payload['answer'] as Map<String, dynamic>)['content']['nodes'][0]
+              ['text'],
+          'manual answer',
+        );
+        expect(await _reviewStates(db, _storageId), reviewBefore);
+      },
+    );
 
     test('Learning Space success requires the current bank relation', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'b.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'b.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -729,17 +760,16 @@ void main() {
       );
 
       final typed = await _reloadTyped(db, _storageId);
-      expect(
-        typed.draft.answer,
-        ChoiceAnswer(optionIds: <String>['opt_b']),
-      );
+      expect(typed.draft.answer, ChoiceAnswer(optionIds: <String>['opt_b']));
       expect(await _reviewStates(db, _storageId), reviewBefore);
     });
 
     test('stale expected draft fails with zero writes', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'c.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'c.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -787,7 +817,9 @@ void main() {
     test('fill-only recheck refuses an already-answered target', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'd.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'd.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -835,7 +867,9 @@ void main() {
     test('detached bank relation fails stale with zero writes', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'e.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'e.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -881,7 +915,9 @@ void main() {
     test('deleted source message fails notFound with zero writes', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'f.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'f.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -919,7 +955,9 @@ void main() {
     test('legacy target fails notTyped with zero writes', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'g.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'g.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -960,7 +998,9 @@ void main() {
     test('questions UPDATE failure rolls the transaction back', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'h.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'h.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -993,7 +1033,7 @@ void main() {
           _globalCommitRequest(
             storageId: _storageId,
             expectedDraft: expectedDraft,
-            proposedAnswer: ContentAnswer(content: _text('x')),
+            proposedAnswer: ChoiceAnswer(optionIds: <String>['opt_a']),
           ),
         ),
         throwsA(
@@ -1011,7 +1051,9 @@ void main() {
     test('whitespace-only proposed content fails invalidAnswer', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'i.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'i.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -1055,7 +1097,9 @@ void main() {
     test('raw fallback proposed content fails invalidAnswer', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'j.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'j.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -1082,12 +1126,14 @@ void main() {
             storageId: _storageId,
             expectedDraft: expectedDraft,
             proposedAnswer: ContentAnswer(
-              content: RichContent(nodes: <ContentNode>[
-                RawFallbackNode(<Object?, Object?>{
-                  'type': 'future_diagram',
-                  'payload': <Object?, Object?>{'shape': 'synthetic'},
-                }),
-              ]),
+              content: RichContent(
+                nodes: <ContentNode>[
+                  RawFallbackNode(<Object?, Object?>{
+                    'type': 'future_diagram',
+                    'payload': <Object?, Object?>{'shape': 'synthetic'},
+                  }),
+                ],
+              ),
             ),
           ),
         ),
@@ -1103,11 +1149,14 @@ void main() {
       expect(await _standardAnswer(db, _storageId), standardBefore);
     });
 
-    test('corrupt target sidecar fails corruptPayload with zero writes',
-        () async {
+    test(
+        'kind mismatch singleChoice + ContentAnswer fails invalidAnswer with '
+        'zero writes', () async {
       final helper = _FileDatabaseHelper(
         p.join(
-            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path, 'k.db'),
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'k2.db',
+        ),
       );
       addTearDown(helper.close);
       final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
@@ -1123,27 +1172,17 @@ void main() {
         conversationId: _globalConversation,
         role: 'user',
       );
-      await db.insert('questions', <String, Object?>{
-        'id': _storageId,
-        'type': 3,
-        'content': 'Corrupt synthetic parent.',
-        'options': '[]',
-        'standard_answer': 'x|||',
-        'created_at': 1,
-        'bank_name': _bankName,
-      });
-      await db.insert('question_v2_payloads', <String, Object?>{
-        'question_id': _storageId,
-        'payload_schema_version': 2,
-        'payload_json': '{corrupt',
-      });
+      await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
+      final expectedDraft = (await _reloadTyped(db, _storageId)).draft;
+      final payloadBefore = await _payloadJson(db, _storageId);
       final standardBefore = await _standardAnswer(db, _storageId);
+      final reviewBefore = await _reviewStates(db, _storageId);
 
       await expectLater(
         repository.commitApproved(
           _globalCommitRequest(
             storageId: _storageId,
-            expectedDraft: _choiceDraft(),
+            expectedDraft: expectedDraft,
             proposedAnswer: ContentAnswer(content: _text('x')),
           ),
         ),
@@ -1151,11 +1190,185 @@ void main() {
           isA<TypedAnswerMutationException>().having(
             (error) => error.failure,
             'failure',
-            TypedAnswerMutationFailure.corruptPayload,
+            TypedAnswerMutationFailure.invalidAnswer,
           ),
         ),
       );
+      expect(await _payloadJson(db, _storageId), payloadBefore);
       expect(await _standardAnswer(db, _storageId), standardBefore);
+      expect(await _reviewStates(db, _storageId), reviewBefore);
     });
+
+    test(
+        'unknown and duplicate choice identities fail invalidAnswer with '
+        'zero writes', () async {
+      final helper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+          'k3.db',
+        ),
+      );
+      addTearDown(helper.close);
+      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertConversation(
+        db,
+        conversationId: _globalConversation,
+        scope: ConversationScope.global(),
+      );
+      await _insertMessage(
+        db,
+        messageId: _globalMessage,
+        conversationId: _globalConversation,
+        role: 'user',
+      );
+      await _insertTypedRow(db, _choiceDraft(), storageId: _storageId);
+      final expectedDraft = (await _reloadTyped(db, _storageId)).draft;
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+      final reviewBefore = await _reviewStates(db, _storageId);
+
+      for (final proposed in <QuestionAnswer>[
+        ChoiceAnswer(optionIds: <String>['ghost_opt']),
+        ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+      ]) {
+        await expectLater(
+          repository.commitApproved(
+            _globalCommitRequest(
+              storageId: _storageId,
+              expectedDraft: expectedDraft,
+              proposedAnswer: proposed,
+            ),
+          ),
+          throwsA(
+            isA<TypedAnswerMutationException>().having(
+              (error) => error.failure,
+              'failure',
+              TypedAnswerMutationFailure.invalidAnswer,
+            ),
+          ),
+        );
+        expect(await _payloadJson(db, _storageId), payloadBefore);
+        expect(await _standardAnswer(db, _storageId), standardBefore);
+        expect(await _reviewStates(db, _storageId), reviewBefore);
+      }
+    });
+
+    test(
+      'whitespace-only math content fails invalidAnswer with zero writes',
+      () async {
+        final helper = _FileDatabaseHelper(
+          p.join(
+            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+            'k4.db',
+          ),
+        );
+        addTearDown(helper.close);
+        final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+        final db = await helper.database;
+        await _insertConversation(
+          db,
+          conversationId: _globalConversation,
+          scope: ConversationScope.global(),
+        );
+        await _insertMessage(
+          db,
+          messageId: _globalMessage,
+          conversationId: _globalConversation,
+          role: 'user',
+        );
+        await _insertTypedRow(db, _contentDraft(), storageId: _storageId);
+        final expectedDraft = (await _reloadTyped(db, _storageId)).draft;
+        final payloadBefore = await _payloadJson(db, _storageId);
+        final standardBefore = await _standardAnswer(db, _storageId);
+        final reviewBefore = await _reviewStates(db, _storageId);
+
+        await expectLater(
+          repository.commitApproved(
+            _globalCommitRequest(
+              storageId: _storageId,
+              expectedDraft: expectedDraft,
+              proposedAnswer: ContentAnswer(
+                content: RichContent(
+                  nodes: <ContentNode>[
+                    InlineMathNode('   '),
+                    BlockMathNode(' \t '),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          throwsA(
+            isA<TypedAnswerMutationException>().having(
+              (error) => error.failure,
+              'failure',
+              TypedAnswerMutationFailure.invalidAnswer,
+            ),
+          ),
+        );
+        expect(await _payloadJson(db, _storageId), payloadBefore);
+        expect(await _standardAnswer(db, _storageId), standardBefore);
+        expect(await _reviewStates(db, _storageId), reviewBefore);
+      },
+    );
+
+    test(
+      'corrupt target sidecar fails corruptPayload with zero writes',
+      () async {
+        final helper = _FileDatabaseHelper(
+          p.join(
+            (await Directory.systemTemp.createTemp('w0_d1_cmt_')).path,
+            'k.db',
+          ),
+        );
+        addTearDown(helper.close);
+        final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+        final db = await helper.database;
+        await _insertConversation(
+          db,
+          conversationId: _globalConversation,
+          scope: ConversationScope.global(),
+        );
+        await _insertMessage(
+          db,
+          messageId: _globalMessage,
+          conversationId: _globalConversation,
+          role: 'user',
+        );
+        await db.insert('questions', <String, Object?>{
+          'id': _storageId,
+          'type': 3,
+          'content': 'Corrupt synthetic parent.',
+          'options': '[]',
+          'standard_answer': 'x|||',
+          'created_at': 1,
+          'bank_name': _bankName,
+        });
+        await db.insert('question_v2_payloads', <String, Object?>{
+          'question_id': _storageId,
+          'payload_schema_version': 2,
+          'payload_json': '{corrupt',
+        });
+        final standardBefore = await _standardAnswer(db, _storageId);
+
+        await expectLater(
+          repository.commitApproved(
+            _globalCommitRequest(
+              storageId: _storageId,
+              expectedDraft: _choiceDraft(),
+              proposedAnswer: ContentAnswer(content: _text('x')),
+            ),
+          ),
+          throwsA(
+            isA<TypedAnswerMutationException>().having(
+              (error) => error.failure,
+              'failure',
+              TypedAnswerMutationFailure.corruptPayload,
+            ),
+          ),
+        );
+        expect(await _standardAnswer(db, _storageId), standardBefore);
+      },
+    );
   });
 }

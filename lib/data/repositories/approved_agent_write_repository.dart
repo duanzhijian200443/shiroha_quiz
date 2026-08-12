@@ -1,12 +1,10 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../application/safe_write/agent_write_persistence.dart';
+import '../../application/safe_write/agent_write_proposed_answer_policy.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../core/database/database_helper.dart';
-import '../../domain/content/content_node.dart';
-import '../../domain/content/rich_content.dart';
 import '../../domain/conversations/conversation.dart';
-import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
@@ -34,6 +32,8 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
       QuestionV2PersistenceMapper();
   static const TypedAnswerPersistenceKernel _kernel =
       TypedAnswerPersistenceKernel();
+  static const AgentWriteProposedAnswerPolicy _answerPolicy =
+      AgentWriteProposedAnswerPolicy();
 
   @override
   Future<AgentWriteAdmissionResult> admitStagingTarget(
@@ -47,8 +47,10 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
     try {
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
-        final storedScope =
-            await _conversationScope(txn, request.sourceConversationId);
+        final storedScope = await _conversationScope(
+          txn,
+          request.sourceConversationId,
+        );
         if (storedScope == null ||
             request.scope.isUnavailableLearningSpace ||
             storedScope != request.scope) {
@@ -99,8 +101,10 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
-        final storedScope =
-            await _conversationScope(txn, request.sourceConversationId);
+        final storedScope = await _conversationScope(
+          txn,
+          request.sourceConversationId,
+        );
         if (storedScope == null) {
           throw const TypedAnswerMutationException(
             TypedAnswerMutationFailure.notFound,
@@ -157,7 +161,14 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
             TypedAnswerMutationFailure.stale,
           );
         }
-        _validateProposedAnswer(request.proposedAnswer, current.draft);
+        if (!_answerPolicy.isValidForDraft(
+          request.proposedAnswer,
+          current.draft,
+        )) {
+          throw const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.invalidAnswer,
+          );
+        }
 
         await _kernel.applyAnswerUpdate(
           txn: _TransactionExecutorAdapter(txn),
@@ -336,49 +347,6 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
     }
     return decoded;
   }
-
-  /// W0 fill-only proposal validation: choice identities must be unique and
-  /// exist in the current options; content answers must be structurally
-  /// non-empty without raw fallback or whitespace-only payload.
-  void _validateProposedAnswer(
-    QuestionAnswer proposed,
-    QuestionDraftV2 current,
-  ) {
-    switch (proposed) {
-      case ChoiceAnswer(:final optionIds):
-        final optionIdsInDraft = <String>{
-          for (final option in current.options) option.optionId,
-        };
-        if (optionIds.toSet().length != optionIds.length ||
-            !optionIds.every(optionIdsInDraft.contains)) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.invalidAnswer,
-          );
-        }
-      case ContentAnswer(:final content):
-        if (!_isStructurallyNonEmptyContent(content)) {
-          throw const TypedAnswerMutationException(
-            TypedAnswerMutationFailure.invalidAnswer,
-          );
-        }
-    }
-  }
-
-  bool _isStructurallyNonEmptyContent(RichContent content) {
-    if (content.nodes.isEmpty) return false;
-    var hasVisibleNode = false;
-    for (final node in content.nodes) {
-      switch (node) {
-        case TextNode(:final text):
-          if (text.trim().isNotEmpty) hasVisibleNode = true;
-        case InlineMathNode() || BlockMathNode():
-          hasVisibleNode = true;
-        case RawFallbackNode():
-          return false;
-      }
-    }
-    return hasVisibleNode;
-  }
 }
 
 /// Adapts the caller-owned SQLite transaction to the shared kernel's minimal
@@ -405,11 +373,6 @@ final class _TransactionExecutorAdapter
     String? where,
     List<Object?>? whereArgs,
   }) {
-    return _txn.update(
-      table,
-      values,
-      where: where,
-      whereArgs: whereArgs,
-    );
+    return _txn.update(table, values, where: where, whereArgs: whereArgs);
   }
 }

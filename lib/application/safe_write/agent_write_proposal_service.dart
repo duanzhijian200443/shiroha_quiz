@@ -1,11 +1,12 @@
-import '../../domain/content/content_node.dart';
 import '../../domain/question/question_draft_v2.dart';
 import 'agent_write_persistence.dart';
 import 'agent_write_proposal.dart';
+import 'agent_write_proposed_answer_policy.dart';
 import 'typed_answer_command.dart';
 
 /// Transient W0 proposal service: staging admission, canonical fingerprint
-/// deduplication, one-active-per-source-turn and the fill-only policy.
+/// deduplication, one-active-per-source-turn, the fill-only policy and an
+/// optional pre-activation result-size gate.
 ///
 /// All state is in-memory and disappears on process restart. Fingerprint
 /// equality is canonical structural equality; the same semantic fingerprint
@@ -13,6 +14,9 @@ import 'typed_answer_command.dart';
 /// committed or rejected proposals are never reactivated by replay.
 final class AgentWriteProposalService {
   AgentWriteProposalService(this._persistence);
+
+  static const AgentWriteProposedAnswerPolicy _answerPolicy =
+      AgentWriteProposedAnswerPolicy();
 
   final AgentWritePersistencePort _persistence;
 
@@ -28,14 +32,25 @@ final class AgentWriteProposalService {
   /// Admission runs first and only a granted target is ever read or decoded;
   /// the preview is built exclusively from the admitted snapshot and
   /// [proposedAnswer]. The fill-only policy refuses already-answered targets
-  /// and structurally invalid payloads. A different payload on the same
-  /// source turn supersedes the older pending proposal; a semantic replay
-  /// returns the existing proposal with its current outcome.
+  /// and payloads that are invalid for the target kind (kind-incompatible,
+  /// unknown/duplicate choice identities, or structurally empty/whitespace-
+  /// only/raw-fallback content). A different payload on the same source turn
+  /// supersedes the older pending proposal; a semantic replay returns the
+  /// existing proposal with its current outcome.
+  ///
+  /// When [resultSizeGate] is supplied, it runs immediately before any
+  /// lifecycle mutation with the exact candidate proposal that would be
+  /// activated (its real id, frozen preview and pending outcome). A false
+  /// return aborts staging with [AgentWriteStageResultTooLargeException] and
+  /// zero mutation: no supersession, no inserted/active proposal and no
+  /// fingerprint entry. A semantic replay returns the existing proposal
+  /// without invoking the gate because that path activates nothing.
   Future<AgentWriteStageResult> stageProposal({
     required AgentWriteAdmissionRequest admissionRequest,
     required QuestionAnswer proposedAnswer,
+    bool Function(AgentWriteProposal candidate)? resultSizeGate,
   }) async {
-    if (!_isStructurallyValidPayload(proposedAnswer)) {
+    if (!_answerPolicy.isStructurallyValidPayload(proposedAnswer)) {
       return const AgentWriteStageResultIneligible();
     }
     final admission = await _persistence.admitStagingTarget(admissionRequest);
@@ -48,7 +63,7 @@ final class AgentWriteProposalService {
         if (target.draft.answer != null) {
           return const AgentWriteStageResultIneligible();
         }
-        if (!_isValidChoiceAnswer(proposedAnswer, target.draft)) {
+        if (!_answerPolicy.isValidForDraft(proposedAnswer, target.draft)) {
           return const AgentWriteStageResultIneligible();
         }
         final fingerprint = AgentWriteProposalFingerprint(
@@ -63,9 +78,7 @@ final class AgentWriteProposalService {
         );
         final existingId = _proposalIdByFingerprint[fingerprint];
         if (existingId != null) {
-          return AgentWriteStageResultStaged(
-            _proposalsById[existingId]!,
-          );
+          return AgentWriteStageResultStaged(_proposalsById[existingId]!);
         }
         final proposal = _createProposal(
           admissionRequest: admissionRequest,
@@ -73,6 +86,9 @@ final class AgentWriteProposalService {
           fingerprint: fingerprint,
           proposedAnswer: proposedAnswer,
         );
+        if (resultSizeGate != null && !resultSizeGate(proposal)) {
+          throw const AgentWriteStageResultTooLargeException();
+        }
         _supersedePendingForTurn(
           admissionRequest.sourceConversationId,
           admissionRequest.sourceMessageId,
@@ -80,8 +96,10 @@ final class AgentWriteProposalService {
         );
         _proposalsById[proposal.id] = proposal;
         _proposalIdByFingerprint[fingerprint] = proposal.id;
-        _activeProposalByTurn[_turnKey(admissionRequest.sourceConversationId,
-            admissionRequest.sourceMessageId)] = proposal.id;
+        _activeProposalByTurn[_turnKey(
+          admissionRequest.sourceConversationId,
+          admissionRequest.sourceMessageId,
+        )] = proposal.id;
         return AgentWriteStageResultStaged(proposal);
     }
   }
@@ -94,8 +112,10 @@ final class AgentWriteProposalService {
     final proposal = _requireProposal(proposalId);
     switch (proposal.outcome) {
       case AgentWriteProposalOutcome.pending:
-        final committing =
-            _setOutcome(proposalId, AgentWriteProposalOutcome.committing);
+        final committing = _setOutcome(
+          proposalId,
+          AgentWriteProposalOutcome.committing,
+        );
         final inFlight = _inFlightCommits[proposalId];
         if (inFlight != null) return inFlight;
         final future = _runCommit(committing);
@@ -241,44 +261,13 @@ final class AgentWriteProposalService {
   String _turnKey(String conversationId, String messageId) {
     return '$conversationId\u0000$messageId';
   }
+}
 
-  /// Fill-only payload policy: a proposed content answer must be structurally
-  /// non-empty without raw fallback or whitespace-only payload; a proposed
-  /// choice answer must be non-empty and duplicate-free.
-  bool _isStructurallyValidPayload(QuestionAnswer proposed) {
-    switch (proposed) {
-      case ChoiceAnswer(:final optionIds):
-        return optionIds.isNotEmpty &&
-            optionIds.toSet().length == optionIds.length;
-      case ContentAnswer(:final content):
-        if (content.nodes.isEmpty) return false;
-        var hasVisibleNode = false;
-        for (final node in content.nodes) {
-          switch (node) {
-            case TextNode(:final text):
-              if (text.trim().isNotEmpty) hasVisibleNode = true;
-            case InlineMathNode() || BlockMathNode():
-              hasVisibleNode = true;
-            case RawFallbackNode():
-              return false;
-          }
-        }
-        return hasVisibleNode;
-    }
-  }
-
-  /// Choice identities must be unique and exist in the admitted options.
-  bool _isValidChoiceAnswer(
-    QuestionAnswer proposed,
-    QuestionDraftV2 admittedDraft,
-  ) {
-    if (proposed case ChoiceAnswer(:final optionIds)) {
-      final optionIdsInDraft = <String>{
-        for (final option in admittedDraft.options) option.optionId,
-      };
-      return optionIds.toSet().length == optionIds.length &&
-          optionIds.every(optionIdsInDraft.contains);
-    }
-    return true;
-  }
+/// Thrown by [AgentWriteProposalService.stageProposal] when the supplied
+/// pre-activation [resultSizeGate] rejects the exact candidate proposal.
+///
+/// Guarantees zero lifecycle mutation: the candidate was never inserted,
+/// activated or superseded, and no fingerprint entry was created for it.
+final class AgentWriteStageResultTooLargeException implements Exception {
+  const AgentWriteStageResultTooLargeException();
 }
