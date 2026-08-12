@@ -13,12 +13,28 @@ import 'typed_answer_command.dart';
 /// reuses the existing proposal identity and its current outcome, and
 /// committed or rejected proposals are never reactivated by replay.
 final class AgentWriteProposalService {
-  AgentWriteProposalService(this._persistence);
+  AgentWriteProposalService(
+    this._persistence, {
+    AgentWriteReconciliationPort? reconciliation,
+  }) : _reconciliation = reconciliation ?? _reconciliationOf(_persistence);
+
+  /// The persistence adapter is the dedicated data adapter for the COMMIT
+  /// path, so when it also provides the reconciliation port (as the W0
+  /// repository does) no separate composition-root wiring is required.
+  static AgentWriteReconciliationPort? _reconciliationOf(
+    AgentWritePersistencePort persistence,
+  ) {
+    return switch (persistence) {
+      AgentWriteReconciliationPort reconciliation => reconciliation,
+      _ => null,
+    };
+  }
 
   static const AgentWriteProposedAnswerPolicy _answerPolicy =
       AgentWriteProposedAnswerPolicy();
 
   final AgentWritePersistencePort _persistence;
+  final AgentWriteReconciliationPort? _reconciliation;
 
   final Map<String, AgentWriteProposal> _proposalsById = {};
   final Map<AgentWriteProposalFingerprint, String> _proposalIdByFingerprint =
@@ -234,18 +250,70 @@ final class AgentWriteProposalService {
       );
       return _setOutcome(proposal.id, AgentWriteProposalOutcome.committed);
     } on TypedAnswerMutationException catch (error) {
-      final outcome = switch (error.failure) {
-        TypedAnswerMutationFailure.notFound ||
-        TypedAnswerMutationFailure.notTyped ||
-        TypedAnswerMutationFailure.corruptPayload ||
-        TypedAnswerMutationFailure.invalidAnswer ||
-        TypedAnswerMutationFailure.unsafePayload =>
-          AgentWriteProposalOutcome.invalid,
-        TypedAnswerMutationFailure.stale => AgentWriteProposalOutcome.stale,
-        TypedAnswerMutationFailure.transactionFailed =>
+      final outcome = await _outcomeAfterCommitFailure(error, proposal);
+      return _setOutcome(proposal.id, outcome);
+    }
+  }
+
+  Future<AgentWriteProposalOutcome> _outcomeAfterCommitFailure(
+    TypedAnswerMutationException error,
+    AgentWriteProposal proposal,
+  ) async {
+    return switch (error.failure) {
+      TypedAnswerMutationFailure.notFound ||
+      TypedAnswerMutationFailure.notTyped ||
+      TypedAnswerMutationFailure.corruptPayload ||
+      TypedAnswerMutationFailure.invalidAnswer ||
+      TypedAnswerMutationFailure.unsafePayload =>
+        AgentWriteProposalOutcome.invalid,
+      TypedAnswerMutationFailure.stale => AgentWriteProposalOutcome.stale,
+      TypedAnswerMutationFailure.transactionFailed =>
+        await _reconcileAmbiguousOutcome(proposal),
+    };
+  }
+
+  /// Reconciles one ambiguous COMMIT through exactly one permission-aware
+  /// read. The read never writes: an exact post-image reports committed, an
+  /// exact baseline returns the proposal to its approvable pending state only
+  /// while it remains the active proposal for its source turn (the explicit
+  /// Presentation Approve action is the only retry entry and performs at most
+  /// one new commit attempt per user action). A newer proposal staged while
+  /// this one was committing keeps the older proposal superseded; any other
+  /// confirmed draft reports stale, and a denied/unavailable/unconfirmable
+  /// read keeps unknownOutcome with zero automatic retry.
+  Future<AgentWriteProposalOutcome> _reconcileAmbiguousOutcome(
+    AgentWriteProposal proposal,
+  ) async {
+    final reconciliation = _reconciliation;
+    if (reconciliation == null) {
+      return AgentWriteProposalOutcome.unknownOutcome;
+    }
+    try {
+      final result = await reconciliation.reconcileAfterAmbiguousCommit(
+        AgentWriteReconciliationRequest(
+          sourceConversationId: proposal.sourceConversationId,
+          sourceMessageId: proposal.sourceMessageId,
+          scope: proposal.scope,
+          targetStorageId: proposal.targetStorageId,
+          expectedBankName: proposal.bankName,
+          expectedDraft: proposal.expectedDraft,
+          proposedAnswer: proposal.proposedAnswer,
+        ),
+      );
+      return switch (result) {
+        AgentWriteReconciliationCommitted() =>
+          AgentWriteProposalOutcome.committed,
+        AgentWriteReconciliationBaseline() => _isActiveProposalForTurn(proposal)
+            ? AgentWriteProposalOutcome.pending
+            : AgentWriteProposalOutcome.superseded,
+        AgentWriteReconciliationConflicted() => AgentWriteProposalOutcome.stale,
+        AgentWriteReconciliationUnavailable() =>
           AgentWriteProposalOutcome.unknownOutcome,
       };
-      return _setOutcome(proposal.id, outcome);
+    } catch (_) {
+      // A failed reconciliation read must never crash the lifecycle or
+      // trigger an automatic retry; the outcome stays unconfirmable.
+      return AgentWriteProposalOutcome.unknownOutcome;
     }
   }
 
@@ -256,6 +324,14 @@ final class AgentWriteProposalService {
     final updated = _proposalsById[proposalId]!.withOutcome(outcome);
     _proposalsById[proposalId] = updated;
     return updated;
+  }
+
+  bool _isActiveProposalForTurn(AgentWriteProposal proposal) {
+    return _activeProposalByTurn[_turnKey(
+          proposal.sourceConversationId,
+          proposal.sourceMessageId,
+        )] ==
+        proposal.id;
   }
 
   String _turnKey(String conversationId, String messageId) {

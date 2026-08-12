@@ -282,6 +282,38 @@ AgentWriteCommitRequest _learningCommitRequest({
   );
 }
 
+AgentWriteReconciliationRequest _globalReconciliationRequest({
+  required String storageId,
+  required QuestionDraftV2 expectedDraft,
+  required QuestionAnswer proposedAnswer,
+}) {
+  return AgentWriteReconciliationRequest(
+    sourceConversationId: _globalConversation,
+    sourceMessageId: _globalMessage,
+    scope: ConversationScope.global(),
+    targetStorageId: storageId,
+    expectedBankName: _bankName,
+    expectedDraft: expectedDraft,
+    proposedAnswer: proposedAnswer,
+  );
+}
+
+AgentWriteReconciliationRequest _learningReconciliationRequest({
+  required String storageId,
+  required QuestionDraftV2 expectedDraft,
+  required QuestionAnswer proposedAnswer,
+}) {
+  return AgentWriteReconciliationRequest(
+    sourceConversationId: _learningConversation,
+    sourceMessageId: _learningMessage,
+    scope: ConversationScope.learningSpace(_projectId),
+    targetStorageId: storageId,
+    expectedBankName: _bankName,
+    expectedDraft: expectedDraft,
+    proposedAnswer: proposedAnswer,
+  );
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -1370,5 +1402,264 @@ void main() {
         expect(await _standardAnswer(db, _storageId), standardBefore);
       },
     );
+  });
+
+  group('ambiguous commit reconciliation', () {
+    test('exact post-image reports committed with zero writes', () async {
+      final helper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_rec_')).path,
+          'a.db',
+        ),
+      );
+      addTearDown(helper.close);
+      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertConversation(
+        db,
+        conversationId: _globalConversation,
+        scope: ConversationScope.global(),
+      );
+      await _insertMessage(
+        db,
+        messageId: _globalMessage,
+        conversationId: _globalConversation,
+        role: 'user',
+      );
+      await _insertTypedRow(
+        db,
+        _contentDraft(answer: ContentAnswer(content: _text('x'))),
+        storageId: _storageId,
+      );
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+
+      final result = await repository.reconcileAfterAmbiguousCommit(
+        _globalReconciliationRequest(
+          storageId: _storageId,
+          expectedDraft: _contentDraft(),
+          proposedAnswer: ContentAnswer(content: _text('x')),
+        ),
+      );
+
+      expect(result, isA<AgentWriteReconciliationCommitted>());
+      expect(await _payloadJson(db, _storageId), payloadBefore);
+      expect(await _standardAnswer(db, _storageId), standardBefore);
+    });
+
+    test('exact baseline reports baseline with zero writes', () async {
+      final helper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_rec_')).path,
+          'b.db',
+        ),
+      );
+      addTearDown(helper.close);
+      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertConversation(
+        db,
+        conversationId: _globalConversation,
+        scope: ConversationScope.global(),
+      );
+      await _insertMessage(
+        db,
+        messageId: _globalMessage,
+        conversationId: _globalConversation,
+        role: 'user',
+      );
+      await _insertTypedRow(db, _contentDraft(), storageId: _storageId);
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+
+      final result = await repository.reconcileAfterAmbiguousCommit(
+        _globalReconciliationRequest(
+          storageId: _storageId,
+          expectedDraft: _contentDraft(),
+          proposedAnswer: ContentAnswer(content: _text('x')),
+        ),
+      );
+
+      expect(result, isA<AgentWriteReconciliationBaseline>());
+      expect(await _payloadJson(db, _storageId), payloadBefore);
+      expect(await _standardAnswer(db, _storageId), standardBefore);
+    });
+
+    test('a different confirmed draft reports conflicted with zero writes',
+        () async {
+      final helper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_rec_')).path,
+          'c.db',
+        ),
+      );
+      addTearDown(helper.close);
+      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertConversation(
+        db,
+        conversationId: _globalConversation,
+        scope: ConversationScope.global(),
+      );
+      await _insertMessage(
+        db,
+        messageId: _globalMessage,
+        conversationId: _globalConversation,
+        role: 'user',
+      );
+      // A confirmed draft that is neither the baseline nor the post-image
+      // (different stem and different answer).
+      final otherDraft = QuestionDraftV2(
+        questionId: 'w0_d1_other_q',
+        kind: QuestionKind.shortAnswer,
+        questionNumber: 2,
+        stem: _text('Other stem.'),
+        answer: ContentAnswer(content: _text('other')),
+        explanation: _text('Explanation.'),
+      );
+      await _insertTypedRow(db, otherDraft, storageId: _storageId);
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+
+      final result = await repository.reconcileAfterAmbiguousCommit(
+        _globalReconciliationRequest(
+          storageId: _storageId,
+          expectedDraft: _contentDraft(),
+          proposedAnswer: ContentAnswer(content: _text('x')),
+        ),
+      );
+
+      expect(result, isA<AgentWriteReconciliationConflicted>());
+      expect(await _payloadJson(db, _storageId), payloadBefore);
+      expect(await _standardAnswer(db, _storageId), standardBefore);
+    });
+
+    test('denied authority reports unavailable without leaking content',
+        () async {
+      final helper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_rec_')).path,
+          'd.db',
+        ),
+      );
+      addTearDown(helper.close);
+      final repository = ApprovedAgentWriteRepository(databaseHelper: helper);
+      final db = await helper.database;
+      await _insertProject(db);
+      await _insertConversation(
+        db,
+        conversationId: _learningConversation,
+        scope: ConversationScope.learningSpace(_projectId),
+      );
+      await _insertMessage(
+        db,
+        messageId: _learningMessage,
+        conversationId: _learningConversation,
+        role: 'user',
+      );
+      await _insertTypedRow(db, _contentDraft(), storageId: _storageId);
+      // No project_banks relation: the target exists but is unauthorized.
+      final payloadBefore = await _payloadJson(db, _storageId);
+      final standardBefore = await _standardAnswer(db, _storageId);
+
+      final result = await repository.reconcileAfterAmbiguousCommit(
+        _learningReconciliationRequest(
+          storageId: _storageId,
+          expectedDraft: _contentDraft(),
+          proposedAnswer: ContentAnswer(content: _text('x')),
+        ),
+      );
+
+      expect(result, isA<AgentWriteReconciliationUnavailable>());
+      expect(await _payloadJson(db, _storageId), payloadBefore);
+      expect(await _standardAnswer(db, _storageId), standardBefore);
+    });
+
+    test('corrupt and unreadable targets report unavailable with zero writes',
+        () async {
+      final corruptHelper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_rec_')).path,
+          'e.db',
+        ),
+      );
+      addTearDown(corruptHelper.close);
+      final corruptRepository =
+          ApprovedAgentWriteRepository(databaseHelper: corruptHelper);
+      final corruptDb = await corruptHelper.database;
+      await _insertConversation(
+        corruptDb,
+        conversationId: _globalConversation,
+        scope: ConversationScope.global(),
+      );
+      await _insertMessage(
+        corruptDb,
+        messageId: _globalMessage,
+        conversationId: _globalConversation,
+        role: 'user',
+      );
+      await corruptDb.insert('questions', <String, Object?>{
+        'id': _storageId,
+        'type': 3,
+        'content': 'Corrupt synthetic parent.',
+        'options': '[]',
+        'standard_answer': 'x|||',
+        'created_at': 1,
+        'bank_name': _bankName,
+      });
+      await corruptDb.insert('question_v2_payloads', <String, Object?>{
+        'question_id': _storageId,
+        'payload_schema_version': 2,
+        'payload_json': '{corrupt',
+      });
+
+      final corrupt = await corruptRepository.reconcileAfterAmbiguousCommit(
+        _globalReconciliationRequest(
+          storageId: _storageId,
+          expectedDraft: _contentDraft(),
+          proposedAnswer: ContentAnswer(content: _text('x')),
+        ),
+      );
+      expect(corrupt, isA<AgentWriteReconciliationUnavailable>());
+
+      final unreadableHelper = _FileDatabaseHelper(
+        p.join(
+          (await Directory.systemTemp.createTemp('w0_d1_rec_')).path,
+          'f.db',
+        ),
+      );
+      addTearDown(unreadableHelper.close);
+      final unreadableRepository =
+          ApprovedAgentWriteRepository(databaseHelper: unreadableHelper);
+      final unreadableDb = await unreadableHelper.database;
+      await _insertConversation(
+        unreadableDb,
+        conversationId: _globalConversation,
+        scope: ConversationScope.global(),
+      );
+      await _insertMessage(
+        unreadableDb,
+        messageId: _globalMessage,
+        conversationId: _globalConversation,
+        role: 'user',
+      );
+      await _insertTypedRow(
+        unreadableDb,
+        _contentDraft(),
+        storageId: _storageId,
+      );
+      // A synthetic read failure: the target table disappears mid-read.
+      await unreadableDb.execute('DROP TABLE questions');
+
+      final unreadable =
+          await unreadableRepository.reconcileAfterAmbiguousCommit(
+        _globalReconciliationRequest(
+          storageId: _storageId,
+          expectedDraft: _contentDraft(),
+          proposedAnswer: ContentAnswer(content: _text('x')),
+        ),
+      );
+      expect(unreadable, isA<AgentWriteReconciliationUnavailable>());
+    });
   });
 }
