@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/services/file_library/managed_artifact_storage.dart';
 import 'package:shiroha_quiz/services/file_library/managed_artifact_storage_adapter.dart';
+
+const String _payloadSha256 =
+    'd0546103008cfd9b7d041387f5cc501d7824dc609a8029105836156abc234171';
 
 void main() {
   late Directory tempDir;
@@ -32,23 +34,22 @@ void main() {
     test('write/finalize/read round-trips with exact digest and size',
         () async {
       final bytes = payload();
-      final expectedDigest = sha256.convert(bytes).toString();
 
       final written = await adapter.writeArtifact(
         storageKey: 'artifacts/artifact_0001.json',
         bytes: bytes,
       );
 
-      expect(written.sha256, expectedDigest);
+      expect(written.sha256, _payloadSha256);
       expect(written.sizeBytes, bytes.length);
       final read = await adapter.readArtifact(
         storageKey: 'artifacts/artifact_0001.json',
-        expectedSha256: expectedDigest,
+        expectedSha256: _payloadSha256,
         expectedSizeBytes: bytes.length,
       );
       expect(read, isNotNull);
       expect(read!.bytes, bytes);
-      expect(read.sha256, expectedDigest);
+      expect(read.sha256, _payloadSha256);
       expect(read.sizeBytes, bytes.length);
     });
 
