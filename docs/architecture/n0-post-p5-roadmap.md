@@ -34,7 +34,11 @@ F1-D1 v20 parsed artifact persistence — COMPLETE
 F1-A1 Parsed Artifact lifecycle orchestration — COMPLETE
 F1-I1 Deterministic generation adapter — COMPLETE
 F1-I2 Explicit OCR generation — COMPLETE
-F1-CL and later stages — NOT STARTED
+F1-CL Parsed Artifact closure — COMPLETE
+F1 Parsed Artifact Lifecycle — COMPLETE
+P6 Supplemental-answer matching — NOT STARTED
+P7 AI answer candidates — NOT STARTED
+RAG Project retrieval enhancement — NOT STARTED
 Current runtime schema — v20
 ```
 
@@ -269,8 +273,10 @@ is COMPLETE and reuses the existing parser truth. F1-I2 (explicit
 `ocr_pdf`/`ocr_image` ParsedArtifact generation through
 `OcrDocumentClient -> OcrSourceDocumentAdapter`) is COMPLETE with offline/mock
 testing only; `auto` never triggers OCR, and the question OCR pipeline is not
-part of artifact generation. F1-CL and later stages are NOT STARTED. There is
-no UI, Agent, or MCP activation.
+part of artifact generation. F1-CL is COMPLETE: focused verification PASS,
+final full semantic review APPROVE, closure repair merged via PR #65, and no
+open P0/P1/P2/P3 findings. F1 Parsed Artifact Lifecycle v0 is COMPLETE. P6
+and later stages are NOT STARTED. There is no UI, Agent, or MCP activation.
 
 Frozen stage graph:
 
