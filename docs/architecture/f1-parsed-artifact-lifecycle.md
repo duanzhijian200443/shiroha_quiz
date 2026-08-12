@@ -308,11 +308,11 @@ Ownership:
 - `F1-A1`: Application lifecycle seam and orchestration — COMPLETE.
 - `F1-I1`: deterministic production generation adapter on existing parser
   truth — COMPLETE.
-- `F1-I2`: explicit OCR offline integration — NOT STARTED.
+- `F1-I2`: explicit OCR ParsedArtifact generation integration — COMPLETE.
 - `F1-CL`: focused verification, final full semantic review, canonical
   closure — NOT STARTED.
 
-Current state: F1-P0 through F1-I1 are COMPLETE. The v20 tables, the D1
+Current state: F1-P0 through F1-I2 are COMPLETE. The v20 tables, the D1
 persistence/storage primitives, and the A1 lifecycle seam (get/ensure/reparse/
 remove, cache fingerprint v1, per-file mutation gate, publish and best-effort
 cleanup orchestration, and the 11-item Application failure taxonomy) exist in
@@ -324,7 +324,16 @@ projecting every result through `ParsedSourceDocumentAdapter`. Under the F1-I1
 Class C amendment, `ParsedSourceDocumentAdapter` is activated for exactly one
 production consumer (the deterministic generation adapter); the R2D
 acceptance allowlist keeps rejecting every other caller. F1-I2 explicit OCR
-integration is NOT STARTED; there is no UI, Agent, or MCP activation.
+generation is COMPLETE for explicit `ocr_pdf`/`ocr_image` routes; `auto`
+remains deterministic-only and never triggers OCR. OCR artifact source truth
+is `OcrDocumentClient -> OcrDocument -> OcrSourceDocumentAdapter ->
+SourceDocument`; the question OCR pipeline (`OcrImportService`, regionizer,
+assembler, typed candidates, reference answers) is not part of ParsedArtifact
+generation. Under the F1-I2 Class C amendment, `OcrSourceDocumentAdapter`
+has exactly two production callers: the frozen R7B typed-candidate seam and
+the F1-I2 OCR artifact generation seam. OCR testing/acceptance is offline and
+mocked; no live provider proof is claimed. F1-CL remains NOT STARTED; there
+is no UI, Agent, or MCP activation.
 
 Governance:
 

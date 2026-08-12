@@ -263,4 +263,121 @@ void main() {
       });
     });
   });
+
+  group('MIME resolution fallback (F1-I2)', () {
+    http.Response okResponse() {
+      return http.Response(
+        jsonEncode(<String, Object?>{
+          'md_results': 'ok',
+          'layout_details': <Object?>[],
+          'data_info': <String, Object?>{},
+        }),
+        200,
+        headers: <String, String>{'content-type': 'application/json'},
+      );
+    }
+
+    test('extensionless managed path resolves image MIME from sourceName',
+        () async {
+      final file = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'extless_${DateTime.now().microsecondsSinceEpoch}',
+      )..writeAsBytesSync(const [1]);
+      addTearDown(() => file.deleteSync());
+      http.Request? captured;
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          captured = request;
+          return okResponse();
+        }),
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'artifact-1.png',
+      );
+
+      expect(document.markdown, 'ok');
+      expect(captured, isNotNull);
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['file'], startsWith('data:image/png;base64,'));
+    });
+
+    test('extensionless managed path resolves PDF MIME from sourceName',
+        () async {
+      final pdf = PdfDocument();
+      pdf.pages.add();
+      final pdfBytes = pdf.saveSync();
+      pdf.dispose();
+      final file = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'extless_pdf_${DateTime.now().microsecondsSinceEpoch}',
+      )..writeAsBytesSync(pdfBytes);
+      addTearDown(() => file.deleteSync());
+      http.Request? captured;
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          captured = request;
+          return okResponse();
+        }),
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'artifact-1.pdf',
+      );
+
+      expect(document.markdown, 'ok');
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['file'], startsWith('data:application/pdf;base64,'));
+    });
+
+    test('physical filePath extension takes precedence over sourceName',
+        () async {
+      final file = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'precedence_${DateTime.now().microsecondsSinceEpoch}.png',
+      )..writeAsBytesSync(const [1]);
+      addTearDown(() => file.deleteSync());
+      http.Request? captured;
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          captured = request;
+          return okResponse();
+        }),
+      );
+
+      await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'artifact-1.pdf',
+      );
+
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['file'], startsWith('data:image/png;base64,'));
+    });
+
+    test('both filePath and sourceName unrecognized throw ArgumentError',
+        () async {
+      final file = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'noext_${DateTime.now().microsecondsSinceEpoch}',
+      )..writeAsBytesSync(const [1]);
+      addTearDown(() => file.deleteSync());
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((_) async => okResponse()),
+      );
+
+      await expectLater(
+        client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'no-extension-either',
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+  });
 }
