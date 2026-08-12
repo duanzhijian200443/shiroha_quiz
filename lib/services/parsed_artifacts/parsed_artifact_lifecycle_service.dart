@@ -276,21 +276,31 @@ final class ParsedArtifactLifecycleService
       if (sourceDocument != null) {
         return (metadata, sourceDocument);
       }
-      if (attempts >= 2) {
-        throw const ParsedArtifactLifecycleException(
-          ParsedArtifactLifecycleFailure.artifactMissing,
-        );
-      }
+      // The sidecar for the currently observed generation is missing.
+      // Re-read the current metadata to distinguish the legal replacement
+      // race from stable corruption.
       final latest = await _artifactRepository.findCurrentByFileId(fileId);
       if (latest == null) {
+        // The current was removed while reading; a missing artifact is legal.
         throw const ParsedArtifactLifecycleException(
           ParsedArtifactLifecycleFailure.artifactMissing,
         );
       }
       if (latest.artifactId == metadata.artifactId &&
           latest.revision == metadata.revision) {
+        // The current generation still points at a missing sidecar: stable
+        // corruption, not a replacement race.
         throw const ParsedArtifactLifecycleException(
-          ParsedArtifactLifecycleFailure.artifactMissing,
+          ParsedArtifactLifecycleFailure.artifactCorrupt,
+        );
+      }
+      if (attempts >= 2) {
+        // The generation kept changing across the bounded retry window, so
+        // the current artifact cannot be stably observed. Report a safe
+        // transient failure instead of misreporting stable artifactMissing
+        // or artifactCorrupt.
+        throw const ParsedArtifactLifecycleException(
+          ParsedArtifactLifecycleFailure.temporarilyUnavailable,
         );
       }
       metadata = latest;
