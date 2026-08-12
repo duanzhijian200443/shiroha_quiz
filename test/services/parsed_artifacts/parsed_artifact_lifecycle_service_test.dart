@@ -10,6 +10,7 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
 import 'package:shiroha_quiz/data/repositories/parsed_artifact_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
+import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/source/parsed_artifact_payload_codec.dart';
@@ -247,6 +248,118 @@ class _TamperedReadStorage implements ManagedArtifactStorage {
       inner.deleteArtifact(storageKey);
 }
 
+ParsedArtifactMetadata scriptedMetadata({
+  String artifactId = 'artifact-1',
+  int revision = 1,
+  String storageKey = 'artifacts/artifact-1.json',
+}) {
+  return ParsedArtifactMetadata(
+    artifact: ParsedArtifact(
+      fileId: 'file-1',
+      artifactId: artifactId,
+      revision: revision,
+      payloadSchemaVersion: 1,
+    ),
+    sourceSha256: _sha256A,
+    cacheKeyVersion: 1,
+    cacheFingerprint: 'fingerprint-v1',
+    parserRoute: 'pdf_text',
+    parserVersion: '1.0.0',
+    optionsSchemaVersion: 1,
+    storageKey: storageKey,
+    payloadSha256: _sha256B,
+    sizeBytes: 42,
+    publishedAt: 1700000000000,
+  );
+}
+
+List<int> scriptedPayloadBytes(ParsedArtifactMetadata metadata) {
+  final payload = ParsedArtifactPayload(
+    schemaVersion: ParsedArtifactPayloadCodec.schemaVersion,
+    artifactId: metadata.artifactId,
+    fileId: metadata.fileId,
+    sourceDocument: SourceDocument(sourceId: metadata.artifactId),
+  );
+  return utf8.encode(
+    jsonEncode(const ParsedArtifactPayloadCodec().encode(payload)),
+  );
+}
+
+/// Scripts the sequence of current-metadata observations so the bounded
+/// replacement-race retry can be driven deterministically.
+class _ScriptedCurrentRepository implements ParsedArtifactRepositoryPort {
+  _ScriptedCurrentRepository(this.currentSequence);
+
+  final List<ParsedArtifactMetadata?> currentSequence;
+  int reads = 0;
+
+  @override
+  Future<ParsedArtifactMetadata?> findCurrentByFileId(String fileId) async {
+    final index =
+        reads < currentSequence.length ? reads : currentSequence.length - 1;
+    reads++;
+    return currentSequence[index];
+  }
+
+  @override
+  Future<int> readRevisionHead(String fileId) async => 0;
+
+  @override
+  Future<ParsedArtifactPublishResult> publishCurrent({
+    required String fileId,
+    required ParsedArtifactMetadata candidate,
+    required int expectedRevision,
+  }) async {
+    return ParsedArtifactPublishResult.published(candidate);
+  }
+
+  @override
+  Future<ParsedArtifactRemoveResult> removeCurrent({
+    required String fileId,
+    required int expectedRevision,
+  }) async {
+    return const ParsedArtifactRemoveResult.removed();
+  }
+}
+
+/// Scripted sidecar store: only keys present in [availableByKey] resolve;
+/// every other read reports a missing sidecar.
+class _ScriptedSidecarStorage implements ManagedArtifactStorage {
+  _ScriptedSidecarStorage(this.availableByKey);
+
+  final Map<String, List<int>> availableByKey;
+
+  @override
+  String allocateArtifactStorageKey(String artifactId) =>
+      'artifacts/$artifactId.json';
+
+  @override
+  Future<ArtifactWriteResult> writeArtifact({
+    required String storageKey,
+    required List<int> bytes,
+  }) async {
+    throw UnsupportedError('not used');
+  }
+
+  @override
+  Future<ArtifactReadResult?> readArtifact({
+    required String storageKey,
+    String? expectedSha256,
+    int? expectedSizeBytes,
+  }) async {
+    final bytes = availableByKey[storageKey];
+    if (bytes == null) return null;
+    return ArtifactReadResult(
+      bytes: bytes,
+      sha256: 'scripted',
+      sizeBytes: bytes.length,
+    );
+  }
+
+  @override
+  Future<void> deleteArtifact(String storageKey) async {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -364,7 +477,7 @@ void main() {
           snapshot.artifact.artifactId);
     });
 
-    test('missing sidecar is artifactMissing', () async {
+    test('stably missing sidecar is artifactCorrupt', () async {
       await seedLibraryFile();
       await ensure();
       final entry = artifactDirEntries().single;
@@ -372,13 +485,63 @@ void main() {
 
       try {
         await currentArtifact('file-1');
-        fail('expected artifactMissing');
+        fail('expected artifactCorrupt');
       } catch (error) {
         expectLifecycleFailure(
           error,
-          failure: ParsedArtifactLifecycleFailure.artifactMissing,
+          failure: ParsedArtifactLifecycleFailure.artifactCorrupt,
         );
       }
+      expect(await artifactRepository.readRevisionHead('file-1'), 1);
+      expect(
+        (await artifactRepository.findCurrentByFileId('file-1'))!.revision,
+        1,
+      );
+    });
+
+    test('ensure hard-fails on stably missing sidecar without generation',
+        () async {
+      await seedLibraryFile();
+      await ensure();
+      final generateBefore = generation.generateCalls;
+      final entry = artifactDirEntries().single;
+      await File(p.join(tempDir.path, 'artifacts', entry)).delete();
+
+      try {
+        await ensure();
+        fail('expected artifactCorrupt');
+      } catch (error) {
+        expectLifecycleFailure(
+          error,
+          failure: ParsedArtifactLifecycleFailure.artifactCorrupt,
+        );
+      }
+      expect(generation.generateCalls, generateBefore);
+      expect(await artifactRepository.readRevisionHead('file-1'), 1);
+      expect(
+        (await artifactRepository.findCurrentByFileId('file-1'))!.revision,
+        1,
+      );
+    });
+
+    test('replacement recovers the new current after the old sidecar vanished',
+        () async {
+      await seedLibraryFile();
+      final first = await ensure();
+      final oldKey = 'artifacts/${first.snapshot.artifact.artifactId}.json';
+      await File(p.join(tempDir.path, oldKey)).delete();
+
+      final reparsed = await service.reparseArtifact(
+        fileId: 'file-1',
+        options: _options,
+        expectedRevision: 1,
+      );
+
+      expect(reparsed.outcome, ParsedArtifactLifecycleOutcome.published);
+      expect(reparsed.snapshot.artifact.revision, 2);
+      final current = await currentArtifact('file-1');
+      expect(current.artifact.revision, 2);
+      expect(await artifactRepository.readRevisionHead('file-1'), 2);
     });
 
     test('digest mismatch is artifactCorrupt', () async {
@@ -1180,6 +1343,93 @@ void main() {
       }
       final current = await currentArtifact('file-1');
       expect(current.artifact.revision, 1);
+    });
+  });
+
+  group('replacement race boundaries', () {
+    ParsedArtifactLifecycleService scriptedService(
+      ParsedArtifactRepositoryPort repository,
+      ManagedArtifactStorage storage,
+    ) {
+      return ParsedArtifactLifecycleService(
+        libraryFileRepository: libraryRepository,
+        artifactRepository: repository,
+        artifactStorage: storage,
+        generationPort: generation,
+      );
+    }
+
+    test('stable generation with missing sidecar is artifactCorrupt', () async {
+      await seedLibraryFile();
+      final metadata = scriptedMetadata();
+      final service = scriptedService(
+        _ScriptedCurrentRepository(
+            <ParsedArtifactMetadata?>[metadata, metadata]),
+        _ScriptedSidecarStorage(const <String, List<int>>{}),
+      );
+
+      try {
+        await service.getCurrentArtifact('file-1');
+        fail('expected artifactCorrupt');
+      } catch (error) {
+        expectLifecycleFailure(
+          error,
+          failure: ParsedArtifactLifecycleFailure.artifactCorrupt,
+        );
+      }
+    });
+
+    test('changed generation recovers through the latest current', () async {
+      await seedLibraryFile();
+      final first = scriptedMetadata();
+      final latest = scriptedMetadata(
+        artifactId: 'artifact-2',
+        revision: 2,
+        storageKey: 'artifacts/artifact-2.json',
+      );
+      final service = scriptedService(
+        _ScriptedCurrentRepository(<ParsedArtifactMetadata?>[first, latest]),
+        _ScriptedSidecarStorage(
+          <String, List<int>>{latest.storageKey: scriptedPayloadBytes(latest)},
+        ),
+      );
+
+      final snapshot = await service.getCurrentArtifact('file-1');
+
+      expect(snapshot.artifact.artifactId, 'artifact-2');
+      expect(snapshot.artifact.revision, 2);
+    });
+
+    test('continuously changing generations become transient, not missing',
+        () async {
+      await seedLibraryFile();
+      final first = scriptedMetadata();
+      final second = scriptedMetadata(
+        artifactId: 'artifact-2',
+        revision: 2,
+        storageKey: 'artifacts/artifact-2.json',
+      );
+      final third = scriptedMetadata(
+        artifactId: 'artifact-3',
+        revision: 3,
+        storageKey: 'artifacts/artifact-3.json',
+      );
+      final service = scriptedService(
+        _ScriptedCurrentRepository(
+          <ParsedArtifactMetadata?>[first, second, third],
+        ),
+        _ScriptedSidecarStorage(const <String, List<int>>{}),
+      );
+
+      try {
+        await service.getCurrentArtifact('file-1');
+        fail('expected temporarilyUnavailable');
+      } catch (error) {
+        expectLifecycleFailure(
+          error,
+          failure: ParsedArtifactLifecycleFailure.temporarilyUnavailable,
+        );
+      }
     });
   });
 }
