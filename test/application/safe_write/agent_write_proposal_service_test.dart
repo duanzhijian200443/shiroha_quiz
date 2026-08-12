@@ -67,12 +67,17 @@ AgentWriteAdmittedTarget _grantedTarget(QuestionDraftV2 draft) {
   );
 }
 
-class _FakePersistence implements AgentWritePersistencePort {
+class _FakePersistence
+    implements AgentWritePersistencePort, AgentWriteReconciliationPort {
   _FakePersistence({required this.admissionResult});
 
   AgentWriteAdmissionResult admissionResult;
   Object? commitError;
+  AgentWriteReconciliationResult reconciliationResult =
+      const AgentWriteReconciliationUnavailable();
+  Object? reconciliationError;
   final commitCalls = <AgentWriteCommitRequest>[];
+  final reconciliationCalls = <AgentWriteReconciliationRequest>[];
   Completer<void>? commitGate;
 
   @override
@@ -87,6 +92,40 @@ class _FakePersistence implements AgentWritePersistencePort {
     commitCalls.add(request);
     final gate = commitGate;
     if (gate != null) await gate.future;
+    final failure = commitError;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<AgentWriteReconciliationResult> reconcileAfterAmbiguousCommit(
+    AgentWriteReconciliationRequest request,
+  ) async {
+    reconciliationCalls.add(request);
+    final error = reconciliationError;
+    if (error != null) throw error;
+    return reconciliationResult;
+  }
+}
+
+/// Persistence-only fake (no reconciliation adapter): ambiguous COMMIT
+/// failures stay unconfirmable exactly like pre-repair composition.
+class _PersistenceOnlyFake implements AgentWritePersistencePort {
+  _PersistenceOnlyFake({required this.admissionResult});
+
+  final AgentWriteAdmissionResult admissionResult;
+  Object? commitError;
+  final commitCalls = <AgentWriteCommitRequest>[];
+
+  @override
+  Future<AgentWriteAdmissionResult> admitStagingTarget(
+    AgentWriteAdmissionRequest request,
+  ) async {
+    return admissionResult;
+  }
+
+  @override
+  Future<void> commitApproved(AgentWriteCommitRequest request) async {
+    commitCalls.add(request);
     final failure = commitError;
     if (failure != null) throw failure;
   }
@@ -706,6 +745,229 @@ void main() {
         throwsArgumentError,
       );
     });
+  });
+
+  group('ambiguous COMMIT reconciliation', () {
+    test(
+      'transactionFailed with the exact post-image reports committed and '
+      'reconciles exactly once with zero retry',
+      () async {
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationCommitted();
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+
+        final approved = await service.approveProposal(staged.proposal.id);
+
+        expect(approved.outcome, AgentWriteProposalOutcome.committed);
+        expect(persistence.commitCalls, hasLength(1));
+        expect(persistence.reconciliationCalls, hasLength(1));
+        final request = persistence.reconciliationCalls.single;
+        expect(request.sourceConversationId, _conversationId);
+        expect(request.sourceMessageId, _messageId);
+        expect(request.targetStorageId, _storageId);
+        expect(request.expectedBankName, _bankName);
+        expect(request.expectedDraft, staged.proposal.expectedDraft);
+        expect(request.proposedAnswer, staged.proposal.proposedAnswer);
+      },
+    );
+
+    test(
+      'transactionFailed with the exact baseline returns pending with zero '
+      'automatic retry; one explicit Approve performs exactly one new commit',
+      () async {
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationBaseline();
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+
+        final ambiguous = await service.approveProposal(staged.proposal.id);
+
+        expect(ambiguous.outcome, AgentWriteProposalOutcome.pending);
+        expect(persistence.commitCalls, hasLength(1));
+        expect(persistence.reconciliationCalls, hasLength(1));
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          persistence.commitCalls,
+          hasLength(1),
+          reason: 'Reconciliation must never trigger an automatic retry.',
+        );
+
+        persistence.commitError = null;
+        final retried = await service.approveProposal(staged.proposal.id);
+
+        expect(retried.outcome, AgentWriteProposalOutcome.committed);
+        expect(persistence.commitCalls, hasLength(2));
+        expect(
+          persistence.reconciliationCalls,
+          hasLength(1),
+          reason: 'A successful explicit retry does not reconcile again.',
+        );
+      },
+    );
+
+    test(
+      'transactionFailed with any other confirmed draft reports stale',
+      () async {
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationConflicted();
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+
+        final approved = await service.approveProposal(staged.proposal.id);
+
+        expect(approved.outcome, AgentWriteProposalOutcome.stale);
+        expect(persistence.commitCalls, hasLength(1));
+        expect(persistence.reconciliationCalls, hasLength(1));
+      },
+    );
+
+    test(
+      'unavailable and failed reconciliation reads stay unknownOutcome with '
+      'zero retry',
+      () async {
+        final unavailablePersistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationUnavailable();
+        final unavailableService =
+            AgentWriteProposalService(unavailablePersistence);
+        final unavailableStaged = (await unavailableService.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+        final unavailable = await unavailableService.approveProposal(
+          unavailableStaged.proposal.id,
+        );
+        expect(
+          unavailable.outcome,
+          AgentWriteProposalOutcome.unknownOutcome,
+        );
+        expect(unavailablePersistence.commitCalls, hasLength(1));
+
+        final throwingPersistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationError = StateError('synthetic read failure');
+        final throwingService = AgentWriteProposalService(throwingPersistence);
+        final throwingStaged = (await throwingService.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+        final throwing = await throwingService.approveProposal(
+          throwingStaged.proposal.id,
+        );
+        expect(throwing.outcome, AgentWriteProposalOutcome.unknownOutcome);
+        expect(throwingPersistence.commitCalls, hasLength(1));
+      },
+    );
+
+    test(
+      'a persistence without a reconciliation adapter keeps unknownOutcome',
+      () async {
+        final persistence = _PersistenceOnlyFake(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          );
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+
+        final approved = await service.approveProposal(staged.proposal.id);
+
+        expect(approved.outcome, AgentWriteProposalOutcome.unknownOutcome);
+        expect(persistence.commitCalls, hasLength(1));
+      },
+    );
+
+    test(
+      'concurrent re-approval after an ambiguous baseline shares one new '
+      'commit attempt',
+      () async {
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationBaseline();
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+        final ambiguous = await service.approveProposal(staged.proposal.id);
+        expect(ambiguous.outcome, AgentWriteProposalOutcome.pending);
+        expect(persistence.commitCalls, hasLength(1));
+
+        persistence.commitError = null;
+        final results = await Future.wait(<Future<AgentWriteProposal>>[
+          service.approveProposal(staged.proposal.id),
+          service.approveProposal(staged.proposal.id),
+        ]);
+
+        expect(
+          results.every(
+            (p) => p.outcome == AgentWriteProposalOutcome.committed,
+          ),
+          isTrue,
+        );
+        expect(
+          persistence.commitCalls,
+          hasLength(2),
+          reason: 'One explicit retry performs exactly one new commit shared '
+              'by the concurrent approvals.',
+        );
+        expect(persistence.reconciliationCalls, hasLength(1));
+      },
+    );
   });
 
   group('pre-activation result-size gate', () {

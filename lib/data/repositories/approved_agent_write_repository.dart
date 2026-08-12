@@ -5,6 +5,7 @@ import '../../application/safe_write/agent_write_proposed_answer_policy.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/conversations/conversation.dart';
+import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
@@ -20,7 +21,8 @@ import '../persistence/typed_answer_persistence.dart';
 /// fill-only recheck plus the shared typed-answer write inside one
 /// caller-owned SQLite transaction, so any failed precondition or write
 /// rolls the complete transaction back with zero formal writes.
-final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
+final class ApprovedAgentWriteRepository
+    implements AgentWritePersistencePort, AgentWriteReconciliationPort {
   ApprovedAgentWriteRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
@@ -186,6 +188,73 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
     }
   }
 
+  @override
+  Future<AgentWriteReconciliationResult> reconcileAfterAmbiguousCommit(
+    AgentWriteReconciliationRequest request,
+  ) async {
+    _validateRequestIds(
+      request.sourceConversationId,
+      request.sourceMessageId,
+      request.targetStorageId,
+    );
+    if (request.expectedBankName.trim().isEmpty) {
+      throw ArgumentError('Expected bank name is required.');
+    }
+    try {
+      final db = await _databaseHelper.database;
+      return await db.transaction((txn) async {
+        // The same source/scope/relation/target authority as the COMMIT
+        // transaction; every failed precondition is unconfirmable.
+        final storedScope = await _conversationScope(
+          txn,
+          request.sourceConversationId,
+        );
+        if (storedScope == null ||
+            request.scope.isUnavailableLearningSpace ||
+            storedScope != request.scope) {
+          return const AgentWriteReconciliationUnavailable();
+        }
+        final role = await _messageRole(
+          txn,
+          request.sourceMessageId,
+          request.sourceConversationId,
+        );
+        if (role != 'user') {
+          return const AgentWriteReconciliationUnavailable();
+        }
+        final bankName = await _targetBankName(txn, request.targetStorageId);
+        if (bankName == null ||
+            bankName != request.expectedBankName ||
+            !await _isBankAuthorized(txn, request.scope, bankName)) {
+          return const AgentWriteReconciliationUnavailable();
+        }
+        final joined = await _joinedTargetRow(txn, request.targetStorageId);
+        if (joined == null) {
+          return const AgentWriteReconciliationUnavailable();
+        }
+        final TypedPersistedQuestion current;
+        try {
+          final decoded = _mapper.decodeJoinedRow(joined);
+          if (decoded is! TypedPersistedQuestion) {
+            return const AgentWriteReconciliationUnavailable();
+          }
+          current = decoded;
+        } on QuestionV2PayloadException {
+          return const AgentWriteReconciliationUnavailable();
+        }
+        if (current.draft == request.expectedDraft) {
+          return const AgentWriteReconciliationBaseline();
+        }
+        if (current.draft == _postImage(request)) {
+          return const AgentWriteReconciliationCommitted();
+        }
+        return const AgentWriteReconciliationConflicted();
+      });
+    } on DatabaseException {
+      return const AgentWriteReconciliationUnavailable();
+    }
+  }
+
   void _validateRequestIds(
     String conversationId,
     String messageId,
@@ -346,6 +415,24 @@ final class ApprovedAgentWriteRepository implements AgentWritePersistencePort {
       );
     }
     return decoded;
+  }
+
+  /// Exact fill-missing-answer post-image: the expected baseline draft with
+  /// only the proposed answer applied and every other field preserved.
+  QuestionDraftV2 _postImage(AgentWriteReconciliationRequest request) {
+    final expected = request.expectedDraft;
+    return QuestionDraftV2(
+      questionId: expected.questionId,
+      kind: expected.kind,
+      questionNumber: expected.questionNumber,
+      stem: expected.stem,
+      options: expected.options,
+      answer: request.proposedAnswer,
+      explanation: expected.explanation,
+      sourceRefs: expected.sourceRefs,
+      assetRefs: expected.assetRefs,
+      issues: expected.issues,
+    );
   }
 }
 
