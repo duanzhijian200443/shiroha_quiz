@@ -310,9 +310,9 @@ Ownership:
   truth — COMPLETE.
 - `F1-I2`: explicit OCR ParsedArtifact generation integration — COMPLETE.
 - `F1-CL`: focused verification, final full semantic review, canonical
-  closure — NOT STARTED.
+  closure — COMPLETE.
 
-Current state: F1-P0 through F1-I2 are COMPLETE. The v20 tables, the D1
+Current state: F1-P0 through F1-CL are COMPLETE; F1 v0 is closed. The v20 tables, the D1
 persistence/storage primitives, and the A1 lifecycle seam (get/ensure/reparse/
 remove, cache fingerprint v1, per-file mutation gate, publish and best-effort
 cleanup orchestration, and the 11-item Application failure taxonomy) exist in
@@ -332,8 +332,10 @@ assembler, typed candidates, reference answers) is not part of ParsedArtifact
 generation. Under the F1-I2 Class C amendment, `OcrSourceDocumentAdapter`
 has exactly two production callers: the frozen R7B typed-candidate seam and
 the F1-I2 OCR artifact generation seam. OCR testing/acceptance is offline and
-mocked; no live provider proof is claimed. F1-CL remains NOT STARTED; there
-is no UI, Agent, or MCP activation.
+mocked; no live provider proof is claimed. F1-CL is COMPLETE: focused
+verification PASS, final full semantic review APPROVE, closure repair merged
+via PR #65, and no open P0/P1/P2/P3 findings. There is no UI, Agent, or MCP
+activation.
 
 Governance:
 
