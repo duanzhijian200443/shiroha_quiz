@@ -71,8 +71,10 @@ class _FakePersistence implements AgentWritePersistencePort {
   }
 }
 
-/// Returns one admission result per dispatch call (a granted dispatch
-/// performs one dispatcher admission plus one staging admission).
+/// Returns one admission result per admission call, so one granted dispatch
+/// consumes two entries (a dispatcher admission plus a staging admission).
+/// Distinct entries let a test model snapshots that differ between the two
+/// admission calls.
 class _RotatingPersistence implements AgentWritePersistencePort {
   _RotatingPersistence(this._results);
 
@@ -84,7 +86,7 @@ class _RotatingPersistence implements AgentWritePersistencePort {
   Future<AgentWriteAdmissionResult> admitStagingTarget(
     AgentWriteAdmissionRequest request,
   ) async {
-    final result = _results[_admissionCalls ~/ 2];
+    final result = _results[_admissionCalls];
     _admissionCalls += 1;
     return result;
   }
@@ -590,6 +592,26 @@ void main() {
         'oversized tool result never stages and never supersedes a pending '
         'proposal', () async {
       final persistence = _RotatingPersistence(<AgentWriteAdmissionResult>[
+        // First dispatch: both admissions see the small draft and stage a
+        // pending proposal.
+        AgentWriteAdmissionGranted(
+          AgentWriteAdmittedTarget(
+            storageId: _storageId,
+            bankName: _bankName,
+            draft: _contentDraft(),
+          ),
+        ),
+        AgentWriteAdmissionGranted(
+          AgentWriteAdmittedTarget(
+            storageId: _storageId,
+            bankName: _bankName,
+            draft: _contentDraft(),
+          ),
+        ),
+        // Second dispatch: the dispatcher admission still sees the small
+        // draft, but the staging admission sees an oversized draft. The
+        // exact candidate result therefore overflows even though the first
+        // admission snapshot would pass a preflight sized on admission #1.
         AgentWriteAdmissionGranted(
           AgentWriteAdmittedTarget(
             storageId: _storageId,
@@ -639,5 +661,72 @@ void main() {
       );
       expect(persistence.commitCalls, isEmpty);
     });
+
+    test(
+      'success result preview derives from the staged proposal when '
+      'admission snapshots differ',
+      () async {
+        final persistence = _RotatingPersistence(<AgentWriteAdmissionResult>[
+          AgentWriteAdmissionGranted(
+            AgentWriteAdmittedTarget(
+              storageId: _storageId,
+              bankName: _bankName,
+              draft: QuestionDraftV2(
+                questionId: 'w0_a1_first_q',
+                kind: QuestionKind.shortAnswer,
+                questionNumber: 2,
+                stem: _text('First admitted stem.'),
+              ),
+            ),
+          ),
+          AgentWriteAdmissionGranted(
+            AgentWriteAdmittedTarget(
+              storageId: _storageId,
+              bankName: _bankName,
+              draft: QuestionDraftV2(
+                questionId: 'w0_a1_second_q',
+                kind: QuestionKind.shortAnswer,
+                questionNumber: 2,
+                stem: _text('Second admitted stem.'),
+              ),
+            ),
+          ),
+        ]);
+        final service = AgentWriteProposalService(persistence);
+        final dispatcher = AgentWriteProposalToolDispatcher(
+          persistence: persistence,
+          proposalService: service,
+        );
+
+        final decoded = _decoded(
+          await dispatcher.dispatch(
+            _call(_contentArguments(<Map<String, Object?>>[
+              <String, Object?>{'type': 'text', 'text': 'answer'},
+            ])),
+          ),
+        );
+        expect(decoded['ok'], isTrue);
+        final result = decoded['result'] as Map<String, Object?>;
+        final proposalId = result['proposal_id'] as String;
+        final proposal = service.proposalById(proposalId);
+
+        // Preview/identity/outcome come from the exact staged proposal (the
+        // second admission), never from the dispatcher's first admission.
+        expect(
+          (result['preview'] as Map<String, Object?>)['stem'],
+          <Object?>[
+            <String, Object?>{
+              'type': 'text',
+              'text': 'Second admitted stem.',
+            },
+          ],
+        );
+        expect(
+          (proposal.preview.stem.nodes.single as TextNode).text,
+          'Second admitted stem.',
+        );
+        expect(result['outcome'], 'pending');
+      },
+    );
   });
 }

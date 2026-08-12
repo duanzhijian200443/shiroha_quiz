@@ -82,6 +82,10 @@ final class AgentWriteProposalToolDispatcher {
         return _failure(_ToolFailure.internal);
       }
       return encoded;
+    } on AgentWriteStageResultTooLargeException {
+      // The pre-activation result-size gate rejected the exact candidate
+      // before any lifecycle mutation; the transport can never deliver it.
+      return _failure(_ToolFailure.internal);
     } on _ToolFailureException catch (error) {
       return _failure(error.failure);
     } on ArgumentError {
@@ -125,19 +129,14 @@ final class AgentWriteProposalToolDispatcher {
         content: RichContent(nodes: parsed.payload.contentNodes!),
       );
     }
-    _ensureResultFits(target, answer);
     final staged = await _proposalService.stageProposal(
       admissionRequest: request,
       proposedAnswer: answer,
+      resultSizeGate: _resultFits,
     );
     switch (staged) {
       case AgentWriteStageResultStaged(:final proposal):
-        return _successResult(
-          target: target,
-          answer: answer,
-          proposalId: proposal.id,
-          outcome: _outcomeOf(proposal.outcome),
-        );
+        return _successResult(proposal);
       case AgentWriteStageResultDenied() || AgentWriteStageResultUnavailable():
         throw const _ToolFailureException(_ToolFailure.unavailable);
       case AgentWriteStageResultIneligible():
@@ -145,43 +144,22 @@ final class AgentWriteProposalToolDispatcher {
     }
   }
 
-  /// Proves the encoded tool result fits before any proposal is staged.
+  /// Returns whether the exact encoded tool result for [candidate] fits the
+  /// transport limit.
   ///
-  /// The provisional result uses the longest possible proposal id
-  /// (`proposal_<int counter>`) and outcome spelling, so its UTF-8 encoding
-  /// is an upper bound for every real result built by [_successResult].
-  /// Overflow therefore fails before a new pending proposal exists or an
-  /// older pending proposal could be superseded; the post-encoding check in
-  /// [dispatch] remains only as defense-in-depth.
-  void _ensureResultFits(
-    AgentWriteAdmittedTarget target,
-    QuestionAnswer answer,
-  ) {
-    final provisional = _successResult(
-      target: target,
-      answer: answer,
-      // Longest possible `proposal_<int counter>` id: the service counter is
-      // a non-negative int, and 9223372036854775807 has the maximum digit
-      // count of any 64-bit signed int.
-      proposalId: 'proposal_9223372036854775807',
-      outcome: _longestOutcomeSpelling(),
-    );
+  /// [candidate] is the exact proposal the service would activate (real
+  /// proposal id, frozen preview and current pending outcome), so the
+  /// encoding is byte-identical to the eventual success result. The service
+  /// invokes this gate before any lifecycle mutation, so an oversized result
+  /// can never leave a hidden pending proposal or supersede an older one.
+  /// The post-encoding check in [dispatch] remains only as defense-in-depth
+  /// (for example replay results whose outcome spelling differs).
+  bool _resultFits(AgentWriteProposal candidate) {
     final encoded = jsonEncode(<String, Object?>{
       'ok': true,
-      'result': provisional,
+      'result': _successResult(candidate),
     });
-    if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
-      throw const _ToolFailureException(_ToolFailure.internal);
-    }
-  }
-
-  String _longestOutcomeSpelling() {
-    var longest = '';
-    for (final outcome in AgentWriteProposalOutcome.values) {
-      final spelling = _outcomeOf(outcome);
-      if (spelling.length > longest.length) longest = spelling;
-    }
-    return longest;
+    return utf8.encode(encoded).length <= _limits.maxToolResultUtf8Bytes;
   }
 
   _ParsedToolArguments _parseArguments(Map<String, dynamic> arguments) {
@@ -297,22 +275,21 @@ final class AgentWriteProposalToolDispatcher {
     return raw;
   }
 
-  Map<String, Object?> _successResult({
-    required AgentWriteAdmittedTarget target,
-    required QuestionAnswer answer,
-    required String proposalId,
-    required String outcome,
-  }) {
+  /// Builds the success payload exclusively from the exact staged [proposal]
+  /// preview, identity and outcome returned by the service, so the tool
+  /// result can never show a snapshot different from the one the proposal
+  /// fingerprint/expectedDraft/approval path uses.
+  Map<String, Object?> _successResult(AgentWriteProposal proposal) {
     return <String, Object?>{
-      'proposal_id': proposalId,
-      'outcome': outcome,
+      'proposal_id': proposal.id,
+      'outcome': _outcomeOf(proposal.outcome),
       'preview': <String, Object?>{
-        'bank_name': target.bankName,
+        'bank_name': proposal.preview.bankName,
         'stem': <Map<String, Object?>>[
-          for (final node in target.draft.stem.nodes) _nodeOf(node),
+          for (final node in proposal.preview.stem.nodes) _nodeOf(node),
         ],
         'options': <Map<String, Object?>>[
-          for (final option in target.draft.options)
+          for (final option in proposal.preview.options)
             <String, Object?>{
               'label': option.label,
               'content': <Map<String, Object?>>[
@@ -320,7 +297,10 @@ final class AgentWriteProposalToolDispatcher {
               ],
             },
         ],
-        'proposed_answer': _answerOf(answer, target.draft.options),
+        'proposed_answer': _answerOf(
+          proposal.preview.proposedAnswer,
+          proposal.preview.options,
+        ),
       },
     };
   }

@@ -707,4 +707,71 @@ void main() {
       );
     });
   });
+
+  group('pre-activation result-size gate', () {
+    test(
+      'a rejected gate leaves no active/pending proposal and no supersession',
+      () async {
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        );
+        final service = AgentWriteProposalService(persistence);
+        final first = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer one')),
+        )) as AgentWriteStageResultStaged;
+
+        // The second admission yields a materially different snapshot; the
+        // gate must see that exact candidate before any mutation.
+        final hugeDraft = QuestionDraftV2(
+          questionId: 'w0_p1_huge_q',
+          kind: QuestionKind.shortAnswer,
+          questionNumber: 2,
+          stem: _text('x' * 70000),
+        );
+        persistence.admissionResult =
+            AgentWriteAdmissionGranted(_grantedTarget(hugeDraft));
+        AgentWriteProposal? gatedCandidate;
+        await expectLater(
+          service.stageProposal(
+            admissionRequest: _request(_messageId),
+            proposedAnswer: ContentAnswer(content: _text('answer two')),
+            resultSizeGate: (candidate) {
+              gatedCandidate = candidate;
+              return false;
+            },
+          ),
+          throwsA(isA<AgentWriteStageResultTooLargeException>()),
+        );
+
+        expect(gatedCandidate, isNotNull);
+        expect(gatedCandidate!.id, startsWith('proposal_'));
+        expect(gatedCandidate!.preview.stem, hugeDraft.stem);
+        expect(gatedCandidate!.outcome, AgentWriteProposalOutcome.pending);
+        expect(
+          service.proposalById(first.proposal.id).outcome,
+          AgentWriteProposalOutcome.pending,
+          reason: 'A rejected result-size gate must not supersede the prior '
+              'pending proposal.',
+        );
+
+        // No hidden proposal or stale active entry: staging the same payload
+        // with a passing gate creates a fresh id instead of replaying the
+        // rejected candidate.
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer two')),
+          resultSizeGate: (_) => true,
+        )) as AgentWriteStageResultStaged;
+        expect(staged.proposal.id, isNot(first.proposal.id));
+        expect(staged.proposal.outcome, AgentWriteProposalOutcome.pending);
+        expect(
+          service.proposalById(first.proposal.id).outcome,
+          AgentWriteProposalOutcome.superseded,
+        );
+      },
+    );
+  });
 }

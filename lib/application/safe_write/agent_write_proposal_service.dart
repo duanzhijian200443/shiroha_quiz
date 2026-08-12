@@ -5,7 +5,8 @@ import 'agent_write_proposed_answer_policy.dart';
 import 'typed_answer_command.dart';
 
 /// Transient W0 proposal service: staging admission, canonical fingerprint
-/// deduplication, one-active-per-source-turn and the fill-only policy.
+/// deduplication, one-active-per-source-turn, the fill-only policy and an
+/// optional pre-activation result-size gate.
 ///
 /// All state is in-memory and disappears on process restart. Fingerprint
 /// equality is canonical structural equality; the same semantic fingerprint
@@ -36,9 +37,18 @@ final class AgentWriteProposalService {
   /// only/raw-fallback content). A different payload on the same source turn
   /// supersedes the older pending proposal; a semantic replay returns the
   /// existing proposal with its current outcome.
+  ///
+  /// When [resultSizeGate] is supplied, it runs immediately before any
+  /// lifecycle mutation with the exact candidate proposal that would be
+  /// activated (its real id, frozen preview and pending outcome). A false
+  /// return aborts staging with [AgentWriteStageResultTooLargeException] and
+  /// zero mutation: no supersession, no inserted/active proposal and no
+  /// fingerprint entry. A semantic replay returns the existing proposal
+  /// without invoking the gate because that path activates nothing.
   Future<AgentWriteStageResult> stageProposal({
     required AgentWriteAdmissionRequest admissionRequest,
     required QuestionAnswer proposedAnswer,
+    bool Function(AgentWriteProposal candidate)? resultSizeGate,
   }) async {
     if (!_answerPolicy.isStructurallyValidPayload(proposedAnswer)) {
       return const AgentWriteStageResultIneligible();
@@ -76,6 +86,9 @@ final class AgentWriteProposalService {
           fingerprint: fingerprint,
           proposedAnswer: proposedAnswer,
         );
+        if (resultSizeGate != null && !resultSizeGate(proposal)) {
+          throw const AgentWriteStageResultTooLargeException();
+        }
         _supersedePendingForTurn(
           admissionRequest.sourceConversationId,
           admissionRequest.sourceMessageId,
@@ -248,4 +261,13 @@ final class AgentWriteProposalService {
   String _turnKey(String conversationId, String messageId) {
     return '$conversationId\u0000$messageId';
   }
+}
+
+/// Thrown by [AgentWriteProposalService.stageProposal] when the supplied
+/// pre-activation [resultSizeGate] rejects the exact candidate proposal.
+///
+/// Guarantees zero lifecycle mutation: the candidate was never inserted,
+/// activated or superseded, and no fingerprint entry was created for it.
+final class AgentWriteStageResultTooLargeException implements Exception {
+  const AgentWriteStageResultTooLargeException();
 }
