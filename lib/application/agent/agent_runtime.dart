@@ -212,16 +212,18 @@ final class ShirohaAgentRuntime {
     final history = AgentHistoryBuilder(
       limits: _limits,
     ).build(slice: slice, targetMessageId: userMessageId);
+    final proposalCapabilityEnabled = _proposalDispatcher != null;
     final systemPrompt = _systemPrompt.build(
       scope: slice.conversation.scope,
       files: slice.files,
+      proposalCapabilityEnabled: proposalCapabilityEnabled,
     );
-    final tools = _proposalDispatcher == null
-        ? AgentStudyToolCatalog.definitions
-        : <AgentFunctionToolDefinition>[
+    final tools = proposalCapabilityEnabled
+        ? <AgentFunctionToolDefinition>[
             ...AgentStudyToolCatalog.definitions,
             AgentWriteProposalToolCatalog.definition,
-          ];
+          ]
+        : AgentStudyToolCatalog.definitions;
 
     AgentProviderContinuationState? continuationState;
     var toolOutputs = const <AgentFunctionToolOutput>[];
