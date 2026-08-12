@@ -30,21 +30,9 @@ QuestionDraftV2 _choiceDraft({QuestionAnswer? answer}) {
     questionNumber: 1,
     stem: _text('Choice stem.'),
     options: <QuestionOption>[
-      QuestionOption(
-        optionId: 'opt_a',
-        label: 'A',
-        content: _text('first'),
-      ),
-      QuestionOption(
-        optionId: 'opt_b',
-        label: 'B',
-        content: _text('second'),
-      ),
-      QuestionOption(
-        optionId: 'opt_c',
-        label: 'C',
-        content: _text('third'),
-      ),
+      QuestionOption(optionId: 'opt_a', label: 'A', content: _text('first')),
+      QuestionOption(optionId: 'opt_b', label: 'B', content: _text('second')),
+      QuestionOption(optionId: 'opt_c', label: 'C', content: _text('third')),
     ],
     answer: answer,
     explanation: _text('Explanation.'),
@@ -108,9 +96,10 @@ void main() {
   group('fingerprint and one-active rule', () {
     test('same semantic fingerprint reuses the same proposal id', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
 
       final first = await service.stageProposal(
@@ -130,36 +119,40 @@ void main() {
       expect(secondProposal.outcome, AgentWriteProposalOutcome.pending);
     });
 
-    test('different payload creates a new id and supersedes the old pending',
-        () async {
-      final persistence = _FakePersistence(
+    test(
+      'different payload creates a new id and supersedes the old pending',
+      () async {
+        final persistence = _FakePersistence(
           admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
-      final service = AgentWriteProposalService(persistence);
+            _grantedTarget(_contentDraft()),
+          ),
+        );
+        final service = AgentWriteProposalService(persistence);
 
-      final first = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer one')),
-      )) as AgentWriteStageResultStaged;
-      final second = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer two')),
-      )) as AgentWriteStageResultStaged;
+        final first = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer one')),
+        )) as AgentWriteStageResultStaged;
+        final second = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer two')),
+        )) as AgentWriteStageResultStaged;
 
-      expect(second.proposal.id, isNot(first.proposal.id));
-      expect(
-        service.proposalById(first.proposal.id).outcome,
-        AgentWriteProposalOutcome.superseded,
-      );
-      expect(second.proposal.outcome, AgentWriteProposalOutcome.pending);
-    });
+        expect(second.proposal.id, isNot(first.proposal.id));
+        expect(
+          service.proposalById(first.proposal.id).outcome,
+          AgentWriteProposalOutcome.superseded,
+        );
+        expect(second.proposal.outcome, AgentWriteProposalOutcome.pending);
+      },
+    );
 
     test('each source turn has at most one active/pending proposal', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
 
       final first = (await service.stageProposal(
@@ -181,9 +174,10 @@ void main() {
 
     test('different source turns may each hold a pending proposal', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
 
       final turnOne = (await service.stageProposal(
@@ -200,27 +194,30 @@ void main() {
       expect(turnTwo.proposal.outcome, AgentWriteProposalOutcome.pending);
     });
 
-    test('createdAt and preview never participate in the fingerprint',
-        () async {
-      final persistence = _FakePersistence(
+    test(
+      'createdAt and preview never participate in the fingerprint',
+      () async {
+        final persistence = _FakePersistence(
           admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
-      final service = AgentWriteProposalService(persistence);
+            _grantedTarget(_contentDraft()),
+          ),
+        );
+        final service = AgentWriteProposalService(persistence);
 
-      final first = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      )) as AgentWriteStageResultStaged;
-      await Future<void>.delayed(const Duration(milliseconds: 2));
-      final second = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      )) as AgentWriteStageResultStaged;
+        final first = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        final second = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
 
-      expect(identical(second.proposal, first.proposal), isTrue);
-      expect(second.proposal.id, first.proposal.id);
-    });
+        expect(identical(second.proposal, first.proposal), isTrue);
+        expect(second.proposal.id, first.proposal.id);
+      },
+    );
   });
 
   group('preview and admission safety', () {
@@ -241,31 +238,35 @@ void main() {
       expect(preview.stem, draft.stem);
       expect(preview.options, draft.options);
       expect(
-          preview.proposedAnswer, ChoiceAnswer(optionIds: <String>['opt_b']));
+        preview.proposedAnswer,
+        ChoiceAnswer(optionIds: <String>['opt_b']),
+      );
     });
 
-    test('admission denial and unavailability pass through without a proposal',
-        () async {
-      final deniedService = AgentWriteProposalService(
-        _FakePersistence(admissionResult: const AgentWriteAdmissionDenied()),
-      );
-      final denied = await deniedService.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      );
-      expect(denied, isA<AgentWriteStageResultDenied>());
+    test(
+      'admission denial and unavailability pass through without a proposal',
+      () async {
+        final deniedService = AgentWriteProposalService(
+          _FakePersistence(admissionResult: const AgentWriteAdmissionDenied()),
+        );
+        final denied = await deniedService.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        );
+        expect(denied, isA<AgentWriteStageResultDenied>());
 
-      final unavailableService = AgentWriteProposalService(
-        _FakePersistence(
-          admissionResult: const AgentWriteAdmissionUnavailable(),
-        ),
-      );
-      final unavailable = await unavailableService.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      );
-      expect(unavailable, isA<AgentWriteStageResultUnavailable>());
-    });
+        final unavailableService = AgentWriteProposalService(
+          _FakePersistence(
+            admissionResult: const AgentWriteAdmissionUnavailable(),
+          ),
+        );
+        final unavailable = await unavailableService.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        );
+        expect(unavailable, isA<AgentWriteStageResultUnavailable>());
+      },
+    );
   });
 
   group('fill-only policy', () {
@@ -308,12 +309,14 @@ void main() {
         await contentService.stageProposal(
           admissionRequest: _request(_messageId),
           proposedAnswer: ContentAnswer(
-            content: RichContent(nodes: <ContentNode>[
-              RawFallbackNode(<Object?, Object?>{
-                'type': 'future_diagram',
-                'payload': <Object?, Object?>{'shape': 'synthetic'},
-              }),
-            ]),
+            content: RichContent(
+              nodes: <ContentNode>[
+                RawFallbackNode(<Object?, Object?>{
+                  'type': 'future_diagram',
+                  'payload': <Object?, Object?>{'shape': 'synthetic'},
+                }),
+              ],
+            ),
           ),
         ),
         isA<AgentWriteStageResultIneligible>(),
@@ -339,9 +342,10 @@ void main() {
         'manual typed repair capabilities are untouched by the fill-only '
         'policy', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
 
       // The proposal layer only refuses staging; the shared manual command is
@@ -357,12 +361,156 @@ void main() {
     });
   });
 
+  group('proposed-answer kind and structural validity policy', () {
+    test('singleChoice accepts only a valid ChoiceAnswer', () async {
+      final persistence = _FakePersistence(
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_choiceDraft()),
+        ),
+      );
+      final service = AgentWriteProposalService(persistence);
+
+      final staged = await service.stageProposal(
+        admissionRequest: _request(_messageId),
+        proposedAnswer: ChoiceAnswer(optionIds: <String>['opt_b']),
+      );
+      expect(staged, isA<AgentWriteStageResultStaged>());
+
+      final mismatch = await service.stageProposal(
+        admissionRequest: _request(_messageId),
+        proposedAnswer: ContentAnswer(content: _text('answer')),
+      );
+      expect(mismatch, isA<AgentWriteStageResultIneligible>());
+    });
+
+    test(
+      'fillBlank and shortAnswer accept only a non-empty ContentAnswer',
+      () async {
+        final fillBlankDraft = QuestionDraftV2(
+          questionId: 'w0_p1_fill_q',
+          kind: QuestionKind.fillBlank,
+          questionNumber: 3,
+          stem: _text('Fill stem.'),
+        );
+        for (final draft in <QuestionDraftV2>[
+          fillBlankDraft,
+          _contentDraft(),
+        ]) {
+          final service = AgentWriteProposalService(
+            _FakePersistence(
+              admissionResult: AgentWriteAdmissionGranted(
+                _grantedTarget(draft),
+              ),
+            ),
+          );
+
+          final staged = await service.stageProposal(
+            admissionRequest: _request(_messageId),
+            proposedAnswer: ContentAnswer(content: _text('answer')),
+          );
+          expect(staged, isA<AgentWriteStageResultStaged>());
+
+          final mismatch = await service.stageProposal(
+            admissionRequest: _request(_messageId),
+            proposedAnswer: ChoiceAnswer(optionIds: <String>['opt_a']),
+          );
+          expect(mismatch, isA<AgentWriteStageResultIneligible>());
+        }
+      },
+    );
+
+    test('whitespace-only math does not make content non-empty', () async {
+      final service = AgentWriteProposalService(
+        _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        ),
+      );
+
+      expect(
+        await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(
+            content: RichContent(nodes: <ContentNode>[InlineMathNode('   ')]),
+          ),
+        ),
+        isA<AgentWriteStageResultIneligible>(),
+      );
+      expect(
+        await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(
+            content: RichContent(nodes: <ContentNode>[BlockMathNode(' \t ')]),
+          ),
+        ),
+        isA<AgentWriteStageResultIneligible>(),
+      );
+    });
+
+    test(
+      'mixed visible content is accepted despite whitespace nodes',
+      () async {
+        final service = AgentWriteProposalService(
+          _FakePersistence(
+            admissionResult: AgentWriteAdmissionGranted(
+              _grantedTarget(_contentDraft()),
+            ),
+          ),
+        );
+
+        final staged = await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(
+            content: RichContent(
+              nodes: <ContentNode>[
+                TextNode('   '),
+                InlineMathNode('x^2+1'),
+                TextNode('  '),
+              ],
+            ),
+          ),
+        );
+
+        expect(staged, isA<AgentWriteStageResultStaged>());
+      },
+    );
+
+    test('duplicate and unknown choice identities are ineligible', () async {
+      final service = AgentWriteProposalService(
+        _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_choiceDraft()),
+          ),
+        ),
+      );
+
+      expect(
+        await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ChoiceAnswer(optionIds: <String>['opt_a', 'opt_a']),
+        ),
+        isA<AgentWriteStageResultIneligible>(),
+      );
+      expect(
+        await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ChoiceAnswer(
+            optionIds: <String>['opt_a', 'ghost_opt'],
+          ),
+        ),
+        isA<AgentWriteStageResultIneligible>(),
+      );
+    });
+  });
+
   group('lifecycle gate', () {
     test('approve commits exactly once and reports committed', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
       final staged = (await service.stageProposal(
         admissionRequest: _request(_messageId),
@@ -380,17 +528,15 @@ void main() {
       expect(request.sourceMessageId, _messageId);
       expect(request.targetStorageId, _storageId);
       expect(request.expectedBankName, _bankName);
-      expect(
-        request.proposedAnswer,
-        ContentAnswer(content: _text('answer')),
-      );
+      expect(request.proposedAnswer, ContentAnswer(content: _text('answer')));
     });
 
     test('concurrent approvals share one in-flight commit', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
       final staged = (await service.stageProposal(
         admissionRequest: _request(_messageId),
@@ -403,19 +549,18 @@ void main() {
       ]);
 
       expect(
-          results.every(
-            (p) => p.outcome == AgentWriteProposalOutcome.committed,
-          ),
-          isTrue);
+        results.every((p) => p.outcome == AgentWriteProposalOutcome.committed),
+        isTrue,
+      );
       expect(persistence.commitCalls, hasLength(1));
     });
 
     test('commit failure maps to the frozen outcome categories', () async {
       final stalePersistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ))
-        ..commitError = const TypedAnswerMutationException(
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      )..commitError = const TypedAnswerMutationException(
           TypedAnswerMutationFailure.stale,
         );
       final staleService = AgentWriteProposalService(stalePersistence);
@@ -427,10 +572,10 @@ void main() {
       expect(stale.outcome, AgentWriteProposalOutcome.stale);
 
       final ambiguousPersistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ))
-        ..commitError = const TypedAnswerMutationException(
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      )..commitError = const TypedAnswerMutationException(
           TypedAnswerMutationFailure.transactionFailed,
         );
       final ambiguousService = AgentWriteProposalService(ambiguousPersistence);
@@ -438,15 +583,16 @@ void main() {
         admissionRequest: _request(_messageId),
         proposedAnswer: ContentAnswer(content: _text('answer')),
       )) as AgentWriteStageResultStaged;
-      final ambiguous =
-          await ambiguousService.approveProposal(ambiguousStaged.proposal.id);
+      final ambiguous = await ambiguousService.approveProposal(
+        ambiguousStaged.proposal.id,
+      );
       expect(ambiguous.outcome, AgentWriteProposalOutcome.unknownOutcome);
 
       final invalidPersistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ))
-        ..commitError = const TypedAnswerMutationException(
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      )..commitError = const TypedAnswerMutationException(
           TypedAnswerMutationFailure.invalidAnswer,
         );
       final invalidService = AgentWriteProposalService(invalidPersistence);
@@ -454,70 +600,76 @@ void main() {
         admissionRequest: _request(_messageId),
         proposedAnswer: ContentAnswer(content: _text('answer')),
       )) as AgentWriteStageResultStaged;
-      final invalid =
-          await invalidService.approveProposal(invalidStaged.proposal.id);
+      final invalid = await invalidService.approveProposal(
+        invalidStaged.proposal.id,
+      );
       expect(invalid.outcome, AgentWriteProposalOutcome.invalid);
     });
 
-    test('reject wins only while pending; committed and committing stay put',
-        () async {
-      final persistence = _FakePersistence(
+    test(
+      'reject wins only while pending; committed and committing stay put',
+      () async {
+        final persistence = _FakePersistence(
           admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
-      final service = AgentWriteProposalService(persistence);
-      final staged = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      )) as AgentWriteStageResultStaged;
+            _grantedTarget(_contentDraft()),
+          ),
+        );
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
 
-      final rejected = service.rejectProposal(staged.proposal.id);
-      expect(rejected.outcome, AgentWriteProposalOutcome.rejected);
-      expect(rejected.id, staged.proposal.id);
+        final rejected = service.rejectProposal(staged.proposal.id);
+        expect(rejected.outcome, AgentWriteProposalOutcome.rejected);
+        expect(rejected.id, staged.proposal.id);
 
-      final replayed = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      )) as AgentWriteStageResultStaged;
-      expect(replayed.proposal.outcome, AgentWriteProposalOutcome.rejected);
+        final replayed = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+        expect(replayed.proposal.outcome, AgentWriteProposalOutcome.rejected);
 
-      final approvedAfterReject =
-          await service.approveProposal(staged.proposal.id);
-      expect(
-        approvedAfterReject.outcome,
-        AgentWriteProposalOutcome.rejected,
-      );
-      expect(persistence.commitCalls, isEmpty);
-    });
+        final approvedAfterReject = await service.approveProposal(
+          staged.proposal.id,
+        );
+        expect(approvedAfterReject.outcome, AgentWriteProposalOutcome.rejected);
+        expect(persistence.commitCalls, isEmpty);
+      },
+    );
 
-    test('committed proposals are never reactivated by replay or approval',
-        () async {
-      final persistence = _FakePersistence(
+    test(
+      'committed proposals are never reactivated by replay or approval',
+      () async {
+        final persistence = _FakePersistence(
           admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
-      final service = AgentWriteProposalService(persistence);
-      final staged = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      )) as AgentWriteStageResultStaged;
-      await service.approveProposal(staged.proposal.id);
+            _grantedTarget(_contentDraft()),
+          ),
+        );
+        final service = AgentWriteProposalService(persistence);
+        final staged = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
+        await service.approveProposal(staged.proposal.id);
 
-      final replayed = (await service.stageProposal(
-        admissionRequest: _request(_messageId),
-        proposedAnswer: ContentAnswer(content: _text('answer')),
-      )) as AgentWriteStageResultStaged;
+        final replayed = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('answer')),
+        )) as AgentWriteStageResultStaged;
 
-      expect(replayed.proposal.id, staged.proposal.id);
-      expect(replayed.proposal.outcome, AgentWriteProposalOutcome.committed);
-      expect(persistence.commitCalls, hasLength(1));
-    });
+        expect(replayed.proposal.id, staged.proposal.id);
+        expect(replayed.proposal.outcome, AgentWriteProposalOutcome.committed);
+        expect(persistence.commitCalls, hasLength(1));
+      },
+    );
 
     test('a superseded proposal cannot be approved or rejected', () async {
       final persistence = _FakePersistence(
-          admissionResult: AgentWriteAdmissionGranted(
-        _grantedTarget(_contentDraft()),
-      ));
+        admissionResult: AgentWriteAdmissionGranted(
+          _grantedTarget(_contentDraft()),
+        ),
+      );
       final service = AgentWriteProposalService(persistence);
       final first = (await service.stageProposal(
         admissionRequest: _request(_messageId),

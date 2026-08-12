@@ -74,8 +74,10 @@ final class AgentWriteProposalToolDispatcher {
     try {
       final parsed = _parseArguments(arguments);
       final result = await _handle(parsed, call);
-      final encoded =
-          jsonEncode(<String, Object?>{'ok': true, 'result': result});
+      final encoded = jsonEncode(<String, Object?>{
+        'ok': true,
+        'result': result,
+      });
       if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
         return _failure(_ToolFailure.internal);
       }
@@ -123,18 +125,63 @@ final class AgentWriteProposalToolDispatcher {
         content: RichContent(nodes: parsed.payload.contentNodes!),
       );
     }
+    _ensureResultFits(target, answer);
     final staged = await _proposalService.stageProposal(
       admissionRequest: request,
       proposedAnswer: answer,
     );
     switch (staged) {
       case AgentWriteStageResultStaged(:final proposal):
-        return _successResult(proposal);
+        return _successResult(
+          target: target,
+          answer: answer,
+          proposalId: proposal.id,
+          outcome: _outcomeOf(proposal.outcome),
+        );
       case AgentWriteStageResultDenied() || AgentWriteStageResultUnavailable():
         throw const _ToolFailureException(_ToolFailure.unavailable);
       case AgentWriteStageResultIneligible():
         throw const _ToolFailureException(_ToolFailure.ineligible);
     }
+  }
+
+  /// Proves the encoded tool result fits before any proposal is staged.
+  ///
+  /// The provisional result uses the longest possible proposal id
+  /// (`proposal_<int counter>`) and outcome spelling, so its UTF-8 encoding
+  /// is an upper bound for every real result built by [_successResult].
+  /// Overflow therefore fails before a new pending proposal exists or an
+  /// older pending proposal could be superseded; the post-encoding check in
+  /// [dispatch] remains only as defense-in-depth.
+  void _ensureResultFits(
+    AgentWriteAdmittedTarget target,
+    QuestionAnswer answer,
+  ) {
+    final provisional = _successResult(
+      target: target,
+      answer: answer,
+      // Longest possible `proposal_<int counter>` id: the service counter is
+      // a non-negative int, and 9223372036854775807 has the maximum digit
+      // count of any 64-bit signed int.
+      proposalId: 'proposal_9223372036854775807',
+      outcome: _longestOutcomeSpelling(),
+    );
+    final encoded = jsonEncode(<String, Object?>{
+      'ok': true,
+      'result': provisional,
+    });
+    if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
+      throw const _ToolFailureException(_ToolFailure.internal);
+    }
+  }
+
+  String _longestOutcomeSpelling() {
+    var longest = '';
+    for (final outcome in AgentWriteProposalOutcome.values) {
+      final spelling = _outcomeOf(outcome);
+      if (spelling.length > longest.length) longest = spelling;
+    }
+    return longest;
   }
 
   _ParsedToolArguments _parseArguments(Map<String, dynamic> arguments) {
@@ -250,18 +297,22 @@ final class AgentWriteProposalToolDispatcher {
     return raw;
   }
 
-  Map<String, Object?> _successResult(AgentWriteProposal proposal) {
-    final preview = proposal.preview;
+  Map<String, Object?> _successResult({
+    required AgentWriteAdmittedTarget target,
+    required QuestionAnswer answer,
+    required String proposalId,
+    required String outcome,
+  }) {
     return <String, Object?>{
-      'proposal_id': proposal.id,
-      'outcome': _outcomeOf(proposal.outcome),
+      'proposal_id': proposalId,
+      'outcome': outcome,
       'preview': <String, Object?>{
-        'bank_name': preview.bankName,
+        'bank_name': target.bankName,
         'stem': <Map<String, Object?>>[
-          for (final node in preview.stem.nodes) _nodeOf(node),
+          for (final node in target.draft.stem.nodes) _nodeOf(node),
         ],
         'options': <Map<String, Object?>>[
-          for (final option in preview.options)
+          for (final option in target.draft.options)
             <String, Object?>{
               'label': option.label,
               'content': <Map<String, Object?>>[
@@ -269,7 +320,7 @@ final class AgentWriteProposalToolDispatcher {
               ],
             },
         ],
-        'proposed_answer': _answerOf(preview.proposedAnswer, preview.options),
+        'proposed_answer': _answerOf(answer, target.draft.options),
       },
     };
   }
@@ -322,11 +373,11 @@ final class AgentWriteProposalToolDispatcher {
       TextNode(:final text) => <String, Object?>{'type': 'text', 'text': text},
       InlineMathNode(:final latex) => <String, Object?>{
           'type': 'inline_math',
-          'latex': latex
+          'latex': latex,
         },
       BlockMathNode(:final latex) => <String, Object?>{
           'type': 'block_math',
-          'latex': latex
+          'latex': latex,
         },
       RawFallbackNode() => <String, Object?>{'type': 'unsupported'},
     };
