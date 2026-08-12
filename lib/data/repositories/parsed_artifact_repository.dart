@@ -23,31 +23,47 @@ class ParsedArtifactRepository implements ParsedArtifactRepositoryPort {
 
   @override
   Future<ParsedArtifactMetadata?> findCurrentByFileId(String fileId) async {
-    _validateFileId(fileId);
-    final db = await _databaseHelper.database;
-    final rows = await db.query(
-      _artifactsTable,
-      where: 'file_id = ?',
-      whereArgs: <Object?>[fileId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    return _metadataFromRow(rows.single);
+    try {
+      _validateFileId(fileId);
+      final db = await _databaseHelper.database;
+      final rows = await db.query(
+        _artifactsTable,
+        where: 'file_id = ?',
+        whereArgs: <Object?>[fileId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return null;
+      return _metadataFromRow(rows.single);
+    } on ParsedArtifactRepositoryException {
+      rethrow;
+    } catch (_) {
+      throw const ParsedArtifactRepositoryException(
+        ParsedArtifactRepositoryFailure.unavailable,
+      );
+    }
   }
 
   @override
   Future<int> readRevisionHead(String fileId) async {
-    _validateFileId(fileId);
-    final db = await _databaseHelper.database;
-    final rows = await db.query(
-      _headsTable,
-      columns: const <String>['last_revision'],
-      where: 'file_id = ?',
-      whereArgs: <Object?>[fileId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return 0;
-    return rows.single['last_revision']! as int;
+    try {
+      _validateFileId(fileId);
+      final db = await _databaseHelper.database;
+      final rows = await db.query(
+        _headsTable,
+        columns: const <String>['last_revision'],
+        where: 'file_id = ?',
+        whereArgs: <Object?>[fileId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return 0;
+      return rows.single['last_revision']! as int;
+    } on ParsedArtifactRepositoryException {
+      rethrow;
+    } catch (_) {
+      throw const ParsedArtifactRepositoryException(
+        ParsedArtifactRepositoryFailure.unavailable,
+      );
+    }
   }
 
   @override
@@ -56,67 +72,75 @@ class ParsedArtifactRepository implements ParsedArtifactRepositoryPort {
     required ParsedArtifactMetadata candidate,
     required int expectedRevision,
   }) async {
-    _validateFileId(fileId);
-    if (candidate.fileId != fileId || expectedRevision < 0) {
-      throw const ParsedArtifactRepositoryException(
-        ParsedArtifactRepositoryFailure.invalidRequest,
-      );
-    }
-    final db = await _databaseHelper.database;
     try {
-      return await db.transaction((txn) async {
-        final parent = await txn.query(
-          _libraryFilesTable,
-          columns: const <String>['file_id'],
-          where: 'file_id = ?',
-          whereArgs: <Object?>[fileId],
-          limit: 1,
+      _validateFileId(fileId);
+      if (candidate.fileId != fileId || expectedRevision < 0) {
+        throw const ParsedArtifactRepositoryException(
+          ParsedArtifactRepositoryFailure.invalidRequest,
         );
-        if (parent.isEmpty) {
-          return const ParsedArtifactPublishResult.parentMissing();
-        }
+      }
+      final db = await _databaseHelper.database;
+      try {
+        return await db.transaction((txn) async {
+          final parent = await txn.query(
+            _libraryFilesTable,
+            columns: const <String>['file_id'],
+            where: 'file_id = ?',
+            whereArgs: <Object?>[fileId],
+            limit: 1,
+          );
+          if (parent.isEmpty) {
+            return const ParsedArtifactPublishResult.parentMissing();
+          }
 
-        final headRows = await txn.query(
-          _headsTable,
-          columns: const <String>['last_revision'],
-          where: 'file_id = ?',
-          whereArgs: <Object?>[fileId],
-          limit: 1,
-        );
-        final headRevision =
-            headRows.isEmpty ? 0 : headRows.single['last_revision']! as int;
-        if (expectedRevision != headRevision ||
-            candidate.revision != expectedRevision + 1) {
-          return ParsedArtifactPublishResult.revisionConflict(headRevision);
-        }
-
-        if (headRows.isEmpty) {
-          await txn.insert(_headsTable, <String, Object?>{
-            'file_id': fileId,
-            'last_revision': candidate.revision,
-          });
-        } else {
-          await txn.update(
+          final headRows = await txn.query(
             _headsTable,
-            <String, Object?>{'last_revision': candidate.revision},
+            columns: const <String>['last_revision'],
+            where: 'file_id = ?',
+            whereArgs: <Object?>[fileId],
+            limit: 1,
+          );
+          final headRevision =
+              headRows.isEmpty ? 0 : headRows.single['last_revision']! as int;
+          if (expectedRevision != headRevision ||
+              candidate.revision != expectedRevision + 1) {
+            return ParsedArtifactPublishResult.revisionConflict(headRevision);
+          }
+
+          if (headRows.isEmpty) {
+            await txn.insert(_headsTable, <String, Object?>{
+              'file_id': fileId,
+              'last_revision': candidate.revision,
+            });
+          } else {
+            await txn.update(
+              _headsTable,
+              <String, Object?>{'last_revision': candidate.revision},
+              where: 'file_id = ?',
+              whereArgs: <Object?>[fileId],
+            );
+          }
+          await txn.delete(
+            _artifactsTable,
             where: 'file_id = ?',
             whereArgs: <Object?>[fileId],
           );
+          await txn.insert(_artifactsTable, _metadataToRow(candidate));
+          return ParsedArtifactPublishResult.published(candidate);
+        });
+      } on DatabaseException catch (error) {
+        if (error.isUniqueConstraintError()) {
+          throw const ParsedArtifactRepositoryException(
+            ParsedArtifactRepositoryFailure.duplicateIdentity,
+          );
         }
-        await txn.delete(
-          _artifactsTable,
-          where: 'file_id = ?',
-          whereArgs: <Object?>[fileId],
-        );
-        await txn.insert(_artifactsTable, _metadataToRow(candidate));
-        return ParsedArtifactPublishResult.published(candidate);
-      });
-    } on DatabaseException catch (error) {
-      if (error.isUniqueConstraintError()) {
         throw const ParsedArtifactRepositoryException(
-          ParsedArtifactRepositoryFailure.duplicateIdentity,
+          ParsedArtifactRepositoryFailure.unavailable,
         );
       }
+    } on ParsedArtifactRepositoryException {
+      rethrow;
+    } catch (_) {
       throw const ParsedArtifactRepositoryException(
         ParsedArtifactRepositoryFailure.unavailable,
       );
@@ -128,37 +152,55 @@ class ParsedArtifactRepository implements ParsedArtifactRepositoryPort {
     required String fileId,
     required int expectedRevision,
   }) async {
-    _validateFileId(fileId);
-    if (expectedRevision < 0) {
-      throw const ParsedArtifactRepositoryException(
-        ParsedArtifactRepositoryFailure.invalidRequest,
-      );
-    }
-    final db = await _databaseHelper.database;
     try {
-      return await db.transaction((txn) async {
-        final headRows = await txn.query(
-          _headsTable,
-          columns: const <String>['last_revision'],
-          where: 'file_id = ?',
-          whereArgs: <Object?>[fileId],
-          limit: 1,
+      _validateFileId(fileId);
+      if (expectedRevision < 0) {
+        throw const ParsedArtifactRepositoryException(
+          ParsedArtifactRepositoryFailure.invalidRequest,
         );
-        if (headRows.isEmpty) {
-          return const ParsedArtifactRemoveResult.notFound();
-        }
-        final headRevision = headRows.single['last_revision']! as int;
-        if (expectedRevision != headRevision) {
-          return ParsedArtifactRemoveResult.revisionConflict(headRevision);
-        }
-        await txn.delete(
-          _artifactsTable,
-          where: 'file_id = ?',
-          whereArgs: <Object?>[fileId],
+      }
+      final db = await _databaseHelper.database;
+      try {
+        return await db.transaction((txn) async {
+          final headRows = await txn.query(
+            _headsTable,
+            columns: const <String>['last_revision'],
+            where: 'file_id = ?',
+            whereArgs: <Object?>[fileId],
+            limit: 1,
+          );
+          if (headRows.isEmpty) {
+            return const ParsedArtifactRemoveResult.notFound();
+          }
+          final headRevision = headRows.single['last_revision']! as int;
+          if (expectedRevision != headRevision) {
+            return ParsedArtifactRemoveResult.revisionConflict(headRevision);
+          }
+          final currentRows = await txn.query(
+            _artifactsTable,
+            columns: const <String>['file_id'],
+            where: 'file_id = ?',
+            whereArgs: <Object?>[fileId],
+            limit: 1,
+          );
+          if (currentRows.isEmpty) {
+            return const ParsedArtifactRemoveResult.notFound();
+          }
+          await txn.delete(
+            _artifactsTable,
+            where: 'file_id = ?',
+            whereArgs: <Object?>[fileId],
+          );
+          return const ParsedArtifactRemoveResult.removed();
+        });
+      } on DatabaseException {
+        throw const ParsedArtifactRepositoryException(
+          ParsedArtifactRepositoryFailure.unavailable,
         );
-        return const ParsedArtifactRemoveResult.removed();
-      });
-    } on DatabaseException {
+      }
+    } on ParsedArtifactRepositoryException {
+      rethrow;
+    } catch (_) {
       throw const ParsedArtifactRepositoryException(
         ParsedArtifactRepositoryFailure.unavailable,
       );

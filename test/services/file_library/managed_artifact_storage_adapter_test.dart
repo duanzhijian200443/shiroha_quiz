@@ -79,18 +79,12 @@ void main() {
       expect(read!.bytes, bytes);
     });
 
-    test('failure removes stale temp files and leaves no final sidecar',
-        () async {
+    test('existing-final rejection leaves no temp leftovers', () async {
       final bytes = payload();
       await adapter.writeArtifact(
         storageKey: 'artifacts/artifact_0001.json',
         bytes: bytes,
       );
-      final staleTemp = File(
-        p.join(tempDir.path, 'artifacts', 'artifact_0001.json.tmp'),
-      );
-      await staleTemp.create(recursive: true);
-      await staleTemp.writeAsBytes(<int>[9, 9]);
 
       await expectLater(
         adapter.writeArtifact(
@@ -105,11 +99,54 @@ void main() {
           ),
         ),
       );
-      expect(await staleTemp.exists(), isFalse);
-      final read = await adapter.readArtifact(
-        storageKey: 'artifacts/artifact_0001.json',
+      final entries = Directory(
+        p.join(tempDir.path, 'artifacts'),
+      ).listSync();
+      expect(
+        entries.map((entity) => p.basename(entity.path)).toList(),
+        <String>['artifact_0001.json'],
       );
-      expect(read!.bytes, bytes);
+    });
+
+    test('concurrent writes to one key finalize exactly one winner', () async {
+      final bytesA = 'payload-A'.codeUnits;
+      final bytesB = 'payload-B-longer'.codeUnits;
+      const key = 'artifacts/artifact_0001.json';
+
+      final outcomes = await Future.wait<Object>([
+        adapter
+            .writeArtifact(storageKey: key, bytes: bytesA)
+            .then<Object>((result) => result, onError: (Object error) => error),
+        adapter
+            .writeArtifact(storageKey: key, bytes: bytesB)
+            .then<Object>((result) => result, onError: (Object error) => error),
+      ]);
+
+      final successes = outcomes.whereType<ArtifactWriteResult>().toList();
+      final failures =
+          outcomes.whereType<ManagedArtifactStorageException>().toList();
+      expect(successes, hasLength(1));
+      expect(failures, hasLength(1));
+      expect(
+        failures.single.failure,
+        ManagedArtifactStorageFailure.alreadyFinalized,
+      );
+
+      final winner = successes.single;
+      final winnerBytes = winner.sizeBytes == bytesA.length ? bytesA : bytesB;
+      final read = await adapter.readArtifact(storageKey: key);
+      expect(read, isNotNull);
+      expect(read!.bytes, winnerBytes);
+      expect(read.sizeBytes, winner.sizeBytes);
+      expect(read.sha256, winner.sha256);
+
+      final entries = Directory(
+        p.join(tempDir.path, 'artifacts'),
+      ).listSync();
+      expect(
+        entries.map((entity) => p.basename(entity.path)).toList(),
+        <String>['artifact_0001.json'],
+      );
     });
 
     test('io failure is typed, leaves no final, and leaks no path', () async {
@@ -133,6 +170,11 @@ void main() {
         await File(p.join(tempDir.path, 'artifacts', 'artifact_0001.json'))
             .exists(),
         isFalse,
+      );
+      final entries = Directory(tempDir.path).listSync();
+      expect(
+        entries.map((entity) => p.basename(entity.path)).toList(),
+        <String>['artifacts'],
       );
     });
   });
