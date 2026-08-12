@@ -274,9 +274,11 @@ final class AgentWriteProposalService {
 
   /// Reconciles one ambiguous COMMIT through exactly one permission-aware
   /// read. The read never writes: an exact post-image reports committed, an
-  /// exact baseline returns the proposal to its approvable pending state
-  /// (the explicit Presentation Approve action is the only retry entry and
-  /// performs at most one new commit attempt per user action), any other
+  /// exact baseline returns the proposal to its approvable pending state only
+  /// while it remains the active proposal for its source turn (the explicit
+  /// Presentation Approve action is the only retry entry and performs at most
+  /// one new commit attempt per user action). A newer proposal staged while
+  /// this one was committing keeps the older proposal superseded; any other
   /// confirmed draft reports stale, and a denied/unavailable/unconfirmable
   /// read keeps unknownOutcome with zero automatic retry.
   Future<AgentWriteProposalOutcome> _reconcileAmbiguousOutcome(
@@ -301,7 +303,10 @@ final class AgentWriteProposalService {
       return switch (result) {
         AgentWriteReconciliationCommitted() =>
           AgentWriteProposalOutcome.committed,
-        AgentWriteReconciliationBaseline() => AgentWriteProposalOutcome.pending,
+        AgentWriteReconciliationBaseline() =>
+          _isActiveProposalForTurn(proposal)
+              ? AgentWriteProposalOutcome.pending
+              : AgentWriteProposalOutcome.superseded,
         AgentWriteReconciliationConflicted() => AgentWriteProposalOutcome.stale,
         AgentWriteReconciliationUnavailable() =>
           AgentWriteProposalOutcome.unknownOutcome,
@@ -320,6 +325,14 @@ final class AgentWriteProposalService {
     final updated = _proposalsById[proposalId]!.withOutcome(outcome);
     _proposalsById[proposalId] = updated;
     return updated;
+  }
+
+  bool _isActiveProposalForTurn(AgentWriteProposal proposal) {
+    return _activeProposalByTurn[_turnKey(
+          proposal.sourceConversationId,
+          proposal.sourceMessageId,
+        )] ==
+        proposal.id;
   }
 
   String _turnKey(String conversationId, String messageId) {

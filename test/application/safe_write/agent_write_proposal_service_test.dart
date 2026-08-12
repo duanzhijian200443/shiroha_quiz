@@ -827,6 +827,66 @@ void main() {
     );
 
     test(
+      'an exact-baseline reconciliation supersedes a committing proposal '
+      'replaced by a newer proposal for the same source turn',
+      () async {
+        final persistence = _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        )
+          ..commitGate = Completer<void>()
+          ..commitError = const TypedAnswerMutationException(
+            TypedAnswerMutationFailure.transactionFailed,
+          )
+          ..reconciliationResult = const AgentWriteReconciliationBaseline();
+        final service = AgentWriteProposalService(persistence);
+        final first = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('first answer')),
+        )) as AgentWriteStageResultStaged;
+
+        final firstApproval = service.approveProposal(first.proposal.id);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          service.proposalById(first.proposal.id).outcome,
+          AgentWriteProposalOutcome.committing,
+        );
+
+        final second = (await service.stageProposal(
+          admissionRequest: _request(_messageId),
+          proposedAnswer: ContentAnswer(content: _text('second answer')),
+        )) as AgentWriteStageResultStaged;
+        expect(second.proposal.outcome, AgentWriteProposalOutcome.pending);
+
+        persistence.commitGate!.complete();
+        final reconciledFirst = await firstApproval;
+
+        expect(reconciledFirst.outcome, AgentWriteProposalOutcome.superseded);
+        expect(
+          service.proposalById(second.proposal.id).outcome,
+          AgentWriteProposalOutcome.pending,
+        );
+        final active = <AgentWriteProposal>[
+          service.proposalById(first.proposal.id),
+          service.proposalById(second.proposal.id),
+        ].where((proposal) => proposal.outcome == AgentWriteProposalOutcome.pending);
+        expect(active, hasLength(1));
+
+        final approvedOld = await service.approveProposal(first.proposal.id);
+        final rejectedOld = service.rejectProposal(first.proposal.id);
+        expect(approvedOld.outcome, AgentWriteProposalOutcome.superseded);
+        expect(rejectedOld.outcome, AgentWriteProposalOutcome.superseded);
+        expect(
+          persistence.commitCalls,
+          hasLength(1),
+          reason: 'The superseded proposal must not retry automatically or '
+              'accept another approval.',
+        );
+      },
+    );
+
+    test(
       'transactionFailed with any other confirmed draft reports stale',
       () async {
         final persistence = _FakePersistence(
