@@ -38,6 +38,15 @@ ParsedArtifactMetadata metadata({
   );
 }
 
+class _ThrowingDatabaseHelper extends Fake implements DatabaseHelper {
+  _ThrowingDatabaseHelper(this.error);
+
+  final Object error;
+
+  @override
+  Future<Database> get database async => throw error;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -348,6 +357,43 @@ void main() {
       expect(await repository.readRevisionHead('file-1'), 0);
     });
 
+    test('repeated same-revision remove is notFound and keeps the head',
+        () async {
+      final (repository, db) = await openRepository();
+      await seedFile(db, 'file-1');
+      await repository.publishCurrent(
+        fileId: 'file-1',
+        candidate: metadata(),
+        expectedRevision: 0,
+      );
+
+      final first = await repository.removeCurrent(
+        fileId: 'file-1',
+        expectedRevision: 1,
+      );
+      expect(first.status, ParsedArtifactRemoveStatus.removed);
+
+      final second = await repository.removeCurrent(
+        fileId: 'file-1',
+        expectedRevision: 1,
+      );
+      expect(second.status, ParsedArtifactRemoveStatus.notFound);
+      expect(await repository.readRevisionHead('file-1'), 1);
+      expect(await repository.findCurrentByFileId('file-1'), isNull);
+
+      final again = await repository.publishCurrent(
+        fileId: 'file-1',
+        candidate: metadata(
+          artifactId: 'artifact-2',
+          revision: 2,
+          storageKey: 'artifacts/artifact-2.json',
+        ),
+        expectedRevision: 1,
+      );
+      expect(again.status, ParsedArtifactPublishStatus.published);
+      expect((await repository.findCurrentByFileId('file-1'))?.revision, 2);
+    });
+
     test('publishing after removal continues from the retained head', () async {
       final (repository, db) = await openRepository();
       await seedFile(db, 'file-1');
@@ -414,6 +460,106 @@ void main() {
       final review = await db.query('review_states');
       expect(review.single['question_id'], 'q-repo');
       expect(review.single['lapses'], 2);
+    });
+  });
+
+  group('ParsedArtifactRepository safe failure translation', () {
+    test('read and mutation paths translate acquisition failures', () async {
+      final repository = ParsedArtifactRepository(
+        databaseHelper: _ThrowingDatabaseHelper(
+          const DatabaseRuntimeException(DatabaseRuntimeFailure.unavailable),
+        ),
+      );
+
+      for (final operation in <Future<Object?>>[
+        repository.findCurrentByFileId('file-1'),
+        repository.readRevisionHead('file-1'),
+        repository.publishCurrent(
+          fileId: 'file-1',
+          candidate: metadata(),
+          expectedRevision: 0,
+        ),
+        repository.removeCurrent(fileId: 'file-1', expectedRevision: 1),
+      ]) {
+        await expectLater(
+          operation,
+          throwsA(
+            isA<ParsedArtifactRepositoryException>().having(
+              (error) => error.failure,
+              'failure',
+              ParsedArtifactRepositoryFailure.unavailable,
+            ),
+          ),
+        );
+      }
+    });
+
+    test('query and transaction failures become safe unavailable', () async {
+      final (repository, db) = await openRepository();
+      await seedFile(db, 'file-1');
+      await db.execute('DROP TABLE parsed_artifacts');
+      await db.execute('DROP TABLE parsed_artifact_heads');
+
+      try {
+        await repository.findCurrentByFileId('file-1');
+        fail('expected unavailable');
+      } on ParsedArtifactRepositoryException catch (error) {
+        expect(error.failure, ParsedArtifactRepositoryFailure.unavailable);
+        expect(error.toString(), isNot(contains('no such table')));
+        expect(error.toString(), isNot(contains('parsed_artifacts')));
+      }
+      try {
+        await repository.publishCurrent(
+          fileId: 'file-1',
+          candidate: metadata(),
+          expectedRevision: 0,
+        );
+        fail('expected unavailable');
+      } on ParsedArtifactRepositoryException catch (error) {
+        expect(error.failure, ParsedArtifactRepositoryFailure.unavailable);
+        expect(error.toString(), isNot(contains('no such table')));
+      }
+      try {
+        await repository.removeCurrent(fileId: 'file-1', expectedRevision: 0);
+        fail('expected unavailable');
+      } on ParsedArtifactRepositoryException catch (error) {
+        expect(error.failure, ParsedArtifactRepositoryFailure.unavailable);
+        expect(error.toString(), isNot(contains('no such table')));
+      }
+    });
+
+    test('malformed persisted rows translate to safe unavailable', () async {
+      final (repository, db) = await openRepository();
+      await seedFile(db, 'file-1');
+      await db.insert('parsed_artifact_heads', <String, Object?>{
+        'file_id': 'file-1',
+        'last_revision': 1,
+      });
+      await db.insert('parsed_artifacts', <String, Object?>{
+        'file_id': 'file-1',
+        'artifact_id': 'artifact-bad',
+        'revision': 1,
+        'source_sha256': _sourceSha256,
+        'cache_key_version': 1,
+        'cache_fingerprint': 'fingerprint-v1',
+        'parser_route': 'Bad Route!',
+        'parser_version': '1.0.0',
+        'options_schema_version': 1,
+        'payload_schema_version': 1,
+        'storage_key': 'artifacts/artifact-bad.json',
+        'payload_sha256': _payloadSha256,
+        'size_bytes': 42,
+        'published_at': 1700000000000,
+      });
+
+      try {
+        await repository.findCurrentByFileId('file-1');
+        fail('expected unavailable');
+      } on ParsedArtifactRepositoryException catch (error) {
+        expect(error.failure, ParsedArtifactRepositoryFailure.unavailable);
+        expect(error.toString(), isNot(contains('Bad Route')));
+        expect(error.toString(), isNot(contains('parser_route')));
+      }
     });
   });
 }

@@ -182,8 +182,10 @@ Backups with dangling artifact metadata are forbidden.
 
 ## 7. Additive v20 schema expectation
 
-Current runtime/schema is v19. F1-D1 (approved) requires an additive v20;
-F1-P0 does not modify the database.
+Current runtime/schema is v20. F1-P0 froze the additive v20 design without
+modifying the database; F1-D1 implemented the two new tables. F1-P0-era
+statements that v20 was "approved but not implemented" describe that stage's
+history and no longer describe current state.
 
 v20 adds two new tables and modifies no existing table.
 
@@ -300,12 +302,19 @@ F1-P0 -> F1-D0 -> F1-D1 -> F1-A1 -> F1-I1 -> F1-I2 -> F1-CL
 Ownership:
 
 - `F1-P0`: canonical docs (this stage, COMPLETE).
-- `F1-D0`: ParsedArtifact domain, SourceDocument codec, payload codec.
-- `F1-D1`: v20 migration, repository, managed sidecar storage.
-- `F1-A1`: cache/reparse/CAS/removal/GC orchestration.
-- `F1-I1`: deterministic routes on existing parser truth.
-- `F1-I2`: explicit OCR offline integration.
-- `F1-CL`: focused verification, final full semantic review, canonical closure.
+- `F1-D0`: ParsedArtifact domain, SourceDocument codec, payload codec —
+  COMPLETE.
+- `F1-D1`: v20 migration, repository, managed sidecar storage — COMPLETE.
+- `F1-A1`: cache/reparse/CAS/removal/GC orchestration — NOT STARTED.
+- `F1-I1`: deterministic routes on existing parser truth — NOT STARTED.
+- `F1-I2`: explicit OCR offline integration — NOT STARTED.
+- `F1-CL`: focused verification, final full semantic review, canonical
+  closure — NOT STARTED.
+
+Current state: F1-P0, F1-D0, and F1-D1 are COMPLETE. The v20 tables and the
+D1 persistence/storage primitives exist in production. F1-A1 lifecycle
+orchestration (cache/reparse semantics, per-file locking, full publish
+sequence, cleanup scheduling) has not begun.
 
 Governance:
 
