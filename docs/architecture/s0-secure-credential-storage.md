@@ -32,10 +32,12 @@ Out of scope (frozen non-goals):
   credential authority.
 - Keys are namespaced by a stable engine identity: `engine.<engineId>`.
 - SQLite is metadata-only. The `ai_engines.api_key` column remains only as a
-  legacy compatibility column; after activation its stored value is always
-  `''` and is never read by any runtime path.
-- SQLite plaintext is never a runtime credential fallback. Before migration
-  completes, any remaining plaintext exists solely as migrator retry input.
+  legacy compatibility column and is never read by any runtime path.
+- New metadata writes always scrub `api_key` to `''`.
+- After activation, legacy plaintext may temporarily remain in SQLite only
+  when migration has not yet completed; it exists solely as migrator retry
+  input and is never a runtime credential fallback.
+- After migration DONE, plaintext count is 0.
 - No cross-store atomicity is claimed: the secure store and SQLite are
   independent persistence systems. Every operation has exactly one commit
   point plus explicit compensation and reconciliation rules (below).
@@ -93,19 +95,25 @@ S3 store.saveAiEngine(metadata with api_key = '')
            (old credential + old metadata).
          - failure -> PARTIAL_FAILED(typed); mixed state
            (credential = new/unknown, metadata = old).
-       old missing (or old corrupt): best-effort
-         delete(engine.<engineId>)
+       old missing: best-effort delete(engine.<engineId>)
          - success -> FAILED(compensated); original state restored
            (no credential + old metadata).
          - failure -> PARTIAL_FAILED(typed); new credential becomes an
            unreachable residue; reconciled by a later same-id save
            (overwrite) or delete (idempotent cleanup).
+       old corrupt: best-effort delete(engine.<engineId>)
+         - success -> FAILED(normalized); the corrupt entry is normalized
+           to missing (safe normalization, not original-state restoration);
+           old metadata retained.
+         - failure -> PARTIAL_FAILED(typed); residue rules as above.
 ```
 
 Frozen semantics: updating an existing engine must preserve the old
 credential state. A normal metadata failure must not silently destroy the
 user's previous key: compensation restores the original state when it
-succeeds, and a compensation failure returns a typed partial failure.
+succeeds, and a compensation failure returns a typed partial failure. A
+pre-existing corrupt credential is not restorable; compensation normalizes
+it to missing and reports `FAILED(normalized)`.
 
 ## 6. delete state machine
 
@@ -127,9 +135,14 @@ D2 store.deleteAiEngine(engineId)
          - failure -> PARTIAL_FAILED(typed); row remains, credential absent
            -> engine incomplete; reconciled by a later delete (idempotent)
            or re-save.
-       old missing (or old corrupt): best-effort delete(engine.<engineId>)
+       old missing: best-effort delete(engine.<engineId>)
          (ensure credential stays absent)
          - success -> FAILED(compensated); row present, no credential.
+         - failure -> PARTIAL_FAILED(typed).
+       old corrupt: best-effort delete(engine.<engineId>)
+         (ensure credential stays absent)
+         - success -> FAILED(normalized); corrupt entry normalized to
+           missing (safe normalization, not restoration); row present.
          - failure -> PARTIAL_FAILED(typed).
 ```
 
@@ -165,8 +178,8 @@ per engine row:
 legacy ai_profiles: no production reader; scrub text_api_key and
 vision_api_key directly; no secure entries are created for orphan legacy rows.
 
-terminal: DONE = SQLite has no plaintext and the secure store is the sole
-credential authority.
+terminal: DONE = SQLite has no plaintext (plaintext count 0) and the secure
+store is the sole credential authority.
 
 Hard invariant: a legacy SQLite value must never overwrite an existing secure
 credential.
@@ -186,6 +199,10 @@ Operation outcomes (save/delete):
   FAILED(unchanged)     - failed before mutation; state identical to before.
   FAILED(compensated)   - primary write failed, compensation succeeded;
                           state restored to before.
+  FAILED(normalized)    - pre-existing credential was corrupt; compensation
+                          succeeded and normalized it to missing (safe
+                          normalization, not restoration); the state is not
+                          the original state.
   PARTIAL_FAILED        - primary write failed and compensation failed;
                           mixed state is reported explicitly with its
                           reconciliation path.

@@ -241,13 +241,19 @@ Files explicitly marked **Historical baseline** describe how a migration was pla
 
 ## 9. Secure credential storage boundary (S0)
 
+S0 is not yet activated (S0-D0 through S0-CL are NOT STARTED). The following
+states the post-activation invariant / target contract, not current runtime
+state.
+
 Provider credentials (AI/OCR/Agent engine API keys) are never persisted in
 SQLite as plaintext and are never a runtime SQLite fallback.
 
 - The secure credential store is the sole credential authority, keyed by a
   stable `engine.<engineId>` namespace.
-- SQLite stores non-secret engine metadata only; legacy `api_key` columns
-  remain only as compatibility columns and are scrubbed.
+- SQLite stores non-secret engine metadata only. New metadata writes always
+  scrub `api_key`; legacy plaintext may temporarily remain only as migrator
+  retry input until migration DONE (plaintext = 0), and is never read by any
+  runtime path.
 - Runtime hydration reads the secure store only: missing -> incomplete,
   unavailable -> typed transient failure, corrupt -> typed hard failure.
 - UI, Agent, MCP, and providers never access the secure store directly; all
@@ -255,7 +261,8 @@ SQLite as plaintext and are never a runtime SQLite fallback.
   seam.
 - No cross-store atomicity is claimed; save/delete define explicit commit
   points, compensation, and reconciliation (see the S0 focused contract).
-- Credentials never enter logs, exports, `.shiroha` packages, MCP, or Agent
-  DTOs.
+- Credentials never enter MCP/public/query/persisted DTOs, logs, or exports
+  (including `.shiroha`). They may exist inside bounded runtime provider
+  value/request types whose string/log representation is REDACTED.
 
 See `docs/architecture/s0-secure-credential-storage.md`.

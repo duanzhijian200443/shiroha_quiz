@@ -269,7 +269,8 @@ See `docs/product/W0 Safe Agent Write.md`.
 
 S0 moves AI/OCR/Agent provider credentials out of SQLite plaintext into a
 bounded secure credential seam. The secure store is the sole credential
-authority; SQLite keeps non-secret engine metadata only. S0-P0 (canonical
+authority; SQLite keeps non-secret engine metadata only (legacy plaintext
+exists only as migration retry input until migration DONE). S0-P0 (canonical
 contract) is COMPLETE; S0-D0 (core seam), S0-D1 (real secure adapter, pending
 dependency authorization), S0-D2 (legacy migration + production wiring), and
 S0-CL (closure) are NOT STARTED. Runtime schema stays v20; no UI, Agent, MCP,
