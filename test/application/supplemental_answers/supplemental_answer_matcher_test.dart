@@ -296,6 +296,75 @@ void main() {
       expect(result.records.single.disposition, AnswerMatchDisposition.ambiguous);
       expect(result.records.single.candidate, isNull);
     });
+
+    test('complete subquestion set with a different existing answer is '
+        'conflict and requires replace reconfirmation', () {
+      final snapshot = TargetQuestionSnapshot(
+        targets: [
+          _target(
+            'q_parent',
+            number: 1,
+            kind: QuestionKind.shortAnswer,
+            stem: '（1） and （2）',
+            answer: ContentAnswer(content: _text('old answer')),
+          ),
+        ],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_sub1', main: '1', sub: '2', answer: 'second'),
+          _fragment('frag_sub2', main: '1', sub: '1', answer: 'first'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(1));
+      expect(
+        result.records.single.disposition,
+        AnswerMatchDisposition.conflict,
+      );
+      expect(
+        result.records.single.candidate!.writeIntent,
+        CandidateWriteIntent.replace,
+      );
+    });
+
+    test('complete subquestion set equal to the existing answer is noOp',
+        () {
+      final composed = RichContent(
+        nodes: [TextNode('first'), TextNode('second')],
+      );
+      final snapshot = TargetQuestionSnapshot(
+        targets: [
+          _target(
+            'q_parent',
+            number: 1,
+            kind: QuestionKind.shortAnswer,
+            stem: '（1） and （2）',
+            answer: ContentAnswer(content: composed),
+          ),
+        ],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_sub1', main: '1', sub: '2', answer: 'second'),
+          _fragment('frag_sub2', main: '1', sub: '1', answer: 'first'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(1));
+      expect(
+        result.records.single.candidate!.writeIntent,
+        CandidateWriteIntent.noOp,
+      );
+    });
   });
 
   group('numberless fragments', () {

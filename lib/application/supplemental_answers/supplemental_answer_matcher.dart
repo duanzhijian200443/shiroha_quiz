@@ -534,6 +534,13 @@ List<_MergedItem> _composeSubquestions(
       for (final item in ordered)
         ...item.resolved.candidate!.supplementalSourceRefs,
     ];
+    final composedAnswer = ContentAnswer(content: RichContent(nodes: nodes));
+    final currentAnswer = target.draft.answer;
+    final writeIntent = currentAnswer == null
+        ? CandidateWriteIntent.fill
+        : (composedAnswer == currentAnswer
+            ? CandidateWriteIntent.noOp
+            : CandidateWriteIntent.replace);
     final candidate = AnswerCandidate(
       candidateId: 'cand_${entry.key}_${target.storageId}',
       targetStorageId: target.storageId,
@@ -542,22 +549,22 @@ List<_MergedItem> _composeSubquestions(
       supplementalFileId: artifact.supplementalFileId,
       artifactId: artifact.artifactId,
       artifactRevision: artifact.artifactRevision,
-      answer: ContentAnswer(content: RichContent(nodes: nodes)),
+      answer: composedAnswer,
       reviewOnlyExplanation: null,
       supplementalSourceRefs: sourceRefs,
       matchEvidence: const <MatchEvidenceCode>[
         MatchEvidenceCode.uniqueMainNumber,
         MatchEvidenceCode.mainNumberAndSubquestion,
       ],
-      writeIntent: target.draft.answer == null
-          ? CandidateWriteIntent.fill
-          : CandidateWriteIntent.replace,
+      writeIntent: writeIntent,
     );
     result.add(
       _MergedItem.single(
         _ResolvedFragment(
           fragment: ordered.first.resolved.fragment,
-          disposition: AnswerMatchDisposition.matched,
+          disposition: writeIntent == CandidateWriteIntent.replace
+              ? AnswerMatchDisposition.conflict
+              : AnswerMatchDisposition.matched,
           certainty: MatchCertainty.deterministic,
           evidence: candidate.matchEvidence,
           candidate: candidate,

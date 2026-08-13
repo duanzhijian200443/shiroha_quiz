@@ -156,7 +156,7 @@ Future<void> _seedSyntheticData(Database db) async {
   });
 }
 
-const candidateStorageId = 'smoke_storage_001';
+const candidateStorageId = 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b';
 
 TargetQuestionSnapshot _syntheticSnapshot() {
   return TargetQuestionSnapshot(
