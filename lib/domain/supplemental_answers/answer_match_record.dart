@@ -74,8 +74,16 @@ enum MatchEvidenceCode {
   /// filter.
   typeIncompatible,
 
+  /// The supplemental answer contains content that cannot become a writable
+  /// typed answer (for example a raw fallback node).
+  unsupportedContent,
+
   /// The source fragment maps to multiple targets.
   multipleTargets,
+
+  /// The expected transient subquestion set is not uniquely and completely
+  /// covered by the source fragments.
+  subquestionSetMismatch,
 
   /// Mutually conflicting answer fragments for one target.
   sourceConflict,
