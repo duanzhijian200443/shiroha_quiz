@@ -10,6 +10,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 
 import '../tool/ocr_smoke.dart';
 import '../tool/ocr_smoke_report.dart';
+import 'support/memory_engine_credential_store.dart';
 
 void main() {
   group('ocr_smoke.dart contract tests', () {
@@ -958,8 +959,12 @@ void main() {
         isActive: true,
       );
 
-      final explicitRepo =
-          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+      final explicitRepo = AiEngineRepository(
+        store: _FakeAiEngineStore(fakeProfile),
+        credentialStore: MemoryEngineCredentialStore({
+          fakeProfile.id: fakeProfile.apiKey,
+        }),
+      );
       final key = await loadSavedOcrApiKey(repository: explicitRepo);
       expect(key, equals('fake-saved-key-12345'));
     });
@@ -978,8 +983,12 @@ void main() {
           reasoningEffort: '',
           isActive: true,
         );
-        final explicitRepo =
-            AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+        final explicitRepo = AiEngineRepository(
+          store: _FakeAiEngineStore(fakeProfile),
+          credentialStore: MemoryEngineCredentialStore({
+            fakeProfile.id: fakeProfile.apiKey,
+          }),
+        );
 
         // Standard mode
         final eventsNormal = <Map<String, dynamic>>[];
@@ -1036,8 +1045,12 @@ void main() {
         reasoningEffort: '',
         isActive: true,
       );
-      final explicitRepo =
-          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+      final explicitRepo = AiEngineRepository(
+        store: _FakeAiEngineStore(fakeProfile),
+        credentialStore: MemoryEngineCredentialStore({
+          fakeProfile.id: fakeProfile.apiKey,
+        }),
+      );
 
       final key = await loadSavedOcrApiKey(repository: explicitRepo);
       expect(key, equals('explicit-injected-key-secret'));
@@ -1058,8 +1071,12 @@ void main() {
         reasoningEffort: '',
         isActive: true,
       );
-      final explicitRepo =
-          AiEngineRepository(store: _FakeAiEngineStore(fakeProfile));
+      final explicitRepo = AiEngineRepository(
+        store: _FakeAiEngineStore(fakeProfile),
+        credentialStore: MemoryEngineCredentialStore({
+          fakeProfile.id: fakeProfile.apiKey,
+        }),
+      );
 
       // Available state
       final eventsAvailable = <Map<String, dynamic>>[];

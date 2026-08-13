@@ -7,6 +7,8 @@ import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/main_ocr_ui_smoke.dart';
 
+import 'support/memory_engine_credential_store.dart';
+
 void main() {
   group('OCR UI smoke argument and output contract', () {
     test('accepts one relative PDF and explicit commit expectations', () {
@@ -96,7 +98,7 @@ void main() {
       );
       final helperIndex = source.indexOf('final databaseHelper =');
       final engineRepositoryIndex =
-          source.indexOf('AiEngineRepository(store: databaseHelper)');
+          source.indexOf('final engineRepository = AiEngineRepository(');
       final taskManagerIndex = source.indexOf('final taskManager =');
 
       expect(configureIndex, greaterThanOrEqualTo(0));
@@ -110,7 +112,10 @@ void main() {
         'UI smoke saves and re-reads the active profile through one repository',
         () async {
       final store = _OcrUiSmokeMemoryStore();
-      final repository = AiEngineRepository(store: store);
+      final repository = AiEngineRepository(
+        store: store,
+        credentialStore: MemoryEngineCredentialStore(),
+      );
       const profile = AiEngineProfile(
         id: 'ui-smoke-profile',
         engineType: AiEngineType.ocr,
@@ -128,8 +133,10 @@ void main() {
         profile: profile,
       );
 
-      expect(active, same(profile));
-      expect(store.saved, [profile]);
+      expect(active.id, profile.id);
+      expect(active.apiKey, profile.apiKey);
+      expect(store.saved.single.id, profile.id);
+      expect(store.saved.single.apiKey, '');
       expect(store.activeId, profile.id);
     });
 

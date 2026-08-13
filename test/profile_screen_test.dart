@@ -7,11 +7,16 @@ import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/ui/pages/profile_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
+import 'support/memory_engine_credential_store.dart';
+
 void main() {
   late AiEngineRepository engineRepository;
 
   setUp(() {
-    engineRepository = AiEngineRepository(store: _ProfileAiEngineStore());
+    engineRepository = AiEngineRepository(
+      store: _ProfileAiEngineStore(),
+      credentialStore: MemoryEngineCredentialStore(),
+    );
   });
 
   Future<void> pumpProfile(

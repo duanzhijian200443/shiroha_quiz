@@ -11,23 +11,17 @@ class AiEngineDependencyException implements Exception {
 
 /// AI engine repository.
 ///
-/// S0 transitional bridge: [credentialStore] is optional. When `null` the
-/// repository is PRE-ACTIVATION and behaves exactly like the pre-S0 master
-/// (SQLite is the only store). When non-null the repository enforces S0
-/// target semantics: SQLite `apiKey` values are ignored and credentials come
-/// only from the credential store. S0-D2 removes the null bridge; D0 never
-/// activates production secure storage.
+/// SQLite is metadata-only. Credentials always come from [credentialStore];
+/// legacy SQLite plaintext is ignored even while it remains migration input.
 class AiEngineRepository {
   const AiEngineRepository({
     required AiEngineStore store,
-    EngineCredentialStore? credentialStore,
+    required EngineCredentialStore credentialStore,
   })  : _store = store,
         _credentialStore = credentialStore;
 
   final AiEngineStore _store;
-  final EngineCredentialStore? _credentialStore;
-
-  bool get _isActivated => _credentialStore != null;
+  final EngineCredentialStore _credentialStore;
 
   /// Per-engineId serialization for activated-path credential/metadata
   /// mutations. Different engineIds never share a lock; completed chains are
@@ -43,9 +37,6 @@ class AiEngineRepository {
             : profiles
                 .where((profile) => profile.engineType != AiEngineType.ocr))
         .toList(growable: false);
-    if (!_isActivated) {
-      return selected;
-    }
     final hydrated = <AiEngineProfile>[];
     for (final profile in selected) {
       hydrated.add(await _hydrate(profile));
@@ -60,7 +51,7 @@ class AiEngineRepository {
         ? profile.engineType == AiEngineType.ocr
         : profile.engineType != AiEngineType.ocr;
     if (!matches) return null;
-    return _isActivated ? _hydrate(profile) : profile;
+    return _hydrate(profile);
   }
 
   Future<AiEngineProfile?> getActiveTextEngine() {
@@ -80,14 +71,9 @@ class AiEngineRepository {
   }
 
   Future<void> saveEngine(AiEngineProfile profile) async {
-    final credentialStore = _credentialStore;
-    if (credentialStore == null) {
-      await _store.saveAiEngine(profile);
-      return;
-    }
     await _runEngineExclusive(
       profile.id,
-      () => _saveEngineActivated(credentialStore, profile),
+      () => _saveEngineActivated(_credentialStore, profile),
     );
   }
 
@@ -95,23 +81,14 @@ class AiEngineRepository {
       _store.setActiveAiEngine(id, type);
 
   Future<void> deleteEngine(String id) async {
-    final credentialStore = _credentialStore;
-    if (credentialStore == null) {
-      await _store.deleteAiEngine(id);
-      return;
-    }
     await _runEngineExclusive(
       id,
-      () => _deleteEngineActivated(credentialStore, id),
+      () => _deleteEngineActivated(_credentialStore, id),
     );
   }
 
   Future<void> renameEngine(
       String id, String newName, AiEngineType type) async {
-    if (!_isActivated) {
-      await _renameEnginePreActivation(id, newName, type);
-      return;
-    }
     await _runEngineExclusive(id, () async {
       final engines = await getEngines(type);
       final target = engines.where((e) => e.id == id).firstOrNull;
@@ -132,19 +109,6 @@ class AiEngineRepository {
       // secure store while the metadata write scrubs api_key.
       await _store.saveAiEngine(_withApiKey(renamed, ''));
     });
-  }
-
-  Future<void> _renameEnginePreActivation(
-      String id, String newName, AiEngineType type) async {
-    final engines = await getEngines(type);
-    final target = engines.where((e) => e.id == id).firstOrNull;
-    if (target != null) {
-      final updatedMap = target.toMap();
-      updatedMap['name'] = newName;
-      final updatedProfile =
-          AiEngineProfile.fromMap(updatedMap, fallbackType: type);
-      await saveEngine(updatedProfile);
-    }
   }
 
   /// Runs [action] exclusively for [engineId]: concurrent mutations of the
@@ -174,9 +138,8 @@ class AiEngineRepository {
   /// are never folded into missing. The store-provided `apiKey` is always
   /// ignored on the activated path.
   Future<AiEngineProfile> _hydrate(AiEngineProfile profile) async {
-    final store = _credentialStore!;
     final secret = await _credentialCall(
-      () => store.readCredential(profile.id),
+      () => _credentialStore.readCredential(profile.id),
     );
     return _withApiKey(profile, secret ?? '');
   }

@@ -7,8 +7,6 @@ import '../models/ai_engine_profile.dart';
 /// scrubbed) to [saveAiEngine]; implementations must not write the secret,
 /// and callers must never treat a stored `api_key` value as credential
 /// authority (legacy rows may retain plaintext only as migrator retry input).
-/// Pre-activation (repository `credentialStore == null`) behavior is
-/// unchanged.
 abstract interface class AiEngineStore {
   Future<List<AiEngineProfile>> listAiEngines(AiEngineType type);
 
