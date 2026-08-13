@@ -544,6 +544,38 @@ class QuestionRepository
         .toList(growable: false);
   }
 
+  /// Typed dual-read for one explicit ordered id list.
+  ///
+  /// Returns rows in caller order; missing ids produce no row. Decoding
+  /// follows the same strict typed/legacy union rules as the bank read, and
+  /// a corrupt/unsafe sidecar fails the whole list without V1 fallback.
+  Future<List<PersistedQuestion>> getPersistedQuestionsByIds(
+    Iterable<String> storageIds,
+  ) async {
+    final ids = storageIds.toList(growable: false);
+    if (ids.isEmpty) return const <PersistedQuestion>[];
+    final placeholders = List<String>.filled(ids.length, '?').join(', ');
+    final db = await _databaseHelper.database;
+    final rows = await db.rawQuery('''
+            SELECT q.*,
+                   p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+                   p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+            FROM questions q
+            LEFT JOIN question_v2_payloads p ON q.id = p.question_id
+            WHERE q.id IN ($placeholders)
+          ''', ids);
+    final byId = <String, PersistedQuestion>{
+      for (final row in rows)
+        (row['id']! as String): _attachReviewMetrics(
+          _mapper.decodeJoinedRow(row),
+          row,
+        ),
+    };
+    return List<PersistedQuestion>.unmodifiable(
+      ids.map((id) => byId[id]).whereType<PersistedQuestion>(),
+    );
+  }
+
   /// Typed wrong-book read: lapsed rows from every bank with their review
   /// metrics. Wrong-book filtering (`lapses > 0`) and ordering (last lapse
   /// time descending) stay in SQL at the repository boundary; the UI never
