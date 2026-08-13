@@ -245,6 +245,76 @@ void main() {
     });
 
     test(
+      'pre-send retrieval revalidation obeys the turn deadline and releases '
+      'the conversation lock',
+      () async {
+        const state = _TestContinuationState('rag-stalled-revalidation');
+        const retrievalBody = 'retrieval body that must never be sent';
+        final harness = _Harness(
+          wireRetrieval: true,
+          limits: const AgentRuntimeLimits(
+            turnTimeout: Duration(milliseconds: 250),
+          ),
+          scripts: <_Script>[
+            _toolRound(<AgentProviderFunctionCall>[
+              _call(
+                'rag-1',
+                name: AgentRetrievalToolCatalog.toolName,
+                arguments: '{"query":"function","file_ids":["file-1"]}',
+              ),
+            ], state),
+            _finalAnswer('retry completed'),
+          ],
+        );
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+          scope: ConversationScope.learningSpace('project-a'),
+          fileIds: const ['file-1'],
+        );
+        harness.retrievalIndex.hits = <RetrievalHit>[
+          _runtimeHit(retrievalBody),
+        ];
+        harness.retrievalScope.stallOnCall = 5;
+
+        final first = await harness.runtime
+            .startTurnWithRetrieval(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+              approval: RetrievalEgressApproval(const ['file-1']),
+            )
+            .result
+            .timeout(const Duration(seconds: 2));
+
+        expect(_failureOf(first), AgentTurnFailure.timeout);
+        expect(harness.provider.requests, hasLength(1));
+        expect(
+          harness.provider.requests
+              .expand((request) => request.toolOutputs)
+              .map((output) => output.output)
+              .join(),
+          isNot(contains(retrievalBody)),
+        );
+
+        await Future<void>.delayed(Duration.zero);
+        final retry = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
+        expect(retry, isA<AgentTurnSuccess>());
+        expect(harness.provider.requests, hasLength(2));
+        expect(
+          harness.provider.requests
+              .expand((request) => request.toolOutputs)
+              .map((output) => output.output)
+              .join(),
+          isNot(contains(retrievalBody)),
+        );
+      },
+    );
+
+    test(
       'executes one tool round and continues with cumulative continuation',
       () async {
         const state = _TestContinuationState('s1');
@@ -2014,11 +2084,15 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
 
 final class _RuntimeRetrievalScope implements RetrievalScopeResolverPort {
   int calls = 0;
+  int? stallOnCall;
   Object? throwable;
 
   @override
   Future<List<String>> resolveFileIds(RetrievalScopeRequest scope) async {
     calls++;
+    if (calls == stallOnCall) {
+      return Completer<List<String>>().future;
+    }
     final error = throwable;
     if (error != null) throw error;
     return switch (scope) {

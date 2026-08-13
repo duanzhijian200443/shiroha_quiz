@@ -283,13 +283,17 @@ final class ShirohaAgentRuntime {
     var retrievalOutputCallIds = const <String>{};
     while (true) {
       if (retrievalOutputCallIds.isNotEmpty) {
+        final remaining = turn.remainingBudget();
+        if (remaining <= Duration.zero) {
+          throw const _TurnTimeoutException();
+        }
         final serializationAllowed = await _retrievalSerializationAllowed(
           turn,
           conversationId: conversationId,
           userMessageId: userMessageId,
           providerProfileId: resolved.profile.profileId,
           grant: retrievalGrant,
-        );
+        ).timeout(remaining, onTimeout: () => false);
         if (!serializationAllowed) {
           toolOutputs = <AgentFunctionToolOutput>[
             for (final output in toolOutputs)
