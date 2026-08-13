@@ -1,6 +1,6 @@
 # S0 Secure Credential Storage — Focused Canonical Contract
 
-Status: **Canonical S0 authority**.
+Status: **Canonical S0 authority — S0 COMPLETE**.
 
 This document is the authoritative contract for secure storage of AI/OCR/
 Agent provider credentials: credential authority, activation semantics,
@@ -48,9 +48,9 @@ S0 activates at the S0-D2 production wiring checkpoint: the composition root
 injects the real secure-store adapter, the legacy migrator, and SQLite scrub
 writes.
 
-- Before activation, existing behavior is unchanged; the repository
-  `credentialStore` seam is optional (`null` = not activated, transitional
-  passthrough).
+- Before S0-D2 activation, existing behavior was unchanged and the repository
+  `credentialStore` seam was optional (`null` = not activated, transitional
+  passthrough). This is historical stage context, not a current runtime path.
 - After activation, `credentialStore` is required and the passthrough bridge
   is removed. Runtime hydration reads the secure store only.
 - No security posture change is claimed before activation is wired and
@@ -225,9 +225,12 @@ S0-P0 -> S0-D0 -> S0-D1 -> S0-D2 -> S0-CL
   authorized): flutter_secure_storage.
 - `S0-D2`: legacy migration + production wiring (migrator, bounded DB
   helpers, composition root, removal of the pre-activation bridge) —
-  NOT STARTED.
+  COMPLETE.
 - `S0-CL`: focused verification, final full semantic review, canonical
-  closure — NOT STARTED.
+  closure — COMPLETE.
+
+S0 Secure Credential Storage is COMPLETE. The secure store is the current
+production credential authority; runtime schema remains v20.
 
 All S0 stages are `SERIAL`; a checkpoint must complete and freeze before the
 next stage starts, and later stages never auto-activate.

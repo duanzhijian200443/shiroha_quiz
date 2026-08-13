@@ -241,11 +241,10 @@ Files explicitly marked **Historical baseline** describe how a migration was pla
 
 ## 9. Secure credential storage boundary (S0)
 
-S0 is not yet production activated. Stage status: S0-P0 (canonical contract),
-S0-D0 (core seam), and S0-D1 (real secure adapter) are COMPLETE; S0-D2
-(legacy migration + production wiring) and S0-CL (closure) are NOT STARTED.
-Production activation happens strictly at S0-D2. The following states the
-post-activation invariant / target contract, not current runtime state.
+S0 Secure Credential Storage is COMPLETE. Stage status: S0-P0 (canonical
+contract), S0-D0 (core seam), S0-D1 (real secure adapter), S0-D2 (legacy
+migration + production wiring), and S0-CL (closure) are COMPLETE. Production
+activation occurred strictly at S0-D2; the following is current runtime truth.
 
 Provider credentials (AI/OCR/Agent engine API keys) are never persisted in
 SQLite as plaintext and are never a runtime SQLite fallback.
