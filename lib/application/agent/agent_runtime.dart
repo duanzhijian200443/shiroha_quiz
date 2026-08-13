@@ -13,6 +13,7 @@ import 'agent_config.dart';
 import 'agent_config_service.dart';
 import 'agent_history.dart';
 import 'agent_provider.dart';
+import 'agent_retrieval_tool.dart';
 import 'agent_runtime_limits.dart';
 import 'agent_study_tool_catalog.dart';
 import 'agent_study_tool_dispatcher.dart';
@@ -20,6 +21,7 @@ import 'agent_turn.dart';
 import 'agent_write_proposal_tool_catalog.dart';
 import 'agent_write_proposal_tool_dispatcher.dart';
 import 'shiroha_system_prompt.dart';
+import 'retrieval_egress_grant.dart';
 
 /// Minimal provider construction boundary.
 ///
@@ -41,12 +43,14 @@ final class ShirohaAgentRuntime {
     required AgentProviderFactory providerFactory,
     required AgentStudyToolDispatcher toolDispatcher,
     AgentWriteProposalToolDispatcher? proposalDispatcher,
+    AgentRetrievalToolDispatcher? retrievalDispatcher,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
   })  : _conversationService = conversationService,
         _configResolver = configResolver,
         _providerFactory = providerFactory,
         _toolDispatcher = toolDispatcher,
         _proposalDispatcher = proposalDispatcher,
+        _retrievalDispatcher = retrievalDispatcher,
         _limits = limits,
         _systemPrompt = const ShirohaSystemPrompt();
 
@@ -55,10 +59,12 @@ final class ShirohaAgentRuntime {
   final AgentProviderFactory _providerFactory;
   final AgentStudyToolDispatcher _toolDispatcher;
   final AgentWriteProposalToolDispatcher? _proposalDispatcher;
+  final AgentRetrievalToolDispatcher? _retrievalDispatcher;
   final AgentRuntimeLimits _limits;
   final ShirohaSystemPrompt _systemPrompt;
 
   final Set<String> _activeConversations = <String>{};
+  int _turnRequestSequence = 0;
 
   /// Transient, in-memory only: final generated text waiting for persistence.
   /// Lost on process restart; v19 has no durable turn state.
@@ -73,6 +79,26 @@ final class ShirohaAgentRuntime {
     required String conversationId,
     required String userMessageId,
   }) {
+    return _startTurn(
+        conversationId: conversationId, userMessageId: userMessageId);
+  }
+
+  AgentTurnSession startTurnWithRetrieval({
+    required String conversationId,
+    required String userMessageId,
+    required RetrievalEgressApproval approval,
+  }) {
+    return _startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+        approval: approval);
+  }
+
+  AgentTurnSession _startTurn({
+    required String conversationId,
+    required String userMessageId,
+    RetrievalEgressApproval? approval,
+  }) {
     if (!_isBoundedId(conversationId) || !_isBoundedId(userMessageId)) {
       return _failedSession(AgentTurnFailure.invalidTarget);
     }
@@ -80,7 +106,10 @@ final class ShirohaAgentRuntime {
       return _failedSession(AgentTurnFailure.alreadyRunning);
     }
 
-    final turn = _ActiveTurn(limits: _limits);
+    final turn = _ActiveTurn(
+      limits: _limits,
+      requestId: '${conversationId}_${userMessageId}_${_turnRequestSequence++}',
+    );
     turn.timeoutTimer = Timer(_limits.turnTimeout, () {
       turn.timedOut = true;
       turn.cancellation.cancel();
@@ -95,6 +124,7 @@ final class ShirohaAgentRuntime {
         turn,
         conversationId: conversationId,
         userMessageId: userMessageId,
+        approval: approval,
       ).whenComplete(() {
         _activeConversations.remove(conversationId);
         turn.timeoutTimer.cancel();
@@ -126,12 +156,14 @@ final class ShirohaAgentRuntime {
     _ActiveTurn turn, {
     required String conversationId,
     required String userMessageId,
+    RetrievalEgressApproval? approval,
   }) async {
     try {
       final result = await _executeTurn(
         turn,
         conversationId: conversationId,
         userMessageId: userMessageId,
+        approval: approval,
       );
       switch (result) {
         case AgentTurnSuccess(:final assistantMessage):
@@ -153,6 +185,7 @@ final class ShirohaAgentRuntime {
     _ActiveTurn turn, {
     required String conversationId,
     required String userMessageId,
+    RetrievalEgressApproval? approval,
   }) async {
     final key = (conversationId, userMessageId);
     final slice = await _loadSlice(turn, conversationId);
@@ -213,17 +246,37 @@ final class ShirohaAgentRuntime {
       limits: _limits,
     ).build(slice: slice, targetMessageId: userMessageId);
     final proposalCapabilityEnabled = _proposalDispatcher != null;
+    final approvedIds = approval?.approvedFileIds ?? const <String>[];
+    final retrievalDispatcher = _retrievalDispatcher;
+    final currentFileIds = retrievalDispatcher == null
+        ? const <String>[]
+        : await retrievalDispatcher.effectiveFileIds(
+            scope: slice.conversation.scope,
+            conversationFileIds:
+                slice.files.map((file) => file.fileId).toList(growable: false),
+          );
+    final retrievalGrant = approvedIds.isNotEmpty &&
+            approvedIds.every(currentFileIds.contains) &&
+            _retrievalDispatcher != null
+        ? RetrievalEgressGrant(
+            agentTurnRequestId: turn.requestId,
+            conversationId: conversationId,
+            sourceUserMessageId: userMessageId,
+            providerProfileId: resolved.profile.profileId,
+            approvedFileIds: approvedIds,
+          )
+        : null;
     final systemPrompt = _systemPrompt.build(
       scope: slice.conversation.scope,
       files: slice.files,
       proposalCapabilityEnabled: proposalCapabilityEnabled,
+      retrievalCapabilityEnabled: retrievalGrant != null,
     );
-    final tools = proposalCapabilityEnabled
-        ? <AgentFunctionToolDefinition>[
-            ...AgentStudyToolCatalog.definitions,
-            AgentWriteProposalToolCatalog.definition,
-          ]
-        : AgentStudyToolCatalog.definitions;
+    final tools = <AgentFunctionToolDefinition>[
+      ...AgentStudyToolCatalog.definitions,
+      if (proposalCapabilityEnabled) AgentWriteProposalToolCatalog.definition,
+      if (retrievalGrant != null) AgentRetrievalToolCatalog.definition,
+    ];
 
     AgentProviderContinuationState? continuationState;
     var toolOutputs = const <AgentFunctionToolOutput>[];
@@ -300,6 +353,8 @@ final class ShirohaAgentRuntime {
           conversationId: conversationId,
           userMessageId: userMessageId,
           scope: slice.conversation.scope,
+          providerProfileId: resolved.profile.profileId,
+          grant: retrievalGrant,
         );
         outputs.add(
           AgentFunctionToolOutput(callId: call.callId, output: output),
@@ -410,6 +465,8 @@ final class ShirohaAgentRuntime {
     required String conversationId,
     required String userMessageId,
     required ConversationScope scope,
+    required String providerProfileId,
+    required RetrievalEgressGrant? grant,
   }) async {
     final remaining = turn.remainingBudget();
     if (remaining <= Duration.zero) {
@@ -417,6 +474,81 @@ final class ShirohaAgentRuntime {
     }
     try {
       final dispatcher = _proposalDispatcher;
+      final retrievalDispatcher = _retrievalDispatcher;
+      if (call.name == AgentRetrievalToolCatalog.toolName &&
+          retrievalDispatcher != null) {
+        final current = await _loadSlice(turn, conversationId);
+        final sourceMessage = current.messages
+            .where((message) => message.messageId == userMessageId)
+            .firstOrNull;
+        if (sourceMessage == null ||
+            current.messages.any(
+              (message) =>
+                  message.role == ConversationMessageRole.user &&
+                  message.sequence > sourceMessage.sequence,
+            )) {
+          return jsonEncode(const <String, Object?>{
+            'ok': false,
+            'error': <String, Object?>{
+              'code': 'access_denied',
+              'message': 'File content is unavailable.',
+              'retryable': false,
+            },
+          });
+        }
+        final currentFileIds = await retrievalDispatcher.effectiveFileIds(
+          scope: current.conversation.scope,
+          conversationFileIds:
+              current.files.map((file) => file.fileId).toList(growable: false),
+        );
+        return await retrievalDispatcher
+            .dispatch(
+              argumentsJson: call.argumentsJson,
+              grant: grant,
+              turnRequestId: turn.requestId,
+              conversationId: conversationId,
+              sourceUserMessageId: userMessageId,
+              providerProfileId: providerProfileId,
+              currentFileIds: currentFileIds,
+              serializationAllowed: () async {
+                if (turn.cancellation.token.isCancelled ||
+                    turn.remainingBudget() <= Duration.zero) {
+                  return false;
+                }
+                final latest = await _loadSlice(turn, conversationId);
+                final sourceMessage = latest.messages
+                    .where((message) => message.messageId == userMessageId)
+                    .firstOrNull;
+                final hasLaterUserMessage = latest.messages.any(
+                  (message) =>
+                      message.role == ConversationMessageRole.user &&
+                      sourceMessage != null &&
+                      message.sequence > sourceMessage.sequence,
+                );
+                if (sourceMessage == null || hasLaterUserMessage) return false;
+                final latestFileIds =
+                    await retrievalDispatcher.effectiveFileIds(
+                  scope: latest.conversation.scope,
+                  conversationFileIds: latest.files
+                      .map((file) => file.fileId)
+                      .toList(growable: false),
+                );
+                final latestConfig = await _resolveConfig();
+                if (latestConfig.profile.profileId != providerProfileId) {
+                  return false;
+                }
+                return grant?.permits(
+                      turnRequestId: turn.requestId,
+                      conversationId: conversationId,
+                      sourceUserMessageId: userMessageId,
+                      providerProfileId: providerProfileId,
+                      currentFileIds: latestFileIds,
+                    ) ??
+                    false;
+              },
+            )
+            .timeout(remaining);
+      }
       if (call.name == AgentWriteProposalToolCatalog.toolName &&
           dispatcher != null) {
         final output = await dispatcher
@@ -680,11 +812,15 @@ final class ShirohaAgentRuntime {
 }
 
 final class _ActiveTurn {
-  _ActiveTurn({required AgentRuntimeLimits limits}) : _limits = limits {
+  _ActiveTurn({
+    required AgentRuntimeLimits limits,
+    required this.requestId,
+  }) : _limits = limits {
     _stopwatch.start();
   }
 
   final AgentRuntimeLimits _limits;
+  final String requestId;
   final AgentCancellationController cancellation =
       AgentCancellationController();
   final Stopwatch _stopwatch = Stopwatch();

@@ -249,7 +249,7 @@ void main() {
       final reopened = newFileHelper('p5a.db');
       final reopenedRepository = QuestionRepository(databaseHelper: reopened);
       final db2 = await reopened.database;
-      expect(await _userVersion(db2), 20);
+      expect(await _userVersion(db2), 21);
       final typed = await _reloadTyped(db2, _storageId);
       final answer = typed.draft.answer as ContentAnswer;
       expect((answer.content.nodes.single as TextNode).text, 'manual answer');

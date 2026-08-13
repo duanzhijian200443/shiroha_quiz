@@ -4,6 +4,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
@@ -12,8 +14,11 @@ import 'application/agent/agent_runtime.dart';
 import 'application/agent/agent_study_tool_dispatcher.dart';
 import 'application/agent/agent_turn.dart';
 import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
+import 'application/agent/agent_retrieval_tool.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/file_library/library_folder_service.dart';
+import 'application/retrieval/retrieval_scope_resolver.dart';
+import 'application/retrieval/retrieval_service.dart';
 import 'application/safe_write/agent_write_proposal_service.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
@@ -31,6 +36,8 @@ import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/library_file_repository.dart';
 import 'data/repositories/library_folder_repository.dart';
 import 'data/repositories/project_repository.dart';
+import 'data/repositories/parsed_artifact_repository.dart';
+import 'data/repositories/retrieval_index_repository.dart';
 import 'data/repositories/question_repository.dart';
 import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
@@ -40,10 +47,15 @@ import 'services/agent/deepseek_responses_provider.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
+import 'services/file_library/managed_artifact_storage_adapter.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
 import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/task_manager.dart';
+import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
+import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
+import 'services/retrieval/parsed_artifact_retrieval_source.dart';
+import 'services/retrieval/deterministic_source_chunker.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
@@ -116,9 +128,9 @@ void main() {
       storage: managedFileStorage,
       repository: libraryFileRepository,
     );
-    final projectService = ProjectService(
-      repository: SqliteProjectRepository(databaseHelper: databaseHelper),
-    );
+    final projectRepository =
+        SqliteProjectRepository(databaseHelper: databaseHelper);
+    final projectService = ProjectService(repository: projectRepository);
     const uuid = Uuid();
     final conversationService = ConversationService(
       repository: SqliteConversationRepository(databaseHelper: databaseHelper),
@@ -175,6 +187,31 @@ void main() {
     final agentWritePersistence = ApprovedAgentWriteRepository.instance;
     final agentWriteProposalService =
         AgentWriteProposalService(agentWritePersistence);
+    final supportDirectory = await getApplicationSupportDirectory();
+    final parsedArtifactRepository =
+        ParsedArtifactRepository(databaseHelper: databaseHelper);
+    final parsedArtifactLifecycle = ParsedArtifactLifecycleService(
+      libraryFileRepository: libraryFileRepository,
+      artifactRepository: parsedArtifactRepository,
+      artifactStorage: ManagedArtifactStorageAdapter(
+        managedRoot: Directory(p.join(supportDirectory.path, 'library_files')),
+      ),
+      generationPort: DeterministicParsedArtifactGenerationAdapter(
+        managedFileStorage: managedFileStorage,
+      ),
+    );
+    final retrievalService = RetrievalService(
+      scopeResolver: ApplicationRetrievalScopeResolver(
+        projectRepository: projectRepository,
+        conversationService: conversationService,
+      ),
+      artifactSource: ParsedArtifactRetrievalSource(
+        lifecycle: parsedArtifactLifecycle,
+        metadata: parsedArtifactRepository,
+      ),
+      index: SqliteRetrievalIndexRepository(databaseHelper: databaseHelper),
+      chunker: const DeterministicSourceChunker(),
+    );
     final agentRuntime = ShirohaAgentRuntime(
       conversationService: conversationService,
       configResolver: AgentRuntimeConfigResolver(
@@ -189,6 +226,9 @@ void main() {
       proposalDispatcher: AgentWriteProposalToolDispatcher(
         persistence: agentWritePersistence,
         proposalService: agentWriteProposalService,
+      ),
+      retrievalDispatcher: AgentRetrievalToolDispatcher(
+        retrieval: retrievalService,
       ),
     );
     final taskManager = TaskManager.instance;
@@ -236,6 +276,7 @@ void main() {
       conversationService: conversationService,
       agentSettingsService: agentSettingsService,
       startAgentTurn: agentRuntime.startTurn,
+      startRetrievalTurn: agentRuntime.startTurnWithRetrieval,
       proposalService: agentWriteProposalService,
     ));
   }, (error, stackTrace) {
@@ -260,6 +301,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.startRetrievalTurn,
     this.proposalService,
   });
 
@@ -271,6 +313,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
 
   @override
@@ -294,6 +337,7 @@ class ShirohaQuizApp extends StatelessWidget {
               conversationService: conversationService,
               agentSettingsService: agentSettingsService,
               startAgentTurn: startAgentTurn,
+              startRetrievalTurn: startRetrievalTurn,
               proposalService: proposalService,
             ),
           ),

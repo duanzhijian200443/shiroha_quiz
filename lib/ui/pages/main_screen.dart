@@ -17,6 +17,7 @@ class MainScreen extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.startRetrievalTurn,
     this.proposalService,
   });
 
@@ -24,6 +25,7 @@ class MainScreen extends StatefulWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -42,6 +44,7 @@ class _MainScreenState extends State<MainScreen> {
         conversationService: widget.conversationService,
         agentSettingsService: widget.agentSettingsService,
         startAgentTurn: widget.startAgentTurn,
+        startRetrievalTurn: widget.startRetrievalTurn,
         proposalService: widget.proposalService,
       ), // Tab 1
       const MockCenterScreen(), // Tab 2 — 模考中心

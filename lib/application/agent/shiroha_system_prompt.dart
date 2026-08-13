@@ -15,6 +15,7 @@ final class ShirohaSystemPrompt {
   String build({
     required ConversationScope scope,
     required bool proposalCapabilityEnabled,
+    bool retrievalCapabilityEnabled = false,
     List<ConversationFileRef> files = const <ConversationFileRef>[],
   }) {
     final buffer = StringBuffer()
@@ -59,8 +60,13 @@ final class ShirohaSystemPrompt {
       ..writeln()
       ..writeln('Files:')
       ..writeln('- Attached File metadata may be available.')
-      ..writeln('- File contents, PDFs, and images are NOT available in A0 v0.')
-      ..writeln('- Never pretend a file was read.')
+      ..writeln(retrievalCapabilityEnabled
+          ? '- Approved file text is available only through '
+              'retrieve_file_content for this turn.'
+          : '- File contents, PDFs, and images are NOT available in A0 v0.')
+      ..writeln(retrievalCapabilityEnabled
+          ? '- Never claim to read content outside the approved tool result.'
+          : '- Never pretend a file was read.')
       ..writeln()
       ..writeln('Conversation scope:');
     if (scope.kind == ConversationScopeKind.global) {
@@ -82,7 +88,9 @@ final class ShirohaSystemPrompt {
     if (files.isNotEmpty) {
       buffer
         ..writeln()
-        ..writeln('Attached files (metadata only; contents unavailable):');
+        ..writeln(retrievalCapabilityEnabled
+            ? 'Attached files (content access is limited by the active grant):'
+            : 'Attached files (metadata only; contents unavailable):');
       for (final file in files) {
         buffer.writeln(
           '- ${_metadataLine(file.displayName)} '

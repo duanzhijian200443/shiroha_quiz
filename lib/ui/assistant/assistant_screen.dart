@@ -426,6 +426,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   selectedFiles: conversations.selectedFiles,
                   isSending: conversations.isSending,
                   hasActiveTurn: conversations.hasActiveTurn,
+                  retrievalApproved: conversations.retrievalApprovedForNextTurn,
+                  onRetrievalApprovalChanged:
+                      conversations.setRetrievalApproval,
                   onAddContext: _showContextPicker,
                   onRemoveContext: (file) {
                     conversations.toggleFile(file.fileId);
@@ -858,6 +861,8 @@ class _Composer extends StatelessWidget {
     required this.selectedFiles,
     required this.isSending,
     required this.hasActiveTurn,
+    required this.retrievalApproved,
+    required this.onRetrievalApprovalChanged,
     required this.onAddContext,
     required this.onRemoveContext,
     required this.onSend,
@@ -868,6 +873,8 @@ class _Composer extends StatelessWidget {
   final List<ConversationFileRef> selectedFiles;
   final bool isSending;
   final bool hasActiveTurn;
+  final bool retrievalApproved;
+  final ValueChanged<bool> onRetrievalApprovalChanged;
   final VoidCallback onAddContext;
   final ValueChanged<ConversationFileRef> onRemoveContext;
   final VoidCallback onSend;
@@ -919,11 +926,23 @@ class _Composer extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.fromLTRB(8, 4, 8, 0),
                     child: Text(
-                      '当前 Shiroha 可识别附件信息，文件内容理解将在后续版本接入。',
+                      '附件默认仅提供元数据；正文读取需要下面的本轮授权。',
                       style: TextStyle(fontSize: 11),
                     ),
                   ),
                 ],
+              ),
+            if (selectedFiles.isNotEmpty)
+              CheckboxListTile(
+                key: const ValueKey<String>('rag1-turn-content-approval'),
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                value: retrievalApproved,
+                onChanged: isSending
+                    ? null
+                    : (value) => onRetrievalApprovalChanged(value ?? false),
+                title: const Text('允许 Shiroha 在本轮读取所选文件内容'),
+                subtitle: const Text('仅本轮有效；重试、新消息、切换模型或重启后失效'),
               ),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,

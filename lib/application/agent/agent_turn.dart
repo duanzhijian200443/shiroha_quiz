@@ -7,6 +7,7 @@ library;
 
 import '../../domain/conversations/conversation_message.dart';
 import 'agent_provider.dart';
+import 'retrieval_egress_grant.dart';
 
 /// Terminal outcome of one Agent turn.
 sealed class AgentTurnResult {
@@ -146,4 +147,10 @@ final class AgentTurnSession {
 typedef AgentTurnStarter = AgentTurnSession Function({
   required String conversationId,
   required String userMessageId,
+});
+
+typedef AgentRetrievalTurnStarter = AgentTurnSession Function({
+  required String conversationId,
+  required String userMessageId,
+  required RetrievalEgressApproval approval,
 });
