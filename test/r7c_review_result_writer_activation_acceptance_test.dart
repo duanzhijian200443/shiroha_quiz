@@ -51,7 +51,10 @@ const _bankName = 'r7c_synthetic_bank';
 
 class _FakeAiEngineRepository extends AiEngineRepository {
   _FakeAiEngineRepository(this.profile)
-      : super(store: const UnsupportedAiEngineStore());
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   final AiEngineProfile profile;
 

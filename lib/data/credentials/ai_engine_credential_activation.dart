@@ -1,8 +1,8 @@
-import '../../data/credentials/legacy_engine_credential_migrator.dart';
-import '../../data/persistence/ai_engine_store.dart';
-import '../../data/persistence/engine_credential_store.dart';
-import '../../data/persistence/legacy_engine_credential_migration_store.dart';
-import '../../data/repositories/ai_engine_repository.dart';
+import '../persistence/ai_engine_store.dart';
+import '../persistence/engine_credential_store.dart';
+import '../persistence/legacy_engine_credential_migration_store.dart';
+import '../repositories/ai_engine_repository.dart';
+import 'legacy_engine_credential_migrator.dart';
 
 /// Opens SQLite, creates the secure adapter, completes migration, and only
 /// then exposes an activated runtime repository.

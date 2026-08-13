@@ -30,7 +30,11 @@ const String _syntheticOcrBody = 'B1E_SYNTHETIC_OCR_BODY';
 const String _syntheticExceptionBody = 'B1E_SYNTHETIC_EXCEPTION_BODY';
 
 class _FakeOcrEngineRepository extends AiEngineRepository {
-  _FakeOcrEngineRepository() : super(store: const UnsupportedAiEngineStore());
+  _FakeOcrEngineRepository()
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   static const AiEngineProfile _profile = AiEngineProfile(
     id: 'b1e-ocr-profile',

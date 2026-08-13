@@ -48,7 +48,10 @@ class _MockEngineRepository extends AiEngineRepository {
   final AiEngineProfile? profile;
 
   _MockEngineRepository(this.profile)
-      : super(store: const UnsupportedAiEngineStore());
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   @override
   Future<AiEngineProfile?> getActiveVisionEngine() async {
