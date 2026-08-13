@@ -248,7 +248,7 @@ final class ShirohaAgentRuntime {
     final proposalCapabilityEnabled = _proposalDispatcher != null;
     final approvedIds = approval?.approvedFileIds ?? const <String>[];
     final retrievalDispatcher = _retrievalDispatcher;
-    final currentFileIds = retrievalDispatcher == null
+    final currentFileIds = retrievalDispatcher == null || approvedIds.isEmpty
         ? const <String>[]
         : await retrievalDispatcher.effectiveFileIds(
             scope: slice.conversation.scope,
@@ -280,7 +280,30 @@ final class ShirohaAgentRuntime {
 
     AgentProviderContinuationState? continuationState;
     var toolOutputs = const <AgentFunctionToolOutput>[];
+    var retrievalOutputCallIds = const <String>{};
     while (true) {
+      if (retrievalOutputCallIds.isNotEmpty) {
+        final serializationAllowed = await _retrievalSerializationAllowed(
+          turn,
+          conversationId: conversationId,
+          userMessageId: userMessageId,
+          providerProfileId: resolved.profile.profileId,
+          grant: retrievalGrant,
+        );
+        if (!serializationAllowed) {
+          toolOutputs = <AgentFunctionToolOutput>[
+            for (final output in toolOutputs)
+              AgentFunctionToolOutput(
+                callId: output.callId,
+                output: retrievalOutputCallIds.contains(output.callId)
+                    ? _retrievalAccessDeniedOutput()
+                    : output.output,
+              ),
+          ];
+        }
+      }
+      _throwIfExpired(turn);
+      _throwIfCancelled(turn);
       final request = AgentProviderRequest(
         systemPrompt: systemPrompt,
         messages: history.messages,
@@ -344,6 +367,7 @@ final class ShirohaAgentRuntime {
       }
 
       final outputs = <AgentFunctionToolOutput>[];
+      final nextRetrievalOutputCallIds = <String>{};
       for (final call in round.functionCalls) {
         _throwIfCancelled(turn);
         _emit(turn, AgentTurnToolCall(callId: call.callId, name: call.name));
@@ -359,10 +383,14 @@ final class ShirohaAgentRuntime {
         outputs.add(
           AgentFunctionToolOutput(callId: call.callId, output: output),
         );
+        if (call.name == AgentRetrievalToolCatalog.toolName) {
+          nextRetrievalOutputCallIds.add(call.callId);
+        }
         turn.localCallsUsed++;
       }
       continuationState = continuation;
       toolOutputs = outputs;
+      retrievalOutputCallIds = nextRetrievalOutputCallIds;
     }
   }
 
@@ -510,42 +538,13 @@ final class ShirohaAgentRuntime {
               sourceUserMessageId: userMessageId,
               providerProfileId: providerProfileId,
               currentFileIds: currentFileIds,
-              serializationAllowed: () async {
-                if (turn.cancellation.token.isCancelled ||
-                    turn.remainingBudget() <= Duration.zero) {
-                  return false;
-                }
-                final latest = await _loadSlice(turn, conversationId);
-                final sourceMessage = latest.messages
-                    .where((message) => message.messageId == userMessageId)
-                    .firstOrNull;
-                final hasLaterUserMessage = latest.messages.any(
-                  (message) =>
-                      message.role == ConversationMessageRole.user &&
-                      sourceMessage != null &&
-                      message.sequence > sourceMessage.sequence,
-                );
-                if (sourceMessage == null || hasLaterUserMessage) return false;
-                final latestFileIds =
-                    await retrievalDispatcher.effectiveFileIds(
-                  scope: latest.conversation.scope,
-                  conversationFileIds: latest.files
-                      .map((file) => file.fileId)
-                      .toList(growable: false),
-                );
-                final latestConfig = await _resolveConfig();
-                if (latestConfig.profile.profileId != providerProfileId) {
-                  return false;
-                }
-                return grant?.permits(
-                      turnRequestId: turn.requestId,
-                      conversationId: conversationId,
-                      sourceUserMessageId: userMessageId,
-                      providerProfileId: providerProfileId,
-                      currentFileIds: latestFileIds,
-                    ) ??
-                    false;
-              },
+              serializationAllowed: () => _retrievalSerializationAllowed(
+                turn,
+                conversationId: conversationId,
+                userMessageId: userMessageId,
+                providerProfileId: providerProfileId,
+                grant: grant,
+              ),
             )
             .timeout(remaining);
       }
@@ -586,6 +585,60 @@ final class ShirohaAgentRuntime {
       });
     }
   }
+
+  Future<bool> _retrievalSerializationAllowed(
+    _ActiveTurn turn, {
+    required String conversationId,
+    required String userMessageId,
+    required String providerProfileId,
+    required RetrievalEgressGrant? grant,
+  }) async {
+    if (turn.cancellation.token.isCancelled ||
+        turn.remainingBudget() <= Duration.zero ||
+        grant == null) {
+      return false;
+    }
+    final retrievalDispatcher = _retrievalDispatcher;
+    if (retrievalDispatcher == null) return false;
+    try {
+      final latest = await _loadSlice(turn, conversationId);
+      final sourceMessage = latest.messages
+          .where((message) => message.messageId == userMessageId)
+          .firstOrNull;
+      final hasLaterUserMessage = latest.messages.any(
+        (message) =>
+            message.role == ConversationMessageRole.user &&
+            sourceMessage != null &&
+            message.sequence > sourceMessage.sequence,
+      );
+      if (sourceMessage == null || hasLaterUserMessage) return false;
+      final latestFileIds = await retrievalDispatcher.effectiveFileIds(
+        scope: latest.conversation.scope,
+        conversationFileIds:
+            latest.files.map((file) => file.fileId).toList(growable: false),
+      );
+      final latestConfig = await _resolveConfig();
+      if (latestConfig.profile.profileId != providerProfileId) return false;
+      return grant.permits(
+        turnRequestId: turn.requestId,
+        conversationId: conversationId,
+        sourceUserMessageId: userMessageId,
+        providerProfileId: providerProfileId,
+        currentFileIds: latestFileIds,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _retrievalAccessDeniedOutput() => jsonEncode(const <String, Object?>{
+        'ok': false,
+        'error': <String, Object?>{
+          'code': 'access_denied',
+          'message': 'File content is unavailable.',
+          'retryable': false,
+        },
+      });
 
   /// Emits a typed proposal-staged event when the proposal tool returned a
   /// successful staging/replay result. Event shaping never fails the turn.

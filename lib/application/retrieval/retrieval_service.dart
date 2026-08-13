@@ -102,7 +102,10 @@ final class RetrievalService {
           rethrow;
         }
         issues.add(RetrievalFileIssue(
-            fileId: fileId, code: RetrievalFileIssueCode.indexBuildFailed));
+            fileId: fileId,
+            code: error.failure == RetrievalFailure.sourceChanged
+                ? RetrievalFileIssueCode.sourceChanged
+                : RetrievalFileIssueCode.indexBuildFailed));
       } catch (_) {
         issues.add(RetrievalFileIssue(
             fileId: fileId, code: RetrievalFileIssueCode.indexBuildFailed));
