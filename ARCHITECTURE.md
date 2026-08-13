@@ -238,3 +238,24 @@ Current-state authority, in order:
 4. `docs/architecture/n0-post-p5-roadmap.md` for stage ordering and deferred decisions.
 
 Files explicitly marked **Historical baseline** describe how a migration was planned or characterized at that time. They must not override this current contract.
+
+## 9. Secure credential storage boundary (S0)
+
+Provider credentials (AI/OCR/Agent engine API keys) are never persisted in
+SQLite as plaintext and are never a runtime SQLite fallback.
+
+- The secure credential store is the sole credential authority, keyed by a
+  stable `engine.<engineId>` namespace.
+- SQLite stores non-secret engine metadata only; legacy `api_key` columns
+  remain only as compatibility columns and are scrubbed.
+- Runtime hydration reads the secure store only: missing -> incomplete,
+  unavailable -> typed transient failure, corrupt -> typed hard failure.
+- UI, Agent, MCP, and providers never access the secure store directly; all
+  access goes through the bounded credential port/adapter and the repository
+  seam.
+- No cross-store atomicity is claimed; save/delete define explicit commit
+  points, compensation, and reconciliation (see the S0 focused contract).
+- Credentials never enter logs, exports, `.shiroha` packages, MCP, or Agent
+  DTOs.
+
+See `docs/architecture/s0-secure-credential-storage.md`.

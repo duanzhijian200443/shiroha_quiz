@@ -36,6 +36,8 @@ F1-I1 Deterministic generation adapter — COMPLETE
 F1-I2 Explicit OCR generation — COMPLETE
 F1-CL Parsed Artifact closure — COMPLETE
 F1 Parsed Artifact Lifecycle — COMPLETE
+S0-P0 Secure credential storage canonical contract — COMPLETE
+S0-D0 and later — NOT STARTED
 P6 Supplemental-answer matching — NOT STARTED
 P7 AI answer candidates — NOT STARTED
 RAG Project retrieval enhancement — NOT STARTED
@@ -90,6 +92,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
 | **A0** | Built-in Agent v0 | Supported configured provider + optional provider-native Web + local read tools | unchanged |
 | **W0** | Safe Agent write | Draft/Stage -> Review -> explicit user approval -> application command -> typed persistence | preferably unchanged |
+| **S0** | Secure credential storage | Move provider credentials out of SQLite into a bounded secure credential seam; keep runtime schema v20 | unchanged (v20) |
 | **F1** | Parsed Artifact lifecycle | Reparse/version/cache identity needed by P6/Agent/RAG; split into F1-P0..F1-CL sub-stages | additive v20 implemented in F1-D1 |
 | **P6** | Supplemental-answer matching | Produce supplemental `AnswerCandidate` values from files; do not invent a new write path | preferably unchanged |
 | **P7** | AI answer candidates | Produce AI `AnswerCandidate` values; confirmation uses the same answer command boundary | unchanged |
@@ -261,6 +264,18 @@ verification, semantic review and no unresolved P0/P1/P2 findings, and did not
 automatically activate F1, P6 or P7.
 
 See `docs/product/W0 Safe Agent Write.md`.
+
+### S0 — Secure credential storage
+
+S0 moves AI/OCR/Agent provider credentials out of SQLite plaintext into a
+bounded secure credential seam. The secure store is the sole credential
+authority; SQLite keeps non-secret engine metadata only. S0-P0 (canonical
+contract) is COMPLETE; S0-D0 (core seam), S0-D1 (real secure adapter, pending
+dependency authorization), S0-D2 (legacy migration + production wiring), and
+S0-CL (closure) are NOT STARTED. Runtime schema stays v20; no UI, Agent, MCP,
+F1, or P6/P7/RAG changes are included.
+
+See `docs/architecture/s0-secure-credential-storage.md`.
 
 ### F1 — Parsed Artifact lifecycle
 
