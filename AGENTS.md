@@ -407,7 +407,11 @@ Rules:
 4. Reports may include only filenames, counts, question numbers, stages, statuses, and redacted metrics.
 5. One PDF is one independent smoke run/import task.
 6. Do not scan/read/execute historical `paired/` directories.
-7. Supplemental-answer document matching is deferred to P6 and must use a newly frozen contract rather than reviving the old default two-PDF merge.
+7. Supplemental-answer document matching is governed by the frozen P6
+   canonical contract in `docs/architecture/p6-supplemental-answer-matching.md`:
+   explicit supplemental file + explicit target scope, transient
+   `AnswerCandidate`, and the existing typed answer mutation authority.
+   Paired/combined/automatic two-PDF merge remains permanently prohibited.
 
 ---
 

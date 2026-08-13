@@ -268,3 +268,36 @@ SQLite as plaintext and are never a runtime SQLite fallback.
   value/request types whose string/log representation is REDACTED.
 
 See `docs/architecture/s0-secure-credential-storage.md`.
+
+## 10. Supplemental-answer matching boundary (P6)
+
+P6-P0 froze the focused canonical contract in
+`docs/architecture/p6-supplemental-answer-matching.md`; P6-P0 is docs-only
+and COMPLETE, and P6-D0 and later are NOT STARTED. The following durable
+boundary applies to any future P6 implementation:
+
+- P6 consumes the current F1 `ParsedArtifact` explicitly through the
+  Application lifecycle seam (`getCurrentArtifact(fileId)`), never sidecars,
+  SQLite rows, or managed paths directly, and never an implicit
+  ensure/reparse/OCR.
+- The target scope is explicit: `QuestionBankScope(bankName)` |
+  `ProjectScope(projectId)` | `ExplicitQuestionScope(ordered storageIds)`,
+  paired with exactly one explicitly selected supplemental `LibraryFile`.
+- Matching is deterministic only: no LLM, embedding, semantic model,
+  edit-distance auto-write, filename inference, sequence-only match, or
+  automatic pairing of files.
+- `AnswerCandidate` is transient and binds `artifactId` + artifact
+  `revision` + expected `QuestionDraftV2`; explanation and supplemental
+  `SourceRef` remain Preview/Review-only.
+- Any write happens only after explicit user confirmation and reuses the
+  existing typed answer mutation authority (`TypedAnswerCommand` /
+  `TypedAnswerPersistencePort` / `TypedAnswerPersistenceKernel`); P6 creates
+  no second answer write protocol.
+- Confirm revalidates the artifact generation and the full typed target in
+  one caller-owned transaction (artifact + target stale CAS); any drift means
+  `staleTarget` with zero mutation, and the atomic boundary may not be
+  degraded to a non-atomic double check.
+- P6 adds no schema change and no persisted candidate/provenance/explanation.
+- The old paired/combined/automatic two-PDF merge remains permanently dead;
+  `reference_answer_merger` and `multi_file_question_merge_service` are not
+  P6 seams.
