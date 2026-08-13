@@ -88,6 +88,24 @@ class AiEngineProfile {
     };
   }
 
+  /// S0 metadata-only projection: never contains the runtime credential.
+  ///
+  /// The `api_key` entry is always scrubbed to `''`. SQLite metadata writes
+  /// must use this map (or explicitly scrub) so secrets are never persisted.
+  Map<String, dynamic> toMetadataMap() {
+    return {
+      'id': id,
+      'engine_type': engineType.dbValue,
+      'name': name,
+      'api_key': '',
+      'base_url': baseUrl,
+      'model_name': modelName,
+      'temperature': temperature,
+      'reasoning_effort': reasoningEffort,
+      'is_active': isActive ? 1 : 0,
+    };
+  }
+
   static String _readString(dynamic value) {
     return value?.toString().trim() ?? '';
   }

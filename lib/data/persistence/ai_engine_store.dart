@@ -1,5 +1,14 @@
 import '../models/ai_engine_profile.dart';
 
+/// Persists AI engine metadata only.
+///
+/// S0 contract: this store must never persist the runtime credential.
+/// Post-activation the repository passes metadata-only profiles (apiKey
+/// scrubbed) to [saveAiEngine]; implementations must not write the secret,
+/// and callers must never treat a stored `api_key` value as credential
+/// authority (legacy rows may retain plaintext only as migrator retry input).
+/// Pre-activation (repository `credentialStore == null`) behavior is
+/// unchanged.
 abstract interface class AiEngineStore {
   Future<List<AiEngineProfile>> listAiEngines(AiEngineType type);
 
