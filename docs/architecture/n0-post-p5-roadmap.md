@@ -37,7 +37,8 @@ F1-I2 Explicit OCR generation — COMPLETE
 F1-CL Parsed Artifact closure — COMPLETE
 F1 Parsed Artifact Lifecycle — COMPLETE
 S0-P0 Secure credential storage canonical contract — COMPLETE
-S0-D0 and later — NOT STARTED
+S0-D0 Secure credential core seam — COMPLETE
+S0-D1 and later — NOT STARTED
 P6 Supplemental-answer matching — NOT STARTED
 P7 AI answer candidates — NOT STARTED
 RAG Project retrieval enhancement — NOT STARTED
@@ -271,10 +272,11 @@ S0 moves AI/OCR/Agent provider credentials out of SQLite plaintext into a
 bounded secure credential seam. The secure store is the sole credential
 authority; SQLite keeps non-secret engine metadata only (legacy plaintext
 exists only as migration retry input until migration DONE). S0-P0 (canonical
-contract) is COMPLETE; S0-D0 (core seam), S0-D1 (real secure adapter, pending
-dependency authorization), S0-D2 (legacy migration + production wiring), and
-S0-CL (closure) are NOT STARTED. Runtime schema stays v20; no UI, Agent, MCP,
-F1, or P6/P7/RAG changes are included.
+contract) and S0-D0 (core seam) are COMPLETE; S0-D1 (real secure adapter,
+flutter_secure_storage dependency gate user-authorized) is NOT STARTED;
+S0-D2 (legacy migration + production wiring) and S0-CL (closure) remain
+NOT STARTED. Runtime schema stays v20; no UI, Agent, MCP, F1, or P6/P7/RAG
+changes are included.
 
 See `docs/architecture/s0-secure-credential-storage.md`.
 
