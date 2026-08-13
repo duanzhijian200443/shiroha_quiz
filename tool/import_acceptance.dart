@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
+import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_document_role.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
@@ -764,7 +765,11 @@ class _NoOpRepairService extends SingleQuestionRepairService {
 }
 
 class _StubEngineRepository extends AiEngineRepository {
-  _StubEngineRepository() : super(store: const _EmptyAiEngineStore());
+  _StubEngineRepository()
+      : super(
+          store: const _EmptyAiEngineStore(),
+          credentialStore: const _AcceptanceCredentialStore(),
+        );
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => null;
@@ -1564,13 +1569,36 @@ Future<int> runImportAcceptance({
 
 class _ReplayEngineRepository extends AiEngineRepository {
   _ReplayEngineRepository(this._profile)
-      : super(store: _ReplayAiEngineStore(_profile));
+      : super(
+          store: _ReplayAiEngineStore(_profile),
+          credentialStore: _AcceptanceCredentialStore(_profile),
+        );
   final AiEngineProfile _profile;
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => _profile;
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async => null;
+}
+
+final class _AcceptanceCredentialStore implements EngineCredentialStore {
+  const _AcceptanceCredentialStore([this.profile]);
+
+  final AiEngineProfile? profile;
+
+  @override
+  Future<String?> readCredential(String engineId) async =>
+      engineId == profile?.id ? profile?.apiKey : null;
+
+  @override
+  Future<void> writeCredential(String engineId, String secret) async {
+    throw UnsupportedError('Acceptance credential store is read-only');
+  }
+
+  @override
+  Future<void> deleteCredential(String engineId) async {
+    throw UnsupportedError('Acceptance credential store is read-only');
+  }
 }
 
 class _ReplayAiEngineStore implements AiEngineStore {

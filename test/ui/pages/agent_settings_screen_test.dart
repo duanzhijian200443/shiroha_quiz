@@ -8,6 +8,8 @@ import 'package:shiroha_quiz/data/repositories/agent_profile_repository.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 
+import '../../support/memory_engine_credential_store.dart';
+
 void main() {
   Future<void> pumpSettings(
     WidgetTester tester,
@@ -33,7 +35,13 @@ void main() {
     'selects profile and saves Agent tuning without mutating Parsing profile',
     (tester) async {
       final parsingStore = _ParsingEngineStore();
-      final engineRepository = AiEngineRepository(store: parsingStore);
+      final engineRepository = AiEngineRepository(
+        store: parsingStore,
+        credentialStore: MemoryEngineCredentialStore({
+          'profile-a': 'secret-a',
+          'profile-b': 'secret-b',
+        }),
+      );
       final configStore = _ConfigStore(
         encoded: const AgentConfigCodec().encode(
           AgentConfig(

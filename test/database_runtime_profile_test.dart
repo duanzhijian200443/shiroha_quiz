@@ -7,6 +7,8 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/memory_engine_credential_store.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -36,6 +38,7 @@ void main() {
       () async {
     final repository = AiEngineRepository(
       store: DatabaseHelper.instance,
+      credentialStore: MemoryEngineCredentialStore(),
     );
 
     DatabaseHelper.configureRuntimeProfile(

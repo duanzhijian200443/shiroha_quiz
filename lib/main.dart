@@ -15,6 +15,7 @@ import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/safe_write/agent_write_proposal_service.dart';
+import 'application/startup/ai_engine_credential_activation.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
 import 'application/projects/project_service.dart';
@@ -22,6 +23,7 @@ import 'application/study_query/study_query_service.dart';
 import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
+import 'data/credentials/secure_engine_credential_store.dart';
 import 'data/repositories/agent_config_repository.dart';
 import 'data/repositories/agent_profile_repository.dart';
 import 'data/repositories/approved_agent_write_repository.dart';
@@ -150,7 +152,14 @@ void main() {
         toolNames: StudyMcpAdapter.toolNames,
       ),
     );
-    final engineRepository = AiEngineRepository(store: databaseHelper);
+    final engineRepository = await activateAiEngineRepository(
+      openDatabase: () async {
+        await databaseHelper.database;
+      },
+      store: databaseHelper,
+      migrationStore: databaseHelper,
+      createCredentialStore: SecureEngineCredentialStore.new,
+    );
     final agentConfigStore =
         SqliteAgentConfigStore(databaseHelper: databaseHelper);
     final agentProfileRepository = AiEngineAgentProfileRepository(

@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
+import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
@@ -23,6 +24,29 @@ import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/pages/question_list_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
+
+final class _OcrUiSmokeCredentialStore implements EngineCredentialStore {
+  final Map<String, String> _values = <String, String>{};
+
+  @override
+  Future<String?> readCredential(String engineId) async {
+    validatedEngineCredentialId(engineId);
+    return _values[engineId];
+  }
+
+  @override
+  Future<void> writeCredential(String engineId, String secret) async {
+    validatedEngineCredentialId(engineId);
+    validatedEngineCredentialSecret(secret);
+    _values[engineId] = secret;
+  }
+
+  @override
+  Future<void> deleteCredential(String engineId) async {
+    validatedEngineCredentialId(engineId);
+    _values.remove(engineId);
+  }
+}
 
 const _apiKeyEnvironmentName = 'SHIROHA_OCR_API_KEY';
 const _runtimeDirectoryEnvironmentName = 'SHIROHA_UI_SMOKE_RUNTIME_DIR';
@@ -377,7 +401,10 @@ Future<void> main(List<String> args) async {
     await AppLogger.initialize(directory: Directory(runtimePath));
 
     final databaseHelper = DatabaseHelper.instance;
-    final engineRepository = AiEngineRepository(store: databaseHelper);
+    final engineRepository = AiEngineRepository(
+      store: databaseHelper,
+      credentialStore: _OcrUiSmokeCredentialStore(),
+    );
     final apiKey = environment[_apiKeyEnvironmentName]!.trim();
     final profile = AiEngineProfile(
       id: 'ocr-ui-smoke',
