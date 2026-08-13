@@ -175,7 +175,7 @@ AiEngineProfile profile({
 }
 
 class _GateCredentialStore implements EngineCredentialStore {
-  _GateCredentialStore({required List<String> order}) : order = order;
+  _GateCredentialStore({required this.order});
 
   final Map<String, String> credentials = <String, String>{};
 
@@ -213,7 +213,7 @@ class _GateCredentialStore implements EngineCredentialStore {
 }
 
 class _GateEngineStore implements AiEngineStore {
-  _GateEngineStore({required List<String> order}) : order = order;
+  _GateEngineStore({required this.order});
 
   final List<AiEngineProfile> engines = <AiEngineProfile>[];
 
