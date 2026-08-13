@@ -273,8 +273,8 @@ See `docs/architecture/s0-secure-credential-storage.md`.
 
 P6-P0 froze the focused canonical contract in
 `docs/architecture/p6-supplemental-answer-matching.md`; P6-P0 is docs-only
-and COMPLETE, and P6-D0 and later are NOT STARTED. The following durable
-boundary applies to any future P6 implementation:
+and COMPLETE, and P6-D0 through P6-V0 implemented the frozen contract and are
+COMPLETE. The following durable boundary applies to the P6 implementation:
 
 - P6 consumes the current F1 `ParsedArtifact` explicitly through the
   Application lifecycle seam (`getCurrentArtifact(fileId)`), never sidecars,

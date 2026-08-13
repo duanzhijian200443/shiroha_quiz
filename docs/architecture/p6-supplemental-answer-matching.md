@@ -1,16 +1,15 @@
 # P6 Supplemental Answer Matching — Focused Canonical Contract
 
-Status: **Canonical P6 authority. P6-P0 is COMPLETE (canonical docs only).**
-
-P6-D0 and later stages are NOT STARTED.
+Status: **Canonical P6 authority. P6-P0 through P6-V0 are COMPLETE.**
 
 This document is the authoritative contract for P6 supplemental-answer
 matching: input boundary, supplemental document projection, deterministic
 matching, transient `AnswerCandidate` lifecycle, Preview/Review and explicit
 confirmation, the write boundary that reuses the existing typed answer
 mutation authority, stale/CAS semantics, failure taxonomy, stage graph, and
-the future acceptance matrix. P6-P0 freezes design only; it implements no
-production code, tests, or schema migration.
+the future acceptance matrix. P6-P0 froze design only and implemented no
+production code, tests, or schema migration; the later P6 stages implemented
+the frozen contract with offline acceptance.
 
 ## 1. Purpose
 
@@ -391,8 +390,8 @@ Definitions:
 - P6-U0 bounded Preview/Review activation;
 - P6-V0 offline acceptance/closure.
 
-All P6 stages are SERIAL. This change completes P6-P0 only; no P6-D0+ stage
-is COMPLETE, and later stages never auto-activate.
+All P6 stages are SERIAL. P6-P0 through P6-V0 are COMPLETE; later stages
+(P7, RAG) never auto-activate.
 
 ## 19. Acceptance matrix and fixture policy
 

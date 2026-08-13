@@ -41,7 +41,14 @@ S0-D0 Secure credential core seam — COMPLETE
 S0-D1 Secure storage adapter — COMPLETE
 S0-D2 and later — NOT STARTED
 P6-P0 Supplemental-answer matching canonical contract — COMPLETE
-P6-D0 and later — NOT STARTED
+P6-D0 Supplemental-answer transient domain — COMPLETE
+P6-X0 Supplemental-answer SourceDocument projector — COMPLETE
+P6-Q0 Supplemental-answer typed target snapshot — COMPLETE
+P6-M0 Supplemental-answer deterministic matcher — COMPLETE
+P6-R0 Supplemental-answer review lifecycle — COMPLETE
+P6-C0 Supplemental-answer confirm/CAS/typed commit — COMPLETE
+P6-U0 Supplemental-answer bounded Preview/Review activation — COMPLETE
+P6-V0 Supplemental-answer offline acceptance/closure — COMPLETE
 P7 AI answer candidates — NOT STARTED
 RAG Project retrieval enhancement — NOT STARTED
 Current runtime schema — v20
@@ -296,8 +303,8 @@ testing only; `auto` never triggers OCR, and the question OCR pipeline is not
 part of artifact generation. F1-CL is COMPLETE: focused verification PASS,
 final full semantic review APPROVE, closure repair merged via PR #65, and no
 open P0/P1/P2/P3 findings. F1 Parsed Artifact Lifecycle v0 is COMPLETE.
-P6-D0 and later stages are NOT STARTED. There is no UI, Agent, or MCP
-activation.
+P6, UI, Agent, and MCP stages were NOT STARTED at F1-CL. There is no UI,
+Agent, or MCP activation.
 
 Frozen stage graph:
 
@@ -345,10 +352,10 @@ Manual / Supplemental file / AI
 P6/P7 must not each create their own database-write protocol.
 
 The frozen P6 contract is
-`docs/architecture/p6-supplemental-answer-matching.md`. P6-P0 (canonical
-contract) is COMPLETE; P6-D0 and later are NOT STARTED, and the P6 write path
-reuses the existing typed answer mutation authority rather than creating a
-second answer writer.
+`docs/architecture/p6-supplemental-answer-matching.md`. P6-P0 through P6-V0
+are COMPLETE, and the P6 write path reuses the existing typed answer mutation
+authority rather than creating a second answer writer. P7 remains NOT
+STARTED.
 
 ## 5. Explicit non-goals for this roadmap
 
