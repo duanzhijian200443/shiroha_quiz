@@ -29,6 +29,12 @@ class AiEngineRepository {
 
   bool get _isActivated => _credentialStore != null;
 
+  /// Per-engineId serialization for activated-path credential/metadata
+  /// mutations. Different engineIds never share a lock; completed chains are
+  /// removed so the map does not leak entries.
+  static final Map<String, Future<void>> _credentialMutexes =
+      <String, Future<void>>{};
+
   Future<List<AiEngineProfile>> getEngines(AiEngineType type) async {
     final profiles = await _store.listAiEngines(type);
     final selected = (type == AiEngineType.ocr
@@ -79,7 +85,10 @@ class AiEngineRepository {
       await _store.saveAiEngine(profile);
       return;
     }
-    await _saveEngineActivated(credentialStore, profile);
+    await _runEngineExclusive(
+      profile.id,
+      () => _saveEngineActivated(credentialStore, profile),
+    );
   }
 
   Future<void> setActiveEngine(String id, AiEngineType type) =>
@@ -91,10 +100,41 @@ class AiEngineRepository {
       await _store.deleteAiEngine(id);
       return;
     }
-    await _deleteEngineActivated(credentialStore, id);
+    await _runEngineExclusive(
+      id,
+      () => _deleteEngineActivated(credentialStore, id),
+    );
   }
 
   Future<void> renameEngine(
+      String id, String newName, AiEngineType type) async {
+    if (!_isActivated) {
+      await _renameEnginePreActivation(id, newName, type);
+      return;
+    }
+    await _runEngineExclusive(id, () async {
+      final engines = await getEngines(type);
+      final target = engines.where((e) => e.id == id).firstOrNull;
+      if (target == null) return;
+      final renamed = AiEngineProfile(
+        id: target.id,
+        engineType: target.engineType,
+        name: newName,
+        apiKey: target.apiKey,
+        baseUrl: target.baseUrl,
+        modelName: target.modelName,
+        temperature: target.temperature,
+        reasoningEffort: target.reasoningEffort,
+        isActive: target.isActive,
+      );
+      // Metadata-only mutation: never create/delete/rewrite a credential.
+      // A missing credential stays missing; a present one is preserved in the
+      // secure store while the metadata write scrubs api_key.
+      await _store.saveAiEngine(_withApiKey(renamed, ''));
+    });
+  }
+
+  Future<void> _renameEnginePreActivation(
       String id, String newName, AiEngineType type) async {
     final engines = await getEngines(type);
     final target = engines.where((e) => e.id == id).firstOrNull;
@@ -105,6 +145,25 @@ class AiEngineRepository {
           AiEngineProfile.fromMap(updatedMap, fallbackType: type);
       await saveEngine(updatedProfile);
     }
+  }
+
+  /// Runs [action] exclusively for [engineId]: concurrent mutations of the
+  /// same engine are serialized while different engineIds proceed
+  /// independently.
+  Future<T> _runEngineExclusive<T>(
+    String engineId,
+    Future<T> Function() action,
+  ) {
+    final previous = _credentialMutexes[engineId] ?? Future<void>.value();
+    final result = previous.then((_) => action());
+    final tail = result.then<void>((_) {}, onError: (_) {});
+    _credentialMutexes[engineId] = tail;
+    tail.whenComplete(() {
+      if (identical(_credentialMutexes[engineId], tail)) {
+        _credentialMutexes.remove(engineId);
+      }
+    });
+    return result;
   }
 
   // --- activated-path internals (S0 target semantics) ---

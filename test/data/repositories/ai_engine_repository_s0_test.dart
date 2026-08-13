@@ -30,6 +30,18 @@ void main() {
       await repository.setActiveEngine('engine-1', AiEngineType.text);
       expect(store.activations, [('engine-1', AiEngineType.text)]);
     });
+
+    test('pre-activation rename keeps master behavior', () async {
+      final store = _RecordingEngineStore(
+        engines: [profile(name: 'Old Name', apiKey: 'legacy-secret')],
+      );
+      final repository = AiEngineRepository(store: store);
+
+      await repository.renameEngine('engine-1', 'New Name', AiEngineType.text);
+
+      expect(store.savedProfiles.single.name, 'New Name');
+      expect(store.savedProfiles.single.apiKey, 'legacy-secret');
+    });
   });
 
   group('activated-path hydration', () {
@@ -440,6 +452,80 @@ void main() {
       expect(credentials.writeCalls, isEmpty);
       expect(store.savedProfiles.single.name, 'New Name');
       expect(store.savedProfiles.single.apiKey, '');
+    });
+
+    test('rename with missing credential still succeeds and stays missing',
+        () async {
+      final credentials = _FakeCredentialStore();
+      final store = _RecordingEngineStore(
+        engines: [profile(name: 'Old Name', apiKey: 'LEGACY_SECRET')],
+      );
+      final repository = AiEngineRepository(
+        store: store,
+        credentialStore: credentials,
+      );
+
+      await repository.renameEngine('engine-1', 'New Name', AiEngineType.text);
+
+      expect(store.savedProfiles.single.name, 'New Name');
+      expect(store.savedProfiles.single.apiKey, '');
+      expect(await credentials.readCredential('engine-1'), isNull);
+      expect(credentials.writeCalls, isEmpty);
+      expect(credentials.deleteCalls, isEmpty);
+    });
+
+    test('rename propagates typed unavailable without SQLite fallback',
+        () async {
+      final credentials = _FakeCredentialStore()
+        ..readFailure = const EngineCredentialException(
+          EngineCredentialFailure.temporarilyUnavailable,
+        );
+      final store = _RecordingEngineStore(
+        engines: [profile(name: 'Old Name', apiKey: 'LEGACY_SECRET')],
+      );
+      final repository = AiEngineRepository(
+        store: store,
+        credentialStore: credentials,
+      );
+
+      await expectLater(
+        repository.renameEngine('engine-1', 'New Name', AiEngineType.text),
+        throwsA(
+          isA<EngineCredentialException>().having(
+            (e) => e.failure,
+            'failure',
+            EngineCredentialFailure.temporarilyUnavailable,
+          ),
+        ),
+      );
+      expect(store.savedProfiles, isEmpty);
+      expect(store.engines.single.name, 'Old Name');
+    });
+
+    test('rename propagates typed corrupt without SQLite fallback', () async {
+      final credentials = _FakeCredentialStore()
+        ..readFailure = const EngineCredentialException(
+          EngineCredentialFailure.dataCorrupt,
+        );
+      final store = _RecordingEngineStore(
+        engines: [profile(name: 'Old Name', apiKey: 'LEGACY_SECRET')],
+      );
+      final repository = AiEngineRepository(
+        store: store,
+        credentialStore: credentials,
+      );
+
+      await expectLater(
+        repository.renameEngine('engine-1', 'New Name', AiEngineType.text),
+        throwsA(
+          isA<EngineCredentialException>().having(
+            (e) => e.failure,
+            'failure',
+            EngineCredentialFailure.dataCorrupt,
+          ),
+        ),
+      );
+      expect(store.savedProfiles, isEmpty);
     });
 
     test('setActive never touches the credential store', () async {
