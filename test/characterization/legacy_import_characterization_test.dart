@@ -22,7 +22,10 @@ import '../support/unsupported_ai_engine_store.dart';
 
 class _SyntheticAiEngineRepository extends AiEngineRepository {
   _SyntheticAiEngineRepository(this.profile)
-      : super(store: const UnsupportedAiEngineStore());
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   final AiEngineProfile profile;
 

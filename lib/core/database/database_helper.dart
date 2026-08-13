@@ -6,6 +6,7 @@ import 'package:path/path.dart';
 
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/persistence/ai_engine_store.dart';
+import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
 import 'question_v2_schema_exception.dart';
 import 'sqflite_runtime.dart';
@@ -16,7 +17,8 @@ enum DatabaseRuntimeProfile {
   explicitReadOnly,
 }
 
-class DatabaseHelper implements AiEngineStore {
+class DatabaseHelper
+    implements AiEngineStore, LegacyEngineCredentialMigrationStore {
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
@@ -2302,7 +2304,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   @override
   Future<void> saveAiEngine(AiEngineProfile profile) async {
     final db = await database;
-    await db.insert('ai_engines', profile.toMap(),
+    await db.insert('ai_engines', profile.toMetadataMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -2326,6 +2328,66 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   Future<void> deleteAiEngine(String id) async {
     final db = await database;
     await db.delete('ai_engines', where: 'id = ?', whereArgs: [id]);
+  }
+
+  @override
+  Future<List<LegacyEngineCredential>> listLegacyEngineCredentials() async {
+    final db = await database;
+    final rows = await db.query(
+      'ai_engines',
+      columns: const ['id', 'api_key'],
+      where: "api_key IS NOT NULL AND api_key <> ''",
+      orderBy: 'id ASC',
+    );
+    return rows
+        .map(
+          (row) => LegacyEngineCredential(
+            engineId: row['id'] as String,
+            secret: row['api_key'] as String,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<bool> scrubLegacyEngineCredential(
+    String engineId,
+    String expectedSecret,
+  ) async {
+    final db = await database;
+    final changed = await db.update(
+      'ai_engines',
+      const {'api_key': ''},
+      where: 'id = ? AND api_key = ?',
+      whereArgs: [engineId, expectedSecret],
+    );
+    return changed == 1;
+  }
+
+  @override
+  Future<void> scrubLegacyAiProfileCredentials() async {
+    final db = await database;
+    await db.update(
+      'ai_profiles',
+      const {'text_api_key': '', 'vision_api_key': ''},
+      where: "(text_api_key IS NOT NULL AND text_api_key <> '') OR "
+          "(vision_api_key IS NOT NULL AND vision_api_key <> '')",
+    );
+  }
+
+  @override
+  Future<int> countLegacyPlaintextCredentials() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+SELECT
+  (SELECT COUNT(*) FROM ai_engines
+    WHERE api_key IS NOT NULL AND api_key <> '') +
+  (SELECT COUNT(*) FROM ai_profiles
+    WHERE text_api_key IS NOT NULL AND text_api_key <> '') +
+  (SELECT COUNT(*) FROM ai_profiles
+    WHERE vision_api_key IS NOT NULL AND vision_api_key <> '') AS total
+''');
+    return (result.single['total'] as num).toInt();
   }
 
   Future<String> getFolderForBank(String bankName) async {

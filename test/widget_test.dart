@@ -28,6 +28,8 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+
+import 'support/memory_engine_credential_store.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
@@ -166,7 +168,10 @@ void main() {
   testWidgets(
       'App exposes the canonical Assistant navigation and selected state',
       (WidgetTester tester) async {
-    final engineRepository = AiEngineRepository(store: DatabaseHelper.instance);
+    final engineRepository = AiEngineRepository(
+      store: DatabaseHelper.instance,
+      credentialStore: MemoryEngineCredentialStore(),
+    );
     final taskManager = TaskManager.forTesting();
     final aiService = AiService(
       engineRepository: engineRepository,

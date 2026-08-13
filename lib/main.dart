@@ -22,6 +22,8 @@ import 'application/study_query/study_query_service.dart';
 import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
+import 'data/credentials/secure_engine_credential_store.dart';
+import 'data/credentials/ai_engine_credential_activation.dart';
 import 'data/repositories/agent_config_repository.dart';
 import 'data/repositories/agent_profile_repository.dart';
 import 'data/repositories/approved_agent_write_repository.dart';
@@ -150,7 +152,14 @@ void main() {
         toolNames: StudyMcpAdapter.toolNames,
       ),
     );
-    final engineRepository = AiEngineRepository(store: databaseHelper);
+    final engineRepository = await activateAiEngineRepository(
+      openDatabase: () async {
+        await databaseHelper.database;
+      },
+      store: databaseHelper,
+      migrationStore: databaseHelper,
+      createCredentialStore: SecureEngineCredentialStore.new,
+    );
     final agentConfigStore =
         SqliteAgentConfigStore(databaseHelper: databaseHelper);
     final agentProfileRepository = AiEngineAgentProfileRepository(

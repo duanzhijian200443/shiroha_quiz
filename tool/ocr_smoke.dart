@@ -9,8 +9,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/data/credentials/ai_engine_credential_activation.dart';
+import 'package:shiroha_quiz/data/credentials/secure_engine_credential_store.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
+import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
@@ -336,7 +339,14 @@ Future<void> main(List<String> args) async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     final helper = DatabaseHelper.instance;
-    savedKeyRepository = AiEngineRepository(store: helper);
+    savedKeyRepository = await activateAiEngineRepository(
+      openDatabase: () async {
+        await helper.database;
+      },
+      store: helper,
+      migrationStore: helper,
+      createCredentialStore: SecureEngineCredentialStore.new,
+    );
   }
   final resolvedSavedKeyRepository = savedKeyRepository;
 
@@ -766,12 +776,35 @@ Future<int> _runOcrSmokeCore(
 
 class _StubAiEngineRepository extends AiEngineRepository {
   _StubAiEngineRepository(this._profile)
-      : super(store: _OcrSmokeProfileStore(_profile));
+      : super(
+          store: _OcrSmokeProfileStore(_profile),
+          credentialStore: _OcrSmokeCredentialStore(_profile),
+        );
 
   final AiEngineProfile _profile;
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => _profile;
+}
+
+final class _OcrSmokeCredentialStore implements EngineCredentialStore {
+  const _OcrSmokeCredentialStore(this.profile);
+
+  final AiEngineProfile profile;
+
+  @override
+  Future<String?> readCredential(String engineId) async =>
+      engineId == profile.id ? profile.apiKey : null;
+
+  @override
+  Future<void> writeCredential(String engineId, String secret) async {
+    throw UnsupportedError('OCR smoke credential store is read-only');
+  }
+
+  @override
+  Future<void> deleteCredential(String engineId) async {
+    throw UnsupportedError('OCR smoke credential store is read-only');
+  }
 }
 
 class _OcrSmokeProfileStore implements AiEngineStore {

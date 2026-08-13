@@ -5,45 +5,6 @@ import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
 void main() {
-  group('pre-activation bridge (credentialStore == null)', () {
-    test('read and save keep current master behavior', () async {
-      final store = _RecordingEngineStore(
-        engines: [profile(apiKey: 'legacy-secret')],
-        active: profile(apiKey: 'legacy-secret'),
-      );
-      final repository = AiEngineRepository(store: store);
-
-      final engines = await repository.getEngines(AiEngineType.text);
-      expect(engines.single.apiKey, 'legacy-secret');
-      expect((await repository.getActiveTextEngine())!.apiKey, 'legacy-secret');
-
-      await repository.saveEngine(profile(id: 'engine-2', apiKey: 's2'));
-      expect(store.savedProfiles.single.apiKey, 's2');
-
-      await repository.deleteEngine('engine-2');
-      expect(store.deletedIds, ['engine-2']);
-    });
-
-    test('setActive delegates without any credential interaction', () async {
-      final store = _RecordingEngineStore();
-      final repository = AiEngineRepository(store: store);
-      await repository.setActiveEngine('engine-1', AiEngineType.text);
-      expect(store.activations, [('engine-1', AiEngineType.text)]);
-    });
-
-    test('pre-activation rename keeps master behavior', () async {
-      final store = _RecordingEngineStore(
-        engines: [profile(name: 'Old Name', apiKey: 'legacy-secret')],
-      );
-      final repository = AiEngineRepository(store: store);
-
-      await repository.renameEngine('engine-1', 'New Name', AiEngineType.text);
-
-      expect(store.savedProfiles.single.name, 'New Name');
-      expect(store.savedProfiles.single.apiKey, 'legacy-secret');
-    });
-  });
-
   group('activated-path hydration', () {
     test('secure present hydrates apiKey and ignores store plaintext',
         () async {

@@ -37,7 +37,10 @@ const _sourceName = 'r7b_acceptance_single.pdf';
 
 class _FakeAiEngineRepository extends AiEngineRepository {
   _FakeAiEngineRepository(this.profile)
-      : super(store: const UnsupportedAiEngineStore());
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   final AiEngineProfile profile;
 

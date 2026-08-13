@@ -27,7 +27,10 @@ import 'support/unsupported_ai_engine_store.dart';
 
 class FakeAiEngineRepository extends AiEngineRepository {
   FakeAiEngineRepository(this.profile)
-      : super(store: const UnsupportedAiEngineStore());
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   final AiEngineProfile? profile;
 

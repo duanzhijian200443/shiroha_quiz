@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
+import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+
+import 'support/memory_engine_credential_store.dart';
 
 void main() {
   const textProfile = AiEngineProfile(
@@ -34,6 +37,8 @@ void main() {
         .readAsStringSync();
 
     expect(source, contains('required AiEngineStore store'));
+    expect(source, contains('required EngineCredentialStore credentialStore'));
+    expect(source, isNot(contains('EngineCredentialStore?')));
     expect(source, isNot(contains('dynamic')));
     expect(source, isNot(contains('defaultDatabaseHelperProvider')));
     expect(source, isNot(contains('_effectiveDb')));
@@ -48,11 +53,20 @@ void main() {
         AiEngineType.ocr: ocrProfile,
       },
     );
-    final repository = AiEngineRepository(store: store);
+    final repository = AiEngineRepository(
+      store: store,
+      credentialStore: MemoryEngineCredentialStore({
+        textProfile.id: textProfile.apiKey,
+        ocrProfile.id: ocrProfile.apiKey,
+      }),
+    );
 
-    expect(await repository.getEngines(AiEngineType.text), [textProfile]);
-    expect(await repository.getActiveTextEngine(), same(textProfile));
-    expect(await repository.getActiveOcrEngine(), same(ocrProfile));
+    expect(
+      (await repository.getEngines(AiEngineType.text)).single.apiKey,
+      textProfile.apiKey,
+    );
+    expect((await repository.getActiveTextEngine())!.id, textProfile.id);
+    expect((await repository.getActiveOcrEngine())!.id, ocrProfile.id);
     await repository.saveEngine(ocrProfile);
     await repository.setActiveEngine(ocrProfile.id, AiEngineType.ocr);
     await repository.deleteEngine(ocrProfile.id);
@@ -62,7 +76,8 @@ void main() {
       AiEngineType.text,
       AiEngineType.ocr,
     ]);
-    expect(store.savedProfiles, [ocrProfile]);
+    expect(store.savedProfiles.single.id, ocrProfile.id);
+    expect(store.savedProfiles.single.apiKey, '');
     expect(store.activations, [(ocrProfile.id, AiEngineType.ocr)]);
     expect(store.deletedIds, [ocrProfile.id]);
   });
@@ -72,7 +87,10 @@ void main() {
     final store = _RecordingAiEngineStore(
       failure: StateError('SENSITIVE_STORE_FAILURE_MARKER'),
     );
-    final repository = AiEngineRepository(store: store);
+    final repository = AiEngineRepository(
+      store: store,
+      credentialStore: MemoryEngineCredentialStore(),
+    );
 
     await expectLater(
       repository.getEngines(AiEngineType.text),
@@ -84,7 +102,7 @@ void main() {
     );
     await expectLater(
       repository.saveEngine(textProfile),
-      throwsA(isA<StateError>()),
+      throwsA(isA<EngineCredentialCompensatedException>()),
     );
     await expectLater(
       repository.setActiveEngine(textProfile.id, AiEngineType.text),
@@ -92,7 +110,7 @@ void main() {
     );
     await expectLater(
       repository.deleteEngine(textProfile.id),
-      throwsA(isA<StateError>()),
+      throwsA(isA<EngineCredentialCompensatedException>()),
     );
   });
 

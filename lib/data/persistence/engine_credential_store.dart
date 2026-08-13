@@ -61,6 +61,22 @@ final class EngineCredentialPartialException implements Exception {
   String toString() => 'EngineCredentialPartialException(${failure.name})';
 }
 
+enum LegacyMigrationFailure {
+  storeUnavailable,
+  verificationFailed,
+  secureCorrupt,
+}
+
+/// Redacted migration failure. Remaining plaintext is retry input only.
+final class LegacyMigrationException implements Exception {
+  const LegacyMigrationException(this.failure);
+
+  final LegacyMigrationFailure failure;
+
+  @override
+  String toString() => 'LegacyMigrationException(${failure.name})';
+}
+
 /// Bounded credential port.
 ///
 /// - [readCredential] returns the secret when present, `null` only for a
