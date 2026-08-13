@@ -48,7 +48,9 @@ PathPredicate _under(String prefix) {
 }
 
 bool _isMain(String path) =>
-    path == 'lib/main.dart' || path == 'lib/main_ocr_ui_smoke.dart';
+    path == 'lib/main.dart' ||
+    path == 'lib/main_ocr_ui_smoke.dart' ||
+    path == 'lib/main_p6_supplemental_review_smoke.dart';
 
 /// M0.1: the stdio composition root owns runtime bootstrap and concrete
 /// repository wiring; it is the only MCP-layer file allowed to configure
