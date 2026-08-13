@@ -1145,7 +1145,10 @@ class ThrowingLlmApiClient extends LlmApiClient {
 class MockAiEngineRepository extends AiEngineRepository {
   final AiEngineProfile? profile;
   MockAiEngineRepository(this.profile)
-      : super(store: const UnsupportedAiEngineStore());
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async {

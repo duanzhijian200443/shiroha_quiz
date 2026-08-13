@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiroha_quiz/application/startup/ai_engine_credential_activation.dart';
+import 'package:shiroha_quiz/data/credentials/ai_engine_credential_activation.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/credentials/legacy_engine_credential_migrator.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';

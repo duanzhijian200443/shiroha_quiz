@@ -29,7 +29,11 @@ const _question = QuestionDraft(
 );
 
 class _EngineRepository extends AiEngineRepository {
-  _EngineRepository() : super(store: const UnsupportedAiEngineStore());
+  _EngineRepository()
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   @override
   Future<AiEngineProfile?> getActiveTextEngine() async => _profile;

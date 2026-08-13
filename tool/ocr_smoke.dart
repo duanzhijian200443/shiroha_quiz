@@ -9,7 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:shiroha_quiz/core/database/database_helper.dart';
-import 'package:shiroha_quiz/application/startup/ai_engine_credential_activation.dart';
+import 'package:shiroha_quiz/data/credentials/ai_engine_credential_activation.dart';
 import 'package:shiroha_quiz/data/credentials/secure_engine_credential_store.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';

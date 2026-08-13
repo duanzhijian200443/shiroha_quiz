@@ -21,7 +21,11 @@ import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 import 'support/unsupported_ai_engine_store.dart';
 
 class _EngineRepository extends AiEngineRepository {
-  _EngineRepository() : super(store: const UnsupportedAiEngineStore());
+  _EngineRepository()
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
 
   @override
   Future<AiEngineProfile?> getActiveOcrEngine() async => const AiEngineProfile(
