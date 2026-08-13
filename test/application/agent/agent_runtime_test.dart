@@ -153,6 +153,28 @@ void main() {
           contains('retrieve_file_content'));
     });
 
+    test('no retrieval approval does not resolve retrieval scope', () async {
+      final harness =
+          _Harness(wireRetrieval: true, scripts: <_Script>[_finalAnswer('ok')]);
+      harness.retrievalScope.throwable = StateError('scope unavailable');
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+        scope: ConversationScope.learningSpace('project-a'),
+        fileIds: const <String>['file-1'],
+      );
+
+      final result = await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(harness.provider.callCount, 1);
+      expect(harness.retrievalScope.calls, 0);
+    });
+
     test('a later user message invalidates retrieval before serialization',
         () async {
       const state = _TestContinuationState('rag');
@@ -177,6 +199,120 @@ void main() {
       final output = harness.provider.requests[1].toolOutputs.single.output;
       expect(jsonDecode(output)['error']['code'], 'access_denied');
     });
+
+    test('revalidates retrieval output immediately before provider send',
+        () async {
+      const state = _TestContinuationState('rag-multi');
+      final harness = _Harness(wireRetrieval: true, scripts: <_Script>[
+        _toolRound(<AgentProviderFunctionCall>[
+          _call(
+            'rag-1',
+            name: AgentRetrievalToolCatalog.toolName,
+            arguments: '{"query":"function","file_ids":["file-1"]}',
+          ),
+          _call('slow-1'),
+        ], state),
+        _finalAnswer('done'),
+      ]);
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question', fileIds: const ['file-1']);
+      harness.retrievalIndex.hits = <RetrievalHit>[
+        _runtimeHit('retrieval body that must not leave the turn'),
+      ];
+      harness.dispatcher.onDispatch = (toolName) async {
+        if (toolName == 'list_question_banks') {
+          await harness.appendUser(conversationId, 'new message');
+        }
+      };
+
+      await harness.runtime
+          .startTurnWithRetrieval(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+            approval: RetrievalEgressApproval(const ['file-1']),
+          )
+          .result;
+
+      final continuation = harness.provider.requests[1];
+      final retrievalOutput = continuation.toolOutputs
+          .singleWhere((output) => output.callId == 'rag-1')
+          .output;
+      expect(jsonDecode(retrievalOutput)['error']['code'], 'access_denied');
+      expect(
+        continuation.toolOutputs.map((output) => output.output).join(),
+        isNot(contains('retrieval body that must not leave the turn')),
+      );
+    });
+
+    test(
+      'pre-send retrieval revalidation obeys the turn deadline and releases '
+      'the conversation lock',
+      () async {
+        const state = _TestContinuationState('rag-stalled-revalidation');
+        const retrievalBody = 'retrieval body that must never be sent';
+        final harness = _Harness(
+          wireRetrieval: true,
+          limits: const AgentRuntimeLimits(
+            turnTimeout: Duration(milliseconds: 250),
+          ),
+          scripts: <_Script>[
+            _toolRound(<AgentProviderFunctionCall>[
+              _call(
+                'rag-1',
+                name: AgentRetrievalToolCatalog.toolName,
+                arguments: '{"query":"function","file_ids":["file-1"]}',
+              ),
+            ], state),
+            _finalAnswer('retry completed'),
+          ],
+        );
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+          scope: ConversationScope.learningSpace('project-a'),
+          fileIds: const ['file-1'],
+        );
+        harness.retrievalIndex.hits = <RetrievalHit>[
+          _runtimeHit(retrievalBody),
+        ];
+        harness.retrievalScope.stallOnCall = 5;
+
+        final first = await harness.runtime
+            .startTurnWithRetrieval(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+              approval: RetrievalEgressApproval(const ['file-1']),
+            )
+            .result
+            .timeout(const Duration(seconds: 2));
+
+        expect(_failureOf(first), AgentTurnFailure.timeout);
+        expect(harness.provider.requests, hasLength(1));
+        expect(
+          harness.provider.requests
+              .expand((request) => request.toolOutputs)
+              .map((output) => output.output)
+              .join(),
+          isNot(contains(retrievalBody)),
+        );
+
+        await Future<void>.delayed(Duration.zero);
+        final retry = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
+        expect(retry, isA<AgentTurnSuccess>());
+        expect(harness.provider.requests, hasLength(2));
+        expect(
+          harness.provider.requests
+              .expand((request) => request.toolOutputs)
+              .map((output) => output.output)
+              .join(),
+          isNot(contains(retrievalBody)),
+        );
+      },
+    );
 
     test(
       'executes one tool round and continues with cumulative continuation',
@@ -1593,11 +1729,12 @@ final class _Harness {
             proposalService: proposalService!,
           )
         : null;
+    retrievalScope = _RuntimeRetrievalScope();
     retrievalIndex = _RuntimeRetrievalIndex();
     retrievalDispatcher = wireRetrieval
         ? AgentRetrievalToolDispatcher(
             retrieval: RetrievalService(
-                scopeResolver: _RuntimeRetrievalScope(),
+                scopeResolver: retrievalScope,
                 artifactSource: _RuntimeRetrievalSource(),
                 index: retrievalIndex,
                 chunker: const DeterministicSourceChunker()))
@@ -1625,6 +1762,7 @@ final class _Harness {
   late final _FakeAgentWritePersistence proposalPersistence;
   late final AgentWriteProposalService? proposalService;
   late final AgentWriteProposalToolDispatcher? proposalDispatcher;
+  late final _RuntimeRetrievalScope retrievalScope;
   late final _RuntimeRetrievalIndex retrievalIndex;
   late final AgentRetrievalToolDispatcher? retrievalDispatcher;
   late final ShirohaAgentRuntime runtime;
@@ -1932,10 +2070,12 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
   final List<(String, String)> calls = <(String, String)>[];
   String output = '{"ok":true,"result":{"value":1}}';
   Object? throwable;
+  Future<void> Function(String toolName)? onDispatch;
 
   @override
   Future<String> dispatch(String toolName, String argumentsJson) async {
     calls.add((toolName, argumentsJson));
+    await onDispatch?.call(toolName);
     final error = throwable;
     if (error != null) throw error;
     return output;
@@ -1943,12 +2083,23 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
 }
 
 final class _RuntimeRetrievalScope implements RetrievalScopeResolverPort {
+  int calls = 0;
+  int? stallOnCall;
+  Object? throwable;
+
   @override
-  Future<List<String>> resolveFileIds(RetrievalScopeRequest scope) async =>
-      switch (scope) {
-        RetrievalFilesScope(:final fileIds) => fileIds,
-        _ => const <String>['file-1'],
-      };
+  Future<List<String>> resolveFileIds(RetrievalScopeRequest scope) async {
+    calls++;
+    if (calls == stallOnCall) {
+      return Completer<List<String>>().future;
+    }
+    final error = throwable;
+    if (error != null) throw error;
+    return switch (scope) {
+      RetrievalFilesScope(:final fileIds) => fileIds,
+      _ => const <String>['file-1'],
+    };
+  }
 }
 
 final class _RuntimeRetrievalSource implements RetrievalArtifactSourcePort {
@@ -1982,6 +2133,7 @@ final class _RuntimeRetrievalSource implements RetrievalArtifactSourcePort {
 
 final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
   Future<void> Function()? onSearch;
+  List<RetrievalHit> hits = const <RetrievalHit>[];
 
   @override
   Future<void> ensureBuild(
@@ -2002,9 +2154,25 @@ final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
       required int maxResultBytes}) async {
     await onSearch?.call();
     return RetrievalIndexSearchResult(
-        hits: const <RetrievalHit>[], sourceChangedFileIds: const <String>[]);
+        hits: hits, sourceChangedFileIds: const <String>[]);
   }
 }
+
+RetrievalHit _runtimeHit(String content) => RetrievalHit(
+      fileId: 'file-1',
+      artifactId: 'artifact-1',
+      revision: 1,
+      sourceId: 'artifact-1',
+      chunkId: 'chunk-1',
+      content: content,
+      contentKind: RetrievalContentKind.paragraph,
+      score: 1,
+      lexicalScore: 1,
+      locator: 'part:0',
+      partOrdinal: 0,
+      windowOrdinal: 0,
+      sourceRef: SourceRef.document(sourceId: 'artifact-1'),
+    );
 
 final class _FakeAgentWritePersistence implements AgentWritePersistencePort {
   _FakeAgentWritePersistence({AgentWriteAdmissionResult? admissionResult})

@@ -173,6 +173,45 @@ void main() {
         0);
     await db.close();
   });
+
+  test('ensure reports an authoritative generation mismatch as sourceChanged',
+      () async {
+    final helper = DatabaseHelper.instance;
+    final db = await helper.openPathForTesting(inMemoryDatabasePath);
+    await _seedFileAndArtifact(db,
+        artifact: 'artifact-2', revision: 2, digest: 'c' * 64);
+    final repository = SqliteRetrievalIndexRepository(databaseHelper: helper);
+    final stale = RetrievalArtifactSnapshot(
+        fileId: 'file-1',
+        artifactId: 'artifact-1',
+        revision: 1,
+        payloadDigest: 'b' * 64);
+
+    await expectLater(
+      repository.ensureBuild(
+          snapshot: stale,
+          chunkerVersion: 'rag1.chunk.v1',
+          lexicalProjectionVersion: 'rag1.lexical.v1',
+          chunks: <RetrievalChunk>[
+            _chunk(
+                id: 'chunk-stale',
+                artifact: 'artifact-1',
+                revision: 1,
+                ordinal: 0,
+                heading: 'old',
+                content: 'old function')
+          ]),
+      throwsA(
+        isA<RetrievalException>().having(
+          (error) => error.failure,
+          'failure',
+          RetrievalFailure.sourceChanged,
+        ),
+      ),
+    );
+    expect(await db.query('retrieval_index_builds'), isEmpty);
+    await db.close();
+  });
 }
 
 RetrievalChunk _chunk(

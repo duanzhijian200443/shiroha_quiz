@@ -112,47 +112,55 @@ final class AgentRetrievalToolDispatcher {
           query: decoded['query'] as String,
           limit: decoded['limit'] as int? ?? 8);
       if (!await serializationAllowed()) return _failure('access_denied');
-      final encoded = jsonEncode(<String, Object?>{
-        'ok': true,
-        'result': <String, Object?>{
-          'hits': <Map<String, Object?>>[
-            for (final hit in result.rankedHits)
-              <String, Object?>{
-                'file_id': hit.fileId,
-                'artifact_id': hit.artifactId,
-                'revision': hit.revision,
-                'source_id': hit.sourceId,
-                'chunk_id': hit.chunkId,
-                'content': hit.content,
-                'content_kind': hit.contentKind.name,
-                'score': hit.score,
-                'lexical_score': hit.lexicalScore,
-                'embedding_score': null,
-                'locator': hit.locator,
-                'part_ordinal': hit.partOrdinal,
-                'window_ordinal': hit.windowOrdinal,
-                'nearest_heading': hit.nearestHeading,
-                'display_label': hit.displayLabel,
-                'source_ref': _sourceRefJson(hit.sourceRef),
-              }
-          ],
-          'issues': <Map<String, Object?>>[
-            for (final issue in result.perFileIssues)
-              <String, Object?>{
-                'file_id': issue.fileId,
-                'code': issue.code.name
-              }
-          ],
-        },
-      });
-      return utf8.encode(encoded).length <= _maxResultBytes
-          ? encoded
-          : _failure('internal_error');
+      return _boundedSuccess(result);
     } on RetrievalException catch (error) {
       return _failure(error.failure.name);
     } catch (_) {
       return _failure('internal_error');
     }
+  }
+
+  String _boundedSuccess(RetrievalResult result) {
+    final hits = <Map<String, Object?>>[
+      for (final hit in result.rankedHits)
+        <String, Object?>{
+          'file_id': hit.fileId,
+          'artifact_id': hit.artifactId,
+          'revision': hit.revision,
+          'source_id': hit.sourceId,
+          'chunk_id': hit.chunkId,
+          'content': hit.content,
+          'content_kind': hit.contentKind.name,
+          'score': hit.score,
+          'lexical_score': hit.lexicalScore,
+          'embedding_score': null,
+          'locator': hit.locator,
+          'part_ordinal': hit.partOrdinal,
+          'window_ordinal': hit.windowOrdinal,
+          'nearest_heading': hit.nearestHeading,
+          'display_label': hit.displayLabel,
+          'source_ref': _sourceRefJson(hit.sourceRef),
+        }
+    ];
+    final issues = <Map<String, Object?>>[
+      for (final issue in result.perFileIssues)
+        <String, Object?>{'file_id': issue.fileId, 'code': issue.code.name}
+    ];
+    String encode() => jsonEncode(<String, Object?>{
+          'ok': true,
+          'result': <String, Object?>{'hits': hits, 'issues': issues},
+        });
+
+    var encoded = encode();
+    while (utf8.encode(encoded).length > _maxResultBytes && hits.isNotEmpty) {
+      hits.removeLast();
+      encoded = encode();
+    }
+    while (utf8.encode(encoded).length > _maxResultBytes && issues.isNotEmpty) {
+      issues.removeLast();
+      encoded = encode();
+    }
+    return encoded;
   }
 
   String _failure(String code) => jsonEncode(<String, Object?>{

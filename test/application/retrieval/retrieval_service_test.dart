@@ -59,6 +59,25 @@ void main() {
         result.perFileIssues.single.code, RetrievalFileIssueCode.sourceChanged);
     expect(index.searchCalls, 0);
   });
+
+  test('generation mismatch during ensure is typed sourceChanged', () async {
+    final index = _Index()
+      ..ensureFailure =
+          const RetrievalException(RetrievalFailure.sourceChanged);
+    final service = RetrievalService(
+        scopeResolver: _Scope(['a']),
+        artifactSource: _Source(),
+        index: index,
+        chunker: const DeterministicSourceChunker());
+
+    final result = await service.retrieve(
+        scope: RetrievalFilesScope(['a']), query: 'function');
+
+    expect(result.rankedHits, isEmpty);
+    expect(
+        result.perFileIssues.single.code, RetrievalFileIssueCode.sourceChanged);
+    expect(index.searchCalls, 0);
+  });
 }
 
 final class _Scope implements RetrievalScopeResolverPort {
@@ -109,12 +128,15 @@ final class _Index implements RetrievalIndexPort {
   final ensured = <RetrievalArtifactSnapshot>[];
   String? expression;
   int searchCalls = 0;
+  Object? ensureFailure;
   @override
   Future<void> ensureBuild(
       {required RetrievalArtifactSnapshot snapshot,
       required String chunkerVersion,
       required String lexicalProjectionVersion,
       required List<RetrievalChunk> chunks}) async {
+    final failure = ensureFailure;
+    if (failure != null) throw failure;
     ensured.add(snapshot);
   }
 

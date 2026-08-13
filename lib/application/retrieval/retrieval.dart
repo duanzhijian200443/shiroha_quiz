@@ -122,6 +122,7 @@ enum RetrievalFailure {
   scopeEmpty,
   scopeUnavailable,
   accessDenied,
+  sourceChanged,
   temporarilyUnavailable,
   internalError
 }

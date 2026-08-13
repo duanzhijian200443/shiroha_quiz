@@ -135,7 +135,7 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
           current.single['artifact_id'] != snapshot.artifactId ||
           current.single['revision'] != snapshot.revision ||
           current.single['payload_sha256'] != snapshot.payloadDigest) {
-        throw const RetrievalException(RetrievalFailure.temporarilyUnavailable);
+        throw const RetrievalException(RetrievalFailure.sourceChanged);
       }
       await txn.delete('retrieval_index_builds',
           where: 'build_id = ?', whereArgs: <Object?>[buildId]);

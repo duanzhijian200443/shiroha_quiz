@@ -21,12 +21,13 @@ void main() {
       sourceUserMessageId: 'message-1',
       providerProfileId: 'profile-1',
       approvedFileIds: ['file-1']);
-  AgentRetrievalToolDispatcher dispatcher() => AgentRetrievalToolDispatcher(
-      retrieval: RetrievalService(
-          scopeResolver: _Scope(),
-          artifactSource: _Source(),
-          index: _Index(),
-          chunker: const DeterministicSourceChunker()));
+  AgentRetrievalToolDispatcher dispatcher({_Index? index}) =>
+      AgentRetrievalToolDispatcher(
+          retrieval: RetrievalService(
+              scopeResolver: _Scope(),
+              artifactSource: _Source(),
+              index: index ?? _Index(),
+              chunker: const DeterministicSourceChunker()));
 
   test('catalog is separate and dispatcher denies missing or mismatched grant',
       () async {
@@ -118,6 +119,69 @@ void main() {
         serializationAllowed: () async => true);
     expect(jsonDecode(expanded)['error']['code'], 'access_denied');
   });
+
+  test('trims lowest-ranked whole hits to the serialized response budget',
+      () async {
+    final hits = <RetrievalHit>[
+      for (var index = 0; index < 8; index++)
+        _hit(
+          index,
+          heading: 'heading-$index-${'h' * 10000}',
+        ),
+    ];
+    final output = await dispatcher(index: _Index(hits: hits)).dispatch(
+        argumentsJson: jsonEncode({
+          'query': 'function',
+          'file_ids': ['file-1']
+        }),
+        grant: grant,
+        turnRequestId: 'turn-1',
+        conversationId: 'conversation-1',
+        sourceUserMessageId: 'message-1',
+        providerProfileId: 'profile-1',
+        currentFileIds: ['file-1'],
+        serializationAllowed: () async => true);
+
+    final decoded = jsonDecode(output) as Map<String, dynamic>;
+    final returned =
+        (decoded['result'] as Map<String, dynamic>)['hits'] as List;
+    expect(decoded['ok'], isTrue);
+    expect(utf8.encode(output).length, lessThanOrEqualTo(64 * 1024));
+    expect(returned.length, lessThan(hits.length));
+    expect(returned, isNotEmpty);
+    expect(returned.first['chunk_id'], 'chunk-0');
+    expect(
+      returned.map((hit) => hit['chunk_id']),
+      <String>[
+        for (var index = 0; index < returned.length; index++) 'chunk-$index'
+      ],
+    );
+  });
+
+  test('drops a pathological whole hit and still returns bounded valid JSON',
+      () async {
+    final output = await dispatcher(
+      index: _Index(hits: <RetrievalHit>[
+        _hit(0, heading: 'h' * (80 * 1024)),
+      ]),
+    ).dispatch(
+        argumentsJson: jsonEncode({
+          'query': 'function',
+          'file_ids': ['file-1']
+        }),
+        grant: grant,
+        turnRequestId: 'turn-1',
+        conversationId: 'conversation-1',
+        sourceUserMessageId: 'message-1',
+        providerProfileId: 'profile-1',
+        currentFileIds: ['file-1'],
+        serializationAllowed: () async => true);
+
+    final decoded = jsonDecode(output) as Map<String, dynamic>;
+    expect(decoded['ok'], isTrue);
+    expect(utf8.encode(output).length, lessThanOrEqualTo(64 * 1024));
+    expect((decoded['result'] as Map<String, dynamic>)['hits'], isEmpty);
+  });
 }
 
 final class _Scope implements RetrievalScopeResolverPort {
@@ -153,6 +217,10 @@ final class _Source implements RetrievalArtifactSourcePort {
 }
 
 final class _Index implements RetrievalIndexPort {
+  _Index({this.hits = const <RetrievalHit>[]});
+
+  final List<RetrievalHit> hits;
+
   @override
   Future<void> ensureBuild(
       {required RetrievalArtifactSnapshot snapshot,
@@ -169,5 +237,23 @@ final class _Index implements RetrievalIndexPort {
           required int maxHitBytes,
           required int maxResultBytes}) async =>
       RetrievalIndexSearchResult(
-          hits: const <RetrievalHit>[], sourceChangedFileIds: const <String>[]);
+          hits: hits, sourceChangedFileIds: const <String>[]);
 }
+
+RetrievalHit _hit(int index, {required String heading}) => RetrievalHit(
+      fileId: 'file-1',
+      artifactId: 'artifact-1',
+      revision: 1,
+      sourceId: 'artifact-1',
+      chunkId: 'chunk-$index',
+      content: 'function result $index',
+      contentKind: RetrievalContentKind.paragraph,
+      score: 100 - index.toDouble(),
+      lexicalScore: 100 - index.toDouble(),
+      locator: 'part:$index',
+      partOrdinal: index,
+      windowOrdinal: 0,
+      nearestHeading: heading,
+      displayLabel: 'public.txt',
+      sourceRef: SourceRef.document(sourceId: 'artifact-1'),
+    );
