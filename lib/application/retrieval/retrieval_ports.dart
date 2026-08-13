@@ -18,6 +18,16 @@ abstract interface class RetrievalArtifactSourcePort {
   Future<RetrievalArtifactSnapshot?> readCurrentIdentity(String fileId);
 }
 
+abstract interface class RetrievalChunkerPort {
+  String get version;
+  RetrievalChunkProjection project({
+    required String fileId,
+    required String artifactId,
+    required int revision,
+    required SourceDocument document,
+  });
+}
+
 abstract interface class RetrievalIndexPort {
   Future<void> ensureBuild({
     required RetrievalArtifactSnapshot snapshot,

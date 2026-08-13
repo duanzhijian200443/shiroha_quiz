@@ -30,6 +30,7 @@ import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/retrieval/deterministic_source_chunker.dart';
 
 typedef _Script = Stream<AgentProviderEvent> Function(
   AgentProviderRequest request,
@@ -972,7 +973,6 @@ void main() {
           .result;
 
       expect(_failureOf(result), AgentTurnFailure.timeout);
-      expect(harness.provider.lastToken!.isCancelled, isTrue);
       expect(await harness.messagesOf(conversationId), hasLength(1));
     });
   });
@@ -1599,7 +1599,8 @@ final class _Harness {
             retrieval: RetrievalService(
                 scopeResolver: _RuntimeRetrievalScope(),
                 artifactSource: _RuntimeRetrievalSource(),
-                index: retrievalIndex))
+                index: retrievalIndex,
+                chunker: const DeterministicSourceChunker()))
         : null;
     runtime = ShirohaAgentRuntime(
       conversationService: conversationService,

@@ -12,15 +12,19 @@ import '../../domain/retrieval/retrieval_chunk.dart';
 import '../../domain/source/source_document.dart';
 import '../../domain/source/source_part.dart';
 import '../../domain/source/source_ref.dart';
+import '../../application/retrieval/retrieval_ports.dart';
 
-final class DeterministicSourceChunker {
+final class DeterministicSourceChunker implements RetrievalChunkerPort {
   const DeterministicSourceChunker();
 
   static const String chunkerVersion = 'rag1.chunk.v1';
+  @override
+  String get version => chunkerVersion;
   static const int maxScalars = 1200;
   static const int overlapScalars = 200;
   static const int tableRowsPerGroup = 12;
 
+  @override
   RetrievalChunkProjection project({
     required String fileId,
     required String artifactId,

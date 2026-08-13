@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/retrieval/deterministic_source_chunker.dart';
 
 void main() {
   test('query grammar treats input as data and projects CJK conjunction groups',
@@ -28,7 +29,8 @@ void main() {
     final service = RetrievalService(
         scopeResolver: _Scope(['b', 'a', 'b']),
         artifactSource: source,
-        index: index);
+        index: index,
+        chunker: const DeterministicSourceChunker());
     source.failures['b'] =
         const RetrievalException(RetrievalFailure.temporarilyUnavailable);
     final result = await service.retrieve(
@@ -46,7 +48,10 @@ void main() {
     final source = _Source()..changeAfterLoad = true;
     final index = _Index();
     final service = RetrievalService(
-        scopeResolver: _Scope(['a']), artifactSource: source, index: index);
+        scopeResolver: _Scope(['a']),
+        artifactSource: source,
+        index: index,
+        chunker: const DeterministicSourceChunker());
     final result = await service.retrieve(
         scope: RetrievalFilesScope(['a']), query: 'function');
     expect(result.rankedHits, isEmpty);

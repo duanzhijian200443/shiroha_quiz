@@ -12,6 +12,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/retrieval/deterministic_source_chunker.dart';
 
 void main() {
   final grant = RetrievalEgressGrant(
@@ -22,7 +23,10 @@ void main() {
       approvedFileIds: ['file-1']);
   AgentRetrievalToolDispatcher dispatcher() => AgentRetrievalToolDispatcher(
       retrieval: RetrievalService(
-          scopeResolver: _Scope(), artifactSource: _Source(), index: _Index()));
+          scopeResolver: _Scope(),
+          artifactSource: _Source(),
+          index: _Index(),
+          chunker: const DeterministicSourceChunker()));
 
   test('catalog is separate and dispatcher denies missing or mismatched grant',
       () async {

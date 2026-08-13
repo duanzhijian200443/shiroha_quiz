@@ -1,6 +1,5 @@
 library;
 
-import '../../services/retrieval/deterministic_source_chunker.dart';
 import '../parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'retrieval.dart';
 import 'retrieval_ports.dart';
@@ -10,7 +9,7 @@ final class RetrievalService {
       {required RetrievalScopeResolverPort scopeResolver,
       required RetrievalArtifactSourcePort artifactSource,
       required RetrievalIndexPort index,
-      DeterministicSourceChunker chunker = const DeterministicSourceChunker()})
+      required RetrievalChunkerPort chunker})
       : _scopeResolver = scopeResolver,
         _artifactSource = artifactSource,
         _index = index,
@@ -27,7 +26,7 @@ final class RetrievalService {
   final RetrievalScopeResolverPort _scopeResolver;
   final RetrievalArtifactSourcePort _artifactSource;
   final RetrievalIndexPort _index;
-  final DeterministicSourceChunker _chunker;
+  final RetrievalChunkerPort _chunker;
 
   Future<RetrievalResult> retrieve(
       {required RetrievalScopeRequest scope,
@@ -66,7 +65,7 @@ final class RetrievalService {
             document: loaded.sourceDocument);
         await _index.ensureBuild(
             snapshot: loaded.identity,
-            chunkerVersion: DeterministicSourceChunker.chunkerVersion,
+            chunkerVersion: _chunker.version,
             lexicalProjectionVersion: lexicalProjectionVersion,
             chunks: projection.chunks);
         final current = await _artifactSource.readCurrentIdentity(fileId);

@@ -55,6 +55,7 @@ import 'services/task_manager.dart';
 import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
+import 'services/retrieval/deterministic_source_chunker.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
@@ -209,6 +210,7 @@ void main() {
         metadata: parsedArtifactRepository,
       ),
       index: SqliteRetrievalIndexRepository(databaseHelper: databaseHelper),
+      chunker: const DeterministicSourceChunker(),
     );
     final agentRuntime = ShirohaAgentRuntime(
       conversationService: conversationService,
