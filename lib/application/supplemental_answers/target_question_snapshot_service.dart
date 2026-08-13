@@ -1,4 +1,3 @@
-import '../../data/models/persisted_question.dart';
 import '../../domain/supplemental_answers/answer_match_record.dart';
 import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
 import 'supplemental_answer_target_port.dart';
@@ -73,7 +72,7 @@ final class TargetQuestionSnapshotService {
         return _snapshotFromQuestions(questions);
       case ProjectScope(:final projectId):
         final bankNames = await port.listProjectBankNames(projectId);
-        final questions = <PersistedQuestion>[];
+        final questions = <SupplementalTargetRead>[];
         for (final bankName in bankNames) {
           questions.addAll(await port.listTypedQuestionsByBank(bankName));
         }
@@ -85,17 +84,18 @@ final class TargetQuestionSnapshotService {
   }
 
   TargetQuestionSnapshot _snapshotFromQuestions(
-    List<PersistedQuestion> questions,
+    List<SupplementalTargetRead> questions,
   ) {
     final targets = <AnswerTargetReference>[];
     final reports = <TargetScopeReport>[];
     for (final question in questions) {
-      if (question is TypedPersistedQuestion) {
+      final draft = question.typedDraft;
+      if (draft != null) {
         targets.add(
           AnswerTargetReference(
             storageId: question.storageId,
             bankName: question.bankName,
-            draft: question.draft,
+            draft: draft,
           ),
         );
       } else {
@@ -116,9 +116,9 @@ final class TargetQuestionSnapshotService {
 
   TargetQuestionSnapshot _snapshotFromExplicit(
     List<String> storageIds,
-    List<PersistedQuestion> questions,
+    List<SupplementalTargetRead> questions,
   ) {
-    final byId = <String, PersistedQuestion>{
+    final byId = <String, SupplementalTargetRead>{
       for (final question in questions) question.storageId: question,
     };
     final seen = <String>{};
@@ -144,12 +144,13 @@ final class TargetQuestionSnapshotService {
         );
         continue;
       }
-      if (question is TypedPersistedQuestion) {
+      final draft = question.typedDraft;
+      if (draft != null) {
         targets.add(
           AnswerTargetReference(
             storageId: question.storageId,
             bankName: question.bankName,
-            draft: question.draft,
+            draft: draft,
           ),
         );
       } else {

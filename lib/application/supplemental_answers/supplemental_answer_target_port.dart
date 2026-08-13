@@ -1,4 +1,21 @@
-import '../../data/models/persisted_question.dart';
+import '../../domain/question/question_draft_v2.dart';
+
+/// One typed/legacy dual-read result projected at the data boundary.
+///
+/// The application layer never receives `PersistedQuestion` data models,
+/// SQL, or rows; `typedDraft` is null for a visible-but-ineligible legacy
+/// target.
+final class SupplementalTargetRead {
+  const SupplementalTargetRead({
+    required this.storageId,
+    required this.bankName,
+    this.typedDraft,
+  });
+
+  final String storageId;
+  final String bankName;
+  final QuestionDraftV2? typedDraft;
+}
 
 /// Data port for resolving the typed target snapshot of one P6 session.
 ///
@@ -7,11 +24,13 @@ import '../../data/models/persisted_question.dart';
 /// application never receives SQL, rows, or paths.
 abstract interface class SupplementalAnswerTargetPort {
   /// All questions in [bankName] through the typed dual-read.
-  Future<List<PersistedQuestion>> listTypedQuestionsByBank(String bankName);
+  Future<List<SupplementalTargetRead>> listTypedQuestionsByBank(
+    String bankName,
+  );
 
   /// Questions for [storageIds], returned in caller order; missing ids
   /// produce no row.
-  Future<List<PersistedQuestion>> listTypedQuestionsByIds(
+  Future<List<SupplementalTargetRead>> listTypedQuestionsByIds(
     Iterable<String> storageIds,
   );
 

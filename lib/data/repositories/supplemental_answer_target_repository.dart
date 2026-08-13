@@ -19,21 +19,46 @@ final class SupplementalAnswerTargetRepository
   final ProjectRepository _projectRepository;
 
   @override
-  Future<List<PersistedQuestion>> listTypedQuestionsByBank(
+  Future<List<SupplementalTargetRead>> listTypedQuestionsByBank(
     String bankName,
-  ) {
-    return _questionRepository.getPersistedQuestionsByBank(bankName);
+  ) async {
+    final questions = await _questionRepository.getPersistedQuestionsByBank(
+      bankName,
+    );
+    return questions.map(_projectRead).toList(growable: false);
   }
 
   @override
-  Future<List<PersistedQuestion>> listTypedQuestionsByIds(
+  Future<List<SupplementalTargetRead>> listTypedQuestionsByIds(
     Iterable<String> storageIds,
-  ) {
-    return _questionRepository.getPersistedQuestionsByIds(storageIds);
+  ) async {
+    final questions = await _questionRepository.getPersistedQuestionsByIds(
+      storageIds,
+    );
+    return questions.map(_projectRead).toList(growable: false);
   }
 
   @override
   Future<List<String>> listProjectBankNames(String projectId) {
     return _projectRepository.listProjectBankNames(projectId);
   }
+}
+
+SupplementalTargetRead _projectRead(PersistedQuestion question) {
+  return switch (question) {
+    TypedPersistedQuestion(
+      :final storageId,
+      :final bankName,
+      :final draft,
+    ) =>
+      SupplementalTargetRead(
+        storageId: storageId,
+        bankName: bankName,
+        typedDraft: draft,
+      ),
+    LegacyPersistedQuestion(question: final legacy) => SupplementalTargetRead(
+        storageId: legacy.id ?? '',
+        bankName: legacy.bankName,
+      ),
+  };
 }

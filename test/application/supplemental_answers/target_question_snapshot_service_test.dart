@@ -1,8 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/target_question_snapshot_service.dart';
-import 'package:shiroha_quiz/data/models/question.dart';
-import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -18,13 +16,15 @@ void main() {
       final service = TargetQuestionSnapshotService(
         port: _FakePort(questionsByBank: {
           'bank_math': [
-            TypedPersistedQuestion(
+            SupplementalTargetRead(
               storageId: 'q_a',
               bankName: 'bank_math',
-              createdAt: 1,
-              draft: draftA,
+              typedDraft: draftA,
             ),
-            _legacy('legacy_1', 'bank_math'),
+            const SupplementalTargetRead(
+              storageId: 'legacy_1',
+              bankName: 'bank_math',
+            ),
           ],
         }),
       );
@@ -51,19 +51,17 @@ void main() {
           },
           questionsByBank: {
             'bank_a': [
-              TypedPersistedQuestion(
+              SupplementalTargetRead(
                 storageId: 'q_a',
                 bankName: 'bank_a',
-                createdAt: 1,
-                draft: draftA,
+                typedDraft: draftA,
               ),
             ],
             'bank_b': [
-              TypedPersistedQuestion(
+              SupplementalTargetRead(
                 storageId: 'q_b',
                 bankName: 'bank_b',
-                createdAt: 2,
-                draft: draftB,
+                typedDraft: draftB,
               ),
             ],
           },
@@ -88,17 +86,15 @@ void main() {
         'duplicate ids', () async {
       final service = TargetQuestionSnapshotService(
         port: _FakePort(questionsByIds: {
-          'q_a': TypedPersistedQuestion(
+          'q_a': SupplementalTargetRead(
             storageId: 'q_a',
             bankName: 'bank_math',
-            createdAt: 1,
-            draft: draftA,
+            typedDraft: draftA,
           ),
-          'q_b': TypedPersistedQuestion(
+          'q_b': SupplementalTargetRead(
             storageId: 'q_b',
             bankName: 'bank_math',
-            createdAt: 2,
-            draft: draftB,
+            typedDraft: draftB,
           ),
         }),
       );
@@ -127,7 +123,7 @@ void main() {
     test('empty eligible target set yields an empty snapshot', () async {
       final service = TargetQuestionSnapshotService(
         port: _FakePort(questionsByBank: {
-          'bank_empty': <PersistedQuestion>[],
+          'bank_empty': <SupplementalTargetRead>[],
         }),
       );
 
@@ -148,8 +144,8 @@ class _FakePort implements SupplementalAnswerTargetPort {
     this.projectBanks = const {},
   });
 
-  final Map<String, List<PersistedQuestion>> questionsByBank;
-  final Map<String, PersistedQuestion> questionsByIds;
+  final Map<String, List<SupplementalTargetRead>> questionsByBank;
+  final Map<String, SupplementalTargetRead> questionsByIds;
   final Map<String, List<String>> projectBanks;
 
   @override
@@ -158,34 +154,21 @@ class _FakePort implements SupplementalAnswerTargetPort {
   }
 
   @override
-  Future<List<PersistedQuestion>> listTypedQuestionsByBank(
+  Future<List<SupplementalTargetRead>> listTypedQuestionsByBank(
     String bankName,
   ) async {
-    return questionsByBank[bankName] ?? const <PersistedQuestion>[];
+    return questionsByBank[bankName] ?? const <SupplementalTargetRead>[];
   }
 
   @override
-  Future<List<PersistedQuestion>> listTypedQuestionsByIds(
+  Future<List<SupplementalTargetRead>> listTypedQuestionsByIds(
     Iterable<String> storageIds,
   ) async {
     return storageIds
         .map((id) => questionsByIds[id])
-        .whereType<PersistedQuestion>()
+        .whereType<SupplementalTargetRead>()
         .toList(growable: false);
   }
-}
-
-LegacyPersistedQuestion _legacy(String id, String bankName) {
-  return LegacyPersistedQuestion(
-    question: Question(
-      id: id,
-      type: 3,
-      content: 'legacy stem',
-      createdAt: 1,
-      bankName: bankName,
-      answer: 'legacy answer',
-    ),
-  );
 }
 
 QuestionDraftV2 _draft(String questionId) {
