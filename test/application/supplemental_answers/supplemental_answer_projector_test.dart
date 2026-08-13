@@ -16,7 +16,7 @@ void main() {
       parts: [
         _paragraph('第1题：A', role: SourceContentRole.answerLike),
         _paragraph('2．B', role: SourceContentRole.answerLike),
-        _paragraph('１）、C', role: SourceContentRole.answerLike),
+        _paragraph('１、C', role: SourceContentRole.answerLike),
       ],
     );
 

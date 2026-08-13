@@ -188,7 +188,7 @@ final class SupplementalAnswerProjector {
     required List<SupplementalAnswerFragment> fragments,
     required List<SupplementalProjectionIssue> issues,
   }) {
-    final locator = _extractLocator(content);
+    final locator = _extractLocator(content, builder.hasOpenFragment);
     if (locator != null) {
       final closed = builder.start(
         partIndex: partIndex,
@@ -311,13 +311,24 @@ final class _Locator {
   final RichContent? remainder;
 }
 
-_Locator? _extractLocator(RichContent content) {
+_Locator? _extractLocator(
+  RichContent content,
+  bool hasOpenFragment,
+) {
   final rawText = _plainText(content);
   if (rawText == null) return null;
   final text = _normalizeDigits(rawText);
 
   final mainMatch = _mainNumberPattern.firstMatch(text);
   if (mainMatch == null) return null;
+  final consumedMarker = mainMatch.group(0)!.trim().isNotEmpty &&
+      mainMatch.end > mainMatch.start &&
+      RegExp(r'[.．、:：题]').hasMatch(mainMatch.group(0)!);
+  // A bare number while a fragment is already open is treated as a
+  // continuation, never as a new locator: in real answer documents a bare
+  // continuation like a second line of a math answer is far more common
+  // than a new question consisting of one bare digit.
+  if (!consumedMarker && hasOpenFragment) return null;
   final mainNumber = mainMatch.group(1)!;
   var cursor = mainMatch.end;
 
