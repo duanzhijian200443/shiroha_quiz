@@ -51,3 +51,16 @@ scratch/ocr_reports/
 scratch/ocr_replay/
 scratch/import_acceptance/
 /scratch/review_diff.txt
+
+# Repository hygiene (H0): generated snapshots and one-off artifacts
+.playwright-mcp/
+windows_backup/
+build_log.txt
+temp_log.txt
+git_history.txt
+git_full_history.txt
+project_context.txt
+toc_output.txt
+sqlite3_temp.dll
+old_import.txt
+test_regex.exe
