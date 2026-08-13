@@ -64,8 +64,15 @@ enum MatchEvidenceCode {
   /// Only sequence/neighborhood evidence is available.
   sequenceOnly,
 
+  /// The fragment has no usable locator or stem identity.
+  noLocator,
+
   /// A plausible target exists but no primary identity proof is available.
   missingPrimaryProof,
+
+  /// The target failed the hard question-type/answer-shape compatibility
+  /// filter.
+  typeIncompatible,
 
   /// The source fragment maps to multiple targets.
   multipleTargets,
