@@ -137,7 +137,8 @@ final class AnswerCandidate {
               reviewOnlyExplanation,
               other.reviewOnlyExplanation,
             ) &&
-            _orderedEquals(supplementalSourceRefs, other.supplementalSourceRefs) &&
+            _orderedEquals(
+                supplementalSourceRefs, other.supplementalSourceRefs) &&
             _orderedEquals(matchEvidence, other.matchEvidence) &&
             writeIntent == other.writeIntent;
   }

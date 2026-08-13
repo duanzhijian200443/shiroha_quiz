@@ -135,7 +135,8 @@ void main() {
     expect(port.confirmed, isEmpty);
   });
 
-  testWidgets('stale target failure shows a fixed safe message', (tester) async {
+  testWidgets('stale target failure shows a fixed safe message',
+      (tester) async {
     final port = _FakePersistencePort(
       error: const SupplementalAnswerException(
         SupplementalAnswerFailure.staleTarget,

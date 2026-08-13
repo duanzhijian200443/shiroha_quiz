@@ -20,8 +20,7 @@ void main() {
   const matcher = SupplementalAnswerMatcher();
 
   group('primary identity proof', () {
-    test('scope-unique normalized main number matches deterministically',
-        () {
+    test('scope-unique normalized main number matches deterministically', () {
       final snapshot = TargetQuestionSnapshot(
         targets: [
           _target('q_1', number: 1, kind: QuestionKind.shortAnswer),
@@ -39,7 +38,8 @@ void main() {
       expect(result.records.single.disposition, AnswerMatchDisposition.matched);
       expect(result.records.single.certainty, MatchCertainty.deterministic);
       expect(result.records.single.candidate!.targetStorageId, 'q_1');
-      expect(result.records.single.candidate!.writeIntent, CandidateWriteIntent.fill);
+      expect(result.records.single.candidate!.writeIntent,
+          CandidateWriteIntent.fill);
       expect(
         result.records.single.evidence,
         contains(MatchEvidenceCode.uniqueMainNumber),
@@ -65,7 +65,8 @@ void main() {
         artifact: _artifact,
       );
 
-      expect(result.records.single.disposition, AnswerMatchDisposition.ambiguous);
+      expect(
+          result.records.single.disposition, AnswerMatchDisposition.ambiguous);
       expect(result.records.single.candidate, isNull);
       expect(result.records.single.alternatives, hasLength(2));
     });
@@ -73,8 +74,10 @@ void main() {
     test('subquestion proof disambiguates duplicate main numbers', () {
       final snapshot = TargetQuestionSnapshot(
         targets: [
-          _target('q_1', number: 1, kind: QuestionKind.shortAnswer, stem: '（1）'),
-          _target('q_2', number: 1, kind: QuestionKind.shortAnswer, stem: '（2）'),
+          _target('q_1',
+              number: 1, kind: QuestionKind.shortAnswer, stem: '（1）'),
+          _target('q_2',
+              number: 1, kind: QuestionKind.shortAnswer, stem: '（2）'),
         ],
         reports: const [],
       );
@@ -184,7 +187,8 @@ void main() {
         artifact: _artifact,
       );
 
-      expect(result.records.single.disposition, AnswerMatchDisposition.conflict);
+      expect(
+          result.records.single.disposition, AnswerMatchDisposition.conflict);
       expect(
         result.records.single.candidate!.writeIntent,
         CandidateWriteIntent.replace,
@@ -293,11 +297,13 @@ void main() {
         artifact: _artifact,
       );
 
-      expect(result.records.single.disposition, AnswerMatchDisposition.ambiguous);
+      expect(
+          result.records.single.disposition, AnswerMatchDisposition.ambiguous);
       expect(result.records.single.candidate, isNull);
     });
 
-    test('complete subquestion set with a different existing answer is '
+    test(
+        'complete subquestion set with a different existing answer is '
         'conflict and requires replace reconfirmation', () {
       final snapshot = TargetQuestionSnapshot(
         targets: [
@@ -332,8 +338,7 @@ void main() {
       );
     });
 
-    test('complete subquestion set equal to the existing answer is noOp',
-        () {
+    test('complete subquestion set equal to the existing answer is noOp', () {
       final composed = RichContent(
         nodes: [TextNode('first'), TextNode('second')],
       );
@@ -398,8 +403,7 @@ void main() {
       expect(result.records.single.candidate!.targetStorageId, 'q_stem');
     });
 
-    test('missing locator and stem context is unmatched and never writes',
-        () {
+    test('missing locator and stem context is unmatched and never writes', () {
       final snapshot = TargetQuestionSnapshot(
         targets: [
           _target('q_1', number: 1, kind: QuestionKind.shortAnswer),
@@ -415,7 +419,8 @@ void main() {
         artifact: _artifact,
       );
 
-      expect(result.records.single.disposition, AnswerMatchDisposition.unmatched);
+      expect(
+          result.records.single.disposition, AnswerMatchDisposition.unmatched);
       expect(result.records.single.candidate, isNull);
     });
   });

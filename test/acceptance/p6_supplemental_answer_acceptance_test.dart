@@ -269,8 +269,7 @@ void main() {
   });
 
   group('H. artifact reparse staleness', () {
-    test('revision drift makes the candidate stale with zero writes',
-        () async {
+    test('revision drift makes the candidate stale with zero writes', () async {
       await _seedTarget(storageId: _storageId);
       await _seedArtifact(revision: 1);
 
@@ -850,8 +849,8 @@ Future<void> _seedArtifact({required int revision}) async {
 Future<List<String>> _answerNodes() async {
   final db = await DatabaseHelper.instance.database;
   final payload = (await db.query('question_v2_payloads')).single;
-  final decoded = jsonDecode(payload['payload_json']! as String)
-      as Map<String, dynamic>;
+  final decoded =
+      jsonDecode(payload['payload_json']! as String) as Map<String, dynamic>;
   final answer = decoded['answer'] as Map<String, dynamic>?;
   if (answer == null) return const <String>[];
   final content = answer['content'] as Map<String, dynamic>;

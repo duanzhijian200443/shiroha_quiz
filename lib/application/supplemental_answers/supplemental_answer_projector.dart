@@ -136,8 +136,8 @@ final class SupplementalAnswerProjector {
           if (altText == null) {
             issues.add(
               SupplementalProjectionIssue(
-                kind: SupplementalProjectionIssueKind
-                    .imageWithoutAltTextSkipped,
+                kind:
+                    SupplementalProjectionIssueKind.imageWithoutAltTextSkipped,
                 partIndex: partIndex,
               ),
             );

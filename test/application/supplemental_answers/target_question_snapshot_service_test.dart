@@ -38,7 +38,8 @@ void main() {
       expect(snapshot.targets.single.bankName, 'bank_math');
       expect(snapshot.targets.single.draft, draftA);
       expect(snapshot.reports, hasLength(1));
-      expect(snapshot.reports.single.code, TargetScopeReportCode.legacyIneligible);
+      expect(
+          snapshot.reports.single.code, TargetScopeReportCode.legacyIneligible);
       expect(snapshot.reports.single.storageId, 'legacy_1');
     });
 
@@ -82,7 +83,8 @@ void main() {
       );
     });
 
-    test('explicit subset preserves caller order and reports missing and '
+    test(
+        'explicit subset preserves caller order and reports missing and '
         'duplicate ids', () async {
       final service = TargetQuestionSnapshotService(
         port: _FakePort(questionsByIds: {

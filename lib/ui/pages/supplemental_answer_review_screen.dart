@@ -218,20 +218,15 @@ class _SupplementalAnswerReviewScreenState
 
 String _messageFor(SupplementalAnswerFailure failure) {
   return switch (failure) {
-    SupplementalAnswerFailure.staleTarget =>
-      '题目或补充文档已变化，未写入任何内容，请重新匹配。',
-    SupplementalAnswerFailure.temporarilyUnavailable =>
-      '保存暂时不可用，请稍后重试。',
+    SupplementalAnswerFailure.staleTarget => '题目或补充文档已变化，未写入任何内容，请重新匹配。',
+    SupplementalAnswerFailure.temporarilyUnavailable => '保存暂时不可用，请稍后重试。',
     SupplementalAnswerFailure.artifactCorrupt ||
     SupplementalAnswerFailure.unsupportedArtifact ||
     SupplementalAnswerFailure.sourceUnavailable =>
       '补充文档不可用，未写入任何内容。',
-    SupplementalAnswerFailure.targetUnavailable =>
-      '目标题目不可用，未写入任何内容。',
-    SupplementalAnswerFailure.invalidCandidate =>
-      '候选答案无效，未写入任何内容。',
-    SupplementalAnswerFailure.internalError =>
-      '发生内部错误，未写入任何内容。',
+    SupplementalAnswerFailure.targetUnavailable => '目标题目不可用，未写入任何内容。',
+    SupplementalAnswerFailure.invalidCandidate => '候选答案无效，未写入任何内容。',
+    SupplementalAnswerFailure.internalError => '发生内部错误，未写入任何内容。',
     SupplementalAnswerFailure.noUsableAnswers ||
     SupplementalAnswerFailure.ambiguousMatch ||
     SupplementalAnswerFailure.unmatched ||
@@ -301,7 +296,8 @@ class _FillCandidateCard extends StatelessWidget {
                 children: [
                   Checkbox(
                     value: selected,
-                    onChanged: confirming ? null : (value) => onToggle(value ?? false),
+                    onChanged:
+                        confirming ? null : (value) => onToggle(value ?? false),
                   ),
                   const Text('选择'),
                   const Spacer(),
@@ -311,8 +307,7 @@ class _FillCandidateCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed:
-                        (confirming || !selected) ? null : onConfirm,
+                    onPressed: (confirming || !selected) ? null : onConfirm,
                     child: const Text('确认填写'),
                   ),
                 ],

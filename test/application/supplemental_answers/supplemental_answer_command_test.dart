@@ -41,7 +41,8 @@ void main() {
 
       expect(artifactPort.calls, ['file_001']);
       expect(persistencePort.candidates, hasLength(1));
-      expect(persistencePort.candidates.single.candidateId, candidate.candidateId);
+      expect(
+          persistencePort.candidates.single.candidateId, candidate.candidateId);
     });
 
     test('artifact generation drift maps to staleTarget with zero writes',

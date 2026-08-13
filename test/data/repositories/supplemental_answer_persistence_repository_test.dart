@@ -49,8 +49,7 @@ void main() {
   });
 
   group('P6-C0 atomic confirm', () {
-    test('fill commits through the shared kernel in one transaction',
-        () async {
+    test('fill commits through the shared kernel in one transaction', () async {
       await _seedTarget();
       await _seedArtifact(revision: 2);
       final repository = SupplementalAnswerPersistenceRepository();
@@ -304,8 +303,8 @@ Future<void> _seedArtifact({required int revision}) async {
 Future<List<String>> _answerNodes() async {
   final db = await _singletonDb();
   final payload = (await db.query('question_v2_payloads')).single;
-  final decoded = jsonDecode(payload['payload_json']! as String)
-      as Map<String, dynamic>;
+  final decoded =
+      jsonDecode(payload['payload_json']! as String) as Map<String, dynamic>;
   final answer = decoded['answer'] as Map<String, dynamic>?;
   if (answer == null) return const <String>[];
   final content = answer['content'] as Map<String, dynamic>;

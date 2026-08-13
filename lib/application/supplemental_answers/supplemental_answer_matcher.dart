@@ -181,8 +181,7 @@ final class SupplementalAnswerMatcher {
     }
     final evidence = <MatchEvidenceCode>[
       MatchEvidenceCode.uniqueMainNumber,
-      if (subquestion != null)
-        MatchEvidenceCode.mainNumberAndSubquestion,
+      if (subquestion != null) MatchEvidenceCode.mainNumberAndSubquestion,
     ];
     return <_ResolvedFragment>[
       _resolveUniqueTarget(fragment, target, artifact, evidence),
@@ -293,8 +292,7 @@ final class SupplementalAnswerMatcher {
     SupplementalAnswerFragment fragment,
     AnswerTargetReference target,
   ) {
-    if (fragment.answerContent.nodes
-        .any((node) => node is RawFallbackNode)) {
+    if (fragment.answerContent.nodes.any((node) => node is RawFallbackNode)) {
       return const _ConversionInvalid(MatchEvidenceCode.unsupportedContent);
     }
     if (target.draft.kind == QuestionKind.singleChoice) {
@@ -370,8 +368,10 @@ List<_MergedItem> _mergeDuplicateLocators(
 
   final merged = <_MergedItem>[];
   for (final items in byLocator.values) {
-    final candidates =
-        items.map((item) => item.candidate).whereType<AnswerCandidate>().toList();
+    final candidates = items
+        .map((item) => item.candidate)
+        .whereType<AnswerCandidate>()
+        .toList();
     if (items.length == 1 || candidates.isEmpty) {
       merged.addAll(items.map(_MergedItem.single));
       continue;
@@ -396,8 +396,7 @@ List<_MergedItem> _mergeDuplicateLocators(
     }
     final first = candidates.first;
     final sourceRefs = <SourceRef>[
-      for (final item in items)
-        ...item.candidate!.supplementalSourceRefs,
+      for (final item in items) ...item.candidate!.supplementalSourceRefs,
     ];
     final candidate = AnswerCandidate(
       candidateId: first.candidateId,
@@ -620,8 +619,7 @@ String _nodeFingerprint(ContentNode node) {
     TextNode(:final text) => 'text:$text',
     InlineMathNode(:final latex) => 'inline:$latex',
     BlockMathNode(:final latex) => 'block:$latex',
-    RawFallbackNode(:final rawJson) =>
-      'raw:${rawJson.keys.toList()..sort()}',
+    RawFallbackNode(:final rawJson) => 'raw:${rawJson.keys.toList()..sort()}',
   };
 }
 

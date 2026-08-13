@@ -35,8 +35,7 @@ final class SupplementalAnswerReviewException implements Exception {
         'Unmatched fragments are never committable.',
       SupplementalAnswerReviewFailure.invalidNotCommittable =>
         'Invalid candidates are never committable.',
-      SupplementalAnswerReviewFailure
-          .conflictRequiresReplaceReconfirmation =>
+      SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation =>
         'Conflicts require per-question replace reconfirmation.',
       SupplementalAnswerReviewFailure.fillOnlyForMissingAnswers =>
         'Fill confirmation applies only to missing answers.',
@@ -137,15 +136,13 @@ final class SupplementalAnswerReviewSession {
   ({
     SupplementalAnswerReviewSession session,
     SupplementalAnswerConfirmation confirmation,
-  })
-      confirmFill(String candidateId) {
+  }) confirmFill(String candidateId) {
     final candidate = _candidate(candidateId);
     if (candidate.writeIntent != CandidateWriteIntent.fill) {
       throw SupplementalAnswerReviewException(
         switch (candidate.writeIntent) {
-          CandidateWriteIntent.replace =>
-            SupplementalAnswerReviewFailure
-                .conflictRequiresReplaceReconfirmation,
+          CandidateWriteIntent.replace => SupplementalAnswerReviewFailure
+              .conflictRequiresReplaceReconfirmation,
           CandidateWriteIntent.noOp =>
             SupplementalAnswerReviewFailure.noOpTerminal,
           CandidateWriteIntent.fill =>
@@ -171,8 +168,7 @@ final class SupplementalAnswerReviewSession {
     if (record.disposition != AnswerMatchDisposition.conflict ||
         candidate.writeIntent != CandidateWriteIntent.replace) {
       throw SupplementalAnswerReviewException(
-        SupplementalAnswerReviewFailure
-            .conflictRequiresReplaceReconfirmation,
+        SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
       );
     }
     return _copyWithOutcome(candidateId, CandidateReviewOutcome.pendingReplace);
@@ -183,13 +179,11 @@ final class SupplementalAnswerReviewSession {
   ({
     SupplementalAnswerReviewSession session,
     SupplementalAnswerConfirmation confirmation,
-  })
-      confirmReplace(String candidateId) {
+  }) confirmReplace(String candidateId) {
     final candidate = _candidate(candidateId);
     if (candidate.writeIntent != CandidateWriteIntent.replace) {
       throw SupplementalAnswerReviewException(
-        SupplementalAnswerReviewFailure
-            .conflictRequiresReplaceReconfirmation,
+        SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
       );
     }
     final current = outcomes[candidateId];
@@ -255,8 +249,7 @@ final class SupplementalAnswerReviewSession {
   ({
     SupplementalAnswerReviewSession session,
     SupplementalAnswerConfirmation confirmation,
-  })
-      _confirm(
+  }) _confirm(
     String candidateId,
     CandidateReviewOutcome outcome,
   ) {

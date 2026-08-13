@@ -30,8 +30,7 @@ void main() {
     expect(result.issues, isEmpty);
   });
 
-  test('combines multi-part answers structurally and keeps explanations',
-      () {
+  test('combines multi-part answers structurally and keeps explanations', () {
     final document = SourceDocument(
       sourceId: 'artifact_001',
       parts: [
@@ -51,16 +50,14 @@ void main() {
       ['x = 2'],
     );
     expect(
-      fragment.explanationContent!.nodes
-          .map((node) => (node as TextNode).text),
+      fragment.explanationContent!.nodes.map((node) => (node as TextNode).text),
       ['解析：代入即可'],
     );
     expect(fragment.sourceRefs, hasLength(1));
     expect(fragment.sequencePosition.continuationOrdinal, 2);
   });
 
-  test('projects table number/answer layout into one fragment per column',
-      () {
+  test('projects table number/answer layout into one fragment per column', () {
     final document = SourceDocument(
       sourceId: 'artifact_001',
       parts: [
@@ -83,8 +80,7 @@ void main() {
     );
     expect(
       result.fragments.map(
-        (fragment) =>
-            (fragment.answerContent.nodes.single as TextNode).text,
+        (fragment) => (fragment.answerContent.nodes.single as TextNode).text,
       ),
       ['A', 'C', 'B'],
     );

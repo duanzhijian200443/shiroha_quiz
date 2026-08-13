@@ -30,8 +30,7 @@ void main() {
       );
     });
 
-    test('explicit scope preserves caller order and rejects empty subsets',
-        () {
+    test('explicit scope preserves caller order and rejects empty subsets', () {
       final scope = ExplicitQuestionScope(
         storageIds: ['q_2', 'q_1', 'q_3'],
       );
