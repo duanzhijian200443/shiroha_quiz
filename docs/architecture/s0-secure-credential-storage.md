@@ -221,7 +221,7 @@ S0-P0 -> S0-D0 -> S0-D1 -> S0-D2 -> S0-CL
 - `S0-P0`: canonical contract — COMPLETE.
 - `S0-D0`: core seam (port, metadata mapping, repository split with optional
   seam, fakes/tests) — COMPLETE.
-- `S0-D1`: real secure adapter — NOT STARTED. Dependency gate (user-
+- `S0-D1`: real secure adapter — COMPLETE. Dependency gate (user-
   authorized): flutter_secure_storage.
 - `S0-D2`: legacy migration + production wiring (migrator, bounded DB
   helpers, composition root, removal of the pre-activation bridge) —
