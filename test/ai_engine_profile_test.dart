@@ -71,6 +71,36 @@ void main() {
     });
   });
 
+  group('toMetadataMap', () {
+    test('never contains the runtime credential and scrubs api_key', () {
+      final profile = AiEngineProfile(
+        id: 'engine-1',
+        engineType: AiEngineType.vision,
+        name: 'Vision',
+        apiKey: 'CANARY_SECRET_VALUE',
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        modelName: 'gemini-2.0-flash',
+        temperature: 0.25,
+        reasoningEffort: 'low',
+        isActive: true,
+      );
+
+      final map = profile.toMetadataMap();
+
+      expect(map['api_key'], '');
+      expect(map.values, isNot(contains('CANARY_SECRET_VALUE')));
+      expect(map.toString(), isNot(contains('CANARY_SECRET_VALUE')));
+      expect(map['id'], 'engine-1');
+      expect(map['engine_type'], 'vision');
+      expect(map['name'], 'Vision');
+      expect(map['base_url'], 'https://generativelanguage.googleapis.com');
+      expect(map['model_name'], 'gemini-2.0-flash');
+      expect(map['temperature'], 0.25);
+      expect(map['reasoning_effort'], 'low');
+      expect(map['is_active'], 1);
+    });
+  });
+
   group('LlmTextRequest', () {
     test('builds requests from AiEngineProfile values', () {
       final profile = AiEngineProfile.fromMap({
