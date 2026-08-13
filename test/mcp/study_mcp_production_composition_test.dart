@@ -53,22 +53,23 @@ Future<McpClient> _connectProductionClient(String databasePath) async {
     ),
     options: const McpClientOptions(protocol: McpProtocol.legacy),
   );
+  final transport = StdioClientTransport(
+    StdioServerParameters(
+      command: _dartExecutable(),
+      args: <String>[
+        'run',
+        '--verbosity=error',
+        _productionEntrypoint,
+        '--database-path',
+        databasePath,
+      ],
+      workingDirectory: Directory.current.path,
+      stderrMode: ProcessStartMode.normal,
+      restartOnUnexpectedExit: false,
+    ),
+  );
   try {
-    await client.connect(
-      StdioClientTransport(
-        StdioServerParameters(
-          command: _dartExecutable(),
-          args: <String>[
-            _productionEntrypoint,
-            '--database-path',
-            databasePath,
-          ],
-          workingDirectory: Directory.current.path,
-          stderrMode: ProcessStartMode.normal,
-          restartOnUnexpectedExit: false,
-        ),
-      ),
-    );
+    await client.connect(transport);
     return client;
   } catch (_) {
     await client.close();
@@ -186,7 +187,7 @@ void main() {
       expect(File(databasePath).existsSync(), isTrue);
       probe = await DatabaseHelper.instance.openPathForTesting(databasePath);
       final version = await probe.rawQuery('PRAGMA user_version');
-      expect(version.single['user_version'], 20);
+      expect(version.single['user_version'], 21);
       expect(await snapshotCoreTables(probe), before);
     } finally {
       await client?.close();

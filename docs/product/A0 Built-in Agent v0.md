@@ -109,6 +109,12 @@ name, MIME type and size. A0 does not provide file bytes, extracted text, PDF
 pages, images, OCR output, or vision input. Shiroha must not claim that an
 attached file was read.
 
+RAG-1 is the authorized successor to this A0 limitation. Attachments remain
+metadata-only by default. A visible per-turn user approval may add the separate
+Built-in Agent-only `retrieve_file_content` tool for the approved file snapshot;
+the approval is transient and does not expand the exactly-six A0 study catalog
+or MCP v0. See `docs/architecture/rag1-project-retrieval.md`.
+
 Web capability is optional and provider-native. It is used only when the user
 has enabled it and the selected provider supports it. A0 does not promise Web
 availability for every provider/model and does not introduce an app-managed

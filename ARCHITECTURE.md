@@ -96,11 +96,10 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v20**: the frozen v15 typed sidecar remains
-   authoritative, with the additive v16 File Library, v17 Project, and v18
-   flat File Library Folder tables, plus additive C0 Conversation, Message,
-   and Conversation/File relation tables, and the additive F1-D1 parsed
-   artifact tables (`parsed_artifact_heads`, `parsed_artifacts`).
+9. Current database schema is **v21**: the frozen v15 typed sidecar remains
+   authoritative, with the additive v16 File Library, v17 Project, v18 flat
+   File Library Folder, v19 Conversation, and v20 parsed-artifact tables, plus
+   the additive RAG-1 derived lexical-retrieval cache and FTS5 objects.
 
 ## 4. Learning asset expansion boundary
 
@@ -154,10 +153,20 @@ Rules:
 - Persisted payloads admit only `SourceDocument`/`SourcePart`/`SourceRef`/
   `RichContent`/`ImportIssue`/safe `AssetRef` metadata, never provider bodies,
   raw diagnostics, absolute paths, or binary image bytes.
-- Current runtime schema is v20; F1-D1 implemented the approved additive v20
-  (two new tables) without modifying any earlier table.
+- F1-D1 implemented the additive v20 artifact tables without modifying any
+  earlier table. RAG-1 subsequently raises the current runtime schema to v21
+  with derived lexical-retrieval cache tables and a dedicated FTS5 index.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
+
+### RAG-1 successor amendment
+
+RAG-1 consumes only verified current F1 artifacts, preserves File/Project as
+the product authority, and adds deterministic lexical retrieval behind an
+Application seam. Local readability never implies provider egress: Built-in
+Agent file-content access requires a transient per-turn grant and an
+independent retrieval tool. MCP v0 remains exactly six read-only tools. See
+`docs/architecture/rag1-project-retrieval.md`.
 
 ## 5. Conversation foundation boundary
 

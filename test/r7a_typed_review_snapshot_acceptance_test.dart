@@ -389,7 +389,7 @@ void main() {
     test('database version is current v20', () {
       final source =
           File('lib/core/database/database_helper.dart').readAsStringSync();
-      expect(source, contains('static const int _dbVersion = 20'));
+      expect(source, contains('static const int _dbVersion = 21'));
     });
 
     test('v15 sidecar DDL sentinels remain unchanged', () {

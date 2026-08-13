@@ -27,6 +27,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.startRetrievalTurn,
     this.proposalService,
   });
 
@@ -34,6 +35,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
 
   @override
@@ -57,6 +59,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
       widget.conversationService,
       agentSettingsService: widget.agentSettingsService,
       startAgentTurn: widget.startAgentTurn,
+      startRetrievalTurn: widget.startRetrievalTurn,
       proposalService: widget.proposalService,
     )..load();
   }

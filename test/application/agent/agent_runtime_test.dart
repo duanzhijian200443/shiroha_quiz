@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
+import 'package:shiroha_quiz/application/agent/agent_retrieval_tool.dart';
+import 'package:shiroha_quiz/application/agent/retrieval_egress_grant.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime_limits.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_catalog.dart';
@@ -14,6 +16,9 @@ import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_catalog
 import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
+import 'package:shiroha_quiz/application/retrieval/retrieval.dart';
+import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
+import 'package:shiroha_quiz/application/retrieval/retrieval_service.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -21,6 +26,10 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
+import 'package:shiroha_quiz/domain/source/source_document.dart';
+import 'package:shiroha_quiz/domain/source/source_part.dart';
+import 'package:shiroha_quiz/domain/source/source_ref.dart';
 
 typedef _Script = Stream<AgentProviderEvent> Function(
   AgentProviderRequest request,
@@ -111,6 +120,63 @@ void main() {
   });
 
   group('tool loop', () {
+    test('retrieval tool is absent without grant and present with grant',
+        () async {
+      final without =
+          _Harness(wireRetrieval: true, scripts: <_Script>[_finalAnswer('ok')]);
+      final (withoutConversation, withoutMessage) =
+          await without.seedUser('question', fileIds: const ['file-1']);
+      await without.runtime
+          .startTurn(
+              conversationId: withoutConversation,
+              userMessageId: withoutMessage)
+          .result;
+      expect(without.provider.requests.single.tools.map((tool) => tool.name),
+          isNot(contains(AgentRetrievalToolCatalog.toolName)));
+      expect(without.provider.requests.single.systemPrompt,
+          contains('contents unavailable'));
+
+      final withGrant =
+          _Harness(wireRetrieval: true, scripts: <_Script>[_finalAnswer('ok')]);
+      final (conversationId, userMessageId) =
+          await withGrant.seedUser('question', fileIds: const ['file-1']);
+      await withGrant.runtime
+          .startTurnWithRetrieval(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+              approval: RetrievalEgressApproval(const ['file-1']))
+          .result;
+      expect(withGrant.provider.requests.single.tools.map((tool) => tool.name),
+          contains(AgentRetrievalToolCatalog.toolName));
+      expect(withGrant.provider.requests.single.systemPrompt,
+          contains('retrieve_file_content'));
+    });
+
+    test('a later user message invalidates retrieval before serialization',
+        () async {
+      const state = _TestContinuationState('rag');
+      final harness = _Harness(wireRetrieval: true, scripts: <_Script>[
+        _toolRound(<AgentProviderFunctionCall>[
+          _call('rag-1',
+              name: AgentRetrievalToolCatalog.toolName,
+              arguments: '{"query":"function","file_ids":["file-1"]}')
+        ], state),
+        _finalAnswer('done')
+      ]);
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question', fileIds: const ['file-1']);
+      harness.retrievalIndex.onSearch =
+          () => harness.appendUser(conversationId, 'new message');
+      await harness.runtime
+          .startTurnWithRetrieval(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+              approval: RetrievalEgressApproval(const ['file-1']))
+          .result;
+      final output = harness.provider.requests[1].toolOutputs.single.output;
+      expect(jsonDecode(output)['error']['code'], 'access_denied');
+    });
+
     test(
       'executes one tool round and continues with cumulative continuation',
       () async {
@@ -885,7 +951,7 @@ void main() {
     test('overall timeout fails the turn and persists nothing', () async {
       final harness = _Harness(
         limits: const AgentRuntimeLimits(
-          turnTimeout: Duration(milliseconds: 80),
+          turnTimeout: Duration(milliseconds: 250),
         ),
         scripts: <_Script>[
           (request, token) async* {
@@ -1487,6 +1553,7 @@ final class _Harness {
     AgentRuntimeLimits? limits,
     bool webEnabled = false,
     bool wireProposal = false,
+    bool wireRetrieval = false,
     double temperature = 1.0,
     AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   })  : repository = _FakeConversationRepository(),
@@ -1526,6 +1593,14 @@ final class _Harness {
             proposalService: proposalService!,
           )
         : null;
+    retrievalIndex = _RuntimeRetrievalIndex();
+    retrievalDispatcher = wireRetrieval
+        ? AgentRetrievalToolDispatcher(
+            retrieval: RetrievalService(
+                scopeResolver: _RuntimeRetrievalScope(),
+                artifactSource: _RuntimeRetrievalSource(),
+                index: retrievalIndex))
+        : null;
     runtime = ShirohaAgentRuntime(
       conversationService: conversationService,
       configResolver: AgentRuntimeConfigResolver(
@@ -1535,6 +1610,7 @@ final class _Harness {
       providerFactory: (_) => provider,
       toolDispatcher: dispatcher,
       proposalDispatcher: proposalDispatcher,
+      retrievalDispatcher: retrievalDispatcher,
       limits: limits ?? const AgentRuntimeLimits(),
     );
   }
@@ -1548,6 +1624,8 @@ final class _Harness {
   late final _FakeAgentWritePersistence proposalPersistence;
   late final AgentWriteProposalService? proposalService;
   late final AgentWriteProposalToolDispatcher? proposalDispatcher;
+  late final _RuntimeRetrievalIndex retrievalIndex;
+  late final AgentRetrievalToolDispatcher? retrievalDispatcher;
   late final ShirohaAgentRuntime runtime;
   var _conversationSequence = 0;
   var _messageSequence = 0;
@@ -1555,10 +1633,12 @@ final class _Harness {
   Future<(String, String)> seedUser(
     String content, {
     ConversationScope? scope,
+    List<String> fileIds = const <String>[],
   }) async {
     final result = await conversationService.startWithUserMessage(
       scope: scope ?? ConversationScope.global(),
       content: content,
+      fileIds: fileIds,
     );
     return (
       result.conversation.conversationId,
@@ -1643,6 +1723,8 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
   final Map<String, Conversation> _conversations = <String, Conversation>{};
   final Map<String, List<ConversationMessage>> _messagesByConversation =
       <String, List<ConversationMessage>>{};
+  final Map<String, List<ConversationFileRef>> _filesByConversation =
+      <String, List<ConversationFileRef>>{};
   final List<_AppendOutcome> appendOutcomes = <_AppendOutcome>[];
   ConversationFailure? loadFailure;
   int appendCalls = 0;
@@ -1661,10 +1743,19 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
     _conversations[conversation.conversationId] = conversation;
     _messagesByConversation[conversation.conversationId] =
         <ConversationMessage>[firstMessage];
+    final files = <ConversationFileRef>[
+      for (final fileId in fileIds)
+        ConversationFileRef(
+            fileId: fileId,
+            displayName: '$fileId.txt',
+            mimeType: 'text/plain',
+            sizeBytes: 1)
+    ];
+    _filesByConversation[conversation.conversationId] = files;
     return ConversationThreadSlice(
       conversation: conversation,
       messages: <ConversationMessage>[firstMessage],
-      files: const <ConversationFileRef>[],
+      files: files,
       hasMoreBefore: false,
       nextBeforeSequence: null,
     );
@@ -1740,7 +1831,8 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
     return ConversationThreadSlice(
       conversation: current,
       messages: List<ConversationMessage>.unmodifiable(selected),
-      files: const <ConversationFileRef>[],
+      files:
+          _filesByConversation[conversationId] ?? const <ConversationFileRef>[],
       hasMoreBefore: hasMoreBefore,
       nextBeforeSequence: hasMoreBefore ? selected.first.sequence : null,
     );
@@ -1751,6 +1843,7 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
     deleteCalls++;
     _conversations.remove(conversationId);
     _messagesByConversation.remove(conversationId);
+    _filesByConversation.remove(conversationId);
   }
 
   void setScopeUnavailable(String conversationId) {
@@ -1845,6 +1938,70 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
     final error = throwable;
     if (error != null) throw error;
     return output;
+  }
+}
+
+final class _RuntimeRetrievalScope implements RetrievalScopeResolverPort {
+  @override
+  Future<List<String>> resolveFileIds(RetrievalScopeRequest scope) async =>
+      switch (scope) {
+        RetrievalFilesScope(:final fileIds) => fileIds,
+        _ => const <String>['file-1'],
+      };
+}
+
+final class _RuntimeRetrievalSource implements RetrievalArtifactSourcePort {
+  final identity = RetrievalArtifactSnapshot(
+      fileId: 'file-1',
+      artifactId: 'artifact-1',
+      revision: 1,
+      payloadDigest: 'a' * 64,
+      displayLabel: 'file-1.txt');
+
+  @override
+  Future<
+      ({
+        String? displayLabel,
+        RetrievalArtifactSnapshot identity,
+        SourceDocument sourceDocument
+      })> loadCurrent(String fileId) async => (
+        identity: identity,
+        displayLabel: 'file-1.txt',
+        sourceDocument: SourceDocument(sourceId: 'artifact-1', parts: [
+          SourceContentPart(
+              sourceRef: SourceRef.document(sourceId: 'artifact-1'),
+              content: RichContent(nodes: const [TextNode('function')]))
+        ])
+      );
+
+  @override
+  Future<RetrievalArtifactSnapshot?> readCurrentIdentity(String fileId) async =>
+      identity;
+}
+
+final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
+  Future<void> Function()? onSearch;
+
+  @override
+  Future<void> ensureBuild(
+      {required RetrievalArtifactSnapshot snapshot,
+      required String chunkerVersion,
+      required String lexicalProjectionVersion,
+      required List<RetrievalChunk> chunks}) async {}
+
+  @override
+  Future<void> removeIndex(String fileId) async {}
+
+  @override
+  Future<RetrievalIndexSearchResult> search(
+      {required List<RetrievalArtifactSnapshot> snapshots,
+      required String matchExpression,
+      required int limit,
+      required int maxHitBytes,
+      required int maxResultBytes}) async {
+    await onSearch?.call();
+    return RetrievalIndexSearchResult(
+        hits: const <RetrievalHit>[], sourceChangedFileIds: const <String>[]);
   }
 }
 

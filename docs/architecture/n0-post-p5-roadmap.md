@@ -53,8 +53,11 @@ P6-U0 Supplemental-answer bounded Preview/Review activation — COMPLETE
 P6-V0 Supplemental-answer offline acceptance/closure — COMPLETE
 P6 Supplemental-answer matching — COMPLETE
 P7 AI answer candidates — NOT STARTED
-RAG Project retrieval enhancement — NOT STARTED
-Current runtime schema — v20
+RAG1-P0 through RAG1-CL — COMPLETE
+RAG-1 Lexical Retrieval — COMPLETE
+RAG-2 Semantic Embedding — DEFERRED
+RAG-3 Hybrid Retrieval / Rerank — DEFERRED
+Current runtime schema — v21
 ```
 
 `B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
@@ -109,7 +112,8 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **F1** | Parsed Artifact lifecycle | Reparse/version/cache identity needed by P6/Agent/RAG; split into F1-P0..F1-CL sub-stages | additive v20 implemented in F1-D1 |
 | **P6** | Supplemental-answer matching | Produce supplemental `AnswerCandidate` values from files; do not invent a new write path | preferably unchanged |
 | **P7** | AI answer candidates | Produce AI `AnswerCandidate` values; confirmation uses the same answer command boundary | unchanged |
-| **RAG** | Project retrieval enhancement | full-text/chunk/embedding/hybrid retrieval behind File/Project/Agent concepts | later |
+| **RAG-1** | Local lexical retrieval | verified F1 chunks, v21 FTS5 cache, Application seam, transient Agent egress grant | additive v21 |
+| **RAG-2/3** | Semantic and hybrid retrieval | embeddings, hybrid retrieval, rerank | deferred |
 | **Future** | Platform/ecosystem expansion | Windows workbench, HarmonyOS, LAN/sync, MCP v1+ | later |
 
 F1 is intentionally not a hard prerequisite for J0. F0 can establish original-file identity/storage first; deeper artifact persistence is introduced when a concrete use case (reparse, P6, Agent file analysis or RAG) requires it.
@@ -315,8 +319,9 @@ Frozen stage graph:
 F1-P0 -> F1-D0 -> F1-D1 -> F1-A1 -> F1-I1 -> F1-I2 -> F1-CL
 ```
 
-Schema expectation: the current runtime schema is v20; F1-D1 implemented the
-approved additive v20 (two new tables) without modifying earlier tables.
+Schema history: F1-D1 implemented the additive v20 artifact tables without
+modifying earlier tables. RAG-1 later raises the current runtime schema to v21;
+see `rag1-project-retrieval.md`.
 
 Governance:
 

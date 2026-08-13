@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../application/agent/agent_config.dart';
 import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
+import '../../application/agent/retrieval_egress_grant.dart';
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
@@ -33,14 +34,17 @@ final class ConversationController extends ChangeNotifier {
     this.service, {
     required AgentSettingsService agentSettingsService,
     required AgentTurnStarter startAgentTurn,
+    AgentRetrievalTurnStarter? startRetrievalTurn,
     AgentWriteProposalService? proposalService,
   })  : _agentSettingsService = agentSettingsService,
         _startAgentTurn = startAgentTurn,
+        _startRetrievalTurn = startRetrievalTurn,
         _proposalService = proposalService;
 
   final ConversationService service;
   final AgentSettingsService _agentSettingsService;
   final AgentTurnStarter _startAgentTurn;
+  final AgentRetrievalTurnStarter? _startRetrievalTurn;
   final AgentWriteProposalService? _proposalService;
 
   List<Conversation> recent = const <Conversation>[];
@@ -49,6 +53,7 @@ final class ConversationController extends ChangeNotifier {
       <String, List<Conversation>>{};
   final Set<String> loadingProjectIds = <String>{};
   final Set<String> draftFileIds = <String>{};
+  bool retrievalApprovedForNextTurn = false;
 
   ConversationThreadSlice? activeThread;
   ConversationScope draftScope = ConversationScope.global();
@@ -176,6 +181,7 @@ final class ConversationController extends ChangeNotifier {
     _threadRevision++;
     draftScope = scope ?? ConversationScope.global();
     draftFileIds.clear();
+    retrievalApprovedForNextTurn = false;
     _clearTurnPresentation(clearRetry: true);
     errorMessage = null;
     statusMessage = null;
@@ -204,6 +210,7 @@ final class ConversationController extends ChangeNotifier {
       );
       _threadRevision++;
       draftFileIds.clear();
+      retrievalApprovedForNextTurn = false;
       _clearTurnPresentation(clearRetry: true);
       _restoreProposalBinding(conversationId);
       statusMessage = null;
@@ -240,6 +247,10 @@ final class ConversationController extends ChangeNotifier {
       return false;
     }
 
+    final approvedFileIds = retrievalApprovedForNextTurn
+        ? selectedFiles.map((file) => file.fileId).toList(growable: false)
+        : const <String>[];
+    retrievalApprovedForNextTurn = false;
     late final ConversationMessage target;
     late final String conversationId;
     try {
@@ -288,6 +299,7 @@ final class ConversationController extends ChangeNotifier {
       _beginTurn(
         conversationId: conversationId,
         userMessageId: target.messageId,
+        approvedFileIds: approvedFileIds,
       );
     } catch (_) {
       isSending = false;
@@ -343,6 +355,7 @@ final class ConversationController extends ChangeNotifier {
   void _beginTurn({
     required String conversationId,
     required String userMessageId,
+    List<String> approvedFileIds = const <String>[],
   }) {
     final epoch = ++_turnEpoch;
     transientAssistantText = '';
@@ -350,10 +363,17 @@ final class ConversationController extends ChangeNotifier {
     _restoreProposalBinding(conversationId);
     turnFailure = null;
     turnPhase = AssistantTurnPhase.thinking;
-    final session = _startAgentTurn(
-      conversationId: conversationId,
-      userMessageId: userMessageId,
-    );
+    final retrievalStarter = _startRetrievalTurn;
+    final session = approvedFileIds.isNotEmpty && retrievalStarter != null
+        ? retrievalStarter(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+            approval: RetrievalEgressApproval(approvedFileIds),
+          )
+        : _startAgentTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          );
     _activeSession = session;
     _turnEvents = session.events.listen(
       (event) => _projectTurnEvent(event, session, epoch),
@@ -529,6 +549,7 @@ final class ConversationController extends ChangeNotifier {
   }
 
   Future<bool> toggleFile(String fileId) async {
+    retrievalApprovedForNextTurn = false;
     if (isDraft) {
       if (!draftFileIds.add(fileId)) draftFileIds.remove(fileId);
       errorMessage = null;
@@ -579,6 +600,11 @@ final class ConversationController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  void setRetrievalApproval(bool approved) {
+    retrievalApprovedForNextTurn = approved && selectedFiles.isNotEmpty;
+    notifyListeners();
   }
 
   /// Approves the current proposal. Only the proposal identity leaves the

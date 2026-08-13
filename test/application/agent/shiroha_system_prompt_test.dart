@@ -134,6 +134,27 @@ void main() {
     expect(prompt, isNot(contains('file-private-id')));
   });
 
+  test('declares exact per-turn retrieval capability truthfully', () {
+    final prompt = const ShirohaSystemPrompt().build(
+      scope: ConversationScope.global(),
+      proposalCapabilityEnabled: false,
+      retrievalCapabilityEnabled: true,
+      files: const <ConversationFileRef>[
+        ConversationFileRef(
+          fileId: 'file-private-id',
+          displayName: 'notes.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 1024,
+        ),
+      ],
+    );
+    expect(prompt, contains('retrieve_file_content'));
+    expect(prompt, contains('for this turn'));
+    expect(prompt, isNot(contains('contents unavailable')));
+    expect(prompt, isNot(contains('NOT available in A0 v0')));
+    expect(prompt, isNot(contains('file-private-id')));
+  });
+
   test('states the conversation scope deterministically', () {
     final global = const ShirohaSystemPrompt().build(
       scope: ConversationScope.global(),

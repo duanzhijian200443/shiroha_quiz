@@ -174,7 +174,7 @@ void main() {
       () async {
     final db = await openSeam(inMemoryDatabasePath);
     try {
-      expect(await userVersion(db), 20);
+      expect(await userVersion(db), 21);
       final schema = await v20Schema(db);
       expect(schema.keys.toSet(), _v20Objects);
       expect(_normalized(schema['parsed_artifact_heads']!),
@@ -235,7 +235,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 20);
+      expect(await userVersion(upgraded), 21);
       expect(await v20Schema(upgraded), freshSchema);
       expect(await upgraded.query('library_files'), hasLength(1));
       expect(await upgraded.query('projects'), hasLength(1));
@@ -262,7 +262,7 @@ void main() {
 
     final second = await openSeam(path);
     try {
-      expect(await userVersion(second), 20);
+      expect(await userVersion(second), 21);
       expect(await v20Schema(second), firstSchema);
       expect(await second.rawQuery('PRAGMA foreign_key_check'), isEmpty);
     } finally {
