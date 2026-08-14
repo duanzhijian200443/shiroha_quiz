@@ -3,6 +3,7 @@
 // All HTTP is deterministic via package:http/testing. No live provider, real
 // credential, OCR, MCP, or network path is touched. Sentinel strings are
 // fictional and never real secrets.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -105,6 +106,83 @@ void main() {
       final result = await adapter.generateAnswer(_choiceRequest());
       expect(result.providerProfileId, 'engine_001');
       expect(result.answer, ChoiceAnswer(optionIds: ['opt_a']));
+    });
+  });
+
+  group('malformed provider configuration', () {
+    test('malformed base URL maps to typed internalError with no leak',
+        () async {
+      final adapter = _adapter(
+        profile: _profile(baseUrl: 'https://SENTINEL_BAD_HOST['),
+        client: _recordingClient(
+          (request) async => _okChat(_contentEnvelope()),
+        ),
+      );
+      try {
+        await adapter.generateAnswer(_contentRequest());
+        fail('expected a typed provider failure');
+      } on AiAnswerProviderException catch (error) {
+        expect(error.failure, AiAnswerProviderFailure.internalError);
+        expect(error.toString(), isNot(contains('SENTINEL_BAD_HOST')));
+        expect(error.toString(), isNot(contains(_apiKey)));
+        expect(error.toString(), isNot(contains('FormatException')));
+      }
+    });
+
+    test('Gemini malformed configuration never leaks URI or key', () async {
+      final adapter = _adapter(
+        profile: _profile(
+          baseUrl: 'https://generativelanguage.googleapis.com[',
+          model: 'gemini-x',
+        ),
+        client: _recordingClient(
+          (request) async => _okChat(_contentEnvelope()),
+        ),
+      );
+      try {
+        await adapter.generateAnswer(_contentRequest());
+        fail('expected a typed provider failure');
+      } on AiAnswerProviderException catch (error) {
+        expect(error.failure, AiAnswerProviderFailure.internalError);
+        expect(error.toString(), isNot(contains('generativelanguage')));
+        expect(error.toString(), isNot(contains(_apiKey)));
+        expect(error.toString(), isNot(contains('FormatException')));
+      }
+    });
+  });
+
+  group('non-200 body handling', () {
+    test('500 with over-64KiB chunked body maps boundedly with no leakage',
+        () async {
+      final client = _StreamedClient(
+        statusCode: 500,
+        chunks: [
+          List<int>.filled(30 * 1024, 0x61),
+          List<int>.filled(30 * 1024, 0x61),
+          List<int>.filled(30 * 1024, 0x61),
+        ],
+      );
+      final adapter = _adapter(client: client);
+      try {
+        await adapter
+            .generateAnswer(_contentRequest())
+            .timeout(const Duration(seconds: 5));
+        fail('expected providerUnavailable');
+      } on AiAnswerProviderException catch (error) {
+        expect(error.failure, AiAnswerProviderFailure.providerUnavailable);
+        expect(error.toString(), isNot(contains('a' * 64)));
+      }
+    });
+
+    test('non-200 stream that never closes still maps promptly', () async {
+      final client = _StreamedClient(statusCode: 503, neverClose: true);
+      final adapter = _adapter(client: client);
+      await expectLater(
+        adapter
+            .generateAnswer(_contentRequest())
+            .timeout(const Duration(seconds: 5)),
+        throwsA(_failure(AiAnswerProviderFailure.providerUnavailable)),
+      );
     });
   });
 
@@ -898,7 +976,7 @@ AiAnswerProviderAdapter _adapter({
   bool noEngine = false,
   String? secret = _apiKey,
   EngineCredentialException? credentialError,
-  required MockClient client,
+  required http.Client client,
   Duration requestTimeout = const Duration(seconds: 120),
 }) {
   final repository = AiEngineRepository(
@@ -913,6 +991,40 @@ AiAnswerProviderAdapter _adapter({
     httpClient: client,
     requestTimeout: requestTimeout,
   );
+}
+
+/// Deterministic streamed-response client for bounded non-200 body tests.
+///
+/// Emits [chunks] (optionally never closing the stream) so the adapter's
+/// cancellation path is exercised on real `StreamedResponse` objects instead
+/// of buffered `MockClient` bodies.
+class _StreamedClient extends http.BaseClient {
+  _StreamedClient({
+    required this.statusCode,
+    this.chunks = const <List<int>>[],
+    this.neverClose = false,
+  });
+
+  final int statusCode;
+  final List<List<int>> chunks;
+  final bool neverClose;
+  final List<http.Request> requests = <http.Request>[];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    requests.add(request as http.Request);
+    final controller = StreamController<List<int>>();
+    for (final chunk in chunks) {
+      controller.add(chunk);
+    }
+    if (!neverClose) {
+      // Fire-and-forget: the close future only completes once a listener
+      // consumes the done event; nobody must await it before the adapter
+      // attaches its listener.
+      unawaited(controller.close());
+    }
+    return http.StreamedResponse(controller.stream, statusCode);
+  }
 }
 
 AiAnswerProviderRequest _choiceRequest() {

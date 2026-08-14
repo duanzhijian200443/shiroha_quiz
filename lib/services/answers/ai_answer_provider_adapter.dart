@@ -65,16 +65,21 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
   ) async {
     final profile = await _resolveActiveProfile();
 
-    final kind = LlmProviderRegistry.kindForBaseUrl(profile.baseUrl);
-    final body = switch (kind) {
-      LlmProviderKind.gemini => _buildGeminiBody(profile, request),
-      LlmProviderKind.zhipu ||
-      LlmProviderKind.openAiCompatible =>
-        _buildChatCompletionsBody(profile, request),
-    };
-    final uri = _buildUri(kind, profile);
-
+    // Every construction step capable of throwing (kind resolution, request
+    // body, URI parse — including the Gemini `?key=` URI) runs inside the
+    // typed normalization boundary so a malformed custom base URL/model can
+    // never surface a raw FormatException/URI text (which could carry the
+    // credential) to the caller.
     try {
+      final kind = LlmProviderRegistry.kindForBaseUrl(profile.baseUrl);
+      final body = switch (kind) {
+        LlmProviderKind.gemini => _buildGeminiBody(profile, request),
+        LlmProviderKind.zhipu ||
+        LlmProviderKind.openAiCompatible =>
+          _buildChatCompletionsBody(profile, request),
+      };
+      final uri = _buildUri(kind, profile);
+
       final streamed = await _send(uri, profile, body);
       if (streamed.statusCode != 200) {
         await _discard(streamed);
@@ -102,7 +107,9 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
         AiAnswerProviderFailure.malformedProviderOutput,
       );
     } catch (_) {
-      // No raw HTTP/provider exception may escape the adapter.
+      // Includes malformed provider configuration (raw URI/format failures):
+      // mapped to one safe typed category; the raw cause (which may contain
+      // the configured URI or, for Gemini, the credential) never escapes.
       throw const AiAnswerProviderException(
         AiAnswerProviderFailure.internalError,
       );
@@ -318,11 +325,18 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
     return completer.future;
   }
 
+  /// A non-success provider response body is never needed: its stream is
+  /// cancelled immediately without draining, so neither the raw-response byte
+  /// bound nor the request timeout can be bypassed, no body is ever buffered,
+  /// and the status mapping completes promptly. Cancellation noise (including
+  /// transport-level teardown errors) is swallowed; the typed status failure
+  /// has already been decided and never carries the body.
   Future<void> _discard(http.StreamedResponse response) async {
     try {
-      await response.stream.drain<void>();
+      final subscription = response.stream.listen(null);
+      await subscription.cancel().timeout(requestTimeout);
     } catch (_) {
-      // Best-effort connection release; never surfaces a raw body.
+      // Best-effort cancellation; never surfaces transport noise or body.
     }
   }
 
