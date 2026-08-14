@@ -8,6 +8,15 @@ import 'answer_candidate_review_session.dart';
 
 final _boundedTokenPattern = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$');
 
+/// P7 implementation defaults for the I0 ContentAnswer complexity bound.
+///
+/// Numeric values are implementation defaults, not durable architecture
+/// truth; they mirror the D1 adapter defaults at the Application trust
+/// boundary so an alternate/injected provider port cannot smuggle an
+/// over-limit answer past I0.
+const int _maxProviderAnswerNodes = 64;
+const int _maxProviderAnswerScalars = 8192;
+
 /// Safe typed failures of the P7-I0 AI answer generation use case.
 ///
 /// Semantics are frozen by the P7 contract. Target/content, provider/output,
@@ -277,11 +286,19 @@ final class AiAnswerGenerationService {
       );
     }
 
-    // 10. Final cancellation check immediately before Candidate exposure.
-    final lateBeforeExposure = _discardIfStale(storageId, epoch);
-    if (lateBeforeExposure != null) return lateBeforeExposure;
-
-    final generatedAt = _clock().toUtc();
+    // 10. Final synchronous construction. Every injected/local operation is
+    //     normalized: an unexpected clock or construction failure maps to
+    //     internalError; only provider provenance violating the typed
+    //     provider contract (invalid providerProfileId) maps to
+    //     validationFailed. No raw cause may escape.
+    final DateTime generatedAt;
+    try {
+      generatedAt = _clock().toUtc();
+    } catch (_) {
+      throw const AiAnswerGenerationException(
+        AiAnswerGenerationFailure.internalError,
+      );
+    }
 
     final AiAnswerOrigin origin;
     try {
@@ -298,19 +315,33 @@ final class AiAnswerGenerationService {
       );
     }
 
-    final candidate = AnswerCandidate(
-      candidateId: candidateId,
-      targetStorageId: captured.storageId,
-      targetBankName: captured.bankName,
-      expectedDraft: captured.draft,
-      answer: answer,
-      reviewOnlyExplanation: null,
-      writeIntent: writeIntent,
-      origin: origin,
-    );
-    final reviewSession = AnswerCandidateReviewSession(
-      candidates: <AnswerCandidate>[candidate],
-    );
+    final AnswerCandidate candidate;
+    final AnswerCandidateReviewSession reviewSession;
+    try {
+      candidate = AnswerCandidate(
+        candidateId: candidateId,
+        targetStorageId: captured.storageId,
+        targetBankName: captured.bankName,
+        expectedDraft: captured.draft,
+        answer: answer,
+        reviewOnlyExplanation: null,
+        writeIntent: writeIntent,
+        origin: origin,
+      );
+      reviewSession = AnswerCandidateReviewSession(
+        candidates: <AnswerCandidate>[candidate],
+      );
+    } catch (_) {
+      throw const AiAnswerGenerationException(
+        AiAnswerGenerationFailure.internalError,
+      );
+    }
+
+    // 11. Final cancellation/supersession gate immediately before outcome
+    //     exposure.
+    final lateBeforeExposure = _discardIfStale(storageId, epoch);
+    if (lateBeforeExposure != null) return lateBeforeExposure;
+
     return AiAnswerGenerationGenerated(
       candidate: candidate,
       reviewSession: reviewSession,
@@ -531,11 +562,38 @@ final class AiAnswerGenerationService {
             AiAnswerGenerationFailure.validationFailed,
           );
         }
+        // I0 re-enforces the frozen ContentAnswer complexity bound at the
+        // Application trust boundary; over-limit output fails closed.
+        if (answer.content.nodes.length > _maxProviderAnswerNodes) {
+          throw const AiAnswerGenerationException(
+            AiAnswerGenerationFailure.validationFailed,
+          );
+        }
+        if (_payloadScalars(answer.content) > _maxProviderAnswerScalars) {
+          throw const AiAnswerGenerationException(
+            AiAnswerGenerationFailure.validationFailed,
+          );
+        }
         return answer;
     }
   }
 
   // --- shared content helpers ---
+
+  int _payloadScalars(RichContent content) {
+    var total = 0;
+    for (final node in content.nodes) {
+      switch (node) {
+        case TextNode(:final text):
+          total += text.runes.length;
+        case InlineMathNode(:final latex) || BlockMathNode(:final latex):
+          total += latex.runes.length;
+        case RawFallbackNode():
+          break; // Already rejected before counting; never contributes.
+      }
+    }
+    return total;
+  }
 
   bool _containsRawFallback(RichContent content) {
     return content.nodes.any((node) => node is RawFallbackNode);

@@ -429,6 +429,74 @@ void main() {
     });
   });
 
+  group('ContentAnswer complexity bound', () {
+    AiAnswerProviderResult contentResult(List<ContentNode> nodes) {
+      return AiAnswerProviderResult(
+        answer: ContentAnswer(content: RichContent(nodes: nodes)),
+        providerProfileId: 'engine_001',
+      );
+    }
+
+    test('65 nodes -> validationFailed with zero Candidate', () async {
+      final harness = _Harness(
+        providerResult: contentResult([
+          for (var index = 0; index < 65; index++) TextNode('node'),
+        ]),
+      );
+      await expectLater(
+        harness.generate(),
+        throwsA(_generationFailure(AiAnswerGenerationFailure.validationFailed)),
+      );
+    });
+
+    test('exactly 64 valid nodes are accepted', () async {
+      final harness = _Harness(
+        providerResult: contentResult([
+          for (var index = 0; index < 64; index++) TextNode('node'),
+        ]),
+      );
+      expect(await harness.generate(), isA<AiAnswerGenerationGenerated>());
+    });
+
+    test('8193 Unicode scalars -> validationFailed with zero Candidate',
+        () async {
+      final harness = _Harness(
+        providerResult: contentResult([TextNode('a' * 8193)]),
+      );
+      await expectLater(
+        harness.generate(),
+        throwsA(_generationFailure(AiAnswerGenerationFailure.validationFailed)),
+      );
+    });
+
+    test('exactly 8192 Unicode scalars are accepted', () async {
+      final harness = _Harness(
+        providerResult: contentResult([TextNode('a' * 8192)]),
+      );
+      expect(await harness.generate(), isA<AiAnswerGenerationGenerated>());
+    });
+
+    test('scalar counting uses runes, not UTF-16 code units', () async {
+      // Each emoji is one Unicode scalar but two UTF-16 code units; 8192
+      // emoji would exceed an 8192 code-unit budget while staying inside
+      // the 8192-scalar bound.
+      final atBoundary = _Harness(
+        providerResult: contentResult([TextNode('😀' * 8192)]),
+      );
+      expect(
+        await atBoundary.generate(),
+        isA<AiAnswerGenerationGenerated>(),
+      );
+      final overLimit = _Harness(
+        providerResult: contentResult([TextNode('😀' * 8193)]),
+      );
+      await expectLater(
+        overLimit.generate(),
+        throwsA(_generationFailure(AiAnswerGenerationFailure.validationFailed)),
+      );
+    });
+  });
+
   group('F. stale target', () {
     test('stem changes during generation -> staleTarget, zero Candidate',
         () async {
@@ -814,6 +882,30 @@ void main() {
       }
     });
 
+    test('final clock failure maps to internalError with no raw cause',
+        () async {
+      // The clock succeeds for the initial read and the post-provider
+      // reload timestamps, then throws on the final generatedAt call.
+      var clockCalls = 0;
+      final harness = _Harness(
+        clock: () {
+          clockCalls++;
+          if (clockCalls >= 3) {
+            throw StateError('SENTINEL_CLOCK_FAILURE');
+          }
+          return DateTime.utc(2026, 8, 20, 12);
+        },
+      );
+      try {
+        await harness.generate();
+        fail('expected internalError');
+      } on AiAnswerGenerationException catch (error) {
+        expect(error.failure, AiAnswerGenerationFailure.internalError);
+        expect(error.toString(), isNot(contains('SENTINEL_CLOCK_FAILURE')));
+      }
+      expect(clockCalls, 3);
+    });
+
     test('every failure renders a fixed safe message', () {
       for (final failure in AiAnswerGenerationFailure.values) {
         final message = AiAnswerGenerationException(failure).toString();
@@ -929,6 +1021,7 @@ class _Harness {
     bool deferred = false,
     StudyQuestionRead? questionRead,
     Object? readError,
+    DateTime Function()? clock,
   })  : provider = _FakeProviderPort(
           result: providerResult ??
               AiAnswerProviderResult(
@@ -959,7 +1052,7 @@ class _Harness {
       questionPort: question,
       providerPort: provider,
       idFactory: () => 'token_${counter++}',
-      clock: () => DateTime.utc(2026, 8, 20, 12),
+      clock: clock ?? () => DateTime.utc(2026, 8, 20, 12),
     );
   }
 
