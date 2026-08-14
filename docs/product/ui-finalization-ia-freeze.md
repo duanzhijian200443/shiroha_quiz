@@ -1,8 +1,8 @@
 # UI Finalization — Final Information Architecture Freeze
 
 Status: **Canonical UI Finalization Presentation / Navigation authority.
-UI-R0 and UI-R1 are COMPLETE. UI-CL is NOT STARTED. UI Finalization
-itself is NOT CLOSED yet.**
+UI-R0, UI-R1, and UI-CL are COMPLETE. UI Finalization v0 Presentation /
+Navigation is CLOSED / FROZEN.**
 
 This document freezes the final Shiroha Presentation / Navigation
 information architecture so that the remaining UI Finalization stages
@@ -260,34 +260,47 @@ start from the exact master SHA after this UI-R0 freeze is merged.
 - **H. Responsive** — desktop and narrow/mobile navigation produce no
   unreachable destination.
 
-## 10. UI-CL definition
+## 10. UI-CL definition and closure
 
-UI-CL occurs only **after** UI-R1 merges and is reviewed. Its purpose:
+UI-CL occurred **after** UI-R1 merged and was reviewed. It verified:
 
-- verify the frozen three-tab IA;
-- verify the Today mode organization;
-- verify the exam migration;
-- verify Assistant / Profile regressions;
-- verify responsive navigation;
+- the frozen three-tab IA;
+- the Today mode organization;
+- the exam migration (including the embedded exam create-exam FAB / paper
+  composition menu);
+- Assistant / Profile reachability regressions;
+- narrow (360x720) and wide (1024x768) responsive navigation;
 - canonical status closure.
 
-Current status after UI-R1:
+Current status after UI-CL:
 
 ```text
 UI-R0  COMPLETE
 UI-R1  COMPLETE
-UI-CL  NOT STARTED
+UI-CL  COMPLETE
+UI Finalization v0 — CLOSED / FROZEN
 ```
 
-UI-R1 completes the final Today shell and the bounded navigation migration
-(three-tab primary navigation; Today 普通 / 特训 / 考试; the Mock/Exam
-capability reachable through Today -> 考试). The plan-driven 特训 capability
-itself remains dependent on a future real Active StudyPlan capability and is
-not claimed complete: without that capability, 特训 shows only the genuine
-dependency-not-ready state.
+Closure meaning: the final three-tab IA (今日 | 助手 | 我的), the Today
+普通 / 特训 / 考试 shell, the Mock/Exam migration (Today -> 考试 as the only
+formal user-facing primary Exam entry), Assistant and Profile reachability,
+and the narrow + wide responsive acceptance are verified. The current UI
+Finalization v0 Presentation / Navigation contract is stable and frozen;
+future UI changes require separate explicitly authorized work.
 
-UI Finalization itself is **not** closed yet; this document must not state
-UI-CL COMPLETE.
+CLOSED / FROZEN applies to the UI Finalization v0 Presentation / Navigation
+contract. It does not mean the whole application UI can never change, that
+future visual polish is forbidden forever, that RAG-2/3 are activated, or
+that any future feature is auto-authorized.
+
+### StudyPlan boundary (preserved)
+
+The plan-driven 特训 capability remains outside the completed UI
+Finalization capability while no real Active StudyPlan exists. The current
+valid state is 特训 -> dependency-not-ready, which UI-R0 froze as the valid
+no-StudyPlan state; it does not block UI Finalization closure. A future real
+StudyPlan integration requires a separate explicitly authorized
+stage/contract.
 
 ## 11. Non-goals and stop conditions
 
