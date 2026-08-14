@@ -1,6 +1,6 @@
 # P7 AI Answer Candidates — Focused Canonical Contract
 
-Status: **Canonical P7 authority. P7-P0 (docs-only), P7-D0a, P7-D0b, P7-D1, P7-I0, and P7-C0 are COMPLETE; P7-U0 and later are NOT STARTED.**
+Status: **Canonical P7 authority. P7-P0 (docs-only), P7-D0a, P7-D0b, P7-D1, P7-I0, P7-C0, and P7-U0 are COMPLETE; P7-V0 and later are NOT STARTED.**
 
 This document is the authoritative contract for P7 v0 AI answer candidates:
 the producer boundary, content admission, provider boundary, typed
@@ -433,12 +433,12 @@ Definitions:
 - P7-D1 provider port + strict adapter / validation — COMPLETE;
 - P7-I0 AI generation Application use case — COMPLETE;
 - P7-C0 confirmation + transactional persistence adapter — COMPLETE;
-- P7-U0 minimal typed-question Presentation integration — NOT STARTED;
+- P7-U0 minimal typed-question Presentation integration — COMPLETE;
 - P7-V0 focused validation / privacy / concurrency / acceptance —
   NOT STARTED;
 - P7-CL canonical closure — NOT STARTED.
 
-All P7 implementation stages are SERIAL. P7-U0 and later remain NOT
+All P7 implementation stages are SERIAL. P7-V0 and later remain NOT
 STARTED; this stage graph is the frozen route only, and no later stage may
 be executed by an earlier stage.
 

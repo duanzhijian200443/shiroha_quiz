@@ -14,6 +14,8 @@ class PersistedQuestionCard extends StatelessWidget {
     required this.onDelete,
     this.onEditLegacy,
     this.onRepairTypedAnswer,
+    this.onAiAnswer,
+    this.aiBusy = false,
   });
 
   final PersistedQuestionView question;
@@ -26,6 +28,15 @@ class PersistedQuestionCard extends StatelessWidget {
   /// Only non-null for typed rows: opens the typed answer-only repair
   /// screen. Legacy rows pass null.
   final VoidCallback? onRepairTypedAnswer;
+
+  /// Only non-null for typed rows: requests the P7 AI answer generation for
+  /// this question. The card only emits the callback; orchestration stays in
+  /// the list screen. Legacy rows pass null.
+  final VoidCallback? onAiAnswer;
+
+  /// True while the list screen is generating an AI answer for this
+  /// question: the AI entry is disabled and shows a busy indicator.
+  final bool aiBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -307,6 +318,30 @@ class PersistedQuestionCard extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        if (isTyped && onAiAnswer != null) ...[
+          if (aiBusy)
+            const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            TextButton.icon(
+              onPressed: onAiAnswer,
+              icon: const Icon(
+                Icons.smart_toy_outlined,
+                size: 16,
+                color: Colors.teal,
+              ),
+              label: const Text(
+                'AI 生成答案',
+                style: TextStyle(color: Colors.teal),
+              ),
+            ),
+        ],
         TextButton.icon(
           icon: Icon(Icons.edit_note_rounded, size: 16, color: color),
           label: Text('编辑题目', style: TextStyle(color: color)),
