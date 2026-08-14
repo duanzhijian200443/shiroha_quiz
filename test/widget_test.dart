@@ -198,6 +198,14 @@ void main() {
   testWidgets(
       'App exposes the canonical Assistant navigation and selected state',
       (WidgetTester tester) async {
+    // A tall viewport materializes the whole Profile ListView so the key
+    // settings rows are built without scrolling (closure only proves the
+    // entries still exist; it does not open them).
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final engineRepository = AiEngineRepository(
       store: DatabaseHelper.instance,
       credentialStore: MemoryEngineCredentialStore(),
@@ -294,5 +302,48 @@ void main() {
     final decoration = selectedProfileIcon.decoration! as BoxDecoration;
     expect(decoration.color, const Color(0xFFEAF1FF));
     expect(decoration.borderRadius, BorderRadius.circular(12));
+
+    // Profile key settings entries remain reachable after the 3-tab
+    // migration (load completes through real async; closure only proves the
+    // entries still exist, it does not open them).
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+      findsOneWidget,
+    );
+    final aiServiceRow =
+        find.byKey(const ValueKey<String>('profile-ai-service-row'));
+    expect(aiServiceRow, findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Let any remaining background DB work finish, then elapse fake time so
+    // no sqflite lock-warning timer is left pending at teardown.
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+      await tester.pump();
+    }
+    await tester.pump(const Duration(seconds: 11));
   });
+}
+
+Future<void> pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  int maxFrames = 80,
+}) async {
+  for (var frame = 0; frame < maxFrames; frame++) {
+    await tester.pump();
+    if (finder.evaluate().isNotEmpty) {
+      return;
+    }
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 25)),
+    );
+  }
+  fail('Expected widget did not appear within ${maxFrames * 25} ms: $finder');
 }

@@ -227,4 +227,54 @@ void main() {
     await pumpUntilFound(tester, find.text('暂无试卷记录'));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'embedded exam mode keeps the create-exam FAB and bottom sheet menu',
+      (tester) async {
+    await pumpHome(tester);
+
+    // Switch to 考试 and wait until the embedded Mock center is loaded.
+    await tester.tap(find.byKey(const ValueKey('today-mode-exam')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('today-exam-surface')), findsOneWidget);
+    await pumpUntilFound(tester, find.text('暂无试卷记录'));
+
+    // The embedded surface must keep the existing create-exam entry.
+    final fab = find.byType(FloatingActionButton);
+    expect(fab, findsOneWidget,
+        reason: 'embedded exam mode must not lose the create-exam FAB');
+    await tester.tap(fab);
+    await pumpUntilFound(tester, find.text('组装新试卷'));
+    expect(find.text('组装新试卷'), findsOneWidget);
+    expect(find.text('AI 魔法组卷'), findsOneWidget);
+    expect(find.text('经典随机抽卷'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'wide viewport 1024x768: Today selector does not overflow and every '
+      'mode is reachable', (tester) async {
+    await pumpHome(tester, size: const Size(1024, 768));
+
+    expect(find.byKey(const ValueKey('today-mode-ordinary')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-mode-focused')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-mode-exam')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('today-mode-focused')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('today-focused-unavailable')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('today-mode-exam')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('today-exam-surface')), findsOneWidget);
+    await pumpUntilFound(tester, find.text('暂无试卷记录'));
+
+    await tester.tap(find.byKey(const ValueKey('today-mode-ordinary')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('home-training-card')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
