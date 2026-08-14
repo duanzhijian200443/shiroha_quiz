@@ -39,11 +39,20 @@ final class SupplementalAnswerConfirmCommand {
 
   Future<void> confirm(SupplementalAnswerConfirmation confirmation) async {
     final candidate = confirmation.candidate;
+    // The P6 confirm path is Supplemental-only. A foreign producer origin
+    // fails closed with a typed failure before any seam is touched; no
+    // blind cast or runtime CastError can escape.
+    final origin = switch (candidate.origin) {
+      SupplementalAnswerOrigin origin => origin,
+      AiAnswerOrigin() => throw const SupplementalAnswerException(
+          SupplementalAnswerFailure.invalidCandidate,
+        ),
+    };
 
     final ParsedArtifactSnapshot snapshot;
     try {
       snapshot = await _artifactPort.getCurrentArtifact(
-        candidate.supplementalFileId,
+        origin.supplementalFileId,
       );
     } on ParsedArtifactLifecycleException catch (error) {
       throw SupplementalAnswerException(
@@ -52,8 +61,8 @@ final class SupplementalAnswerConfirmCommand {
     }
 
     final artifact = snapshot.artifact;
-    if (artifact.artifactId != candidate.artifactId ||
-        artifact.revision != candidate.artifactRevision) {
+    if (artifact.artifactId != origin.artifactId ||
+        artifact.revision != origin.artifactRevision) {
       throw const SupplementalAnswerException(
         SupplementalAnswerFailure.staleTarget,
       );

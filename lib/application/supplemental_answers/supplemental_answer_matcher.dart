@@ -268,14 +268,16 @@ final class SupplementalAnswerMatcher {
       targetStorageId: target.storageId,
       targetBankName: target.bankName,
       expectedDraft: target.draft,
-      supplementalFileId: artifact.supplementalFileId,
-      artifactId: artifact.artifactId,
-      artifactRevision: artifact.artifactRevision,
       answer: answer,
       reviewOnlyExplanation: fragment.explanationContent,
-      supplementalSourceRefs: fragment.sourceRefs,
-      matchEvidence: evidence,
       writeIntent: writeIntent,
+      origin: SupplementalAnswerOrigin(
+        supplementalFileId: artifact.supplementalFileId,
+        artifactId: artifact.artifactId,
+        artifactRevision: artifact.artifactRevision,
+        supplementalSourceRefs: fragment.sourceRefs,
+        matchEvidence: evidence,
+      ),
     );
     return _ResolvedFragment(
       fragment: fragment,
@@ -396,21 +398,23 @@ List<_MergedItem> _mergeDuplicateLocators(
     }
     final first = candidates.first;
     final sourceRefs = <SourceRef>[
-      for (final item in items) ...item.candidate!.supplementalSourceRefs,
+      for (final item in items) ..._supplementalSourceRefs(item.candidate!),
     ];
     final candidate = AnswerCandidate(
       candidateId: first.candidateId,
       targetStorageId: first.targetStorageId,
       targetBankName: first.targetBankName,
       expectedDraft: first.expectedDraft,
-      supplementalFileId: first.supplementalFileId,
-      artifactId: first.artifactId,
-      artifactRevision: first.artifactRevision,
       answer: first.answer,
       reviewOnlyExplanation: first.reviewOnlyExplanation,
-      supplementalSourceRefs: sourceRefs,
-      matchEvidence: first.matchEvidence,
       writeIntent: first.writeIntent,
+      origin: SupplementalAnswerOrigin(
+        supplementalFileId: artifact.supplementalFileId,
+        artifactId: artifact.artifactId,
+        artifactRevision: artifact.artifactRevision,
+        supplementalSourceRefs: sourceRefs,
+        matchEvidence: _supplementalEvidence(first),
+      ),
     );
     merged.add(
       _MergedItem.single(
@@ -420,7 +424,7 @@ List<_MergedItem> _mergeDuplicateLocators(
               ? AnswerMatchDisposition.conflict
               : AnswerMatchDisposition.matched,
           certainty: MatchCertainty.deterministic,
-          evidence: first.matchEvidence,
+          evidence: _supplementalEvidence(first),
           candidate: candidate,
         ),
       ),
@@ -531,7 +535,7 @@ List<_MergedItem> _composeSubquestions(
     ];
     final sourceRefs = <SourceRef>[
       for (final item in ordered)
-        ...item.resolved.candidate!.supplementalSourceRefs,
+        ..._supplementalSourceRefs(item.resolved.candidate!),
     ];
     final composedAnswer = ContentAnswer(content: RichContent(nodes: nodes));
     final currentAnswer = target.draft.answer;
@@ -540,22 +544,25 @@ List<_MergedItem> _composeSubquestions(
         : (composedAnswer == currentAnswer
             ? CandidateWriteIntent.noOp
             : CandidateWriteIntent.replace);
+    final evidence = const <MatchEvidenceCode>[
+      MatchEvidenceCode.uniqueMainNumber,
+      MatchEvidenceCode.mainNumberAndSubquestion,
+    ];
     final candidate = AnswerCandidate(
       candidateId: 'cand_${entry.key}_${target.storageId}',
       targetStorageId: target.storageId,
       targetBankName: target.bankName,
       expectedDraft: target.draft,
-      supplementalFileId: artifact.supplementalFileId,
-      artifactId: artifact.artifactId,
-      artifactRevision: artifact.artifactRevision,
       answer: composedAnswer,
       reviewOnlyExplanation: null,
-      supplementalSourceRefs: sourceRefs,
-      matchEvidence: const <MatchEvidenceCode>[
-        MatchEvidenceCode.uniqueMainNumber,
-        MatchEvidenceCode.mainNumberAndSubquestion,
-      ],
       writeIntent: writeIntent,
+      origin: SupplementalAnswerOrigin(
+        supplementalFileId: artifact.supplementalFileId,
+        artifactId: artifact.artifactId,
+        artifactRevision: artifact.artifactRevision,
+        supplementalSourceRefs: sourceRefs,
+        matchEvidence: evidence,
+      ),
     );
     result.add(
       _MergedItem.single(
@@ -565,7 +572,7 @@ List<_MergedItem> _composeSubquestions(
               ? AnswerMatchDisposition.conflict
               : AnswerMatchDisposition.matched,
           certainty: MatchCertainty.deterministic,
-          evidence: candidate.matchEvidence,
+          evidence: _supplementalEvidence(candidate),
           candidate: candidate,
         ),
       ),
@@ -597,6 +604,32 @@ final class _MergedItem {
         candidate: resolved.candidate,
         alternatives: resolved.alternatives,
       );
+}
+
+/// Ordered supplemental source refs of a matcher-produced candidate.
+///
+/// The matcher only ever builds Supplemental origins; the exhaustive switch
+/// fails closed with a programming-error `StateError` if a foreign producer
+/// origin ever reaches merge/composition, instead of casting blindly.
+List<SourceRef> _supplementalSourceRefs(AnswerCandidate candidate) {
+  return switch (candidate.origin) {
+    SupplementalAnswerOrigin(:final supplementalSourceRefs) =>
+      supplementalSourceRefs,
+    AiAnswerOrigin() => throw StateError(
+        'Matcher candidates must carry a SupplementalAnswerOrigin.',
+      ),
+  };
+}
+
+/// Typed match evidence of a matcher-produced candidate (see
+/// [_supplementalSourceRefs] for the fail-closed contract).
+List<MatchEvidenceCode> _supplementalEvidence(AnswerCandidate candidate) {
+  return switch (candidate.origin) {
+    SupplementalAnswerOrigin(:final matchEvidence) => matchEvidence,
+    AiAnswerOrigin() => throw StateError(
+        'Matcher candidates must carry a SupplementalAnswerOrigin.',
+      ),
+  };
 }
 
 Set<String> _expectedSubquestionNumbers(RichContent stem) {

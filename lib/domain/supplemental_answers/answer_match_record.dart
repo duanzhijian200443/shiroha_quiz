@@ -1,5 +1,10 @@
+import '../answers/answer_candidate.dart';
 import '../question/question_draft_v2.dart';
-import 'answer_candidate.dart';
+
+/// The typed Supplemental match-evidence vocabulary re-exported from the
+/// canonical producer-neutral candidate library so existing importers keep
+/// compiling.
+export '../answers/answer_candidate.dart' show MatchEvidenceCode;
 
 /// Disposition of one source fragment after deterministic matching.
 ///
@@ -26,75 +31,6 @@ enum MatchCertainty {
   deterministic,
   ambiguous,
   none,
-}
-
-/// Typed evidence codes recorded on a match.
-///
-/// Codes are stable semantic labels, not scores. They may rank review
-/// alternatives internally but are never persisted and never exposed as
-/// probability.
-enum MatchEvidenceCode {
-  /// Scope-unique exact normalized main number.
-  uniqueMainNumber,
-
-  /// Unique main number plus explicit subquestion proof.
-  mainNumberAndSubquestion,
-
-  /// No number, but scope-unique exact normalized full stem fingerprint.
-  uniqueStemFingerprint,
-
-  /// Same-locator continuation group that still resolves uniquely.
-  continuationGroup,
-
-  /// Question type / answer shape passed the hard compatibility filter.
-  typeCompatible,
-
-  /// Local heading/section context corroboration.
-  headingCorroboration,
-
-  /// Source relationship corroboration.
-  sourceCorroboration,
-
-  /// Sequence/neighborhood consistency (corroboration only).
-  neighborhoodConsistency,
-
-  /// Duplicate locator without a unique sub/stem proof.
-  duplicateLocator,
-
-  /// Only sequence/neighborhood evidence is available.
-  sequenceOnly,
-
-  /// The fragment has no usable locator or stem identity.
-  noLocator,
-
-  /// A plausible target exists but no primary identity proof is available.
-  missingPrimaryProof,
-
-  /// The target failed the hard question-type/answer-shape compatibility
-  /// filter.
-  typeIncompatible,
-
-  /// The supplemental answer contains content that cannot become a writable
-  /// typed answer (for example a raw fallback node).
-  unsupportedContent,
-
-  /// The source fragment maps to multiple targets.
-  multipleTargets,
-
-  /// The expected transient subquestion set is not uniquely and completely
-  /// covered by the source fragments.
-  subquestionSetMismatch,
-
-  /// Mutually conflicting answer fragments for one target.
-  sourceConflict,
-
-  /// The supplemental single-choice label cannot map uniquely to a current
-  /// option label.
-  ambiguousChoiceLabel,
-
-  /// The target is a legacy (non-typed) question and is visible but
-  /// ineligible.
-  legacyIneligible,
 }
 
 /// One deterministic target reference used for alternatives and coverage.

@@ -100,27 +100,31 @@ void main() {
   });
 
   group('AnswerCandidate', () {
-    test('binds target, artifact generation, and typed answer', () {
+    test('binds target, typed answer, and a Supplemental origin', () {
       final draft = _draft();
       final candidate = AnswerCandidate(
         candidateId: 'candidate_001',
         targetStorageId: 'question_001',
         targetBankName: 'bank_math',
         expectedDraft: draft,
-        supplementalFileId: 'file_001',
-        artifactId: 'artifact_001',
-        artifactRevision: 2,
         answer: ContentAnswer(content: _text('x = 2')),
-        supplementalSourceRefs: [
-          SourceRef.document(sourceId: 'artifact_001'),
-        ],
-        matchEvidence: const [MatchEvidenceCode.uniqueMainNumber],
         writeIntent: CandidateWriteIntent.fill,
+        origin: SupplementalAnswerOrigin(
+          supplementalFileId: 'file_001',
+          artifactId: 'artifact_001',
+          artifactRevision: 2,
+          supplementalSourceRefs: [
+            SourceRef.document(sourceId: 'artifact_001'),
+          ],
+          matchEvidence: const [MatchEvidenceCode.uniqueMainNumber],
+        ),
       );
       expect(candidate.targetStorageId, 'question_001');
-      expect(candidate.artifactId, 'artifact_001');
-      expect(candidate.artifactRevision, 2);
       expect(candidate.writeIntent, CandidateWriteIntent.fill);
+      final origin = candidate.origin as SupplementalAnswerOrigin;
+      expect(origin.supplementalFileId, 'file_001');
+      expect(origin.artifactId, 'artifact_001');
+      expect(origin.artifactRevision, 2);
       expect(
         candidate,
         AnswerCandidate(
@@ -128,57 +132,46 @@ void main() {
           targetStorageId: 'question_001',
           targetBankName: 'bank_math',
           expectedDraft: draft,
-          supplementalFileId: 'file_001',
-          artifactId: 'artifact_001',
-          artifactRevision: 2,
           answer: ContentAnswer(content: _text('x = 2')),
-          supplementalSourceRefs: [
-            SourceRef.document(sourceId: 'artifact_001'),
-          ],
-          matchEvidence: const [MatchEvidenceCode.uniqueMainNumber],
           writeIntent: CandidateWriteIntent.fill,
+          origin: SupplementalAnswerOrigin(
+            supplementalFileId: 'file_001',
+            artifactId: 'artifact_001',
+            artifactRevision: 2,
+            supplementalSourceRefs: [
+              SourceRef.document(sourceId: 'artifact_001'),
+            ],
+            matchEvidence: const [MatchEvidenceCode.uniqueMainNumber],
+          ),
         ),
       );
     });
 
-    test('rejects source refs that leave the bound artifact', () {
-      final draft = _draft();
+    test('Supplemental origin rejects refs that leave the bound artifact', () {
       expect(
-        () => AnswerCandidate(
-          candidateId: 'candidate_bad',
-          targetStorageId: 'question_001',
-          targetBankName: 'bank_math',
-          expectedDraft: draft,
+        () => SupplementalAnswerOrigin(
           supplementalFileId: 'file_001',
           artifactId: 'artifact_001',
           artifactRevision: 1,
-          answer: ContentAnswer(content: _text('x = 2')),
           supplementalSourceRefs: [
             SourceRef.document(sourceId: 'artifact_other'),
           ],
           matchEvidence: const [MatchEvidenceCode.uniqueMainNumber],
-          writeIntent: CandidateWriteIntent.fill,
         ),
         throwsFormatException,
       );
     });
 
-    test('rejects non-positive artifact revision', () {
+    test('Supplemental origin rejects non-positive artifact revision', () {
       expect(
-        () => AnswerCandidate(
-          candidateId: 'candidate_bad',
-          targetStorageId: 'question_001',
-          targetBankName: 'bank_math',
-          expectedDraft: _draft(),
+        () => SupplementalAnswerOrigin(
           supplementalFileId: 'file_001',
           artifactId: 'artifact_001',
           artifactRevision: 0,
-          answer: ContentAnswer(content: _text('x = 2')),
           supplementalSourceRefs: [
             SourceRef.document(sourceId: 'artifact_001'),
           ],
           matchEvidence: const [MatchEvidenceCode.uniqueMainNumber],
-          writeIntent: CandidateWriteIntent.fill,
         ),
         throwsFormatException,
       );
