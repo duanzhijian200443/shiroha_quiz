@@ -379,7 +379,9 @@ boundary remains frozen and applies to any future P7 extension:
 The final Presentation / Navigation IA authority is
 `docs/product/ui-finalization-ia-freeze.md`. The final primary navigation
 is Today / Assistant / Profile (user-facing labels 今日 / 助手 / 我的),
-and Today owns the 普通 / 特训 / 考试 mode organization. The focused UI
-Finalization contract governs only those Presentation decisions and does
-not alter any domain, application, persistence, provider, or schema
-boundary recorded in this document.
+and Today owns the 普通 / 特训 / 考试 mode organization. UI Finalization v0
+Presentation / Navigation is CLOSED / FROZEN; future UI changes require
+separate explicitly authorized work. The focused UI Finalization contract
+governs only those Presentation decisions and does not alter any domain,
+application, persistence, provider, or schema boundary recorded in this
+document.
