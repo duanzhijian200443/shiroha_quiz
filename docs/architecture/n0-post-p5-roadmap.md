@@ -60,7 +60,8 @@ P7-I0 AI generation Application use case — COMPLETE
 P7-C0 Confirmation + transactional answer-only persistence — COMPLETE
 P7-U0 Minimal typed-question Presentation integration — COMPLETE
 P7-V0 Focused validation / privacy / concurrency / acceptance — COMPLETE
-P7-CL and later — NOT STARTED
+P7-CL Canonical closure — COMPLETE
+P7 v0 — CLOSED / FROZEN
 RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
@@ -373,7 +374,7 @@ are COMPLETE, and the P6 write path reuses the existing typed answer mutation
 authority rather than creating a second answer writer. P7-P0 froze the
 focused P7 v0 contract in `docs/architecture/p7-ai-answer-candidates.md` and
 is COMPLETE (docs-only); P7-D0a, P7-D0b, P7-D1, P7-I0, P7-C0, P7-U0, and
-P7-V0 are COMPLETE, and P7-CL and later remain NOT STARTED.
+P7-V0 are COMPLETE, P7-CL is COMPLETE, and P7 v0 is CLOSED / FROZEN.
 
 ## 5. Explicit non-goals for this roadmap
 

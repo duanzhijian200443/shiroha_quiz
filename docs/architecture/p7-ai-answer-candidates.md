@@ -1,6 +1,6 @@
 # P7 AI Answer Candidates — Focused Canonical Contract
 
-Status: **Canonical P7 authority. P7-P0 (docs-only), P7-D0a, P7-D0b, P7-D1, P7-I0, P7-C0, P7-U0, and P7-V0 are COMPLETE; P7-CL and later are NOT STARTED.**
+Status: **Canonical P7 authority. P7-P0 (docs-only) through P7-CL are COMPLETE; P7 v0 is CLOSED / FROZEN.**
 
 This document is the authoritative contract for P7 v0 AI answer candidates:
 the producer boundary, content admission, provider boundary, typed
@@ -436,11 +436,15 @@ Definitions:
 - P7-U0 minimal typed-question Presentation integration — COMPLETE;
 - P7-V0 focused validation / privacy / concurrency / acceptance —
   COMPLETE;
-- P7-CL canonical closure — NOT STARTED.
+- P7-CL canonical closure — COMPLETE.
 
-All P7 implementation stages are SERIAL. P7-CL and later remain NOT
-STARTED; this stage graph is the frozen route only, and no later stage may
-be executed by an earlier stage.
+All P7 implementation stages are SERIAL and the graph is now complete: P7
+v0 is CLOSED / FROZEN. The closure freezes the implemented contract and its
+acceptance baseline. Future functionality such as source-assisted
+generation, generated/persisted explanations, additional question kinds,
+persisted AI jobs/Candidates, or automatic RAG access is NOT a
+continuation implicitly authorized by P7; each requires a separate
+explicitly authorized additive contract/stage.
 
 ## 16. Non-goals
 
