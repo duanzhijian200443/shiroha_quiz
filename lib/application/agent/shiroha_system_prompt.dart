@@ -16,6 +16,7 @@ final class ShirohaSystemPrompt {
     required ConversationScope scope,
     required bool proposalCapabilityEnabled,
     bool retrievalCapabilityEnabled = false,
+    Set<String> retrievableFileIds = const <String>{},
     List<ConversationFileRef> files = const <ConversationFileRef>[],
   }) {
     final buffer = StringBuffer()
@@ -101,8 +102,10 @@ final class ShirohaSystemPrompt {
             ? 'Attached files (content access is limited by the active grant):'
             : 'Attached files (metadata only; contents unavailable):');
       for (final file in files) {
+        final isRetrievable = retrievalCapabilityEnabled &&
+            retrievableFileIds.contains(file.fileId);
         buffer.writeln(
-          '- ${retrievalCapabilityEnabled ? 'file_id=${_metadataLine(file.fileId)}; ' : ''}'
+          '- ${isRetrievable ? 'file_id=${_metadataLine(file.fileId)}; ' : ''}'
           '${_metadataLine(file.displayName)} '
           '(${_metadataLine(file.mimeType)}, ${file.sizeBytes} bytes)',
         );

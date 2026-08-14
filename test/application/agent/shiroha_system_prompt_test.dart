@@ -139,18 +139,27 @@ void main() {
       scope: ConversationScope.global(),
       proposalCapabilityEnabled: false,
       retrievalCapabilityEnabled: true,
+      retrievableFileIds: const <String>{'file-approved-id'},
       files: const <ConversationFileRef>[
         ConversationFileRef(
-          fileId: 'file-private-id',
+          fileId: 'file-approved-id',
           displayName: 'notes.pdf',
           mimeType: 'application/pdf',
           sizeBytes: 1024,
+        ),
+        ConversationFileRef(
+          fileId: 'file-metadata-only-id',
+          displayName: 'other.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 2048,
         ),
       ],
     );
     expect(prompt, contains('retrieve_file_content'));
     expect(prompt, contains('retrieve_file_content before study tools'));
-    expect(prompt, contains('file_id=file-private-id'));
+    expect(prompt, contains('file_id=file-approved-id'));
+    expect(prompt, contains('other.pdf'));
+    expect(prompt, isNot(contains('file_id=file-metadata-only-id')));
     expect(prompt, contains('same name and arguments'));
     expect(prompt, contains('for this turn'));
     expect(prompt, isNot(contains('contents unavailable')));

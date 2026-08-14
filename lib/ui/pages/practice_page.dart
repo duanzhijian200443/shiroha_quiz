@@ -246,12 +246,15 @@ class _PracticePageState extends State<PracticePage> {
   // ==============================
 
   Widget _buildMarkdown(String text,
-      {bool isOption = false, bool isSelected = false}) {
+      {bool isOption = false,
+      bool isSelected = false,
+      Color? optionTextColor}) {
     final theme = Theme.of(context);
     final textColor = isOption
-        ? (isSelected
-            ? theme.colorScheme.primary
-            : theme.textTheme.bodyLarge?.color)
+        ? (optionTextColor ??
+            (isSelected
+                ? theme.colorScheme.primary
+                : theme.textTheme.bodyLarge?.color))
         : theme.textTheme.bodyLarge?.color;
     final fontWeight =
         (isOption && isSelected) ? FontWeight.bold : FontWeight.normal;
@@ -455,12 +458,14 @@ class _PracticePageState extends State<PracticePage> {
         Color bg = colors.surfaceContainerLow, border = colors.outlineVariant;
         Color lBg = colors.secondaryContainer,
             lFg = colors.onSecondaryContainer;
+        var bodyFg = colors.onSurface;
 
         if (sel) {
           bg = colors.primaryContainer;
           border = colors.primary;
           lBg = colors.primary;
           lFg = colors.onPrimary;
+          bodyFg = colors.onPrimaryContainer;
         }
 
         if (_isAnswerRevealed && _currentQuestion != null) {
@@ -473,11 +478,13 @@ class _PracticePageState extends State<PracticePage> {
             border = colors.tertiary;
             lBg = colors.tertiary;
             lFg = colors.onTertiary;
+            bodyFg = colors.onTertiaryContainer;
           } else if (sel && !isCorrect) {
             bg = colors.errorContainer;
             border = colors.error;
             lBg = colors.error;
             lFg = colors.onError;
+            bodyFg = colors.onErrorContainer;
           }
         }
 
@@ -518,13 +525,10 @@ class _PracticePageState extends State<PracticePage> {
                   child: Builder(
                     builder: (context) {
                       if (isTypedOption) {
-                        final theme = Theme.of(context);
                         return RichContentRenderer(
                           content: option.typedContent!,
                           fontSize: 15,
-                          textColor: sel
-                              ? theme.colorScheme.primary
-                              : theme.textTheme.bodyLarge?.color,
+                          textColor: bodyFg,
                           fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                         );
                       }
@@ -538,6 +542,7 @@ class _PracticePageState extends State<PracticePage> {
                         stripped,
                         isOption: true,
                         isSelected: sel,
+                        optionTextColor: bodyFg,
                       );
                     },
                   ),

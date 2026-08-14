@@ -271,6 +271,8 @@ final class ShirohaAgentRuntime {
       files: slice.files,
       proposalCapabilityEnabled: proposalCapabilityEnabled,
       retrievalCapabilityEnabled: retrievalGrant != null,
+      retrievableFileIds:
+          retrievalGrant?.approvedFileIds.toSet() ?? const <String>{},
     );
     final tools = <AgentFunctionToolDefinition>[
       ...AgentStudyToolCatalog.definitions,

@@ -46,6 +46,8 @@ void main() {
       AnimatedContainer option() => tester.widget<AnimatedContainer>(
             find.byKey(const ValueKey<String>('practice-option-0')),
           );
+      Color optionTextColor(String text) =>
+          tester.widget<Text>(find.text(text)).style!.color!;
       expect(
         (option().decoration! as BoxDecoration).color,
         scheme.surfaceContainerLow,
@@ -56,13 +58,17 @@ void main() {
       );
 
       await tester.tap(
-        find.byKey(const ValueKey<String>('practice-option-0')),
+        find.byKey(const ValueKey<String>('practice-option-1')),
       );
       await tester.pumpAndSettle();
+      AnimatedContainer selectedOption() => tester.widget<AnimatedContainer>(
+            find.byKey(const ValueKey<String>('practice-option-1')),
+          );
       expect(
-        (option().decoration! as BoxDecoration).color,
+        (selectedOption().decoration! as BoxDecoration).color,
         scheme.primaryContainer,
       );
+      expect(optionTextColor('Two'), scheme.onPrimaryContainer);
 
       await tester.tap(
         find.byKey(const ValueKey<String>('practice-reveal-answer')),
@@ -72,6 +78,12 @@ void main() {
         (option().decoration! as BoxDecoration).color,
         scheme.tertiaryContainer,
       );
+      expect(optionTextColor('One'), scheme.onTertiaryContainer);
+      expect(
+        (selectedOption().decoration! as BoxDecoration).color,
+        scheme.errorContainer,
+      );
+      expect(optionTextColor('Two'), scheme.onErrorContainer);
 
       final gradeBar = tester.widget<Container>(
         find.byKey(const ValueKey<String>('practice-grade-bar')),

@@ -175,6 +175,30 @@ void main() {
       expect(harness.retrievalScope.calls, 0);
     });
 
+    test('prompt exposes retrieval identity only for the approved snapshot',
+        () async {
+      final harness =
+          _Harness(wireRetrieval: true, scripts: <_Script>[_finalAnswer('ok')]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+        fileIds: const <String>['file-1', 'file-2'],
+      );
+
+      final result = await harness.runtime
+          .startTurnWithRetrieval(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+            approval: RetrievalEgressApproval(const <String>['file-1']),
+          )
+          .result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      final prompt = harness.provider.requests.single.systemPrompt;
+      expect(prompt, contains('file_id=file-1'));
+      expect(prompt, contains('file-2.txt'));
+      expect(prompt, isNot(contains('file_id=file-2')));
+    });
+
     test(
         'approved synthetic TXT retrieval completes in one bounded tool round '
         'without falling through to study tools', () async {
