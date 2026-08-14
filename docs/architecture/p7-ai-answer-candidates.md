@@ -480,8 +480,10 @@ Stop conditions:
 Documentation authority:
 
 - `ARCHITECTURE.md` — repository-wide dependency and boundary contract;
-- this document — focused P7 authority;
+- this document — focused P7 authority for the producer-neutral
+  `AnswerCandidate` generalization and AI-origin semantics;
 - `docs/architecture/p6-supplemental-answer-matching.md` — focused P6
-  authority and the shared `AnswerCandidate` producer-neutral invariants;
+  authority for Supplemental producer/review semantics and
+  Supplemental-origin invariants;
 - `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current
   status.

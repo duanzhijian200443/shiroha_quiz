@@ -340,8 +340,10 @@ boundary applies to any future P7 implementation:
   (singular provider schema); zero/multiple/duplicate/unknown options are
   `validationFailed`. `fillBlank` / `shortAnswer` use structurally non-empty
   `ContentAnswer`. No new question kind and no per-blank schema.
-- P7 is answer-only; AI explanation/reasoning/chain-of-thought is never
-  generated or persisted (`reviewOnlyExplanation` stays `null`).
+- P7 is answer-only: explanation is never requested as Candidate data, and
+  provider-internal reasoning, if any, is outside the Application contract
+  and must never be surfaced, persisted, logged, or used as formal answer
+  authority (`reviewOnlyExplanation` stays `null`).
 - Provider access flows Presentation -> Application use case -> bounded AI
   Answer provider port -> provider adapter; Presentation never calls the
   provider SDK, Domain never imports provider DTOs, and Repository never
