@@ -24,7 +24,7 @@ final class ParsedArtifactRetrievalSource
         String? displayLabel,
         SourceDocument sourceDocument
       })> loadCurrent(String fileId) async {
-    final snapshot = await _lifecycle.getCurrentArtifact(fileId);
+    final snapshot = await _provisionCurrent(fileId);
     final metadata = await _metadata.findCurrentByFileId(fileId);
     if (metadata == null ||
         metadata.artifactId != snapshot.artifact.artifactId ||
@@ -41,6 +41,28 @@ final class ParsedArtifactRetrievalSource
       displayLabel: snapshot.sourceDocument.documentRef.displayLabel,
       sourceDocument: snapshot.sourceDocument,
     );
+  }
+
+  /// Reads the current artifact and, only when the F1 lifecycle reports
+  /// `artifactMissing`, provisions exactly one generation through the
+  /// Application seam with the deterministic-only `auto` route. A
+  /// `cacheHit` or existing artifact is never reparsed, and hard failures
+  /// (`artifactCorrupt`, `payloadUnsupported`, ...) are rethrown unchanged.
+  Future<ParsedArtifactSnapshot> _provisionCurrent(String fileId) async {
+    try {
+      return await _lifecycle.getCurrentArtifact(fileId);
+    } on ParsedArtifactLifecycleException catch (error) {
+      if (error.failure != ParsedArtifactLifecycleFailure.artifactMissing) {
+        rethrow;
+      }
+      final ensured = await _lifecycle.ensureParsedArtifact(
+        fileId: fileId,
+        options: const ParsedArtifactParseOptions(
+          routeSelection: ParsedArtifactRouteSelection.auto,
+        ),
+      );
+      return ensured.snapshot;
+    }
   }
 
   @override
