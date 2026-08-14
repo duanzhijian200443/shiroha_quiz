@@ -52,7 +52,8 @@ P6-C0 Supplemental-answer confirm/CAS/typed commit — COMPLETE
 P6-U0 Supplemental-answer bounded Preview/Review activation — COMPLETE
 P6-V0 Supplemental-answer offline acceptance/closure — COMPLETE
 P6 Supplemental-answer matching — COMPLETE
-P7 AI answer candidates — NOT STARTED
+P7-P0 AI answer candidates canonical contract — COMPLETE
+P7-D0 and later — NOT STARTED
 RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
@@ -362,8 +363,9 @@ P6/P7 must not each create their own database-write protocol.
 The frozen P6 contract is
 `docs/architecture/p6-supplemental-answer-matching.md`. P6-P0 through P6-V0
 are COMPLETE, and the P6 write path reuses the existing typed answer mutation
-authority rather than creating a second answer writer. P7 remains NOT
-STARTED.
+authority rather than creating a second answer writer. P7-P0 froze the
+focused P7 v0 contract in `docs/architecture/p7-ai-answer-candidates.md` and
+is COMPLETE (docs-only); P7-D0 and later remain NOT STARTED.
 
 ## 5. Explicit non-goals for this roadmap
 
@@ -392,5 +394,7 @@ Until separately authorized:
 - `docs/architecture/f1-parsed-artifact-lifecycle.md` is the focused F1
   authority.
 - `docs/architecture/p6-supplemental-answer-matching.md` is the focused P6
+  authority.
+- `docs/architecture/p7-ai-answer-candidates.md` is the focused P7
   authority.
 - R0-era files marked historical describe the migration origin, not the current runtime state.
