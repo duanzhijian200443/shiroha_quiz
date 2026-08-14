@@ -309,3 +309,61 @@ COMPLETE. The following durable boundary applies to the P6 implementation:
 - The old paired/combined/automatic two-PDF merge remains permanently dead;
   `reference_answer_merger` and `multi_file_question_merge_service` are not
   P6 seams.
+
+## 11. AI answer candidate boundary (P7-P0)
+
+P7-P0 froze the focused canonical contract in
+`docs/architecture/p7-ai-answer-candidates.md`; P7-P0 is docs-only and
+COMPLETE, and P7-D0 and later are NOT STARTED. The following durable
+boundary applies to any future P7 implementation:
+
+- P7 adds exactly one capability: AI -> typed `AnswerCandidate` producer
+  through `explicit action on one typed question -> safe-content admission
+  -> bounded provider request -> strict normalization / typed validation ->
+  unified transient AnswerCandidate -> shared fill/noOp/replace review
+  semantics -> explicit confirmation -> existing
+  TypedAnswerPersistenceKernel`. AI never owns direct formal answer write
+  authority.
+- P7 and P6 share one producer-neutral `AnswerCandidate` concept with a
+  typed/sealed producer origin; no `AiAnswerCandidate`, AI-specific review
+  entity, AI candidate/job table, or second review/confirmation system.
+  The Supplemental origin keeps every P6 invariant
+  (`supplementalFileId`, `artifactId`, positive `artifactRevision`,
+  non-empty ordered bound `SourceRefs`, match evidence).
+- P7 v0 is text/math only: provider input admission happens before any
+  network request and admits only `TextNode` / `InlineMathNode` /
+  `BlockMathNode`. Questions containing `RawFallbackNode`, depending on
+  assets/images unavailable to P7 v0, or requiring silent content deletion
+  yield `unsupportedQuestionContent` with zero provider calls and zero
+  mutation.
+- `singleChoice` AI Candidates contain exactly one existing option ID
+  (singular provider schema); zero/multiple/duplicate/unknown options are
+  `validationFailed`. `fillBlank` / `shortAnswer` use structurally non-empty
+  `ContentAnswer`. No new question kind and no per-blank schema.
+- P7 is answer-only: explanation is never requested as Candidate data, and
+  provider-internal reasoning, if any, is outside the Application contract
+  and must never be surfaced, persisted, logged, or used as formal answer
+  authority (`reviewOnlyExplanation` stays `null`).
+- Provider access flows Presentation -> Application use case -> bounded AI
+  Answer provider port -> provider adapter; Presentation never calls the
+  provider SDK, Domain never imports provider DTOs, and Repository never
+  calls the provider. Raw provider responses are transient, strictly
+  bounded, never logged/persisted/returned raw, and never placed into a
+  Candidate.
+- Any write happens only after explicit user confirmation and reuses the
+  existing typed answer mutation authority; confirm revalidates the captured
+  target (`storageId` + `bankName` + complete `QuestionDraftV2`) in one
+  transactional CAS boundary; any drift means `staleTarget` with zero
+  mutation, and late results of cancelled/superseded generations are
+  discarded.
+- fill/noOp/replace follow the frozen P6 semantics; P6 F1 artifact stale
+  checking, complete target snapshot binding, review/session semantics,
+  transactional CAS, and `TypedAnswerPersistenceKernel` authority are not
+  weakened.
+- P7 v0 never calls RAG, never reads File Library / Conversation
+  attachments / Learning Space files, never reuses `RetrievalEgressGrant`,
+  and never calls `retrieve_file_content`; MCP v0 stays exactly six
+  READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
+- P7 adds no schema change and no persisted candidate/generation state/
+  provenance/provider request/result/review state; runtime schema remains
+  v21.
