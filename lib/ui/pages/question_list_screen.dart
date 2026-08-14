@@ -215,6 +215,11 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
           ):
           final committed = await showDialog<bool>(
             context: context,
+            // The review dialog is never barrier-dismissible: dismissal is
+            // always an explicit Cancel/关闭 decision (zero mutation), and
+            // during a pending durable commit the dialog must stay mounted
+            // so the commit result can reach the parent.
+            barrierDismissible: false,
             builder: (_) => _AiAnswerReviewDialog(
               candidate: candidate,
               session: reviewSession,
@@ -396,6 +401,10 @@ class _AiAnswerReviewDialogState extends State<_AiAnswerReviewDialog> {
         confirmation: _confirmation!,
       );
       if (!mounted) return;
+      // Unlock route pops before closing: the PopScope below blocks any
+      // dismissal while a durable commit is pending, and a success pop must
+      // not be intercepted.
+      setState(() => _committing = false);
       Navigator.pop(context, true);
     } on AiAnswerCommitException catch (error) {
       if (!mounted) return;
@@ -461,62 +470,68 @@ class _AiAnswerReviewDialogState extends State<_AiAnswerReviewDialog> {
     final intent = _candidate.writeIntent;
     final replaceArmed = _armedSession != null;
     final isNoOp = intent == CandidateWriteIntent.noOp;
-    return AlertDialog(
-      title: const Text(
-        'AI 建议答案',
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _intentLabel(intent, replaceArmed),
-              style: const TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            if (!isNoOp) ...[
-              const Text(
-                '建议答案：',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey,
-                  fontWeight: FontWeight.bold,
-                ),
+    // Route-pop protection tied to the pending durable commit: system/back
+    // cannot dismiss the review while `_committing` is true, so a successful
+    // commit result can never be lost to an unmounted dialog.
+    return PopScope(
+      canPop: !_committing,
+      child: AlertDialog(
+        title: const Text(
+          'AI 建议答案',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _intentLabel(intent, replaceArmed),
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
               ),
-              const SizedBox(height: 4),
-              _renderAnswer(_candidate.answer),
-            ],
-            if (intent == CandidateWriteIntent.replace && replaceArmed) ...[
               const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orangeAccent.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.orangeAccent.withValues(alpha: 0.4),
+              if (!isNoOp) ...[
+                const Text(
+                  '建议答案：',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                child: const Text(
-                  '当前已有答案。\nAI 建议将现有答案替换为上方内容。\n是否确认替换？',
-                  style: TextStyle(fontSize: 13, color: Colors.orangeAccent),
+                const SizedBox(height: 4),
+                _renderAnswer(_candidate.answer),
+              ],
+              if (intent == CandidateWriteIntent.replace && replaceArmed) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.orangeAccent.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: const Text(
+                    '当前已有答案。\nAI 建议将现有答案替换为上方内容。\n是否确认替换？',
+                    style: TextStyle(fontSize: 13, color: Colors.orangeAccent),
+                  ),
                 ),
-              ),
+              ],
+              if (_errorText != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _errorText!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                ),
+              ],
             ],
-            if (_errorText != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _errorText!,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-              ),
-            ],
-          ],
+          ),
         ),
+        actions: _buildActions(intent, replaceArmed),
       ),
-      actions: _buildActions(intent, replaceArmed),
     );
   }
 

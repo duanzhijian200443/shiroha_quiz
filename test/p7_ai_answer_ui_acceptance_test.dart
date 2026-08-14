@@ -149,6 +149,27 @@ class _FakeCommitPort implements AiAnswerCommitPersistencePort {
   }
 }
 
+/// Commit persistence that stays pending until [complete] is called, so the
+/// UI can be exercised while a durable commit is in flight.
+class _DeferredCommitPort implements AiAnswerCommitPersistencePort {
+  final Completer<void> _gate = Completer<void>();
+  final List<AnswerCandidate> committed = <AnswerCandidate>[];
+  int calls = 0;
+
+  void complete() {
+    if (!_gate.isCompleted) {
+      _gate.complete();
+    }
+  }
+
+  @override
+  Future<void> commitAnswer(AnswerCandidate candidate) async {
+    calls++;
+    committed.add(candidate);
+    await _gate.future;
+  }
+}
+
 /// Real production scope fields are faked only where the list screen never
 /// touches them; the P7 seams are the REAL Application service classes over
 /// fake ports (no network, no database).
@@ -160,6 +181,7 @@ class _Harness {
     Object? rawProviderError,
     bool deferred = false,
     AiAnswerCommitException? commitError,
+    bool deferredCommit = false,
     List<PersistedQuestion>? persisted,
   })  : questionPort = _FakeQuestionQueryPort(
           TypedStudyQuestionRead(
@@ -180,11 +202,7 @@ class _Harness {
           error: providerError,
           rawError: rawProviderError,
           deferred: deferred,
-        ),
-        commitPort = _FakeCommitPort() {
-    if (commitError != null) {
-      commitPort.error = commitError;
-    }
+        ) {
     var counter = 0;
     answerGenerationService = AiAnswerGenerationService(
       questionPort: questionPort,
@@ -192,9 +210,20 @@ class _Harness {
       idFactory: () => 'SENTINEL_GENERATION_SECRET_${counter++}',
       clock: () => DateTime.utc(2026, 8, 20, 12),
     );
-    answerCommitCommand = AiAnswerCommitCommand(
-      persistencePort: commitPort,
-    );
+    if (deferredCommit) {
+      deferredCommitPort = _DeferredCommitPort();
+      answerCommitCommand = AiAnswerCommitCommand(
+        persistencePort: deferredCommitPort,
+      );
+    } else {
+      commitPort = _FakeCommitPort();
+      if (commitError != null) {
+        commitPort.error = commitError;
+      }
+      answerCommitCommand = AiAnswerCommitCommand(
+        persistencePort: commitPort,
+      );
+    }
     repository = _FakeQuestionRepository(
       persisted: persisted ??
           [
@@ -210,7 +239,8 @@ class _Harness {
 
   final _FakeQuestionQueryPort questionPort;
   final _FakeProviderPort provider;
-  final _FakeCommitPort commitPort;
+  late final _FakeCommitPort commitPort;
+  late final _DeferredCommitPort deferredCommitPort;
   late final AiAnswerGenerationService answerGenerationService;
   late final AiAnswerCommitCommand answerCommitCommand;
   late final _FakeQuestionRepository repository;
@@ -539,6 +569,92 @@ void main() {
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(harness.commitPort.committed, isEmpty);
+  });
+
+  testWidgets(
+      'P2-2a. fill commit pending blocks back/barrier dismissal and '
+      'still completes with reload', (tester) async {
+    final harness = _Harness(
+      draft: _contentDraft(),
+      providerResult: _contentResult('x = 1'),
+      deferredCommit: true,
+    );
+    await harness.pump(tester);
+    await _tapAi(tester);
+
+    await tester.tap(find.text('采用答案'));
+    await tester.pump();
+
+    // Durable commit is still pending: the review must stay mounted.
+    expect(find.text('AI 建议答案'), findsOneWidget);
+    expect(harness.deferredCommitPort.calls, 1);
+
+    // System/back route pop must not dismiss the review while pending.
+    final navigator =
+        tester.state<NavigatorState>(find.byType(Navigator).first);
+    await navigator.maybePop();
+    await tester.pump();
+    expect(find.text('AI 建议答案'), findsOneWidget,
+        reason: 'back must not close the review during a pending commit');
+
+    // Barrier dismissal must be impossible.
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pump();
+    expect(find.text('AI 建议答案'), findsOneWidget,
+        reason: 'barrier must not close the review');
+
+    // Complete the durable commit: dialog closes with success and the parent
+    // performs the authoritative reload.
+    harness.deferredCommitPort.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('AI 建议答案'), findsNothing);
+    expect(harness.repository.persistedCalls, 2,
+        reason: 'authoritative reload must still happen');
+    expect(harness.deferredCommitPort.committed, hasLength(1));
+    expect(find.text('已保存 AI 答案'), findsOneWidget);
+    // Expire the snackbar timer before the test ends.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+      'P2-2b. replace commit pending also blocks dismissal and '
+      'completes with reload', (tester) async {
+    final harness = _Harness(
+      draft: _contentDraft(answer: ContentAnswer(content: _text('x = 9'))),
+      providerResult: _contentResult('x = 1'),
+      deferredCommit: true,
+    );
+    await harness.pump(tester);
+    await _tapAi(tester);
+
+    // First explicit action only arms the replacement.
+    await tester.tap(find.text('确认替换'));
+    await tester.pumpAndSettle();
+    expect(harness.deferredCommitPort.calls, 0,
+        reason: 'arming must never start a durable commit');
+
+    // Second explicit reconfirmation starts the deferred commit.
+    await tester.tap(find.text('二次确认替换'));
+    await tester.pump();
+    expect(harness.deferredCommitPort.calls, 1);
+
+    // Route pop is blocked while the commit is pending.
+    final navigator =
+        tester.state<NavigatorState>(find.byType(Navigator).first);
+    await navigator.maybePop();
+    await tester.pump();
+    expect(find.text('AI 建议答案'), findsOneWidget);
+
+    harness.deferredCommitPort.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('AI 建议答案'), findsNothing);
+    expect(harness.repository.persistedCalls, 2,
+        reason: 'authoritative reload must still happen');
+    expect(harness.deferredCommitPort.committed, hasLength(1));
+    expect(find.text('已保存 AI 答案'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('G. generation failures map to fixed safe messages',
