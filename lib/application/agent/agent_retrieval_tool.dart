@@ -16,7 +16,9 @@ final class AgentRetrievalToolCatalog {
       AgentFunctionToolDefinition(
     name: toolName,
     description:
-        'Search only the file content explicitly approved for this turn.',
+        'Search only file content explicitly approved for this turn. Use the '
+        'exact file_ids listed in the system prompt. Use this tool, not study '
+        'tools, when the answer depends on an attachment.',
     inputSchema: <String, Object?>{
       'type': 'object',
       'properties': <String, Object?>{

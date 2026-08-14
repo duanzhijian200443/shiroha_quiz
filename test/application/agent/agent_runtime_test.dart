@@ -175,6 +175,55 @@ void main() {
       expect(harness.retrievalScope.calls, 0);
     });
 
+    test(
+        'approved synthetic TXT retrieval completes in one bounded tool round '
+        'without falling through to study tools', () async {
+      const state = _TestContinuationState('rag-answer');
+      const hiddenFact = 'synthetic hidden fact 59271';
+      final harness = _Harness(
+        wireRetrieval: true,
+        scripts: <_Script>[
+          _toolRound(
+            <AgentProviderFunctionCall>[
+              _call(
+                'rag-1',
+                name: AgentRetrievalToolCatalog.toolName,
+                arguments: '{"query":"hidden fact","file_ids":["file-1"]}',
+              ),
+            ],
+            state,
+          ),
+          _finalAnswer('59271'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'read the approved attachment',
+        fileIds: const <String>['file-1'],
+      );
+      harness.retrievalIndex.hits = <RetrievalHit>[
+        _runtimeHit(hiddenFact),
+      ];
+
+      final result = await harness.runtime
+          .startTurnWithRetrieval(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+            approval: RetrievalEgressApproval(const <String>['file-1']),
+          )
+          .result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(harness.provider.callCount, 2);
+      expect(harness.provider.requests[1].toolOutputs, hasLength(1));
+      expect(harness.provider.requests[1].toolOutputs.single.output,
+          contains(hiddenFact));
+      expect(harness.dispatcher.calls, isEmpty);
+      expect(
+        (await harness.messagesOf(conversationId)).last.content,
+        '59271',
+      );
+    });
+
     test('a later user message invalidates retrieval before serialization',
         () async {
       const state = _TestContinuationState('rag');

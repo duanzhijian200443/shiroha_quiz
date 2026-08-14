@@ -18,7 +18,7 @@ void main() {
       ),
     );
     expect(prompt, contains('READ_ONLY'));
-    expect(prompt, contains('local study tools only'));
+    expect(prompt, contains('local read-only tools exposed for this turn'));
     expect(prompt, contains('no autonomous mutation'));
     expect(prompt, contains('Never claim that writes occurred.'));
     expect(prompt, contains('propose_missing_answer'));
@@ -85,7 +85,7 @@ void main() {
     );
 
     expect(prompt, contains('You are READ_ONLY.'));
-    expect(prompt, contains('local study tools only'));
+    expect(prompt, contains('local read-only tools exposed for this turn'));
     expect(prompt, contains('no autonomous mutation'));
     expect(prompt, isNot(contains('propose_missing_answer')));
     expect(prompt, isNot(contains('DRAFT/STAGE')));
@@ -149,10 +149,12 @@ void main() {
       ],
     );
     expect(prompt, contains('retrieve_file_content'));
+    expect(prompt, contains('retrieve_file_content before study tools'));
+    expect(prompt, contains('file_id=file-private-id'));
+    expect(prompt, contains('same name and arguments'));
     expect(prompt, contains('for this turn'));
     expect(prompt, isNot(contains('contents unavailable')));
     expect(prompt, isNot(contains('NOT available in A0 v0')));
-    expect(prompt, isNot(contains('file-private-id')));
   });
 
   test('states the conversation scope deterministically', () {
