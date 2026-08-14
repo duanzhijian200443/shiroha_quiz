@@ -133,7 +133,16 @@ jobs:
               'test/application/study_query/study_query_service_test.dart',
               'test/application/study_query/study_query_stem_preview_test.dart',
               'test/application/study_query/study_query_time_zone_test.dart',
-              'test/data/repositories/t0_study_query_repository_test.dart'
+              'test/data/repositories/t0_study_query_repository_test.dart',
+              'test/application/answers/answer_candidate_review_session_test.dart',
+              'test/application/answers/ai_answer_provider_test.dart',
+              'test/services/answers/ai_answer_provider_adapter_test.dart',
+              'test/application/answers/ai_answer_generation_test.dart',
+              'test/application/answers/ai_answer_commit_command_test.dart',
+              'test/data/repositories/ai_answer_commit_repository_test.dart',
+              'test/p7_ai_answer_ui_acceptance_test.dart',
+              'test/p7_v0_acceptance_test.dart',
+              'test/p5_typed_answer_repair_ui_acceptance_test.dart'
             )
 
       - name: Check committed diff
