@@ -62,6 +62,9 @@ P7-U0 Minimal typed-question Presentation integration — COMPLETE
 P7-V0 Focused validation / privacy / concurrency / acceptance — COMPLETE
 P7-CL Canonical closure — COMPLETE
 P7 v0 — CLOSED / FROZEN
+UI-R0 Final IA Sync / Freeze — COMPLETE
+UI-R1 Today modes + bounded navigation migration — NOT STARTED
+UI-CL Focused UI closure — NOT STARTED
 RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
@@ -71,6 +74,11 @@ Current runtime schema — v21
 
 `B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
 Messages before a `.shiroha` backup/export package exists.
+
+The current UI Finalization route is `UI-R0 -> UI-R1 -> UI-CL`. The old
+UI-R2 / UI-R3 large redesign plans are superseded and are not current
+implementation stages. The final Presentation / Navigation IA authority is
+`docs/product/ui-finalization-ia-freeze.md`.
 
 This amendment updates current scheduling status without rewriting the
 historical sequence as if it had originally been delivered in this order.

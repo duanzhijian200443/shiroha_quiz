@@ -2,6 +2,19 @@
 
 Status: **Canonical U1 Presentation and Navigation contract**.
 
+## 0. UI Finalization supersession pointer
+
+The four-tab primary navigation `今日 | 助手 | 模考 | 我的` recorded below is
+historical U1 truth and remains recorded as such. UI Finalization supersedes
+only the final primary-navigation and Today-organization Presentation
+decisions: the final primary navigation is `今日 | 助手 | 我的`, and Today is
+organized as 普通 / 特训 / 考试. The current authority for those decisions is
+`docs/product/ui-finalization-ia-freeze.md`. All other U1 semantics retained
+here — the Assistant identity `Shiroha`, the Assistant workspace and global
+Sidebar, Learning Space, File Library, Conversation, MCP Presentation,
+responsive Assistant behavior, and Project / File / Conversation domain
+relationships — remain valid.
+
 ## 1. Authority and supersession
 
 This document freezes the Agent-first information architecture validated by
