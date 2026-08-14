@@ -928,8 +928,9 @@ void main() {
 
   group('I. cancel / supersede safety', () {
     test(
-        'cancel then late provider success -> discarded, no Candidate, no '
-        'review session, zero durable mutation', () async {
+        'cancel while the provider call is in flight, then late provider '
+        'success -> discarded, no Candidate, no review session, zero durable '
+        'mutation', () async {
       final seedDraft = _contentDraft();
       await _seedTarget(draft: seedDraft);
       final snapshot = await _DurabilitySnapshot.capture();
@@ -942,24 +943,35 @@ void main() {
         providerPort: provider,
       );
 
+      // 1. Start generation; 2. prove the provider call has actually been
+      // entered and is in flight; 3. the provider was really invoked once.
+      final entered = provider.waitUntilCalls(1);
       final pending = service.generateForQuestion(storageId: _storageId);
+      await entered;
+      expect(provider.calls, 1,
+          reason: 'the provider call must be in flight before cancellation');
+
+      // 4. Cancel after entry; 5. release the deferred result afterwards.
       service.cancel(_storageId);
       provider.complete();
-      final outcome = await pending;
 
+      // 6. The late success must be discarded, never exposed or written.
+      final outcome = await pending;
       expect(outcome, isA<AiAnswerGenerationDiscarded>());
       expect(
         (outcome as AiAnswerGenerationDiscarded).reason,
         AiAnswerDiscardReason.cancelled,
       );
       expect(outcome, isNot(isA<AiAnswerGenerationGenerated>()));
+      expect(provider.calls, 1, reason: 'the provider was called exactly once');
       expect(await snapshot.unchanged(), isTrue,
           reason: 'a late result after cancel must never mutate anything');
     });
 
     test(
-        'cancel then late provider failure -> discarded, never a typed '
-        'failure, zero durable mutation', () async {
+        'cancel while the provider call is in flight, then late provider '
+        'failure -> discarded, never a typed failure, zero durable mutation',
+        () async {
       await _seedTarget(draft: _contentDraft());
       final snapshot = await _DurabilitySnapshot.capture();
       final provider = _provider(
@@ -972,20 +984,30 @@ void main() {
         providerPort: provider,
       );
 
+      // Prove the failing provider call is in flight before cancellation.
+      final entered = provider.waitUntilCalls(1);
       final pending = service.generateForQuestion(storageId: _storageId);
-      service.cancel(_storageId);
-      provider.complete();
-      final outcome = await pending;
+      await entered;
+      expect(provider.calls, 1);
 
+      service.cancel(_storageId);
+      provider.complete(); // Releases the raw provider failure after cancel.
+
+      final outcome = await pending;
       expect(outcome, isA<AiAnswerGenerationDiscarded>());
       expect(
         (outcome as AiAnswerGenerationDiscarded).reason,
         AiAnswerDiscardReason.cancelled,
       );
+      expect(provider.calls, 1,
+          reason: 'the provider failure really arrived and was discarded');
       expect(await snapshot.unchanged(), isTrue);
     });
 
-    test('superseded late result is discarded and never commits', () async {
+    test(
+        'first provider call still in flight when the second generation '
+        'supersedes it -> first discarded, second generated, zero durable '
+        'mutation', () async {
       final seedDraft = _contentDraft();
       await _seedTarget(draft: seedDraft);
       final snapshot = await _DurabilitySnapshot.capture();
@@ -998,10 +1020,24 @@ void main() {
         providerPort: provider,
       );
 
+      // 1. First generation; 2. wait until the FIRST provider call is
+      // genuinely pending; 3. start the second generation, which supersedes
+      // the first; 4. wait until the second provider invocation is also in
+      // flight, proving both old and new calls race on the same target.
+      final firstEntered = provider.waitUntilCalls(1);
       final first = service.generateForQuestion(storageId: _storageId);
-      final second = service.generateForQuestion(storageId: _storageId);
-      provider.complete();
+      await firstEntered;
+      expect(provider.calls, 1,
+          reason: 'the superseded provider call must already be in flight');
 
+      final secondEntered = provider.waitUntilCalls(2);
+      final second = service.generateForQuestion(storageId: _storageId);
+      await secondEntered;
+      expect(provider.calls, 2,
+          reason: 'both generations really reached the provider');
+
+      // 5. Release both deferred results; 6. await both generations.
+      provider.complete();
       final firstOutcome = await first;
       final secondOutcome = await second;
       expect(firstOutcome, isA<AiAnswerGenerationDiscarded>());
@@ -1010,6 +1046,8 @@ void main() {
         AiAnswerDiscardReason.superseded,
       );
       expect(secondOutcome, isA<AiAnswerGenerationGenerated>());
+      expect(provider.calls, 2,
+          reason: 'the intended two-call race actually occurred');
       expect(await snapshot.unchanged(), isTrue,
           reason: 'generation alone never writes; the superseded result is '
               'never exposed or committed');
@@ -1023,6 +1061,10 @@ void main() {
 
 /// Deterministic fake provider port: records every request, counts calls,
 /// and can be deferred with an explicit completion gate. Never live.
+///
+/// [waitUntilCalls] is a completer-based synchronization proof that a
+/// provider invocation has actually entered [generateAnswer] (i.e., the
+/// provider call is genuinely in flight), never a Duration sleep.
 class _FakeProviderPort implements AiAnswerProviderPort {
   _FakeProviderPort({
     required this.result,
@@ -1037,7 +1079,19 @@ class _FakeProviderPort implements AiAnswerProviderPort {
   final Completer<void>? _gate;
 
   final List<AiAnswerProviderRequest> requests = <AiAnswerProviderRequest>[];
+  final Map<int, Completer<void>> _callWaiters = <int, Completer<void>>{};
   int calls = 0;
+
+  /// Completes when at least [count] provider invocations have actually
+  /// entered [generateAnswer]. Returns an already-completed future when the
+  /// count is already reached; otherwise the waiter completes the moment the
+  /// count is reached inside the next invocation.
+  Future<void> waitUntilCalls(int count) {
+    if (calls >= count) return Future<void>.value();
+    final completer = Completer<void>();
+    _callWaiters[count] = completer;
+    return completer.future;
+  }
 
   void complete() {
     final gate = _gate;
@@ -1052,6 +1106,10 @@ class _FakeProviderPort implements AiAnswerProviderPort {
   ) async {
     calls++;
     requests.add(request);
+    final waiter = _callWaiters.remove(calls);
+    if (waiter != null && !waiter.isCompleted) {
+      waiter.complete();
+    }
     final gate = _gate;
     if (gate != null) {
       await gate.future;
