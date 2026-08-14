@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
+import 'mock_center_screen.dart';
 import 'plan_config_screen.dart';
 import 'task_center_screen.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../services/task_manager.dart';
+
+/// Final Today mode organization (UI-R1 freeze): 普通 / 特训 / 考试.
+///
+/// This is Presentation-only state; it is never persisted.
+enum _TodayMode { ordinary, focused, exam }
 
 class HomePage extends StatefulWidget {
   const HomePage({
@@ -29,6 +35,11 @@ class _HomePageState extends State<HomePage> {
   int _totalCount = 0;
   int _masteredCount = 0;
   bool _isLoading = true;
+
+  /// Current Today mode; defaults to 普通. Presentation-only, never
+  /// persisted. Mode switching uses an IndexedStack so each mode keeps its
+  /// own state instead of being recreated.
+  _TodayMode _todayMode = _TodayMode.ordinary;
 
   @override
   void initState() {
@@ -163,42 +174,164 @@ class _HomePageState extends State<HomePage> {
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
               top: false,
-              child: CustomScrollView(
-                slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                    sliver: SliverList.list(
-                      children: [
-                        _buildBankCard(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                    child: _buildModeSelector(),
+                  ),
+                  Expanded(
+                    child: IndexedStack(
+                      index: _todayMode.index,
+                      children: <Widget>[
+                        _buildOrdinaryMode(
                           cardColor,
                           textColor,
                           subTextColor,
                           primaryColor,
                         ),
-                        const SizedBox(height: 18),
-                        _buildTrainingCard(
-                          cardColor,
-                          textColor,
-                          subTextColor,
-                          primaryColor,
+                        _buildFocusedMode(textColor, subTextColor),
+                        const MockCenterScreen(
+                          embedded: true,
+                          key: ValueKey<String>('today-exam-surface'),
                         ),
                       ],
-                    ),
-                  ),
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
-                      child: _buildReviewState(
-                        textColor,
-                        subTextColor,
-                        primaryColor,
-                      ),
                     ),
                   ),
                 ],
               ),
             ),
+    );
+  }
+
+  /// Compact three-option Today mode selector (普通 / 特训 / 考试). Stable
+  /// keys are provided for acceptance tests on narrow viewports.
+  Widget _buildModeSelector() {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: double.infinity,
+      child: SegmentedButton<_TodayMode>(
+        segments: const <ButtonSegment<_TodayMode>>[
+          ButtonSegment<_TodayMode>(
+            value: _TodayMode.ordinary,
+            label: KeyedSubtree(
+              key: ValueKey<String>('today-mode-ordinary'),
+              child: Text('普通'),
+            ),
+          ),
+          ButtonSegment<_TodayMode>(
+            value: _TodayMode.focused,
+            label: KeyedSubtree(
+              key: ValueKey<String>('today-mode-focused'),
+              child: Text('特训'),
+            ),
+          ),
+          ButtonSegment<_TodayMode>(
+            value: _TodayMode.exam,
+            label: KeyedSubtree(
+              key: ValueKey<String>('today-mode-exam'),
+              child: Text('考试'),
+            ),
+          ),
+        ],
+        selected: <_TodayMode>{_todayMode},
+        onSelectionChanged: (Set<_TodayMode> selection) {
+          setState(() => _todayMode = selection.single);
+        },
+        showSelectedIcon: false,
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          textStyle: WidgetStatePropertyAll<TextStyle>(
+            TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 普通: existing regular-learning Presentation continuation.
+  Widget _buildOrdinaryMode(
+    Color cardColor,
+    Color textColor,
+    Color subTextColor,
+    Color primaryColor,
+  ) {
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          sliver: SliverList.list(
+            children: [
+              _buildBankCard(
+                cardColor,
+                textColor,
+                subTextColor,
+                primaryColor,
+              ),
+              const SizedBox(height: 18),
+              _buildTrainingCard(
+                cardColor,
+                textColor,
+                subTextColor,
+                primaryColor,
+              ),
+            ],
+          ),
+        ),
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
+            child: _buildReviewState(
+              textColor,
+              subTextColor,
+              primaryColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 特训: genuine dependency-not-ready state. There is no StudyPlan
+  /// capability in the current product, so this must never fabricate a plan,
+  /// counts, or recommendations.
+  Widget _buildFocusedMode(Color textColor, Color subTextColor) {
+    return Center(
+      key: const ValueKey<String>('today-focused-unavailable'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.assignment_outlined, size: 56, color: subTextColor),
+            const SizedBox(height: 16),
+            Text(
+              '特训需要学习计划',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '当前还没有可用的学习计划，\n因此暂不生成专项训练推荐。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: subTextColor,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -8,7 +8,13 @@ import 'mock_exam_screen.dart';
 import 'paper_review_screen.dart';
 
 class MockCenterScreen extends StatefulWidget {
-  const MockCenterScreen({Key? key}) : super(key: key);
+  const MockCenterScreen({super.key, this.embedded = false});
+
+  /// When true the Mock center is rendered inside a host surface (Today ->
+  /// 考试) and must not show a duplicate/nested AppBar. All paper loading,
+  /// grading polling, creation, navigation, and dispose behavior is
+  /// unchanged; this is a Presentation-only adaptation.
+  final bool embedded;
 
   @override
   State<MockCenterScreen> createState() => _MockCenterScreenState();
@@ -107,16 +113,16 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
               subtitle: const Text('从已有题库中随机抽取题目进行全真模拟',
                   style: TextStyle(fontSize: 12, color: Colors.grey)),
               onTap: () async {
-                Navigator.pop(context);
+                final navigator = Navigator.of(context);
+                navigator.pop();
                 final currentBank =
                     await SettingsRepository.instance.getCurrentBank() ??
                         '默认题库';
                 if (!mounted) return;
-                Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) =>
-                                MockExamConfigScreen(initialBank: currentBank)))
+                navigator
+                    .push(MaterialPageRoute(
+                        builder: (_) =>
+                            MockExamConfigScreen(initialBank: currentBank)))
                     .then((_) => _loadPapers());
               },
             ),
@@ -132,9 +138,11 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-          title: const Text('模考中心',
-              style: TextStyle(fontWeight: FontWeight.w800))),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('模考中心',
+                  style: TextStyle(fontWeight: FontWeight.w800))),
       body: RefreshIndicator(
         onRefresh: () => _loadPapers(),
         child: _isLoading
@@ -274,6 +282,8 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                 }
                               : null,
                           onTap: () async {
+                            final navigator = Navigator.of(context);
+                            final messenger = ScaffoldMessenger.of(context);
                             if (status == 0) {
                               // 未开始：拉取题目并进入考场
                               showDialog(
@@ -285,19 +295,18 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                 final questions = await ExamRepository.instance
                                     .getPaperQuestionsDetail(paper['id']);
                                 if (!mounted) return;
-                                Navigator.pop(context);
-                                Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (_) => MockExamScreen(
-                                                paperId: paper['id'],
-                                                questions: questions,
-                                                durationMinutes: 180)))
+                                navigator.pop();
+                                navigator
+                                    .push(MaterialPageRoute(
+                                        builder: (_) => MockExamScreen(
+                                            paperId: paper['id'],
+                                            questions: questions,
+                                            durationMinutes: 180)))
                                     .then((_) => _loadPapers());
                               } catch (e) {
                                 if (mounted) {
-                                  Navigator.pop(context);
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  navigator.pop();
+                                  messenger.showSnackBar(
                                       SnackBar(content: Text('进入考场失败: $e')));
                                 }
                               }

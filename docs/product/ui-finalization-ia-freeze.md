@@ -1,8 +1,8 @@
 # UI Finalization — Final Information Architecture Freeze
 
 Status: **Canonical UI Finalization Presentation / Navigation authority.
-UI-R0 is COMPLETE after this freeze. UI-R1 and UI-CL are NOT STARTED. UI
-Finalization itself is NOT CLOSED yet.**
+UI-R0 and UI-R1 are COMPLETE. UI-CL is NOT STARTED. UI Finalization
+itself is NOT CLOSED yet.**
 
 This document freezes the final Shiroha Presentation / Navigation
 information architecture so that the remaining UI Finalization stages
@@ -271,13 +271,20 @@ UI-CL occurs only **after** UI-R1 merges and is reviewed. Its purpose:
 - verify responsive navigation;
 - canonical status closure.
 
-Current status after this UI-R0 docs freeze:
+Current status after UI-R1:
 
 ```text
 UI-R0  COMPLETE
-UI-R1  NOT STARTED
+UI-R1  COMPLETE
 UI-CL  NOT STARTED
 ```
+
+UI-R1 completes the final Today shell and the bounded navigation migration
+(three-tab primary navigation; Today 普通 / 特训 / 考试; the Mock/Exam
+capability reachable through Today -> 考试). The plan-driven 特训 capability
+itself remains dependent on a future real Active StudyPlan capability and is
+not claimed complete: without that capability, 特训 shows only the genuine
+dependency-not-ready state.
 
 UI Finalization itself is **not** closed yet; this document must not state
 UI-CL COMPLETE.
