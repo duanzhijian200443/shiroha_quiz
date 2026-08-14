@@ -8,8 +8,9 @@ When instructions conflict:
 
 1. Follow higher-level platform and explicit current-user instructions.
 2. Follow the more restrictive repository safety/privacy/Git rule.
-3. Follow the active role file.
-4. Stop for user direction only when the conflict cannot be resolved safely.
+3. Follow this file before role-specific workflow text.
+4. Follow the active role file.
+5. Stop for user direction only when the conflict cannot be resolved safely.
 
 Operate only inside this repository unless the user explicitly authorizes otherwise.
 
@@ -21,9 +22,8 @@ Before a non-trivial task, read:
 
 - `ARCHITECTURE.md`;
 - the active role file under `docs/agents/`;
-- relevant implementation and tests;
-- current Git state/diff that affects the task;
-- only the `.agents/rules/` files selected below.
+- relevant implementation/tests/current diff;
+- only the `.agents/rules/` files needed for the current task.
 
 Do not claim a file was reviewed unless it was opened during the current task.
 
@@ -33,7 +33,7 @@ Do not claim a file was reviewed unless it was opened during the current task.
 | `.agents/rules/git_work.md` | Git status/diff/staging/commit/branch/history/push decisions are involved |
 | `.agents/rules/reviewer.md` | Only when the first line activates `角色：审查` |
 
-Do not enumerate or load unrelated rule files. Reading a rule file as evidence does not activate its behavioral role unless routing says so.
+Do not enumerate or load unrelated rule files.
 
 ---
 
@@ -50,13 +50,13 @@ The first line may activate exactly one role:
 | `角色：审查` | `docs/agents/reviewer.md` |
 | `角色：诊断` | `docs/agents/diagnostician.md` |
 
-Read the mapped role file before continuing. Do not activate multiple roles or silently switch roles. Without an explicit role, do not assume write authority.
+Read the mapped role file before continuing. Do not silently switch roles. Without an explicit role, do not assume write authority.
 
 ---
 
 ## 4. Architecture and change discipline
 
-Preserve the canonical post-R8 dependency direction defined by `ARCHITECTURE.md`:
+Preserve the canonical dependency direction in `ARCHITECTURE.md`:
 
 ```text
 Flutter UI / Built-in Agent / MCP Adapter
@@ -71,51 +71,147 @@ Data / Infrastructure -> Application ports / Domain
 Requirements:
 
 - UI, Agent and MCP adapters do not access SQLite/`DatabaseHelper` directly.
-- New post-P5 presentation features do not add direct Repository dependencies; existing legacy UI-to-Repository calls are tolerated until the relevant capability is touched and do not justify a repository-wide cleanup.
-- Cross-surface use-case semantics belong in application services/facades so UI, Agent and MCP can reuse them.
+- New presentation features do not add direct Repository dependencies when an Application seam exists.
+- Cross-surface use-case semantics belong in Application services/facades.
 - Persistence belongs in Repositories/data infrastructure.
 - Domain code does not depend on Flutter, SQLite, provider DTOs, HTTP clients or file-system APIs.
-- The built-in Agent does not call the app's own MCP transport; both are peer adapters over application capabilities.
-- New AI/MCP mutation flows must stage through application commands and the frozen approval boundary; adapters never write SQL directly.
+- The built-in Agent does not call the app's own MCP transport; they are peer adapters.
+- New AI/MCP mutation flows stage through Application commands and the frozen approval boundary.
 - Preserve typed sidecar authority, strict corrupt-sidecar failure, typed explicit-empty semantics, RichContent structural rendering and review-state/content separation.
-- Widgets do not acquire domain logic.
 - Reuse existing abstractions before adding new ones.
 - Verify the actual failure boundary before escalating upstream.
 - Make the smallest coherent change that satisfies the frozen contract.
-- Do not refactor, rename, reformat, generalize, or "future-proof" unrelated code.
+- Do not refactor, rename, reformat, generalize, or future-proof unrelated code.
 - Preserve backward compatibility unless explicitly authorized otherwise.
-- Do not change public APIs, persisted formats, schema, dependencies, CI/release/signing, or security/privacy contracts unless they are explicitly in scope.
+- Do not change public APIs, persisted formats, schema, dependencies, CI/release/signing, or security/privacy contracts unless explicitly in scope.
 - Preserve unrelated user changes. Report nearby issues instead of fixing them automatically.
 
-High-risk areas include import pipelines, persistence/migrations, managed-file lifecycle, async recovery/concurrency, logging/redaction, credentials, OCR/AI merging, Agent/MCP write permissions, and global exception handling. High-risk changes require failure-path and concurrency evidence where applicable.
+High-risk areas include persistence/migrations, managed-file lifecycle, async recovery/concurrency, logging/redaction, credentials, OCR/AI boundaries, Agent/MCP write permissions, authorization, and global exception handling.
 
 ---
 
-## 5. Normal task workflow
+## 5. Default development workflow
+
+The default workflow is now:
+
+```text
+Planner (only when needed)
+  -> Executor + mechanical verification
+  -> commit / push / PR when authorized
+  -> STOP
+  -> Independent Reviewer
+  -> APPROVE or bounded repair
+  -> user-authorized merge
+```
+
+A standalone Verifier is **not** a default phase.
+
+### Planner is used only when
+
+- a new durable contract must be frozen;
+- architecture or root cause is unresolved;
+- a high-risk cross-layer change needs design first;
+- schema/public API/security/privacy/concurrency semantics are not already frozen;
+- the user/Coordinator explicitly requests planning.
+
+### Executor owns implementation + mechanical verification
 
 For implementation:
 
-1. Inspect relevant code/tests/current diff.
-2. Verify the reported problem exists unless the package supplies a frozen, evidence-backed root cause.
-3. Freeze the task-specific behavior and allowed scope.
-4. Add/update the minimum regression evidence needed.
-5. Make the smallest coherent change.
-6. Run minimal focused self-checks.
-7. Stop at the Executor phase boundary and hand off to independent verification.
+1. inspect relevant code/tests/current diff;
+2. verify the reported problem unless an evidence-backed root cause is already frozen;
+3. freeze task-specific behavior and allowed paths;
+4. add/update the minimum regression evidence;
+5. make the smallest coherent change;
+6. run focused tests/checks, relevant architecture gates, focused analyze, format gate and `git diff --check` as applicable;
+7. inspect final changed paths/diff for scope drift;
+8. when Git authority allows, commit exact paths, push the assigned branch and create the PR;
+9. STOP after PR creation and hand off the fixed PR head to the Independent Reviewer.
 
-For read-only tasks, do not modify, format, create, rename, or delete files.
+Executor verification is self-check evidence, not semantic approval.
+
+### Independent Reviewer
+
+The Reviewer re-reads the final fixed PR target independently. Executor reports are evidence records, not proof of correctness. The Reviewer checks semantics, architecture, frozen contracts, privacy/authorization, concurrency/transaction/persistence boundaries when relevant, regression strength and scope discipline.
+
+The Reviewer returns P0/P1/P2/P3 findings and `APPROVE` or `REQUEST_CHANGES`. The Reviewer does not implement repairs or merge.
 
 ---
 
-## 6. Git authority
+## 6. Verification failure and bounded self-repair policy
+
+A failed Executor check does **not** automatically require STOP.
+
+Executor MAY self-repair only when all are true:
+
+1. the failure is causally related to the current authorized task;
+2. the root cause is identified with concrete evidence;
+3. the repair stays entirely inside `Allowed paths` / `Commit paths`;
+4. the repair does not alter frozen architecture/canonical semantics;
+5. the repair does not weaken, skip, delete, relax, or bypass the failing verification;
+6. no unrelated bug fix or new feature is introduced.
+
+After repair, rerun the failed check and the directly affected regression set.
+
+### Repair budget
+
+- Up to **two bounded semantic/implementation repair cycles** are allowed by default during one Executor task.
+- Mechanical cleanup such as format, import ordering, lint-only cleanup, or a trivial compile fix does not consume a semantic repair cycle.
+- Do not turn this budget into permission for speculative trial-and-error.
+
+### Mandatory STOP
+
+STOP instead of self-repair when:
+
+- an additional write path is required;
+- schema/migration/public API/frozen contract changes become necessary;
+- the failure reveals a separate pre-existing defect rather than the current task;
+- root cause is uncertain;
+- fixing requires weakening/removing a test or check;
+- privacy, authorization, concurrency, transaction, or persistence semantics become ambiguous;
+- two bounded repair cycles fail to reach clean verification;
+- the repair would materially broaden the task.
+
+On STOP, report the failing command/test, first useful failure, root-cause evidence, repairs attempted, current diff/status, and the smallest proposed next scope. Do not create a completion PR with mandatory verification still failing.
+
+---
+
+## 7. When to use an independent Verifier
+
+`角色：验证` remains available but is optional/risk-triggered.
+
+Use an independent Verifier when one or more apply:
+
+- schema migration or data migration;
+- destructive data operation;
+- high-risk transaction/concurrency behavior;
+- security/privacy/authorization boundary;
+- Executor evidence is internally inconsistent or not credible;
+- flaky/environment-dependent failure needs independent classification;
+- real-provider, real-device, release/runtime acceptance;
+- the Reviewer explicitly requests an independent deterministic re-check.
+
+Then the route is:
+
+```text
+Executor + self-verification -> Independent Verifier -> Independent Reviewer
+```
+
+Otherwise use the default:
+
+```text
+Executor + self-verification -> Independent Reviewer
+```
+
+---
+
+## 8. Git authority
 
 Never run destructive/history-rewriting Git operations, including `git reset --hard`, destructive `git checkout`/`git restore`, `git clean -fd[x]`, force push, or history rewriting.
 
-Git authority is action-specific. Staging does not authorize commit; commit does not authorize push; push does not authorize merge/tag/release. Branch/worktree creation also requires explicit authority.
+Git authority is action-specific. Staging does not authorize commit; commit does not authorize push; push does not authorize PR creation; PR creation does not authorize merge/tag/release. Branch/worktree creation also requires explicit authority.
 
-Never use `git add .` or `git add -A`. Use exact paths. Do not create/update `DEVELOPMENT_LOG.md` unless it is explicitly in scope.
-
-### Local commit authorization
+Never use `git add .` or `git add -A`. Use exact paths. Do not create/update `DEVELOPMENT_LOG.md` unless explicitly in scope.
 
 An Executor may create local commits only when its package supplies all of:
 
@@ -124,9 +220,11 @@ Local commits authorized: yes
 Branch: <assigned branch>
 Commit paths: <exact allowed paths>
 Push authorized: no | yes
+PR creation authorized: no | yes
+Merge authorized: no | yes
 ```
 
-When `Local commits authorized: yes` is present, the authorization covers the current frozen task and any policy-permitted Class A/Class B closure lane on the same assigned branch and within the same commit paths. Necessary append-only local commits are allowed; **commit count is not a safety boundary**.
+When authorized, append-only commits required by the current task and policy-permitted bounded self-repair are allowed within the same branch/path limits. Commit count is not a safety boundary.
 
 The following remain forbidden unless separately authorized:
 
@@ -135,13 +233,11 @@ The following remain forbidden unless separately authorized:
 - repair passes beyond the closure limits;
 - push, PR, merge, tag, or release when not separately authorized.
 
-Without the complete authorization fields, hand off an uncommitted diff.
-
-Before and after write work, inspect `git status --short`. Do not remove unrelated tracked or untracked files.
+Before and after write work, inspect `git status --short`. Preserve unrelated tracked/untracked files.
 
 ---
 
-## 7. Security and privacy
+## 9. Security and privacy
 
 Never expose, copy, persist, test-log, or report secrets such as API keys, tokens, authorization headers, signing material, passwords, credentials, private configuration, or complete private file contents.
 
@@ -151,7 +247,7 @@ Network/provider use is disabled by default unless the task explicitly requires 
 
 ---
 
-## 8. Validation and evidence economy
+## 10. Validation and evidence economy
 
 Use focused validation during implementation. Typical checks:
 
@@ -170,260 +266,73 @@ Rules:
 - Report skipped/failed checks.
 - On Windows, run Flutter tests serially unless parallel safety is established.
 - Full workflow (`.\scripts\verify.ps1`) is for explicit release/global acceptance or direct user request.
+- Regression tests prove behaviors/invariants, not implementation lines.
+- Prefer one direct regression plus only materially necessary boundary/failure/concurrency coverage.
+- Test volume is not evidence quality.
 
-### Test evidence economy
-
-Regression tests prove behaviors/invariants, not implementation lines.
-
-For one bounded defect:
-
-- prefer one direct regression reproducing the failure;
-- add one boundary/failure/concurrency test only when materially necessary;
-- reuse existing integration/acceptance coverage;
-- do not create a separate test for every private handler unless the handlers have materially different failure modes;
-- do not add optional coverage during final audit merely because it is possible.
-
-Test volume is not evidence quality.
+A command with no meaningful progress for 3 minutes is stalled. Preserve evidence; do not silently raise timeouts or retry indefinitely.
 
 ---
 
-## 9. Execution boundaries and command limits
+## 11. Findings and review-driven repair
 
-Use the lowest capability/cost route that safely covers actual uncertainty. Deterministic work belongs to a Verifier, local terminal, or CI.
-
-Executor phase boundary: once requested behavior is implemented, syntax is complete, and at least one focused implementation check passes, stop active implementation when the remaining work is mainly verification/formatting/diff/reporting.
-
-Unless explicitly authorized:
-
-- no full repository test suite;
-- no Windows Release build;
-- no generated application launch;
-- no real external API/provider smoke test;
-- no indefinite waits;
-- no more than one retry of the same stalled/failing command;
-- no silent timeout increase.
-
-A command with no meaningful progress for 3 minutes is stalled. Preserve evidence and hand it off; a timeout is incomplete evidence, not proof of product failure.
-
----
-
-## 10. Prompt economy and delegated evidence inheritance
-
-Task prompts inherit shared rules from this file, the active role, and `docs/agents/model-routing.md` instead of repeating them.
-
-A normal delegated package contains only:
-
-```text
-角色：<role>
-目标：<one bounded objective>
-
-Base/Branch: <target identity>
-Allowed paths: <exact paths>
-Parent-attested evidence: <only facts already frozen by the parent>
-Task-specific invariant/constraints: <only deviations or frozen semantics>
-Acceptance: <task-specific criteria>
-Validation: <exact focused commands/timeouts>
-Git authority: <local commit/push fields>
-Model: <preferred route and fallback if overridden>
-Stop only if: <scope/class-C/environment/target-drift conditions>
-```
-
-Only include explicit forbidden paths when there is a realistic ambiguity. Do not restate general repository rules, full parent history, generic safety text, or unchanged architecture in every package.
-
-### Parent-attested evidence
-
-A child inherits explicit parent-attested facts and must not recompute them solely for reassurance. Inheritable evidence includes:
-
-- base/target commit SHA;
-- assigned branch/worktree identity and ownership;
-- clean/dirty state captured immediately before dispatch;
-- allowed changed paths;
-- frozen diff/changed-path identity;
-- completed topology checks;
-- an evidence-backed root cause or finding already frozen by Diagnostician/Reviewer/Coordinator.
-
-Recheck inherited evidence only when:
-
-- the role requires independent target verification;
-- a command contradicts the package;
-- target/ownership drift is observed;
-- security/privacy correctness depends on current state;
-- the package explicitly marks the fact unresolved.
-
-Do not rescan sibling worktrees, re-derive the architecture baseline, recalculate per-file hashes, or rediscover a frozen root cause merely to confirm the parent. A commit SHA identifies the complete tracked tree.
-
----
-
-## 11. Frozen-target rules
-
-Do not verify or review a moving implementation.
-
-### Committed target
-
-A commit SHA already identifies the complete tracked tree. Freeze only:
-
-```text
-Target commit: <SHA>
-git status --short: <expected state of the verification worktree>
-```
-
-Do **not** repeat per-file blob hashes for a committed target unless an external sidecar outside that commit can materially change evidence.
-
-### Uncommitted target
-
-Freeze:
-
-- current `HEAD`;
-- branch/detached state;
-- `git status --short`;
-- exact changed/staged paths;
-- focused diff or one bounded diff identity when needed.
-
-Any target drift invalidates verification/review evidence for the old target.
-
----
-
-## 12. Findings and bounded repair policy
-
-Use one severity scale:
+Severity:
 
 - **P0 Critical**: secret exposure, destructive corruption, catastrophic security/privacy failure.
 - **P1 Blocking**: data loss, crash, broken core behavior, violated frozen invariant, serious compatibility/concurrency failure.
 - **P2 Merge-blocking correctness**: bounded but meaningful correctness/compatibility/concurrency/required-acceptance gap that should be fixed before merge.
 - **P3 Non-blocking**: maintainability, documentation drift, optional/extra coverage, cleanup, low-impact hardening.
 
-P3 **must not automatically trigger a repair**. Promote it only when concrete evidence proves that it violates an explicit acceptance criterion, frozen invariant, security/privacy boundary, or release gate.
+P3 does not automatically trigger repair.
 
-Finding classes:
+After the Independent Reviewer:
 
-- **Class A**: one deterministic semantics-preserving correction. Lane: fresh narrow correction -> focused Verifier -> finish; no semantic closure Reviewer.
-- **Class B**: bounded in-scope semantic completion that does not change approved architecture/schema/public API/security posture/file scope. Lane: batch all known in-scope Class B findings -> fresh Repair Executor -> focused Verifier -> one targeted closure Reviewer.
-- **Class C**: material design/scope/security/schema/API/dependency/provider/permission change. Stop for user authorization.
+```text
+P0/P1/P2 finding
+  -> bounded Repair Executor on the same PR when scope remains valid
+  -> Executor mechanical verification + bounded self-repair policy
+  -> push updated PR
+  -> STOP
+  -> fresh targeted Reviewer pass
+```
 
-### Review/repair ordering
+Repeat only within the task's repair limits. If repair changes architecture/public contract/schema/security/concurrency semantics or invalidates the original review scope, stop and re-plan/review at the appropriate level.
 
-- Do not run a targeted closure Reviewer before the stage/feature has received its initial full semantic Review.
-- A deterministic Verifier failure may receive a Class A correction before that full Review.
-- The initial full Reviewer must finish all assigned dimensions and return all non-duplicate P0/P1/P2 findings together before Class B repair begins whenever the target remains reviewable.
-- Do not repair findings one-by-one when they are compatible, in-scope, and can be closed in one bounded pass.
-- Do not restart a full Review after repair merely because the target SHA changed. Use targeted closure review unless the repair changed architecture/public contract/schema/security/concurrency semantics or invalidated the original review scope.
-
-Default closure limits per frozen task/feature:
-
-- one initial full semantic Reviewer;
-- at most one risk-triggered cross-check;
-- at most two Class B repair passes total;
-- at most one Class A terminal correction after the final semantic check;
-- at most one targeted closure Reviewer per Class B pass;
-- at most one Sol-high full review per stage without new user authorization.
-
-P3 is recorded/deferred and does not reopen the lane.
+Merge is acceptable only when open task P0/P1/P2 findings are zero and required CI/gates are satisfied.
 
 ---
 
-## 13. Multi-agent orchestration
+## 12. Multi-agent orchestration
 
 Repository-wide orchestration uses `角色：总控`.
 
 Coordinator responsibilities:
 
 - freeze base/branch/worktree/dirty state and shared contracts once before dispatch;
-- serialize by default and allow parallel writers only with non-overlapping production ownership and isolated worktrees;
+- serialize by default; parallel writers require isolated worktrees and non-overlapping ownership;
 - delegate bounded tasks with exact file ownership and parent-attested evidence;
 - never edit production/test files itself;
-- stop all writers before Verifier/Reviewer work on the same target;
-- integrate only when Git integration is explicitly authorized;
+- stop writers before reviewing/verifying a frozen target;
+- route ordinary completed implementation directly to Independent Reviewer;
+- insert a standalone Verifier only under the risk triggers in section 7;
+- integrate only when explicitly authorized;
 - never automatically push/merge unless explicitly authorized.
 
-Each child activates one role, may not create descendants, switch roles, expand its scope, or decide public architecture/contracts. One active writer per worktree.
-
-### Child lifecycle and slot discipline
-
-A child exists for one bounded role/task only. Terminal states are `COMPLETE`, `BLOCKED`, or `FAILED`.
-
-When a child becomes terminal, the Coordinator must in the same orchestration turn:
-
-1. capture the concise handoff and durable evidence;
-2. record role, target/commit, verdict/findings, validation result and remaining risk;
-3. close/release the terminal child before spawning its successor.
-
-Do not keep terminal children alive for reference, logs, possible reuse, or while waiting on another feature. The handoff is durable evidence; the child session is not. Never resume a terminal writer for repair; use a fresh bounded child.
-
-Before creating a child, reconcile the roster and release terminal children. Default active-child budget is two globally for parallel feature work unless the current user/package explicitly authorizes more. If capacity remains full after cleanup, wait for an active child to reach terminal state rather than spawning duplicates.
-
-### Wait discipline
-
-Prefer host-provided event/terminal-handoff waiting. Do not periodically wake a model merely to report that children are still running.
-
-If the host lacks event-driven waiting, use the lowest-frequency bounded fallback wait the runtime supports. Silence is not evidence of a stall. Surface terminal states, permission requests, ownership drift, target drift, or safety violations immediately.
-
-Child handoffs must be concise and include target identity, files changed, behavior, focused checks/results, skipped checks, remaining risks, commit SHA when authorized, and `git status --short`.
-
-Model/provider selection and closure routing are defined in `docs/agents/model-routing.md`.
+A child has one bounded role/task, may not create descendants, switch roles, expand scope, or decide public architecture/contracts.
 
 ---
 
-## 14. Canonical contract and review-history discipline
+## 13. Canonical contract discipline
 
-A canonical document is the current authoritative contract for one product or architecture domain: it records what current and future agents must believe. It is not a development log, Reviewer-findings dump, test report, substitute for Git history, or ordinary TODO list.
+A canonical document records durable current truth, not a development log, review-findings dump, test report, or substitute for Git history.
 
-Before planning a new stage or work that may change a durable contract:
-
-1. the Planner identifies the canonical documents relevant to the task boundary;
-2. only those relevant canonical documents are read; a full `docs/` scan is not required;
-3. the plan states whether the task preserves the current contract or changes durable contract truth and, if it changes truth, exactly which canonical documents must be updated.
+Before planning a stage that may change durable truth, identify only the relevant canonical documents.
 
 Role responsibilities:
 
-- **Executor:** when implementation preserves the durable contract, do not edit canonical documents merely for completeness. When implementation changes an authorized durable contract, update the affected canonical documents in the same change. Preserve historical truth: use an amendment, status update, or superseding document when needed rather than rewriting history as though a later decision always existed.
-- **Reviewer:** check implementation against the relevant canonical contract. Report implementation/contract drift and report an authorized durable contract change whose canonical documents were not updated. Do not require a routine bug fix to create or edit a canonical document without a durable contract change.
-- **Verifier:** verify code, documentation, and tests against the already-frozen contract; do not redesign or reinterpret the canonical contract.
+- **Planner:** states whether the task preserves or changes durable contract truth and which canonical docs would be affected.
+- **Executor:** updates canonical docs only when an authorized implementation changes durable truth; ordinary bug fixes do not edit docs merely for completeness.
+- **Reviewer:** checks both directions of implementation/contract drift.
+- **Verifier:** when explicitly used, checks conformance to already-frozen contract and does not redesign it.
 
-Durable contract changes include product IA/navigation/terminology, domain ownership or lifecycle semantics, application/module dependency boundaries, persisted-schema semantics, Agent/MCP permission or public contracts, canonical roadmap/stage status, and other long-lived decisions that affect future correct implementation. Routine bug fixes, ordinary copy changes, local UI polish, behavior-preserving internal refactors, tests alone, format/lint, one-off P3 findings, and per-run verification results do not update canonical documents by default.
-
-Reviews record what an inspection found. When a formal finding disposition is useful, use the existing review context and concise states such as `OPEN`, `FIXED`, `DEFERRED`, `NOT_ACTIONED — intentional`, or `BLOCKED`; do not create a second workflow state machine. Findings normally remain in GitHub PR review/discussion or an established repository review artifact. Do not require `docs/reviews/*.md` for each small task. Create a standalone review document only when an established stage-review convention applies or the work has durable audit value such as schema, architecture, or a major stage.
-
-Canonical documents contain only the durable rule distilled from a decision or review. Do not copy a complete Reviewer report into them. If an intentional distinction is likely to be mistakenly changed again, record that enduring semantic distinction in the relevant canonical document and keep the inspection disposition in review history.
-
-`docs/architecture/` describes the **current contract and invariant**, not agent execution history. Do not append commit SHAs, per-run test counts, temporary Reviewer findings, repair chronology, model identity, or handoff transcripts to architecture documents. Keep those in PR descriptions/reviews/CI evidence. When a change updates current contract truth, edit the existing relevant section or use an explicit amendment/status/superseding document when historical provenance must remain visible.
-
-**Canonical documents record current truth; reviews record inspection history; Git records implementation history.**
-
----
-
-## 15. Local private PDF test corpus
-
-Private smoke-test PDFs live only under:
-
-```text
-scratch/test_pdfs/<subject>/single/
-```
-
-Rules:
-
-1. Do not scan outside `scratch/test_pdfs/` for test PDFs.
-2. Do not modify, rename, copy, upload, commit, or track private PDFs.
-3. Do not copy real question text into fixtures/logs/diagnostics/reports.
-4. Reports may include only filenames, counts, question numbers, stages, statuses, and redacted metrics.
-5. One PDF is one independent smoke run/import task.
-6. Do not scan/read/execute historical `paired/` directories.
-7. Supplemental-answer document matching is governed by the frozen P6
-   canonical contract in `docs/architecture/p6-supplemental-answer-matching.md`:
-   explicit supplemental file + explicit target scope, transient
-   `AnswerCandidate`, and the existing typed answer mutation authority.
-   Paired/combined/automatic two-PDF merge remains permanently prohibited.
-
----
-
-## 16. Reporting
-
-Report only relevant results:
-
-- changed files and behavior;
-- commands/tests actually executed and exit/result;
-- skipped/failed checks;
-- remaining risks/out-of-scope findings;
-- commit SHA only when created;
-- `git status --short` when operating in a worktree.
-
-Do not hide failures. If the host does not expose actual child model identity, report the requested route and any observed fallback; do not require unsupported self-attestation such as `MODEL IDENTITY: UNCONFIRMED`.
+Preserve historical truth through amendments/status updates/superseding docs rather than rewriting history as though later decisions always existed.
