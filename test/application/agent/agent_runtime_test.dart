@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
@@ -21,16 +23,27 @@ import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_service.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
+import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
+import 'package:shiroha_quiz/data/repositories/parsed_artifact_repository.dart';
+import 'package:shiroha_quiz/data/repositories/retrieval_index_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
+import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/file_library/managed_artifact_storage_adapter.dart';
+import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
+import 'package:shiroha_quiz/services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
+import 'package:shiroha_quiz/services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
 import 'package:shiroha_quiz/services/retrieval/deterministic_source_chunker.dart';
+import 'package:shiroha_quiz/services/retrieval/parsed_artifact_retrieval_source.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 typedef _Script = Stream<AgentProviderEvent> Function(
   AgentProviderRequest request,
@@ -246,6 +259,100 @@ void main() {
         (await harness.messagesOf(conversationId)).last.content,
         '59271',
       );
+    });
+
+    test(
+        'real attached TXT runs actual F1 provisioning, chunking, and FTS '
+        'search in one bounded tool round without tool-limit', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      final tempDir = await Directory.systemTemp.createTemp('rag_agent_e2e_');
+      addTearDown(() async {
+        await DatabaseHelper.resetRuntimeProfileForTesting();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final libraryRepository = LibraryFileRepository();
+      final artifactRepository = ParsedArtifactRepository();
+      final originalStorage = ManagedFileStorageAdapter(managedRoot: tempDir);
+      final lifecycle = ParsedArtifactLifecycleService(
+        libraryFileRepository: libraryRepository,
+        artifactRepository: artifactRepository,
+        artifactStorage: ManagedArtifactStorageAdapter(managedRoot: tempDir),
+        generationPort: DeterministicParsedArtifactGenerationAdapter(
+          managedFileStorage: originalStorage,
+        ),
+      );
+      final retrieval = RetrievalService(
+        scopeResolver: _RuntimeRetrievalScope(),
+        artifactSource: ParsedArtifactRetrievalSource(
+          lifecycle: lifecycle,
+          metadata: artifactRepository,
+        ),
+        index: SqliteRetrievalIndexRepository(),
+        chunker: const DeterministicSourceChunker(),
+      );
+      const hiddenFact = '今天的隐藏数字是 59271';
+      final bytes = utf8.encode(hiddenFact);
+      final fixture = File(p.join(tempDir.path, 'hidden-number.txt'));
+      await fixture.writeAsBytes(bytes);
+      await originalStorage.copyIntoManagedStorage(
+        externalPath: fixture.path,
+        storageKey: 'library/file-1',
+      );
+      await fixture.delete();
+      await libraryRepository.save(
+        LibraryFile(
+          fileId: 'file-1',
+          displayName: 'hidden-number.txt',
+          mimeType: 'text/plain',
+          sizeBytes: bytes.length,
+          sha256:
+              'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+          storageKey: 'library/file-1',
+          createdAt: DateTime.utc(2026, 8, 14),
+        ),
+      );
+
+      const state = _TestContinuationState('rag-real-e2e');
+      final harness = _Harness(
+        wireRetrieval: true,
+        retrievalOverride: retrieval,
+        scripts: <_Script>[
+          _toolRound(<AgentProviderFunctionCall>[
+            _call(
+              'rag-1',
+              name: AgentRetrievalToolCatalog.toolName,
+              arguments: '{"query":"59271","file_ids":["file-1"]}',
+            ),
+          ], state),
+          _finalAnswer('59271'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'read the approved attachment',
+        fileIds: const ['file-1'],
+      );
+
+      final result = await harness.runtime
+          .startTurnWithRetrieval(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+            approval: RetrievalEgressApproval(const ['file-1']),
+          )
+          .result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect((result as AgentTurnSuccess).assistantMessage.content, '59271');
+      expect(harness.provider.callCount, 2);
+      expect(harness.provider.requests[1].toolOutputs, hasLength(1));
+      expect(harness.provider.requests[1].toolOutputs.single.output,
+          contains(hiddenFact));
+      expect(harness.dispatcher.calls, isEmpty);
+      expect((await artifactRepository.findCurrentByFileId('file-1'))!.revision,
+          1);
+      expect(await artifactRepository.readRevisionHead('file-1'), 1);
     });
 
     test('a later user message invalidates retrieval before serialization',
@@ -1763,6 +1870,7 @@ final class _Harness {
     bool webEnabled = false,
     bool wireProposal = false,
     bool wireRetrieval = false,
+    RetrievalService? retrievalOverride,
     double temperature = 1.0,
     AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   })  : repository = _FakeConversationRepository(),
@@ -1806,11 +1914,12 @@ final class _Harness {
     retrievalIndex = _RuntimeRetrievalIndex();
     retrievalDispatcher = wireRetrieval
         ? AgentRetrievalToolDispatcher(
-            retrieval: RetrievalService(
-                scopeResolver: retrievalScope,
-                artifactSource: _RuntimeRetrievalSource(),
-                index: retrievalIndex,
-                chunker: const DeterministicSourceChunker()))
+            retrieval: retrievalOverride ??
+                RetrievalService(
+                    scopeResolver: retrievalScope,
+                    artifactSource: _RuntimeRetrievalSource(),
+                    index: retrievalIndex,
+                    chunker: const DeterministicSourceChunker()))
         : null;
     runtime = ShirohaAgentRuntime(
       conversationService: conversationService,
