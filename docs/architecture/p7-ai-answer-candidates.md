@@ -1,6 +1,6 @@
 # P7 AI Answer Candidates — Focused Canonical Contract
 
-Status: **Canonical P7 authority. P7-P0 is COMPLETE (docs-only); P7 implementation (P7-D0 and later) is NOT STARTED.**
+Status: **Canonical P7 authority. P7-P0 (docs-only), P7-D0a, and P7-D0b are COMPLETE; P7-D1 and later are NOT STARTED.**
 
 This document is the authoritative contract for P7 v0 AI answer candidates:
 the producer boundary, content admission, provider boundary, typed
@@ -427,19 +427,20 @@ P7-P0 -> P7-D0a -> P7-D0b -> P7-D1 -> P7-I0 -> P7-C0 -> P7-U0 -> P7-V0 -> P7-CL
 
 Definitions:
 
-- P7-P0 canonical contract (this stage) — COMPLETE (docs-only);
-- P7-D0a producer-neutral Candidate/origin;
-- P7-D0b generic review-decision core;
-- P7-D1 provider port + strict adapter / validation;
-- P7-I0 AI generation Application use case;
-- P7-C0 confirmation + transactional persistence adapter;
-- P7-U0 minimal typed-question Presentation integration;
-- P7-V0 focused validation / privacy / concurrency / acceptance;
-- P7-CL canonical closure.
+- P7-P0 canonical contract — COMPLETE (docs-only);
+- P7-D0a producer-neutral Candidate/origin — COMPLETE;
+- P7-D0b generic review-decision core — COMPLETE;
+- P7-D1 provider port + strict adapter / validation — NOT STARTED;
+- P7-I0 AI generation Application use case — NOT STARTED;
+- P7-C0 confirmation + transactional persistence adapter — NOT STARTED;
+- P7-U0 minimal typed-question Presentation integration — NOT STARTED;
+- P7-V0 focused validation / privacy / concurrency / acceptance —
+  NOT STARTED;
+- P7-CL canonical closure — NOT STARTED.
 
-All P7 implementation stages are SERIAL and remain NOT STARTED. This stage
-graph is the frozen route only; no later stage may be executed by this
-stage.
+All P7 implementation stages are SERIAL. P7-D1 and later remain NOT
+STARTED; this stage graph is the frozen route only, and no later stage may
+be executed by an earlier stage.
 
 ## 16. Non-goals
 

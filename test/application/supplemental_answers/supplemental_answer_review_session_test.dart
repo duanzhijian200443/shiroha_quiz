@@ -80,6 +80,58 @@ void main() {
       );
     });
 
+    test('direct confirmReplace without selectForReplace fails', () {
+      final session = _sessionFor([
+        _target(
+          'q_1',
+          number: 1,
+          kind: QuestionKind.shortAnswer,
+          answer: ContentAnswer(content: _text('x = 9')),
+        ),
+      ], [
+        _fragment('frag_1', main: '1', answer: 'x = 1'),
+      ]);
+
+      expect(
+        () => session.confirmReplace('cand_frag_1_q_1'),
+        throwsA(
+          isA<SupplementalAnswerReviewException>().having(
+            (error) => error.failure,
+            'failure',
+            SupplementalAnswerReviewFailure
+                .conflictRequiresReplaceReconfirmation,
+          ),
+        ),
+      );
+      expect(session.sessionRevision, 0);
+    });
+
+    test('repeated selectForReplace fails safely', () {
+      final session = _sessionFor([
+        _target(
+          'q_1',
+          number: 1,
+          kind: QuestionKind.shortAnswer,
+          answer: ContentAnswer(content: _text('x = 9')),
+        ),
+      ], [
+        _fragment('frag_1', main: '1', answer: 'x = 1'),
+      ]);
+
+      final selected = session.selectForReplace('cand_frag_1_q_1');
+      expect(
+        () => selected.selectForReplace('cand_frag_1_q_1'),
+        throwsA(
+          isA<SupplementalAnswerReviewException>().having(
+            (error) => error.failure,
+            'failure',
+            SupplementalAnswerReviewFailure.alreadyDecided,
+          ),
+        ),
+      );
+      expect(selected.sessionRevision, 1);
+    });
+
     test('noOp candidate is terminal and never committable', () {
       final session = _sessionFor([
         _target(
