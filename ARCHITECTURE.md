@@ -373,3 +373,13 @@ boundary remains frozen and applies to any future P7 extension:
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema remains
   v21.
+
+## 12. UI Finalization Presentation boundary
+
+The final Presentation / Navigation IA authority is
+`docs/product/ui-finalization-ia-freeze.md`. The final primary navigation
+is Today / Assistant / Profile (user-facing labels 今日 / 助手 / 我的),
+and Today owns the 普通 / 特训 / 考试 mode organization. The focused UI
+Finalization contract governs only those Presentation decisions and does
+not alter any domain, application, persistence, provider, or schema
+boundary recorded in this document.
