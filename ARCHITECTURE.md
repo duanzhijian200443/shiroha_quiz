@@ -317,9 +317,10 @@ P7-P0 froze the focused canonical contract in
 (producer-neutral Candidate/origin), P7-D0b (generic review-decision core),
 P7-D1 (bounded AI answer provider port + strict HTTP adapter / typed
 output validation), P7-I0 (AI generation Application use case), P7-C0
-(confirmation + transactional answer-only persistence), and P7-U0
-(minimal typed-question Presentation integration) are COMPLETE, and
-P7-V0 and later are NOT STARTED. The following durable
+(confirmation + transactional answer-only persistence), P7-U0
+(minimal typed-question Presentation integration), and P7-V0 (focused
+validation / privacy / concurrency / acceptance) are COMPLETE, and
+P7-CL and later are NOT STARTED. The following durable
 boundary applies to any future P7 implementation:
 
 - P7 adds exactly one capability: AI -> typed `AnswerCandidate` producer
