@@ -1,8 +1,14 @@
-import '../../domain/supplemental_answers/answer_candidate.dart';
+import '../../domain/answers/answer_candidate.dart';
 import '../../domain/supplemental_answers/answer_match_record.dart';
 import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
+import '../answers/answer_candidate_review_session.dart';
 import 'supplemental_answer_matcher.dart';
 import 'target_question_snapshot_service.dart';
+
+/// The producer-neutral review outcome enum re-exported from the shared
+/// review-decision core so existing P6 importers keep compiling.
+export '../answers/answer_candidate_review_session.dart'
+    show CandidateReviewOutcome;
 
 /// Safe failure taxonomy of the transient P6 review lifecycle.
 enum SupplementalAnswerReviewFailure {
@@ -48,17 +54,7 @@ final class SupplementalAnswerReviewException implements Exception {
   }
 }
 
-/// Terminal review outcome of one candidate within the transient session.
-enum CandidateReviewOutcome {
-  pendingFill,
-  pendingReplace,
-  confirmed,
-  committed,
-  rejected,
-  noOp,
-}
-
-/// One exact confirmation request produced by the review session.
+/// One exact confirmation request produced by the P6 review session.
 ///
 /// The confirmation carries the candidate plus the exact session revision;
 /// C0 revalidates both inside the linearized write boundary.
@@ -72,15 +68,16 @@ final class SupplementalAnswerConfirmation {
   final int sessionRevision;
 }
 
-/// Transient P6 review session.
+/// P6-facing adapter over the shared producer-neutral review-decision core.
 ///
-/// The session owns the canonical candidate lifecycle:
-///
-/// - missing answer: matched/fill -> select -> explicit confirm -> commit;
-/// - equivalent: noOp -> terminal, zero transaction;
-/// - different: conflict -> per-question replace review -> per-question
-///   explicit reconfirm -> commit;
-/// - ambiguous/unmatched/invalid: review-only terminal, never committable.
+/// The canonical transition state machine lives in
+/// [AnswerCandidateReviewSession]; this adapter keeps the P6 surface
+/// (`request` / `snapshot` / `matchResult` / `records` / `outcomes` /
+/// `sessionRevision` / `outcomeOf` / `confirmFill` / `selectForReplace` /
+/// `confirmReplace` / `reject` / `markCommitted`) and enforces the P6
+/// eligibility rules that are producer-specific: matched/fill only for fill
+/// confirmation, conflict/replace only for the replacement flow, and
+/// ambiguous/unmatched/invalid never committable.
 ///
 /// Everything is transient and lost on process exit. `sessionRevision`
 /// increments on every review decision, and confirmations must carry the
@@ -91,22 +88,16 @@ final class SupplementalAnswerReviewSession {
     required TargetQuestionSnapshot snapshot,
     required SupplementalMatchResult matchResult,
   }) {
-    final outcomes = <String, CandidateReviewOutcome>{};
-    for (final record in matchResult.records) {
-      final candidate = record.candidate;
-      if (candidate == null) continue;
-      outcomes[candidate.candidateId] = switch (candidate.writeIntent) {
-        CandidateWriteIntent.fill => CandidateReviewOutcome.pendingFill,
-        CandidateWriteIntent.noOp => CandidateReviewOutcome.noOp,
-        CandidateWriteIntent.replace => CandidateReviewOutcome.pendingReplace,
-      };
-    }
     return SupplementalAnswerReviewSession._(
       request: request,
       snapshot: snapshot,
       matchResult: matchResult,
-      outcomes: outcomes,
-      sessionRevision: 0,
+      core: AnswerCandidateReviewSession(
+        candidates: <AnswerCandidate>[
+          for (final record in matchResult.records)
+            if (record.candidate case final candidate?) candidate,
+        ],
+      ),
     );
   }
 
@@ -114,20 +105,22 @@ final class SupplementalAnswerReviewSession {
     required this.request,
     required this.snapshot,
     required this.matchResult,
-    required this.outcomes,
-    required this.sessionRevision,
+    required this.core,
   });
 
   final SupplementalAnswerMatchRequest request;
   final TargetQuestionSnapshot snapshot;
   final SupplementalMatchResult matchResult;
-  final Map<String, CandidateReviewOutcome> outcomes;
-  final int sessionRevision;
+  final AnswerCandidateReviewSession core;
 
   List<AnswerMatchRecord> get records => matchResult.records;
 
+  Map<String, CandidateReviewOutcome> get outcomes => core.outcomes;
+
+  int get sessionRevision => core.sessionRevision;
+
   CandidateReviewOutcome outcomeOf(String candidateId) {
-    return outcomes[candidateId] ?? CandidateReviewOutcome.rejected;
+    return core.outcomeOf(candidateId);
   }
 
   /// Confirms one fill candidate. Only `matched` records with a `fill` write
@@ -150,20 +143,25 @@ final class SupplementalAnswerReviewSession {
         },
       );
     }
-    _checkRevisionFreeDecision(candidateId);
     final record = _recordFor(candidateId);
     if (record.disposition != AnswerMatchDisposition.matched) {
       throw SupplementalAnswerReviewException(
         _notCommittableFailure(record.disposition),
       );
     }
-    return _confirm(candidateId, CandidateReviewOutcome.confirmed);
+    final decided = _run(() => core.confirmFill(candidateId));
+    return (
+      session: _wrap(decided.session),
+      confirmation: SupplementalAnswerConfirmation(
+        candidate: decided.confirmation.candidate,
+        sessionRevision: decided.confirmation.sessionRevision,
+      ),
+    );
   }
 
   /// First step of the per-question replace review for one conflict.
   SupplementalAnswerReviewSession selectForReplace(String candidateId) {
     final candidate = _candidate(candidateId);
-    _checkRevisionFreeDecision(candidateId);
     final record = _recordFor(candidateId);
     if (record.disposition != AnswerMatchDisposition.conflict ||
         candidate.writeIntent != CandidateWriteIntent.replace) {
@@ -171,10 +169,12 @@ final class SupplementalAnswerReviewSession {
         SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
       );
     }
-    return _copyWithOutcome(candidateId, CandidateReviewOutcome.pendingReplace);
+    return _wrap(_run(() => core.selectForReplace(candidateId)));
   }
 
   /// Second, explicit per-question reconfirmation of a conflict replace.
+  /// Only the selected/armed replacement may be confirmed; a direct
+  /// `confirmReplace` on an unselected replacement fails safely.
   /// Returns the next session plus the exact confirmation.
   ({
     SupplementalAnswerReviewSession session,
@@ -186,35 +186,26 @@ final class SupplementalAnswerReviewSession {
         SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
       );
     }
-    final current = outcomes[candidateId];
-    if (current != CandidateReviewOutcome.pendingReplace) {
-      throw SupplementalAnswerReviewException(
-        current == CandidateReviewOutcome.confirmed ||
-                current == CandidateReviewOutcome.committed
-            ? SupplementalAnswerReviewFailure.alreadyDecided
-            : SupplementalAnswerReviewFailure
-                .conflictRequiresReplaceReconfirmation,
-      );
-    }
-    return _confirm(candidateId, CandidateReviewOutcome.confirmed);
+    final decided = _run(() => core.confirmReplace(candidateId));
+    return (
+      session: _wrap(decided.session),
+      confirmation: SupplementalAnswerConfirmation(
+        candidate: decided.confirmation.candidate,
+        sessionRevision: decided.confirmation.sessionRevision,
+      ),
+    );
   }
 
   /// Explicit rejection: terminal with zero mutation.
   SupplementalAnswerReviewSession reject(String candidateId) {
     _candidate(candidateId);
-    _checkRevisionFreeDecision(candidateId);
-    return _copyWithOutcome(candidateId, CandidateReviewOutcome.rejected);
+    return _wrap(_run(() => core.reject(candidateId)));
   }
 
   /// Marks one confirmed candidate as committed after C0 succeeded.
   SupplementalAnswerReviewSession markCommitted(String candidateId) {
     _candidate(candidateId);
-    if (outcomes[candidateId] != CandidateReviewOutcome.confirmed) {
-      throw SupplementalAnswerReviewException(
-        SupplementalAnswerReviewFailure.alreadyDecided,
-      );
-    }
-    return _copyWithOutcome(candidateId, CandidateReviewOutcome.committed);
+    return _wrap(_run(() => core.markCommitted(candidateId)));
   }
 
   AnswerCandidate _candidate(String candidateId) {
@@ -235,48 +226,43 @@ final class SupplementalAnswerReviewSession {
     );
   }
 
-  void _checkRevisionFreeDecision(String candidateId) {
-    final current = outcomes[candidateId];
-    if (current != null &&
-        current != CandidateReviewOutcome.pendingFill &&
-        current != CandidateReviewOutcome.pendingReplace) {
+  /// Runs one core transition and maps its typed failures onto the P6
+  /// taxonomy; no raw core exception can escape the adapter.
+  T _run<T>(T Function() action) {
+    try {
+      return action();
+    } on AnswerCandidateReviewException catch (error) {
       throw SupplementalAnswerReviewException(
-        SupplementalAnswerReviewFailure.alreadyDecided,
+        _mapReviewFailure(error.failure),
       );
     }
   }
 
-  ({
-    SupplementalAnswerReviewSession session,
-    SupplementalAnswerConfirmation confirmation,
-  }) _confirm(
-    String candidateId,
-    CandidateReviewOutcome outcome,
+  static SupplementalAnswerReviewFailure _mapReviewFailure(
+    AnswerCandidateReviewFailure failure,
   ) {
-    final candidate = _candidate(candidateId);
-    final next = _copyWithOutcome(candidateId, outcome);
-    return (
-      session: next,
-      confirmation: SupplementalAnswerConfirmation(
-        candidate: candidate,
-        sessionRevision: next.sessionRevision,
-      ),
-    );
+    return switch (failure) {
+      AnswerCandidateReviewFailure.unknownCandidate =>
+        SupplementalAnswerReviewFailure.unknownCandidate,
+      AnswerCandidateReviewFailure.staleSessionRevision =>
+        SupplementalAnswerReviewFailure.staleSessionRevision,
+      AnswerCandidateReviewFailure.alreadyDecided =>
+        SupplementalAnswerReviewFailure.alreadyDecided,
+      AnswerCandidateReviewFailure.noOpTerminal =>
+        SupplementalAnswerReviewFailure.noOpTerminal,
+      AnswerCandidateReviewFailure.fillOnlyForMissingAnswers =>
+        SupplementalAnswerReviewFailure.fillOnlyForMissingAnswers,
+      AnswerCandidateReviewFailure.replaceFlowRequired =>
+        SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
+    };
   }
 
-  SupplementalAnswerReviewSession _copyWithOutcome(
-    String candidateId,
-    CandidateReviewOutcome outcome,
-  ) {
+  SupplementalAnswerReviewSession _wrap(AnswerCandidateReviewSession core) {
     return SupplementalAnswerReviewSession._(
       request: request,
       snapshot: snapshot,
       matchResult: matchResult,
-      outcomes: <String, CandidateReviewOutcome>{
-        ...outcomes,
-        candidateId: outcome,
-      },
-      sessionRevision: sessionRevision + 1,
+      core: core,
     );
   }
 

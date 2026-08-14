@@ -313,9 +313,10 @@ COMPLETE. The following durable boundary applies to the P6 implementation:
 ## 11. AI answer candidate boundary (P7-P0)
 
 P7-P0 froze the focused canonical contract in
-`docs/architecture/p7-ai-answer-candidates.md`; P7-P0 is docs-only and
-COMPLETE, and P7-D0 and later are NOT STARTED. The following durable
-boundary applies to any future P7 implementation:
+`docs/architecture/p7-ai-answer-candidates.md`; P7-P0 (docs-only), P7-D0a
+(producer-neutral Candidate/origin), and P7-D0b (generic review-decision
+core) are COMPLETE, and P7-D1 and later are NOT STARTED. The following
+durable boundary applies to any future P7 implementation:
 
 - P7 adds exactly one capability: AI -> typed `AnswerCandidate` producer
   through `explicit action on one typed question -> safe-content admission
