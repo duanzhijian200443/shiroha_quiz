@@ -37,9 +37,6 @@ class _PracticePageState extends State<PracticePage> {
   int _pomodoroSeconds = 1500; // 25分钟
   int _pomodoroStartTime = 0;
   int _solvedInPomodoro = 0;
-  static const Color _bgColor = Color(0xFFF4F6FA);
-  static const Color _primaryColor = Color(0xFF4C6ED7);
-
   PracticeQuestionView? _currentQuestion;
   bool _isAnswerRevealed = false; // 控制是否显示答案和打分底栏
   bool _isLoading = true;
@@ -252,7 +249,9 @@ class _PracticePageState extends State<PracticePage> {
       {bool isOption = false, bool isSelected = false}) {
     final theme = Theme.of(context);
     final textColor = isOption
-        ? (isSelected ? theme.primaryColor : theme.textTheme.bodyLarge?.color)
+        ? (isSelected
+            ? theme.colorScheme.primary
+            : theme.textTheme.bodyLarge?.color)
         : theme.textTheme.bodyLarge?.color;
     final fontWeight =
         (isOption && isSelected) ? FontWeight.bold : FontWeight.normal;
@@ -275,34 +274,41 @@ class _PracticePageState extends State<PracticePage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-          backgroundColor: _bgColor,
+          backgroundColor: Theme.of(context).colorScheme.surface,
           appBar: _buildAppBar(),
           body: const Center(child: CircularProgressIndicator()));
     }
     if (_error != null) {
       return Scaffold(
-          backgroundColor: _bgColor,
+          backgroundColor: Theme.of(context).colorScheme.surface,
           appBar: _buildAppBar(),
           body: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+            Icon(Icons.error_outline,
+                size: 48, color: Theme.of(context).colorScheme.error),
             const SizedBox(height: 12),
             Text(_error!,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 16),
             ElevatedButton(onPressed: _initSession, child: const Text('重试')),
           ])));
     }
     if (_currentQuestion == null) {
       return Scaffold(
-          backgroundColor: _bgColor,
+          backgroundColor: Theme.of(context).colorScheme.surface,
           appBar: _buildAppBar(),
           body: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.inbox_rounded, size: 56, color: Colors.grey.shade300),
+            Icon(Icons.inbox_rounded,
+                size: 56,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(height: 16),
             Text('还没有题目，先去导入题库吧',
-                style: TextStyle(fontSize: 15, color: Colors.grey.shade500)),
+                style: TextStyle(
+                    fontSize: 15,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ])));
     }
 
@@ -323,7 +329,8 @@ class _PracticePageState extends State<PracticePage> {
         }
       },
       child: Scaffold(
-        backgroundColor: _bgColor,
+        key: const ValueKey<String>('practice-page-scaffold'),
+        backgroundColor: Theme.of(context).colorScheme.surface,
         appBar: _buildAppBar(),
         body: _buildQuestionContent(),
         bottomNavigationBar: _buildBottomAction(),
@@ -336,11 +343,14 @@ class _PracticePageState extends State<PracticePage> {
       backgroundColor: Colors.transparent,
       elevation: 0,
       leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.grey),
+          icon: Icon(Icons.close,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
           onPressed: () => Navigator.of(context).pop(),
           tooltip: '退出练习'),
       title: Text('刷题中',
-          style: TextStyle(fontSize: 15, color: Colors.grey.shade600)),
+          style: TextStyle(
+              fontSize: 15,
+              color: Theme.of(context).colorScheme.onSurfaceVariant)),
       centerTitle: true,
       actions: [
         if (widget.isPomodoroActive)
@@ -375,7 +385,8 @@ class _PracticePageState extends State<PracticePage> {
                 tooltip: '生成变种题',
               ),
         IconButton(
-          icon: const Icon(Icons.delete_outline, color: Colors.grey),
+          icon: Icon(Icons.delete_outline,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
           onPressed: _deleteCurrentQuestion,
         ),
       ],
@@ -406,15 +417,17 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildQuestionCard(PracticeQuestionView view) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
+      key: const ValueKey<String>('practice-question-card'),
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-          color: Colors.white,
+          color: colors.surfaceContainerLow,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
+                color: colors.shadow.withValues(alpha: 0.08),
                 blurRadius: 10,
                 offset: const Offset(0, 3))
           ]),
@@ -425,6 +438,7 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildOptionsList(List<PracticeOptionView> options) {
+    final colors = Theme.of(context).colorScheme;
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -438,14 +452,15 @@ class _PracticePageState extends State<PracticePage> {
         final sel = isTypedOption
             ? _selectedOptionId == option.optionId
             : _selectedOptionIndex == i;
-        Color bg = Colors.white, border = Colors.grey.shade200;
-        Color lBg = Colors.grey.shade100, lFg = Colors.grey.shade600;
+        Color bg = colors.surfaceContainerLow, border = colors.outlineVariant;
+        Color lBg = colors.secondaryContainer,
+            lFg = colors.onSecondaryContainer;
 
         if (sel) {
-          bg = const Color(0xFFEDF1FD);
-          border = _primaryColor;
-          lBg = _primaryColor;
-          lFg = Colors.white;
+          bg = colors.primaryContainer;
+          border = colors.primary;
+          lBg = colors.primary;
+          lFg = colors.onPrimary;
         }
 
         if (_isAnswerRevealed && _currentQuestion != null) {
@@ -454,15 +469,15 @@ class _PracticePageState extends State<PracticePage> {
               ? view.answerOptionIds.contains(option.optionId)
               : view.legacyAnswer.trim().toUpperCase() == letter;
           if (isCorrect) {
-            bg = const Color(0xFFE8F8ED);
-            border = const Color(0xFF34C759);
-            lBg = const Color(0xFF34C759);
-            lFg = Colors.white;
+            bg = colors.tertiaryContainer;
+            border = colors.tertiary;
+            lBg = colors.tertiary;
+            lFg = colors.onTertiary;
           } else if (sel && !isCorrect) {
-            bg = const Color(0xFFFFEDEC);
-            border = const Color(0xFFFF3B30);
-            lBg = const Color(0xFFFF3B30);
-            lFg = Colors.white;
+            bg = colors.errorContainer;
+            border = colors.error;
+            lBg = colors.error;
+            lFg = colors.onError;
           }
         }
 
@@ -477,6 +492,7 @@ class _PracticePageState extends State<PracticePage> {
                     }
                   }),
           child: AnimatedContainer(
+              key: ValueKey<String>('practice-option-$i'),
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
@@ -507,7 +523,7 @@ class _PracticePageState extends State<PracticePage> {
                           content: option.typedContent!,
                           fontSize: 15,
                           textColor: sel
-                              ? theme.primaryColor
+                              ? theme.colorScheme.primary
                               : theme.textTheme.bodyLarge?.color,
                           fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                         );
@@ -533,29 +549,30 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildAnalysis(PracticeQuestionView view) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-          color: Colors.white,
+          color: colors.surfaceContainerLow,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _primaryColor.withValues(alpha: 0.3))),
+          border: Border.all(color: colors.primary.withValues(alpha: 0.3))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(Icons.info_outline, size: 22, color: _primaryColor),
+          Icon(Icons.info_outline, size: 22, color: colors.primary),
           const SizedBox(width: 8),
           Text('答案与解析',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: _primaryColor)),
+                  color: colors.primary)),
         ]),
         const SizedBox(height: 8),
         if (view.isTyped) ...[
           Text('正确答案:',
               style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey.shade800,
+                  color: colors.onSurface,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           if (view.typedAnswer != null)
@@ -564,7 +581,7 @@ class _PracticePageState extends State<PracticePage> {
             Text('无',
                 style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade800,
+                    color: colors.onSurface,
                     fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           const Divider(height: 1),
@@ -572,13 +589,15 @@ class _PracticePageState extends State<PracticePage> {
           if (view.typedExplanation != null)
             RichContentRenderer(content: view.typedExplanation!, fontSize: 13)
           else
-            const Text('无解析',
-                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            Text('无解析',
+                style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ] else ...[
           Text('正确答案: ${view.legacyAnswer}',
               style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey.shade800,
+                  color: colors.onSurface,
                   fontWeight: FontWeight.bold)),
           if ((view.legacyRawExplanation != null &&
                   view.legacyRawExplanation!.isNotEmpty) ||
@@ -598,6 +617,7 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildSubjectiveSection(PracticeQuestionView view) {
+    final colors = Theme.of(context).colorScheme;
     if (_isAnswerRevealed || _showStandardAnswerDirectly) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (_aiFeedback != null)
@@ -606,9 +626,8 @@ class _PracticePageState extends State<PracticePage> {
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).primaryColor.withValues(alpha: 0.05),
-              border: Border.all(
-                  color: Theme.of(context).primaryColor.withValues(alpha: 0.3)),
+              color: colors.primaryContainer,
+              border: Border.all(color: colors.primary.withValues(alpha: 0.3)),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -616,13 +635,12 @@ class _PracticePageState extends State<PracticePage> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.auto_awesome,
-                        color: Theme.of(context).primaryColor, size: 18),
+                    Icon(Icons.auto_awesome, color: colors.primary, size: 18),
                     const SizedBox(width: 8),
                     Text('AI 助教判卷结果',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Theme.of(context).primaryColor)),
+                            color: colors.primary)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -646,10 +664,10 @@ class _PracticePageState extends State<PracticePage> {
             hintText: '请输入你的答案...',
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Colors.grey),
+              borderSide: BorderSide(color: colors.outline),
             ),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: colors.surfaceContainerHigh,
           ),
         ),
         const SizedBox(height: 16),
@@ -689,8 +707,8 @@ class _PracticePageState extends State<PracticePage> {
                         }
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryColor,
-                  foregroundColor: Colors.white,
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.onPrimary,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
@@ -724,6 +742,7 @@ class _PracticePageState extends State<PracticePage> {
     if (_currentQuestion == null) return const SizedBox.shrink();
     final view = _currentQuestion!;
     final isPreview = view.isPreview;
+    final colors = Theme.of(context).colorScheme;
 
     if (!_isAnswerRevealed) {
       if (isSubjective) {
@@ -737,8 +756,10 @@ class _PracticePageState extends State<PracticePage> {
             width: double.infinity,
             height: 54,
             child: ElevatedButton(
+              key: const ValueKey<String>('practice-reveal-answer'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).primaryColor,
+                backgroundColor: colors.primary,
+                foregroundColor: colors.onPrimary,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
                 elevation: 0,
@@ -754,10 +775,7 @@ class _PracticePageState extends State<PracticePage> {
                 setState(() => _isAnswerRevealed = true);
               },
               child: const Text('查看答案',
-                  style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
         ),
@@ -771,12 +789,13 @@ class _PracticePageState extends State<PracticePage> {
     // 当答案揭晓时，底部显示四个 FSRS 评级按钮
     return SafeArea(
       child: Container(
+        key: const ValueKey<String>('practice-grade-bar'),
         padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
         decoration: BoxDecoration(
-          color: Theme.of(context).cardTheme.color ?? Colors.white,
+          color: colors.surfaceContainer,
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
+                color: colors.shadow.withValues(alpha: 0.10),
                 blurRadius: 10,
                 offset: const Offset(0, -4))
           ],
@@ -784,17 +803,24 @@ class _PracticePageState extends State<PracticePage> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildGradeButton('重来', 1, Colors.redAccent),
-            _buildGradeButton('困难', 2, Colors.orangeAccent),
-            _buildGradeButton('顺利', 3, Colors.blueAccent),
-            _buildGradeButton('极易', 4, Colors.green),
+            _buildGradeButton('重来', 1),
+            _buildGradeButton('困难', 2),
+            _buildGradeButton('顺利', 3),
+            _buildGradeButton('极易', 4),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildGradeButton(String label, int grade, Color color) {
+  Widget _buildGradeButton(String label, int grade) {
+    final colors = Theme.of(context).colorScheme;
+    final color = switch (grade) {
+      1 => colors.error,
+      2 => colors.tertiary,
+      3 => colors.secondary,
+      _ => colors.primary,
+    };
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4.0),
@@ -848,11 +874,12 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildPreviewBottomBar(PracticeQuestionView view) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+      decoration: BoxDecoration(color: colors.surfaceContainer, boxShadow: [
         BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: colors.shadow.withValues(alpha: 0.10),
             blurRadius: 10,
             offset: const Offset(0, -2))
       ]),
@@ -870,8 +897,8 @@ class _PracticePageState extends State<PracticePage> {
                           TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   onPressed: _discardPreviewQuestion,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade50,
-                    foregroundColor: Colors.red.shade700,
+                    backgroundColor: colors.errorContainer,
+                    foregroundColor: colors.onErrorContainer,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
@@ -890,8 +917,8 @@ class _PracticePageState extends State<PracticePage> {
                           TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   onPressed: _savePreviewQuestion,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade50,
-                    foregroundColor: Colors.green.shade800,
+                    backgroundColor: colors.tertiaryContainer,
+                    foregroundColor: colors.onTertiaryContainer,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
