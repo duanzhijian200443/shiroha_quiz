@@ -63,7 +63,7 @@ P7-V0 Focused validation / privacy / concurrency / acceptance — COMPLETE
 P7-CL Canonical closure — COMPLETE
 P7 v0 — CLOSED / FROZEN
 UI-R0 Final IA Sync / Freeze — COMPLETE
-UI-R1 Today modes + bounded navigation migration — NOT STARTED
+UI-R1 Today modes + bounded navigation migration — COMPLETE
 UI-CL Focused UI closure — NOT STARTED
 RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
