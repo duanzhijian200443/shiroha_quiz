@@ -4,6 +4,7 @@ import '../../application/conversations/conversation_repository.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
+import 'assistant_content_renderer.dart';
 import 'conversation_controller.dart';
 import 'global_sidebar.dart';
 import 'learning_spaces_screen.dart';
@@ -133,6 +134,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   Future<void> _showContextPicker() async {
+    final refreshed =
+        await widget.conversationController.refreshAttachableFiles();
+    if (!mounted) return;
+    if (!refreshed) {
+      _feedback(
+        widget.conversationController.errorMessage ?? conversationReadSafeError,
+      );
+      return;
+    }
     final fileId = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -616,7 +626,9 @@ class _MessageBubble extends StatelessWidget {
           color: isUser ? colors.primaryContainer : colors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(18),
         ),
-        child: Text(message.content),
+        child: isUser
+            ? Text(message.content)
+            : AssistantContentRenderer(text: message.content),
       ),
     );
   }
@@ -652,7 +664,7 @@ class _TransientAssistantBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(text),
+            AssistantContentRenderer(text: text),
             const SizedBox(height: 6),
             Text(
               isUnsaved ? '未保存' : '正在生成',

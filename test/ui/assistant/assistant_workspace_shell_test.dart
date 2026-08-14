@@ -30,6 +30,7 @@ import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_screen.dart';
+import 'package:shiroha_quiz/ui/assistant/assistant_content_renderer.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 import 'package:shiroha_quiz/ui/assistant/global_sidebar.dart';
@@ -580,6 +581,43 @@ Future<_PreparedAssistantPresentation> _prepareFailurePresentation() async {
 }
 
 void main() {
+  testWidgets('context picker refreshes files added after initial load',
+      (tester) async {
+    final conversations = _MemoryConversations()..candidates.clear();
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssistantWorkspaceShell(
+          facade: _facade(),
+          conversationService: _conversationService(repo: conversations),
+          agentSettingsService: _agentSettingsService(),
+          startAgentTurn: _failedAgentTurn,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(conversations.candidates, isEmpty);
+
+    conversations.candidates.add(
+      const ConversationFileRef(
+        fileId: 'file-live',
+        displayName: 'live.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 8,
+      ),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux0-add-context')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('c0-context-file-file-live')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
       'C0 first send persists one User Message with selected File context',
       (tester) async {
@@ -704,6 +742,7 @@ void main() {
       find.byKey(const ValueKey<String>('a0-transient-assistant')),
       findsOneWidget,
     );
+    expect(find.byType(AssistantContentRenderer), findsOneWidget);
     expect(find.text('AB'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -742,6 +781,7 @@ void main() {
         find.byKey(const ValueKey<String>('c0-message-assistant-ui')),
         findsOneWidget,
       );
+      expect(find.byType(AssistantContentRenderer), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('a0-transient-assistant')),
         findsNothing,
@@ -775,6 +815,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('partial'), findsOneWidget);
+      expect(find.byType(AssistantContentRenderer), findsOneWidget);
       expect(find.text('未保存'), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('a0-agent-retry')),

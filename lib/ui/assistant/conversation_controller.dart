@@ -60,6 +60,7 @@ final class ConversationController extends ChangeNotifier {
   bool isLoading = false;
   bool isSending = false;
   bool isLoadingOlder = false;
+  bool isRefreshingAttachableFiles = false;
   String? errorMessage;
   String? statusMessage;
 
@@ -168,6 +169,23 @@ final class ConversationController extends ChangeNotifier {
     } finally {
       isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<bool> refreshAttachableFiles() async {
+    if (isRefreshingAttachableFiles) return false;
+    isRefreshingAttachableFiles = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      attachableFiles = await service.listAttachableFiles();
+      return true;
+    } catch (_) {
+      errorMessage = conversationReadSafeError;
+      return false;
+    } finally {
+      isRefreshingAttachableFiles = false;
+      if (!_disposed) notifyListeners();
     }
   }
 

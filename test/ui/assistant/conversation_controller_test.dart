@@ -19,6 +19,29 @@ import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 
 void main() {
+  test('refreshes attachable files after the initial empty snapshot', () async {
+    final repository = _MemoryRepository();
+    final controller = _controller(
+      repository,
+      start: _TurnHarness().start,
+    );
+    await controller.load();
+    expect(controller.attachableFiles, isEmpty);
+
+    repository.attachableFiles.add(
+      const ConversationFileRef(
+        fileId: 'file-new',
+        displayName: 'new.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 5,
+      ),
+    );
+
+    expect(await controller.refreshAttachableFiles(), isTrue);
+    expect(controller.attachableFiles.single.fileId, 'file-new');
+    expect(controller.isRefreshingAttachableFiles, isFalse);
+  });
+
   test(
       'persists User before starting exact target and projects final Assistant',
       () async {
@@ -1196,6 +1219,7 @@ final class _Profiles implements AgentProfileCatalogPort {
 
 final class _MemoryRepository extends Fake
     implements ConversationRepositoryPort {
+  final List<ConversationFileRef> attachableFiles = <ConversationFileRef>[];
   Conversation? conversation;
   final Map<String, Conversation> _conversationsById = <String, Conversation>{};
   final List<ConversationMessage> messages = <ConversationMessage>[];
@@ -1328,7 +1352,7 @@ final class _MemoryRepository extends Fake
   @override
   Future<List<ConversationFileRef>> listAttachableFiles(
           {required int limit}) async =>
-      const <ConversationFileRef>[];
+      attachableFiles.take(limit).toList(growable: false);
 
   ConversationThreadSlice _sliceFor(String conversationId) =>
       ConversationThreadSlice(
