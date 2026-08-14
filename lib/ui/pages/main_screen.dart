@@ -5,7 +5,6 @@ import '../../application/conversations/conversation_service.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'home_page.dart';
-import 'mock_center_screen.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../assistant/assistant_workspace_shell.dart';
@@ -38,7 +37,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
-      const HomePage(), // Tab 0
+      const HomePage(), // Tab 0 — 今日 (Today: 普通 / 特训 / 考试)
       AssistantWorkspaceShell(
         facade: widget.u1WorkspaceFacade,
         conversationService: widget.conversationService,
@@ -46,12 +45,11 @@ class _MainScreenState extends State<MainScreen> {
         startAgentTurn: widget.startAgentTurn,
         startRetrievalTurn: widget.startRetrievalTurn,
         proposalService: widget.proposalService,
-      ), // Tab 1
-      const MockCenterScreen(), // Tab 2 — 模考中心
+      ), // Tab 1 — 助手
       ProfileScreen(
         engineRepository: dependencies.engineRepository,
         agentSettingsService: widget.agentSettingsService,
-      ), // Tab 3
+      ), // Tab 2 — 我的
     ];
     return Scaffold(
       body: IndexedStack(
@@ -80,14 +78,6 @@ class _MainScreenState extends State<MainScreen> {
               itemKey: ValueKey<String>('main-nav-selected-assistant'),
             ),
             label: '助手',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.pending_actions_outlined),
-            activeIcon: _SelectedNavigationIcon(
-              icon: Icons.pending_actions_outlined,
-              itemKey: ValueKey<String>('main-nav-selected-mock'),
-            ),
-            label: '模考',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.school_outlined),

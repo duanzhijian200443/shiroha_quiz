@@ -170,4 +170,61 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'Today modes: 普通 default, 特训 dependency-not-ready, 考试 exam '
+      'surface reachable, and 普通 state survives switching', (tester) async {
+    const bankName = '合成题库用于模式切换';
+    await tester.runAsync(() async {
+      final db = await DatabaseHelper.instance.database;
+      await db.insert('questions', {
+        'id': 'today-mode-q',
+        'type': 0,
+        'content': 'synthetic',
+        'standard_answer': 'A',
+        'created_at': 0,
+        'bank_name': bankName,
+      });
+      await db.insert('review_states', {
+        'question_id': 'today-mode-q',
+        'state': 0,
+      });
+      await SettingsRepository.instance.setCurrentBank(bankName);
+    });
+
+    await pumpHome(tester);
+
+    // Selector exposes all three final Today modes; default is 普通.
+    expect(find.byKey(const ValueKey('today-mode-ordinary')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-mode-focused')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-mode-exam')), findsOneWidget);
+    expect(find.text(bankName), findsOneWidget);
+    expect(find.text('开始今日训练'), findsOneWidget);
+
+    // 特训: genuine dependency-not-ready state; no plan, counts, or
+    // recommendations are fabricated.
+    await tester.tap(find.byKey(const ValueKey('today-mode-focused')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('today-focused-unavailable')),
+      findsOneWidget,
+    );
+    expect(find.text('特训需要学习计划'), findsOneWidget);
+    expect(find.textContaining('暂不生成专项训练推荐'), findsOneWidget);
+
+    // Switch back to 普通: the previously loaded bank state remains (mode
+    // switching must not recreate or reset unrelated mode state).
+    await tester.tap(find.byKey(const ValueKey('today-mode-ordinary')));
+    await tester.pump();
+    expect(find.text(bankName), findsOneWidget);
+    expect(find.text('1 道新题'), findsOneWidget);
+    expect(find.text('开始今日训练'), findsOneWidget);
+
+    // 考试: the existing Mock/Exam capability is reachable from Today.
+    await tester.tap(find.byKey(const ValueKey('today-mode-exam')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('today-exam-surface')), findsOneWidget);
+    await pumpUntilFound(tester, find.text('暂无试卷记录'));
+    expect(tester.takeException(), isNull);
+  });
 }

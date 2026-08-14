@@ -253,8 +253,17 @@ void main() {
     expect(find.byType(MainScreen), findsOneWidget);
     expect(find.text('今日'), findsOneWidget);
     expect(find.text('助手'), findsOneWidget);
-    expect(find.text('模考'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
+
+    // Final primary navigation is exactly 今日 | 助手 | 我的: the top-level
+    // 模考 destination is retired from primary navigation.
+    expect(find.text('模考'), findsNothing);
+    final navLabels = tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .items
+        .map((item) => item.label)
+        .toList();
+    expect(navLabels, <String>['今日', '助手', '我的']);
 
     await tester.tap(find.text('助手'));
     await tester.pump();
@@ -277,7 +286,7 @@ void main() {
       tester
           .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
           .currentIndex,
-      3,
+      2,
     );
     final selectedProfileIcon = tester.widget<Container>(
       find.byKey(const ValueKey<String>('main-nav-selected-profile')),
