@@ -56,7 +56,8 @@ P7-P0 AI answer candidates canonical contract — COMPLETE
 P7-D0a Producer-neutral Candidate/origin — COMPLETE
 P7-D0b Generic review-decision core — COMPLETE
 P7-D1 Bounded AI answer provider port + strict HTTP adapter — COMPLETE
-P7-I0 and later — NOT STARTED
+P7-I0 AI generation Application use case — COMPLETE
+P7-C0 and later — NOT STARTED
 RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
@@ -368,8 +369,8 @@ The frozen P6 contract is
 are COMPLETE, and the P6 write path reuses the existing typed answer mutation
 authority rather than creating a second answer writer. P7-P0 froze the
 focused P7 v0 contract in `docs/architecture/p7-ai-answer-candidates.md` and
-is COMPLETE (docs-only); P7-D0a, P7-D0b, and P7-D1 are COMPLETE, and P7-I0
-and later remain NOT STARTED.
+is COMPLETE (docs-only); P7-D0a, P7-D0b, P7-D1, and P7-I0 are COMPLETE, and
+P7-C0 and later remain NOT STARTED.
 
 ## 5. Explicit non-goals for this roadmap
 
