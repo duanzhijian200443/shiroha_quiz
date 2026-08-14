@@ -45,6 +45,8 @@ import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.da
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
+import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
+import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -199,63 +201,8 @@ void main() {
       'App exposes the canonical Assistant navigation and selected state',
       (WidgetTester tester) async {
     // A tall viewport materializes the whole Profile ListView so the key
-    // settings rows are built without scrolling (closure only proves the
-    // entries still exist; it does not open them).
-    tester.view.physicalSize = const Size(800, 2000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final engineRepository = AiEngineRepository(
-      store: DatabaseHelper.instance,
-      credentialStore: MemoryEngineCredentialStore(),
-    );
-    final taskManager = TaskManager.forTesting();
-    final aiService = AiService(
-      engineRepository: engineRepository,
-      taskManager: taskManager,
-    );
-    final ocrRequestScheduler = OcrRequestScheduler();
-    final importPipelineService = ImportPipelineService(
-      aiService: aiService,
-      engineRepository: engineRepository,
-      taskManager: taskManager,
-      ocrRequestScheduler: ocrRequestScheduler,
-    );
-    final importTaskCoordinator = ImportTaskCoordinator(
-      taskManager: taskManager,
-      requestScheduler: ocrRequestScheduler,
-    );
-    // P7 seams: real Application services over deterministic fail-closed
-    // ports. The navigation smoke never triggers an AI action, so no
-    // provider/network/database path can run.
-    final answerGenerationService = AiAnswerGenerationService(
-      questionPort: _EmptyQuestions(),
-      providerPort: _FailClosedAiProvider(),
-      idFactory: () => 'gen-empty',
-      clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
-    );
-    final answerCommitCommand = AiAnswerCommitCommand(
-      persistencePort: _FailClosedCommitPort(),
-    );
-
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(ShirohaQuizApp(
-      engineRepository: engineRepository,
-      aiService: aiService,
-      importPipelineService: importPipelineService,
-      importTaskCoordinator: importTaskCoordinator,
-      answerGenerationService: answerGenerationService,
-      answerCommitCommand: answerCommitCommand,
-      u1WorkspaceFacade: _emptyWorkspaceFacade(),
-      conversationService: _emptyConversationService(),
-      agentSettingsService: AgentSettingsService(
-        configStore: _EmptyAgentConfigStore(),
-        profileCatalog: _EmptyAgentProfiles(),
-      ),
-      startAgentTurn: _unusedAgentTurn,
-      proposalService: AgentWriteProposalService(_EmptyWritePersistence()),
-    ));
+    // settings rows are built without scrolling.
+    await pumpApp(tester, const Size(800, 2000));
 
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
@@ -304,8 +251,7 @@ void main() {
     expect(decoration.borderRadius, BorderRadius.circular(12));
 
     // Profile key settings entries remain reachable after the 3-tab
-    // migration (load completes through real async; closure only proves the
-    // entries still exist, it does not open them).
+    // migration.
     await pumpUntilFound(
       tester,
       find.byKey(const ValueKey<String>('profile-agent-settings-row')),
@@ -314,21 +260,194 @@ void main() {
       find.byKey(const ValueKey<String>('profile-agent-settings-row')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
+      findsOneWidget,
+    );
+
+    // Profile routes remain navigable without touching provider/config/
+    // network: open each settings screen and return.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    );
+    await pumpUntilFound(tester, find.byType(AgentSettingsScreen));
+    expect(find.byType(AgentSettingsScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pump();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    );
+
     final aiServiceRow =
         find.byKey(const ValueKey<String>('profile-ai-service-row'));
-    expect(aiServiceRow, findsOneWidget);
-    expect(tester.takeException(), isNull);
+    await tester.tap(aiServiceRow);
+    await pumpUntilFound(tester, find.byType(AiSettingsScreen));
+    expect(find.byType(AiSettingsScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pump();
 
-    // Let any remaining background DB work finish, then elapse fake time so
-    // no sqflite lock-warning timer is left pending at teardown.
-    for (var frame = 0; frame < 20; frame++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 25)),
-      );
-      await tester.pump();
-    }
-    await tester.pump(const Duration(seconds: 11));
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
   });
+
+  testWidgets('full responsive primary navigation is reachable at 360x720',
+      (WidgetTester tester) async {
+    await pumpApp(tester, const Size(360, 720));
+    await expectResponsiveNavigation(
+      tester,
+      assistantShellKey: 'u1-ux0-assistant-shell',
+      expectProfileAiServiceRow: false,
+    );
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('full responsive primary navigation is reachable at 1024x768',
+      (WidgetTester tester) async {
+    await pumpApp(tester, const Size(1024, 768));
+    await expectResponsiveNavigation(
+      tester,
+      assistantShellKey: 'u1-ux01-workspace-shell',
+      expectProfileAiServiceRow: true,
+    );
+    await drainBackgroundWork(tester);
+  });
+}
+
+/// Builds the full app with deterministic fail-closed fakes. Never touches a
+/// live provider, network, or real credential store.
+Widget _buildTestApp() {
+  final engineRepository = AiEngineRepository(
+    store: DatabaseHelper.instance,
+    credentialStore: MemoryEngineCredentialStore(),
+  );
+  final taskManager = TaskManager.forTesting();
+  final aiService = AiService(
+    engineRepository: engineRepository,
+    taskManager: taskManager,
+  );
+  final ocrRequestScheduler = OcrRequestScheduler();
+  final importPipelineService = ImportPipelineService(
+    aiService: aiService,
+    engineRepository: engineRepository,
+    taskManager: taskManager,
+    ocrRequestScheduler: ocrRequestScheduler,
+  );
+  final importTaskCoordinator = ImportTaskCoordinator(
+    taskManager: taskManager,
+    requestScheduler: ocrRequestScheduler,
+  );
+  // P7 seams: real Application services over deterministic fail-closed
+  // ports. The navigation smoke never triggers an AI action, so no
+  // provider/network/database path can run.
+  final answerGenerationService = AiAnswerGenerationService(
+    questionPort: _EmptyQuestions(),
+    providerPort: _FailClosedAiProvider(),
+    idFactory: () => 'gen-empty',
+    clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+  );
+  final answerCommitCommand = AiAnswerCommitCommand(
+    persistencePort: _FailClosedCommitPort(),
+  );
+  return ShirohaQuizApp(
+    engineRepository: engineRepository,
+    aiService: aiService,
+    importPipelineService: importPipelineService,
+    importTaskCoordinator: importTaskCoordinator,
+    answerGenerationService: answerGenerationService,
+    answerCommitCommand: answerCommitCommand,
+    u1WorkspaceFacade: _emptyWorkspaceFacade(),
+    conversationService: _emptyConversationService(),
+    agentSettingsService: AgentSettingsService(
+      configStore: _EmptyAgentConfigStore(),
+      profileCatalog: _EmptyAgentProfiles(),
+    ),
+    startAgentTurn: _unusedAgentTurn,
+    proposalService: AgentWriteProposalService(_EmptyWritePersistence()),
+  );
+}
+
+/// Pumps the full app at [size] and registers viewport teardown.
+Future<void> pumpApp(WidgetTester tester, Size size) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(_buildTestApp());
+}
+
+/// Proves every final primary destination is reachable at the current
+/// viewport: 今日 | 助手 | 我的, no 模考, Today loads, Assistant shell for the
+/// viewport form appears, Profile loads and a stable settings row is
+/// reachable.
+Future<void> expectResponsiveNavigation(
+  WidgetTester tester, {
+  required String assistantShellKey,
+  required bool expectProfileAiServiceRow,
+}) async {
+  expect(find.byType(MainScreen), findsOneWidget);
+  expect(find.text('模考'), findsNothing);
+  final navLabels = tester
+      .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+      .items
+      .map((item) => item.label)
+      .toList();
+  expect(navLabels, <String>['今日', '助手', '我的']);
+
+  // Default Today destination is reachable.
+  await pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey<String>('home-bank-card')),
+  );
+
+  await tester.tap(find.text('助手'));
+  await tester.pump();
+  expect(
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .currentIndex,
+    1,
+  );
+  expect(
+    find.byKey(ValueKey<String>(assistantShellKey)),
+    findsOneWidget,
+  );
+
+  await tester.tap(find.text('我的'));
+  await tester.pump();
+  expect(
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .currentIndex,
+    2,
+  );
+  await pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+  );
+  expect(
+    find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    findsOneWidget,
+  );
+  if (expectProfileAiServiceRow) {
+    expect(
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
+      findsOneWidget,
+    );
+  }
+  expect(tester.takeException(), isNull);
+}
+
+/// Lets any remaining background DB work finish, then elapses fake time so
+/// no sqflite lock-warning timer is left pending at teardown.
+Future<void> drainBackgroundWork(WidgetTester tester) async {
+  for (var frame = 0; frame < 20; frame++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 25)),
+    );
+    await tester.pump();
+  }
+  await tester.pump(const Duration(seconds: 11));
 }
 
 Future<void> pumpUntilFound(
