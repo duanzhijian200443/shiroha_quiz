@@ -238,6 +238,43 @@ void main() {
       );
       expect(await _answerNodes(), isEmpty);
     });
+
+    test('non-Supplemental origin fails invalidCandidate with zero writes',
+        () async {
+      await _seedTarget();
+      await _seedArtifact(revision: 2);
+      final repository = SupplementalAnswerPersistenceRepository();
+      final candidate = AnswerCandidate(
+        candidateId: 'cand_ai_001',
+        targetStorageId: _storageId,
+        targetBankName: _bankName,
+        expectedDraft: _draft(),
+        answer: ContentAnswer(content: _text('x = 1')),
+        writeIntent: CandidateWriteIntent.fill,
+        origin: AiAnswerOrigin(
+          generationId: 'gen_001',
+          providerProfileId: 'profile_alpha',
+          generatedAtUtc: DateTime.utc(2026, 8, 13, 12),
+        ),
+      );
+
+      await expectLater(
+        repository.confirmCandidate(candidate),
+        throwsA(
+          isA<SupplementalAnswerException>().having(
+            (error) => error.failure,
+            'failure',
+            SupplementalAnswerFailure.invalidCandidate,
+          ),
+        ),
+      );
+      expect(await _answerNodes(), isEmpty);
+      expect(
+        (await _singletonDb().then((db) => db.query('questions')))
+            .single['standard_answer'],
+        '|||',
+      );
+    });
   });
 }
 
@@ -336,15 +373,17 @@ AnswerCandidate _candidate({
     targetStorageId: _storageId,
     targetBankName: _bankName,
     expectedDraft: expectedDraft,
-    supplementalFileId: _fileId,
-    artifactId: _artifactId,
-    artifactRevision: artifactRevision,
     answer: ContentAnswer(content: _text('x = 1')),
-    supplementalSourceRefs: [
-      SourceRef.document(sourceId: _artifactId),
-    ],
-    matchEvidence: const [],
     writeIntent: writeIntent,
+    origin: SupplementalAnswerOrigin(
+      supplementalFileId: _fileId,
+      artifactId: _artifactId,
+      artifactRevision: artifactRevision,
+      supplementalSourceRefs: [
+        SourceRef.document(sourceId: _artifactId),
+      ],
+      matchEvidence: const [],
+    ),
   );
 }
 

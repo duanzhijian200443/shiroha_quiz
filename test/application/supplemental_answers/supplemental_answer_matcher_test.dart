@@ -216,8 +216,17 @@ void main() {
       );
 
       expect(result.records, hasLength(1));
-      expect(result.records.single.candidate!.supplementalSourceRefs,
-          hasLength(2));
+      final candidate = result.records.single.candidate!;
+      expect(candidate.origin, isA<SupplementalAnswerOrigin>());
+      final origin = switch (candidate.origin) {
+        SupplementalAnswerOrigin origin => origin,
+        AiAnswerOrigin() => fail('matcher must produce a supplemental origin'),
+      };
+      expect(origin.supplementalSourceRefs, hasLength(2));
+      expect(
+        origin.supplementalSourceRefs.map((ref) => ref.sourceId).toSet(),
+        {'artifact_001'},
+      );
     });
 
     test('conflicting duplicate fragments are invalid sourceConflict', () {

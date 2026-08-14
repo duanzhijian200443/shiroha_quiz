@@ -38,10 +38,19 @@ final class SupplementalAnswerPersistenceRepository
 
   @override
   Future<void> confirmCandidate(AnswerCandidate candidate) async {
+    // The P6 write boundary is Supplemental-only. A foreign producer origin
+    // fails closed with a typed failure before any transaction opens; no
+    // blind cast or runtime CastError can escape.
+    final origin = switch (candidate.origin) {
+      SupplementalAnswerOrigin origin => origin,
+      AiAnswerOrigin() => throw const SupplementalAnswerException(
+          SupplementalAnswerFailure.invalidCandidate,
+        ),
+    };
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
-        await _recheckArtifactGeneration(txn, candidate);
+        await _recheckArtifactGeneration(txn, origin);
         await _recheckTypedTarget(txn, candidate);
         await _kernel.applyAnswerUpdate(
           txn: _P6TransactionExecutor(txn),
@@ -63,7 +72,7 @@ final class SupplementalAnswerPersistenceRepository
 
   Future<void> _recheckArtifactGeneration(
     DatabaseExecutor txn,
-    AnswerCandidate candidate,
+    SupplementalAnswerOrigin origin,
   ) async {
     final rows = await txn.rawQuery(
       '''
@@ -73,7 +82,7 @@ final class SupplementalAnswerPersistenceRepository
       WHERE h.file_id = ?
       LIMIT 2
       ''',
-      <Object?>[candidate.supplementalFileId],
+      <Object?>[origin.supplementalFileId],
     );
     if (rows.length != 1) {
       throw const SupplementalAnswerException(
@@ -81,8 +90,8 @@ final class SupplementalAnswerPersistenceRepository
       );
     }
     final row = rows.single;
-    if (row['artifact_id'] != candidate.artifactId ||
-        row['revision'] != candidate.artifactRevision) {
+    if (row['artifact_id'] != origin.artifactId ||
+        row['revision'] != origin.artifactRevision) {
       throw const SupplementalAnswerException(
         SupplementalAnswerFailure.staleTarget,
       );

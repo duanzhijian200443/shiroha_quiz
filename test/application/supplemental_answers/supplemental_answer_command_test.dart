@@ -130,6 +130,55 @@ void main() {
         expect(persistencePort.candidates, isEmpty);
       }
     });
+
+    test('non-Supplemental origin fails safely with zero persistence',
+        () async {
+      final artifactPort = _ArtifactPort(
+        artifact: ParsedArtifact(
+          fileId: 'file_001',
+          artifactId: 'artifact_001',
+          revision: 2,
+          payloadSchemaVersion: 1,
+        ),
+      );
+      final persistencePort = _RecordingPersistencePort();
+      final command = SupplementalAnswerConfirmCommand(
+        artifactPort: artifactPort,
+        persistencePort: persistencePort,
+      );
+      final aiCandidate = AnswerCandidate(
+        candidateId: 'cand_ai_001',
+        targetStorageId: 'q_1',
+        targetBankName: 'bank_math',
+        expectedDraft: draft,
+        answer: ContentAnswer(content: _text('x = 1')),
+        writeIntent: CandidateWriteIntent.fill,
+        origin: AiAnswerOrigin(
+          generationId: 'gen_001',
+          providerProfileId: 'profile_alpha',
+          generatedAtUtc: DateTime.utc(2026, 8, 13, 12),
+        ),
+      );
+
+      await expectLater(
+        command.confirm(
+          SupplementalAnswerConfirmation(
+            candidate: aiCandidate,
+            sessionRevision: 1,
+          ),
+        ),
+        throwsA(
+          isA<SupplementalAnswerException>().having(
+            (error) => error.failure,
+            'failure',
+            SupplementalAnswerFailure.invalidCandidate,
+          ),
+        ),
+      );
+      expect(persistencePort.candidates, isEmpty);
+      expect(artifactPort.calls, isEmpty,
+          reason: 'the guard must fail before any seam is touched');
+    });
   });
 }
 
@@ -201,15 +250,17 @@ AnswerCandidate _candidate(QuestionDraftV2 draft) {
     targetStorageId: 'q_1',
     targetBankName: 'bank_math',
     expectedDraft: draft,
-    supplementalFileId: 'file_001',
-    artifactId: 'artifact_001',
-    artifactRevision: 2,
     answer: ContentAnswer(content: _text('x = 1')),
-    supplementalSourceRefs: [
-      SourceRef.document(sourceId: 'artifact_001'),
-    ],
-    matchEvidence: const [],
     writeIntent: CandidateWriteIntent.fill,
+    origin: SupplementalAnswerOrigin(
+      supplementalFileId: 'file_001',
+      artifactId: 'artifact_001',
+      artifactRevision: 2,
+      supplementalSourceRefs: [
+        SourceRef.document(sourceId: 'artifact_001'),
+      ],
+      matchEvidence: const [],
+    ),
   );
 }
 
