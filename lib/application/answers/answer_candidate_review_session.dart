@@ -13,10 +13,11 @@ enum CandidateReviewOutcome {
 /// Safe typed failures of the shared review-decision core.
 ///
 /// These categories are producer-neutral. P6 adapters map them onto their
-/// frozen P6 failure taxonomy; AI adapters (future stages) map them onto the
-/// P7 taxonomy. `replaceFlowRequired` means the candidate's write intent is
-/// replace and the requested transition was not the armed-reconfirmation
-/// path.
+/// frozen P6 failure taxonomy; AI adapters map them onto the P7 taxonomy.
+/// `replaceFlowRequired` means the candidate's write intent is replace and
+/// the requested transition was not the armed-reconfirmation path.
+/// `notConfirmed` means the candidate has not reached the confirmed review
+/// outcome required by the Application confirmation boundary.
 enum AnswerCandidateReviewFailure {
   unknownCandidate,
   staleSessionRevision,
@@ -24,6 +25,7 @@ enum AnswerCandidateReviewFailure {
   noOpTerminal,
   fillOnlyForMissingAnswers,
   replaceFlowRequired,
+  notConfirmed,
 }
 
 final class AnswerCandidateReviewException implements Exception {
@@ -47,6 +49,8 @@ final class AnswerCandidateReviewException implements Exception {
       AnswerCandidateReviewFailure.replaceFlowRequired =>
         'Replacement requires explicit selection followed by explicit '
             'reconfirmation.',
+      AnswerCandidateReviewFailure.notConfirmed =>
+        'The candidate has not reached the confirmed review outcome.',
     };
     return 'AnswerCandidateReviewException(${failure.name}): $detail';
   }
@@ -54,9 +58,10 @@ final class AnswerCandidateReviewException implements Exception {
 
 /// One exact confirmation request produced by the review session.
 ///
-/// The confirmation carries the candidate plus the exact session revision;
-/// persistence adapters revalidate both inside the linearized write
-/// boundary.
+/// The confirmation carries the candidate plus the exact session revision.
+/// The Application confirmation boundary validates this transient
+/// session state/revision; the Data persistence boundary validates durable
+/// target state inside the transaction. The revision is never persisted.
 final class AnswerCandidateConfirmation {
   const AnswerCandidateConfirmation({
     required this.candidate,
@@ -131,6 +136,53 @@ final class AnswerCandidateReviewSession {
       );
     }
     return matches.single;
+  }
+
+  /// Application confirmation boundary: validates that [confirmation] is the
+  /// exact, current confirmation of THIS session.
+  ///
+  /// Checks, in order: the exact [AnswerCandidateConfirmation.sessionRevision]
+  /// against the current session revision; that the confirmation candidate is
+  /// exactly the canonical session candidate (membership + structural
+  /// equality, so forged/manual confirmations fail); and that the candidate
+  /// outcome is exactly `confirmed`. Anything else fails with a typed
+  /// [AnswerCandidateReviewException] (`staleSessionRevision`,
+  /// `unknownCandidate`, `noOpTerminal`, `notConfirmed`, `alreadyDecided`)
+  /// before any durable boundary is touched. The revision is transient and
+  /// never persisted.
+  AnswerCandidateConfirmation requireValidConfirmation(
+    AnswerCandidateConfirmation confirmation,
+  ) {
+    if (confirmation.sessionRevision != sessionRevision) {
+      throw AnswerCandidateReviewException(
+        AnswerCandidateReviewFailure.staleSessionRevision,
+      );
+    }
+    final candidate = candidateOf(confirmation.candidate.candidateId);
+    if (candidate != confirmation.candidate) {
+      throw AnswerCandidateReviewException(
+        AnswerCandidateReviewFailure.unknownCandidate,
+      );
+    }
+    final current = outcomes[candidate.candidateId];
+    if (current != CandidateReviewOutcome.confirmed) {
+      throw AnswerCandidateReviewException(
+        switch (current) {
+          CandidateReviewOutcome.committed ||
+          CandidateReviewOutcome.rejected =>
+            AnswerCandidateReviewFailure.alreadyDecided,
+          CandidateReviewOutcome.noOp =>
+            AnswerCandidateReviewFailure.noOpTerminal,
+          CandidateReviewOutcome.pendingFill ||
+          CandidateReviewOutcome.pendingReplace =>
+            AnswerCandidateReviewFailure.notConfirmed,
+          CandidateReviewOutcome.confirmed =>
+            AnswerCandidateReviewFailure.notConfirmed, // Unreachable.
+          null => AnswerCandidateReviewFailure.unknownCandidate, // Unreachable.
+        },
+      );
+    }
+    return confirmation;
   }
 
   /// Confirms one pending fill. Only `fill` write-intent candidates that are

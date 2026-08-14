@@ -417,6 +417,156 @@ void main() {
       expect(session.sessionRevision, 0);
     });
   });
+
+  group('confirmation validation seam', () {
+    AnswerCandidateReviewSession sessionWith(
+      CandidateWriteIntent writeIntent, {
+      String candidateId = 'cand_001',
+    }) {
+      return AnswerCandidateReviewSession(
+        candidates: [_candidate(candidateId, writeIntent: writeIntent)],
+      );
+    }
+
+    AnswerCandidateConfirmation handConfirmation(
+      AnswerCandidateReviewSession session,
+      AnswerCandidate candidate, {
+      int? sessionRevision,
+    }) {
+      return AnswerCandidateConfirmation(
+        candidate: candidate,
+        sessionRevision: sessionRevision ?? session.sessionRevision,
+      );
+    }
+
+    Matcher seamFailure(AnswerCandidateReviewFailure failure) {
+      return throwsA(
+        isA<AnswerCandidateReviewException>().having(
+          (error) => error.failure,
+          'failure',
+          failure,
+        ),
+      );
+    }
+
+    test('accepts the exact current confirmation of a confirmed fill', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      final decided = session.confirmFill('cand_001');
+      expect(
+        decided.session.requireValidConfirmation(decided.confirmation),
+        same(decided.confirmation),
+      );
+    });
+
+    test('accepts the exact current confirmation of an armed replace', () {
+      final session = sessionWith(CandidateWriteIntent.replace);
+      final selected = session.selectForReplace('cand_001');
+      final confirmed = selected.confirmReplace('cand_001');
+      expect(
+        confirmed.session.requireValidConfirmation(confirmed.confirmation),
+        same(confirmed.confirmation),
+      );
+    });
+
+    test('stale session revision is rejected', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      final decided = session.confirmFill('cand_001');
+      final stale = AnswerCandidateConfirmation(
+        candidate: decided.confirmation.candidate,
+        sessionRevision: decided.confirmation.sessionRevision - 1,
+      );
+      expect(
+        () => decided.session.requireValidConfirmation(stale),
+        seamFailure(AnswerCandidateReviewFailure.staleSessionRevision),
+      );
+    });
+
+    test('unknown candidate is rejected', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      final decided = session.confirmFill('cand_001');
+      final foreign = handConfirmation(
+        decided.session,
+        _candidate('cand_other', writeIntent: CandidateWriteIntent.fill),
+      );
+      expect(
+        () => decided.session.requireValidConfirmation(foreign),
+        seamFailure(AnswerCandidateReviewFailure.unknownCandidate),
+      );
+    });
+
+    test('forged payload with matching id is rejected', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      final decided = session.confirmFill('cand_001');
+      final forged = AnswerCandidate(
+        candidateId: 'cand_001',
+        targetStorageId: decided.confirmation.candidate.targetStorageId,
+        targetBankName: decided.confirmation.candidate.targetBankName,
+        expectedDraft: decided.confirmation.candidate.expectedDraft,
+        answer: ContentAnswer(content: _text('x = 9')),
+        writeIntent: CandidateWriteIntent.fill,
+        origin: _aiOrigin(),
+      );
+      expect(
+        () => decided.session.requireValidConfirmation(
+          handConfirmation(decided.session, forged),
+        ),
+        seamFailure(AnswerCandidateReviewFailure.unknownCandidate),
+      );
+    });
+
+    test('pending fill is notConfirmed', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      expect(
+        () => session.requireValidConfirmation(
+          handConfirmation(session, session.candidates.single),
+        ),
+        seamFailure(AnswerCandidateReviewFailure.notConfirmed),
+      );
+    });
+
+    test('pending replace (direct bypass) is notConfirmed', () {
+      final session = sessionWith(CandidateWriteIntent.replace);
+      expect(
+        () => session.requireValidConfirmation(
+          handConfirmation(session, session.candidates.single),
+        ),
+        seamFailure(AnswerCandidateReviewFailure.notConfirmed),
+      );
+    });
+
+    test('noOp candidate is noOpTerminal', () {
+      final session = sessionWith(CandidateWriteIntent.noOp);
+      expect(
+        () => session.requireValidConfirmation(
+          handConfirmation(session, session.candidates.single),
+        ),
+        seamFailure(AnswerCandidateReviewFailure.noOpTerminal),
+      );
+    });
+
+    test('rejected candidate is alreadyDecided', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      final rejected = session.reject('cand_001');
+      expect(
+        () => rejected.requireValidConfirmation(
+          handConfirmation(rejected, session.candidates.single),
+        ),
+        seamFailure(AnswerCandidateReviewFailure.alreadyDecided),
+      );
+    });
+
+    test('committed candidate is alreadyDecided', () {
+      final session = sessionWith(CandidateWriteIntent.fill);
+      final confirmed = session.confirmFill('cand_001');
+      final committed = confirmed.session.markCommitted('cand_001');
+      expect(
+        () => committed.requireValidConfirmation(
+          handConfirmation(committed, session.candidates.single),
+        ),
+        seamFailure(AnswerCandidateReviewFailure.alreadyDecided),
+      );
+    });
+  });
 }
 
 SupplementalAnswerOrigin _supplementalOrigin() {

@@ -254,6 +254,11 @@ final class SupplementalAnswerReviewSession {
         SupplementalAnswerReviewFailure.fillOnlyForMissingAnswers,
       AnswerCandidateReviewFailure.replaceFlowRequired =>
         SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
+      // Unreachable in P6 flows: the confirmation-validation seam is used by
+      // the AI commit boundary, not by the P6 adapter. Mapped to the safest
+      // P6 "requires explicit confirmation" category for exhaustiveness.
+      AnswerCandidateReviewFailure.notConfirmed =>
+        SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
     };
   }
 
