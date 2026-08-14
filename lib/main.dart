@@ -15,6 +15,8 @@ import 'application/agent/agent_study_tool_dispatcher.dart';
 import 'application/agent/agent_turn.dart';
 import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'application/agent/agent_retrieval_tool.dart';
+import 'application/answers/ai_answer_commit_command.dart';
+import 'application/answers/ai_answer_generation.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
@@ -41,8 +43,10 @@ import 'data/repositories/retrieval_index_repository.dart';
 import 'data/repositories/question_repository.dart';
 import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
+import 'data/repositories/ai_answer_commit_repository.dart';
 import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
+import 'services/answers/ai_answer_provider_adapter.dart';
 import 'services/agent/deepseek_responses_provider.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
@@ -172,6 +176,16 @@ void main() {
       migrationStore: databaseHelper,
       createCredentialStore: SecureEngineCredentialStore.new,
     );
+    // P7 composition: Presentation only sees the Application seams.
+    final answerGenerationService = AiAnswerGenerationService(
+      questionPort: questionRepository,
+      providerPort: AiAnswerProviderAdapter(engineRepository: engineRepository),
+      idFactory: uuid.v4,
+      clock: () => DateTime.now().toUtc(),
+    );
+    final answerCommitCommand = AiAnswerCommitCommand(
+      persistencePort: AiAnswerCommitRepository(databaseHelper: databaseHelper),
+    );
     final agentConfigStore =
         SqliteAgentConfigStore(databaseHelper: databaseHelper);
     final agentProfileRepository = AiEngineAgentProfileRepository(
@@ -272,6 +286,8 @@ void main() {
       aiService: aiService,
       importPipelineService: importPipelineService,
       importTaskCoordinator: importTaskCoordinator,
+      answerGenerationService: answerGenerationService,
+      answerCommitCommand: answerCommitCommand,
       u1WorkspaceFacade: u1WorkspaceFacade,
       conversationService: conversationService,
       agentSettingsService: agentSettingsService,
@@ -297,6 +313,8 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
+    required this.answerGenerationService,
+    required this.answerCommitCommand,
     required this.u1WorkspaceFacade,
     required this.conversationService,
     required this.agentSettingsService,
@@ -309,6 +327,10 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
+
+  /// P7 Application seams for the AI answer review UI.
+  final AiAnswerGenerationService answerGenerationService;
+  final AiAnswerCommitCommand answerCommitCommand;
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
@@ -326,6 +348,8 @@ class ShirohaQuizApp extends StatelessWidget {
           aiService: aiService,
           importPipelineService: importPipelineService,
           importTaskCoordinator: importTaskCoordinator,
+          answerGenerationService: answerGenerationService,
+          answerCommitCommand: answerCommitCommand,
           child: MaterialApp(
             title: 'Shiroha Quiz',
             navigatorKey: globalNavigatorKey, // 核心新增：挂载全局路由引擎

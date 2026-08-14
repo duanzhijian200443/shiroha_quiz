@@ -12,6 +12,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
@@ -28,6 +31,7 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 
 import 'support/memory_engine_credential_store.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
@@ -76,6 +80,32 @@ final class _EmptyQuestions extends Fake implements StudyQuestionQueryPort {
         items: <QuestionBankSummary>[],
         hasMore: false,
       );
+
+  @override
+  Future<StudyQuestionRead?> getStudyQuestionDetail(
+    String questionId, {
+    required int nowUnixSeconds,
+  }) async =>
+      null;
+}
+
+/// Fail-closed P7 provider: the navigation smoke never invokes AI, so any
+/// accidental call must fail loudly instead of hitting a live provider.
+final class _FailClosedAiProvider extends Fake implements AiAnswerProviderPort {
+  @override
+  Future<AiAnswerProviderResult> generateAnswer(
+    AiAnswerProviderRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+}
+
+/// Fail-closed P7 commit persistence: never reached by the smoke test.
+final class _FailClosedCommitPort implements AiAnswerCommitPersistencePort {
+  @override
+  Future<void> commitAnswer(AnswerCandidate candidate) {
+    throw UnimplementedError();
+  }
 }
 
 final class _EmptyMetrics extends Fake implements StudyMetricsQueryPort {}
@@ -188,6 +218,18 @@ void main() {
       taskManager: taskManager,
       requestScheduler: ocrRequestScheduler,
     );
+    // P7 seams: real Application services over deterministic fail-closed
+    // ports. The navigation smoke never triggers an AI action, so no
+    // provider/network/database path can run.
+    final answerGenerationService = AiAnswerGenerationService(
+      questionPort: _EmptyQuestions(),
+      providerPort: _FailClosedAiProvider(),
+      idFactory: () => 'gen-empty',
+      clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+    );
+    final answerCommitCommand = AiAnswerCommitCommand(
+      persistencePort: _FailClosedCommitPort(),
+    );
 
     // Build our app and trigger a frame.
     await tester.pumpWidget(ShirohaQuizApp(
@@ -195,6 +237,8 @@ void main() {
       aiService: aiService,
       importPipelineService: importPipelineService,
       importTaskCoordinator: importTaskCoordinator,
+      answerGenerationService: answerGenerationService,
+      answerCommitCommand: answerCommitCommand,
       u1WorkspaceFacade: _emptyWorkspaceFacade(),
       conversationService: _emptyConversationService(),
       agentSettingsService: AgentSettingsService(
