@@ -233,6 +233,31 @@ No model-supplied scope, identity, or adoption state. The model cannot spoof
 Conversation identity, User Message identity, scope/project authority, or
 adoption state.
 
+### Canonical input bounds and defaults (frozen)
+
+- `bank_name`: trimmed non-empty, 1..200 characters.
+- `goal`: optional; when present, non-empty after normalization, maximum 120
+  characters, no control-character payload.
+- `daily_target`: integer 1..200, default 40.
+- `priority`: exactly one of `balanced`, `due_first`, `weak_first`,
+  `new_first`, default `balanced`.
+- `horizon_days`: optional integer 1..90.
+
+Optional values MUST be normalized by the Application before `StudyPlanDraft`
+construction. Therefore omitted `daily_target` is canonically equal to an
+explicit `daily_target = 40`, and omitted `priority` is canonically equal to an
+explicit `priority = "balanced"`. The `StudyPlanDraft` fingerprint MUST use the
+normalized canonical values, never raw provider omission/presence. With all
+other fields equal, these two tool calls produce the same semantic plan inputs
+for fingerprint purposes:
+
+```json
+{ "bank_name": "Math" }
+{ "bank_name": "Math", "daily_target": 40, "priority": "balanced" }
+```
+
+Provider omission is never part of plan identity.
+
 ## 11. Scope admission
 
 The draft binds `sourceScope` (runtime-injected; the model cannot provide or
@@ -257,20 +282,65 @@ user Stop/Replace.
 `StudyPlanDraft` is transient only (no table; disappears on restart).
 
 - One active/pending draft per source User turn.
-- Fingerprint includes: source conversation, source user message, source
-  scope/project identity, operation, bank, goal, dailyTarget, priority,
-  horizonDays.
+- Fingerprint uses the normalized canonical values (after Application
+  normalization, §10) and includes: source conversation, source user message,
+  source scope/project identity, operation, bank, goal, dailyTarget, priority,
+  horizonDays. Raw provider omission/presence is never part of the fingerprint.
 - Same semantic fingerprint → reuse the draft identity and its current outcome.
 - Different payload → new draft supersedes the old pending draft.
 - Passive dismissal: no state mutation.
-- Explicit Reject: terminal rejected.
 - Committed drafts are never reactivated by provider replay.
+
+### Transient lifecycle authority (atomic gate)
+
+The transient `StudyPlanDraft` lifecycle has its own authority: one atomic
+in-memory lifecycle gate. It is authoritative for transient draft state only;
+it is NOT the durable concurrency authority (that is the SQLite
+transaction-level CAS, §13). Neither authority substitutes for the other.
+
+All draft transitions pass through the same gate:
+
+- adoption entry: `pending -> committing` (atomic);
+- explicit Reject: `pending -> rejected` (same gate);
+- supersession by a revised proposal: `pending -> superseded` (same gate).
+
+Exactly one competing transition may win.
+
+- **If adoption wins first** (`pending -> committing`): a later Reject cannot
+  transition the draft to rejected and supersession cannot transition it to
+  superseded; neither may cancel or interfere with the formal adoption
+  transaction; both observe/report the current committing or final outcome. A
+  revised proposal for the same source User turn must NOT cancel or replace a
+  draft already in committing state, and no second active/pending draft is
+  created for that source turn while the earlier draft is committing; a bounded
+  non-mutating response is acceptable (exact internal representation is an
+  implementation detail).
+- **If Reject wins first** (`pending -> rejected`): a later adoption starts
+  ZERO durable writes and observes the terminal rejected outcome.
+- **If supersession wins first** (`pending -> superseded`): a later adoption
+  starts ZERO durable writes and observes the terminal superseded outcome.
+
+Only after `pending -> committing` wins may the Application enter the formal
+durable adoption transaction. SQLite then independently enforces the
+`expectedActivePlanId` CAS, source-turn revalidation, scope admission, and bank
+admission (§13, §14). Persistence success maps `committing -> committed`. The
+exact safe mapping for a transaction that makes zero durable change (stale
+scope / stale ActivePlan / bounded persistence failure) is a D1 implementation
+decision, but it MUST NOT allow a rejected or superseded draft to commit.
 
 ## 13. Durable CAS (adoption / replacement / stop)
 
-Formal concurrency authority: the SQLite transaction-level compare-and-set.
-In-memory lifecycle gates are dedup only and are not the persistence
-concurrency authority.
+Two separate authorities are frozen; neither substitutes for the other:
+
+- **A. Transient `StudyPlanDraft` lifecycle authority** — one atomic in-memory
+  lifecycle gate (§12). It is authoritative for transient draft state only
+  (the `pending` / `committing` / `rejected` / `superseded` transitions).
+- **B. Durable `ActiveStudyPlan` concurrency authority** — the SQLite
+  transaction-level compare-and-set. It is authoritative for durable plan
+  state only.
+
+The formal durable adoption transaction may start only after the transient
+gate's `pending -> committing` transition has won (§12).
 
 Adopt command binds:
 
