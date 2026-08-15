@@ -2132,6 +2132,120 @@ void main() {
       expect(harness.fallbackProvider.callCount, 1);
     });
 
+    test('Primary incompleteResponse before output -> fallback success', () async {
+      final harness = _Harness(
+        fallbackProfileId: 'profile-fallback',
+        scripts: <_Script>[
+          (request, token) async* {
+            // Stream closes without AgentProviderCompleted
+          },
+        ],
+        fallbackScripts: <_Script>[
+          _finalAnswer('Fallback Answer Incomplete'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser('question');
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(
+        (result as AgentTurnSuccess).assistantMessage.content,
+        'Fallback Answer Incomplete',
+      );
+      expect(harness.provider.callCount, 1);
+      expect(harness.fallbackProvider.callCount, 1);
+    });
+
+    test('Primary internalError before output -> fallback success', () async {
+      final harness = _Harness(
+        fallbackProfileId: 'profile-fallback',
+        scripts: <_Script>[
+          (request, token) async* {
+            throw const AgentProviderException(
+              AgentProviderFailure.internalError,
+            );
+          },
+        ],
+        fallbackScripts: <_Script>[
+          _finalAnswer('Fallback Answer Internal'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser('question');
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(
+        (result as AgentTurnSuccess).assistantMessage.content,
+        'Fallback Answer Internal',
+      );
+      expect(harness.provider.callCount, 1);
+      expect(harness.fallbackProvider.callCount, 1);
+    });
+
+    test('Ineligible Primary invalidRequest -> fallback NOT called', () async {
+      final harness = _Harness(
+        fallbackProfileId: 'profile-fallback',
+        scripts: <_Script>[
+          (request, token) async* {
+            throw const AgentProviderException(
+              AgentProviderFailure.invalidRequest,
+            );
+          },
+        ],
+        fallbackScripts: <_Script>[
+          _finalAnswer('Should not run'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser('question');
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.providerMalformed);
+      expect(harness.provider.callCount, 1);
+      expect(harness.fallbackProvider.callCount, 0);
+    });
+
+    test('Ineligible Primary unsupportedCapability -> fallback NOT called', () async {
+      final harness = _Harness(
+        fallbackProfileId: 'profile-fallback',
+        scripts: <_Script>[
+          (request, token) async* {
+            throw const AgentProviderException(
+              AgentProviderFailure.unsupportedCapability,
+            );
+          },
+        ],
+        fallbackScripts: <_Script>[
+          _finalAnswer('Should not run'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser('question');
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.unsupportedCapability);
+      expect(harness.provider.callCount, 1);
+      expect(harness.fallbackProvider.callCount, 0);
+    });
+
     test('Fallback itself fails -> no third attempt -> final typed failure',
         () async {
       final harness = _Harness(
