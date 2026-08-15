@@ -25,7 +25,8 @@ void main() {
       expect(shell, contains("return '请等待对话移动完成';"));
     });
 
-    test('deleted learning-space home state is normalized, not only rendered', () {
+    test('deleted learning-space home state is normalized, not only rendered',
+        () {
       final shell = File('lib/ui/assistant/assistant_workspace_shell.dart')
           .readAsStringSync();
 
