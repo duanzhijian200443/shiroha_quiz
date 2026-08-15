@@ -17,10 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Changed Dart and focused contracts
+  static:
+    name: Static changed-Dart checks
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
@@ -57,94 +57,12 @@ jobs:
       - name: Resolve packages
         run: flutter pub get
 
-      - name: Verify changed Dart and focused contracts
+      - name: Verify changed Dart
         shell: pwsh
         env:
           BASE_REF: ${{ steps.base-ref.outputs.base_ref }}
         run: |
-          ./tool/verify_changed.ps1 `
-            -BaseRef $env:BASE_REF `
-            -TestPath @(
-              'test/architecture_boundary_test.dart',
-              'test/domain/question/question_region_test.dart',
-              'test/services/import_pipeline/adapters/ocr_question_region_bridge_test.dart',
-              'test/services/import_pipeline/adapters/text_question_region_bridge_test.dart',
-              'test/services/import_pipeline/question_draft_v2_legacy_projection_test.dart',
-              'test/services/import_pipeline/typed_question_assembler_test.dart',
-              'test/r3d_question_assembly_shadow_acceptance_test.dart',
-              'test/import_acceptance_test.dart',
-              'test/ocr_smoke_contract_test.dart',
-              'test/ocr_smoke_path_helpers_test.dart',
-              'test/ocr_import_service_test.dart',
-              'test/import_staging_unsupported_structure_banner_test.dart',
-              'test/r5_rich_content_renderer_test.dart',
-              'test/domain/content/rich_content_privacy_admission_test.dart',
-              'test/domain/source/source_part_test.dart',
-              'test/render_matrix_test.dart',
-              'test/question_v2_persistence_mapper_test.dart',
-              'test/database_v15_migration_test.dart',
-              'test/question_repository_v2_test.dart',
-              'test/r6_question_v2_persistence_acceptance_test.dart',
-              'test/database_runtime_profile_test.dart',
-              'test/import_commit_service_test.dart',
-              'test/domain/question/question_draft_v2_codec_test.dart',
-              'test/r7a_typed_review_snapshot_acceptance_test.dart',
-              'test/r7b_ocr_typed_candidate_acceptance_test.dart',
-              'test/r7c_review_result_writer_activation_acceptance_test.dart',
-              'test/r7d_v2_first_question_list_acceptance_test.dart',
-              'test/r7c1_attempt_aware_typed_commit_acceptance_test.dart',
-              'test/r7c1_final_review_snapshot_closure_test.dart',
-              'test/r7e_full_production_v2_activation_acceptance_test.dart',
-              'test/r8_legacy_retirement_acceptance_test.dart',
-              'test/practice_page_v2_test.dart',
-              'test/wrong_book_page_v2_test.dart',
-              'test/domain/assets/library_file_test.dart',
-              'test/services/file_library/managed_file_storage_adapter_test.dart',
-              'test/services/file_library/file_ingestion_service_test.dart',
-              'test/data/repositories/library_file_repository_test.dart',
-              'test/core/database/f0_v16_migration_test.dart',
-              'test/core/database/c0_v19_migration_test.dart',
-              'test/core/database/f1_v20_migration_test.dart',
-              'test/core/database/rag1_fts5_capability_test.dart',
-              'test/core/database/rag1_v21_migration_test.dart',
-              'test/services/retrieval/deterministic_source_chunker_test.dart',
-              'test/data/repositories/retrieval_index_repository_test.dart',
-              'test/application/retrieval/retrieval_service_test.dart',
-              'test/application/agent/agent_retrieval_tool_test.dart',
-              'test/application/agent/agent_runtime_test.dart',
-              'test/application/agent/shiroha_system_prompt_test.dart',
-              'test/data/repositories/parsed_artifact_repository_test.dart',
-              'test/services/file_library/managed_artifact_storage_adapter_test.dart',
-              'test/services/parsed_artifacts/parsed_artifact_lifecycle_service_test.dart',
-              'test/services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter_test.dart',
-              'test/services/parsed_artifacts/deterministic_parsed_artifact_generation_integration_test.dart',
-              'test/services/import_pipeline/adapters/pdf_text_extractor_adapter_test.dart',
-              'test/services/parsed_artifacts/ocr_parsed_artifact_generation_adapter_test.dart',
-              'test/services/parsed_artifacts/parsed_artifact_generation_router_test.dart',
-              'test/services/parsed_artifacts/ocr_parsed_artifact_generation_integration_test.dart',
-              'test/domain/conversations/conversation_test.dart',
-              'test/application/conversations/conversation_service_test.dart',
-              'test/data/repositories/conversation_repository_test.dart',
-              'test/ui/assistant/assistant_workspace_shell_test.dart',
-              'test/ui/assistant/conversation_controller_test.dart',
-              'test/ui/pages/agent_settings_screen_test.dart',
-              'test/profile_screen_test.dart',
-              'test/widget_test.dart',
-              'test/application/study_query/study_query_service_test.dart',
-              'test/application/study_query/study_query_stem_preview_test.dart',
-              'test/application/study_query/study_query_time_zone_test.dart',
-              'test/data/repositories/t0_study_query_repository_test.dart',
-              'test/application/answers/answer_candidate_review_session_test.dart',
-              'test/application/answers/ai_answer_provider_test.dart',
-              'test/services/answers/ai_answer_provider_adapter_test.dart',
-              'test/application/answers/ai_answer_generation_test.dart',
-              'test/application/answers/ai_answer_commit_command_test.dart',
-              'test/data/repositories/ai_answer_commit_repository_test.dart',
-              'test/p7_ai_answer_ui_acceptance_test.dart',
-              'test/p7_v0_acceptance_test.dart',
-              'test/spl1_v0_acceptance_test.dart',
-              'test/p5_typed_answer_repair_ui_acceptance_test.dart'
-            )
+          ./tool/verify_changed.ps1 -BaseRef $env:BASE_REF
 
       - name: Check committed diff
         shell: pwsh
@@ -154,4 +72,153 @@ jobs:
           & git diff --check "${env:BASE_REF}...HEAD"
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
+          }
+
+  contracts:
+    name: Contract shard ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Run contract shard
+        shell: pwsh
+        run: |
+          $tests = @(
+            'test/architecture_boundary_test.dart',
+            'test/domain/question/question_region_test.dart',
+            'test/services/import_pipeline/adapters/ocr_question_region_bridge_test.dart',
+            'test/services/import_pipeline/adapters/text_question_region_bridge_test.dart',
+            'test/services/import_pipeline/question_draft_v2_legacy_projection_test.dart',
+            'test/services/import_pipeline/typed_question_assembler_test.dart',
+            'test/r3d_question_assembly_shadow_acceptance_test.dart',
+            'test/import_acceptance_test.dart',
+            'test/ocr_smoke_contract_test.dart',
+            'test/ocr_smoke_path_helpers_test.dart',
+            'test/ocr_import_service_test.dart',
+            'test/import_staging_unsupported_structure_banner_test.dart',
+            'test/r5_rich_content_renderer_test.dart',
+            'test/domain/content/rich_content_privacy_admission_test.dart',
+            'test/domain/source/source_part_test.dart',
+            'test/render_matrix_test.dart',
+            'test/question_v2_persistence_mapper_test.dart',
+            'test/database_v15_migration_test.dart',
+            'test/question_repository_v2_test.dart',
+            'test/r6_question_v2_persistence_acceptance_test.dart',
+            'test/database_runtime_profile_test.dart',
+            'test/import_commit_service_test.dart',
+            'test/domain/question/question_draft_v2_codec_test.dart',
+            'test/r7a_typed_review_snapshot_acceptance_test.dart',
+            'test/r7b_ocr_typed_candidate_acceptance_test.dart',
+            'test/r7c_review_result_writer_activation_acceptance_test.dart',
+            'test/r7d_v2_first_question_list_acceptance_test.dart',
+            'test/r7c1_attempt_aware_typed_commit_acceptance_test.dart',
+            'test/r7c1_final_review_snapshot_closure_test.dart',
+            'test/r7e_full_production_v2_activation_acceptance_test.dart',
+            'test/r8_legacy_retirement_acceptance_test.dart',
+            'test/practice_page_v2_test.dart',
+            'test/wrong_book_page_v2_test.dart',
+            'test/domain/assets/library_file_test.dart',
+            'test/services/file_library/managed_file_storage_adapter_test.dart',
+            'test/services/file_library/file_ingestion_service_test.dart',
+            'test/data/repositories/library_file_repository_test.dart',
+            'test/core/database/f0_v16_migration_test.dart',
+            'test/core/database/c0_v19_migration_test.dart',
+            'test/core/database/f1_v20_migration_test.dart',
+            'test/core/database/rag1_fts5_capability_test.dart',
+            'test/core/database/rag1_v21_migration_test.dart',
+            'test/services/retrieval/deterministic_source_chunker_test.dart',
+            'test/data/repositories/retrieval_index_repository_test.dart',
+            'test/application/retrieval/retrieval_service_test.dart',
+            'test/application/agent/agent_retrieval_tool_test.dart',
+            'test/application/agent/agent_runtime_test.dart',
+            'test/application/agent/shiroha_system_prompt_test.dart',
+            'test/data/repositories/parsed_artifact_repository_test.dart',
+            'test/services/file_library/managed_artifact_storage_adapter_test.dart',
+            'test/services/parsed_artifacts/parsed_artifact_lifecycle_service_test.dart',
+            'test/services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter_test.dart',
+            'test/services/parsed_artifacts/deterministic_parsed_artifact_generation_integration_test.dart',
+            'test/services/import_pipeline/adapters/pdf_text_extractor_adapter_test.dart',
+            'test/services/parsed_artifacts/ocr_parsed_artifact_generation_adapter_test.dart',
+            'test/services/parsed_artifacts/parsed_artifact_generation_router_test.dart',
+            'test/services/parsed_artifacts/ocr_parsed_artifact_generation_integration_test.dart',
+            'test/domain/conversations/conversation_test.dart',
+            'test/application/conversations/conversation_service_test.dart',
+            'test/data/repositories/conversation_repository_test.dart',
+            'test/ui/assistant/assistant_workspace_shell_test.dart',
+            'test/ui/assistant/conversation_controller_test.dart',
+            'test/ui/pages/agent_settings_screen_test.dart',
+            'test/profile_screen_test.dart',
+            'test/widget_test.dart',
+            'test/application/study_query/study_query_service_test.dart',
+            'test/application/study_query/study_query_stem_preview_test.dart',
+            'test/application/study_query/study_query_time_zone_test.dart',
+            'test/data/repositories/t0_study_query_repository_test.dart',
+            'test/application/answers/answer_candidate_review_session_test.dart',
+            'test/application/answers/ai_answer_provider_test.dart',
+            'test/services/answers/ai_answer_provider_adapter_test.dart',
+            'test/application/answers/ai_answer_generation_test.dart',
+            'test/application/answers/ai_answer_commit_command_test.dart',
+            'test/data/repositories/ai_answer_commit_repository_test.dart',
+            'test/p7_ai_answer_ui_acceptance_test.dart',
+            'test/p7_v0_acceptance_test.dart',
+            'test/spl1_v0_acceptance_test.dart',
+            'test/p5_typed_answer_repair_ui_acceptance_test.dart'
+          )
+
+          $shardCount = 4
+          $shardIndex = [int]'${{ matrix.shard }}' - 1
+          $selected = @()
+          for ($i = $shardIndex; $i -lt $tests.Count; $i += $shardCount) {
+            $selected += $tests[$i]
+          }
+
+          Write-Output "Running shard $($shardIndex + 1)/$shardCount with $($selected.Count) test files"
+          foreach ($test in $selected) {
+            Write-Output "  $test"
+          }
+
+          & flutter test --concurrency=1 @selected
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+  verify:
+    name: Changed Dart and focused contracts
+    needs:
+      - static
+      - contracts
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require all verification jobs
+        shell: pwsh
+        run: |
+          $staticResult = '${{ needs.static.result }}'
+          $contractsResult = '${{ needs.contracts.result }}'
+
+          Write-Output "Static checks: $staticResult"
+          Write-Output "Contract shards: $contractsResult"
+
+          if ($staticResult -ne 'success' -or $contractsResult -ne 'success') {
+            exit 1
           }
