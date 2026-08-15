@@ -462,9 +462,15 @@ class _HomePageState extends State<HomePage> {
       _focusedLoadInFlight = false;
       if (_focusedRefreshPending) {
         _focusedRefreshPending = false;
-        // At least one follow-up refresh must happen; run it on a later
-        // frame so the settled load's build completes first.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Start the required follow-up refresh INDEPENDENTLY of frame
+        // production. A post-frame callback does not by itself schedule a
+        // frame, so a slow stale load finishing after all current
+        // frame/animation activity could leave the follow-up waiting until
+        // an unrelated future frame. A microtask begins the follow-up on the
+        // current event-loop turn instead; the latest-wins generation guard
+        // already ensured the settled load published nothing stale.
+        Future<void>.microtask(() {
+          if (!mounted) return;
           _loadFocusedState();
         });
       }

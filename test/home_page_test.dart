@@ -914,6 +914,80 @@ void main() {
     });
 
     testWidgets(
+        'refresh coordinator: a required follow-up starts without frame '
+        'production and ends in the latest live state', (tester) async {
+      final command = _CommandHarness();
+      final advisory = const StudyPlanFocusedAdvisory(
+        masteryReached: false,
+        horizonElapsed: false,
+      );
+      final service = _FakeSelectionService(
+        state: StudyPlanFocusedReady(_focusedPlan(), <String>['id1'], advisory),
+      );
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: _FakeLauncher(),
+      );
+      await openFocusedMode(
+        tester,
+        waitFor: const ValueKey('today-focused-plan-card'),
+      );
+
+      // A required refresh arrives and blocks (activation-style refresh).
+      service.pending = Completer<StudyPlanFocusedState>();
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: _FakeLauncher(),
+        todayActivationEpoch: 1,
+        waitFor: find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+      await tester.pump();
+
+      // A second required refresh arrives while the first load is in flight:
+      // the coordinator must coalesce it into a follow-up (no extra service
+      // call yet) and invalidate the in-flight generation.
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: _FakeLauncher(),
+        todayActivationEpoch: 2,
+        waitFor: find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+      await tester.pump();
+
+      // The stale generation completes; the latest live state is NoActivePlan.
+      final callsBeforeStaleCompletion = service.loadCalls;
+      service.state = const StudyPlanFocusedNoActivePlan();
+      service.pending!.complete(
+        StudyPlanFocusedReady(_focusedPlan(), <String>['id1'], advisory),
+      );
+
+      // Drain microtasks WITHOUT producing a frame: the coordinator itself
+      // (microtask scheduling, not a frame callback) must already have
+      // initiated the follow-up selection service call.
+      await tester.idle();
+      expect(service.loadCalls, callsBeforeStaleCompletion + 1);
+
+      // Pump only to observe the already-started asynchronous work's result.
+      await tester.pump();
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('today-focused-unavailable')),
+      );
+      expect(find.text('特训需要学习计划'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('today-focused-plan-card')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
         'Today reactivation refresh A: NoActivePlan -> adopted plan appears '
         'without toggling modes', (tester) async {
       final advisory = const StudyPlanFocusedAdvisory(
