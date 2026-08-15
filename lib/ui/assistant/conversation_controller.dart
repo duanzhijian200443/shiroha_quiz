@@ -233,9 +233,11 @@ final class ConversationController extends ChangeNotifier {
   }
 
   void startNew({ConversationScope? scope}) {
-    if (hasActiveTurn) {
-      errorMessage = '请先停止当前生成';
-      notifyListeners();
+    if (hasActiveTurn || isMovingConversation) {
+      if (hasActiveTurn) {
+        errorMessage = '请先停止当前生成';
+        notifyListeners();
+      }
       return;
     }
     activeThread = null;
@@ -250,7 +252,7 @@ final class ConversationController extends ChangeNotifier {
   }
 
   void selectDraftScope(ConversationScope scope) {
-    if (!isDraft) return;
+    if (!isDraft || isMovingConversation) return;
     draftScope = scope;
     errorMessage = null;
     notifyListeners();
@@ -277,6 +279,7 @@ final class ConversationController extends ChangeNotifier {
       return false;
     }
 
+    final targetConversationId = active.conversation.conversationId;
     final oldScope = active.conversation.scope;
     if (oldScope == targetScope) {
       return true;
@@ -286,31 +289,53 @@ final class ConversationController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
 
+    final MoveConversationResult result;
     try {
-      final result = await service.moveConversation(
-        conversationId: active.conversation.conversationId,
+      result = await service.moveConversation(
+        conversationId: targetConversationId,
         targetScope: targetScope,
       );
+    } on ConversationException catch (e) {
+      isMovingConversation = false;
+      errorMessage = switch (e.failure) {
+        ConversationFailure.projectNotFound => '目标学习空间已不存在，请刷新后重试',
+        ConversationFailure.conversationNotFound => '该对话已不存在',
+        ConversationFailure.scopeUnavailable => '目标学习空间不可用',
+        ConversationFailure.temporarilyUnavailable => '暂时无法移动对话，请稍后重试',
+        _ => conversationWriteSafeError,
+      };
+      notifyListeners();
+      return false;
+    } catch (_) {
+      isMovingConversation = false;
+      errorMessage = conversationWriteSafeError;
+      notifyListeners();
+      return false;
+    }
 
-      if (!result.moved) {
-        isMovingConversation = false;
-        notifyListeners();
-        return true;
-      }
+    if (!result.moved) {
+      isMovingConversation = false;
+      notifyListeners();
+      return true;
+    }
 
+    if (activeThread?.conversation.conversationId == targetConversationId) {
       activeThread = ConversationThreadSlice(
         conversation: result.conversation,
-        messages: active.messages,
-        files: active.files,
-        hasMoreBefore: active.hasMoreBefore,
-        nextBeforeSequence: active.nextBeforeSequence,
+        messages: activeThread!.messages,
+        files: activeThread!.files,
+        hasMoreBefore: activeThread!.hasMoreBefore,
+        nextBeforeSequence: activeThread!.nextBeforeSequence,
       );
       _threadRevision++;
+    }
 
-      _retryConversationId = null;
-      _retryUserMessageId = null;
-      retrievalApprovedForNextTurn = false;
+    _retryConversationId = null;
+    _retryUserMessageId = null;
+    retrievalApprovedForNextTurn = false;
 
+    // Phase B — best-effort projection refresh
+    try {
       recent = await service.listRecentConversations();
 
       if (oldScope.kind == ConversationScopeKind.learningSpace &&
@@ -331,33 +356,19 @@ final class ConversationController extends ChangeNotifier {
           );
         }
       }
-
-      errorMessage = null;
-      isMovingConversation = false;
-      notifyListeners();
-      return true;
-    } on ConversationException catch (e) {
-      isMovingConversation = false;
-      errorMessage = switch (e.failure) {
-        ConversationFailure.projectNotFound => '目标学习空间已不存在，请刷新后重试',
-        ConversationFailure.conversationNotFound => '该对话已不存在',
-        ConversationFailure.scopeUnavailable => '目标学习空间不可用',
-        ConversationFailure.temporarilyUnavailable => '暂时无法移动对话，请稍后重试',
-        _ => conversationWriteSafeError,
-      };
-      notifyListeners();
-      return false;
     } catch (_) {
+      errorMessage = conversationReadSafeError;
+    } finally {
       isMovingConversation = false;
-      errorMessage = conversationWriteSafeError;
       notifyListeners();
-      return false;
     }
+
+    return true;
   }
 
   Future<bool> openConversation(String conversationId) async {
-    if (hasActiveTurn) {
-      errorMessage = '请先停止当前生成';
+    if (hasActiveTurn || isMovingConversation) {
+      errorMessage = isMovingConversation ? '请等待对话移动完成' : '请先停止当前生成';
       notifyListeners();
       return false;
     }
@@ -391,6 +402,11 @@ final class ConversationController extends ChangeNotifier {
   Future<bool> send(String content) async {
     if (isSending || hasActiveTurn) {
       errorMessage = _agentFailureMessage(AgentTurnFailure.alreadyRunning);
+      notifyListeners();
+      return false;
+    }
+    if (isMovingConversation) {
+      errorMessage = '请等待对话移动完成';
       notifyListeners();
       return false;
     }
@@ -476,6 +492,9 @@ final class ConversationController extends ChangeNotifier {
   }
 
   Future<bool> retryLastTurn() async {
+    if (isMovingConversation) {
+      return false;
+    }
     final conversationId = _retryConversationId;
     final userMessageId = _retryUserMessageId;
     if (!canRetry || conversationId == null || userMessageId == null) {
@@ -727,6 +746,7 @@ final class ConversationController extends ChangeNotifier {
   }
 
   Future<bool> toggleFile(String fileId) async {
+    if (isMovingConversation) return false;
     retrievalApprovedForNextTurn = false;
     if (isDraft) {
       if (!draftFileIds.add(fileId)) draftFileIds.remove(fileId);
@@ -861,7 +881,7 @@ final class ConversationController extends ChangeNotifier {
 
   Future<bool> deleteActiveConversation() async {
     final active = activeThread;
-    if (active == null) return false;
+    if (active == null || isMovingConversation) return false;
     try {
       await service.deleteConversation(active.conversation.conversationId);
       _proposalIdByTurnByConversation.remove(

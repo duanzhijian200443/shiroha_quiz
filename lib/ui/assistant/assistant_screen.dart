@@ -521,14 +521,21 @@ class _AssistantScreenState extends State<AssistantScreen> {
             IconButton(
               key: const ValueKey<String>('c0-delete-conversation'),
               tooltip: '删除对话',
-              onPressed: _deleteConversation,
+              onPressed: (conversations.hasActiveTurn ||
+                      conversations.isSending ||
+                      conversations.isMovingConversation)
+                  ? null
+                  : _deleteConversation,
               icon: const Icon(Icons.delete_outline_rounded),
             ),
           IconButton(
             key: const ValueKey<String>('u1-ux0-new-conversation'),
             tooltip: '新对话',
-            onPressed:
-                conversations.hasActiveTurn ? null : _startNewConversation,
+            onPressed: (conversations.hasActiveTurn ||
+                    conversations.isSending ||
+                    conversations.isMovingConversation)
+                ? null
+                : _startNewConversation,
             icon: const Icon(Icons.add_comment_outlined),
           ),
           const SizedBox(width: 4),
@@ -545,7 +552,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 _Composer(
                   controller: _composerController,
                   selectedFiles: conversations.selectedFiles,
-                  isSending: conversations.isSending,
+                  isSending: conversations.isSending ||
+                      conversations.isMovingConversation,
                   hasActiveTurn: conversations.hasActiveTurn,
                   retrievalApproved: conversations.retrievalApprovedForNextTurn,
                   onRetrievalApprovalChanged:
