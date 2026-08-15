@@ -128,6 +128,8 @@ final class AgentSettingsSnapshot {
     required this.state,
     required this.config,
     required this.selectedProfile,
+    this.selectedFallbackProfile,
+    this.fallbackUnavailable = false,
     required List<AgentProfileSummary> availableProfiles,
   }) : availableProfiles = List<AgentProfileSummary>.unmodifiable(
           availableProfiles,
@@ -136,6 +138,8 @@ final class AgentSettingsSnapshot {
   final AgentSettingsState state;
   final AgentConfig? config;
   final AgentProfileSummary? selectedProfile;
+  final AgentProfileSummary? selectedFallbackProfile;
+  final bool fallbackUnavailable;
   final List<AgentProfileSummary> availableProfiles;
 }
 
@@ -168,12 +172,22 @@ final class AgentSettingsService {
       final selected = profiles
           .where((profile) => profile.profileId == config.mainProfileId)
           .firstOrNull;
+      final fallbackId = config.fallbackProfileId;
+      final selectedFallback = fallbackId == null
+          ? null
+          : profiles
+              .where((profile) => profile.profileId == fallbackId)
+              .firstOrNull;
+      final fallbackUnavailable =
+          fallbackId != null && selectedFallback == null;
       return AgentSettingsSnapshot(
         state: selected == null
             ? AgentSettingsState.profileUnavailable
             : AgentSettingsState.ready,
         config: config,
         selectedProfile: selected,
+        selectedFallbackProfile: selectedFallback,
+        fallbackUnavailable: fallbackUnavailable,
         availableProfiles: profiles,
       );
     } on AgentConfigException {
@@ -194,6 +208,11 @@ final class AgentSettingsService {
           .any((profile) => profile.profileId == config.mainProfileId)) {
         throw const AgentConfigException(AgentConfigFailure.profileNotFound);
       }
+      if (config.fallbackProfileId case final fallbackId?) {
+        if (!profiles.any((profile) => profile.profileId == fallbackId)) {
+          throw const AgentConfigException(AgentConfigFailure.profileNotFound);
+        }
+      }
       await _configStore.writeAgentConfig(_codec.encode(config));
     } on AgentConfigException {
       rethrow;
@@ -211,10 +230,12 @@ final class ResolvedAgentConfig {
   const ResolvedAgentConfig({
     required this.config,
     required this.profile,
+    this.fallbackProfile,
   });
 
   final AgentConfig config;
   final AgentProviderProfile profile;
+  final AgentProviderProfile? fallbackProfile;
 
   @override
   String toString() => 'ResolvedAgentConfig(REDACTED)';
@@ -245,7 +266,22 @@ final class AgentRuntimeConfigResolver {
       if (profile == null) {
         throw const AgentConfigException(AgentConfigFailure.profileNotFound);
       }
-      return ResolvedAgentConfig(config: config, profile: profile);
+      AgentProviderProfile? fallbackProfile;
+      if (config.fallbackProfileId case final fallbackId?) {
+        try {
+          fallbackProfile =
+              await _profileResolver.resolveMainProfile(fallbackId);
+        } on AgentProfileException {
+          // If the optional fallback profile has corrupt data or error,
+          // treat as unavailable without failing the primary.
+          fallbackProfile = null;
+        }
+      }
+      return ResolvedAgentConfig(
+        config: config,
+        profile: profile,
+        fallbackProfile: fallbackProfile,
+      );
     } on AgentConfigException {
       rethrow;
     } on AgentProfileException catch (error) {

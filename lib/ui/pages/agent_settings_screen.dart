@@ -22,6 +22,7 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
   bool _isSaving = false;
   AgentSettingsSnapshot? _snapshot;
   String? _selectedProfileId;
+  String? _selectedFallbackProfileId;
   bool _webEnabled = false;
   double _temperature = 1.0;
   AgentReasoningEffort _reasoningEffort = AgentReasoningEffort.high;
@@ -44,9 +45,11 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
       if (!mounted) return;
       final config = snapshot.config;
       final selectedId = snapshot.selectedProfile?.profileId;
+      final selectedFallbackId = snapshot.selectedFallbackProfile?.profileId;
       setState(() {
         _snapshot = snapshot;
         _selectedProfileId = selectedId;
+        _selectedFallbackProfileId = selectedFallbackId;
         _webEnabled = config?.webEnabled ?? false;
         _temperature = config?.temperature ?? 1.0;
         _reasoningEffort = config?.reasoningEffort ?? AgentReasoningEffort.high;
@@ -73,6 +76,11 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
       setState(() => _saveError = '请先选择主模型');
       return;
     }
+    final fallbackId = _selectedFallbackProfileId;
+    if (fallbackId != null && fallbackId == profileId) {
+      setState(() => _saveError = '备用模型不能与主模型相同');
+      return;
+    }
     setState(() {
       _isSaving = true;
       _saveError = null;
@@ -81,6 +89,7 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
       final config = AgentConfig(
         providerKind: AgentProviderKind.deepSeekResponses,
         mainProfileId: profileId,
+        fallbackProfileId: fallbackId,
         webEnabled: _webEnabled,
         temperature: _temperature,
         reasoningEffort: _reasoningEffort,
@@ -175,6 +184,12 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
             text: '此前选择的主模型已不可用，请重新选择并保存。',
             isError: true,
           ),
+        if (snapshot.fallbackUnavailable)
+          const _SettingsNotice(
+            key: ValueKey<String>('a0-agent-fallback-unavailable'),
+            text: '此前选择的备用模型已不可用，请重新选择或关闭备用模型。',
+            isError: false,
+          ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -202,8 +217,46 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
                       ? null
                       : (value) => setState(() {
                             _selectedProfileId = value;
+                            if (_selectedFallbackProfileId == value) {
+                              _selectedFallbackProfileId = null;
+                            }
                             _saveError = null;
                           }),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String?>(
+                  key: const ValueKey<String>('a0-agent-fallback-profile'),
+                  initialValue: _selectedFallbackProfileId,
+                  decoration: const InputDecoration(
+                    labelText: '备用模型（可选）',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('不使用备用模型'),
+                    ),
+                    for (final profile in profiles)
+                      if (profile.profileId != _selectedProfileId)
+                        DropdownMenuItem<String?>(
+                          value: profile.profileId,
+                          child: Text(
+                            '${profile.displayName} · ${profile.modelName}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                  ],
+                  onChanged: _isSaving
+                      ? null
+                      : (value) => setState(() {
+                            _selectedFallbackProfileId = value;
+                            _saveError = null;
+                          }),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '主模型在回复或工具调用前发生可恢复故障时，Shiroha 最多自动尝试一次备用模型。含文件正文授权的对话不会自动切换。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
                 SwitchListTile.adaptive(
