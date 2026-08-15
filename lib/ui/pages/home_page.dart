@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
+import 'import_settings_screen.dart';
 import 'mock_center_screen.dart';
 import 'plan_config_screen.dart';
 import 'practice_page.dart';
@@ -27,6 +28,7 @@ class HomePage extends StatefulWidget {
     this.taskManager,
     this.onSwitchBank,
     this.onPracticeRequested,
+    this.onImportRequested,
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
     this.studyPlanSessionLauncher,
@@ -36,6 +38,7 @@ class HomePage extends StatefulWidget {
   final TaskManager? taskManager;
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
+  final VoidCallback? onImportRequested;
 
   /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
   /// shows the real no-plan state without querying. Production composition
@@ -141,6 +144,21 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _openImport() {
+    if (widget.onImportRequested != null) {
+      widget.onImportRequested!();
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ImportSettingsScreen(),
+      ),
+    ).then((_) {
+      if (mounted) _loadContext();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -227,7 +245,14 @@ class _HomePageState extends State<HomePage> {
             );
           },
         ),
-        actions: const [SizedBox(width: 56)],
+        actions: [
+          IconButton(
+            key: const ValueKey<String>('home-import-action'),
+            tooltip: '导入题库',
+            icon: Icon(Icons.add_rounded, color: textColor, size: 28),
+            onPressed: _openImport,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
