@@ -7,10 +7,16 @@ import '../../application/u1_workspace/u1_workspace_facade.dart';
 
 const String workspaceSafeError = '暂时无法读取学习空间数据，请稍后重试';
 
+typedef LearningSpaceDeleteGuard = String? Function(String projectId);
+
 class LearningSpacesController extends ChangeNotifier {
-  LearningSpacesController(this.facade);
+  LearningSpacesController(
+    this.facade, {
+    this.deleteGuard,
+  });
 
   final U1WorkspaceFacade facade;
+  final LearningSpaceDeleteGuard? deleteGuard;
 
   List<LearningSpaceSummary> spaces = const <LearningSpaceSummary>[];
   List<QuestionBankSummary> availableBanks = const <QuestionBankSummary>[];
@@ -90,6 +96,12 @@ class LearningSpacesController extends ChangeNotifier {
   }
 
   Future<bool> delete(String projectId) async {
+    final blockedMessage = deleteGuard?.call(projectId);
+    if (blockedMessage != null) {
+      errorMessage = blockedMessage;
+      notifyListeners();
+      return false;
+    }
     try {
       await facade.deleteLearningSpace(projectId);
       selectedDetail = null;

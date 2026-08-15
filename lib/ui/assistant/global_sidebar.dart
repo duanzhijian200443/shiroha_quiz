@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../application/u1_workspace/u1_workspace_dtos.dart';
+import '../../domain/conversations/conversation.dart';
 import 'conversation_controller.dart';
 import 'workspace_controller.dart';
 
@@ -28,6 +30,75 @@ class GlobalSidebar extends StatelessWidget {
   final ValueChanged<String> onOpenSpaceHome;
   final VoidCallback onCreateSpace;
   final ValueChanged<String> onFeedback;
+
+  Future<void> _confirmDeleteConversation(
+    BuildContext context,
+    Conversation conversation,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除对话？'),
+        content: Text(
+          '将删除对话「${conversation.title}」及其所有消息。\n\n'
+          '• 对话引用的文件和题库不会被删除；\n'
+          '• 对话所属的学习空间不会受到影响；\n'
+          '• 此操作无法撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await conversationController.deleteConversation(
+        conversation.conversationId,
+      );
+    }
+  }
+
+  Future<void> _confirmDeleteSpace(
+    BuildContext context,
+    LearningSpaceSummary space,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除学习空间？'),
+        content: Text(
+          '将删除学习空间「${space.displayName}」。\n\n'
+          '• 空间内的文件和题库仅解除关联，不会被删除；\n'
+          '• 空间内的对话将保留为历史记录（因原空间删除变为不可用状态），之后仍可移动到全局或其他学习空间；\n'
+          '• 此操作无法撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      final success = await controller.delete(space.projectId);
+      if (success) {
+        await conversationController.refreshAfterProjectDeleted(
+          space.projectId,
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,15 +164,15 @@ class GlobalSidebar extends StatelessWidget {
                 )
               else
                 for (final conversation in conversationController.recent)
-                  ListTile(
+                  _ConversationTile(
                     key: ValueKey<String>(
                       'c0-recent-${conversation.conversationId}',
                     ),
-                    dense: true,
-                    leading: const Icon(Icons.chat_bubble_outline_rounded),
-                    title: Text(conversation.title),
+                    conversation: conversation,
                     onTap: () =>
                         onOpenConversation(conversation.conversationId),
+                    onDelete: () =>
+                        _confirmDeleteConversation(context, conversation),
                   ),
               const Divider(height: 28),
               const _SidebarLabel('学习空间'),
@@ -116,22 +187,60 @@ class GlobalSidebar extends StatelessWidget {
                 for (final space in controller.spaces)
                   ExpansionTile(
                     key: ValueKey<String>('u1-space-${space.projectId}'),
+                    shape: const RoundedRectangleBorder(side: BorderSide.none),
+                    collapsedShape:
+                        const RoundedRectangleBorder(side: BorderSide.none),
                     leading: const Icon(Icons.space_dashboard_outlined),
-                    title: Row(
-                      children: [
-                        Expanded(child: Text(space.displayName)),
-                        IconButton(
+                    title: Text(space.displayName),
+                    subtitle: Text(
+                      '${space.bankCount} 个题库 · ${space.fileCount} 个文件',
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      key: ValueKey<String>('u1-space-menu-${space.projectId}'),
+                      tooltip: '更多操作',
+                      icon: const Icon(Icons.more_horiz_rounded),
+                      onSelected: (action) {
+                        if (action == 'home') {
+                          onOpenSpaceHome(space.projectId);
+                        } else if (action == 'delete') {
+                          _confirmDeleteSpace(context, space);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem<String>(
                           key: ValueKey<String>(
                             'u1-ux01-space-home-${space.projectId}',
                           ),
-                          tooltip: '主页',
-                          onPressed: () => onOpenSpaceHome(space.projectId),
-                          icon: const Icon(Icons.home_outlined),
+                          value: 'home',
+                          child: const Row(
+                            children: [
+                              Icon(Icons.home_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('进入主页'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem<String>(
+                          key: ValueKey<String>(
+                            'u1-space-delete-${space.projectId}',
+                          ),
+                          value: 'delete',
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.delete_outline_rounded,
+                                size: 18,
+                                color: Colors.red,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                '删除学习空间',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
-                    ),
-                    subtitle: Text(
-                      '${space.bankCount} 个题库 · ${space.fileCount} 个文件',
                     ),
                     onExpansionChanged: (expanded) {
                       if (expanded) {
@@ -159,19 +268,20 @@ class GlobalSidebar extends StatelessWidget {
                       else
                         for (final conversation in conversationController
                             .projectConversations[space.projectId]!)
-                          ListTile(
+                          _ConversationTile(
                             key: ValueKey<String>(
                               'c0-space-conversation-'
                               '${conversation.conversationId}',
                             ),
-                            dense: true,
                             contentPadding:
                                 const EdgeInsets.only(left: 48, right: 16),
-                            leading:
-                                const Icon(Icons.chat_bubble_outline_rounded),
-                            title: Text(conversation.title),
+                            conversation: conversation,
                             onTap: () => onOpenConversation(
                               conversation.conversationId,
+                            ),
+                            onDelete: () => _confirmDeleteConversation(
+                              context,
+                              conversation,
                             ),
                           ),
                     ],
@@ -221,6 +331,67 @@ class GlobalSidebar extends StatelessWidget {
       title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onTap: onTap,
+    );
+  }
+}
+
+class _ConversationTile extends StatelessWidget {
+  const _ConversationTile({
+    super.key,
+    required this.conversation,
+    required this.onTap,
+    required this.onDelete,
+    this.contentPadding,
+  });
+
+  final Conversation conversation;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final EdgeInsetsGeometry? contentPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      contentPadding: contentPadding,
+      leading: const Icon(Icons.chat_bubble_outline_rounded),
+      title: Text(
+        conversation.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onTap: onTap,
+      trailing: PopupMenuButton<String>(
+        key: ValueKey<String>(
+          'c0-conversation-menu-${conversation.conversationId}',
+        ),
+        tooltip: '更多操作',
+        icon: const Icon(Icons.more_horiz_rounded),
+        onSelected: (action) {
+          if (action == 'delete') {
+            onDelete();
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem<String>(
+            key: ValueKey<String>(
+              'c0-conversation-delete-${conversation.conversationId}',
+            ),
+            value: 'delete',
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.delete_outline_rounded,
+                  size: 18,
+                  color: Colors.red,
+                ),
+                SizedBox(width: 8),
+                Text('删除对话', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

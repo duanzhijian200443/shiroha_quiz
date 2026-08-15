@@ -879,26 +879,20 @@ final class ConversationController extends ChangeNotifier {
     }
   }
 
-  Future<bool> deleteActiveConversation() async {
-    final active = activeThread;
-    if (active == null || isMovingConversation) return false;
-    try {
-      await service.deleteConversation(active.conversation.conversationId);
-      _proposalIdByTurnByConversation.remove(
-        active.conversation.conversationId,
-      );
-      _studyPlanDraftIdByTurnByConversation.remove(
-        active.conversation.conversationId,
-      );
-      _clearProposal();
-      _clearStudyPlanDraft();
-      activeThread = null;
-      _threadRevision++;
-      draftScope = ConversationScope.global();
-      draftFileIds.clear();
-      await _refreshLists();
+  Future<bool> deleteConversation(String conversationId) async {
+    if (hasActiveTurn || isSending) {
+      errorMessage = '请先停止当前生成';
       notifyListeners();
-      return true;
+      return false;
+    }
+    if (isMovingConversation) {
+      errorMessage = '请等待对话移动完成';
+      notifyListeners();
+      return false;
+    }
+
+    try {
+      await service.deleteConversation(conversationId);
     } on ConversationException catch (error) {
       errorMessage = _safeWriteError(error.failure);
       notifyListeners();
@@ -908,6 +902,36 @@ final class ConversationController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+
+    _proposalIdByTurnByConversation.remove(conversationId);
+    _studyPlanDraftIdByTurnByConversation.remove(conversationId);
+    if (_retryConversationId == conversationId) {
+      _retryConversationId = null;
+      _retryUserMessageId = null;
+    }
+    if (activeThread?.conversation.conversationId == conversationId) {
+      _clearProposal();
+      _clearStudyPlanDraft();
+      activeThread = null;
+      _threadRevision++;
+      draftScope = ConversationScope.global();
+      draftFileIds.clear();
+      retrievalApprovedForNextTurn = false;
+    }
+
+    try {
+      await _refreshLists();
+    } catch (_) {
+      errorMessage = conversationReadSafeError;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> deleteActiveConversation() async {
+    final active = activeThread;
+    if (active == null) return false;
+    return deleteConversation(active.conversation.conversationId);
   }
 
   Future<void> loadProjectConversations(String projectId) async {

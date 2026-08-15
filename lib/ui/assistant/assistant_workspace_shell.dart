@@ -59,8 +59,6 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
   @override
   void initState() {
     super.initState();
-    _spacesController = LearningSpacesController(widget.facade)..load();
-    _fileController = FileLibraryController(widget.facade)..load();
     _conversationController = ConversationController(
       widget.conversationService,
       agentSettingsService: widget.agentSettingsService,
@@ -70,14 +68,50 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
       studyPlanDraftService: widget.studyPlanDraftService,
       studyPlanCommandService: widget.studyPlanCommandService,
     )..load();
+    _spacesController = LearningSpacesController(
+      widget.facade,
+      deleteGuard: _learningSpaceDeleteBlockReason,
+    );
+    _spacesController.addListener(_handleSpacesChanged);
+    _spacesController.load();
+    _fileController = FileLibraryController(widget.facade)..load();
   }
 
   @override
   void dispose() {
+    _spacesController.removeListener(_handleSpacesChanged);
     _spacesController.dispose();
     _fileController.dispose();
     _conversationController.dispose();
     super.dispose();
+  }
+
+  String? _learningSpaceDeleteBlockReason(String projectId) {
+    final activeProjectId =
+        _conversationController.activeThread?.conversation.scope.projectId;
+    if (activeProjectId != projectId) return null;
+    if (_conversationController.hasActiveTurn ||
+        _conversationController.isSending) {
+      return '请先停止当前生成';
+    }
+    if (_conversationController.isMovingConversation) {
+      return '请等待对话移动完成';
+    }
+    return null;
+  }
+
+  void _handleSpacesChanged() {
+    if (!mounted || _spacesController.isLoading) return;
+    final projectId = _projectId;
+    if (_destination != _WorkspaceDestination.learningSpaceHome ||
+        projectId == null ||
+        _spacesController.spaces.any((space) => space.projectId == projectId)) {
+      return;
+    }
+    setState(() {
+      _projectId = null;
+      _destination = _WorkspaceDestination.learningSpaces;
+    });
   }
 
   void _feedback(String message) {
@@ -154,16 +188,25 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
           onOpenProject: _openSpaceHome,
           onCreateProject: _createSpace,
         ),
-      _WorkspaceDestination.learningSpaceHome => LearningSpaceHomeWorkspace(
-          controller: _spacesController,
-          fileController: _fileController,
-          projectId: _projectId!,
-          onDeleted: () => setState(() {
-            _projectId = null;
-            _destination = _WorkspaceDestination.learningSpaces;
-            _conversationController.load();
-          }),
-        ),
+      _WorkspaceDestination.learningSpaceHome => _projectId != null &&
+              _spacesController.spaces
+                  .any((space) => space.projectId == _projectId)
+          ? LearningSpaceHomeWorkspace(
+              controller: _spacesController,
+              fileController: _fileController,
+              projectId: _projectId!,
+              onDeleted: () => setState(() {
+                _projectId = null;
+                _destination = _WorkspaceDestination.learningSpaces;
+                _conversationController.load();
+              }),
+            )
+          : LearningSpacesScreen(
+              controller: _spacesController,
+              fileController: _fileController,
+              onOpenProject: _openSpaceHome,
+              onCreateProject: _createSpace,
+            ),
       _WorkspaceDestination.mcp => McpWorkspace(
           projection: _spacesController.mcpProjection,
         ),
@@ -210,7 +253,12 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                 ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: _buildWorkspace()),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: _spacesController,
+                  builder: (context, _) => _buildWorkspace(),
+                ),
+              ),
             ],
           ),
         );

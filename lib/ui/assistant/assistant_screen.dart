@@ -397,31 +397,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }
   }
 
-  Future<void> _deleteConversation() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除对话？'),
-        content: const Text('对话和消息将被删除；文件、学习空间和题库不会被删除。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('c0-confirm-delete-conversation'),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      await widget.conversationController.deleteActiveConversation();
-      _composerController.clear();
-    }
-  }
-
   Drawer? _buildDrawer() {
     if (!widget.showGlobalMenu) return null;
     return Drawer(
@@ -464,7 +439,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final conversations = widget.conversationController;
-    final active = conversations.activeThread;
     return Scaffold(
       key: const ValueKey<String>('u1-ux0-assistant-shell'),
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -517,17 +491,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ],
         ),
         actions: [
-          if (active != null)
-            IconButton(
-              key: const ValueKey<String>('c0-delete-conversation'),
-              tooltip: '删除对话',
-              onPressed: (conversations.hasActiveTurn ||
-                      conversations.isSending ||
-                      conversations.isMovingConversation)
-                  ? null
-                  : _deleteConversation,
-              icon: const Icon(Icons.delete_outline_rounded),
-            ),
           IconButton(
             key: const ValueKey<String>('u1-ux0-new-conversation'),
             tooltip: '新对话',

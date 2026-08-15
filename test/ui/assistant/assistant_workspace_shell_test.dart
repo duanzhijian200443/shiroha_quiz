@@ -916,7 +916,12 @@ void main() {
     expect(find.text('关联学习空间'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
-
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('u1-space-menu-project-deep'),
+      ),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(
         const ValueKey<String>('u1-ux01-space-home-project-deep'),
@@ -1130,6 +1135,10 @@ void main() {
     await tester.pumpAndSettle();
 
     projects.failReads = true;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-space-menu-project-deep')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('u1-ux01-space-home-project-deep')),
     );
