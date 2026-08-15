@@ -70,16 +70,16 @@ RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
 RAG-3 Hybrid Retrieval / Rerank — DEFERRED
-SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
-SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
-SPL-1-D1 v22 persistence + durable CAS commands — NOT STARTED
-SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
-SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
-SPL-1-V0 Focused acceptance — NOT STARTED
-SPL-1-CL Closure — NOT STARTED
-SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS
-Current runtime schema — v21
-```
+  SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
+  SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
+  SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
+  SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
+  SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
+  SPL-1-V0 Focused acceptance — NOT STARTED
+  SPL-1-CL Closure — NOT STARTED
+  SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS
+  Current runtime schema — v22
+  ```
 
 `B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
 Messages before a `.shiroha` backup/export package exists.
@@ -399,10 +399,11 @@ SPL-1-P0 froze the focused canonical contract in
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`; SPL-1-P0 is docs-only and
 COMPLETE. SPL-1-D0 (domain types, transient draft lifecycle, planning and
 producer-neutral candidate read seams, deterministic preview, and the
-read-only data implementation) is COMPLETE. All later SPL-1 sub-stages
-(D1 / I0 / U0 / V0 / CL) are NOT STARTED. SPL-1 is IN PROGRESS and is not
-CLOSED / FROZEN. Runtime schema remains v21; the additive v22 `study_plans`
-migration exists only as the future SPL-1-D1 deliverable.
+read-only data implementation) is COMPLETE. SPL-1-D1 (schema v22, durable
+ActiveStudyPlan persistence, formal adoption command, durable CAS, stop
+command, source-turn/scope revalidation, and focused tests) is COMPLETE.
+Later SPL-1 sub-stages (I0 / U0 / V0 / CL) are NOT STARTED. SPL-1 is IN
+PROGRESS and is not CLOSED / FROZEN. Runtime schema is v22.
 
 The frozen capability chain is:
 

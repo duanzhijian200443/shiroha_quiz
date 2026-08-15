@@ -30,7 +30,7 @@ void main() {
         await DatabaseHelper.instance.openPathForTesting(inMemoryDatabasePath);
     try {
       expect((await db.rawQuery('PRAGMA user_version')).single['user_version'],
-          21);
+          22);
       final objects = await db.rawQuery(
           "SELECT type, name FROM sqlite_master WHERE name LIKE 'retrieval_%' ORDER BY name");
       expect(
@@ -86,7 +86,7 @@ void main() {
       expect(
           (await upgraded.rawQuery('PRAGMA user_version'))
               .single['user_version'],
-          21);
+          22);
       expect(await upgraded.query('library_files'), hasLength(1));
       await upgraded.insert('retrieval_index_builds', <String, Object?>{
         'build_id': 'build-rag1',

@@ -119,7 +119,7 @@ void main() {
       expect(await _standardAnswerOf(db), expected.standardAnswer);
       expect(await _reviewRowOf(db), snapshot.reviewRow,
           reason: 'review state must stay untouched');
-      expect(await _userVersionOf(db), 21);
+      expect(await _userVersionOf(db), 22);
 
       // Reload returns the new typed answer.
       final reloaded = await QuestionRepository()
@@ -790,7 +790,7 @@ void main() {
         <String, Object?>{'type': 'text', 'text': 'x = 1'}
       ]);
       expect(await _standardAnswerOf(db), contains('x = 1'));
-      expect(await _userVersionOf(db), 21);
+      expect(await _userVersionOf(db), 22);
     });
   });
 
