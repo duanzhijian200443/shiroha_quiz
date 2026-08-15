@@ -384,8 +384,7 @@ collision-resistant, product-lifetime non-reused opaque identity.
 
 The injected `planIdFactory` is REQUIRED to satisfy this invariant.
 
-Future I0 composition MUST wire a canonical UUID/fresh-ID generator
-or equivalent non-reusing identity source.
+I0 composition wires a canonical UUID/fresh-ID generator (`uuid.v4`).
 
 `A -> B -> A` identity reuse is forbidden by the `planIdFactory` contract,
 so an old `expectedActivePlanId` can never become valid again.

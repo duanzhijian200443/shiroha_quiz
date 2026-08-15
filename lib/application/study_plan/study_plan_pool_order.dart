@@ -2,8 +2,8 @@
 ///
 /// The repository pools are already ordered by the frozen rules; these
 /// helpers guarantee the same deterministic order for any producer and
-/// provide the mandatory selected-storageId dedup used by the future
-/// SPL-1-U0 selection service. No UI selection logic lives here.
+/// provide the mandatory selected-storageId dedup used by the SPL-1-U0
+/// `StudyPlanSelectionService`. No UI selection logic lives here.
 library;
 
 import '../../domain/study_plan/study_plan_values.dart';

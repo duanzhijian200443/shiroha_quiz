@@ -30,6 +30,7 @@ class HomePage extends StatefulWidget {
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
     this.studyPlanSessionLauncher,
+    this.todayActivationEpoch = 0,
   });
 
   final TaskManager? taskManager;
@@ -42,6 +43,12 @@ class HomePage extends StatefulWidget {
   final StudyPlanSelectionService? studyPlanSelectionService;
   final StudyPlanCommandService? studyPlanCommandService;
   final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
+
+  /// Monotonic Today-activation signal owned by MainScreen: incremented each
+  /// time bottom navigation transitions INTO Today. HomePage never recreates
+  /// itself on epoch changes (ordinary-mode state must be preserved); it
+  /// only requests a focused refresh through the safe refresh coordinator.
+  final int todayActivationEpoch;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -63,7 +70,18 @@ class _HomePageState extends State<HomePage> {
   /// SPL-1-U0 focused surface state. Null means "not loaded yet".
   StudyPlanFocusedState? _focusedState;
   bool _focusedLoadScheduled = false;
+
+  /// Bounded focused refresh coordinator:
+  /// - [_focusedLoadInFlight] guards against concurrent live reads;
+  /// - a request made while a load is in flight is NEVER dropped: it becomes
+  ///   [_focusedRefreshPending] and a follow-up refresh is scheduled after
+  ///   the in-flight load settles;
+  /// - [_focusedLoadGeneration] implements latest-wins: only the newest
+  ///   generation may publish its result, so an older in-flight load can
+  ///   never overwrite the result of a newer required refresh.
   bool _focusedLoadInFlight = false;
+  bool _focusedRefreshPending = false;
+  int _focusedLoadGeneration = 0;
 
   /// Duplicate-start guard: while a start action is in flight no second
   /// session may be opened.
@@ -73,6 +91,19 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _loadContext();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Today became active again (bottom navigation returned to 今日): if the
+    // user is still in 特训 mode, refresh the live focused state so an
+    // adopted/replaced plan appears automatically. Ordinary mode state is
+    // preserved because the widget itself is never recreated.
+    if (widget.todayActivationEpoch != oldWidget.todayActivationEpoch &&
+        _todayMode == _TodayMode.focused) {
+      _loadFocusedState();
+    }
   }
 
   Future<void> _loadContext() async {
@@ -387,25 +418,41 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  /// Loads the live focused snapshot. Every call re-queries live state; the
-  /// Start action re-invokes this (or a fresh selection) and never reuses a
-  /// previously displayed snapshot. Concurrent duplicate loads are skipped.
+  /// Loads the live focused snapshot through the bounded refresh
+  /// coordinator. Every call re-queries live state; the Start action
+  /// re-invokes this (or a fresh selection) and never reuses a previously
+  /// displayed snapshot.
+  ///
+  /// Safety guarantees:
+  /// - a request made while a load is in flight is NEVER dropped: it is
+  ///   recorded as pending and a follow-up refresh runs after the in-flight
+  ///   load settles;
+  /// - the pending request immediately invalidates the in-flight load's
+  ///   generation, so an older in-flight load can never publish (or overwrite
+  ///   the result of) a newer required refresh.
   Future<void> _loadFocusedState() async {
-    if (_focusedLoadInFlight) return;
+    if (_focusedLoadInFlight) {
+      _focusedRefreshPending = true;
+      _focusedLoadGeneration++;
+      return;
+    }
     _focusedLoadInFlight = true;
+    final generation = ++_focusedLoadGeneration;
     try {
       final service = widget.studyPlanSelectionService;
       if (service == null) {
-        if (mounted) {
+        if (mounted && generation == _focusedLoadGeneration) {
           setState(() => _focusedState = const StudyPlanFocusedNoActivePlan());
         }
         return;
       }
       try {
         final state = await service.loadFocusedState();
-        if (mounted) setState(() => _focusedState = state);
+        if (mounted && generation == _focusedLoadGeneration) {
+          setState(() => _focusedState = state);
+        }
       } catch (_) {
-        if (mounted) {
+        if (mounted && generation == _focusedLoadGeneration) {
           setState(() => _focusedState = const StudyPlanFocusedFailure(
                 StudyPlanFocusedFailureKind.internalError,
               ));
@@ -413,6 +460,14 @@ class _HomePageState extends State<HomePage> {
       }
     } finally {
       _focusedLoadInFlight = false;
+      if (_focusedRefreshPending) {
+        _focusedRefreshPending = false;
+        // At least one follow-up refresh must happen; run it on a later
+        // frame so the settled load's build completes first.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _loadFocusedState();
+        });
+      }
     }
   }
 

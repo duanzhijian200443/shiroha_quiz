@@ -527,6 +527,84 @@ void main() {
     });
   });
 
+  group('balanced dailyTarget cap invariant', () {
+    StudyPlanCandidateBatch batchWithAllPools() {
+      return StudyPlanCandidateBatch(
+        due: <StudyPlanCandidate>[
+          _candidate('due_1', due: true, nextReviewAt: 1),
+          _candidate('due_2', due: true, nextReviewAt: 2),
+        ],
+        weak: <StudyPlanCandidate>[
+          _candidate('weak_1', lapses: 2, difficulty: 9.0),
+          _candidate('weak_2', lapses: 1, difficulty: 8.0),
+        ],
+        newPool: <StudyPlanCandidate>[
+          _candidate('new_1',
+              classification: StudyPlanQuestionClassification.newQuestion),
+          _candidate('new_2',
+              classification: StudyPlanQuestionClassification.newQuestion),
+        ],
+      );
+    }
+
+    test(
+        'A. dailyTarget = 1 with all three pools nonempty selects exactly '
+        'the due-first candidate', () async {
+      final h = _Harness(
+        plan: _plan(priority: StudyPlanPriority.balanced, dailyTarget: 1),
+        batch: batchWithAllPools(),
+      );
+      final state = await h.service.loadFocusedState();
+      final ids = (state as StudyPlanFocusedReady).selectedStorageIds;
+      expect(ids, <String>['due_1']);
+      expect(ids.length, 1);
+    });
+
+    test(
+        'B. dailyTarget = 2 with all three pools nonempty selects exactly '
+        '[due-first, weak-first]', () async {
+      final h = _Harness(
+        plan: _plan(priority: StudyPlanPriority.balanced, dailyTarget: 2),
+        batch: batchWithAllPools(),
+      );
+      final state = await h.service.loadFocusedState();
+      final ids = (state as StudyPlanFocusedReady).selectedStorageIds;
+      expect(ids, <String>['due_1', 'weak_1']);
+      expect(ids.length, 2);
+    });
+
+    test(
+        'C. dailyTarget = 200 with enough candidates across all pools '
+        'selects exactly 200 distinct IDs, never more', () async {
+      final due = <StudyPlanCandidate>[
+        for (var i = 0; i < 70; i++)
+          _candidate('due_$i', due: true, nextReviewAt: i),
+      ];
+      final weak = <StudyPlanCandidate>[
+        for (var i = 0; i < 70; i++)
+          _candidate('weak_$i', lapses: 2, difficulty: 9.0),
+      ];
+      final newPool = <StudyPlanCandidate>[
+        for (var i = 0; i < 70; i++)
+          _candidate('new_$i',
+              classification: StudyPlanQuestionClassification.newQuestion),
+      ];
+      final h = _Harness(
+        plan: _plan(priority: StudyPlanPriority.balanced, dailyTarget: 200),
+        batch: StudyPlanCandidateBatch(
+          due: due,
+          weak: weak,
+          newPool: newPool,
+        ),
+      );
+      final state = await h.service.loadFocusedState();
+      final ids = (state as StudyPlanFocusedReady).selectedStorageIds;
+      expect(ids.length, 200);
+      expect(ids.toSet().length, 200,
+          reason: '200 distinct IDs keeps the materialization bound valid');
+    });
+  });
+
   group('advisory states', () {
     test('masteryReached still selects a due candidate', () async {
       final h = _Harness(

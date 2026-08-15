@@ -45,6 +45,21 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
+  /// Today-activation signal (SPL-1-U0): incremented whenever bottom
+  /// navigation transitions INTO Today. HomePage observes it and refreshes
+  /// the live focused state when still in 特训 mode; HomePage itself is
+  /// never recreated (ordinary-mode state stays preserved).
+  int _todayActivationEpoch = 0;
+
+  void _handleNavigation(int index) {
+    setState(() {
+      if (index == 0 && _currentIndex != 0) {
+        _todayActivationEpoch++;
+      }
+      _currentIndex = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final dependencies = AiDependenciesScope.of(context);
@@ -53,6 +68,7 @@ class _MainScreenState extends State<MainScreen> {
         studyPlanSelectionService: widget.studyPlanSelectionService,
         studyPlanCommandService: widget.studyPlanCommandService,
         studyPlanSessionLauncher: widget.studyPlanSessionLauncher,
+        todayActivationEpoch: _todayActivationEpoch,
       ), // Tab 0 — 今日 (Today: 普通 / 特训 / 考试)
       AssistantWorkspaceShell(
         facade: widget.u1WorkspaceFacade,
@@ -76,7 +92,7 @@ class _MainScreenState extends State<MainScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: _handleNavigation,
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,

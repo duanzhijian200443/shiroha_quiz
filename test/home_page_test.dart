@@ -93,36 +93,69 @@ final class _FakeSelectionService extends StudyPlanSelectionService {
   Future<StudyPlanFocusedState> loadFocusedState() {
     loadCalls++;
     final completer = pending;
-    if (completer != null) return completer.future;
+    // Once the pending completer is completed, later calls return the
+    // current `state` (latest live state), never the completed stale future.
+    if (completer != null && !completer.isCompleted) {
+      return completer.future;
+    }
     return Future<StudyPlanFocusedState>.value(state);
   }
 }
 
-final class _FakeCommandService extends StudyPlanCommandService {
-  _FakeCommandService()
-      : super(
-          draftService: StudyPlanDraftService(
-            planningPort: _StubPlanningPort(),
-            draftIdFactory: () => 'draft_x',
-            clock: () => DateTime.utc(2026, 8, 15, 10, 0),
-          ),
-          persistencePort: _StubPersistencePort(),
-          planIdFactory: () => 'plan_x',
-          clock: () => DateTime.utc(2026, 8, 15, 10, 0),
-        );
-
+/// Fake persistence port for stop: records the exact expected plan id and
+/// returns the configured bounded stop result. The REAL
+/// [StudyPlanCommandService] (still `final`) is used in widget tests, so the
+/// stop CAS parameter validation stays production-true.
+final class _FakeStopPersistencePort implements StudyPlanPersistencePort {
   int stopCalls = 0;
   String? lastExpectedPlanId;
-  StudyPlanStopResult nextStopResult = const StudyPlanStopResultSuccess();
+  StudyPlanPersistenceStopResult nextStopResult =
+      const StudyPlanPersistenceStopSuccess();
 
   @override
-  Future<StudyPlanStopResult> stopActivePlan({
+  Future<StudyPlanPersistenceStopResult> stopActivePlan({
     required String expectedPlanId,
   }) async {
     stopCalls++;
     lastExpectedPlanId = expectedPlanId;
     return nextStopResult;
   }
+
+  @override
+  Future<ActiveStudyPlan?> loadActivePlan() async => null;
+
+  @override
+  Future<StudyPlanPersistenceCommitResult> commitAdoption({
+    required String planId,
+    required String bankName,
+    String? goal,
+    required int dailyTarget,
+    required StudyPlanPriority priority,
+    int? horizonDays,
+    String? sourceConversationId,
+    String? sourceUserMessageId,
+    required ConversationScope sourceScope,
+    required DateTime adoptedAt,
+    String? expectedActivePlanId,
+    required bool replacementConfirmed,
+  }) {
+    throw UnimplementedError();
+  }
+}
+
+/// Real command service wired to a fake stop persistence port.
+final class _CommandHarness {
+  final _FakeStopPersistencePort stopPort = _FakeStopPersistencePort();
+  late final StudyPlanCommandService service = StudyPlanCommandService(
+    draftService: StudyPlanDraftService(
+      planningPort: _StubPlanningPort(),
+      draftIdFactory: () => 'draft_x',
+      clock: () => DateTime.utc(2026, 8, 15, 10, 0),
+    ),
+    persistencePort: stopPort,
+    planIdFactory: () => 'plan_x',
+    clock: () => DateTime.utc(2026, 8, 15, 10, 0),
+  );
 }
 
 final class _FakeLauncher extends StudyPlanPracticeSessionLauncher {
@@ -205,6 +238,8 @@ void main() {
     StudyPlanSelectionService? studyPlanSelectionService,
     StudyPlanCommandService? studyPlanCommandService,
     StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher,
+    int todayActivationEpoch = 0,
+    Finder? waitFor,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -226,13 +261,17 @@ void main() {
             studyPlanSelectionService: studyPlanSelectionService,
             studyPlanCommandService: studyPlanCommandService,
             studyPlanSessionLauncher: studyPlanSessionLauncher,
+            todayActivationEpoch: todayActivationEpoch,
           ),
         ),
       ),
     );
+    // The default wait targets the ordinary-mode bank card, which is only
+    // onstage while Today is in 普通 mode; re-pump scenarios pass an explicit
+    // onstage target (e.g. the focused plan surface) instead.
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      waitFor ?? find.byKey(const ValueKey<String>('home-bank-card')),
     );
   }
 
@@ -467,7 +506,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: _FakeCommandService(),
+        studyPlanCommandService: _CommandHarness().service,
         studyPlanSessionLauncher: _FakeLauncher(),
       );
       await openFocusedMode(
@@ -505,7 +544,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: _FakeCommandService(),
+        studyPlanCommandService: _CommandHarness().service,
         studyPlanSessionLauncher: launcher,
       );
       await openFocusedMode(
@@ -533,7 +572,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: _FakeCommandService(),
+        studyPlanCommandService: _CommandHarness().service,
         studyPlanSessionLauncher: launcher,
       );
       await openFocusedMode(
@@ -567,7 +606,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: _FakeCommandService(),
+        studyPlanCommandService: _CommandHarness().service,
         studyPlanSessionLauncher: _FakeLauncher(),
       );
       await openFocusedMode(
@@ -619,7 +658,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: _FakeCommandService(),
+        studyPlanCommandService: _CommandHarness().service,
         studyPlanSessionLauncher: StudyPlanPracticeSessionLauncher(),
       );
       await openFocusedMode(
@@ -653,7 +692,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: _FakeCommandService(),
+        studyPlanCommandService: _CommandHarness().service,
         studyPlanSessionLauncher: launcher,
       );
       await openFocusedMode(
@@ -688,7 +727,7 @@ void main() {
 
     testWidgets('Stop opens confirmation; Cancel issues zero stop commands',
         (tester) async {
-      final command = _FakeCommandService();
+      final command = _CommandHarness();
       final service = _FakeSelectionService(
         state: StudyPlanFocusedReady(
           _focusedPlan(),
@@ -702,7 +741,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: command,
+        studyPlanCommandService: command.service,
         studyPlanSessionLauncher: _FakeLauncher(),
       );
       await openFocusedMode(
@@ -716,14 +755,14 @@ void main() {
 
       await tester.tap(find.text('取消'));
       await tester.pump();
-      expect(command.stopCalls, 0);
+      expect(command.stopPort.stopCalls, 0);
       expect(find.byType(PracticePage), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
     testWidgets('Confirm stop binds the exact observed planId and reloads',
         (tester) async {
-      final command = _FakeCommandService();
+      final command = _CommandHarness();
       final service = _FakeSelectionService(
         state: StudyPlanFocusedReady(
           _focusedPlan(),
@@ -737,7 +776,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: command,
+        studyPlanCommandService: command.service,
         studyPlanSessionLauncher: _FakeLauncher(),
       );
       await openFocusedMode(
@@ -758,16 +797,17 @@ void main() {
         find.byKey(const ValueKey('today-focused-unavailable')),
       );
 
-      expect(command.stopCalls, 1);
-      expect(command.lastExpectedPlanId, 'plan_1');
+      expect(command.stopPort.stopCalls, 1);
+      expect(command.stopPort.lastExpectedPlanId, 'plan_1');
       expect(find.text('特训需要学习计划'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
     testWidgets('stale stop: zero auto-retry, bounded message, state reloaded',
         (tester) async {
-      final command = _FakeCommandService()
-        ..nextStopResult = const StudyPlanStopResultStaleActivePlan();
+      final command = _CommandHarness()
+        ..stopPort.nextStopResult =
+            const StudyPlanPersistenceStopStaleActivePlan();
       final service = _FakeSelectionService(
         state: StudyPlanFocusedReady(
           _focusedPlan(),
@@ -781,7 +821,7 @@ void main() {
       await pumpHome(
         tester,
         studyPlanSelectionService: service,
-        studyPlanCommandService: command,
+        studyPlanCommandService: command.service,
         studyPlanSessionLauncher: _FakeLauncher(),
       );
       await openFocusedMode(
@@ -799,13 +839,268 @@ void main() {
       await tester.pump();
 
       // Exactly one stop attempt; the state is reloaded once, never retried.
-      expect(command.stopCalls, 1);
+      expect(command.stopPort.stopCalls, 1);
       expect(service.loadCalls, greaterThan(callsBeforeStop));
       expect(find.text('学习计划已变化，请重试'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('today-focused-plan-card')),
         findsOneWidget,
       );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'refresh coordinator: Stop during an in-flight load still ends in '
+        'live NoActivePlan; the old plan never reappears', (tester) async {
+      final command = _CommandHarness();
+      final advisory = const StudyPlanFocusedAdvisory(
+        masteryReached: false,
+        horizonElapsed: false,
+      );
+      final service = _FakeSelectionService(
+        state: StudyPlanFocusedReady(_focusedPlan(), <String>['id1'], advisory),
+      );
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: _FakeLauncher(),
+      );
+      await openFocusedMode(
+        tester,
+        waitFor: const ValueKey('today-focused-plan-card'),
+      );
+
+      // An old focused load starts and blocks (activation-style refresh).
+      service.pending = Completer<StudyPlanFocusedState>();
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: _FakeLauncher(),
+        todayActivationEpoch: 1,
+        waitFor: find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+      await tester.pump();
+
+      // Stop succeeds while the old load is still in flight; the post-stop
+      // reload request must NOT be dropped.
+      await tester.tap(find.byKey(const ValueKey('today-focused-stop')));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('today-focused-stop-confirm')),
+      );
+      await tester.pump();
+      expect(command.stopPort.stopCalls, 1);
+
+      // The old load completes with the old ActivePlan, then the follow-up
+      // live load returns NoActivePlan (plan was stopped).
+      service.state = const StudyPlanFocusedNoActivePlan();
+      service.pending!.complete(
+        StudyPlanFocusedReady(_focusedPlan(), <String>['id1'], advisory),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('today-focused-unavailable')),
+      );
+
+      // Final UI MUST show NoActivePlan; the old plan must not reappear.
+      expect(find.text('特训需要学习计划'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('today-focused-plan-card')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'Today reactivation refresh A: NoActivePlan -> adopted plan appears '
+        'without toggling modes', (tester) async {
+      final advisory = const StudyPlanFocusedAdvisory(
+        masteryReached: false,
+        horizonElapsed: false,
+      );
+      final service = _FakeSelectionService(
+        state: const StudyPlanFocusedNoActivePlan(),
+      );
+      final command = _CommandHarness();
+      final launcher = _FakeLauncher();
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+      );
+      await openFocusedMode(
+        tester,
+        waitFor: const ValueKey('today-focused-unavailable'),
+      );
+      expect(find.text('特训需要学习计划'), findsOneWidget);
+
+      // Leave Today (plan adopted elsewhere), then return to Today: the
+      // activation epoch changes and the focused surface refreshes live.
+      service.state = StudyPlanFocusedReady(
+        _focusedPlan(),
+        <String>['id1'],
+        advisory,
+      );
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+        todayActivationEpoch: 1,
+        waitFor: find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+
+      expect(find.text('Math 题库'), findsOneWidget);
+      expect(find.text('特训需要学习计划'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'Today reactivation refresh B: replaced plan appears after returning '
+        'to Today', (tester) async {
+      final advisory = const StudyPlanFocusedAdvisory(
+        masteryReached: false,
+        horizonElapsed: false,
+      );
+      ActiveStudyPlan planWithBank(String planId, String bankName) {
+        return ActiveStudyPlan(
+          planId: planId,
+          bankName: bankName,
+          dailyTarget: 30,
+          priority: StudyPlanPriority.balanced,
+          adoptedAt: DateTime.utc(2026, 8, 1, 10, 0),
+        );
+      }
+
+      final service = _FakeSelectionService(
+        state: StudyPlanFocusedReady(
+          planWithBank('plan_a', 'Bank A'),
+          <String>['id1'],
+          advisory,
+        ),
+      );
+      final command = _CommandHarness();
+      final launcher = _FakeLauncher();
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+      );
+      await openFocusedMode(
+        tester,
+        waitFor: const ValueKey('today-focused-plan-card'),
+      );
+      expect(find.text('Bank A'), findsOneWidget);
+
+      // The plan is replaced while away; returning to Today must show the
+      // live plan, never the stale one.
+      service.state = StudyPlanFocusedReady(
+        planWithBank('plan_b', 'Bank B'),
+        <String>['id2'],
+        advisory,
+      );
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+        todayActivationEpoch: 1,
+        waitFor: find.text('Bank B'),
+      );
+
+      expect(find.text('Bank B'), findsOneWidget);
+      expect(find.text('Bank A'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'Today reactivation refresh C: activation refresh during an existing '
+        'load still ends in the latest live state', (tester) async {
+      final advisory = const StudyPlanFocusedAdvisory(
+        masteryReached: false,
+        horizonElapsed: false,
+      );
+      ActiveStudyPlan planWithBank(String planId, String bankName) {
+        return ActiveStudyPlan(
+          planId: planId,
+          bankName: bankName,
+          dailyTarget: 30,
+          priority: StudyPlanPriority.balanced,
+          adoptedAt: DateTime.utc(2026, 8, 1, 10, 0),
+        );
+      }
+
+      final service = _FakeSelectionService(
+        state: StudyPlanFocusedReady(
+          planWithBank('plan_a', 'Bank A'),
+          <String>['id1'],
+          advisory,
+        ),
+      );
+      final command = _CommandHarness();
+      final launcher = _FakeLauncher();
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+      );
+      await openFocusedMode(
+        tester,
+        waitFor: const ValueKey('today-focused-plan-card'),
+      );
+      expect(find.text('Bank A'), findsOneWidget);
+
+      // First reactivation refresh starts and blocks.
+      service.pending = Completer<StudyPlanFocusedState>();
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+        todayActivationEpoch: 1,
+        waitFor: find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+      await tester.pump();
+
+      // A second reactivation refresh arrives while the first is in flight,
+      // and the live state is now plan B.
+      service.state = StudyPlanFocusedReady(
+        planWithBank('plan_b', 'Bank B'),
+        <String>['id2'],
+        advisory,
+      );
+      await pumpHome(
+        tester,
+        studyPlanSelectionService: service,
+        studyPlanCommandService: command.service,
+        studyPlanSessionLauncher: launcher,
+        todayActivationEpoch: 2,
+        waitFor: find.byKey(const ValueKey('today-focused-plan-card')),
+      );
+      await tester.pump();
+
+      // The stale in-flight load completes with plan A; the follow-up must
+      // publish the latest live state (plan B), never plan A.
+      service.pending!.complete(
+        StudyPlanFocusedReady(
+          planWithBank('plan_a', 'Bank A'),
+          <String>['id1'],
+          advisory,
+        ),
+      );
+      await pumpUntilFound(tester, find.text('Bank B'));
+
+      expect(find.text('Bank B'), findsOneWidget);
+      expect(find.text('Bank A'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });

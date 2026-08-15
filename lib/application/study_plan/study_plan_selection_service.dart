@@ -233,8 +233,10 @@ class StudyPlanSelectionService {
   /// Exact balanced round-robin: due -> weak -> new -> due -> ... Each pool
   /// owns its cursor; on a pool's turn it advances past already-selected
   /// duplicate storage IDs until the first unselected candidate (selected) or
-  /// the pool is exhausted (skipped). Stops when `dailyTarget` is reached or
-  /// every pool is exhausted. Deterministic for identical inputs.
+  /// the pool is exhausted (skipped). Stops immediately after any successful
+  /// append that reaches `dailyTarget` (the cap is checked BEFORE the next
+  /// pool is consumed, so the final length can never exceed `dailyTarget`),
+  /// or when every pool is exhausted. Deterministic for identical inputs.
   List<String> _balanced(
     List<StudyPlanCandidate> due,
     List<StudyPlanCandidate> weak,
@@ -254,6 +256,7 @@ class StudyPlanSelectionService {
       if (dueIndex < due.length) {
         selected.add(due[dueIndex].storageId);
         dueIndex++;
+        if (selected.length == dailyTarget) break;
         advanced = true;
       }
       while (weakIndex < weak.length && !seen.add(weak[weakIndex].storageId)) {
@@ -262,6 +265,7 @@ class StudyPlanSelectionService {
       if (weakIndex < weak.length) {
         selected.add(weak[weakIndex].storageId);
         weakIndex++;
+        if (selected.length == dailyTarget) break;
         advanced = true;
       }
       while (
@@ -271,6 +275,7 @@ class StudyPlanSelectionService {
       if (newIndex < newPool.length) {
         selected.add(newPool[newIndex].storageId);
         newIndex++;
+        if (selected.length == dailyTarget) break;
         advanced = true;
       }
       if (!advanced) break;
