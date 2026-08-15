@@ -44,10 +44,12 @@ final class ParsedArtifactSnapshot {
   const ParsedArtifactSnapshot({
     required this.artifact,
     required this.sourceDocument,
+    this.parserRoute,
   });
 
   final ParsedArtifact artifact;
   final SourceDocument sourceDocument;
+  final String? parserRoute;
 }
 
 enum ParsedArtifactLifecycleOutcome { cacheHit, published }

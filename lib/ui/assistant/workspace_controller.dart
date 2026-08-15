@@ -148,6 +148,8 @@ class FileLibraryController extends ChangeNotifier {
   List<LearningSpaceSummary> spaces = const <LearningSpaceSummary>[];
   String? selectedFolderId;
   LibraryFileDetail? selectedDetail;
+  LibraryFileArtifactState? artifactState;
+  bool isArtifactBusy = false;
   bool isLoading = false;
   String query = '';
   String? errorMessage;
@@ -263,10 +265,79 @@ class FileLibraryController extends ChangeNotifier {
     try {
       selectedDetail = await facade.getLibraryFileDetail(fileId);
       errorMessage = selectedDetail == null ? '文件已不存在' : null;
+      if (selectedDetail != null) {
+        await loadArtifactStatus(fileId);
+      } else {
+        artifactState = null;
+      }
     } catch (_) {
       errorMessage = '暂时无法读取文件详情，请稍后重试';
+      artifactState = null;
     }
     notifyListeners();
+  }
+
+  Future<void> loadArtifactStatus(String fileId) async {
+    try {
+      artifactState = await facade.getLibraryFileArtifactStatus(fileId);
+    } catch (_) {
+      artifactState = const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.none,
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<LibraryFileArtifactState> ensureFileParsed(String fileId) async {
+    if (isArtifactBusy) {
+      return artifactState ??
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.none,
+          );
+    }
+    isArtifactBusy = true;
+    notifyListeners();
+    try {
+      final state = await facade.ensureLibraryFileParsed(fileId);
+      artifactState = state;
+      return state;
+    } catch (_) {
+      const fallbackState = LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.failed,
+        errorMessage: '文件解析遇到错误，请稍后重试',
+      );
+      artifactState = fallbackState;
+      return fallbackState;
+    } finally {
+      isArtifactBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<LibraryFileArtifactState> ensureFileOcrPdf(String fileId) async {
+    if (isArtifactBusy) {
+      return artifactState ??
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.none,
+          );
+    }
+    isArtifactBusy = true;
+    notifyListeners();
+    try {
+      final state = await facade.ensureLibraryFileOcrPdf(fileId);
+      artifactState = state;
+      return state;
+    } catch (_) {
+      const fallbackState = LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.failed,
+        errorMessage: '文件 OCR 解析失败，请稍后重试',
+      );
+      artifactState = fallbackState;
+      return fallbackState;
+    } finally {
+      isArtifactBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> ingest({

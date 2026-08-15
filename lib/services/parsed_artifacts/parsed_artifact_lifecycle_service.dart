@@ -541,6 +541,7 @@ final class ParsedArtifactLifecycleService
     return ParsedArtifactSnapshot(
       artifact: metadata.artifact,
       sourceDocument: sourceDocument,
+      parserRoute: metadata.parserRoute,
     );
   }
 
