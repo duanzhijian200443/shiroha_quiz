@@ -72,6 +72,7 @@ final class ConversationController extends ChangeNotifier {
   bool isSending = false;
   bool isLoadingOlder = false;
   bool isRefreshingAttachableFiles = false;
+  bool isMovingConversation = false;
   String? errorMessage;
   String? statusMessage;
 
@@ -253,6 +254,105 @@ final class ConversationController extends ChangeNotifier {
     draftScope = scope;
     errorMessage = null;
     notifyListeners();
+  }
+
+  Future<bool> moveActiveConversation(ConversationScope targetScope) async {
+    final active = activeThread;
+    if (active == null) {
+      return false;
+    }
+    if (hasActiveTurn || isSending) {
+      errorMessage = '请先停止当前生成';
+      notifyListeners();
+      return false;
+    }
+    if (proposalActionPending ||
+        studyPlanActionPending ||
+        isMovingConversation) {
+      return false;
+    }
+    if (targetScope.isUnavailableLearningSpace) {
+      errorMessage = '目标学习空间不可用';
+      notifyListeners();
+      return false;
+    }
+
+    final oldScope = active.conversation.scope;
+    if (oldScope == targetScope) {
+      return true;
+    }
+
+    isMovingConversation = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await service.moveConversation(
+        conversationId: active.conversation.conversationId,
+        targetScope: targetScope,
+      );
+
+      if (!result.moved) {
+        isMovingConversation = false;
+        notifyListeners();
+        return true;
+      }
+
+      activeThread = ConversationThreadSlice(
+        conversation: result.conversation,
+        messages: active.messages,
+        files: active.files,
+        hasMoreBefore: active.hasMoreBefore,
+        nextBeforeSequence: active.nextBeforeSequence,
+      );
+      _threadRevision++;
+
+      _retryConversationId = null;
+      _retryUserMessageId = null;
+      retrievalApprovedForNextTurn = false;
+
+      recent = await service.listRecentConversations();
+
+      if (oldScope.kind == ConversationScopeKind.learningSpace &&
+          oldScope.projectId != null) {
+        if (projectConversations.containsKey(oldScope.projectId)) {
+          projectConversations[oldScope.projectId!] =
+              await service.listConversationsForProject(
+            projectId: oldScope.projectId!,
+          );
+        }
+      }
+      if (targetScope.kind == ConversationScopeKind.learningSpace &&
+          targetScope.projectId != null) {
+        if (projectConversations.containsKey(targetScope.projectId)) {
+          projectConversations[targetScope.projectId!] =
+              await service.listConversationsForProject(
+            projectId: targetScope.projectId!,
+          );
+        }
+      }
+
+      errorMessage = null;
+      isMovingConversation = false;
+      notifyListeners();
+      return true;
+    } on ConversationException catch (e) {
+      isMovingConversation = false;
+      errorMessage = switch (e.failure) {
+        ConversationFailure.projectNotFound => '目标学习空间已不存在，请刷新后重试',
+        ConversationFailure.conversationNotFound => '该对话已不存在',
+        ConversationFailure.scopeUnavailable => '目标学习空间不可用',
+        ConversationFailure.temporarilyUnavailable => '暂时无法移动对话，请稍后重试',
+        _ => conversationWriteSafeError,
+      };
+      notifyListeners();
+      return false;
+    } catch (_) {
+      isMovingConversation = false;
+      errorMessage = conversationWriteSafeError;
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<bool> openConversation(String conversationId) async {

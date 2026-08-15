@@ -939,6 +939,126 @@ void main() {
       },
     );
   });
+
+  group('CONV-MOVE conversation controller', () {
+    test(
+        'successful move rebuilds only Conversation metadata, preserving messages and files',
+        () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+      expect(controller.activeThread!.messages, hasLength(1));
+      final originalMessageId =
+          controller.activeThread!.messages.first.messageId;
+
+      final success = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+
+      expect(success, isTrue);
+      expect(controller.currentScope,
+          ConversationScope.learningSpace('project-1'));
+      expect(controller.activeThread!.conversation.scope,
+          ConversationScope.learningSpace('project-1'));
+      expect(controller.activeThread!.messages, hasLength(1));
+      expect(
+          controller.activeThread!.messages.first.messageId, originalMessageId);
+      expect(controller.errorMessage, isNull);
+    });
+
+    test('successful move clears canRetry and retrievalApprovedForNextTurn',
+        () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+      await controller.send('Question that will fail');
+      controller.retrievalApprovedForNextTurn = true;
+      turn.complete(const AgentTurnFailed(AgentTurnFailure.profileUnavailable));
+      await _flush();
+
+      expect(controller.canRetry, isTrue);
+      expect(controller.retrievalApprovedForNextTurn, isTrue);
+
+      final success = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+
+      expect(success, isTrue);
+      expect(controller.canRetry, isFalse);
+      expect(controller.retrievalApprovedForNextTurn, isFalse);
+    });
+
+    test(
+        'active Agent turn or sending state blocks move with safe error message',
+        () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+      await controller.send('Running question');
+      expect(controller.hasActiveTurn, isTrue);
+
+      final success = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+
+      expect(success, isFalse);
+      expect(controller.errorMessage, '请先停止当前生成');
+      expect(controller.currentScope, ConversationScope.global());
+    });
+
+    test('duplicate move while pending invokes Application once', () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      controller.isMovingConversation = true;
+      final success = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+
+      expect(success, isFalse);
+      expect(repository.moveCalls, 0);
+    });
+
+    test('failed move preserves activeThread and displays safe error',
+        () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+      final originalThread = controller.activeThread;
+
+      repository.moveFailure = ConversationFailure.projectNotFound;
+      final success = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('missing-project'),
+      );
+
+      expect(success, isFalse);
+      expect(controller.activeThread, same(originalThread));
+      expect(controller.errorMessage, '目标学习空间已不存在，请刷新后重试');
+    });
+
+    test('Recent and loaded project conversation caches refreshed on move',
+        () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      // Preload a project cache
+      controller.projectConversations['project-1'] = <Conversation>[];
+
+      final success = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+
+      expect(success, isTrue);
+      expect(controller.recent, isNotEmpty);
+      expect(controller.projectConversations.containsKey('project-1'), isTrue);
+    });
+  });
 }
 
 ConversationController _controller(
@@ -1324,6 +1444,40 @@ final class _MemoryRepository extends Fake
       );
     }
     return _sliceFor(conversationId);
+  }
+
+  int moveCalls = 0;
+  ConversationFailure? moveFailure;
+
+  @override
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+    required DateTime movedAt,
+  }) async {
+    moveCalls++;
+    final failure = moveFailure;
+    if (failure != null) {
+      throw ConversationException(failure);
+    }
+    final current = _conversationsById[conversationId];
+    if (current == null) {
+      throw const ConversationException(
+          ConversationFailure.conversationNotFound);
+    }
+    if (targetScope.isUnavailableLearningSpace) {
+      throw const ConversationException(ConversationFailure.scopeUnavailable);
+    }
+    if (current.scope == targetScope) {
+      return MoveConversationResult(conversation: current, moved: false);
+    }
+    final updated = current.withScope(
+      scope: targetScope,
+      updatedAt: movedAt,
+    );
+    _conversationsById[conversationId] = updated;
+    conversation = updated;
+    return MoveConversationResult(conversation: updated, moved: true);
   }
 
   @override
