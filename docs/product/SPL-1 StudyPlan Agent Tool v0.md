@@ -6,7 +6,7 @@ Current stage status:
 
 ```text
 SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
-SPL-1-D0 Domain + transient draft + planning/candidate read seams — NOT STARTED
+SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
 SPL-1-D1 v22 persistence + durable CAS commands — NOT STARTED
 SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
 SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
