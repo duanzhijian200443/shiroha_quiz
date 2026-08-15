@@ -71,9 +71,9 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
     _spacesController = LearningSpacesController(
       widget.facade,
       deleteGuard: _learningSpaceDeleteBlockReason,
-    )
-      ..addListener(_handleSpacesChanged)
-      ..load();
+    );
+    _spacesController.addListener(_handleSpacesChanged);
+    _spacesController.load();
     _fileController = FileLibraryController(widget.facade)..load();
   }
 
