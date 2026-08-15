@@ -67,6 +67,17 @@ final class StudyPlanStageResultStale extends StudyPlanStageResult {
   const StudyPlanStageResultStale();
 }
 
+/// Result of an attempt to acquire the transient commit gate on a draft.
+final class StudyPlanBeginCommitResult {
+  const StudyPlanBeginCommitResult({
+    required this.draft,
+    required this.acquired,
+  });
+
+  final StudyPlanDraft draft;
+  final bool acquired;
+}
+
 final class StudyPlanDraftService {
   StudyPlanDraftService({
     required StudyPlanPlanningPort planningPort,
@@ -202,15 +213,34 @@ final class StudyPlanDraftService {
 
   /// Transient adoption-entry gate: `pending -> committing`.
   ///
-  /// Synchronous and atomic; exactly one competing transition may win. Zero
-  /// durable work happens here. SPL-1-D1 may start the formal SQLite
-  /// adoption transaction only after this gate has won; a later Reject or
-  /// supersession must not cancel or interfere with it.
-  StudyPlanDraft beginCommit(String draftId) {
+  /// Synchronous and atomic; only the `pending -> committing` transition
+  /// winner receives `acquired == true`. Any caller observing `committing`,
+  /// `committed`, `rejected`, or `superseded` receives `acquired == false`
+  /// and MUST perform zero durable adoption work.
+  StudyPlanBeginCommitResult tryBeginCommit(String draftId) {
+    final current = _requireDraft(draftId);
+    if (current.outcome != StudyPlanDraftOutcome.pending) {
+      return StudyPlanBeginCommitResult(draft: current, acquired: false);
+    }
+    final updated = current.withOutcome(StudyPlanDraftOutcome.committing);
+    _draftsById[draftId] = updated;
+    return StudyPlanBeginCommitResult(draft: updated, acquired: true);
+  }
+
+  /// Backward-compatible convenience forwarding to [tryBeginCommit].
+  StudyPlanDraft beginCommit(String draftId) => tryBeginCommit(draftId).draft;
+
+  /// Transient rollback from `committing -> pending` after a zero-mutation
+  /// persistence failure or CAS conflict.
+  ///
+  /// Synchronous and atomic: only a `committing` draft transitions to
+  /// `pending`. Never transitions `committed`, `rejected`, or
+  /// `superseded` drafts.
+  StudyPlanDraft rollbackCommit(String draftId) {
     return _transition(
       _requireDraft(draftId),
-      from: StudyPlanDraftOutcome.pending,
-      to: StudyPlanDraftOutcome.committing,
+      from: StudyPlanDraftOutcome.committing,
+      to: StudyPlanDraftOutcome.pending,
     );
   }
 

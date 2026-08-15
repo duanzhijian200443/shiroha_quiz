@@ -7,7 +7,7 @@ Current stage status:
 ```text
 SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
 SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
-SPL-1-D1 v22 persistence + durable CAS commands — NOT STARTED
+SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
 SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
 SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
 SPL-1-V0 Focused acceptance — NOT STARTED
@@ -15,8 +15,8 @@ SPL-1-CL Closure — NOT STARTED
 SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS (not COMPLETE / not CLOSED)
 ```
 
-Runtime schema remains **v21**; v22 exists only as the future SPL-1-D1 additive
-migration and is NOT implemented or active.
+Runtime schema is **v22** (additive `study_plans` table); Agent/UI wiring
+(SPL-1-I0 / SPL-1-U0) is NOT started.
 
 ## 1. Authority and scope
 
@@ -362,6 +362,19 @@ Two competing replacements from the same baseline: at most one succeeds. Stop
 vs replacement from the same baseline: at most one succeeds. No
 last-writer-wins with both operations reporting committed.
 
+### Plan identity uniqueness and ABA prevention
+
+Every newly created `ActiveStudyPlan` `planId` MUST be a fresh,
+collision-resistant, product-lifetime non-reused opaque identity.
+
+The injected `planIdFactory` is REQUIRED to satisfy this invariant.
+
+Future I0 composition MUST wire a canonical UUID/fresh-ID generator
+or equivalent non-reusing identity source.
+
+`A -> B -> A` identity reuse is forbidden by the `planIdFactory` contract,
+so an old `expectedActivePlanId` can never become valid again.
+
 ## 14. Adoption revalidation (source-turn validity)
 
 At formal adoption, one transaction revalidates:
@@ -385,14 +398,13 @@ global/product-level singleton.
 - `StudyPlanDraft`: transient, no table.
 - `ActiveStudyPlan`: durable.
 
-Future D1 migration: schema v21 → v22, additive only. Likely one singleton
-`study_plans` table. No modification of existing tables. No opaque Settings
-JSON workaround. No provider payload persistence.
+D1 migration: schema v21 → v22, additive only. Exactly one singleton
+`study_plans` table (`singleton_key = 1 UNIQUE`). No modification of existing
+tables. No opaque Settings JSON workaround. No provider payload persistence.
 
-Exact DDL is deferred to D1, but durable constraints — including non-null plan
-identity, e.g. `plan_id TEXT PRIMARY KEY NOT NULL` — must enforce this
-canonical contract. Runtime schema remains v21 until D1 implements the
-migration.
+Durable constraints — including non-null plan identity
+`plan_id TEXT PRIMARY KEY NOT NULL` — enforce this canonical contract. Runtime
+schema is v22.
 
 ## 16. Privacy / provider egress
 

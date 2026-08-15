@@ -10,6 +10,7 @@ import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
+import 'study_plan_v22_schema.dart';
 import 'sqflite_runtime.dart';
 
 enum DatabaseRuntimeProfile {
@@ -23,7 +24,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = retrievalSchemaVersion;
+  static const int _dbVersion = studyPlanSchemaVersion;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -776,6 +777,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await db.execute(_parsedArtifactHeadsDdl);
     await db.execute(_parsedArtifactsDdl);
     await createRetrievalV21Schema(db);
+    await createStudyPlanV22Schema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -783,6 +785,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await _validateConversationSchema(db);
     await _validateParsedArtifactSchema(db);
     await validateRetrievalV21Schema(db);
+    await validateStudyPlanV22Schema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -925,6 +928,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 21) {
       await createRetrievalV21Schema(db);
     }
+    if (oldVersion < 22) {
+      await createStudyPlanV22Schema(db);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -932,6 +938,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await _validateConversationSchema(db);
     await _validateParsedArtifactSchema(db);
     await validateRetrievalV21Schema(db);
+    await validateStudyPlanV22Schema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
