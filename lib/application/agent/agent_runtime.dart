@@ -237,10 +237,11 @@ final class ShirohaAgentRuntime {
 
     final resolved = await _resolveConfig();
     _throwIfExpired(turn);
-    final provider = _providerFactory(resolved);
+    var currentResolved = resolved;
+    var provider = _providerFactory(currentResolved);
     turn.provider = provider;
-    final capabilities = provider.capabilities;
-    if (resolved.config.webEnabled && !capabilities.nativeWebSearch) {
+    var capabilities = provider.capabilities;
+    if (currentResolved.config.webEnabled && !capabilities.nativeWebSearch) {
       throw const _TurnFailure(AgentTurnFailure.unsupportedCapability);
     }
     if (!capabilities.functionTools) {
@@ -325,12 +326,44 @@ final class ShirohaAgentRuntime {
         toolOutputs: toolOutputs,
         continuationState: continuationState,
         enableNativeWebSearch:
-            resolved.config.webEnabled && capabilities.nativeWebSearch,
+            currentResolved.config.webEnabled && capabilities.nativeWebSearch,
         maxOutputTokens: _limits.maxOutputTokens,
-        temperature: resolved.config.temperature,
-        reasoningEffort: resolved.config.reasoningEffort,
+        temperature: currentResolved.config.temperature,
+        reasoningEffort: currentResolved.config.reasoningEffort,
       );
-      final round = await _runProviderRound(turn, request);
+      final _ProviderRound round;
+      try {
+        round = await _runProviderRound(turn, request);
+      } catch (error) {
+        if (_canFallback(
+          turn: turn,
+          resolved: resolved,
+          retrievalGrant: retrievalGrant,
+          error: error,
+        )) {
+          turn.fallbackAttempted = true;
+          turn.usingFallback = true;
+          currentResolved = ResolvedAgentConfig(
+            config: resolved.config,
+            profile: resolved.fallbackProfile!,
+          );
+          provider = _providerFactory(currentResolved);
+          turn.provider = provider;
+          capabilities = provider.capabilities;
+          if (currentResolved.config.webEnabled &&
+              !capabilities.nativeWebSearch) {
+            throw const _TurnFailure(AgentTurnFailure.unsupportedCapability);
+          }
+          if (!capabilities.functionTools) {
+            throw const _TurnFailure(AgentTurnFailure.unsupportedCapability);
+          }
+          continuationState = null;
+          toolOutputs = const <AgentFunctionToolOutput>[];
+          retrievalOutputCallIds = const <String>{};
+          continue;
+        }
+        rethrow;
+      }
 
       if (round.functionCalls.isEmpty) {
         final finalText = turn.visibleText.toString();
@@ -469,6 +502,7 @@ final class ShirohaAgentRuntime {
             case AgentProviderFunctionCall():
               calls.add(event);
             case AgentProviderWebSearchEvent(:final phase):
+              turn.webProgressEmitted = true;
               _emit(turn, AgentTurnWebSearchEvent(phase));
             case AgentProviderCompleted(:final continuationState):
               if (completed) {
@@ -687,6 +721,7 @@ final class ShirohaAgentRuntime {
       if (proposalId is! String || outcome is! String || preview is! Map) {
         return;
       }
+      turn.proposalStaged = true;
       _emit(
         turn,
         AgentTurnProposalStaged(
@@ -721,6 +756,7 @@ final class ShirohaAgentRuntime {
       if (draftId is! String || outcome is! String || preview is! Map) {
         return;
       }
+      turn.studyPlanDraftStaged = true;
       _emit(
         turn,
         AgentTurnStudyPlanDraftStaged(
@@ -923,6 +959,48 @@ final class ShirohaAgentRuntime {
     return AgentTurnFailure.internalError;
   }
 
+  bool _canFallback({
+    required _ActiveTurn turn,
+    required ResolvedAgentConfig resolved,
+    required RetrievalEgressGrant? retrievalGrant,
+    required Object error,
+  }) {
+    if (resolved.fallbackProfile == null ||
+        turn.fallbackAttempted ||
+        turn.cancellation.token.isCancelled ||
+        turn.timedOut ||
+        turn.remainingBudget() <= Duration.zero ||
+        turn.visibleText.isNotEmpty ||
+        turn.webProgressEmitted ||
+        turn.localCallsUsed > 0 ||
+        turn.toolRoundsUsed > 0 ||
+        turn.proposalStaged ||
+        turn.studyPlanDraftStaged ||
+        retrievalGrant != null) {
+      return false;
+    }
+    return _isEligibleProviderFailure(error);
+  }
+
+  static bool _isEligibleProviderFailure(Object error) {
+    if (error is! AgentProviderException) return false;
+    return switch (error.failure) {
+      AgentProviderFailure.authentication ||
+      AgentProviderFailure.rateLimited ||
+      AgentProviderFailure.temporarilyUnavailable ||
+      AgentProviderFailure.timeout ||
+      AgentProviderFailure.unsupportedModel ||
+      AgentProviderFailure.incompleteResponse ||
+      AgentProviderFailure.malformedResponse ||
+      AgentProviderFailure.internalError =>
+        true,
+      AgentProviderFailure.cancelled ||
+      AgentProviderFailure.invalidRequest ||
+      AgentProviderFailure.unsupportedCapability =>
+        false,
+    };
+  }
+
   static bool _isBoundedId(String value) {
     final length = value.runes.length;
     return length >= 1 && length <= 128 && !value.contains('\u0000');
@@ -950,6 +1028,11 @@ final class _ActiveTurn {
   AgentProviderPort? provider;
   int toolRoundsUsed = 0;
   int localCallsUsed = 0;
+  bool fallbackAttempted = false;
+  bool usingFallback = false;
+  bool webProgressEmitted = false;
+  bool proposalStaged = false;
+  bool studyPlanDraftStaged = false;
   final Set<String> seenCallIds = <String>{};
   final StringBuffer visibleText = StringBuffer();
 
