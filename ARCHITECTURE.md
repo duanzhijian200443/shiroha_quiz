@@ -385,3 +385,18 @@ separate explicitly authorized work. The focused UI Finalization contract
 governs only those Presentation decisions and does not alter any domain,
 application, persistence, provider, or schema boundary recorded in this
 document.
+
+## 13. StudyPlan boundary (SPL-1)
+
+StudyPlan is a strategy/selection layer above the existing review/FSRS
+semantics; it never schedules, never mutates review state, and never
+deactivates itself. The Built-in Agent may stage a bounded plan draft through
+the separate `propose_study_plan` capability; only explicit user adoption
+through an Application command with a durable transaction-level
+compare-and-set may persist the single global `ActiveStudyPlan`. MCP v0
+remains exactly six READ_ONLY tools and the A0 read catalog remains exactly
+six tools. Current runtime schema stays v21 until SPL-1-D1 implements the
+additive v22 `study_plans` migration.
+
+The focused SPL-1 authority is
+`docs/product/SPL-1 StudyPlan Agent Tool v0.md`.

@@ -70,6 +70,14 @@ RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
 RAG-3 Hybrid Retrieval / Rerank — DEFERRED
+SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
+SPL-1-D0 Domain + transient draft + planning/candidate read seams — NOT STARTED
+SPL-1-D1 v22 persistence + durable CAS commands — NOT STARTED
+SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
+SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
+SPL-1-V0 Focused acceptance — NOT STARTED
+SPL-1-CL Closure — NOT STARTED
+SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS
 Current runtime schema — v21
 ```
 
@@ -385,6 +393,53 @@ focused P7 v0 contract in `docs/architecture/p7-ai-answer-candidates.md` and
 is COMPLETE (docs-only); P7-D0a, P7-D0b, P7-D1, P7-I0, P7-C0, P7-U0, and
 P7-V0 are COMPLETE, P7-CL is COMPLETE, and P7 v0 is CLOSED / FROZEN.
 
+### SPL-1 — StudyPlan Agent Tool
+
+SPL-1-P0 froze the focused canonical contract in
+`docs/product/SPL-1 StudyPlan Agent Tool v0.md`; SPL-1-P0 is docs-only and
+COMPLETE, and all later SPL-1 sub-stages are NOT STARTED. SPL-1 is IN PROGRESS
+and is not CLOSED / FROZEN. Runtime schema remains v21; the additive v22
+`study_plans` migration exists only as the future SPL-1-D1 deliverable.
+
+The frozen capability chain is:
+
+```text
+real learning state
+-> Built-in Agent planning
+-> propose_study_plan
+-> Application validation
+-> transient StudyPlanDraft
+-> deterministic preview
+-> explicit user adoption
+-> durable ActiveStudyPlan (exactly one global singleton)
+-> Today / 特训 dynamic selection
+```
+
+Frozen boundaries:
+
+- StudyPlan is a strategy/selection layer above the existing review/FSRS
+  semantics; adoption and selection change zero review state, and mastery is
+  not terminal (mastered questions remain selectable when due/weak per live
+  FSRS state; `masteryReached` is advisory only).
+- The Agent stages only a bounded plan draft; only explicit user adoption
+  through an Application command with a durable transaction-level
+  compare-and-set may persist the single ActiveStudyPlan. Chat text is never
+  adoption.
+- `propose_study_plan` is a separate Built-in-Agent catalog; the exactly-six
+  A0 read-tool catalog and the exactly-six MCP v0 contract remain unchanged.
+- Drafts are transient and bind runtime-injected source
+  Conversation/User Message/scope; adoption revalidates source-turn validity
+  and scope admission; the adopted plan is not Project-owned.
+- v0 is one global ActiveStudyPlan with one-bank scope; `horizonDays` is
+  advisory guidance only; no automatic expiry/deactivation.
+- The legacy StudyPlanBank / StudyPlanBankCatalog / PlanConfigScreen quota
+  terminology is untouched.
+- Selection is dynamic policy over live candidates (producer-neutral
+  `StudyPlanCandidate`, ordered due/weak/new pools, mandatory dedup,
+  deterministic priority order) with no persisted question-id list.
+
+See `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
+
 ## 5. Explicit non-goals for this roadmap
 
 Until separately authorized:
@@ -415,4 +470,6 @@ Until separately authorized:
   authority.
 - `docs/architecture/p7-ai-answer-candidates.md` is the focused P7
   authority.
+- `docs/product/SPL-1 StudyPlan Agent Tool v0.md` is the focused SPL-1
+  StudyPlan authority.
 - R0-era files marked historical describe the migration origin, not the current runtime state.
