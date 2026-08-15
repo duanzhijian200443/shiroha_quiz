@@ -6,10 +6,11 @@
 /// explicit Reject, pending supersession, the atomic `beginCommit` gate, and
 /// the commit-success terminal marking seam for SPL-1-D1.
 ///
-/// D0 performs zero durable writes: no plan row, no schema v22, no adoption
-/// transaction. The durable `ActiveStudyPlan` concurrency authority (SQLite
-/// transaction-level CAS) is a D1 concern; only `pending -> committing` may
-/// gate the future formal adoption transaction.
+/// This service is transient by contract: it performs zero durable writes
+/// (no plan row, no schema v22 DDL, no adoption transaction). The durable
+/// `ActiveStudyPlan` concurrency authority (SQLite transaction-level CAS)
+/// lives in the D1 persistence repository; only `pending -> committing` may
+/// gate the formal adoption transaction.
 ///
 /// ### Atomicity invariant
 ///
@@ -67,6 +68,13 @@ final class StudyPlanStageResultStale extends StudyPlanStageResult {
   const StudyPlanStageResultStale();
 }
 
+/// The runtime-owned lifecycle gate was closed (turn cancelled or budget
+/// expired) after the planning read. Bounded non-mutating result: zero draft
+/// creation, zero supersession, zero lifecycle mutation.
+final class StudyPlanStageResultCancelled extends StudyPlanStageResult {
+  const StudyPlanStageResultCancelled();
+}
+
 /// Result of an attempt to acquire the transient commit gate on a draft.
 final class StudyPlanBeginCommitResult {
   const StudyPlanBeginCommitResult({
@@ -122,6 +130,9 @@ final class StudyPlanDraftService {
   ///    same-intent call may already have activated it) and verifies it
   ///    still owns the latest intent before any lifecycle mutation — an
   ///    older proposal whose read finished later performs zero mutation.
+  /// 6. immediately before any fresh activation/supersession, the optional
+  ///    runtime-owned [lifecycleMutationAllowed] gate must return true; a
+  ///    cancelled or expired turn performs zero lifecycle mutation.
   ///
   /// Throws [StudyPlanException] only for infrastructure read failures
   /// (`temporarilyUnavailable`); plan-level outcomes are sealed results.
@@ -134,6 +145,7 @@ final class StudyPlanDraftService {
     int? dailyTarget,
     StudyPlanPriority? priority,
     int? horizonDays,
+    bool Function()? lifecycleMutationAllowed,
   }) async {
     if (!_isBoundedId(sourceConversationId) || !_isBoundedId(sourceMessageId)) {
       return const StudyPlanStageResultInvalid();
@@ -196,6 +208,7 @@ final class StudyPlanDraftService {
       sourceConversationId: sourceConversationId,
       sourceMessageId: sourceMessageId,
       sourceScope: sourceScope,
+      lifecycleMutationAllowed: lifecycleMutationAllowed,
     );
   }
 
@@ -275,6 +288,7 @@ final class StudyPlanDraftService {
     required String sourceConversationId,
     required String sourceMessageId,
     required ConversationScope sourceScope,
+    bool Function()? lifecycleMutationAllowed,
   }) {
     // A same-intent call may already have activated this exact fingerprint
     // while the read was in flight; converge to it without a second
@@ -288,6 +302,9 @@ final class StudyPlanDraftService {
     // performs zero draft creation, supersession, or lifecycle mutation.
     if (!_isLatestIntent(turnKey, generation)) {
       return const StudyPlanStageResultStale();
+    }
+    if (lifecycleMutationAllowed != null && !lifecycleMutationAllowed()) {
+      return const StudyPlanStageResultCancelled();
     }
     return _activate(
       plan: plan,

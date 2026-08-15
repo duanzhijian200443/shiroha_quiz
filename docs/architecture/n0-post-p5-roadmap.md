@@ -73,7 +73,7 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
   SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
   SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
-  SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
+  SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
   SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
   SPL-1-V0 Focused acceptance — NOT STARTED
   SPL-1-CL Closure — NOT STARTED
@@ -402,7 +402,11 @@ producer-neutral candidate read seams, deterministic preview, and the
 read-only data implementation) is COMPLETE. SPL-1-D1 (schema v22, durable
 ActiveStudyPlan persistence, formal adoption command, durable CAS, stop
 command, source-turn/scope revalidation, and focused tests) is COMPLETE.
-Later SPL-1 sub-stages (I0 / U0 / V0 / CL) are NOT STARTED. SPL-1 is IN
+SPL-1-I0 (Built-in Agent `propose_study_plan` tool catalog and dispatcher,
+runtime source-turn authority injection, deterministic allowlist tool result,
+production fresh ID wiring, and Assistant typed proposal card / explicit
+adoption / replacement confirmation / reject Presentation) is COMPLETE.
+Later SPL-1 sub-stages (U0 / V0 / CL) are NOT STARTED. SPL-1 is IN
 PROGRESS and is not CLOSED / FROZEN. Runtime schema is v22.
 
 The frozen capability chain is:

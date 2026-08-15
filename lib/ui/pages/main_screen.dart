@@ -3,6 +3,8 @@ import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
+import '../../application/study_plan/study_plan_command_service.dart';
+import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
@@ -18,6 +20,8 @@ class MainScreen extends StatefulWidget {
     required this.startAgentTurn,
     this.startRetrievalTurn,
     this.proposalService,
+    this.studyPlanDraftService,
+    this.studyPlanCommandService,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
@@ -26,6 +30,8 @@ class MainScreen extends StatefulWidget {
   final AgentTurnStarter startAgentTurn;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
+  final StudyPlanDraftService? studyPlanDraftService;
+  final StudyPlanCommandService? studyPlanCommandService;
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -45,6 +51,8 @@ class _MainScreenState extends State<MainScreen> {
         startAgentTurn: widget.startAgentTurn,
         startRetrievalTurn: widget.startRetrievalTurn,
         proposalService: widget.proposalService,
+        studyPlanDraftService: widget.studyPlanDraftService,
+        studyPlanCommandService: widget.studyPlanCommandService,
       ), // Tab 1 — 助手
       ProfileScreen(
         engineRepository: dependencies.engineRepository,

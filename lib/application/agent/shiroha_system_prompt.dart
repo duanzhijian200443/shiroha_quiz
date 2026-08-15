@@ -15,6 +15,7 @@ final class ShirohaSystemPrompt {
   String build({
     required ConversationScope scope,
     required bool proposalCapabilityEnabled,
+    bool studyPlanCapabilityEnabled = false,
     bool retrievalCapabilityEnabled = false,
     Set<String> retrievableFileIds = const <String>{},
     List<ConversationFileRef> files = const <ConversationFileRef>[],
@@ -40,6 +41,30 @@ final class ShirohaSystemPrompt {
         ..writeln('- Natural-language agreement is not approval.')
         ..writeln(
           '- Never claim that a proposal was committed or formally written.',
+        );
+    }
+    if (studyPlanCapabilityEnabled) {
+      buffer
+        ..writeln(
+          '- When the user asks for a study plan, you may inspect learning '
+          'state with study tools and stage a proposal with propose_study_plan.',
+        )
+        ..writeln(
+          '- Calling propose_study_plan only stages a draft for review; '
+          'it does not adopt, activate, or persist the plan.',
+        )
+        ..writeln(
+          '- Tell the user to review the proposal card and tap the action '
+          'button to explicitly adopt the plan.',
+        )
+        ..writeln('- Natural-language agreement is not formal adoption.')
+        ..writeln(
+          '- Never claim that a study plan was saved or activated before '
+          'formal confirmation.',
+        )
+        ..writeln(
+          '- Do not repeatedly regenerate an identical StudyPlan proposal '
+          'unless requested or required.',
         );
     }
     buffer

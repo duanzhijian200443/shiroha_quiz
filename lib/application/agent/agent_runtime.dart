@@ -15,6 +15,8 @@ import 'agent_history.dart';
 import 'agent_provider.dart';
 import 'agent_retrieval_tool.dart';
 import 'agent_runtime_limits.dart';
+import 'agent_study_plan_tool_catalog.dart';
+import 'agent_study_plan_tool_dispatcher.dart';
 import 'agent_study_tool_catalog.dart';
 import 'agent_study_tool_dispatcher.dart';
 import 'agent_turn.dart';
@@ -43,6 +45,7 @@ final class ShirohaAgentRuntime {
     required AgentProviderFactory providerFactory,
     required AgentStudyToolDispatcher toolDispatcher,
     AgentWriteProposalToolDispatcher? proposalDispatcher,
+    AgentStudyPlanToolDispatcher? studyPlanDispatcher,
     AgentRetrievalToolDispatcher? retrievalDispatcher,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
   })  : _conversationService = conversationService,
@@ -50,6 +53,7 @@ final class ShirohaAgentRuntime {
         _providerFactory = providerFactory,
         _toolDispatcher = toolDispatcher,
         _proposalDispatcher = proposalDispatcher,
+        _studyPlanDispatcher = studyPlanDispatcher,
         _retrievalDispatcher = retrievalDispatcher,
         _limits = limits,
         _systemPrompt = const ShirohaSystemPrompt();
@@ -59,6 +63,7 @@ final class ShirohaAgentRuntime {
   final AgentProviderFactory _providerFactory;
   final AgentStudyToolDispatcher _toolDispatcher;
   final AgentWriteProposalToolDispatcher? _proposalDispatcher;
+  final AgentStudyPlanToolDispatcher? _studyPlanDispatcher;
   final AgentRetrievalToolDispatcher? _retrievalDispatcher;
   final AgentRuntimeLimits _limits;
   final ShirohaSystemPrompt _systemPrompt;
@@ -246,6 +251,7 @@ final class ShirohaAgentRuntime {
       limits: _limits,
     ).build(slice: slice, targetMessageId: userMessageId);
     final proposalCapabilityEnabled = _proposalDispatcher != null;
+    final studyPlanCapabilityEnabled = _studyPlanDispatcher != null;
     final approvedIds = approval?.approvedFileIds ?? const <String>[];
     final retrievalDispatcher = _retrievalDispatcher;
     final currentFileIds = retrievalDispatcher == null || approvedIds.isEmpty
@@ -270,6 +276,7 @@ final class ShirohaAgentRuntime {
       scope: slice.conversation.scope,
       files: slice.files,
       proposalCapabilityEnabled: proposalCapabilityEnabled,
+      studyPlanCapabilityEnabled: studyPlanCapabilityEnabled,
       retrievalCapabilityEnabled: retrievalGrant != null,
       retrievableFileIds:
           retrievalGrant?.approvedFileIds.toSet() ?? const <String>{},
@@ -277,6 +284,7 @@ final class ShirohaAgentRuntime {
     final tools = <AgentFunctionToolDefinition>[
       ...AgentStudyToolCatalog.definitions,
       if (proposalCapabilityEnabled) AgentWriteProposalToolCatalog.definition,
+      if (studyPlanCapabilityEnabled) AgentStudyPlanToolCatalog.definition,
       if (retrievalGrant != null) AgentRetrievalToolCatalog.definition,
     ];
 
@@ -508,6 +516,7 @@ final class ShirohaAgentRuntime {
     }
     try {
       final dispatcher = _proposalDispatcher;
+      final studyPlanDispatcher = _studyPlanDispatcher;
       final retrievalDispatcher = _retrievalDispatcher;
       if (call.name == AgentRetrievalToolCatalog.toolName &&
           retrievalDispatcher != null) {
@@ -570,6 +579,24 @@ final class ShirohaAgentRuntime {
             )
             .timeout(remaining);
         _maybeEmitProposalStaged(turn, output);
+        return output;
+      }
+      if (call.name == AgentStudyPlanToolCatalog.toolName &&
+          studyPlanDispatcher != null) {
+        final output = await studyPlanDispatcher
+            .dispatch(
+              AgentStudyPlanToolCall(
+                argumentsJson: call.argumentsJson,
+                sourceConversationId: conversationId,
+                sourceMessageId: userMessageId,
+                scope: scope,
+              ),
+              lifecycleMutationAllowed: () =>
+                  !turn.cancellation.token.isCancelled &&
+                  turn.remainingBudget() > Duration.zero,
+            )
+            .timeout(remaining);
+        _maybeEmitStudyPlanDraftStaged(turn, output);
         return output;
       }
       return await _toolDispatcher
@@ -671,6 +698,38 @@ final class ShirohaAgentRuntime {
     } catch (_) {
       // The tool output is still returned to the Provider unchanged.
     }
+  }
+
+  /// Emits a typed study-plan-draft-staged event when the study plan tool returned
+  /// a successful staging/replay result. Event shaping never fails the turn.
+  void _maybeEmitStudyPlanDraftStaged(_ActiveTurn turn, String output) {
+    try {
+      // Same runtime authority as the staging lifecycle gate: a cancelled or
+      // expired turn must emit ZERO actionable StudyPlan presentation events,
+      // even when a semantic replay resolves successfully.
+      if (turn.cancellation.token.isCancelled ||
+          turn.remainingBudget() <= Duration.zero) {
+        return;
+      }
+      final decoded = jsonDecode(output);
+      if (decoded is! Map<String, dynamic> || decoded['ok'] != true) return;
+      final result = decoded['result'];
+      if (result is! Map<String, dynamic>) return;
+      final draftId = result['draft_id'];
+      final outcome = result['outcome'];
+      final preview = result['preview'];
+      if (draftId is! String || outcome is! String || preview is! Map) {
+        return;
+      }
+      _emit(
+        turn,
+        AgentTurnStudyPlanDraftStaged(
+          draftId: draftId,
+          outcome: outcome,
+          preview: Map<String, Object?>.from(preview),
+        ),
+      );
+    } catch (_) {}
   }
 
   Future<ConversationMessage> _appendAssistantWithRecovery(
