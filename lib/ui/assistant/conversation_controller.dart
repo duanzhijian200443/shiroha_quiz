@@ -10,6 +10,11 @@ import '../../application/conversations/conversation_repository.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
+import '../../application/study_plan/study_plan_command_service.dart';
+import '../../application/study_plan/study_plan_draft_service.dart';
+import '../../domain/study_plan/active_study_plan.dart';
+import '../../domain/study_plan/study_plan_draft.dart';
+import '../../domain/study_plan/study_plan_values.dart';
 import '../../domain/content/content_node.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
@@ -36,16 +41,22 @@ final class ConversationController extends ChangeNotifier {
     required AgentTurnStarter startAgentTurn,
     AgentRetrievalTurnStarter? startRetrievalTurn,
     AgentWriteProposalService? proposalService,
+    StudyPlanDraftService? studyPlanDraftService,
+    StudyPlanCommandService? studyPlanCommandService,
   })  : _agentSettingsService = agentSettingsService,
         _startAgentTurn = startAgentTurn,
         _startRetrievalTurn = startRetrievalTurn,
-        _proposalService = proposalService;
+        _proposalService = proposalService,
+        _studyPlanDraftService = studyPlanDraftService,
+        _studyPlanCommandService = studyPlanCommandService;
 
   final ConversationService service;
   final AgentSettingsService _agentSettingsService;
   final AgentTurnStarter _startAgentTurn;
   final AgentRetrievalTurnStarter? _startRetrievalTurn;
   final AgentWriteProposalService? _proposalService;
+  final StudyPlanDraftService? _studyPlanDraftService;
+  final StudyPlanCommandService? _studyPlanCommandService;
 
   List<Conversation> recent = const <Conversation>[];
   List<ConversationFileRef> attachableFiles = const <ConversationFileRef>[];
@@ -74,6 +85,14 @@ final class ConversationController extends ChangeNotifier {
   bool proposalActionPending = false;
   String? proposalActionMessage;
 
+  String? studyPlanDraftId;
+  StudyPlanDraftOutcome? studyPlanOutcome;
+  Map<String, Object?> studyPlanPreview = const <String, Object?>{};
+  bool studyPlanActionPending = false;
+  String? studyPlanActionMessage;
+  ActiveStudyPlan? pendingReplacementActivePlan;
+  bool showReplacementConfirmation = false;
+
   AgentTurnSession? _activeSession;
   StreamSubscription<AgentTurnEvent>? _turnEvents;
   String? _retryConversationId;
@@ -87,6 +106,8 @@ final class ConversationController extends ChangeNotifier {
   /// and permits proposals from different source turns to coexist without
   /// hiding an older pending proposal behind a newer turn.
   final Map<String, Map<String, String>> _proposalIdByTurnByConversation =
+      <String, Map<String, String>>{};
+  final Map<String, Map<String, String>> _studyPlanDraftIdByTurnByConversation =
       <String, Map<String, String>>{};
 
   ConversationScope get currentScope =>
@@ -112,6 +133,27 @@ final class ConversationController extends ChangeNotifier {
   bool get canRejectProposal =>
       proposalOutcome == AgentWriteProposalOutcome.pending &&
       !proposalActionPending;
+
+  bool get hasStudyPlanCard =>
+      studyPlanDraftId != null && studyPlanOutcome != null;
+
+  bool get canAdoptStudyPlan =>
+      studyPlanOutcome == StudyPlanDraftOutcome.pending &&
+      !hasActiveTurn &&
+      !studyPlanActionPending;
+
+  bool get canRejectStudyPlan =>
+      studyPlanOutcome == StudyPlanDraftOutcome.pending &&
+      !studyPlanActionPending;
+
+  String? get studyPlanStatusText => switch (studyPlanOutcome) {
+        null => null,
+        StudyPlanDraftOutcome.pending => null,
+        StudyPlanDraftOutcome.committing => '正在采用计划…',
+        StudyPlanDraftOutcome.committed => '已采用该计划',
+        StudyPlanDraftOutcome.rejected => '已不采用该计划',
+        StudyPlanDraftOutcome.superseded => '该计划草案已被新方案替代',
+      };
 
   /// Fixed safe user-facing text for the proposal lifecycle outcome.
   String? get proposalStatusText => switch (proposalOutcome) {
@@ -231,6 +273,7 @@ final class ConversationController extends ChangeNotifier {
       retrievalApprovedForNextTurn = false;
       _clearTurnPresentation(clearRetry: true);
       _restoreProposalBinding(conversationId);
+      _restoreStudyPlanDraftBinding(conversationId);
       statusMessage = null;
       return true;
     } on ConversationException catch (error) {
@@ -379,6 +422,7 @@ final class ConversationController extends ChangeNotifier {
     transientAssistantText = '';
     activeToolName = null;
     _restoreProposalBinding(conversationId);
+    _restoreStudyPlanDraftBinding(conversationId);
     turnFailure = null;
     turnPhase = AssistantTurnPhase.thinking;
     final retrievalStarter = _startRetrievalTurn;
@@ -428,6 +472,17 @@ final class ConversationController extends ChangeNotifier {
         _projectStagedProposal(
           proposalId: proposalId,
           outcome: _proposalOutcomeOf(outcome),
+          preview: preview,
+        );
+        break;
+      case AgentTurnStudyPlanDraftStaged(
+          :final draftId,
+          :final outcome,
+          :final preview,
+        ):
+        _projectStagedStudyPlanDraft(
+          draftId: draftId,
+          outcome: _studyPlanOutcomeOf(outcome),
           preview: preview,
         );
         break;
@@ -707,7 +762,11 @@ final class ConversationController extends ChangeNotifier {
       _proposalIdByTurnByConversation.remove(
         active.conversation.conversationId,
       );
+      _studyPlanDraftIdByTurnByConversation.remove(
+        active.conversation.conversationId,
+      );
       _clearProposal();
+      _clearStudyPlanDraft();
       activeThread = null;
       _threadRevision++;
       draftScope = ConversationScope.global();
@@ -762,6 +821,7 @@ final class ConversationController extends ChangeNotifier {
     transientAssistantText = '';
     activeToolName = null;
     _clearProposal();
+    _clearStudyPlanDraft();
     turnFailure = null;
     turnPhase = AssistantTurnPhase.idle;
     if (clearRetry) {
@@ -776,6 +836,316 @@ final class ConversationController extends ChangeNotifier {
     proposalPreview = const <String, Object?>{};
     proposalActionPending = false;
     proposalActionMessage = null;
+  }
+
+  void _clearStudyPlanDraft() {
+    studyPlanDraftId = null;
+    studyPlanOutcome = null;
+    studyPlanPreview = const <String, Object?>{};
+    studyPlanActionPending = false;
+    studyPlanActionMessage = null;
+    pendingReplacementActivePlan = null;
+    showReplacementConfirmation = false;
+  }
+
+  void _setStudyPlanDraft({
+    required String draftId,
+    required StudyPlanDraftOutcome outcome,
+    required Map<String, Object?> preview,
+  }) {
+    studyPlanDraftId = draftId;
+    studyPlanOutcome = outcome;
+    studyPlanPreview = Map<String, Object?>.unmodifiable(preview);
+    studyPlanActionPending = false;
+    studyPlanActionMessage = null;
+    showReplacementConfirmation = false;
+    pendingReplacementActivePlan = null;
+    _bindStudyPlanDraftIdentity(draftId);
+  }
+
+  void _projectStagedStudyPlanDraft({
+    required String draftId,
+    required StudyPlanDraftOutcome outcome,
+    required Map<String, Object?> preview,
+  }) {
+    _bindStudyPlanDraftIdentity(draftId);
+    final currentId = studyPlanDraftId;
+    final service = _studyPlanDraftService;
+    if (currentId != null && service != null) {
+      try {
+        final current = service.draftById(currentId);
+        if (current.sourceConversationId ==
+                activeThread?.conversation.conversationId &&
+            current.outcome == StudyPlanDraftOutcome.pending) {
+          return;
+        }
+      } catch (_) {}
+    }
+    _setStudyPlanDraft(
+      draftId: draftId,
+      outcome: outcome,
+      preview: preview,
+    );
+  }
+
+  void _bindStudyPlanDraftIdentity(String draftId) {
+    final service = _studyPlanDraftService;
+    if (service == null) return;
+    try {
+      final draft = service.draftById(draftId);
+      final byTurn = _studyPlanDraftIdByTurnByConversation.putIfAbsent(
+        draft.sourceConversationId,
+        () => <String, String>{},
+      );
+      final boundId = byTurn[draft.sourceMessageId];
+      if (boundId != null && boundId != draft.draftId) {
+        try {
+          final bound = service.draftById(boundId);
+          if (bound.outcome == StudyPlanDraftOutcome.pending) {
+            return;
+          }
+        } catch (_) {}
+      }
+      byTurn[draft.sourceMessageId] = draft.draftId;
+    } catch (_) {}
+  }
+
+  void _restoreStudyPlanDraftBinding(String conversationId) {
+    final service = _studyPlanDraftService;
+    final byTurn = _studyPlanDraftIdByTurnByConversation[conversationId];
+    if (service == null || byTurn == null || byTurn.isEmpty) {
+      _clearStudyPlanDraft();
+      return;
+    }
+    final available = <StudyPlanDraft>[];
+    for (final entry in byTurn.entries.toList()) {
+      try {
+        available.add(service.draftById(entry.value));
+      } catch (_) {
+        byTurn.remove(entry.key);
+      }
+    }
+    if (available.isEmpty) {
+      _studyPlanDraftIdByTurnByConversation.remove(conversationId);
+      _clearStudyPlanDraft();
+      return;
+    }
+    final draft = available.firstWhere(
+      (candidate) => candidate.outcome == StudyPlanDraftOutcome.pending,
+      orElse: () => available.last,
+    );
+    _setStudyPlanDraft(
+      draftId: draft.draftId,
+      outcome: draft.outcome,
+      preview: _studyPlanPreviewMapOf(draft.preview),
+    );
+  }
+
+  void _showNextPendingStudyPlanAfter(StudyPlanDraft current) {
+    if (current.outcome == StudyPlanDraftOutcome.pending ||
+        current.outcome == StudyPlanDraftOutcome.committing) {
+      return;
+    }
+    final service = _studyPlanDraftService;
+    final byTurn =
+        _studyPlanDraftIdByTurnByConversation[current.sourceConversationId];
+    if (service == null || byTurn == null) return;
+    for (final draftId in byTurn.values) {
+      if (draftId == current.draftId) continue;
+      try {
+        final draft = service.draftById(draftId);
+        if (draft.outcome == StudyPlanDraftOutcome.pending) {
+          _setStudyPlanDraft(
+            draftId: draft.draftId,
+            outcome: draft.outcome,
+            preview: _studyPlanPreviewMapOf(draft.preview),
+          );
+          return;
+        }
+      } catch (_) {}
+    }
+  }
+
+  StudyPlanDraftOutcome _studyPlanOutcomeOf(String value) {
+    return switch (value) {
+      'pending' => StudyPlanDraftOutcome.pending,
+      'committing' => StudyPlanDraftOutcome.committing,
+      'committed' => StudyPlanDraftOutcome.committed,
+      'rejected' => StudyPlanDraftOutcome.rejected,
+      'superseded' => StudyPlanDraftOutcome.superseded,
+      _ => StudyPlanDraftOutcome.pending,
+    };
+  }
+
+  Map<String, Object?> _studyPlanPreviewMapOf(StudyPlanPreview preview) {
+    return <String, Object?>{
+      'bank_name': preview.bankName,
+      if (preview.goal != null) 'goal': preview.goal,
+      'daily_target': preview.dailyTarget,
+      'priority': preview.priority.canonicalCode,
+      if (preview.horizonDays != null) 'horizon_days': preview.horizonDays,
+      'question_count': preview.questionCount,
+      'mastered_count': preview.masteredCount,
+      'due_count': preview.dueCount,
+      'weak_count': preview.weakCount,
+      'new_count': preview.newCount,
+      'estimated_days': preview.estimatedDays,
+    };
+  }
+
+  /// Initiates adoption of the current StudyPlan proposal.
+  /// If an ActiveStudyPlan already exists, prompts for replacement confirmation.
+  Future<void> initiateAdoptStudyPlan() async {
+    final cmd = _studyPlanCommandService;
+    final id = studyPlanDraftId;
+    if (cmd == null ||
+        id == null ||
+        studyPlanOutcome != StudyPlanDraftOutcome.pending ||
+        studyPlanActionPending) {
+      return;
+    }
+    studyPlanActionPending = true;
+    studyPlanActionMessage = null;
+    notifyListeners();
+    try {
+      final activePlan = await cmd.loadActivePlan();
+      if (!_disposed && studyPlanDraftId == id) {
+        if (activePlan != null) {
+          pendingReplacementActivePlan = activePlan;
+          showReplacementConfirmation = true;
+          studyPlanActionPending = false;
+          notifyListeners();
+        } else {
+          studyPlanActionPending = false;
+          await _performAdoptStudyPlan(
+            expectedActivePlanId: null,
+            replacementConfirmed: false,
+          );
+        }
+      }
+    } catch (_) {
+      if (!_disposed && studyPlanDraftId == id) {
+        studyPlanActionMessage = '操作失败，请稍后重试';
+        studyPlanActionPending = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Confirms replacement of the existing active plan with this proposal draft.
+  Future<void> confirmReplacement() async {
+    final expectedId = pendingReplacementActivePlan?.planId;
+    showReplacementConfirmation = false;
+    pendingReplacementActivePlan = null;
+    await _performAdoptStudyPlan(
+      expectedActivePlanId: expectedId,
+      replacementConfirmed: true,
+    );
+  }
+
+  /// Cancels replacement confirmation dialog/banner.
+  void cancelReplacement() {
+    pendingReplacementActivePlan = null;
+    showReplacementConfirmation = false;
+    notifyListeners();
+  }
+
+  Future<void> _performAdoptStudyPlan({
+    String? expectedActivePlanId,
+    required bool replacementConfirmed,
+  }) async {
+    final cmd = _studyPlanCommandService;
+    final draftService = _studyPlanDraftService;
+    final id = studyPlanDraftId;
+    if (cmd == null ||
+        draftService == null ||
+        id == null ||
+        studyPlanOutcome != StudyPlanDraftOutcome.pending ||
+        studyPlanActionPending) {
+      return;
+    }
+    studyPlanActionPending = true;
+    studyPlanActionMessage = null;
+    notifyListeners();
+    var shouldNotify = false;
+    try {
+      final result = await cmd.adoptDraft(
+        draftId: id,
+        expectedActivePlanId: expectedActivePlanId,
+        replacementConfirmed: replacementConfirmed,
+      );
+      if (!_disposed && studyPlanDraftId == id) {
+        switch (result) {
+          case StudyPlanAdoptResultSuccess():
+            final updated = draftService.draftById(id);
+            _setStudyPlanDraft(
+              draftId: updated.draftId,
+              outcome: updated.outcome,
+              preview: _studyPlanPreviewMapOf(updated.preview),
+            );
+            _showNextPendingStudyPlanAfter(updated);
+            shouldNotify = true;
+          case StudyPlanAdoptResultAlreadyActive():
+            studyPlanActionMessage = '已有生效中的学习计划，请确认是否替换。';
+            shouldNotify = true;
+          case StudyPlanAdoptResultStaleActivePlan():
+            studyPlanActionMessage = '当前计划状态已变化，请重新确认。';
+            shouldNotify = true;
+          case StudyPlanAdoptResultStaleScope() ||
+                StudyPlanAdoptResultTargetUnavailable() ||
+                StudyPlanAdoptResultInvalidPlan() ||
+                StudyPlanAdoptResultSuperseded() ||
+                StudyPlanAdoptResultRejected() ||
+                StudyPlanAdoptResultCommitted() ||
+                StudyPlanAdoptResultBusy() ||
+                StudyPlanAdoptResultFailed():
+            studyPlanActionMessage = '采用计划失败，请稍后重试。';
+            shouldNotify = true;
+        }
+      }
+    } catch (_) {
+      if (!_disposed && studyPlanDraftId == id) {
+        studyPlanActionMessage = '操作失败，请稍后重试。';
+        shouldNotify = true;
+      }
+    } finally {
+      if (!_disposed && studyPlanDraftId == id) {
+        studyPlanActionPending = false;
+        shouldNotify = true;
+      }
+      if (!_disposed && shouldNotify) {
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Rejects the current StudyPlan proposal with zero formal writes.
+  void rejectStudyPlan() {
+    final draftService = _studyPlanDraftService;
+    final id = studyPlanDraftId;
+    if (draftService == null ||
+        id == null ||
+        studyPlanOutcome != StudyPlanDraftOutcome.pending ||
+        studyPlanActionPending) {
+      return;
+    }
+    studyPlanActionPending = true;
+    studyPlanActionMessage = null;
+    notifyListeners();
+    try {
+      final updated = draftService.rejectDraft(id);
+      _setStudyPlanDraft(
+        draftId: updated.draftId,
+        outcome: updated.outcome,
+        preview: _studyPlanPreviewMapOf(updated.preview),
+      );
+      _showNextPendingStudyPlanAfter(updated);
+    } catch (_) {
+      studyPlanActionMessage = '操作失败，请稍后重试。';
+    } finally {
+      studyPlanActionPending = false;
+      notifyListeners();
+    }
   }
 
   void _setProposal({

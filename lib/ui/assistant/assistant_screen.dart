@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
+import '../../domain/study_plan/study_plan_values.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'assistant_content_renderer.dart';
@@ -540,6 +541,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
             const SizedBox(height: 12),
             _ProposalCard(controller: controller),
           ],
+          if (controller.hasStudyPlanCard) ...[
+            const SizedBox(height: 12),
+            _StudyPlanProposalCard(controller: controller),
+          ],
           if (controller.turnStatusMessage case final status?) ...[
             _StatusCard(
               key: const ValueKey<String>('a0-agent-turn-status'),
@@ -865,6 +870,210 @@ String _proposalAnswerText(Object? rawAnswer) {
 String _proposalLabelsText(Object? rawLabels) {
   if (rawLabels is! List) return '';
   return rawLabels.whereType<String>().join(', ');
+}
+
+/// SPL-1 StudyPlan proposal card rendered from the typed staged-event preview.
+/// Adopt calls StudyPlanCommandService (with replacement confirmation if
+/// needed); Reject performs zero durable writes.
+class _StudyPlanProposalCard extends StatelessWidget {
+  const _StudyPlanProposalCard({required this.controller});
+
+  final ConversationController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final preview = controller.studyPlanPreview;
+    final bankName = preview['bank_name']?.toString() ?? '';
+    final goal = preview['goal']?.toString();
+    final dailyTarget = preview['daily_target'];
+    final priorityCode = preview['priority']?.toString();
+    final horizonDays = preview['horizon_days'];
+    final questionCount = preview['question_count'];
+    final masteredCount = preview['mastered_count'];
+    final dueCount = preview['due_count'];
+    final weakCount = preview['weak_count'];
+    final newCount = preview['new_count'];
+    final estimatedDays = preview['estimated_days'];
+    final status = controller.studyPlanStatusText;
+    final actionMessage = controller.studyPlanActionMessage;
+
+    return Card(
+      key: const ValueKey<String>('study-plan-draft-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: [
+                Icon(Icons.event_note_outlined,
+                    size: 20, color: colors.primary),
+                const SizedBox(width: 8),
+                Text(
+                  '学习计划草案',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (bankName.isNotEmpty) Text('题库：$bankName'),
+            if (goal != null && goal.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('目标：$goal'),
+            ],
+            if (dailyTarget != null) ...[
+              const SizedBox(height: 4),
+              Text('每日特训量：$dailyTarget 题'),
+            ],
+            if (priorityCode != null) ...[
+              const SizedBox(height: 4),
+              Text('优先策略：${_priorityLabel(priorityCode)}'),
+            ],
+            if (horizonDays != null) ...[
+              const SizedBox(height: 4),
+              Text('计划周期：$horizonDays 天'),
+            ],
+            if (questionCount != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '题库概况：共 $questionCount 题 · '
+                '已掌握 ${masteredCount ?? 0} · '
+                '待复习 ${dueCount ?? 0} · '
+                '薄弱 ${weakCount ?? 0} · 新题 ${newCount ?? 0}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (estimatedDays != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                '预计约 $estimatedDays 天完成',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              '采用此计划不会修改 FSRS / '
+              '现有复习记录。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.outline,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            if (status != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                status,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            if (actionMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                actionMessage,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.error,
+                ),
+              ),
+            ],
+            if (controller.showReplacementConfirmation) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: colors.errorContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: colors.error.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '当前已有学习计划。'
+                      '采用此草案将替换现有'
+                      '计划，确定要替换吗？',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onErrorContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          key: const ValueKey<String>(
+                            'study-plan-cancel-replace',
+                          ),
+                          onPressed: controller.cancelReplacement,
+                          child: const Text('取消'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          key: const ValueKey<String>(
+                            'study-plan-confirm-replace',
+                          ),
+                          onPressed: controller.canAdoptStudyPlan
+                              ? controller.confirmReplacement
+                              : null,
+                          child: const Text('确认替换'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (controller.studyPlanOutcome ==
+                StudyPlanDraftOutcome.pending) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  OutlinedButton(
+                    key: const ValueKey<String>('study-plan-draft-reject'),
+                    onPressed: controller.canRejectStudyPlan
+                        ? controller.rejectStudyPlan
+                        : null,
+                    child: const Text('不采用'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const ValueKey<String>('study-plan-draft-adopt'),
+                    onPressed: controller.canAdoptStudyPlan
+                        ? controller.initiateAdoptStudyPlan
+                        : null,
+                    child: const Text('采用计划'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _priorityLabel(String code) {
+    return switch (code) {
+      'balanced' => '均衡',
+      'due_first' => '到期复习优先',
+      'weak_first' => '薄弱题优先',
+      'new_first' => '新题优先',
+      _ => code,
+    };
+  }
 }
 
 class _Composer extends StatelessWidget {

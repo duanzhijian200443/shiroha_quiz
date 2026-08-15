@@ -8,15 +8,18 @@ Current stage status:
 SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
 SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
 SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
-SPL-1-I0 Agent planning tool + draft/adoption Presentation — NOT STARTED
+SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
 SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
 SPL-1-V0 Focused acceptance — NOT STARTED
 SPL-1-CL Closure — NOT STARTED
 SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS (not COMPLETE / not CLOSED)
 ```
 
-Runtime schema is **v22** (additive `study_plans` table); Agent/UI wiring
-(SPL-1-I0 / SPL-1-U0) is NOT started.
+Runtime schema is **v22** (additive `study_plans` table); Built-in Agent can
+stage a StudyPlanDraft via `propose_study_plan` and Assistant provides
+explicit adoption/replacement confirmation; durable adoption remains
+Application-controlled; Today / 特训 consumption is NOT implemented until U0;
+MCP remains unchanged.
 
 ## 1. Authority and scope
 

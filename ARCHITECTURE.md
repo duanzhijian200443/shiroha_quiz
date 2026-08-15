@@ -398,7 +398,8 @@ through an Application command with a durable transaction-level
   remains exactly six READ_ONLY tools and the A0 read catalog remains exactly
   six tools. Runtime schema is v22 with the additive `study_plans` table;
   ActiveStudyPlan durable singleton persistence exists; formal adoption
-  remains Application-controlled; Agent/UI wiring is not yet implemented.
+  remains Application-controlled; Agent planning and Assistant draft/adoption
+  Presentation are implemented; Today/特训 consumption remains pending U0.
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
