@@ -2497,6 +2497,41 @@ void main() {
       expect(harness.fallbackProvider.callCount, 0);
     });
 
+    test(
+        'retrieval approval with unattached file -> grant null -> fallback still forbidden',
+        () async {
+      final harness = _Harness(
+        fallbackProfileId: 'profile-fallback',
+        wireRetrieval: true,
+        scripts: <_Script>[
+          (request, token) async* {
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
+          },
+        ],
+        fallbackScripts: <_Script>[
+          _finalAnswer('Should not run'),
+        ],
+      );
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
+
+      final session = harness.runtime.startTurnWithRetrieval(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+        approval: RetrievalEgressApproval(const <String>['unattached-file']),
+      );
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.rateLimited);
+      expect(harness.provider.callCount, 1);
+      expect(harness.fallbackProvider.callCount, 0);
+
+      final messages = await harness.messagesOf(conversationId);
+      expect(messages, hasLength(1));
+      expect(messages.single.role, ConversationMessageRole.user);
+    });
+
     test('no approved file-content egress -> normal fallback still eligible',
         () async {
       final harness = _Harness(

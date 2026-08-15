@@ -254,15 +254,16 @@ final class ShirohaAgentRuntime {
     final proposalCapabilityEnabled = _proposalDispatcher != null;
     final studyPlanCapabilityEnabled = _studyPlanDispatcher != null;
     final approvedIds = approval?.approvedFileIds ?? const <String>[];
+    final hasRetrievalApproval = approvedIds.isNotEmpty;
     final retrievalDispatcher = _retrievalDispatcher;
-    final currentFileIds = retrievalDispatcher == null || approvedIds.isEmpty
+    final currentFileIds = retrievalDispatcher == null || !hasRetrievalApproval
         ? const <String>[]
         : await retrievalDispatcher.effectiveFileIds(
             scope: slice.conversation.scope,
             conversationFileIds:
                 slice.files.map((file) => file.fileId).toList(growable: false),
           );
-    final retrievalGrant = approvedIds.isNotEmpty &&
+    final retrievalGrant = hasRetrievalApproval &&
             approvedIds.every(currentFileIds.contains) &&
             _retrievalDispatcher != null
         ? RetrievalEgressGrant(
@@ -338,11 +339,11 @@ final class ShirohaAgentRuntime {
         if (_canFallback(
           turn: turn,
           resolved: resolved,
+          hasRetrievalApproval: hasRetrievalApproval,
           retrievalGrant: retrievalGrant,
           error: error,
         )) {
           turn.fallbackAttempted = true;
-          turn.usingFallback = true;
           currentResolved = ResolvedAgentConfig(
             config: resolved.config,
             profile: resolved.fallbackProfile!,
@@ -962,6 +963,7 @@ final class ShirohaAgentRuntime {
   bool _canFallback({
     required _ActiveTurn turn,
     required ResolvedAgentConfig resolved,
+    required bool hasRetrievalApproval,
     required RetrievalEgressGrant? retrievalGrant,
     required Object error,
   }) {
@@ -976,6 +978,7 @@ final class ShirohaAgentRuntime {
         turn.toolRoundsUsed > 0 ||
         turn.proposalStaged ||
         turn.studyPlanDraftStaged ||
+        hasRetrievalApproval ||
         retrievalGrant != null) {
       return false;
     }
@@ -1029,7 +1032,6 @@ final class _ActiveTurn {
   int toolRoundsUsed = 0;
   int localCallsUsed = 0;
   bool fallbackAttempted = false;
-  bool usingFallback = false;
   bool webProgressEmitted = false;
   bool proposalStaged = false;
   bool studyPlanDraftStaged = false;
