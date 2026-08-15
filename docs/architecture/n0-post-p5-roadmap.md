@@ -79,6 +79,7 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   SPL-1-CL Closure — COMPLETE
   AGENT-FB Bounded Fallback v0 — COMPLETE / CLOSED
   OCR-UX Explicit OCR Activation v0 — COMPLETE / CLOSED
+  CONV-MOVE Conversation Relocation v0 — IN PROGRESS
   Current runtime schema — v22
 ```
 
