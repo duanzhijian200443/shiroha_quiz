@@ -108,6 +108,25 @@ final class AgentTurnProposalStaged extends AgentTurnEvent {
   final Map<String, Object?> preview;
 }
 
+/// A StudyPlan proposal draft was staged (or a semantic replay returned the
+/// existing draft with its current outcome). Carries typed preview data only;
+/// the UI never parses model prose.
+final class AgentTurnStudyPlanDraftStaged extends AgentTurnEvent {
+  const AgentTurnStudyPlanDraftStaged({
+    required this.draftId,
+    required this.outcome,
+    required this.preview,
+  });
+
+  final String draftId;
+  final String outcome;
+
+  /// Structured preview from the Application-owned tool contract
+  /// (bank_name/goal/daily_target/priority/horizon_days/counts/estimated_days);
+  /// never LLM-authored prose.
+  final Map<String, Object?> preview;
+}
+
 /// The turn completed and the final visible Assistant text was persisted.
 final class AgentTurnCompleted extends AgentTurnEvent {
   const AgentTurnCompleted(this.assistantMessage);

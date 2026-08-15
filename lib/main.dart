@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 
 import 'application/agent/agent_config_service.dart';
 import 'application/agent/agent_runtime.dart';
+import 'application/agent/agent_study_plan_tool_dispatcher.dart';
 import 'application/agent/agent_study_tool_dispatcher.dart';
 import 'application/agent/agent_turn.dart';
 import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
@@ -22,6 +23,8 @@ import 'application/file_library/library_folder_service.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
 import 'application/safe_write/agent_write_proposal_service.dart';
+import 'application/study_plan/study_plan_command_service.dart';
+import 'application/study_plan/study_plan_draft_service.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
 import 'application/projects/project_service.dart';
@@ -44,6 +47,8 @@ import 'data/repositories/question_repository.dart';
 import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/repositories/ai_answer_commit_repository.dart';
+import 'data/repositories/study_plan_persistence_repository.dart';
+import 'data/repositories/study_plan_read_repository.dart';
 import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
 import 'services/answers/ai_answer_provider_adapter.dart';
@@ -201,6 +206,21 @@ void main() {
     final agentWritePersistence = ApprovedAgentWriteRepository.instance;
     final agentWriteProposalService =
         AgentWriteProposalService(agentWritePersistence);
+    final studyPlanReadRepository =
+        StudyPlanReadRepository(databaseHelper: databaseHelper);
+    final studyPlanDraftService = StudyPlanDraftService(
+      planningPort: studyPlanReadRepository,
+      draftIdFactory: uuid.v4,
+      clock: () => DateTime.now().toUtc(),
+    );
+    final studyPlanPersistenceRepository =
+        StudyPlanPersistenceRepository(databaseHelper: databaseHelper);
+    final studyPlanCommandService = StudyPlanCommandService(
+      draftService: studyPlanDraftService,
+      persistencePort: studyPlanPersistenceRepository,
+      planIdFactory: uuid.v4,
+      clock: () => DateTime.now().toUtc(),
+    );
     final supportDirectory = await getApplicationSupportDirectory();
     final parsedArtifactRepository =
         ParsedArtifactRepository(databaseHelper: databaseHelper);
@@ -240,6 +260,9 @@ void main() {
       proposalDispatcher: AgentWriteProposalToolDispatcher(
         persistence: agentWritePersistence,
         proposalService: agentWriteProposalService,
+      ),
+      studyPlanDispatcher: AgentStudyPlanToolDispatcher(
+        draftService: studyPlanDraftService,
       ),
       retrievalDispatcher: AgentRetrievalToolDispatcher(
         retrieval: retrievalService,
@@ -294,6 +317,8 @@ void main() {
       startAgentTurn: agentRuntime.startTurn,
       startRetrievalTurn: agentRuntime.startTurnWithRetrieval,
       proposalService: agentWriteProposalService,
+      studyPlanDraftService: studyPlanDraftService,
+      studyPlanCommandService: studyPlanCommandService,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -321,6 +346,8 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.startAgentTurn,
     this.startRetrievalTurn,
     this.proposalService,
+    this.studyPlanDraftService,
+    this.studyPlanCommandService,
   });
 
   final AiEngineRepository engineRepository;
@@ -337,6 +364,8 @@ class ShirohaQuizApp extends StatelessWidget {
   final AgentTurnStarter startAgentTurn;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
+  final StudyPlanDraftService? studyPlanDraftService;
+  final StudyPlanCommandService? studyPlanCommandService;
 
   @override
   Widget build(BuildContext context) {
@@ -363,6 +392,8 @@ class ShirohaQuizApp extends StatelessWidget {
               startAgentTurn: startAgentTurn,
               startRetrievalTurn: startRetrievalTurn,
               proposalService: proposalService,
+              studyPlanDraftService: studyPlanDraftService,
+              studyPlanCommandService: studyPlanCommandService,
             ),
           ),
         );
@@ -382,6 +413,8 @@ class SplashScreen extends StatefulWidget {
     required this.agentSettingsService,
     required this.startAgentTurn,
     this.proposalService,
+    this.studyPlanDraftService,
+    this.studyPlanCommandService,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
@@ -389,6 +422,8 @@ class SplashScreen extends StatefulWidget {
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
   final AgentWriteProposalService? proposalService;
+  final StudyPlanDraftService? studyPlanDraftService;
+  final StudyPlanCommandService? studyPlanCommandService;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -424,6 +459,8 @@ class _SplashScreenState extends State<SplashScreen> {
           agentSettingsService: widget.agentSettingsService,
           startAgentTurn: widget.startAgentTurn,
           proposalService: widget.proposalService,
+          studyPlanDraftService: widget.studyPlanDraftService,
+          studyPlanCommandService: widget.studyPlanCommandService,
         ),
       ),
     );
