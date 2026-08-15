@@ -583,7 +583,12 @@ class _LearningSpaceHomeWorkspaceState
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除学习空间？'),
-        content: const Text('只会删除学习空间及其关联，不会删除文件、题库或题目。'),
+        content: const Text(
+          '将删除学习空间及其关联。\n\n'
+          '• 空间内的文件和题库仅解除关联，不会被删除；\n'
+          '• 空间内的对话将保留为历史记录（因原空间删除变为不可用状态），之后仍可移动到全局或其他学习空间；\n'
+          '• 此操作无法撤销。',
+        ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),

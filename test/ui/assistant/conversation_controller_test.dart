@@ -1156,6 +1156,113 @@ void main() {
           ConversationScope.learningSpace('project-1'));
     });
   });
+
+  group('U1-LIFECYCLE-UX Conversation delete closure audit', () {
+    test('delete while active turn rejected at controller authority', () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      // Start an active turn
+      await controller.send('active query');
+      expect(controller.hasActiveTurn, isTrue);
+
+      final success = await controller.deleteActiveConversation();
+      expect(success, isFalse);
+      expect(controller.errorMessage, '请先停止当前生成');
+      expect(controller.activeThread, isNotNull);
+      expect(controller.activeThread!.conversation.conversationId, 'conv-1');
+
+      turn.complete(
+        AgentTurnSuccess(
+          assistantMessage: repository.persistAssistant('answer'),
+        ),
+      );
+      await _flush();
+    });
+
+    test('delete while sending rejected at controller authority', () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      controller.isSending = true;
+
+      final success = await controller.deleteActiveConversation();
+      expect(success, isFalse);
+      expect(controller.errorMessage, '请先停止当前生成');
+      expect(controller.activeThread, isNotNull);
+    });
+
+    test('delete while moving rejected at controller authority', () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      controller.isMovingConversation = true;
+
+      final success = await controller.deleteActiveConversation();
+      expect(success, isFalse);
+      expect(controller.errorMessage, '请等待对话移动完成');
+      expect(controller.activeThread, isNotNull);
+    });
+
+    test('durable delete succeeds even if projection refresh throws', () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      repository.listRecentThrows = true;
+
+      final success = await controller.deleteActiveConversation();
+      expect(success, isTrue);
+      expect(controller.activeThread, isNull);
+      expect(controller.errorMessage, conversationReadSafeError);
+    });
+
+    test('successful delete clears active thread / retry / retrieval approval',
+        () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+      await controller.send('Initial question');
+      controller.retrievalApprovedForNextTurn = true;
+      turn.complete(const AgentTurnFailed(AgentTurnFailure.profileUnavailable));
+      await _flush();
+
+      expect(controller.canRetry, isTrue);
+      expect(controller.retrievalApprovedForNextTurn, isTrue);
+
+      final success = await controller.deleteActiveConversation();
+      expect(success, isTrue);
+      expect(controller.activeThread, isNull);
+      expect(controller.canRetry, isFalse);
+      expect(controller.retrievalApprovedForNextTurn, isFalse);
+      expect(controller.draftScope, ConversationScope.global());
+    });
+
+    test('failed delete preserves active state', () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      repository.deleteThrows = true;
+
+      final success = await controller.deleteActiveConversation();
+      expect(success, isFalse);
+      expect(controller.activeThread, isNotNull);
+      expect(controller.activeThread!.conversation.conversationId, 'conv-1');
+      expect(controller.errorMessage, isNotNull);
+    });
+  });
 }
 
 ConversationController _controller(
@@ -1547,6 +1654,7 @@ final class _MemoryRepository extends Fake
   ConversationFailure? moveFailure;
   Completer<void>? moveCompleter;
   bool listRecentThrows = false;
+  bool deleteThrows = false;
 
   @override
   Future<MoveConversationResult> moveConversation({
@@ -1585,6 +1693,10 @@ final class _MemoryRepository extends Fake
 
   @override
   Future<void> deleteConversation(String conversationId) async {
+    if (deleteThrows) {
+      throw const ConversationException(
+          ConversationFailure.temporarilyUnavailable);
+    }
     _conversationsById.remove(conversationId);
     messages.removeWhere(
       (message) => message.conversationId == conversationId,
@@ -1608,8 +1720,15 @@ final class _MemoryRepository extends Fake
   Future<List<Conversation>> listConversationsForProject({
     required String projectId,
     required int limit,
-  }) async =>
-      const <Conversation>[];
+  }) async {
+    if (listRecentThrows) {
+      throw const ConversationException(
+          ConversationFailure.temporarilyUnavailable);
+    }
+    return _conversationsById.values
+        .where((conv) => conv.scope.projectId == projectId)
+        .toList();
+  }
 
   @override
   Future<List<ConversationFileRef>> listAttachableFiles(

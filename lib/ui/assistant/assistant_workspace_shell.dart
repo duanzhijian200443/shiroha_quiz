@@ -154,16 +154,25 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
           onOpenProject: _openSpaceHome,
           onCreateProject: _createSpace,
         ),
-      _WorkspaceDestination.learningSpaceHome => LearningSpaceHomeWorkspace(
-          controller: _spacesController,
-          fileController: _fileController,
-          projectId: _projectId!,
-          onDeleted: () => setState(() {
-            _projectId = null;
-            _destination = _WorkspaceDestination.learningSpaces;
-            _conversationController.load();
-          }),
-        ),
+      _WorkspaceDestination.learningSpaceHome => _projectId != null &&
+              _spacesController.spaces
+                  .any((space) => space.projectId == _projectId)
+          ? LearningSpaceHomeWorkspace(
+              controller: _spacesController,
+              fileController: _fileController,
+              projectId: _projectId!,
+              onDeleted: () => setState(() {
+                _projectId = null;
+                _destination = _WorkspaceDestination.learningSpaces;
+                _conversationController.load();
+              }),
+            )
+          : LearningSpacesScreen(
+              controller: _spacesController,
+              fileController: _fileController,
+              onOpenProject: _openSpaceHome,
+              onCreateProject: _createSpace,
+            ),
       _WorkspaceDestination.mcp => McpWorkspace(
           projection: _spacesController.mcpProjection,
         ),
@@ -210,7 +219,12 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                 ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: _buildWorkspace()),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: _spacesController,
+                  builder: (context, _) => _buildWorkspace(),
+                ),
+              ),
             ],
           ),
         );
