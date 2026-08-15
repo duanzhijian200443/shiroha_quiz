@@ -80,7 +80,10 @@ final class AgentStudyPlanToolDispatcher {
     'adoptedAt',
   };
 
-  Future<String> dispatch(AgentStudyPlanToolCall call) async {
+  Future<String> dispatch(
+    AgentStudyPlanToolCall call, {
+    bool Function()? lifecycleMutationAllowed,
+  }) async {
     if (utf8.encode(call.argumentsJson).length >
         _limits.maxToolArgumentUtf8Bytes) {
       return _failure('invalid_plan', 'The study plan request is invalid.');
@@ -122,6 +125,7 @@ final class AgentStudyPlanToolDispatcher {
         dailyTarget: parsed.dailyTarget,
         priority: parsed.priority,
         horizonDays: parsed.horizonDays,
+        lifecycleMutationAllowed: lifecycleMutationAllowed,
       );
 
       switch (stageResult) {
@@ -143,6 +147,8 @@ final class AgentStudyPlanToolDispatcher {
               StudyPlanStageResultBusy() ||
               StudyPlanStageResultStale():
           return _failure('invalid_plan', 'The study plan request is invalid.');
+        case StudyPlanStageResultCancelled():
+          return _failure('internal_error', 'An internal error occurred.');
       }
     } on StudyPlanException catch (e) {
       if (e.failure == StudyPlanFailure.temporarilyUnavailable) {
@@ -174,11 +180,13 @@ final class AgentStudyPlanToolDispatcher {
         if (rawGoal is! String) {
           throw const FormatException('Invalid goal type');
         }
-        final trimmedGoal = rawGoal.trim();
-        if (trimmedGoal.isEmpty || trimmedGoal.runes.length > _maxGoalRunes) {
+        // Raw goal is passed through unmodified: canonical validation (which
+        // rejects U+0000..U+001F and U+007F before any normalization) remains
+        // the authority. Only the defensive upper bound is enforced here.
+        if (rawGoal.runes.length > _maxGoalRunes) {
           throw const FormatException('Invalid goal length');
         }
-        goal = trimmedGoal;
+        goal = rawGoal;
       }
     }
 

@@ -872,6 +872,33 @@ String _proposalLabelsText(Object? rawLabels) {
   return rawLabels.whereType<String>().join(', ');
 }
 
+/// Replacement confirmation text bound to the exact observed active plan.
+/// Shows only Application-owned plan data (bank name, optional goal); never
+/// provider/model identity.
+String _replacementConfirmationText({
+  String? currentBankName,
+  String? currentGoal,
+}) {
+  final hasBank = currentBankName != null && currentBankName.isNotEmpty;
+  final hasGoal = currentGoal != null && currentGoal.isNotEmpty;
+  final buffer = StringBuffer('当前已有学习计划');
+  if (hasBank || hasGoal) {
+    buffer.write('（');
+    if (hasBank) {
+      buffer.write('题库：');
+      buffer.write(currentBankName);
+    }
+    if (hasBank && hasGoal) buffer.write('，');
+    if (hasGoal) {
+      buffer.write('目标：');
+      buffer.write(currentGoal);
+    }
+    buffer.write('）');
+  }
+  buffer.write('。采用此草案将替换现有计划，确定要替换吗？');
+  return buffer.toString();
+}
+
 /// SPL-1 StudyPlan proposal card rendered from the typed staged-event preview.
 /// Adopt calls StudyPlanCommandService (with replacement confirmation if
 /// needed); Reject performs zero durable writes.
@@ -898,6 +925,10 @@ class _StudyPlanProposalCard extends StatelessWidget {
     final estimatedDays = preview['estimated_days'];
     final status = controller.studyPlanStatusText;
     final actionMessage = controller.studyPlanActionMessage;
+    // Exact observed ActiveStudyPlan used as the replacement CAS baseline.
+    final currentPlan = controller.pendingReplacementActivePlan;
+    final currentBankName = currentPlan?.bankName;
+    final currentGoal = currentPlan?.goal;
 
     return Card(
       key: const ValueKey<String>('study-plan-draft-card'),
@@ -1001,9 +1032,10 @@ class _StudyPlanProposalCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '当前已有学习计划。'
-                      '采用此草案将替换现有'
-                      '计划，确定要替换吗？',
+                      _replacementConfirmationText(
+                        currentBankName: currentBankName,
+                        currentGoal: currentGoal,
+                      ),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colors.onErrorContainer,
                         fontWeight: FontWeight.w600,

@@ -591,6 +591,9 @@ final class ShirohaAgentRuntime {
                 sourceMessageId: userMessageId,
                 scope: scope,
               ),
+              lifecycleMutationAllowed: () =>
+                  !turn.cancellation.token.isCancelled &&
+                  turn.remainingBudget() > Duration.zero,
             )
             .timeout(remaining);
         _maybeEmitStudyPlanDraftStaged(turn, output);

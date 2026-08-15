@@ -510,6 +510,7 @@ void main() {
     persistencePort.currentActivePlan = ActiveStudyPlan(
       planId: 'current_active_plan_999',
       bankName: 'Math',
+      goal: '冲刺高分',
       dailyTarget: 20,
       priority: StudyPlanPriority.balanced,
       sourceConversationId: 'conv_old',
@@ -526,7 +527,12 @@ void main() {
 
     // Zero adopt calls yet; confirmation banner is displayed
     expect(persistencePort.adoptCalls, 0);
-    expect(find.text('当前已有学习计划。采用此草案将替换现有计划，确定要替换吗？'), findsOneWidget);
+    // The confirmation binds the exact observed active plan identity:
+    // Application-owned bank/goal shown, provider/model identity never.
+    expect(
+      find.text('当前已有学习计划（题库：Math，目标：冲刺高分）。采用此草案将替换现有计划，确定要替换吗？'),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey<String>('study-plan-cancel-replace')),
         findsOneWidget);
     expect(find.byKey(const ValueKey<String>('study-plan-confirm-replace')),
@@ -538,7 +544,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(persistencePort.adoptCalls, 0);
-    expect(find.text('当前已有学习计划。采用此草案将替换现有计划，确定要替换吗？'), findsNothing);
+    expect(
+      find.text('当前已有学习计划（题库：Math，目标：冲刺高分）。采用此草案将替换现有计划，确定要替换吗？'),
+      findsNothing,
+    );
     expect(find.byKey(const ValueKey<String>('study-plan-draft-adopt')),
         findsOneWidget);
 
@@ -701,5 +710,48 @@ void main() {
 
     expect(persistencePort.adoptCalls, 1);
     expect(find.text('已采用该计划'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Section 51: Unknown staged outcome fails closed (no actionable card)',
+      (tester) async {
+    final events = StreamController<AgentTurnEvent>.broadcast();
+    final result = Completer<AgentTurnResult>();
+    final session = AgentTurnSession(
+      events: events.stream,
+      result: result.future,
+      cancel: () {},
+    );
+    final controller = ConversationController(
+      convService,
+      agentSettingsService: agentSettingsService,
+      startAgentTurn: ({required conversationId, required userMessageId}) =>
+          session,
+      studyPlanDraftService: draftService,
+      studyPlanCommandService: commandService,
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+    await controller.send('制定计划');
+
+    events.add(const AgentTurnStudyPlanDraftStaged(
+      draftId: 'draft_unknown_outcome',
+      outcome: 'weird_outcome',
+      preview: <String, Object?>{'bank_name': 'Math'},
+    ));
+    await tester.pump();
+
+    // Unknown staged outcomes must fail closed: no card, no actionable state,
+    // and no transient draft was registered.
+    expect(controller.hasStudyPlanCard, isFalse);
+    expect(controller.studyPlanDraftId, isNull);
+    expect(
+      () => draftService.draftById('draft_unknown_outcome'),
+      throwsArgumentError,
+    );
+
+    await events.close();
+    result.complete(const AgentTurnFailed(AgentTurnFailure.cancelled));
+    await tester.pump();
   });
 }

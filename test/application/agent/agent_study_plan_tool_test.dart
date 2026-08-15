@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -50,6 +51,7 @@ final class _RecordingPersistencePort implements StudyPlanPersistencePort {
 final class _FakePlanningPort implements StudyPlanPlanningPort {
   bool admit = true;
   bool throwUnavailable = false;
+  Completer<StudyPlanPlanningAdmission>? gate;
   ConversationScope? lastScope;
   String? lastBankName;
 
@@ -61,6 +63,10 @@ final class _FakePlanningPort implements StudyPlanPlanningPort {
   }) async {
     lastScope = sourceScope;
     lastBankName = bankName;
+    final gate = this.gate;
+    if (gate != null) {
+      return gate.future;
+    }
     if (throwUnavailable) {
       throw const StudyPlanReadException(StudyPlanReadFailure.unavailable);
     }
@@ -517,6 +523,11 @@ void main() {
           contains('Natural-language agreement is not formal adoption'));
       expect(prompt,
           contains('Never claim that a study plan was saved or activated'));
+      expect(
+        prompt,
+        contains('Do not repeatedly regenerate an identical StudyPlan proposal '
+            'unless requested or required.'),
+      );
     });
   });
 
@@ -606,5 +617,205 @@ void main() {
       );
       expect(() => freshService.draftById(draftId), throwsArgumentError);
     });
+  });
+
+  group('Section 52: Cancellation / timeout lifecycle gate', () {
+    test('a. cancel while planning read is in flight performs zero mutation',
+        () async {
+      final planningPort = _FakePlanningPort();
+      final gate = Completer<StudyPlanPlanningAdmission>();
+      planningPort.gate = gate;
+      final draftService = StudyPlanDraftService(
+        planningPort: planningPort,
+        draftIdFactory: () => 'draft_cancel',
+        clock: () => DateTime.utc(2026, 8, 15),
+      );
+      final dispatcher =
+          AgentStudyPlanToolDispatcher(draftService: draftService);
+
+      var lifecycleAllowed = true;
+      final call = AgentStudyPlanToolCall(
+        argumentsJson: jsonEncode(<String, Object?>{
+          'bank_name': 'Math',
+          'daily_target': 30,
+        }),
+        sourceConversationId: 'conv_1',
+        sourceMessageId: 'msg_1',
+        scope: ConversationScope.global(),
+      );
+
+      final pending = dispatcher.dispatch(
+        call,
+        lifecycleMutationAllowed: () => lifecycleAllowed,
+      );
+      // Cancel the turn while the planning read is in flight.
+      lifecycleAllowed = false;
+      gate.complete(StudyPlanPlanningAdmitted(
+        StudyPlanPlanningContext(
+          bankName: 'Math',
+          questionCount: 50,
+          masteredCount: 10,
+          dueCount: 15,
+          weakCount: 5,
+          newCount: 20,
+        ),
+      ));
+
+      final resultJson = await pending;
+      final decoded = jsonDecode(resultJson) as Map<String, dynamic>;
+      expect(decoded['ok'], isFalse);
+      // No fresh pending draft was created and no lifecycle state changed.
+      expect(
+        () => draftService.draftById('draft_cancel'),
+        throwsArgumentError,
+      );
+    });
+
+    test('b. timeout while planning read is in flight performs zero mutation',
+        () async {
+      final planningPort = _FakePlanningPort();
+      final gate = Completer<StudyPlanPlanningAdmission>();
+      planningPort.gate = gate;
+      final draftService = StudyPlanDraftService(
+        planningPort: planningPort,
+        draftIdFactory: () => 'draft_timeout',
+        clock: () => DateTime.utc(2026, 8, 15),
+      );
+      final dispatcher =
+          AgentStudyPlanToolDispatcher(draftService: draftService);
+
+      var lifecycleAllowed = true;
+      final call = AgentStudyPlanToolCall(
+        argumentsJson: jsonEncode(<String, Object?>{
+          'bank_name': 'Math',
+          'daily_target': 30,
+        }),
+        sourceConversationId: 'conv_1',
+        sourceMessageId: 'msg_1',
+        scope: ConversationScope.global(),
+      );
+
+      final pending = dispatcher.dispatch(
+        call,
+        lifecycleMutationAllowed: () => lifecycleAllowed,
+      );
+      // The turn deadline expired while the read was in flight.
+      lifecycleAllowed = false;
+      gate.complete(StudyPlanPlanningAdmitted(
+        StudyPlanPlanningContext(
+          bankName: 'Math',
+          questionCount: 50,
+          masteredCount: 10,
+          dueCount: 15,
+          weakCount: 5,
+          newCount: 20,
+        ),
+      ));
+
+      final resultJson = await pending;
+      final decoded = jsonDecode(resultJson) as Map<String, dynamic>;
+      expect(decoded['ok'], isFalse);
+      expect(
+        () => draftService.draftById('draft_timeout'),
+        throwsArgumentError,
+      );
+    });
+
+    test('c. completing the read after gate close leaves no new pending draft',
+        () async {
+      final planningPort = _FakePlanningPort();
+      final gate = Completer<StudyPlanPlanningAdmission>();
+      planningPort.gate = gate;
+      final draftService = StudyPlanDraftService(
+        planningPort: planningPort,
+        draftIdFactory: () => 'draft_late',
+        clock: () => DateTime.utc(2026, 8, 15),
+      );
+      final dispatcher =
+          AgentStudyPlanToolDispatcher(draftService: draftService);
+
+      var lifecycleAllowed = true;
+      final call = AgentStudyPlanToolCall(
+        argumentsJson: jsonEncode(<String, Object?>{
+          'bank_name': 'Math',
+          'daily_target': 30,
+        }),
+        sourceConversationId: 'conv_1',
+        sourceMessageId: 'msg_1',
+        scope: ConversationScope.global(),
+      );
+
+      final pending = dispatcher.dispatch(
+        call,
+        lifecycleMutationAllowed: () => lifecycleAllowed,
+      );
+      // Read completes AFTER cancellation; the activation must not occur.
+      lifecycleAllowed = false;
+      gate.complete(StudyPlanPlanningAdmitted(
+        StudyPlanPlanningContext(
+          bankName: 'Math',
+          questionCount: 50,
+          masteredCount: 10,
+          dueCount: 15,
+          weakCount: 5,
+          newCount: 20,
+        ),
+      ));
+      await pending;
+
+      expect(
+        () => draftService.draftById('draft_late'),
+        throwsArgumentError,
+      );
+      // A later explicit gate-open staging call still works normally.
+      lifecycleAllowed = true;
+      final retry = await dispatcher.dispatch(
+        call,
+        lifecycleMutationAllowed: () => lifecycleAllowed,
+      );
+      final retryDecoded = jsonDecode(retry) as Map<String, dynamic>;
+      expect(retryDecoded['ok'], isTrue);
+      expect(retryDecoded['result']['status'], 'staged');
+    });
+  });
+
+  group('Section 53: Raw goal control characters are rejected', () {
+    final cases = <(String, String)>[
+      ('leading newline', '\nExam prep'),
+      ('leading tab', '\tExam prep'),
+      ('trailing newline', 'Exam prep\n'),
+      ('NUL', 'Exam\u0000prep'),
+      ('DEL', 'Exam\u007fprep'),
+    ];
+    for (final (label, goal) in cases) {
+      test('goal with $label maps to invalid_plan', () async {
+        final planningPort = _FakePlanningPort();
+        final draftService = StudyPlanDraftService(
+          planningPort: planningPort,
+          draftIdFactory: () => 'draft_goal',
+          clock: () => DateTime.utc(2026, 8, 15),
+        );
+        final dispatcher =
+            AgentStudyPlanToolDispatcher(draftService: draftService);
+        final call = AgentStudyPlanToolCall(
+          argumentsJson: jsonEncode(<String, Object?>{
+            'bank_name': 'Math',
+            'goal': goal,
+          }),
+          sourceConversationId: 'conv_1',
+          sourceMessageId: 'msg_1',
+          scope: ConversationScope.global(),
+        );
+        final resultJson = await dispatcher.dispatch(call);
+        final decoded = jsonDecode(resultJson) as Map<String, dynamic>;
+        expect(decoded['ok'], isFalse);
+        expect(decoded['error']['code'], 'invalid_plan');
+        // Zero lifecycle mutation.
+        expect(
+          () => draftService.draftById('draft_goal'),
+          throwsArgumentError,
+        );
+      });
+    }
   });
 }

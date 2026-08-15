@@ -480,11 +480,16 @@ final class ConversationController extends ChangeNotifier {
           :final outcome,
           :final preview,
         ):
-        _projectStagedStudyPlanDraft(
-          draftId: draftId,
-          outcome: _studyPlanOutcomeOf(outcome),
-          preview: preview,
-        );
+        // Unknown staged outcomes fail closed: no card is projected and no
+        // actionable adoption state is created.
+        final parsedOutcome = _studyPlanOutcomeOf(outcome);
+        if (parsedOutcome != null) {
+          _projectStagedStudyPlanDraft(
+            draftId: draftId,
+            outcome: parsedOutcome,
+            preview: preview,
+          );
+        }
         break;
       case AgentTurnCompleted() || AgentTurnFailedEvent():
         return;
@@ -966,14 +971,14 @@ final class ConversationController extends ChangeNotifier {
     }
   }
 
-  StudyPlanDraftOutcome _studyPlanOutcomeOf(String value) {
+  StudyPlanDraftOutcome? _studyPlanOutcomeOf(String value) {
     return switch (value) {
       'pending' => StudyPlanDraftOutcome.pending,
       'committing' => StudyPlanDraftOutcome.committing,
       'committed' => StudyPlanDraftOutcome.committed,
       'rejected' => StudyPlanDraftOutcome.rejected,
       'superseded' => StudyPlanDraftOutcome.superseded,
-      _ => StudyPlanDraftOutcome.pending,
+      _ => null,
     };
   }
 

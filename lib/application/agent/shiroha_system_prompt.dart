@@ -61,6 +61,10 @@ final class ShirohaSystemPrompt {
         ..writeln(
           '- Never claim that a study plan was saved or activated before '
           'formal confirmation.',
+        )
+        ..writeln(
+          '- Do not repeatedly regenerate an identical StudyPlan proposal '
+          'unless requested or required.',
         );
     }
     buffer
