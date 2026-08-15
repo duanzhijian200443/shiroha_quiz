@@ -17,6 +17,7 @@ import 'package:shiroha_quiz/domain/study_plan/study_plan_values.dart';
 import 'package:shiroha_quiz/services/study_plan/study_plan_practice_session_launcher.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
+import 'package:shiroha_quiz/ui/pages/import_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/practice_page.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -235,6 +236,7 @@ void main() {
     double textScale = 1,
     VoidCallback? onSwitchBank,
     VoidCallback? onPracticeRequested,
+    VoidCallback? onImportRequested,
     StudyPlanSelectionService? studyPlanSelectionService,
     StudyPlanCommandService? studyPlanCommandService,
     StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher,
@@ -258,6 +260,7 @@ void main() {
             taskManager: taskManager,
             onSwitchBank: onSwitchBank,
             onPracticeRequested: onPracticeRequested,
+            onImportRequested: onImportRequested,
             studyPlanSelectionService: studyPlanSelectionService,
             studyPlanCommandService: studyPlanCommandService,
             studyPlanSessionLauncher: studyPlanSessionLauncher,
@@ -1176,6 +1179,99 @@ void main() {
       expect(find.text('Bank B'), findsOneWidget);
       expect(find.text('Bank A'), findsNothing);
       expect(tester.takeException(), isNull);
+    });
+
+    group('UX-IMPORT global manual import entry', () {
+      testWidgets(
+          'Today AppBar has + import action with correct tooltip and key',
+          (tester) async {
+        await pumpHome(tester);
+
+        final actionFinder =
+            find.byKey(const ValueKey<String>('home-import-action'));
+        expect(actionFinder, findsOneWidget);
+        expect(find.byIcon(Icons.add_rounded), findsOneWidget);
+
+        final iconButton = tester.widget<IconButton>(actionFinder);
+        expect(iconButton.tooltip, '导入题库');
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets(
+          'tapping + import action invokes onImportRequested callback seam',
+          (tester) async {
+        var importCalls = 0;
+        await pumpHome(
+          tester,
+          onImportRequested: () => importCalls++,
+        );
+
+        final actionFinder =
+            find.byKey(const ValueKey<String>('home-import-action'));
+        await tester.tap(actionFinder);
+        await tester.pump();
+
+        expect(importCalls, 1);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets(
+          'tapping + import action without callback pushes ImportSettingsScreen',
+          (tester) async {
+        await pumpHome(tester);
+
+        final actionFinder =
+            find.byKey(const ValueKey<String>('home-import-action'));
+        await tester.tap(actionFinder);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ImportSettingsScreen), findsOneWidget);
+        expect(find.text('导入题目'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets(
+          'import action is present across all Today modes without breaking modes',
+          (tester) async {
+        await pumpHome(tester);
+
+        // Ordinary mode
+        expect(
+          find.byKey(const ValueKey<String>('home-import-action')),
+          findsOneWidget,
+        );
+
+        // Focused mode
+        await tester.tap(find.byKey(const ValueKey('today-mode-focused')));
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey<String>('home-import-action')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('today-mode-ordinary')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('today-mode-focused')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('today-mode-exam')),
+          findsOneWidget,
+        );
+
+        // Exam mode
+        await tester.tap(find.byKey(const ValueKey('today-mode-exam')));
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey<String>('home-import-action')),
+          findsOneWidget,
+        );
+        expect(
+            find.byKey(const ValueKey('today-exam-surface')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
     });
   });
 }
