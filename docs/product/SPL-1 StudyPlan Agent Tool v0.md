@@ -10,7 +10,7 @@ SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
 SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
 SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
 SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
-SPL-1-V0 Focused acceptance — NOT STARTED
+SPL-1-V0 Focused acceptance — COMPLETE
 SPL-1-CL Closure — NOT STARTED
 SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS (not COMPLETE / not CLOSED)
 ```
@@ -20,7 +20,8 @@ stage a StudyPlanDraft via `propose_study_plan` and Assistant provides
 explicit adoption/replacement confirmation; durable adoption remains
 Application-controlled; Today / 特训 consumes a real adopted
 `ActiveStudyPlan` through deterministic dynamic selection (U0 delivered);
-MCP remains unchanged.
+V0 focused acceptance over the real production chain on synthetic SQLite is
+COMPLETE; MCP remains unchanged.
 
 ## 1. Authority and scope
 

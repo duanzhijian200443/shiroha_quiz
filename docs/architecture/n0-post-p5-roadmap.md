@@ -75,7 +75,7 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
   SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
   SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
-  SPL-1-V0 Focused acceptance — NOT STARTED
+  SPL-1-V0 Focused acceptance — COMPLETE
   SPL-1-CL Closure — NOT STARTED
   SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS
   Current runtime schema — v22
@@ -409,7 +409,12 @@ adoption / replacement confirmation / reject Presentation) is COMPLETE.
 SPL-1-U0 (Today / 特训 real plan surface, deterministic dynamic selection
 service, exact-order typed/legacy materialization seam, non-preview
 PracticePage prepared-session path, and exact-planId stop CAS) is COMPLETE.
-Later SPL-1 sub-stages (V0 / CL) are NOT STARTED. SPL-1 is IN
+SPL-1-V0 (focused acceptance over the real production chain — proposal
+staging, explicit adoption, transient-vs-durable restart, provenance-vs-
+ownership, live dynamic selection, non-preview Practice path, typed/legacy
+materialization, replacement/stop CAS, advisory states, and frozen
+Agent/MCP/schema catalogs — on synthetic SQLite with zero production code
+changes) is COMPLETE. The later sub-stage CL is NOT STARTED. SPL-1 is IN
 PROGRESS and is not CLOSED / FROZEN. Runtime schema is v22.
 
 The frozen capability chain is:
