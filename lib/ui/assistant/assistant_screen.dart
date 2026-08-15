@@ -156,11 +156,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     await widget.conversationController.toggleFile(fileId);
   }
 
-  Future<void> _showSpacePicker() async {
-    if (!widget.conversationController.isDraft) {
-      _feedback('对话范围已在首条消息发送时锁定');
-      return;
-    }
+  Future<void> _showDraftSpacePicker() async {
     final currentProjectId = widget.conversationController.draftScope.projectId;
     final selected = await showModalBottomSheet<String>(
       context: context,
@@ -224,6 +220,123 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ? ConversationScope.global()
           : ConversationScope.learningSpace(selected),
     );
+  }
+
+  Future<void> _showMoveSpacePicker() async {
+    final controller = widget.conversationController;
+    if (controller.hasActiveTurn || controller.isSending) {
+      _feedback('请先停止当前生成');
+      return;
+    }
+    if (controller.proposalActionPending ||
+        controller.studyPlanActionPending ||
+        controller.isMovingConversation) {
+      return;
+    }
+
+    final currentScope = controller.currentScope;
+    final currentProjectId = currentScope.projectId;
+    final isUnavailable = currentScope.isUnavailableLearningSpace;
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text('移动对话'),
+                titleTextStyle: Theme.of(sheetContext)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+                subtitle: isUnavailable ? const Text('原学习空间已删除') : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.public_rounded),
+                title: const Text('全局对话'),
+                trailing: currentScope.kind == ConversationScopeKind.global
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, ''),
+              ),
+              if (widget.spacesController.spaces.isEmpty)
+                const ListTile(title: Text('暂无学习空间')),
+              for (final space in widget.spacesController.spaces)
+                ListTile(
+                  leading: const Icon(Icons.space_dashboard_outlined),
+                  title: Text(space.displayName),
+                  trailing: currentProjectId == space.projectId
+                      ? const Icon(Icons.check_rounded)
+                      : null,
+                  onTap: () => Navigator.pop(sheetContext, space.projectId),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted || selected == null) return;
+
+    final targetScope = selected.isEmpty
+        ? ConversationScope.global()
+        : ConversationScope.learningSpace(selected);
+
+    if (targetScope == currentScope) {
+      return;
+    }
+
+    final targetName = selected.isEmpty
+        ? '全局对话'
+        : widget.spacesController.spaces
+                .where((s) => s.projectId == selected)
+                .map((s) => s.displayName)
+                .firstOrNull ??
+            '学习空间';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey<String>('conv-move-confirmation-dialog'),
+        title: const Text('移动对话？'),
+        content: Text(
+          '将此对话移动到「$targetName」。\n\n'
+          '历史消息和已附加文件不会改变。\n'
+          '之后 Shiroha 的回复和本地检索将使用新的对话范围。',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('conv-move-dialog-cancel'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('conv-move-dialog-confirm'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('移动'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final success = await controller.moveActiveConversation(targetScope);
+    if (success && mounted) {
+      _feedback('已移动到「$targetName」');
+    }
+  }
+
+  Future<void> _showSpacePicker() async {
+    if (widget.conversationController.isDraft) {
+      await _showDraftSpacePicker();
+    } else {
+      await _showMoveSpacePicker();
+    }
   }
 
   Future<void> _createSpace() async {
@@ -393,12 +506,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    Icon(
-                      conversations.isDraft
-                          ? Icons.keyboard_arrow_down_rounded
-                          : Icons.lock_outline_rounded,
+                    const Icon(
+                      Icons.keyboard_arrow_down_rounded,
                       size: 17,
-                      color: colors.onSurfaceVariant,
                     ),
                   ],
                 ),
@@ -411,14 +521,21 @@ class _AssistantScreenState extends State<AssistantScreen> {
             IconButton(
               key: const ValueKey<String>('c0-delete-conversation'),
               tooltip: '删除对话',
-              onPressed: _deleteConversation,
+              onPressed: (conversations.hasActiveTurn ||
+                      conversations.isSending ||
+                      conversations.isMovingConversation)
+                  ? null
+                  : _deleteConversation,
               icon: const Icon(Icons.delete_outline_rounded),
             ),
           IconButton(
             key: const ValueKey<String>('u1-ux0-new-conversation'),
             tooltip: '新对话',
-            onPressed:
-                conversations.hasActiveTurn ? null : _startNewConversation,
+            onPressed: (conversations.hasActiveTurn ||
+                    conversations.isSending ||
+                    conversations.isMovingConversation)
+                ? null
+                : _startNewConversation,
             icon: const Icon(Icons.add_comment_outlined),
           ),
           const SizedBox(width: 4),
@@ -435,7 +552,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 _Composer(
                   controller: _composerController,
                   selectedFiles: conversations.selectedFiles,
-                  isSending: conversations.isSending,
+                  isSending: conversations.isSending ||
+                      conversations.isMovingConversation,
                   hasActiveTurn: conversations.hasActiveTurn,
                   retrievalApproved: conversations.retrievalApprovedForNextTurn,
                   onRetrievalApprovalChanged:

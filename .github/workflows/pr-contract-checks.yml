@@ -167,6 +167,7 @@ jobs:
             'test/ui/assistant/assistant_workspace_shell_test.dart',
             'test/ui/assistant/file_detail_ocr_flow_test.dart',
             'test/ui/assistant/conversation_controller_test.dart',
+            'test/ui/assistant/conversation_move_ui_test.dart',
             'test/ui/pages/agent_settings_screen_test.dart',
             'test/profile_screen_test.dart',
             'test/widget_test.dart',

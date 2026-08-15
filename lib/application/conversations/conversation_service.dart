@@ -146,6 +146,23 @@ final class ConversationService {
     );
   }
 
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+  }) async {
+    _validateInputId(conversationId, label: 'Conversation');
+    if (targetScope.isUnavailableLearningSpace) {
+      throw const ConversationException(ConversationFailure.scopeUnavailable);
+    }
+    return _repositoryCall(
+      () => _repository.moveConversation(
+        conversationId: conversationId,
+        targetScope: targetScope,
+        movedAt: normalizeConversationTimestamp(_clock()),
+      ),
+    );
+  }
+
   Future<List<ConversationFileRef>> listAttachableFiles({int limit = 100}) {
     _validateLimit(limit);
     return _repositoryCall(() => _repository.listAttachableFiles(limit: limit));

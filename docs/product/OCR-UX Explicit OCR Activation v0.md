@@ -1,6 +1,6 @@
 # OCR-UX Explicit OCR Activation v0
 
-Status: **Canonical OCR-UX product/application contract.**
+Status: **Canonical OCR-UX product/application contract. CLOSED / FROZEN.**
 
 ## 1. Authority and scope
 

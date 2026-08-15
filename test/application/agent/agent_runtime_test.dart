@@ -2702,6 +2702,68 @@ void main() {
       expect(harness.fallbackProvider.callCount, 1);
     });
   });
+
+  group('CONV-MOVE Agent scope regression', () {
+    test(
+      'new turn on relocated conversation observes updated scope in prompt and tools',
+      () async {
+        String? observedSystemPrompt;
+        const state = _TestContinuationState('s');
+        final harness = _Harness(
+          wireProposal: true,
+          scripts: <_Script>[
+            (request, token) async* {
+              observedSystemPrompt = request.systemPrompt;
+              yield _proposalCall('p-1');
+              yield AgentProviderCompleted(
+                'response-tool',
+                continuationState: state,
+              );
+            },
+            _finalAnswer('Done'),
+          ],
+        );
+        final (conversationId, _) = await harness.seedUser(
+          'initial question in global',
+          scope: ConversationScope.global(),
+        );
+
+        // Explicitly relocate conversation to space-b
+        await harness.repository.moveConversation(
+          conversationId: conversationId,
+          targetScope: ConversationScope.learningSpace('space-b'),
+          movedAt: DateTime.utc(2026, 8, 16, 2, 0),
+        );
+
+        // Append a new user message
+        final appendResult =
+            await harness.conversationService.appendUserMessage(
+          conversationId: conversationId,
+          content: 'follow-up question in space B',
+        );
+
+        final session = harness.runtime.startTurn(
+          conversationId: conversationId,
+          userMessageId: appendResult.message.messageId,
+        );
+        final result = await session.result;
+
+        expect(result, isA<AgentTurnSuccess>());
+        expect(observedSystemPrompt, isNotNull);
+        expect(
+          observedSystemPrompt,
+          contains('- This conversation belongs to a Learning Space.'),
+        );
+        expect(
+          observedSystemPrompt,
+          isNot(contains('- This conversation is Global.')),
+        );
+        expect(harness.proposalPersistence.admissionRequests, isNotEmpty);
+        final admission = harness.proposalPersistence.admissionRequests.first;
+        expect(admission.scope, ConversationScope.learningSpace('space-b'));
+      },
+    );
+  });
 }
 
 typedef _Call = AgentProviderFunctionCall;
@@ -3095,6 +3157,32 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
     required DateTime detachedAt,
   }) {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+    required DateTime movedAt,
+  }) async {
+    final current = _conversations[conversationId];
+    if (current == null) {
+      throw const ConversationException(
+        ConversationFailure.conversationNotFound,
+      );
+    }
+    if (targetScope.isUnavailableLearningSpace) {
+      throw const ConversationException(ConversationFailure.scopeUnavailable);
+    }
+    if (current.scope == targetScope) {
+      return MoveConversationResult(conversation: current, moved: false);
+    }
+    final updated = current.withScope(
+      scope: targetScope,
+      updatedAt: movedAt,
+    );
+    _conversations[conversationId] = updated;
+    return MoveConversationResult(conversation: updated, moved: true);
   }
 
   @override

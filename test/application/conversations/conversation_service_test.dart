@@ -72,6 +72,35 @@ final class _Repository extends Fake implements ConversationRepositoryPort {
     );
   }
 
+  ConversationScope? movedTargetScope;
+  DateTime? movedAt;
+  ConversationFailure? moveFailure;
+
+  @override
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+    required DateTime movedAt,
+  }) async {
+    movedTargetScope = targetScope;
+    this.movedAt = movedAt;
+    final failure = moveFailure;
+    if (failure != null) {
+      throw ConversationException(failure);
+    }
+    final now = DateTime.utc(2026, 8, 10, 15);
+    return MoveConversationResult(
+      conversation: Conversation(
+        conversationId: conversationId,
+        scope: targetScope,
+        title: 'title',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      moved: true,
+    );
+  }
+
   @override
   Future<ConversationThreadSlice> loadConversation({
     required String conversationId,
@@ -233,5 +262,73 @@ void main() {
     );
     expect(repository.receivedLimit, 20);
     expect(repository.receivedBeforeSequence, 10);
+  });
+
+  group('CONV-MOVE application service', () {
+    test(
+        'invalid target (unavailableLearningSpace) is rejected before repository',
+        () async {
+      await expectLater(
+        service.moveConversation(
+          conversationId: 'conv-1',
+          targetScope: ConversationScope.unavailableLearningSpace(),
+        ),
+        throwsA(
+          isA<ConversationException>().having(
+            (e) => e.failure,
+            'failure',
+            ConversationFailure.scopeUnavailable,
+          ),
+        ),
+      );
+      expect(repository.movedTargetScope, isNull);
+    });
+
+    test('invalid conversation ID is rejected before repository', () async {
+      await expectLater(
+        service.moveConversation(
+          conversationId: '',
+          targetScope: ConversationScope.global(),
+        ),
+        throwsA(
+          isA<ConversationException>().having(
+            (e) => e.failure,
+            'failure',
+            ConversationFailure.invalidInput,
+          ),
+        ),
+      );
+      expect(repository.movedTargetScope, isNull);
+    });
+
+    test(
+        'clock authority is owned by service and passed normalized to repository',
+        () async {
+      final res = await service.moveConversation(
+        conversationId: 'conv-1',
+        targetScope: ConversationScope.learningSpace('project-1'),
+      );
+      expect(res.moved, isTrue);
+      expect(repository.movedTargetScope,
+          ConversationScope.learningSpace('project-1'));
+      expect(repository.movedAt, DateTime.utc(2026, 8, 10, 12));
+    });
+
+    test('repository typed failures propagate safely', () async {
+      repository.moveFailure = ConversationFailure.projectNotFound;
+      await expectLater(
+        service.moveConversation(
+          conversationId: 'conv-1',
+          targetScope: ConversationScope.learningSpace('project-missing'),
+        ),
+        throwsA(
+          isA<ConversationException>().having(
+            (e) => e.failure,
+            'failure',
+            ConversationFailure.projectNotFound,
+          ),
+        ),
+      );
+    });
   });
 }
