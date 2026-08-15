@@ -142,6 +142,7 @@ jobs:
               'test/data/repositories/ai_answer_commit_repository_test.dart',
               'test/p7_ai_answer_ui_acceptance_test.dart',
               'test/p7_v0_acceptance_test.dart',
+              'test/spl1_v0_acceptance_test.dart',
               'test/p5_typed_answer_repair_ui_acceptance_test.dart'
             )
 

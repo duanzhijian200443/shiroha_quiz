@@ -829,7 +829,8 @@ void main() {
       expect(adoptB, isA<StudyPlanAdoptResultSuccess>());
       final planB = (adoptB as StudyPlanAdoptResultSuccess).activePlan;
       expect(planB.planId, isNot(planA.planId),
-          reason: 'production planId non-reuse contract');
+          reason: 'fresh/non-reused identity contract within the acceptance '
+              'fixture');
       expect((await _studyPlansRows(db)).single['plan_id'], planB.planId);
 
       // Stale command using the old A baseline: zero mutation of B.
