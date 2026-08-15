@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
+import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
 import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
@@ -11,7 +12,9 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
+import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
+import 'package:shiroha_quiz/domain/source/source_document.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
@@ -244,11 +247,87 @@ final class _QuestionPort extends Fake implements StudyQuestionQueryPort {
 
 final class _MetricsPort extends Fake implements StudyMetricsQueryPort {}
 
+final class _FakeParsedArtifactLifecycle
+    implements ParsedArtifactLifecyclePort {
+  final Map<String, ParsedArtifactSnapshot> artifacts =
+      <String, ParsedArtifactSnapshot>{};
+  final List<(String, ParsedArtifactParseOptions)> ensureCalls =
+      <(String, ParsedArtifactParseOptions)>[];
+  Object? ensureError;
+  Object? currentError;
+
+  @override
+  Future<ParsedArtifactSnapshot> getCurrentArtifact(String fileId) async {
+    if (currentError != null) {
+      throw currentError!;
+    }
+    final artifact = artifacts[fileId];
+    if (artifact == null) {
+      throw const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.artifactMissing,
+      );
+    }
+    return artifact;
+  }
+
+  @override
+  Future<ParsedArtifactEnsureResult> ensureParsedArtifact({
+    required String fileId,
+    required ParsedArtifactParseOptions options,
+  }) async {
+    ensureCalls.add((fileId, options));
+    if (ensureError != null) {
+      throw ensureError!;
+    }
+    final existing = artifacts[fileId];
+    if (existing != null) {
+      return ParsedArtifactEnsureResult(
+        outcome: ParsedArtifactLifecycleOutcome.cacheHit,
+        snapshot: existing,
+      );
+    }
+    final created = ParsedArtifactSnapshot(
+      artifact: ParsedArtifact(
+        fileId: fileId,
+        artifactId: 'artifact-$fileId',
+        revision: 1,
+        payloadSchemaVersion: 1,
+      ),
+      sourceDocument: SourceDocument(sourceId: 'artifact-$fileId'),
+      parserRoute: options.routeSelection == ParsedArtifactRouteSelection.ocrPdf
+          ? 'ocr_pdf'
+          : 'pdf_text',
+    );
+    artifacts[fileId] = created;
+    return ParsedArtifactEnsureResult(
+      outcome: ParsedArtifactLifecycleOutcome.published,
+      snapshot: created,
+    );
+  }
+
+  @override
+  Future<ParsedArtifactEnsureResult> reparseArtifact({
+    required String fileId,
+    required ParsedArtifactParseOptions options,
+    required int expectedRevision,
+  }) =>
+      ensureParsedArtifact(fileId: fileId, options: options);
+
+  @override
+  Future<void> removeCurrentArtifact({
+    required String fileId,
+    required int expectedRevision,
+  }) async {
+    artifacts.remove(fileId);
+  }
+}
+
 void main() {
   late _Files files;
   late _Ingestion ingestion;
   late _Projects projects;
   late _Folders folders;
+  late _FakeParsedArtifactLifecycle lifecycle;
   late U1WorkspaceFacade facade;
 
   setUp(() {
@@ -256,6 +335,7 @@ void main() {
     ingestion = _Ingestion(files);
     projects = _Projects();
     folders = _Folders(files);
+    lifecycle = _FakeParsedArtifactLifecycle();
     facade = U1WorkspaceFacade(
       projectService: ProjectService(
         repository: projects,
@@ -279,6 +359,7 @@ void main() {
         ]),
         metricsQuery: _MetricsPort(),
       ),
+      parsedArtifactLifecycle: lifecycle,
       mcpProjection: McpWorkspaceProjection(
         state: McpCapabilityState.configuredAvailable,
         transport: McpTransport.localStdio,
@@ -395,5 +476,127 @@ void main() {
     expect(facade.mcpProjection.transport, McpTransport.localStdio);
     expect(facade.mcpProjection.permission, McpPermission.readOnly);
     expect(facade.mcpProjection.toolNames, <String>['list_question_banks']);
+  });
+
+  group('OCR-UX ParsedArtifact Application lifecycle seam', () {
+    test('no current artifact -> state none', () async {
+      lifecycle.artifacts.clear();
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.none);
+      expect(status.parserRoute, isNull);
+      expect(status.revision, isNull);
+    });
+
+    test('valid current artifact -> state available', () async {
+      lifecycle.artifacts['file-a'] = ParsedArtifactSnapshot(
+        artifact: ParsedArtifact(
+          fileId: 'file-a',
+          artifactId: 'art-1',
+          revision: 2,
+          payloadSchemaVersion: 1,
+        ),
+        sourceDocument: SourceDocument(sourceId: 'art-1'),
+        parserRoute: 'pdf_text',
+      );
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.available);
+      expect(status.parserRoute, 'pdf_text');
+      expect(status.revision, 2);
+    });
+
+    test('deterministic PDF parse success -> available, OCR never called',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      final res = await facade.ensureLibraryFileParsed('file-a');
+      expect(res.status, LibraryFileArtifactStatus.available);
+      expect(res.parserRoute, 'pdf_text');
+      expect(lifecycle.ensureCalls, hasLength(1));
+      expect(
+        lifecycle.ensureCalls.single.$2.routeSelection,
+        ParsedArtifactRouteSelection.auto,
+      );
+    });
+
+    test('PDF deterministic sourceUnavailable -> typed ocrRecommended',
+        () async {
+      files.values['pdf-file'] = _file('pdf-file', 1);
+      lifecycle.ensureError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.sourceUnavailable,
+      );
+      final res = await facade.ensureLibraryFileParsed('pdf-file');
+      expect(res.status, LibraryFileArtifactStatus.ocrRecommended);
+    });
+
+    test('non-PDF sourceUnavailable -> NOT ocrRecommended (state unavailable)',
+        () async {
+      files.values['txt-file'] = LibraryFile(
+        fileId: 'txt-file',
+        displayName: 'notes.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 1,
+        sha256: _sha,
+        storageKey: 'library/txt-file',
+        createdAt: DateTime.utc(2026, 8, 9),
+      );
+      lifecycle.ensureError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.sourceUnavailable,
+      );
+      final res = await facade.ensureLibraryFileParsed('txt-file');
+      expect(res.status, LibraryFileArtifactStatus.unavailable);
+      expect(res.status, isNot(LibraryFileArtifactStatus.ocrRecommended));
+      expect(res.errorMessage, '文件内容当前不可读取。');
+    });
+
+    test('explicit OCR command uses ocrPdf route and publishes revision',
+        () async {
+      files.values['pdf-file'] = _file('pdf-file', 1);
+      lifecycle.ensureError = null;
+      final res = await facade.ensureLibraryFileOcrPdf('pdf-file');
+      expect(res.status, LibraryFileArtifactStatus.available);
+      expect(res.parserRoute, 'ocr_pdf');
+      expect(res.revision, 1);
+      expect(
+        lifecycle.ensureCalls.last.$2.routeSelection,
+        ParsedArtifactRouteSelection.ocrPdf,
+      );
+    });
+
+    test('OCR temporarilyUnavailable -> bounded unavailable result', () async {
+      files.values['pdf-file'] = _file('pdf-file', 1);
+      lifecycle.ensureError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.temporarilyUnavailable,
+      );
+      final res = await facade.ensureLibraryFileOcrPdf('pdf-file');
+      expect(res.status, LibraryFileArtifactStatus.unavailable);
+      expect(
+        res.errorMessage,
+        '当前 OCR 服务不可用，请检查 OCR 引擎配置后重试。',
+      );
+    });
+
+    test('artifactMissing does not break File Detail', () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.artifactMissing,
+      );
+      final detail = await facade.getLibraryFileDetail('file-a');
+      expect(detail, isNotNull);
+      expect(detail!.file.fileId, 'file-a');
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.none);
+    });
+
+    test('artifactCorrupt maps safely without hiding file metadata', () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.artifactCorrupt,
+      );
+      final detail = await facade.getLibraryFileDetail('file-a');
+      expect(detail, isNotNull);
+      expect(detail!.file.displayName, 'file-a.pdf');
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.failed);
+      expect(status.errorMessage, '文件内容解析数据已损坏');
+    });
   });
 }
