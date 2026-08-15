@@ -404,7 +404,8 @@ through an Application command with a durable transaction-level
   priority selection, dailyTarget cap, advisory states only), and 开始特训
   materializes the exact ordered selected storage IDs through the narrow
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
-  remains preview-only).
+  remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
+  (P0–D0–D1–I0–U0–V0–CL COMPLETE; runtime schema v22).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
