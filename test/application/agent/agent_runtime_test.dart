@@ -3098,6 +3098,32 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
   }
 
   @override
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+    required DateTime movedAt,
+  }) async {
+    final current = _conversations[conversationId];
+    if (current == null) {
+      throw const ConversationException(
+        ConversationFailure.conversationNotFound,
+      );
+    }
+    if (targetScope.isUnavailableLearningSpace) {
+      throw const ConversationException(ConversationFailure.scopeUnavailable);
+    }
+    if (current.scope == targetScope) {
+      return MoveConversationResult(conversation: current, moved: false);
+    }
+    final updated = current.withScope(
+      scope: targetScope,
+      updatedAt: movedAt,
+    );
+    _conversations[conversationId] = updated;
+    return MoveConversationResult(conversation: updated, moved: true);
+  }
+
+  @override
   Future<List<ConversationFileRef>> listAttachableFiles({
     required int limit,
   }) async {
