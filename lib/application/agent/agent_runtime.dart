@@ -704,6 +704,13 @@ final class ShirohaAgentRuntime {
   /// a successful staging/replay result. Event shaping never fails the turn.
   void _maybeEmitStudyPlanDraftStaged(_ActiveTurn turn, String output) {
     try {
+      // Same runtime authority as the staging lifecycle gate: a cancelled or
+      // expired turn must emit ZERO actionable StudyPlan presentation events,
+      // even when a semantic replay resolves successfully.
+      if (turn.cancellation.token.isCancelled ||
+          turn.remainingBudget() <= Duration.zero) {
+        return;
+      }
       final decoded = jsonDecode(output);
       if (decoded is! Map<String, dynamic> || decoded['ok'] != true) return;
       final result = decoded['result'];

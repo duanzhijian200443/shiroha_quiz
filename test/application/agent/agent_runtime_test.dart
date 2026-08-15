@@ -11,6 +11,8 @@ import 'package:shiroha_quiz/application/agent/agent_retrieval_tool.dart';
 import 'package:shiroha_quiz/application/agent/retrieval_egress_grant.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime_limits.dart';
+import 'package:shiroha_quiz/application/agent/agent_study_plan_tool_catalog.dart';
+import 'package:shiroha_quiz/application/agent/agent_study_plan_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_catalog.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
@@ -23,6 +25,8 @@ import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_service.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
+import 'package:shiroha_quiz/application/study_plan/study_plan_draft_service.dart';
+import 'package:shiroha_quiz/application/study_plan/study_plan_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
 import 'package:shiroha_quiz/data/repositories/parsed_artifact_repository.dart';
@@ -35,6 +39,7 @@ import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
+import 'package:shiroha_quiz/domain/study_plan/study_plan_values.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/file_library/managed_artifact_storage_adapter.dart';
@@ -1860,6 +1865,134 @@ void main() {
       expect(harness.dispatcher.calls, isEmpty);
     });
   });
+
+  group('SPL-1 StudyPlan staging integration', () {
+    test('semantic replay in a live turn emits exactly one staged event',
+        () async {
+      const state = _TestContinuationState('s');
+      final harness = _Harness(
+        wireStudyPlan: true,
+        scripts: <_Script>[
+          _toolRound(<AgentProviderFunctionCall>[_studyPlanCall('s-1')], state),
+          _finalAnswer('answer'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      // Pre-stage the exact same fingerprint so the tool call resolves as a
+      // semantic replay (no fresh planning read, same draft identity).
+      final staged = await harness.studyPlanDraftService.stage(
+        sourceConversationId: conversationId,
+        sourceMessageId: userMessageId,
+        sourceScope: ConversationScope.global(),
+        bankName: 'Math',
+        dailyTarget: 30,
+      ) as StudyPlanStageResultStaged;
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final events = <AgentTurnEvent>[];
+      session.events.listen(events.add);
+
+      final result = await session.result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      final stagedEvents = events.whereType<AgentTurnStudyPlanDraftStaged>();
+      expect(stagedEvents, hasLength(1));
+      expect(stagedEvents.single.draftId, staged.draft.draftId);
+      expect(stagedEvents.single.outcome, 'pending');
+    });
+
+    test('cancel before staged presentation emission emits zero events',
+        () async {
+      final roundYielded = Completer<void>();
+      final harness = _Harness(
+        wireStudyPlan: true,
+        scripts: <_Script>[
+          (request, token) async* {
+            yield _studyPlanCall('s-1');
+            roundYielded.complete();
+            await token.whenCancelled;
+            throw const AgentProviderException(
+              AgentProviderFailure.cancelled,
+            );
+          },
+          _finalAnswer('answer'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      // Pre-stage so the tool call would resolve as a semantic replay.
+      await harness.studyPlanDraftService.stage(
+        sourceConversationId: conversationId,
+        sourceMessageId: userMessageId,
+        sourceScope: ConversationScope.global(),
+        bankName: 'Math',
+        dailyTarget: 30,
+      );
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final events = <AgentTurnEvent>[];
+      session.events.listen(events.add);
+
+      await roundYielded.future;
+      session.cancel();
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.cancelled);
+      expect(events.whereType<AgentTurnStudyPlanDraftStaged>(), isEmpty);
+    });
+
+    test('expired turn deadline emits zero staged events', () async {
+      final roundYielded = Completer<void>();
+      final harness = _Harness(
+        wireStudyPlan: true,
+        limits: const AgentRuntimeLimits(
+          turnTimeout: Duration(milliseconds: 120),
+        ),
+        scripts: <_Script>[
+          (request, token) async* {
+            yield _studyPlanCall('s-1');
+            roundYielded.complete();
+            await token.whenCancelled;
+            throw const AgentProviderException(
+              AgentProviderFailure.cancelled,
+            );
+          },
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      await harness.studyPlanDraftService.stage(
+        sourceConversationId: conversationId,
+        sourceMessageId: userMessageId,
+        sourceScope: ConversationScope.global(),
+        bankName: 'Math',
+        dailyTarget: 30,
+      );
+
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final events = <AgentTurnEvent>[];
+      session.events.listen(events.add);
+
+      await roundYielded.future;
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.timeout);
+      expect(events.whereType<AgentTurnStudyPlanDraftStaged>(), isEmpty);
+    });
+  });
 }
 
 final class _Harness {
@@ -1869,6 +2002,7 @@ final class _Harness {
     AgentRuntimeLimits? limits,
     bool webEnabled = false,
     bool wireProposal = false,
+    bool wireStudyPlan = false,
     bool wireRetrieval = false,
     RetrievalService? retrievalOverride,
     double temperature = 1.0,
@@ -1910,6 +2044,15 @@ final class _Harness {
             proposalService: proposalService!,
           )
         : null;
+    studyPlanPlanning = _StudyPlanPlanningPort();
+    studyPlanDraftService = StudyPlanDraftService(
+      planningPort: studyPlanPlanning,
+      draftIdFactory: () => 'draft-${++_draftSequence}',
+      clock: () => DateTime.utc(2026, 8, 10, 12),
+    );
+    studyPlanDispatcher = wireStudyPlan
+        ? AgentStudyPlanToolDispatcher(draftService: studyPlanDraftService)
+        : null;
     retrievalScope = _RuntimeRetrievalScope();
     retrievalIndex = _RuntimeRetrievalIndex();
     retrievalDispatcher = wireRetrieval
@@ -1930,6 +2073,7 @@ final class _Harness {
       providerFactory: (_) => provider,
       toolDispatcher: dispatcher,
       proposalDispatcher: proposalDispatcher,
+      studyPlanDispatcher: studyPlanDispatcher,
       retrievalDispatcher: retrievalDispatcher,
       limits: limits ?? const AgentRuntimeLimits(),
     );
@@ -1944,12 +2088,16 @@ final class _Harness {
   late final _FakeAgentWritePersistence proposalPersistence;
   late final AgentWriteProposalService? proposalService;
   late final AgentWriteProposalToolDispatcher? proposalDispatcher;
+  late final _StudyPlanPlanningPort studyPlanPlanning;
+  late final StudyPlanDraftService studyPlanDraftService;
+  late final AgentStudyPlanToolDispatcher? studyPlanDispatcher;
   late final _RuntimeRetrievalScope retrievalScope;
   late final _RuntimeRetrievalIndex retrievalIndex;
   late final AgentRetrievalToolDispatcher? retrievalDispatcher;
   late final ShirohaAgentRuntime runtime;
   var _conversationSequence = 0;
   var _messageSequence = 0;
+  var _draftSequence = 0;
 
   Future<(String, String)> seedUser(
     String content, {
@@ -2451,6 +2599,40 @@ AgentProviderFunctionCall _call(
 const String _proposalArgumentsJson =
     '{"target":"a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b",'
     '"answer":{"content":{"nodes":[{"type":"text","text":"answer"}]}}}';
+
+final class _StudyPlanPlanningPort implements StudyPlanPlanningPort {
+  Completer<StudyPlanPlanningAdmission>? gate;
+
+  @override
+  Future<StudyPlanPlanningAdmission> loadPlanningContext({
+    required ConversationScope sourceScope,
+    required String bankName,
+    required DateTime now,
+  }) async {
+    final gate = this.gate;
+    if (gate != null) return gate.future;
+    return StudyPlanPlanningAdmitted(
+      StudyPlanPlanningContext(
+        bankName: bankName,
+        questionCount: 50,
+        masteredCount: 10,
+        dueCount: 15,
+        weakCount: 5,
+        newCount: 20,
+      ),
+    );
+  }
+}
+
+const String _studyPlanArgumentsJson = '{"bank_name":"Math","daily_target":30}';
+
+AgentProviderFunctionCall _studyPlanCall(String callId) {
+  return AgentProviderFunctionCall(
+    callId: callId,
+    name: AgentStudyPlanToolCatalog.toolName,
+    argumentsJson: _studyPlanArgumentsJson,
+  );
+}
 
 AgentProviderFunctionCall _proposalCall(String callId) {
   return AgentProviderFunctionCall(

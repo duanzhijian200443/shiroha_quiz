@@ -6,10 +6,11 @@
 /// explicit Reject, pending supersession, the atomic `beginCommit` gate, and
 /// the commit-success terminal marking seam for SPL-1-D1.
 ///
-/// D0 performs zero durable writes: no plan row, no schema v22, no adoption
-/// transaction. The durable `ActiveStudyPlan` concurrency authority (SQLite
-/// transaction-level CAS) is a D1 concern; only `pending -> committing` may
-/// gate the future formal adoption transaction.
+/// This service is transient by contract: it performs zero durable writes
+/// (no plan row, no schema v22 DDL, no adoption transaction). The durable
+/// `ActiveStudyPlan` concurrency authority (SQLite transaction-level CAS)
+/// lives in the D1 persistence repository; only `pending -> committing` may
+/// gate the formal adoption transaction.
 ///
 /// ### Atomicity invariant
 ///
