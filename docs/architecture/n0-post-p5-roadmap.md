@@ -77,8 +77,8 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
   SPL-1-V0 Focused acceptance — COMPLETE
   SPL-1-CL Closure — COMPLETE
-  SPL-1 StudyPlan Agent Tool v0 — CLOSED / FROZEN
-  AGENT-FB Bounded Fallback v0 — IN PROGRESS
+  AGENT-FB Bounded Fallback v0 — COMPLETE / CLOSED
+  OCR-UX Explicit OCR Activation v0 — IN PROGRESS
   Current runtime schema — v22
 ```
 
