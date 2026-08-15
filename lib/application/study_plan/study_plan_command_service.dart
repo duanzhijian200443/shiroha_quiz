@@ -175,10 +175,18 @@ final class StudyPlanCommandService {
       };
     }
 
-    final newPlanId = _planIdFactory();
-    final adoptedAt = _clock();
-
     try {
+      final newPlanId = _planIdFactory();
+      if (!_isBoundedId(newPlanId)) {
+        _draftService.rollbackCommit(draftId);
+        return const StudyPlanAdoptResultInvalidPlan();
+      }
+      if (expectedActivePlanId != null && newPlanId == expectedActivePlanId) {
+        _draftService.rollbackCommit(draftId);
+        return const StudyPlanAdoptResultInvalidPlan();
+      }
+      final adoptedAt = _clock();
+
       final persistenceResult = await _persistencePort.commitAdoption(
         planId: newPlanId,
         bankName: draft.bankName,

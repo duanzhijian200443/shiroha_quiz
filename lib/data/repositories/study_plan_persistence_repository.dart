@@ -78,6 +78,12 @@ class StudyPlanPersistenceRepository implements StudyPlanPersistencePort {
     if (expectedActivePlanId == null && replacementConfirmed) {
       return const StudyPlanPersistenceCommitFailed();
     }
+    if (expectedActivePlanId != null && planId == expectedActivePlanId) {
+      return const StudyPlanPersistenceCommitFailed();
+    }
+    if (sourceConversationId == null || sourceUserMessageId == null) {
+      return const StudyPlanPersistenceCommitStaleScope();
+    }
 
     final trimmedBankName = bankName.trim();
     if (trimmedBankName.isEmpty) {
@@ -88,78 +94,74 @@ class StudyPlanPersistenceRepository implements StudyPlanPersistencePort {
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
         // 1. Revalidate source Conversation and scope structural equality
-        if (sourceConversationId != null) {
-          final convRows = await txn.query(
-            'conversations',
-            columns: const <String>[
-              'conversation_id',
-              'scope_kind',
-              'project_id',
-            ],
-            where: 'conversation_id = ?',
-            whereArgs: <Object?>[sourceConversationId],
+        final convRows = await txn.query(
+          'conversations',
+          columns: const <String>[
+            'conversation_id',
+            'scope_kind',
+            'project_id',
+          ],
+          where: 'conversation_id = ?',
+          whereArgs: <Object?>[sourceConversationId],
+          limit: 1,
+        );
+        if (convRows.isEmpty) {
+          return const StudyPlanPersistenceCommitStaleScope();
+        }
+        final conv = convRows.single;
+        final scopeKind = conv['scope_kind'] as String?;
+        final convProjectId = conv['project_id'] as String?;
+
+        if (sourceScope.kind == ConversationScopeKind.global) {
+          if (scopeKind != 'global' || convProjectId != null) {
+            return const StudyPlanPersistenceCommitStaleScope();
+          }
+        } else if (sourceScope.kind == ConversationScopeKind.learningSpace) {
+          if (scopeKind != 'learning_space' ||
+              convProjectId != sourceScope.projectId) {
+            return const StudyPlanPersistenceCommitStaleScope();
+          }
+          // Project must exist
+          final projectRows = await txn.query(
+            'projects',
+            columns: const <String>['project_id'],
+            where: 'project_id = ?',
+            whereArgs: <Object?>[sourceScope.projectId],
             limit: 1,
           );
-          if (convRows.isEmpty) {
+          if (projectRows.isEmpty) {
             return const StudyPlanPersistenceCommitStaleScope();
           }
-          final conv = convRows.single;
-          final scopeKind = conv['scope_kind'] as String?;
-          final convProjectId = conv['project_id'] as String?;
-
-          if (sourceScope.kind == ConversationScopeKind.global) {
-            if (scopeKind != 'global' || convProjectId != null) {
-              return const StudyPlanPersistenceCommitStaleScope();
-            }
-          } else if (sourceScope.kind == ConversationScopeKind.learningSpace) {
-            if (scopeKind != 'learning_space' ||
-                convProjectId != sourceScope.projectId) {
-              return const StudyPlanPersistenceCommitStaleScope();
-            }
-            // Project must exist
-            final projectRows = await txn.query(
-              'projects',
-              columns: const <String>['project_id'],
-              where: 'project_id = ?',
-              whereArgs: <Object?>[sourceScope.projectId],
-              limit: 1,
-            );
-            if (projectRows.isEmpty) {
-              return const StudyPlanPersistenceCommitStaleScope();
-            }
-            // project_banks relation must exist
-            final relationRows = await txn.query(
-              'project_banks',
-              columns: const <String>['bank_name'],
-              where: 'project_id = ? AND bank_name = ?',
-              whereArgs: <Object?>[sourceScope.projectId, trimmedBankName],
-              limit: 1,
-            );
-            if (relationRows.isEmpty) {
-              return const StudyPlanPersistenceCommitStaleScope();
-            }
-          } else {
+          // project_banks relation must exist
+          final relationRows = await txn.query(
+            'project_banks',
+            columns: const <String>['bank_name'],
+            where: 'project_id = ? AND bank_name = ?',
+            whereArgs: <Object?>[sourceScope.projectId, trimmedBankName],
+            limit: 1,
+          );
+          if (relationRows.isEmpty) {
             return const StudyPlanPersistenceCommitStaleScope();
           }
+        } else {
+          return const StudyPlanPersistenceCommitStaleScope();
         }
 
         // 2. Revalidate source User Message
-        if (sourceUserMessageId != null) {
-          final msgRows = await txn.query(
-            'conversation_messages',
-            columns: const <String>['message_id', 'conversation_id', 'role'],
-            where: 'message_id = ?',
-            whereArgs: <Object?>[sourceUserMessageId],
-            limit: 1,
-          );
-          if (msgRows.isEmpty) {
-            return const StudyPlanPersistenceCommitStaleScope();
-          }
-          final msg = msgRows.single;
-          if (msg['conversation_id'] != sourceConversationId ||
-              msg['role'] != 'user') {
-            return const StudyPlanPersistenceCommitStaleScope();
-          }
+        final msgRows = await txn.query(
+          'conversation_messages',
+          columns: const <String>['message_id', 'conversation_id', 'role'],
+          where: 'message_id = ?',
+          whereArgs: <Object?>[sourceUserMessageId],
+          limit: 1,
+        );
+        if (msgRows.isEmpty) {
+          return const StudyPlanPersistenceCommitStaleScope();
+        }
+        final msg = msgRows.single;
+        if (msg['conversation_id'] != sourceConversationId ||
+            msg['role'] != 'user') {
+          return const StudyPlanPersistenceCommitStaleScope();
         }
 
         // 3. Revalidate target bank has >= 1 question
@@ -259,8 +261,7 @@ class StudyPlanPersistenceRepository implements StudyPlanPersistencePort {
   Future<StudyPlanPersistenceStopResult> stopActivePlan({
     required String expectedPlanId,
   }) async {
-    final trimmedId = expectedPlanId.trim();
-    if (trimmedId.isEmpty) {
+    if (!_isBoundedId(expectedPlanId)) {
       return const StudyPlanPersistenceStopStaleActivePlan();
     }
     try {
@@ -268,7 +269,7 @@ class StudyPlanPersistenceRepository implements StudyPlanPersistencePort {
       final affected = await db.delete(
         'study_plans',
         where: 'singleton_key = 1 AND plan_id = ?',
-        whereArgs: <Object?>[trimmedId],
+        whereArgs: <Object?>[expectedPlanId],
       );
       if (affected != 1) {
         return const StudyPlanPersistenceStopStaleActivePlan();
@@ -279,6 +280,11 @@ class StudyPlanPersistenceRepository implements StudyPlanPersistencePort {
     } on DatabaseException {
       return const StudyPlanPersistenceStopFailed();
     }
+  }
+
+  static bool _isBoundedId(String value) {
+    final length = value.runes.length;
+    return length >= 1 && length <= 128 && !value.contains(' ');
   }
 
   ActiveStudyPlan _mapRowToActivePlan(Map<String, Object?> row) {

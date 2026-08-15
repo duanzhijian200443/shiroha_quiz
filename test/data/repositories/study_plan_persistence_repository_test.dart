@@ -322,6 +322,102 @@ void main() {
       expect(countRows.single['c'], 1);
     });
 
+    test(
+        'defensively rejects replacement when new planId equals expectedActivePlanId',
+        () async {
+      await seedBank('Math');
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      await repository.commitAdoption(
+        planId: 'plan_same',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      final replaceResult = await repository.commitAdoption(
+        planId: 'plan_same',
+        bankName: 'Math',
+        dailyTarget: 40,
+        priority: StudyPlanPriority.dueFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15, 1),
+        expectedActivePlanId: 'plan_same',
+        replacementConfirmed: true,
+      );
+
+      expect(replaceResult, isA<StudyPlanPersistenceCommitFailed>());
+      final active = await repository.loadActivePlan();
+      expect(active!.dailyTarget, 20); // unchanged
+    });
+
+    test('stale baseline cannot remain valid after successful replace',
+        () async {
+      await seedBank('Math');
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      // 1. Initial adoption -> plan_A
+      await repository.commitAdoption(
+        planId: 'plan_A',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      // 2. Replace plan_A -> plan_B
+      final res1 = await repository.commitAdoption(
+        planId: 'plan_B',
+        bankName: 'Math',
+        dailyTarget: 30,
+        priority: StudyPlanPriority.dueFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15, 1),
+        expectedActivePlanId: 'plan_A',
+        replacementConfirmed: true,
+      );
+      expect(res1, isA<StudyPlanPersistenceCommitSuccess>());
+
+      // 3. Stale baseline plan_A trying to replace -> fails with staleActivePlan
+      final res2 = await repository.commitAdoption(
+        planId: 'plan_C',
+        bankName: 'Math',
+        dailyTarget: 40,
+        priority: StudyPlanPriority.weakFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15, 2),
+        expectedActivePlanId: 'plan_A',
+        replacementConfirmed: true,
+      );
+      expect(res2, isA<StudyPlanPersistenceCommitStaleActivePlan>());
+
+      // 4. Stale baseline plan_A trying to stop -> fails with staleActivePlan
+      final res3 = await repository.stopActivePlan(expectedPlanId: 'plan_A');
+      expect(res3, isA<StudyPlanPersistenceStopStaleActivePlan>());
+
+      final active = await repository.loadActivePlan();
+      expect(active!.planId, 'plan_B');
+    });
+
     test('returns staleActivePlan when expectedActivePlanId does not match',
         () async {
       await seedBank('Math');
@@ -395,6 +491,42 @@ void main() {
       expect(loaded, isNull);
     });
 
+    test(
+        'preserves planId with leading/trailing spaces as an exact opaque token',
+        () async {
+      await seedBank('Math');
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      const spacePlanId = '  space_token_123  ';
+      await repository.commitAdoption(
+        planId: spacePlanId,
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      // Stopping with trimmed id must NOT match
+      final trimmedStop = await repository.stopActivePlan(
+        expectedPlanId: 'space_token_123',
+      );
+      expect(trimmedStop, isA<StudyPlanPersistenceStopStaleActivePlan>());
+      expect(await repository.loadActivePlan(), isNotNull);
+
+      // Stopping with exact untrimmed id matches
+      final exactStop = await repository.stopActivePlan(
+        expectedPlanId: spacePlanId,
+      );
+      expect(exactStop, isA<StudyPlanPersistenceStopSuccess>());
+      expect(await repository.loadActivePlan(), isNull);
+    });
+
     test('returns staleActivePlan when stopping a non-existent or wrong plan',
         () async {
       final stopResult = await repository.stopActivePlan(
@@ -404,7 +536,72 @@ void main() {
     });
   });
 
-  group('source-turn revalidations (zero mutation)', () {
+  group('formal source authority and revalidation (zero mutation)', () {
+    test('fails when sourceConversationId is null', () async {
+      await seedBank('Math');
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      final result = await repository.commitAdoption(
+        planId: 'plan_null_conv',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: null,
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      expect(result, isA<StudyPlanPersistenceCommitStaleScope>());
+      expect(await repository.loadActivePlan(), isNull);
+    });
+
+    test('fails when sourceUserMessageId is null', () async {
+      await seedBank('Math');
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+
+      final result = await repository.commitAdoption(
+        planId: 'plan_null_msg',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: null,
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      expect(result, isA<StudyPlanPersistenceCommitStaleScope>());
+      expect(await repository.loadActivePlan(), isNull);
+    });
+
+    test(
+        'fails when both sourceConversationId and sourceUserMessageId are null',
+        () async {
+      await seedBank('Math');
+
+      final result = await repository.commitAdoption(
+        planId: 'plan_both_null',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: null,
+        sourceUserMessageId: null,
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      expect(result, isA<StudyPlanPersistenceCommitStaleScope>());
+      expect(await repository.loadActivePlan(), isNull);
+    });
+
     test('fails when source conversation is missing', () async {
       await seedBank('Math');
 
@@ -575,6 +772,170 @@ void main() {
 
       expect(result, isA<StudyPlanPersistenceCommitTargetUnavailable>());
       expect(await repository.loadActivePlan(), isNull);
+    });
+  });
+
+  group('durable race acceptance tests (Blocker 5)', () {
+    test(
+        'A. two no-active adoptions racing: exactly one success, one alreadyActive',
+        () async {
+      await seedBank('Math', questionCount: 2);
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      final f1 = repository.commitAdoption(
+        planId: 'plan_race_A',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      final f2 = repository.commitAdoption(
+        planId: 'plan_race_B',
+        bankName: 'Math',
+        dailyTarget: 30,
+        priority: StudyPlanPriority.dueFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      final results = await Future.wait([f1, f2]);
+      final successes = results.whereType<StudyPlanPersistenceCommitSuccess>();
+      final conflicts =
+          results.whereType<StudyPlanPersistenceCommitAlreadyActive>();
+
+      expect(successes, hasLength(1));
+      expect(conflicts, hasLength(1));
+
+      final active = await repository.loadActivePlan();
+      expect(active, isNotNull);
+      expect(active!.planId, successes.single.activePlan.planId);
+
+      final countRows =
+          await db.rawQuery('SELECT COUNT(*) AS c FROM study_plans');
+      expect(countRows.single['c'], 1);
+    });
+
+    test(
+        'B. two replacements from same old planId: exactly one success, one staleActivePlan',
+        () async {
+      await seedBank('Math', questionCount: 2);
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      // Baseline
+      await repository.commitAdoption(
+        planId: 'plan_base',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      final f1 = repository.commitAdoption(
+        planId: 'plan_rep_1',
+        bankName: 'Math',
+        dailyTarget: 40,
+        priority: StudyPlanPriority.dueFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15, 1),
+        expectedActivePlanId: 'plan_base',
+        replacementConfirmed: true,
+      );
+
+      final f2 = repository.commitAdoption(
+        planId: 'plan_rep_2',
+        bankName: 'Math',
+        dailyTarget: 50,
+        priority: StudyPlanPriority.weakFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15, 2),
+        expectedActivePlanId: 'plan_base',
+        replacementConfirmed: true,
+      );
+
+      final results = await Future.wait([f1, f2]);
+      final successes = results.whereType<StudyPlanPersistenceCommitSuccess>();
+      final stales =
+          results.whereType<StudyPlanPersistenceCommitStaleActivePlan>();
+
+      expect(successes, hasLength(1));
+      expect(stales, hasLength(1));
+
+      final active = await repository.loadActivePlan();
+      expect(active, isNotNull);
+      expect(active!.planId, successes.single.activePlan.planId);
+
+      final countRows =
+          await db.rawQuery('SELECT COUNT(*) AS c FROM study_plans');
+      expect(countRows.single['c'], 1);
+    });
+
+    test('C. stop(old) vs replace(old -> new): exactly one success, never both',
+        () async {
+      await seedBank('Math', questionCount: 2);
+      await seedConversation(conversationId: 'c1', scopeKind: 'global');
+      await seedMessage(messageId: 'm1', conversationId: 'c1', role: 'user');
+
+      // Baseline
+      await repository.commitAdoption(
+        planId: 'plan_target',
+        bankName: 'Math',
+        dailyTarget: 20,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15),
+        expectedActivePlanId: null,
+        replacementConfirmed: false,
+      );
+
+      final fStop = repository.stopActivePlan(expectedPlanId: 'plan_target');
+      final fReplace = repository.commitAdoption(
+        planId: 'plan_replaced',
+        bankName: 'Math',
+        dailyTarget: 50,
+        priority: StudyPlanPriority.newFirst,
+        sourceConversationId: 'c1',
+        sourceUserMessageId: 'm1',
+        sourceScope: ConversationScope.global(),
+        adoptedAt: DateTime.utc(2026, 8, 15, 1),
+        expectedActivePlanId: 'plan_target',
+        replacementConfirmed: true,
+      );
+
+      final stopRes = await fStop;
+      final replaceRes = await fReplace;
+
+      if (stopRes is StudyPlanPersistenceStopSuccess) {
+        expect(replaceRes, isA<StudyPlanPersistenceCommitStaleActivePlan>());
+        expect(await repository.loadActivePlan(), isNull);
+      } else {
+        expect(stopRes, isA<StudyPlanPersistenceStopStaleActivePlan>());
+        expect(replaceRes, isA<StudyPlanPersistenceCommitSuccess>());
+        final active = await repository.loadActivePlan();
+        expect(active!.planId, 'plan_replaced');
+      }
     });
   });
 

@@ -78,7 +78,10 @@ final class _FakePersistencePort implements StudyPlanPersistencePort {
 }
 
 final class _Harness {
-  _Harness() {
+  _Harness({
+    String Function()? planIdFactory,
+    DateTime Function()? clock,
+  }) {
     planningPort = _FakePlanningPort();
     persistencePort = _FakePersistencePort();
     draftService = StudyPlanDraftService(
@@ -89,8 +92,8 @@ final class _Harness {
     commandService = StudyPlanCommandService(
       draftService: draftService,
       persistencePort: persistencePort,
-      planIdFactory: () => 'plan_${++_planSeq}',
-      clock: () => currentTime,
+      planIdFactory: planIdFactory ?? () => 'plan_${++_planSeq}',
+      clock: clock ?? () => currentTime,
     );
   }
 
@@ -361,5 +364,64 @@ void main() {
     final res2 =
         await h.commandService.stopActivePlan(expectedPlanId: 'plan_1');
     expect(res2, isA<StudyPlanStopResultStaleActivePlan>());
+  });
+
+  test(
+      '11. throwing planIdFactory rolls back draft to pending and returns failed',
+      () async {
+    final h = _Harness(
+      planIdFactory: () => throw StateError('ID generator crashed'),
+    );
+    final draftId = await h.stageDraft();
+
+    final result = await h.commandService.adoptDraft(
+      draftId: draftId,
+      expectedActivePlanId: null,
+      replacementConfirmed: false,
+    );
+
+    expect(result, isA<StudyPlanAdoptResultFailed>());
+    expect(h.draftService.draftById(draftId).outcome,
+        StudyPlanDraftOutcome.pending);
+    expect(h.persistencePort.commitCalls, 0);
+  });
+
+  test('12. throwing clock rolls back draft to pending and returns failed',
+      () async {
+    final h = _Harness(
+      clock: () => throw StateError('Clock unavailable'),
+    );
+    final draftId = await h.stageDraft();
+
+    final result = await h.commandService.adoptDraft(
+      draftId: draftId,
+      expectedActivePlanId: null,
+      replacementConfirmed: false,
+    );
+
+    expect(result, isA<StudyPlanAdoptResultFailed>());
+    expect(h.draftService.draftById(draftId).outcome,
+        StudyPlanDraftOutcome.pending);
+    expect(h.persistencePort.commitCalls, 0);
+  });
+
+  test(
+      '13. replacement reusing expectedActivePlanId rolls back to pending with zero persistence call',
+      () async {
+    final h = _Harness(
+      planIdFactory: () => 'reused_plan_id',
+    );
+    final draftId = await h.stageDraft();
+
+    final result = await h.commandService.adoptDraft(
+      draftId: draftId,
+      expectedActivePlanId: 'reused_plan_id',
+      replacementConfirmed: true,
+    );
+
+    expect(result, isA<StudyPlanAdoptResultInvalidPlan>());
+    expect(h.draftService.draftById(draftId).outcome,
+        StudyPlanDraftOutcome.pending);
+    expect(h.persistencePort.commitCalls, 0);
   });
 }

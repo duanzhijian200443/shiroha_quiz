@@ -385,14 +385,13 @@ global/product-level singleton.
 - `StudyPlanDraft`: transient, no table.
 - `ActiveStudyPlan`: durable.
 
-Future D1 migration: schema v21 → v22, additive only. Likely one singleton
-`study_plans` table. No modification of existing tables. No opaque Settings
-JSON workaround. No provider payload persistence.
+D1 migration: schema v21 → v22, additive only. Exactly one singleton
+`study_plans` table (`singleton_key = 1 UNIQUE`). No modification of existing
+tables. No opaque Settings JSON workaround. No provider payload persistence.
 
-Exact DDL is deferred to D1, but durable constraints — including non-null plan
-identity, e.g. `plan_id TEXT PRIMARY KEY NOT NULL` — must enforce this
-canonical contract. Runtime schema remains v21 until D1 implements the
-migration.
+Durable constraints — including non-null plan identity
+`plan_id TEXT PRIMARY KEY NOT NULL` — enforce this canonical contract. Runtime
+schema is v22.
 
 ## 16. Privacy / provider egress
 

@@ -1,15 +1,13 @@
 /// Canonical immutable `ActiveStudyPlan` value type.
 ///
-/// D0 defines the type for SPL-1-D1 use only. D0 never reads or writes a
-/// durable plan row: there is no schema v22, no migration, and no
-/// persistence in this stage. The value is a global/product-level singleton
-/// in semantics (exactly one active plan) and is never Project-owned.
+/// Represents the durable schema v22 `study_plans` singleton row. The value
+/// is a global/product-level singleton in semantics (exactly one active plan)
+/// and is never Project-owned.
 library;
 
 import 'study_plan_values.dart';
 
-/// One durable active study plan value (schema v22 is a future SPL-1-D1
-/// concern; this file only freezes the canonical value shape).
+/// One durable active study plan value (schema v22 record shape).
 final class ActiveStudyPlan {
   factory ActiveStudyPlan({
     required String planId,
