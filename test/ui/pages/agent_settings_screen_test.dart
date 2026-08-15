@@ -176,6 +176,92 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('selects and saves optional fallback profile', (tester) async {
+    final store = _ConfigStore(
+      encoded: const AgentConfigCodec().encode(
+        AgentConfig(
+          providerKind: AgentProviderKind.deepSeekResponses,
+          mainProfileId: 'profile-a',
+        ),
+      ),
+    );
+    final catalog = _Catalog(<AgentProfileSummary>[
+      AgentProfileSummary(
+        profileId: 'profile-a',
+        displayName: 'Alpha',
+        modelName: 'deepseek-v4-flash',
+      ),
+      AgentProfileSummary(
+        profileId: 'profile-b',
+        displayName: 'Beta',
+        modelName: 'other-model',
+      ),
+    ]);
+    final service = AgentSettingsService(
+      configStore: store,
+      profileCatalog: catalog,
+    );
+    await pumpSettings(tester, service);
+
+    expect(find.textContaining('备用模型（可选）'), findsOneWidget);
+    expect(
+      find.text('主模型在回复或工具调用前发生可恢复故障时，Shiroha 最多自动尝试一次备用模型。含文件正文授权的对话不会自动切换。'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('a0-agent-fallback-profile')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Beta · other-model').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('a0-agent-save')));
+    await tester.pumpAndSettle();
+
+    final saved = const AgentConfigCodec().decode(store.encoded!);
+    expect(saved.mainProfileId, 'profile-a');
+    expect(saved.fallbackProfileId, 'profile-b');
+  });
+
+  testWidgets('shows fallback-unavailable notice and permits clearing fallback',
+      (tester) async {
+    final store = _ConfigStore(
+      encoded: const AgentConfigCodec().encode(
+        AgentConfig(
+          providerKind: AgentProviderKind.deepSeekResponses,
+          mainProfileId: 'profile-a',
+          fallbackProfileId: 'deleted-profile',
+        ),
+      ),
+    );
+    final catalog = _Catalog(<AgentProfileSummary>[
+      AgentProfileSummary(
+        profileId: 'profile-a',
+        displayName: 'Alpha',
+        modelName: 'deepseek-v4-flash',
+      ),
+    ]);
+    final service = AgentSettingsService(
+      configStore: store,
+      profileCatalog: catalog,
+    );
+    await pumpSettings(tester, service);
+
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-fallback-unavailable')),
+      findsOneWidget,
+    );
+
+    // Save with '不使用备用模型' (which is default when fallback is missing)
+    await tester.tap(find.byKey(const ValueKey<String>('a0-agent-save')));
+    await tester.pumpAndSettle();
+
+    final saved = const AgentConfigCodec().decode(store.encoded!);
+    expect(saved.mainProfileId, 'profile-a');
+    expect(saved.fallbackProfileId, isNull);
+  });
 }
 
 final class _ConfigStore implements AgentConfigStorePort {
