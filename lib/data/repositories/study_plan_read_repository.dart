@@ -1,10 +1,11 @@
 /// Read-only SQLite implementation of the SPL-1 planning and candidate
 /// seams.
 ///
-/// SPL-1-D0 scope: reads only. No schema change (runtime stays v21), no
-/// writes, no settings changes. Every query is parameterized; bank names and
-/// project ids are never interpolated. Database errors map to the bounded
-/// [StudyPlanReadException]; raw causes never escape the Application
+/// Reads only: this repository never writes, never changes settings, and
+/// performs no schema mutation (runtime schema is v22, from the additive
+/// SPL-1-D1 `study_plans` table). Every query is parameterized; bank names
+/// and project ids are never interpolated. Database errors map to the
+/// bounded [StudyPlanReadException]; raw causes never escape the Application
 /// boundary.
 library;
 

@@ -5,7 +5,9 @@ import '../../application/conversations/conversation_service.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
+import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
+import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -22,6 +24,8 @@ class MainScreen extends StatefulWidget {
     this.proposalService,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
+    this.studyPlanSelectionService,
+    this.studyPlanSessionLauncher,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
@@ -32,6 +36,8 @@ class MainScreen extends StatefulWidget {
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
+  final StudyPlanSelectionService? studyPlanSelectionService;
+  final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -39,11 +45,31 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
+  /// Today-activation signal (SPL-1-U0): incremented whenever bottom
+  /// navigation transitions INTO Today. HomePage observes it and refreshes
+  /// the live focused state when still in 特训 mode; HomePage itself is
+  /// never recreated (ordinary-mode state stays preserved).
+  int _todayActivationEpoch = 0;
+
+  void _handleNavigation(int index) {
+    setState(() {
+      if (index == 0 && _currentIndex != 0) {
+        _todayActivationEpoch++;
+      }
+      _currentIndex = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
-      const HomePage(), // Tab 0 — 今日 (Today: 普通 / 特训 / 考试)
+      HomePage(
+        studyPlanSelectionService: widget.studyPlanSelectionService,
+        studyPlanCommandService: widget.studyPlanCommandService,
+        studyPlanSessionLauncher: widget.studyPlanSessionLauncher,
+        todayActivationEpoch: _todayActivationEpoch,
+      ), // Tab 0 — 今日 (Today: 普通 / 特训 / 考试)
       AssistantWorkspaceShell(
         facade: widget.u1WorkspaceFacade,
         conversationService: widget.conversationService,
@@ -66,7 +92,7 @@ class _MainScreenState extends State<MainScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: _handleNavigation,
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,

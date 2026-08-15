@@ -9,8 +9,8 @@
 /// Every newly created [ActiveStudyPlan] `planId` MUST be a fresh,
 /// collision-resistant, product-lifetime non-reused opaque identity.
 /// The injected [planIdFactory] is REQUIRED to satisfy this invariant.
-/// Future composition (e.g. SPL-1-I0) MUST wire a canonical UUID/fresh-ID
-/// generator or equivalent non-reusing identity source. `A -> B -> A` identity
+/// Production composition (SPL-1-I0) wires a canonical UUID/fresh-ID
+/// generator (`uuid.v4`). `A -> B -> A` identity
 /// reuse is forbidden by the [planIdFactory] contract, ensuring an old
 /// `expectedActivePlanId` can never become valid again.
 library;

@@ -2,9 +2,15 @@ import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
 import 'mock_center_screen.dart';
 import 'plan_config_screen.dart';
+import 'practice_page.dart';
 import 'task_center_screen.dart';
+import '../../application/study_plan/study_plan_command_service.dart';
+import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/repositories/settings_repository.dart';
+import '../../domain/study_plan/active_study_plan.dart';
+import '../../domain/study_plan/study_plan_values.dart';
+import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import '../../services/task_manager.dart';
 
 /// Final Today mode organization (UI-R1 freeze): 普通 / 特训 / 考试.
@@ -12,17 +18,37 @@ import '../../services/task_manager.dart';
 /// This is Presentation-only state; it is never persisted.
 enum _TodayMode { ordinary, focused, exam }
 
+/// Focused plan-surface status derived from the typed focused state.
+enum _FocusedPlanStatus { ready, noCandidates, unavailable }
+
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     this.taskManager,
     this.onSwitchBank,
     this.onPracticeRequested,
+    this.studyPlanSelectionService,
+    this.studyPlanCommandService,
+    this.studyPlanSessionLauncher,
+    this.todayActivationEpoch = 0,
   });
 
   final TaskManager? taskManager;
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
+
+  /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
+  /// shows the real no-plan state without querying. Production composition
+  /// (main.dart) always wires them.
+  final StudyPlanSelectionService? studyPlanSelectionService;
+  final StudyPlanCommandService? studyPlanCommandService;
+  final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
+
+  /// Monotonic Today-activation signal owned by MainScreen: incremented each
+  /// time bottom navigation transitions INTO Today. HomePage never recreates
+  /// itself on epoch changes (ordinary-mode state must be preserved); it
+  /// only requests a focused refresh through the safe refresh coordinator.
+  final int todayActivationEpoch;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -41,10 +67,43 @@ class _HomePageState extends State<HomePage> {
   /// own state instead of being recreated.
   _TodayMode _todayMode = _TodayMode.ordinary;
 
+  /// SPL-1-U0 focused surface state. Null means "not loaded yet".
+  StudyPlanFocusedState? _focusedState;
+  bool _focusedLoadScheduled = false;
+
+  /// Bounded focused refresh coordinator:
+  /// - [_focusedLoadInFlight] guards against concurrent live reads;
+  /// - a request made while a load is in flight is NEVER dropped: it becomes
+  ///   [_focusedRefreshPending] and a follow-up refresh is scheduled after
+  ///   the in-flight load settles;
+  /// - [_focusedLoadGeneration] implements latest-wins: only the newest
+  ///   generation may publish its result, so an older in-flight load can
+  ///   never overwrite the result of a newer required refresh.
+  bool _focusedLoadInFlight = false;
+  bool _focusedRefreshPending = false;
+  int _focusedLoadGeneration = 0;
+
+  /// Duplicate-start guard: while a start action is in flight no second
+  /// session may be opened.
+  bool _focusedStartPending = false;
+
   @override
   void initState() {
     super.initState();
     _loadContext();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Today became active again (bottom navigation returned to 今日): if the
+    // user is still in 特训 mode, refresh the live focused state so an
+    // adopted/replaced plan appears automatically. Ordinary mode state is
+    // preserved because the widget itself is never recreated.
+    if (widget.todayActivationEpoch != oldWidget.todayActivationEpoch &&
+        _todayMode == _TodayMode.focused) {
+      _loadFocusedState();
+    }
   }
 
   Future<void> _loadContext() async {
@@ -236,7 +295,10 @@ class _HomePageState extends State<HomePage> {
         ],
         selected: <_TodayMode>{_todayMode},
         onSelectionChanged: (Set<_TodayMode> selection) {
-          setState(() => _todayMode = selection.single);
+          final mode = selection.single;
+          setState(() => _todayMode = mode);
+          // 特训 loads its live focused snapshot on entry.
+          if (mode == _TodayMode.focused) _loadFocusedState();
         },
         showSelectedIcon: false,
         style: ButtonStyle(
@@ -297,10 +359,126 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 特训: genuine dependency-not-ready state. There is no StudyPlan
-  /// capability in the current product, so this must never fabricate a plan,
-  /// counts, or recommendations.
+  /// 特训: consumes only a real ActiveStudyPlan (SPL-1-U0). Without a plan a
+  /// genuine no-plan state is shown — never fabricated counts or
+  /// recommendations, and no provider call ever happens.
   Widget _buildFocusedMode(Color textColor, Color subTextColor) {
+    if (_focusedState == null) {
+      _scheduleFocusedLoad();
+      return const Center(child: CircularProgressIndicator());
+    }
+    return switch (_focusedState!) {
+      StudyPlanFocusedNoActivePlan() =>
+        _buildFocusedNoPlan(textColor, subTextColor),
+      StudyPlanFocusedPlanUnavailable(:final activePlan) =>
+        _buildFocusedPlanCard(
+          textColor,
+          subTextColor,
+          activePlan,
+          status: _FocusedPlanStatus.unavailable,
+          selectedCount: null,
+          advisory: const StudyPlanFocusedAdvisory(
+            masteryReached: false,
+            horizonElapsed: false,
+          ),
+        ),
+      StudyPlanFocusedNoCandidates(:final activePlan, :final advisory) =>
+        _buildFocusedPlanCard(
+          textColor,
+          subTextColor,
+          activePlan,
+          status: _FocusedPlanStatus.noCandidates,
+          selectedCount: null,
+          advisory: advisory,
+        ),
+      StudyPlanFocusedReady(
+        :final activePlan,
+        :final selectedStorageIds,
+        :final advisory
+      ) =>
+        _buildFocusedPlanCard(
+          textColor,
+          subTextColor,
+          activePlan,
+          status: _FocusedPlanStatus.ready,
+          selectedCount: selectedStorageIds.length,
+          advisory: advisory,
+        ),
+      StudyPlanFocusedFailure() =>
+        _buildFocusedFailure(textColor, subTextColor),
+    };
+  }
+
+  void _scheduleFocusedLoad() {
+    if (_focusedLoadScheduled) return;
+    _focusedLoadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusedLoadScheduled = false;
+      _loadFocusedState();
+    });
+  }
+
+  /// Loads the live focused snapshot through the bounded refresh
+  /// coordinator. Every call re-queries live state; the Start action
+  /// re-invokes this (or a fresh selection) and never reuses a previously
+  /// displayed snapshot.
+  ///
+  /// Safety guarantees:
+  /// - a request made while a load is in flight is NEVER dropped: it is
+  ///   recorded as pending and a follow-up refresh runs after the in-flight
+  ///   load settles;
+  /// - the pending request immediately invalidates the in-flight load's
+  ///   generation, so an older in-flight load can never publish (or overwrite
+  ///   the result of) a newer required refresh.
+  Future<void> _loadFocusedState() async {
+    if (_focusedLoadInFlight) {
+      _focusedRefreshPending = true;
+      _focusedLoadGeneration++;
+      return;
+    }
+    _focusedLoadInFlight = true;
+    final generation = ++_focusedLoadGeneration;
+    try {
+      final service = widget.studyPlanSelectionService;
+      if (service == null) {
+        if (mounted && generation == _focusedLoadGeneration) {
+          setState(() => _focusedState = const StudyPlanFocusedNoActivePlan());
+        }
+        return;
+      }
+      try {
+        final state = await service.loadFocusedState();
+        if (mounted && generation == _focusedLoadGeneration) {
+          setState(() => _focusedState = state);
+        }
+      } catch (_) {
+        if (mounted && generation == _focusedLoadGeneration) {
+          setState(() => _focusedState = const StudyPlanFocusedFailure(
+                StudyPlanFocusedFailureKind.internalError,
+              ));
+        }
+      }
+    } finally {
+      _focusedLoadInFlight = false;
+      if (_focusedRefreshPending) {
+        _focusedRefreshPending = false;
+        // Start the required follow-up refresh INDEPENDENTLY of frame
+        // production. A post-frame callback does not by itself schedule a
+        // frame, so a slow stale load finishing after all current
+        // frame/animation activity could leave the follow-up waiting until
+        // an unrelated future frame. A microtask begins the follow-up on the
+        // current event-loop turn instead; the latest-wins generation guard
+        // already ensured the settled load published nothing stale.
+        Future<void>.microtask(() {
+          if (!mounted) return;
+          _loadFocusedState();
+        });
+      }
+    }
+  }
+
+  /// 特训 without an adopted plan: genuine no-plan state, no fake counts.
+  Widget _buildFocusedNoPlan(Color textColor, Color subTextColor) {
     return Center(
       key: const ValueKey<String>('today-focused-unavailable'),
       child: Padding(
@@ -321,7 +499,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 10),
             Text(
-              '当前还没有可用的学习计划，\n因此暂不生成专项训练推荐。',
+              '尚未采用学习计划。\n请先在助手中制定并采用学习计划。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
@@ -333,6 +511,343 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  /// Bounded infrastructure failure surface. No raw database/provider text is
+  /// ever shown.
+  Widget _buildFocusedFailure(Color textColor, Color subTextColor) {
+    return Center(
+      key: const ValueKey<String>('today-focused-failure'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded, size: 56, color: subTextColor),
+            const SizedBox(height: 16),
+            Text(
+              '特训暂时不可用，请稍后重试',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              key: const ValueKey<String>('today-focused-retry'),
+              onPressed: _loadFocusedState,
+              child: const Text('重新加载'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Compact real plan surface: bank, goal, daily target, priority, horizon,
+  /// current selected workload and Start/Stop actions. Advisory states are
+  /// display-only and never deactivate the plan.
+  Widget _buildFocusedPlanCard(
+    Color textColor,
+    Color subTextColor,
+    ActiveStudyPlan plan, {
+    required _FocusedPlanStatus status,
+    required int? selectedCount,
+    required StudyPlanFocusedAdvisory advisory,
+  }) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
+    final cardColor = theme.cardTheme.color ?? theme.colorScheme.surface;
+    final priorityLabel = switch (plan.priority) {
+      StudyPlanPriority.balanced => '均衡',
+      StudyPlanPriority.dueFirst => '到期优先',
+      StudyPlanPriority.weakFirst => '薄弱优先',
+      StudyPlanPriority.newFirst => '新题优先',
+    };
+    final statusLine = switch (status) {
+      _FocusedPlanStatus.ready => '今日可特训：$selectedCount 题',
+      _FocusedPlanStatus.noCandidates => '今日暂无任务',
+      _FocusedPlanStatus.unavailable => '当前计划题库已不可用',
+    };
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      child: Container(
+        key: const ValueKey<String>('today-focused-plan-card'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: primaryColor.withValues(alpha: 0.08),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: primaryColor.withValues(alpha: 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: primaryColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.flag_rounded, color: primaryColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '学习计划',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  key: const ValueKey<String>('today-focused-stop'),
+                  onPressed: () => _handleFocusedStop(plan),
+                  style: TextButton.styleFrom(foregroundColor: subTextColor),
+                  child: const Text('停止计划'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildFocusedPlanInfo('题库', plan.bankName, textColor, subTextColor),
+            if (plan.goal != null) ...[
+              const SizedBox(height: 8),
+              _buildFocusedPlanInfo('目标', plan.goal!, textColor, subTextColor),
+            ],
+            const SizedBox(height: 8),
+            _buildFocusedPlanInfo(
+                '每日特训量', '${plan.dailyTarget} 题', textColor, subTextColor),
+            const SizedBox(height: 8),
+            _buildFocusedPlanInfo(
+                '优先级', priorityLabel, textColor, subTextColor),
+            if (plan.horizonDays != null) ...[
+              const SizedBox(height: 8),
+              _buildFocusedPlanInfo(
+                  '期限', '${plan.horizonDays} 天', textColor, subTextColor),
+            ],
+            const SizedBox(height: 16),
+            Container(
+              key: const ValueKey<String>('today-focused-status'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: status == _FocusedPlanStatus.ready
+                    ? primaryColor.withValues(alpha: 0.10)
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                statusLine,
+                style: TextStyle(
+                  color: status == _FocusedPlanStatus.ready
+                      ? primaryColor
+                      : textColor,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (advisory.masteryReached || advisory.horizonElapsed) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (advisory.masteryReached)
+                    _buildFocusedAdvisoryChip('已掌握全部题目', primaryColor),
+                  if (advisory.horizonElapsed)
+                    _buildFocusedAdvisoryChip('计划期已结束', primaryColor),
+                ],
+              ),
+            ],
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                key: const ValueKey<String>('today-focused-start'),
+                onPressed: status == _FocusedPlanStatus.unavailable
+                    ? null
+                    : _handleFocusedStart,
+                style: FilledButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                icon: const Icon(Icons.play_circle_fill_rounded),
+                label: const Text(
+                  '开始特训',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFocusedAdvisoryChip(String label, Color primaryColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: primaryColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: primaryColor.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: primaryColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFocusedPlanInfo(
+    String label,
+    String value,
+    Color textColor,
+    Color subTextColor,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 88,
+          child: Text(
+            label,
+            style: TextStyle(color: subTextColor, fontSize: 13),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 开始特训: fresh recomputation only. Never reuses a displayed snapshot;
+  /// never persists selected IDs; never calls any provider.
+  Future<void> _handleFocusedStart() async {
+    final service = widget.studyPlanSelectionService;
+    final launcher = widget.studyPlanSessionLauncher;
+    if (service == null || launcher == null) return;
+    if (_focusedStartPending) return; // duplicate start action prevention
+    _focusedStartPending = true;
+    try {
+      final state = await service.loadFocusedState();
+      if (!mounted) return;
+      switch (state) {
+        case StudyPlanFocusedNoActivePlan():
+          setState(() => _focusedState = state);
+          _showFocusedMessage('当前没有学习计划');
+        case StudyPlanFocusedPlanUnavailable():
+          setState(() => _focusedState = state);
+          _showFocusedMessage('当前计划题库已不可用');
+        case StudyPlanFocusedNoCandidates():
+          setState(() => _focusedState = state);
+          _showFocusedMessage('今日暂无任务');
+        case StudyPlanFocusedReady(
+            :final activePlan,
+            :final selectedStorageIds
+          ):
+          final launch = await launcher.launch(selectedStorageIds);
+          if (!mounted) return;
+          if (launch is StudyPlanPracticeLaunchSuccess) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PracticePage(
+                  bankName: activePlan.bankName,
+                  usePreparedStudySession: true,
+                ),
+              ),
+            );
+            if (mounted) _loadFocusedState();
+          } else {
+            _showFocusedMessage('特训准备失败，请重试');
+          }
+        case StudyPlanFocusedFailure():
+          _showFocusedMessage('特训暂时不可用，请稍后重试');
+      }
+    } finally {
+      _focusedStartPending = false;
+    }
+  }
+
+  /// 停止计划: destructive action with explicit confirmation bound to the
+  /// exact [plan] observed when the confirmation was opened.
+  Future<void> _handleFocusedStop(ActiveStudyPlan plan) async {
+    final service = widget.studyPlanCommandService;
+    if (service == null) return;
+    final observedPlanId = plan.planId;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('停止学习计划'),
+        content: const Text('确定停止当前学习计划？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            key: const ValueKey<String>('today-focused-stop-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final result = await service.stopActivePlan(expectedPlanId: observedPlanId);
+    if (!mounted) return;
+    switch (result) {
+      case StudyPlanStopResultSuccess():
+        // Reload from live state: the no-plan surface appears.
+        _loadFocusedState();
+      case StudyPlanStopResultStaleActivePlan():
+        // ZERO auto-retry: the plan changed under the confirmation; reload
+        // current state and show a bounded message. An old confirmation must
+        // never stop a newly replaced plan.
+        _loadFocusedState();
+        _showFocusedMessage('学习计划已变化，请重试');
+      case StudyPlanStopResultFailed():
+        _showFocusedMessage('停止失败，请重试');
+    }
+  }
+
+  void _showFocusedMessage(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildBankCard(

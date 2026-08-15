@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/core/review_engine_service.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
@@ -11,6 +12,7 @@ import 'package:shiroha_quiz/data/repositories/review_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/services/study_plan/study_plan_practice_session_launcher.dart';
 import 'package:shiroha_quiz/ui/models/practice_question_view.dart';
 import 'package:shiroha_quiz/ui/pages/practice_page.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
@@ -260,6 +262,206 @@ void main() {
             .getPersistedStudySessionQuestions(_bankName, 9999999999),
         throwsA(isA<QuestionV2PayloadException>()),
       );
+    });
+  });
+
+  group('ReviewEngineService prepared session seam', () {
+    LegacyPersistedQuestion legacyQuestion(String id, String content) {
+      return LegacyPersistedQuestion(
+        question: Question(
+          id: id,
+          type: 0,
+          content: content,
+          options: '["A. first", "B. second"]',
+          answer: 'A',
+          createdAt: 1,
+          bankName: _bankName,
+          explanation: '',
+          rawExplanation: null,
+        ),
+      );
+    }
+
+    test('initPreparedStudySession replaces the queue in exact order', () {
+      final engine = ReviewEngineService();
+      final q1 = legacyQuestion('q1', 'one');
+      final q2 = legacyQuestion('q2', 'two');
+      final q3 = legacyQuestion('q3', 'three');
+
+      engine.initPreparedStudySession(<PersistedQuestion>[q1, q2, q3]);
+      expect(engine.popNextQuestion(), same(q1));
+      expect(engine.popNextQuestion(), same(q2));
+      expect(engine.popNextQuestion(), same(q3));
+      expect(engine.popNextQuestion(), isNull);
+    });
+
+    test(
+        'requeueQuestion keeps existing queue semantics after a prepared '
+        'session', () {
+      final engine = ReviewEngineService();
+      final q1 = legacyQuestion('q1', 'one');
+      final q2 = legacyQuestion('q2', 'two');
+
+      engine.initPreparedStudySession(<PersistedQuestion>[q1, q2]);
+      final first = engine.popNextQuestion();
+      engine.requeueQuestion(first!);
+      // O(1) 错题回炉: requeued question lands at the tail.
+      expect(engine.popNextQuestion(), same(q2));
+      expect(engine.popNextQuestion(), same(q1));
+      expect(engine.popNextQuestion(), isNull);
+    });
+  });
+
+  group('StudyPlan selected-ID materialization (union)', () {
+    test('exact selected order preserved across mixed typed + legacy',
+        () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'legacy_1', content: 'Legacy first.');
+      await _insertTyped(db, _choiceDraft(stem: 'Typed second.'),
+          storageId: _typedStorageIdA);
+      await _insertLegacy(db, id: 'legacy_3', content: 'Legacy third.');
+
+      final result =
+          await ReviewRepository.instance.materializeStudyPlanSession(<String>[
+        _typedStorageIdA,
+        'legacy_3',
+        'legacy_1',
+      ]);
+
+      expect(result, isA<StudyPlanSessionMaterializationSuccess>());
+      final questions =
+          (result as StudyPlanSessionMaterializationSuccess).questions;
+      expect(questions.map((q) => q.storageId).toList(),
+          <String>[_typedStorageIdA, 'legacy_3', 'legacy_1']);
+      expect(questions[0], isA<TypedPersistedQuestion>());
+      expect(
+        ((questions[0] as TypedPersistedQuestion).draft.stem.nodes.single
+                as TextNode)
+            .text,
+        'Typed second.',
+      );
+      expect(questions[1], isA<LegacyPersistedQuestion>());
+      expect((questions[1] as LegacyPersistedQuestion).question.content,
+          'Legacy third.');
+      expect(questions[2], isA<LegacyPersistedQuestion>());
+    });
+
+    test('typed V2 question materializes through the typed authority',
+        () async {
+      final db = await _db();
+      await _insertTyped(
+        db,
+        _choiceDraft(
+          stem: 'Typed materialization marker.',
+          answer: ChoiceAnswer(optionIds: <String>['opt_b']),
+        ),
+        storageId: _typedStorageIdB,
+      );
+
+      final result = await ReviewRepository.instance
+          .materializeStudyPlanSession(<String>[_typedStorageIdB]);
+
+      final questions =
+          (result as StudyPlanSessionMaterializationSuccess).questions;
+      final typed = questions.single as TypedPersistedQuestion;
+      expect(typed.storageId, _typedStorageIdB);
+      expect(
+        (typed.draft.stem.nodes.single as TextNode).text,
+        'Typed materialization marker.',
+      );
+      expect(typed.draft.answer, isA<ChoiceAnswer>());
+    });
+
+    test('missing selected ID fails boundedly with zero partial result',
+        () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'present');
+
+      final result = await ReviewRepository.instance
+          .materializeStudyPlanSession(<String>['present', 'missing_id']);
+
+      expect(result, isA<StudyPlanSessionMaterializationUnavailable>());
+    });
+
+    test('corrupt V2 sidecar fails boundedly without V1 fallback', () async {
+      final db = await _db();
+      await _insertTyped(db, _choiceDraft(), storageId: _typedStorageIdC);
+      await db.update(
+        'question_v2_payloads',
+        <String, Object?>{'payload_json': '{not json'},
+        where: 'question_id = ?',
+        whereArgs: <Object?>[_typedStorageIdC],
+      );
+
+      final result = await ReviewRepository.instance
+          .materializeStudyPlanSession(<String>[_typedStorageIdC]);
+
+      expect(result, isA<StudyPlanSessionMaterializationUnavailable>());
+    });
+
+    test('empty / oversized / duplicate inputs fail boundedly', () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'present');
+
+      expect(
+        await ReviewRepository.instance.materializeStudyPlanSession(
+          const <String>[],
+        ),
+        isA<StudyPlanSessionMaterializationUnavailable>(),
+      );
+      expect(
+        await ReviewRepository.instance.materializeStudyPlanSession(
+          <String>['present', 'present'],
+        ),
+        isA<StudyPlanSessionMaterializationUnavailable>(),
+      );
+      expect(
+        await ReviewRepository.instance.materializeStudyPlanSession(
+          List<String>.filled(201, 'present'),
+        ),
+        isA<StudyPlanSessionMaterializationUnavailable>(),
+      );
+    });
+  });
+
+  group('StudyPlan practice session launcher', () {
+    test('launch materializes exact order and injects the engine queue',
+        () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'l_a', content: 'A stem.');
+      await _insertLegacy(db, id: 'l_b', content: 'B stem.');
+      await _insertLegacy(db, id: 'l_c', content: 'C stem.');
+
+      final launcher = StudyPlanPracticeSessionLauncher();
+      final result = await launcher.launch(<String>['l_c', 'l_a', 'l_b']);
+
+      expect(result, isA<StudyPlanPracticeLaunchSuccess>());
+      expect((result as StudyPlanPracticeLaunchSuccess).questionCount, 3);
+
+      final engine = ReviewEngineService();
+      expect(engine.popNextQuestion()!.storageId, 'l_c');
+      expect(engine.popNextQuestion()!.storageId, 'l_a');
+      expect(engine.popNextQuestion()!.storageId, 'l_b');
+      expect(engine.popNextQuestion(), isNull);
+    });
+
+    test('bounded failure leaves the current engine queue untouched', () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'l_a', content: 'A stem.');
+      await _insertLegacy(db, id: 'l_b', content: 'B stem.');
+
+      final launcher = StudyPlanPracticeSessionLauncher();
+      await launcher.launch(<String>['l_a', 'l_b']);
+      final engine = ReviewEngineService();
+      expect(engine.popNextQuestion()!.storageId, 'l_a');
+
+      final failed = await launcher.launch(<String>['l_a', 'missing']);
+      expect(failed, isA<StudyPlanPracticeLaunchFailed>());
+
+      // Zero partial prepared queue: the queue still holds exactly the
+      // remaining question from the previous session ('l_b').
+      expect(engine.popNextQuestion()!.storageId, 'l_b');
+      expect(engine.popNextQuestion(), isNull);
     });
   });
 
@@ -548,6 +750,99 @@ void main() {
       expect(logs, hasLength(1));
       expect(logs.single['question_id'], _typedStorageIdA);
       expect(logs.single['grade'], 4);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'SPL-1 特训 prepared session: exact order, normal FSRS mutation and '
+        'requeue — NOT preview mode', (tester) async {
+      await tester.runAsync(() async {
+        final db = await _db();
+        await _insertLegacy(
+          db,
+          id: 'b_legacy',
+          content: 'Legacy B stem.',
+          options: '["A. b-one", "B. b-two"]',
+          answer: 'A',
+        );
+        await _insertLegacy(
+          db,
+          id: 'a_legacy',
+          content: 'Legacy A stem.',
+          options: '["A. a-one", "B. a-two"]',
+          answer: 'A',
+        );
+        await db.insert('review_states', _newReviewState('b_legacy'));
+        await db.insert('review_states', _newReviewState('a_legacy'));
+        final launcher = StudyPlanPracticeSessionLauncher();
+        final launch = await launcher.launch(<String>['b_legacy', 'a_legacy']);
+        expect(launch, isA<StudyPlanPracticeLaunchSuccess>());
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PracticePage(
+            bankName: _bankName,
+            usePreparedStudySession: true,
+          ),
+        ),
+      );
+      for (var frame = 0; frame < 60; frame++) {
+        await tester.pump();
+        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 25)),
+          );
+          await tester.pump();
+          break;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 25)),
+        );
+      }
+
+      // Exact selected order: B first, not repository order.
+      expect(find.text('Legacy B stem.'), findsOneWidget);
+
+      // Normal non-preview grade on B: FSRS/review log mutation runs.
+      await tester.tap(find.text('b-one'));
+      await tester.tap(find.text('查看答案'));
+      await settle(tester);
+      await tester.tap(find.text('极易'));
+      await settle(tester);
+
+      expect(find.text('Legacy A stem.'), findsOneWidget);
+
+      // grade=1 requeues A through the existing queue semantics: A must come
+      // back after being answered with 重来.
+      await tester.tap(find.text('a-one'));
+      await tester.tap(find.text('查看答案'));
+      await settle(tester);
+      await tester.tap(find.text('重来'));
+      await settle(tester);
+      expect(find.text('Legacy A stem.'), findsOneWidget);
+
+      await tester.tap(find.text('a-one'));
+      await tester.tap(find.text('查看答案'));
+      await settle(tester);
+      await tester.tap(find.text('极易'));
+      await settle(tester);
+
+      expect(find.text('🎉 任务完成'), findsOneWidget);
+
+      final logs = (await tester.runAsync(() async {
+        return (await _db()).query(
+          'review_logs',
+          orderBy: 'review_time ASC',
+        );
+      }))!;
+      expect(logs, hasLength(3));
+      expect(logs[0]['question_id'], 'b_legacy');
+      expect(logs[0]['grade'], 4);
+      expect(logs[1]['question_id'], 'a_legacy');
+      expect(logs[1]['grade'], 1);
+      expect(logs[2]['question_id'], 'a_legacy');
+      expect(logs[2]['grade'], 4);
       expect(tester.takeException(), isNull);
     });
   });

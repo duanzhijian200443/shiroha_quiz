@@ -6,6 +6,28 @@ import '../persistence/question_v2_persistence_mapper.dart';
 
 const _globalWrongBookBankName = '🔥 全局错题本';
 
+/// Bounded result of one SPL-1-U0 selected-ID materialization attempt.
+sealed class StudyPlanSessionMaterialization {
+  const StudyPlanSessionMaterialization();
+}
+
+/// The exact selected storage IDs were materialized in the exact requested
+/// order with zero missing or undecodable rows.
+final class StudyPlanSessionMaterializationSuccess
+    extends StudyPlanSessionMaterialization {
+  const StudyPlanSessionMaterializationSuccess(this.questions);
+
+  final List<PersistedQuestion> questions;
+}
+
+/// Bounded failure: empty/oversized/duplicate input, a missing selected ID,
+/// a corrupt/unsafe typed sidecar, or a database failure. Carries no SQL,
+/// paths, or raw causes. Zero partial results are ever produced.
+final class StudyPlanSessionMaterializationUnavailable
+    extends StudyPlanSessionMaterialization {
+  const StudyPlanSessionMaterializationUnavailable();
+}
+
 class ReviewRepository implements StudyMetricsQueryPort {
   ReviewRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
@@ -15,6 +37,10 @@ class ReviewRepository implements StudyMetricsQueryPort {
   final DatabaseHelper _databaseHelper;
   static const QuestionV2PersistenceMapper _mapper =
       QuestionV2PersistenceMapper();
+
+  /// SPL-1-U0 materialization bound: a selected StudyPlan session is capped
+  /// at `ActiveStudyPlan.dailyTarget` (max 200) distinct storage IDs.
+  static const int _maxStudyPlanSessionIds = 200;
 
   Future<Database> get _db async => await _databaseHelper.database;
 
@@ -420,6 +446,63 @@ class ReviewRepository implements StudyMetricsQueryPort {
     }
 
     return rows.map(_mapper.decodeJoinedRow).toList(growable: false);
+  }
+
+  /// Narrow SPL-1-U0 selected-ID materialization.
+  ///
+  /// Loads the exact selected storage IDs (max 200, no duplicates) with their
+  /// V2 sidecars and union-decodes every row through the same typed/legacy
+  /// authority as [getPersistedStudySessionQuestions]. The returned list is
+  /// reconstructed in the exact input-ID order: SQL `IN (...)` row order is
+  /// never authoritative. Any missing ID, corrupt/partial/unsafe sidecar, or
+  /// database failure fails the WHOLE preparation boundedly with zero partial
+  /// queue; there is no silent V1 fallback and no replacement selection.
+  Future<StudyPlanSessionMaterialization> materializeStudyPlanSession(
+    List<String> storageIds,
+  ) async {
+    if (storageIds.isEmpty ||
+        storageIds.length > _maxStudyPlanSessionIds ||
+        storageIds.toSet().length != storageIds.length) {
+      return const StudyPlanSessionMaterializationUnavailable();
+    }
+    try {
+      final db = await _db;
+      final placeholders = List.filled(storageIds.length, '?').join(',');
+      final payloadColumns = '''
+        p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
+        p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
+      ''';
+      final rows = await db.rawQuery('''
+        SELECT q.*, $payloadColumns
+        FROM questions q
+        LEFT JOIN question_v2_payloads p ON q.id = p.question_id
+        WHERE q.id IN ($placeholders)
+      ''', storageIds);
+
+      final byId = <String, PersistedQuestion>{};
+      try {
+        for (final row in rows) {
+          final decoded = _mapper.decodeJoinedRow(row);
+          byId[decoded.storageId] = decoded;
+        }
+      } on QuestionV2PayloadException {
+        return const StudyPlanSessionMaterializationUnavailable();
+      }
+
+      final ordered = <PersistedQuestion>[];
+      for (final storageId in storageIds) {
+        final decoded = byId[storageId];
+        if (decoded == null) {
+          return const StudyPlanSessionMaterializationUnavailable();
+        }
+        ordered.add(decoded);
+      }
+      return StudyPlanSessionMaterializationSuccess(ordered);
+    } on DatabaseRuntimeException {
+      return const StudyPlanSessionMaterializationUnavailable();
+    } on DatabaseException {
+      return const StudyPlanSessionMaterializationUnavailable();
+    }
   }
 
   // 暴露给事务的核心读写逻辑

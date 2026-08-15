@@ -9,7 +9,7 @@ SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
 SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
 SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
 SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
-SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — NOT STARTED
+SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
 SPL-1-V0 Focused acceptance — NOT STARTED
 SPL-1-CL Closure — NOT STARTED
 SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS (not COMPLETE / not CLOSED)
@@ -18,7 +18,8 @@ SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS (not COMPLETE / not CLOSED)
 Runtime schema is **v22** (additive `study_plans` table); Built-in Agent can
 stage a StudyPlanDraft via `propose_study_plan` and Assistant provides
 explicit adoption/replacement confirmation; durable adoption remains
-Application-controlled; Today / 特训 consumption is NOT implemented until U0;
+Application-controlled; Today / 特训 consumes a real adopted
+`ActiveStudyPlan` through deterministic dynamic selection (U0 delivered);
 MCP remains unchanged.
 
 ## 1. Authority and scope
@@ -191,18 +192,29 @@ AI/provider call is required when Today / 特训 opens.
 
 ## 9. Practice integration boundary
 
-Future U0 flow:
+Delivered U0 flow:
 
 ```text
 Application StudyPlan selection
-→ stable selected storage identities / safe DTO
-→ narrow materialization adapter
-→ existing Practice interaction
+→ stable selected storage identities (ordered, deduplicated)
+→ narrow materialization adapter (StudyPlanPracticeSessionLauncher)
+→ exact ordered persisted-question materialization
+→ ReviewEngineService prepared session queue
+→ existing PracticePage normal review mode
 ```
 
-No second PracticePage, no second review writer, no second scheduler. Future
-materialization must preserve selected order and use the existing typed/legacy
-question decoding authority. Nothing is implemented in P0.
+No second PracticePage, no second review writer, no second scheduler.
+Materialization preserves the exact selected-ID order and reuses the existing
+typed/legacy question decoding authority (`QuestionV2PersistenceMapper`);
+corrupt sidecars and missing IDs fail the whole preparation boundedly with
+zero partial queue.
+
+`PracticePage.initialQuestions` is preview mode and intentionally bypasses
+normal review/FSRS mutation; it is NEVER used for 特训. U0 adds a narrow
+non-preview prepared-session seam instead: `PracticePage.usePreparedStudySession`
+consumes the queue already injected via `ReviewEngineService.initPreparedStudySession`,
+keeping the normal answer/grade/FSRS/requeue path active. Preview callers stay
+unchanged.
 
 ## 10. Agent planning tool
 
@@ -372,8 +384,7 @@ collision-resistant, product-lifetime non-reused opaque identity.
 
 The injected `planIdFactory` is REQUIRED to satisfy this invariant.
 
-Future I0 composition MUST wire a canonical UUID/fresh-ID generator
-or equivalent non-reusing identity source.
+I0 composition wires a canonical UUID/fresh-ID generator (`uuid.v4`).
 
 `A -> B -> A` identity reuse is forbidden by the `planIdFactory` contract,
 so an old `expectedActivePlanId` can never become valid again.
@@ -469,12 +480,20 @@ None of `horizonElapsed` / `masteryReached` automatically deactivates the plan.
 
 ## 18. Today / 特训
 
-No ActiveStudyPlan: retain the current real dependency-not-ready state; no fake
-plan data.
+No ActiveStudyPlan: the real no-plan state (特训需要学习计划 / 尚未采用学习计划,
+请先在助手中制定并采用学习计划); no fake counts, no provider call.
 
-ActiveStudyPlan: future U0 may show plan summary, current workload, 开始特训,
-停止计划. No Today redesign, no new primary navigation destination, no fake
-plan, no provider call when opening 特训.
+ActiveStudyPlan (U0 delivered): the 特训 surface shows the real plan summary
+(bank, goal, daily target, priority, horizon), the current selected workload
+(今日可特训：N 题), advisory states, 开始特训 and 停止计划. 开始特训 recomputes
+selection fresh from live state at every tap (never reuses the displayed
+snapshot, never persists question IDs, never calls a provider) and launches
+the existing PracticePage in normal review mode. 停止计划 requires an explicit
+confirmation bound to the exact observed `planId` (CAS; stale confirmations
+never stop a replaced plan). No Today redesign, no new primary navigation
+destination, no fake plan. `noCandidates` (今日暂无任务), `planUnavailable`
+(当前计划题库已不可用), `masteryReached` and `horizonElapsed` (advisory only)
+follow §17. The durable plan is never auto-deleted.
 
 ## 19. Non-goals (frozen)
 
