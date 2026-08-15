@@ -362,6 +362,19 @@ Two competing replacements from the same baseline: at most one succeeds. Stop
 vs replacement from the same baseline: at most one succeeds. No
 last-writer-wins with both operations reporting committed.
 
+### Plan identity uniqueness and ABA prevention
+
+Every newly created `ActiveStudyPlan` `planId` MUST be a fresh,
+collision-resistant, product-lifetime non-reused opaque identity.
+
+The injected `planIdFactory` is REQUIRED to satisfy this invariant.
+
+Future I0 composition MUST wire a canonical UUID/fresh-ID generator
+or equivalent non-reusing identity source.
+
+`A -> B -> A` identity reuse is forbidden by the `planIdFactory` contract,
+so an old `expectedActivePlanId` can never become valid again.
+
 ## 14. Adoption revalidation (source-turn validity)
 
 At formal adoption, one transaction revalidates:

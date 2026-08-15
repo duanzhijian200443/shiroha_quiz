@@ -424,4 +424,67 @@ void main() {
         StudyPlanDraftOutcome.pending);
     expect(h.persistencePort.commitCalls, 0);
   });
+
+  test(
+      '14. ABA prevention: old expectedActivePlanId cannot be revived or reused',
+      () async {
+    final ids = <String>['plan_A', 'plan_B', 'plan_C'];
+    var seq = 0;
+    final h = _Harness(planIdFactory: () => ids[seq++]);
+    final draftId1 = await h.stageDraft();
+
+    h.persistencePort.nextCommitResult = StudyPlanPersistenceCommitSuccess(
+      ActiveStudyPlan(
+        planId: 'plan_A',
+        bankName: 'Math',
+        dailyTarget: 40,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'conv_1',
+        sourceUserMessageId: 'msg_1',
+        adoptedAt: h.currentTime,
+      ),
+    );
+
+    // Adopt plan_A
+    final resA = await h.commandService.adoptDraft(
+      draftId: draftId1,
+      expectedActivePlanId: null,
+      replacementConfirmed: false,
+    );
+    expect(resA, isA<StudyPlanAdoptResultSuccess>());
+
+    // Replace plan_A -> plan_B
+    final draftId2 = await h.stageDraft(dailyTarget: 50);
+    h.persistencePort.nextCommitResult = StudyPlanPersistenceCommitSuccess(
+      ActiveStudyPlan(
+        planId: 'plan_B',
+        bankName: 'Math',
+        dailyTarget: 50,
+        priority: StudyPlanPriority.balanced,
+        sourceConversationId: 'conv_1',
+        sourceUserMessageId: 'msg_1',
+        adoptedAt: h.currentTime,
+      ),
+    );
+    final resB = await h.commandService.adoptDraft(
+      draftId: draftId2,
+      expectedActivePlanId: 'plan_A',
+      replacementConfirmed: true,
+    );
+    expect(resB, isA<StudyPlanAdoptResultSuccess>());
+
+    // An attempt to adopt using stale plan_A baseline after it was replaced to plan_B:
+    // Persistence port rejects with staleActivePlan
+    final draftId3 = await h.stageDraft(dailyTarget: 60);
+    h.persistencePort.nextCommitResult =
+        const StudyPlanPersistenceCommitStaleActivePlan();
+    final resStale = await h.commandService.adoptDraft(
+      draftId: draftId3,
+      expectedActivePlanId: 'plan_A',
+      replacementConfirmed: true,
+    );
+    expect(resStale, isA<StudyPlanAdoptResultStaleActivePlan>());
+    expect(h.draftService.draftById(draftId3).outcome,
+        StudyPlanDraftOutcome.pending);
+  });
 }

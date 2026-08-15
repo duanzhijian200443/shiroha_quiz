@@ -4,6 +4,15 @@
 /// plan identity factory and clock, durable CAS execution via
 /// [StudyPlanPersistencePort], marking draft committed on success, rollback
 /// to pending on zero-mutation failure, and explicit stop command.
+///
+/// ### Plan Identity Invariant
+/// Every newly created [ActiveStudyPlan] `planId` MUST be a fresh,
+/// collision-resistant, product-lifetime non-reused opaque identity.
+/// The injected [planIdFactory] is REQUIRED to satisfy this invariant.
+/// Future composition (e.g. SPL-1-I0) MUST wire a canonical UUID/fresh-ID
+/// generator or equivalent non-reusing identity source. `A -> B -> A` identity
+/// reuse is forbidden by the [planIdFactory] contract, ensuring an old
+/// `expectedActivePlanId` can never become valid again.
 library;
 
 import '../../domain/study_plan/active_study_plan.dart';
@@ -110,6 +119,9 @@ final class StudyPlanCommandService {
 
   final StudyPlanDraftService _draftService;
   final StudyPlanPersistencePort _persistencePort;
+
+  /// Factory for generating globally fresh, non-reused opaque plan identities.
+  /// Must never cycle or reuse identities, preventing CAS ABA vulnerabilities.
   final String Function() _planIdFactory;
   final DateTime Function() _clock;
 
