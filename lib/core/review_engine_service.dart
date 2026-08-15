@@ -439,6 +439,17 @@ class ReviewEngineService with WidgetsBindingObserver {
     _sessionQueue = Queue<PersistedQuestion>.from(questions);
   }
 
+  /// Narrow SPL-1-U0 prepared-session seam: replaces the current in-memory
+  /// session queue with the exact provided ordered questions.
+  ///
+  /// Its responsibility is ONLY queue replacement. It never selects
+  /// candidates, queries the StudyPlan, writes review state, changes FSRS,
+  /// or persists selected IDs. The caller (StudyPlan materialization
+  /// adapter) must already have materialized the exact ordered questions.
+  void initPreparedStudySession(List<PersistedQuestion> orderedQuestions) {
+    _sessionQueue = Queue<PersistedQuestion>.from(orderedQuestions);
+  }
+
   // O(1) 极速弹出一道题
   PersistedQuestion? popNextQuestion() {
     if (_sessionQueue == null || _sessionQueue!.isEmpty) return null;

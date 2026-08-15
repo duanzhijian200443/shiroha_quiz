@@ -25,6 +25,8 @@ import 'application/retrieval/retrieval_service.dart';
 import 'application/safe_write/agent_write_proposal_service.dart';
 import 'application/study_plan/study_plan_command_service.dart';
 import 'application/study_plan/study_plan_draft_service.dart';
+import 'application/study_plan/study_plan_pool_order.dart';
+import 'application/study_plan/study_plan_selection_service.dart';
 import 'core/database/database_helper.dart';
 import 'core/observability/app_logger.dart';
 import 'application/projects/project_service.dart';
@@ -65,6 +67,7 @@ import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapt
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
+import 'services/study_plan/study_plan_practice_session_launcher.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
@@ -221,6 +224,17 @@ void main() {
       planIdFactory: uuid.v4,
       clock: () => DateTime.now().toUtc(),
     );
+    // SPL-1-U0 focused seams: deterministic dynamic selection + the narrow
+    // Practice materialization/session adapter. All read from the same
+    // long-lived StudyPlan repositories; nothing new is persisted.
+    final studyPlanSelectionService = StudyPlanSelectionService(
+      persistencePort: studyPlanPersistenceRepository,
+      planningPort: studyPlanReadRepository,
+      candidateQueryPort: studyPlanReadRepository,
+      poolOrder: const StudyPlanPoolOrder(),
+      clock: () => DateTime.now().toUtc(),
+    );
+    final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
     final supportDirectory = await getApplicationSupportDirectory();
     final parsedArtifactRepository =
         ParsedArtifactRepository(databaseHelper: databaseHelper);
@@ -319,6 +333,8 @@ void main() {
       proposalService: agentWriteProposalService,
       studyPlanDraftService: studyPlanDraftService,
       studyPlanCommandService: studyPlanCommandService,
+      studyPlanSelectionService: studyPlanSelectionService,
+      studyPlanSessionLauncher: studyPlanSessionLauncher,
     ));
   }, (error, stackTrace) {
     AppLogger.error(
@@ -348,6 +364,8 @@ class ShirohaQuizApp extends StatelessWidget {
     this.proposalService,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
+    this.studyPlanSelectionService,
+    this.studyPlanSessionLauncher,
   });
 
   final AiEngineRepository engineRepository;
@@ -366,6 +384,10 @@ class ShirohaQuizApp extends StatelessWidget {
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
+
+  /// SPL-1-U0 focused seams (selection + Practice materialization adapter).
+  final StudyPlanSelectionService? studyPlanSelectionService;
+  final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -394,6 +416,8 @@ class ShirohaQuizApp extends StatelessWidget {
               proposalService: proposalService,
               studyPlanDraftService: studyPlanDraftService,
               studyPlanCommandService: studyPlanCommandService,
+              studyPlanSelectionService: studyPlanSelectionService,
+              studyPlanSessionLauncher: studyPlanSessionLauncher,
             ),
           ),
         );
@@ -415,6 +439,8 @@ class SplashScreen extends StatefulWidget {
     this.proposalService,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
+    this.studyPlanSelectionService,
+    this.studyPlanSessionLauncher,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
@@ -424,6 +450,8 @@ class SplashScreen extends StatefulWidget {
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
+  final StudyPlanSelectionService? studyPlanSelectionService;
+  final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -461,6 +489,8 @@ class _SplashScreenState extends State<SplashScreen> {
           proposalService: widget.proposalService,
           studyPlanDraftService: widget.studyPlanDraftService,
           studyPlanCommandService: widget.studyPlanCommandService,
+          studyPlanSelectionService: widget.studyPlanSelectionService,
+          studyPlanSessionLauncher: widget.studyPlanSessionLauncher,
         ),
       ),
     );

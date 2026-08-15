@@ -295,12 +295,15 @@ that any future feature is auto-authorized.
 
 ### StudyPlan boundary (preserved)
 
-The plan-driven 特训 capability remains outside the completed UI
-Finalization capability while no real Active StudyPlan exists. The current
-valid state is 特训 -> dependency-not-ready, which UI-R0 froze as the valid
-no-StudyPlan state; it does not block UI Finalization closure. A future real
-StudyPlan integration requires a separate explicitly authorized
-stage/contract.
+UI Finalization froze the 特训 location/IA (Today -> 特训, mode organization)
+and the genuine no-StudyPlan state; the StudyPlan-driven 特训 capability itself
+was delivered later by the separately authorized SPL-1 stage
+(`docs/product/SPL-1 StudyPlan Agent Tool v0.md`). SPL-1-U0 implemented
+Today/特训 consumption of a real adopted ActiveStudyPlan (plan summary,
+dynamic selection workload, 开始特训, 停止计划) while preserving the no-plan
+state when no ActiveStudyPlan exists. UI Finalization remains the authority
+for Presentation / Navigation only; SPL-1 is the authority for the plan
+capability.
 
 ## 11. Non-goals and stop conditions
 

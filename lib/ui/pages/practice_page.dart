@@ -19,6 +19,19 @@ class PracticePage extends StatefulWidget {
   final List<Question>? initialQuestions;
   final int? initialIndex;
 
+  /// Narrow SPL-1-U0 prepared-session seam for 特训.
+  ///
+  /// When true, the session queue has already been injected into
+  /// [ReviewEngineService] via `initPreparedStudySession` (exact ordered
+  /// persisted questions); this page must NOT re-run the repository session
+  /// read and must NOT enter preview mode. All answering/grade/FSRS/requeue
+  /// paths remain the normal non-preview ones.
+  ///
+  /// This is deliberately NOT [initialQuestions]: preview mode intentionally
+  /// bypasses normal review/FSRS mutation and must never carry StudyPlan
+  /// sessions.
+  final bool usePreparedStudySession;
+
   const PracticePage({
     super.key,
     this.bankName,
@@ -26,6 +39,7 @@ class PracticePage extends StatefulWidget {
     this.isPomodoroActive = false,
     this.initialQuestions,
     this.initialIndex,
+    this.usePreparedStudySession = false,
   });
 
   @override
@@ -87,6 +101,11 @@ class _PracticePageState extends State<PracticePage> {
           widget.initialQuestions!.isNotEmpty) {
         _previewQuestions = List.from(widget.initialQuestions!);
         _previewIndex = widget.initialIndex ?? 0;
+      } else if (widget.usePreparedStudySession) {
+        // SPL-1 特训: the exact ordered queue was already injected via
+        // ReviewEngineService.initPreparedStudySession; skip the repository
+        // session read. _previewQuestions stays null, so the queue (and the
+        // normal grade/FSRS/requeue paths) are used.
       } else {
         final bankName = widget.bankName ?? '默认题库';
         // 核心修复：把被遗忘的 filterType 过滤条件传给调度器，实现题型物理隔离

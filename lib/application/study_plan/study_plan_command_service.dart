@@ -106,7 +106,7 @@ final class StudyPlanStopResultFailed extends StudyPlanStopResult {
   const StudyPlanStopResultFailed();
 }
 
-final class StudyPlanCommandService {
+class StudyPlanCommandService {
   StudyPlanCommandService({
     required StudyPlanDraftService draftService,
     required StudyPlanPersistencePort persistencePort,

@@ -399,7 +399,12 @@ through an Application command with a durable transaction-level
   six tools. Runtime schema is v22 with the additive `study_plans` table;
   ActiveStudyPlan durable singleton persistence exists; formal adoption
   remains Application-controlled; Agent planning and Assistant draft/adoption
-  Presentation are implemented; Today/特训 consumption remains pending U0.
+  Presentation are implemented; Today/特训 consumes the adopted plan through
+  the deterministic `StudyPlanSelectionService` (live candidate pools,
+  priority selection, dailyTarget cap, advisory states only), and 开始特训
+  materializes the exact ordered selected storage IDs through the narrow
+  non-preview Practice seam (never `PracticePage.initialQuestions`, which
+  remains preview-only).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
