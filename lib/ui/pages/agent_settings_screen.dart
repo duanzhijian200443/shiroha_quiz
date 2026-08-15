@@ -226,7 +226,7 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String?>(
                   key: const ValueKey<String>('a0-agent-fallback-profile'),
-                  value: _selectedFallbackProfileId,
+                  initialValue: _selectedFallbackProfileId,
                   decoration: const InputDecoration(
                     labelText: '备用模型（可选）',
                     border: OutlineInputBorder(),

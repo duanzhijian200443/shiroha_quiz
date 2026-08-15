@@ -2001,7 +2001,8 @@ void main() {
         scripts: <_Script>[_finalAnswer('Primary Answer')],
         fallbackScripts: <_Script>[_finalAnswer('Fallback Answer')],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2010,20 +2011,24 @@ void main() {
       final result = await session.result;
 
       expect(result, isA<AgentTurnSuccess>());
-      expect((result as AgentTurnSuccess).assistantMessage.content, 'Primary Answer');
+      expect((result as AgentTurnSuccess).assistantMessage.content,
+          'Primary Answer');
       expect(harness.provider.callCount, 1);
       expect(harness.fallbackProvider.callCount, 0);
     });
 
-    test('no fallback configured: existing failure behavior unchanged', () async {
+    test('no fallback configured: existing failure behavior unchanged',
+        () async {
       final harness = _Harness(
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2042,14 +2047,16 @@ void main() {
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Fallback Answer'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2058,7 +2065,8 @@ void main() {
       final result = await session.result;
 
       expect(result, isA<AgentTurnSuccess>());
-      expect((result as AgentTurnSuccess).assistantMessage.content, 'Fallback Answer');
+      expect((result as AgentTurnSuccess).assistantMessage.content,
+          'Fallback Answer');
       expect(harness.provider.callCount, 1);
       expect(harness.fallbackProvider.callCount, 1);
 
@@ -2084,7 +2092,8 @@ void main() {
           _finalAnswer('Fallback Answer Temp'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2101,7 +2110,8 @@ void main() {
       expect(harness.fallbackProvider.callCount, 1);
     });
 
-    test('Primary unsupportedModel before output -> fallback success', () async {
+    test('Primary unsupportedModel before output -> fallback success',
+        () async {
       final harness = _Harness(
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
@@ -2115,7 +2125,8 @@ void main() {
           _finalAnswer('Fallback Answer Model'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2132,7 +2143,8 @@ void main() {
       expect(harness.fallbackProvider.callCount, 1);
     });
 
-    test('Primary incompleteResponse before output -> fallback success', () async {
+    test('Primary incompleteResponse before output -> fallback success',
+        () async {
       final harness = _Harness(
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
@@ -2144,7 +2156,8 @@ void main() {
           _finalAnswer('Fallback Answer Incomplete'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2175,7 +2188,8 @@ void main() {
           _finalAnswer('Fallback Answer Internal'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2206,7 +2220,8 @@ void main() {
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2219,7 +2234,8 @@ void main() {
       expect(harness.fallbackProvider.callCount, 0);
     });
 
-    test('Ineligible Primary unsupportedCapability -> fallback NOT called', () async {
+    test('Ineligible Primary unsupportedCapability -> fallback NOT called',
+        () async {
       final harness = _Harness(
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
@@ -2233,7 +2249,8 @@ void main() {
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2252,7 +2269,8 @@ void main() {
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
@@ -2263,7 +2281,8 @@ void main() {
           },
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2282,14 +2301,16 @@ void main() {
         scripts: <_Script>[
           (request, token) async* {
             yield AgentProviderTextDelta('Partial text...');
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2312,14 +2333,16 @@ void main() {
             yield const AgentProviderWebSearchEvent(
               AgentProviderWebSearchPhase.searching,
             );
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2343,14 +2366,16 @@ void main() {
             const _TestContinuationState('round-1'),
           ),
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2376,14 +2401,16 @@ void main() {
             const _TestContinuationState('round-1'),
           ),
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2412,14 +2439,16 @@ void main() {
             const _TestContinuationState('round-1'),
           ),
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2443,7 +2472,8 @@ void main() {
         wireRetrieval: true,
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
@@ -2474,7 +2504,8 @@ void main() {
         wireRetrieval: true,
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
@@ -2517,7 +2548,8 @@ void main() {
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2531,14 +2563,16 @@ void main() {
       expect(harness.fallbackProvider.callCount, 0);
     });
 
-    test('fallback active then user cancel -> result cancelled -> no further attempt',
+    test(
+        'fallback active then user cancel -> result cancelled -> no further attempt',
         () async {
       final fallbackRunning = Completer<void>();
       final harness = _Harness(
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
@@ -2549,7 +2583,8 @@ void main() {
           },
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2580,7 +2615,8 @@ void main() {
           _finalAnswer('Should not run'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2592,20 +2628,23 @@ void main() {
       expect(harness.fallbackProvider.callCount, 0);
     });
 
-    test('retry after completed fallback turn returns existing Assistant message',
+    test(
+        'retry after completed fallback turn returns existing Assistant message',
         () async {
       final harness = _Harness(
         fallbackProfileId: 'profile-fallback',
         scripts: <_Script>[
           (request, token) async* {
-            throw const AgentProviderException(AgentProviderFailure.rateLimited);
+            throw const AgentProviderException(
+                AgentProviderFailure.rateLimited);
           },
         ],
         fallbackScripts: <_Script>[
           _finalAnswer('Durable Fallback Output'),
         ],
       );
-      final (conversationId, userMessageId) = await harness.seedUser('question');
+      final (conversationId, userMessageId) =
+          await harness.seedUser('question');
 
       final session1 = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2613,7 +2652,8 @@ void main() {
       );
       final result1 = await session1.result;
       expect(result1, isA<AgentTurnSuccess>());
-      expect((result1 as AgentTurnSuccess).assistantMessage.content, 'Durable Fallback Output');
+      expect((result1 as AgentTurnSuccess).assistantMessage.content,
+          'Durable Fallback Output');
 
       final session2 = harness.runtime.startTurn(
         conversationId: conversationId,
@@ -2621,7 +2661,8 @@ void main() {
       );
       final result2 = await session2.result;
       expect(result2, isA<AgentTurnAlreadyCompleted>());
-      expect((result2 as AgentTurnAlreadyCompleted).assistantMessage.content, 'Durable Fallback Output');
+      expect((result2 as AgentTurnAlreadyCompleted).assistantMessage.content,
+          'Durable Fallback Output');
       expect(harness.provider.callCount, 1);
       expect(harness.fallbackProvider.callCount, 1);
     });

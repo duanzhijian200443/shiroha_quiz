@@ -219,7 +219,8 @@ void main() {
     expect(resolved.fallbackProfile, isNull);
   });
 
-  test('missing selected primary profile remains explicit in settings and runtime',
+  test(
+      'missing selected primary profile remains explicit in settings and runtime',
       () async {
     final store = _ConfigStore(encoded: codec.encode(config));
     final settings = AgentSettingsService(
@@ -287,7 +288,8 @@ void main() {
     expect(resolved.toString(), isNot(contains('fixture-secret-value')));
     expect(resolved.toString(), isNot(contains('fallback-secret-value')));
     expect(profile.toString(), isNot(contains('fixture-secret-value')));
-    expect(fallbackProfile.toString(), isNot(contains('fallback-secret-value')));
+    expect(
+        fallbackProfile.toString(), isNot(contains('fallback-secret-value')));
   });
 
   test('store and profile failures map to fixed safe config categories',
