@@ -333,6 +333,8 @@ class _FileDetailScreen extends StatelessWidget {
                   onTap: () => _moveFile(context, controller, fileId),
                 ),
                 const Divider(height: 30),
+                _FileArtifactCard(controller: controller, fileId: fileId),
+                const Divider(height: 30),
                 Text(
                   '关联学习空间',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -360,6 +362,163 @@ class _FileDetailScreen extends StatelessWidget {
           },
         ),
       );
+}
+
+class _FileArtifactCard extends StatelessWidget {
+  const _FileArtifactCard({
+    required this.controller,
+    required this.fileId,
+  });
+
+  final FileLibraryController controller;
+  final String fileId;
+
+  String _formatRoute(String? route) {
+    return switch (route) {
+      'pdf_text' => 'PDF 文本',
+      'docx_text' => 'Word 文本',
+      'txt' => '纯文本',
+      'markdown' => 'Markdown',
+      'ocr_pdf' => 'OCR (PDF)',
+      'ocr_image' => 'OCR (图片)',
+      _ => route ?? '自动',
+    };
+  }
+
+  Future<void> _handleParse(BuildContext context) async {
+    if (controller.isArtifactBusy) return;
+    final state = await controller.ensureFileParsed(fileId);
+    if (!context.mounted) return;
+
+    if (state.status == LibraryFileArtifactStatus.ocrRecommended) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          key: const ValueKey<String>('ocr-confirmation-dialog'),
+          title: const Text('未检测到可提取文本'),
+          content: const Text(
+            '这个 PDF 可能是扫描版。\n'
+            '是否使用 OCR 识别文件内容？\n\n'
+            '继续后，文件内容会发送到当前配置的 OCR 服务。\n'
+            'OCR 只用于生成可检索的文件内容，不会自动生成或修改题目。',
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey<String>('ocr-dialog-cancel'),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey<String>('ocr-dialog-confirm'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('使用 OCR'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true && context.mounted) {
+        await controller.ensureFileOcrPdf(fileId);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.artifactState;
+    final isBusy = controller.isArtifactBusy;
+
+    return Card(
+      key: const ValueKey<String>('file-detail-artifact-section'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.article_outlined,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '内容解析',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const Spacer(),
+                if (isBusy)
+                  const SizedBox(
+                    key: ValueKey<String>('artifact-progress-indicator'),
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (state == null ||
+                state.status == LibraryFileArtifactStatus.none) ...[
+              const Text('尚未解析文件内容'),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                key: const ValueKey<String>('file-detail-parse-button'),
+                onPressed: isBusy ? null : () => _handleParse(context),
+                icon: const Icon(Icons.document_scanner_outlined, size: 18),
+                label: const Text('解析内容'),
+              ),
+            ] else if (state.status == LibraryFileArtifactStatus.available) ...[
+              Text(
+                state.parserRoute == 'ocr_pdf' ||
+                        state.parserRoute == 'ocr_image'
+                    ? '内容已通过 OCR 解析'
+                    : '内容已解析',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '解析方式：${_formatRoute(state.parserRoute)} · 版本：revision ${state.revision ?? 1}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ] else if (state.status ==
+                LibraryFileArtifactStatus.ocrRecommended) ...[
+              const Text(
+                '未检测到可提取文本，可能是扫描版 PDF。',
+                style: TextStyle(color: Colors.orange),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: const ValueKey<String>('file-detail-ocr-button'),
+                onPressed: isBusy ? null : () => _handleParse(context),
+                icon: const Icon(Icons.psychology_outlined, size: 18),
+                label: const Text('使用 OCR 识别'),
+              ),
+            ] else if (state.status == LibraryFileArtifactStatus.unavailable ||
+                state.status == LibraryFileArtifactStatus.failed) ...[
+              Text(
+                state.errorMessage ?? '文件解析不可用',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                key: const ValueKey<String>('file-detail-parse-button'),
+                onPressed: isBusy ? null : () => _handleParse(context),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('重试解析'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class LearningSpaceHomeWorkspace extends StatefulWidget {
