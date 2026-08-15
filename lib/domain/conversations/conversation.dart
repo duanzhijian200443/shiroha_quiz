@@ -95,6 +95,18 @@ final class Conversation {
         updatedAt: value,
       );
 
+  Conversation withScope({
+    required ConversationScope scope,
+    required DateTime updatedAt,
+  }) =>
+      Conversation(
+        conversationId: conversationId,
+        scope: scope,
+        title: title,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

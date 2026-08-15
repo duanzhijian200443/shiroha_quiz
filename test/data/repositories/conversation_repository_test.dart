@@ -467,4 +467,362 @@ void main() {
       ),
     );
   });
+
+  group('CONV-MOVE repository contract', () {
+    test('moves Global -> Space A and verifies project lists', () async {
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-a',
+        displayName: 'Project A',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      final repository = SqliteConversationRepository();
+      final conv =
+          _conversation('conv-g2a', time: DateTime.utc(2026, 8, 10, 10));
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage:
+            _message('msg-1', 'conv-g2a', time: DateTime.utc(2026, 8, 10, 10)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      final result = await repository.moveConversation(
+        conversationId: 'conv-g2a',
+        targetScope: ConversationScope.learningSpace('project-a'),
+        movedAt: DateTime.utc(2026, 8, 10, 11),
+      );
+
+      expect(result.moved, isTrue);
+      expect(result.conversation.scope,
+          ConversationScope.learningSpace('project-a'));
+      expect(result.conversation.updatedAt, DateTime.utc(2026, 8, 10, 11));
+
+      final inProject = await repository.listConversationsForProject(
+        projectId: 'project-a',
+        limit: 10,
+      );
+      expect(inProject.map((c) => c.conversationId), contains('conv-g2a'));
+    });
+
+    test('moves Space A -> Space B and verifies source loses, target gains',
+        () async {
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-a',
+        displayName: 'Project A',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      await projects.createProject(Project(
+        projectId: 'project-b',
+        displayName: 'Project B',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      final repository = SqliteConversationRepository();
+      final conv = _conversation(
+        'conv-a2b',
+        scope: ConversationScope.learningSpace('project-a'),
+        time: DateTime.utc(2026, 8, 10, 10),
+      );
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage:
+            _message('msg-1', 'conv-a2b', time: DateTime.utc(2026, 8, 10, 10)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      final result = await repository.moveConversation(
+        conversationId: 'conv-a2b',
+        targetScope: ConversationScope.learningSpace('project-b'),
+        movedAt: DateTime.utc(2026, 8, 10, 11),
+      );
+
+      expect(result.moved, isTrue);
+      expect(result.conversation.scope,
+          ConversationScope.learningSpace('project-b'));
+
+      final listA = await repository.listConversationsForProject(
+          projectId: 'project-a', limit: 10);
+      final listB = await repository.listConversationsForProject(
+          projectId: 'project-b', limit: 10);
+      expect(listA, isEmpty);
+      expect(listB.single.conversationId, 'conv-a2b');
+    });
+
+    test('moves Space A -> Global', () async {
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-a',
+        displayName: 'Project A',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      final repository = SqliteConversationRepository();
+      final conv = _conversation(
+        'conv-a2g',
+        scope: ConversationScope.learningSpace('project-a'),
+        time: DateTime.utc(2026, 8, 10, 10),
+      );
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage:
+            _message('msg-1', 'conv-a2g', time: DateTime.utc(2026, 8, 10, 10)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      final result = await repository.moveConversation(
+        conversationId: 'conv-a2g',
+        targetScope: ConversationScope.global(),
+        movedAt: DateTime.utc(2026, 8, 10, 11),
+      );
+
+      expect(result.moved, isTrue);
+      expect(result.conversation.scope, ConversationScope.global());
+      final listA = await repository.listConversationsForProject(
+          projectId: 'project-a', limit: 10);
+      expect(listA, isEmpty);
+    });
+
+    test('recovers from UnavailableLearningSpace -> Global and -> valid Space',
+        () async {
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-del',
+        displayName: 'To Delete',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      await projects.createProject(Project(
+        projectId: 'project-survives',
+        displayName: 'Survives',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      final repository = SqliteConversationRepository();
+      final conv = _conversation(
+        'conv-unavail',
+        scope: ConversationScope.learningSpace('project-del'),
+        time: DateTime.utc(2026, 8, 10, 10),
+      );
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage: _message('msg-1', 'conv-unavail',
+            time: DateTime.utc(2026, 8, 10, 10)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      // Delete the project so conversation becomes unavailableLearningSpace
+      await projects.deleteProject('project-del');
+      final loaded = await repository.loadConversation(
+          conversationId: 'conv-unavail', limit: 10);
+      expect(loaded.conversation.scope.isUnavailableLearningSpace, isTrue);
+
+      // Recovery to Space
+      final resSpace = await repository.moveConversation(
+        conversationId: 'conv-unavail',
+        targetScope: ConversationScope.learningSpace('project-survives'),
+        movedAt: DateTime.utc(2026, 8, 10, 12),
+      );
+      expect(resSpace.moved, isTrue);
+      expect(resSpace.conversation.scope,
+          ConversationScope.learningSpace('project-survives'));
+
+      // Recovery to Global
+      final resGlobal = await repository.moveConversation(
+        conversationId: 'conv-unavail',
+        targetScope: ConversationScope.global(),
+        movedAt: DateTime.utc(2026, 8, 10, 13),
+      );
+      expect(resGlobal.moved, isTrue);
+      expect(resGlobal.conversation.scope, ConversationScope.global());
+    });
+
+    test(
+        'missing target Project throws projectNotFound and leaves scope unchanged',
+        () async {
+      final repository = SqliteConversationRepository();
+      final conv =
+          _conversation('conv-miss-proj', time: DateTime.utc(2026, 8, 10, 10));
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage: _message('msg-1', 'conv-miss-proj',
+            time: DateTime.utc(2026, 8, 10, 10)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      await expectLater(
+        repository.moveConversation(
+          conversationId: 'conv-miss-proj',
+          targetScope: ConversationScope.learningSpace('non-existent-project'),
+          movedAt: DateTime.utc(2026, 8, 10, 11),
+        ),
+        throwsA(
+          isA<ConversationException>().having(
+            (e) => e.failure,
+            'failure',
+            ConversationFailure.projectNotFound,
+          ),
+        ),
+      );
+
+      final loaded = await repository.loadConversation(
+          conversationId: 'conv-miss-proj', limit: 10);
+      expect(loaded.conversation.scope, ConversationScope.global());
+      expect(loaded.conversation.updatedAt, DateTime.utc(2026, 8, 10, 10));
+    });
+
+    test('same scope is no-op (moved = false, updatedAt unchanged)', () async {
+      final repository = SqliteConversationRepository();
+      final conv =
+          _conversation('conv-same', time: DateTime.utc(2026, 8, 10, 10));
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage:
+            _message('msg-1', 'conv-same', time: DateTime.utc(2026, 8, 10, 10)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      final result = await repository.moveConversation(
+        conversationId: 'conv-same',
+        targetScope: ConversationScope.global(),
+        movedAt: DateTime.utc(2026, 8, 10, 15),
+      );
+
+      expect(result.moved, isFalse);
+      expect(result.conversation.updatedAt, DateTime.utc(2026, 8, 10, 10));
+
+      final loaded = await repository.loadConversation(
+          conversationId: 'conv-same', limit: 10);
+      expect(loaded.conversation.updatedAt, DateTime.utc(2026, 8, 10, 10));
+    });
+
+    test('monotonic recency advance even with older movedAt timestamp',
+        () async {
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-a',
+        displayName: 'Project A',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+      final repository = SqliteConversationRepository();
+      final conv =
+          _conversation('conv-recency', time: DateTime.utc(2026, 8, 10, 12));
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage: _message('msg-1', 'conv-recency',
+            time: DateTime.utc(2026, 8, 10, 12)),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 12),
+      );
+
+      // Pass an earlier time than current updatedAt
+      final result = await repository.moveConversation(
+        conversationId: 'conv-recency',
+        targetScope: ConversationScope.learningSpace('project-a'),
+        movedAt: DateTime.utc(2026, 8, 10, 8),
+      );
+
+      expect(result.moved, isTrue);
+      expect(
+        result.conversation.updatedAt.millisecondsSinceEpoch,
+        conv.updatedAt.millisecondsSinceEpoch + 1,
+      );
+    });
+
+    test(
+        'preserves messages, attached files, title, createdAt, and IDs completely',
+        () async {
+      final files = LibraryFileRepository();
+      await files.save(_file('file-1'));
+      await files.save(_file('file-2', hour: 2));
+
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-a',
+        displayName: 'Project A',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+
+      final repository = SqliteConversationRepository();
+      final conv =
+          _conversation('conv-preserve', time: DateTime.utc(2026, 8, 10, 10));
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage: _message('msg-1', 'conv-preserve',
+            sequence: 1, content: 'User question 1'),
+        fileIds: const <String>['file-1', 'file-2'],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+      await repository.appendMessage(
+        conversationId: 'conv-preserve',
+        messageId: 'msg-2',
+        role: ConversationMessageRole.assistant,
+        content: 'Assistant answer',
+        createdAt: DateTime.utc(2026, 8, 10, 10, 1),
+      );
+
+      // Move
+      await repository.moveConversation(
+        conversationId: 'conv-preserve',
+        targetScope: ConversationScope.learningSpace('project-a'),
+        movedAt: DateTime.utc(2026, 8, 10, 11),
+      );
+
+      final loaded = await repository.loadConversation(
+          conversationId: 'conv-preserve', limit: 10);
+      expect(loaded.conversation.conversationId, 'conv-preserve');
+      expect(loaded.conversation.title, 'Conversation conv-preserve');
+      expect(loaded.conversation.createdAt, DateTime.utc(2026, 8, 10, 10));
+      expect(loaded.conversation.scope,
+          ConversationScope.learningSpace('project-a'));
+
+      expect(loaded.messages, hasLength(2));
+      expect(loaded.messages[0].messageId, 'msg-1');
+      expect(loaded.messages[0].content, 'User question 1');
+      expect(loaded.messages[0].role, ConversationMessageRole.user);
+      expect(loaded.messages[1].messageId, 'msg-2');
+      expect(loaded.messages[1].content, 'Assistant answer');
+      expect(loaded.messages[1].role, ConversationMessageRole.assistant);
+
+      expect(loaded.files.map((f) => f.fileId), <String>['file-1', 'file-2']);
+    });
+
+    test(
+        'moving to target space followed by project deletion produces unavailableLearningSpace',
+        () async {
+      final projects = SqliteProjectRepository();
+      await projects.createProject(Project(
+        projectId: 'project-del-later',
+        displayName: 'Delete Later',
+        createdAt: DateTime.utc(2026, 8, 10),
+      ));
+
+      final repository = SqliteConversationRepository();
+      final conv =
+          _conversation('conv-del-later', time: DateTime.utc(2026, 8, 10, 10));
+      await repository.createWithFirstMessage(
+        conversation: conv,
+        firstMessage: _message('msg-1', 'conv-del-later'),
+        fileIds: const <String>[],
+        attachedAt: DateTime.utc(2026, 8, 10, 10),
+      );
+
+      await repository.moveConversation(
+        conversationId: 'conv-del-later',
+        targetScope: ConversationScope.learningSpace('project-del-later'),
+        movedAt: DateTime.utc(2026, 8, 10, 11),
+      );
+
+      await projects.deleteProject('project-del-later');
+
+      final loaded = await repository.loadConversation(
+          conversationId: 'conv-del-later', limit: 10);
+      expect(loaded.conversation.scope.isUnavailableLearningSpace, isTrue);
+      expect(
+          loaded.conversation.scope.kind, ConversationScopeKind.learningSpace);
+      expect(loaded.conversation.scope.projectId, isNull);
+    });
+  });
 }

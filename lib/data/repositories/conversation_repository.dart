@@ -176,6 +176,65 @@ final class SqliteConversationRepository implements ConversationRepositoryPort {
   }
 
   @override
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+    required DateTime movedAt,
+  }) {
+    return _write((db) async {
+      return db.transaction((txn) async {
+        final current = await _expectConversation(txn, conversationId);
+        await _expectCreatableScope(txn, targetScope);
+
+        if (current.scope == targetScope) {
+          return MoveConversationResult(
+            conversation: current,
+            moved: false,
+          );
+        }
+
+        final nextMilliseconds = math.max(
+          movedAt.millisecondsSinceEpoch,
+          current.updatedAt.millisecondsSinceEpoch + 1,
+        );
+        final nextUpdatedAt = DateTime.fromMillisecondsSinceEpoch(
+          nextMilliseconds,
+          isUtc: true,
+        );
+
+        final count = await txn.update(
+          _conversations,
+          <String, Object?>{
+            'scope_kind': targetScope.kind == ConversationScopeKind.global
+                ? 'global'
+                : 'learning_space',
+            'project_id': targetScope.kind == ConversationScopeKind.global
+                ? null
+                : targetScope.projectId,
+            'updated_at': nextMilliseconds,
+          },
+          where: 'conversation_id = ?',
+          whereArgs: <Object?>[conversationId],
+        );
+        if (count != 1) {
+          throw const ConversationException(
+            ConversationFailure.conversationNotFound,
+          );
+        }
+
+        final updated = current.withScope(
+          scope: targetScope,
+          updatedAt: nextUpdatedAt,
+        );
+        return MoveConversationResult(
+          conversation: updated,
+          moved: true,
+        );
+      });
+    });
+  }
+
+  @override
   Future<List<ConversationFileRef>> listAttachableFiles({required int limit}) {
     return _read((db) async {
       final rows = await db.query(

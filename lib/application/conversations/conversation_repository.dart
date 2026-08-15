@@ -80,6 +80,16 @@ final class DetachFileResult {
   final bool detached;
 }
 
+final class MoveConversationResult {
+  const MoveConversationResult({
+    required this.conversation,
+    required this.moved,
+  });
+
+  final Conversation conversation;
+  final bool moved;
+}
+
 abstract interface class ConversationRepositoryPort {
   Future<ConversationThreadSlice> createWithFirstMessage({
     required Conversation conversation,
@@ -106,6 +116,12 @@ abstract interface class ConversationRepositoryPort {
     required String conversationId,
     required String fileId,
     required DateTime detachedAt,
+  });
+
+  Future<MoveConversationResult> moveConversation({
+    required String conversationId,
+    required ConversationScope targetScope,
+    required DateTime movedAt,
   });
 
   Future<List<ConversationFileRef>> listAttachableFiles({required int limit});
