@@ -154,6 +154,18 @@ final class StudyPlanInput {
 
   static String? _normalizeGoal(String? value) {
     if (value == null) return null;
+    // Raw payload inspection happens BEFORE any normalization: a goal
+    // containing any frozen forbidden control rune (U+0000..U+001F or
+    // U+007F) is rejected outright, even when the rune would otherwise be
+    // collapsed into whitespace. The character policy is exactly the frozen
+    // contract; it is not broadened here.
+    for (final rune in value.runes) {
+      if (rune < 0x20 || rune == 0x7f) {
+        throw const StudyPlanValidationException(
+          StudyPlanValidationFailure.goalControlCharacters,
+        );
+      }
+    }
     final collapsed = value.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (collapsed.isEmpty) {
       throw const StudyPlanValidationException(
@@ -164,13 +176,6 @@ final class StudyPlanInput {
       throw const StudyPlanValidationException(
         StudyPlanValidationFailure.goalTooLong,
       );
-    }
-    for (final rune in collapsed.runes) {
-      if (rune < 0x20 || rune == 0x7f) {
-        throw const StudyPlanValidationException(
-          StudyPlanValidationFailure.goalControlCharacters,
-        );
-      }
     }
     return collapsed;
   }

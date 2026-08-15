@@ -143,55 +143,62 @@ class StudyPlanReadRepository
     }
     try {
       final db = await _databaseHelper.database;
-      // Identity/review columns only: no question content, options, answers,
-      // explanations, or V2 sidecar payloads are loaded for selection.
-      final dueRows = await db.rawQuery(
-        '''
-        SELECT q.id AS storage_id, r.state, r.next_review_time, r.lapses,
-               r.difficulty
-        FROM questions q
-        JOIN review_states r ON r.question_id = q.id
-        WHERE q.bank_name = ? AND r.next_review_time <= ?
-        ORDER BY r.next_review_time ASC, q.id ASC
-        LIMIT ?
-        ''',
-        <Object?>[trimmed, nowUnixSeconds, maxPerPool],
-      );
-      final weakRows = await db.rawQuery(
-        '''
-        SELECT q.id AS storage_id, r.state, r.next_review_time, r.lapses,
-               r.difficulty
-        FROM questions q
-        JOIN review_states r ON r.question_id = q.id
-        WHERE q.bank_name = ? AND r.lapses > 0
-        ORDER BY r.lapses DESC, r.difficulty DESC, q.id ASC
-        LIMIT ?
-        ''',
-        <Object?>[trimmed, maxPerPool],
-      );
-      final newRows = await db.rawQuery(
-        '''
-        SELECT q.id AS storage_id, r.state, r.next_review_time, r.lapses,
-               r.difficulty
-        FROM questions q
-        JOIN review_states r ON r.question_id = q.id
-        WHERE q.bank_name = ? AND r.state = 0
-        ORDER BY q.id ASC
-        LIMIT ?
-        ''',
-        <Object?>[trimmed, maxPerPool],
-      );
-      return StudyPlanCandidateBatch(
-        due: <StudyPlanCandidate>[
-          for (final row in dueRows) _candidate(row, trimmed, nowUnixSeconds),
-        ],
-        weak: <StudyPlanCandidate>[
-          for (final row in weakRows) _candidate(row, trimmed, nowUnixSeconds),
-        ],
-        newPool: <StudyPlanCandidate>[
-          for (final row in newRows) _candidate(row, trimmed, nowUnixSeconds),
-        ],
-      );
+      // All three pool reads run inside ONE read-only SQLite transaction so
+      // the batch is a single coherent snapshot: no review-state change can
+      // be observed between pools. Read-only only; nothing is written.
+      return db.transaction((txn) async {
+        // Identity/review columns only: no question content, options,
+        // answers, explanations, or V2 sidecar payloads are loaded for
+        // selection.
+        final dueRows = await txn.rawQuery(
+          '''
+          SELECT q.id AS storage_id, r.state, r.next_review_time, r.lapses,
+                 r.difficulty
+          FROM questions q
+          JOIN review_states r ON r.question_id = q.id
+          WHERE q.bank_name = ? AND r.next_review_time <= ?
+          ORDER BY r.next_review_time ASC, q.id ASC
+          LIMIT ?
+          ''',
+          <Object?>[trimmed, nowUnixSeconds, maxPerPool],
+        );
+        final weakRows = await txn.rawQuery(
+          '''
+          SELECT q.id AS storage_id, r.state, r.next_review_time, r.lapses,
+                 r.difficulty
+          FROM questions q
+          JOIN review_states r ON r.question_id = q.id
+          WHERE q.bank_name = ? AND r.lapses > 0
+          ORDER BY r.lapses DESC, r.difficulty DESC, q.id ASC
+          LIMIT ?
+          ''',
+          <Object?>[trimmed, maxPerPool],
+        );
+        final newRows = await txn.rawQuery(
+          '''
+          SELECT q.id AS storage_id, r.state, r.next_review_time, r.lapses,
+                 r.difficulty
+          FROM questions q
+          JOIN review_states r ON r.question_id = q.id
+          WHERE q.bank_name = ? AND r.state = 0
+          ORDER BY q.id ASC
+          LIMIT ?
+          ''',
+          <Object?>[trimmed, maxPerPool],
+        );
+        return StudyPlanCandidateBatch(
+          due: <StudyPlanCandidate>[
+            for (final row in dueRows) _candidate(row, trimmed, nowUnixSeconds),
+          ],
+          weak: <StudyPlanCandidate>[
+            for (final row in weakRows)
+              _candidate(row, trimmed, nowUnixSeconds),
+          ],
+          newPool: <StudyPlanCandidate>[
+            for (final row in newRows) _candidate(row, trimmed, nowUnixSeconds),
+          ],
+        );
+      });
     } on StudyPlanReadException {
       rethrow;
     } on DatabaseRuntimeException {

@@ -80,9 +80,13 @@ void main() {
 
     test('goal is optional, collapsed, bounded 120, control-free', () {
       expect(StudyPlanInput.normalize(bankName: 'M').goal, isNull);
-      final collapsed =
-          StudyPlanInput.normalize(bankName: 'M', goal: '  a\n  b  ');
-      expect(collapsed.goal, 'a b');
+      // Ordinary whitespace is collapsed to single spaces after the raw
+      // control-character inspection.
+      expect(
+        StudyPlanInput.normalize(bankName: 'M', goal: '  Master   calculus  ')
+            .goal,
+        'Master calculus',
+      );
       expect(
         () => StudyPlanInput.normalize(bankName: 'M', goal: '   '),
         throwsA(isA<StudyPlanValidationException>().having(
@@ -115,6 +119,19 @@ void main() {
           StudyPlanValidationFailure.goalControlCharacters,
         )),
       );
+      // Raw forbidden control runes are rejected BEFORE whitespace
+      // normalization: tab/newline must not be sanitized into spaces.
+      for (final raw in <String>['a\tb', 'a\nb', 'a\u0000b', 'a\u007fb']) {
+        expect(
+          () => StudyPlanInput.normalize(bankName: 'M', goal: raw),
+          throwsA(isA<StudyPlanValidationException>().having(
+            (e) => e.failure,
+            'failure',
+            StudyPlanValidationFailure.goalControlCharacters,
+          )),
+          reason: 'goal ${raw.runes.toList()} must be rejected as control',
+        );
+      }
       // 120 runes is accepted (multi-byte runes count by code point).
       expect(
         StudyPlanInput.normalize(bankName: 'M', goal: '目' * 120).goal,

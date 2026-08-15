@@ -59,6 +59,14 @@ final class StudyPlanStageResultInvalid extends StudyPlanStageResult {
   const StudyPlanStageResultInvalid();
 }
 
+/// This invocation no longer owns the latest proposal intent for its source
+/// turn: a newer different proposal was staged while this call's planning
+/// read was in flight. Bounded non-mutating result: zero draft creation,
+/// zero supersession, zero lifecycle mutation.
+final class StudyPlanStageResultStale extends StudyPlanStageResult {
+  const StudyPlanStageResultStale();
+}
+
 final class StudyPlanDraftService {
   StudyPlanDraftService({
     required StudyPlanPlanningPort planningPort,
@@ -78,10 +86,31 @@ final class StudyPlanDraftService {
   final Map<StudyPlanDraftFingerprint, String> _draftIdByFingerprint = {};
   final Map<String, String> _activeDraftIdByTurn = {};
 
+  /// Latest per-turn proposal intent. A newer DIFFERENT fingerprint advances
+  /// the generation; same-fingerprint calls share the generation so they
+  /// never fight as different revisions.
+  final Map<String, ({int generation, StudyPlanDraftFingerprint fingerprint})>
+      _intentByTurn = {};
+
   /// Stages one plan draft for a trusted Application caller.
   ///
   /// Source identity and scope are parameters, never fields of a generic
   /// plan payload map. The Agent parser/wiring is a later SPL-1-I0 concern.
+  ///
+  /// Ordering invariants:
+  ///
+  /// 1. trusted source validation + canonical normalization;
+  /// 2. fingerprint computed BEFORE any planning read;
+  /// 3. an existing fingerprint returns the stored draft/current outcome
+  ///    immediately — replay never re-admits, never re-reads planning, and
+  ///    never rebuilds the preview (staging authority was established when
+  ///    the draft was created; fresh authority is revalidated at D1
+  ///    adoption);
+  /// 4. the call reserves the latest per-turn proposal intent;
+  /// 5. after the planning read, the call re-checks the fingerprint (a
+  ///    same-intent call may already have activated it) and verifies it
+  ///    still owns the latest intent before any lifecycle mutation — an
+  ///    older proposal whose read finished later performs zero mutation.
   ///
   /// Throws [StudyPlanException] only for infrastructure read failures
   /// (`temporarilyUnavailable`); plan-level outcomes are sealed results.
@@ -111,6 +140,23 @@ final class StudyPlanDraftService {
       return const StudyPlanStageResultInvalid();
     }
 
+    final turnKey = _turnKey(sourceConversationId, sourceMessageId);
+    final fingerprint = StudyPlanDraftFingerprint(
+      sourceConversationId: sourceConversationId,
+      sourceMessageId: sourceMessageId,
+      sourceScope: sourceScope,
+      operationKind: StudyPlanOperationKind.proposeStudyPlan,
+      plan: plan,
+    );
+    // P2-C: semantic replay returns before any fresh planning read.
+    final existingId = _draftIdByFingerprint[fingerprint];
+    if (existingId != null) {
+      return StudyPlanStageResultStaged(_draftsById[existingId]!);
+    }
+    // P2-A: reserve the latest proposal intent for this source turn before
+    // the awaited read, so completion order can never win over intent order.
+    final generation = _reserveIntent(turnKey, fingerprint);
+
     // The only awaited read of this method. All lifecycle mutations below
     // are synchronous.
     final StudyPlanPlanningAdmission admission;
@@ -130,17 +176,12 @@ final class StudyPlanDraftService {
     if (context == null) return const StudyPlanStageResultUnavailable();
 
     final preview = _previewBuilder.build(plan: plan, context: context);
-    final fingerprint = StudyPlanDraftFingerprint(
-      sourceConversationId: sourceConversationId,
-      sourceMessageId: sourceMessageId,
-      sourceScope: sourceScope,
-      operationKind: StudyPlanOperationKind.proposeStudyPlan,
-      plan: plan,
-    );
-    return _activate(
+    return _activateAfterRead(
       plan: plan,
       preview: preview,
       fingerprint: fingerprint,
+      generation: generation,
+      turnKey: turnKey,
       sourceConversationId: sourceConversationId,
       sourceMessageId: sourceMessageId,
       sourceScope: sourceScope,
@@ -189,28 +230,60 @@ final class StudyPlanDraftService {
   /// [ArgumentError] for an unknown id.
   StudyPlanDraft draftById(String draftId) => _requireDraft(draftId);
 
-  /// One synchronous, atomic activation block.
+  /// One synchronous, atomic post-read activation entry.
   ///
-  /// No `await` may split this check-and-transition path: every map read and
+  /// Runs after the planning read with the reserved intent generation. No
+  /// `await` may split this check-and-transition path: every map read and
   /// write happens in one event-loop turn, so concurrent staging calls
   /// serialize here deterministically.
-  StudyPlanStageResult _activate({
+  StudyPlanStageResult _activateAfterRead({
     required StudyPlanInput plan,
     required StudyPlanPreview preview,
     required StudyPlanDraftFingerprint fingerprint,
+    required int generation,
+    required String turnKey,
     required String sourceConversationId,
     required String sourceMessageId,
     required ConversationScope sourceScope,
   }) {
-    // Semantic replay: the same normalized fingerprint reuses the existing
-    // draft identity and its current outcome. Terminal outcomes (rejected /
-    // superseded / committed) are never reactivated.
+    // A same-intent call may already have activated this exact fingerprint
+    // while the read was in flight; converge to it without a second
+    // activation or lifecycle mutation.
     final existingId = _draftIdByFingerprint[fingerprint];
     if (existingId != null) {
       return StudyPlanStageResultStaged(_draftsById[existingId]!);
     }
+    // This call must still own the latest proposal intent for its source
+    // turn. An older different proposal whose planning read finished later
+    // performs zero draft creation, supersession, or lifecycle mutation.
+    if (!_isLatestIntent(turnKey, generation)) {
+      return const StudyPlanStageResultStale();
+    }
+    return _activate(
+      plan: plan,
+      preview: preview,
+      fingerprint: fingerprint,
+      turnKey: turnKey,
+      sourceConversationId: sourceConversationId,
+      sourceMessageId: sourceMessageId,
+      sourceScope: sourceScope,
+    );
+  }
 
-    final turnKey = _turnKey(sourceConversationId, sourceMessageId);
+  /// One synchronous, atomic activation block.
+  ///
+  /// Only the latest-intent call reaches this block (see
+  /// [_activateAfterRead]). No `await` may split the check-and-transition
+  /// path: every map read and write happens in one event-loop turn.
+  StudyPlanStageResult _activate({
+    required StudyPlanInput plan,
+    required StudyPlanPreview preview,
+    required StudyPlanDraftFingerprint fingerprint,
+    required String turnKey,
+    required String sourceConversationId,
+    required String sourceMessageId,
+    required ConversationScope sourceScope,
+  }) {
     final currentId = _activeDraftIdByTurn[turnKey];
     if (currentId != null) {
       final current = _draftsById[currentId]!;
@@ -220,6 +293,8 @@ final class StudyPlanDraftService {
         return const StudyPlanStageResultBusy();
       }
       if (current.outcome == StudyPlanDraftOutcome.pending) {
+        // The current pending draft belongs to an older proposal intent for
+        // this turn; the latest intent supersedes it.
         _transition(
           current,
           from: StudyPlanDraftOutcome.pending,
@@ -249,6 +324,28 @@ final class StudyPlanDraftService {
     _draftIdByFingerprint[fingerprint] = draft.draftId;
     _activeDraftIdByTurn[turnKey] = draft.draftId;
     return StudyPlanStageResultStaged(draft);
+  }
+
+  /// Reserves (or reuses) the latest proposal intent for [turnKey].
+  ///
+  /// Synchronous and atomic. A different fingerprint advances the per-turn
+  /// generation; the same fingerprint shares the existing generation so
+  /// same-intent concurrent calls never fight as different revisions.
+  int _reserveIntent(String turnKey, StudyPlanDraftFingerprint fingerprint) {
+    final current = _intentByTurn[turnKey];
+    if (current != null && current.fingerprint == fingerprint) {
+      return current.generation;
+    }
+    final generation = (current?.generation ?? 0) + 1;
+    _intentByTurn[turnKey] = (generation: generation, fingerprint: fingerprint);
+    return generation;
+  }
+
+  /// Whether [generation] is still the latest reserved intent for
+  /// [turnKey]. Synchronous; called only inside the activation path.
+  bool _isLatestIntent(String turnKey, int generation) {
+    final current = _intentByTurn[turnKey];
+    return current != null && current.generation == generation;
   }
 
   /// The single shared transient lifecycle gate.

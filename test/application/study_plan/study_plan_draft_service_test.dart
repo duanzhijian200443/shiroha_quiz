@@ -1,7 +1,10 @@
 // SPL-1-D0 draft service tests: normalized staging, fingerprint replay
 // dedup, one-active-per-source-turn, the atomic transient lifecycle gate,
-// and bounded failure mapping. All lifecycle assertions are
-// eligibility/state only: D0 performs zero durable writes.
+// intent-ordered staging, replay-without-re-admission, and bounded failure
+// mapping. All lifecycle assertions are eligibility/state only: D0 performs
+// zero durable writes.
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_draft_service.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_ports.dart';
@@ -29,6 +32,9 @@ class _FakePlanningPort implements StudyPlanPlanningPort {
   _FakePlanningPort(this.result);
 
   StudyPlanPlanningAdmission result;
+
+  /// When set, the next read throws this bounded failure.
+  StudyPlanReadException? error;
   int calls = 0;
 
   @override
@@ -38,6 +44,8 @@ class _FakePlanningPort implements StudyPlanPlanningPort {
     required DateTime now,
   }) async {
     calls++;
+    final error = this.error;
+    if (error != null) throw error;
     return result;
   }
 }
@@ -50,6 +58,31 @@ class _ThrowingPlanningPort implements StudyPlanPlanningPort {
     required DateTime now,
   }) async {
     throw const StudyPlanReadException(StudyPlanReadFailure.unavailable);
+  }
+}
+
+/// Deterministic delayed planning port driven by explicit Completers.
+///
+/// Reads are handed out in invocation order; the test completes them in the
+/// exact order it chooses. No sleeps, no timing assumptions.
+class _DelayedPlanningPort implements StudyPlanPlanningPort {
+  final List<Completer<StudyPlanPlanningAdmission>> _pending = [];
+
+  @override
+  Future<StudyPlanPlanningAdmission> loadPlanningContext({
+    required ConversationScope sourceScope,
+    required String bankName,
+    required DateTime now,
+  }) {
+    final completer = Completer<StudyPlanPlanningAdmission>();
+    _pending.add(completer);
+    return completer.future;
+  }
+
+  int get pendingCount => _pending.length;
+
+  void complete(int index, StudyPlanPlanningAdmission admission) {
+    _pending[index].complete(admission);
   }
 }
 
@@ -261,30 +294,33 @@ void main() {
 
   test(
       '15. concurrent staging of different payloads stays deterministic: '
-      'exactly one pending draft and no lost transitions', () async {
+      'only the latest proposal intent activates; older in-flight calls are '
+      'stale with zero mutation', () async {
     final harness = _Harness();
     final results = await Future.wait(<Future<StudyPlanStageResult>>[
       harness.stage(dailyTarget: 30),
       harness.stage(dailyTarget: 50),
       harness.stage(dailyTarget: 70),
     ]);
-    final resultDrafts = <StudyPlanDraft>[
+    // With three different concurrent intents, only the newest reserved
+    // intent (dailyTarget 70) may activate; the two older in-flight calls
+    // become stale and must not create or supersede anything.
+    final staged = <StudyPlanDraft>[
       for (final result in results)
         if (result is StudyPlanStageResultStaged) result.draft,
     ];
-    expect(resultDrafts, hasLength(3));
-    // Result drafts are immutable activation snapshots; current lifecycle
-    // state lives in the service map, so read it back per draft id.
-    final current = <StudyPlanDraft>[
-      for (final draft in resultDrafts)
-        harness.service.draftById(draft.draftId),
-    ];
-    final pending =
-        current.where((d) => d.outcome == StudyPlanDraftOutcome.pending);
-    final superseded =
-        current.where((d) => d.outcome == StudyPlanDraftOutcome.superseded);
-    expect(pending, hasLength(1));
-    expect(superseded, hasLength(2));
+    final stale = results.whereType<StudyPlanStageResultStale>();
+    expect(staged, hasLength(1));
+    expect(stale, hasLength(2));
+    expect(staged.single.outcome, StudyPlanDraftOutcome.pending);
+    expect(staged.single.dailyTarget, 70);
+    // Service state: exactly one pending draft exists (the deterministic id
+    // sequence proves only one draft id was ever issued), zero superseded.
+    expect(staged.single.draftId, 'draft_0');
+    final pending = harness.service.draftById(staged.single.draftId);
+    expect(pending.outcome, StudyPlanDraftOutcome.pending);
+    expect(() => harness.service.draftById('draft_1'), throwsArgumentError,
+        reason: 'no second draft id may ever be issued');
   });
 
   test(
@@ -364,5 +400,194 @@ void main() {
     expect(preview.weakCount, 5);
     expect(preview.newCount, 40);
     expect(preview.estimatedDays, 3); // ceil(81 / 40)
+  });
+
+  group('P2-A proposal intent ordering', () {
+    test(
+        'older slow invocation never supersedes a newer proposal: B '
+        'completed first stays the sole pending draft and stale A performs '
+        'zero lifecycle mutation', () async {
+      final port = _DelayedPlanningPort();
+      var nextId = 0;
+      final service = StudyPlanDraftService(
+        planningPort: port,
+        draftIdFactory: () => 'draft_${nextId++}',
+        clock: () => _now,
+      );
+
+      // A invoked first, B invoked second; both planning reads pending.
+      final futureA = service.stage(
+        sourceConversationId: _conversationId,
+        sourceMessageId: _messageId,
+        sourceScope: ConversationScope.global(),
+        bankName: 'Math',
+        dailyTarget: 30,
+      );
+      final futureB = service.stage(
+        sourceConversationId: _conversationId,
+        sourceMessageId: _messageId,
+        sourceScope: ConversationScope.global(),
+        bankName: 'Math',
+        dailyTarget: 50,
+      );
+      expect(port.pendingCount, 2);
+
+      // Complete B first: B activates as pending.
+      port.complete(1, StudyPlanPlanningAdmitted(_context()));
+      final resultB = await futureB;
+      expect(resultB, isA<StudyPlanStageResultStaged>());
+      final draftB = (resultB as StudyPlanStageResultStaged).draft;
+      expect(draftB.outcome, StudyPlanDraftOutcome.pending);
+      expect(draftB.dailyTarget, 50);
+
+      // Then complete A: its read finished later, so it must not supersede
+      // B and must not create or mutate anything.
+      port.complete(0, StudyPlanPlanningAdmitted(_context()));
+      final resultA = await futureA;
+      expect(resultA, isA<StudyPlanStageResultStale>());
+
+      // B remains the sole current pending draft; no second draft exists.
+      final current = service.draftById(draftB.draftId);
+      expect(current.outcome, StudyPlanDraftOutcome.pending);
+      expect(current.draftId, draftB.draftId);
+      expect(() => service.draftById('draft_1'), throwsArgumentError,
+          reason: 'stale A must never create a second draft');
+      // A's fingerprint never entered the service, so replaying the A
+      // payload later is a NEW proposal intent (not a semantic replay) and
+      // legitimately supersedes B like any revised proposal.
+      final replayFuture = service.stage(
+        sourceConversationId: _conversationId,
+        sourceMessageId: _messageId,
+        sourceScope: ConversationScope.global(),
+        bankName: 'Math',
+        dailyTarget: 30,
+      );
+      expect(port.pendingCount, 3);
+      port.complete(2, StudyPlanPlanningAdmitted(_context()));
+      final replayA = await replayFuture;
+      expect(replayA, isA<StudyPlanStageResultStaged>());
+      final draftA = (replayA as StudyPlanStageResultStaged).draft;
+      expect(draftA.draftId, isNot(draftB.draftId));
+      expect(draftA.outcome, StudyPlanDraftOutcome.pending);
+      expect(service.draftById(draftB.draftId).outcome,
+          StudyPlanDraftOutcome.superseded);
+    });
+
+    test(
+        'concurrent same fingerprint converges to one draft identity in '
+        'either completion order', () async {
+      Future<(StudyPlanStageResult, StudyPlanStageResult)> run(
+        List<int> completionOrder,
+      ) async {
+        final port = _DelayedPlanningPort();
+        var nextId = 0;
+        final service = StudyPlanDraftService(
+          planningPort: port,
+          draftIdFactory: () => 'draft_${nextId++}',
+          clock: () => _now,
+        );
+        final futureA = service.stage(
+          sourceConversationId: _conversationId,
+          sourceMessageId: _messageId,
+          sourceScope: ConversationScope.global(),
+          bankName: 'Math',
+        );
+        final futureB = service.stage(
+          sourceConversationId: _conversationId,
+          sourceMessageId: _messageId,
+          sourceScope: ConversationScope.global(),
+          bankName: 'Math',
+        );
+        expect(port.pendingCount, 2);
+        for (final index in completionOrder) {
+          port.complete(index, StudyPlanPlanningAdmitted(_context()));
+        }
+        return (await futureA, await futureB);
+      }
+
+      for (final order in <List<int>>[
+        <int>[0, 1],
+        <int>[1, 0],
+      ]) {
+        final (resultA, resultB) = await run(order);
+        final draftA = (resultA as StudyPlanStageResultStaged).draft;
+        final draftB = (resultB as StudyPlanStageResultStaged).draft;
+        expect(draftA.draftId, draftB.draftId,
+            reason: 'same-fingerprint intents must share one draft '
+                '(completion order $order)');
+        expect(draftA.outcome, StudyPlanDraftOutcome.pending);
+      }
+    });
+  });
+
+  group('P2-C replay must not re-admit', () {
+    test(
+        'A. replay after the planning port turns unavailable returns the '
+        'same draft without a fresh planning read', () async {
+      final harness = _Harness();
+      final staged = (await harness.stage()) as StudyPlanStageResultStaged;
+      expect(harness.port.calls, 1);
+
+      harness.port.result = const StudyPlanPlanningUnavailable();
+      final replay = (await harness.stage()) as StudyPlanStageResultStaged;
+      expect(replay.draft.draftId, staged.draft.draftId);
+      expect(replay.draft.outcome, StudyPlanDraftOutcome.pending);
+      expect(harness.port.calls, 1, reason: 'replay must not re-read');
+    });
+
+    test(
+        'B. replay after reject with a throwing port returns the rejected '
+        'draft without exception or planning read', () async {
+      final harness = _Harness();
+      final staged = (await harness.stage()) as StudyPlanStageResultStaged;
+      harness.service.rejectDraft(staged.draft.draftId);
+
+      // A fresh planning read would now throw; replay must never reach it.
+      harness.port.error =
+          const StudyPlanReadException(StudyPlanReadFailure.unavailable);
+      final replay = (await harness.stage()) as StudyPlanStageResultStaged;
+      expect(replay.draft.draftId, staged.draft.draftId);
+      expect(replay.draft.outcome, StudyPlanDraftOutcome.rejected);
+      expect(harness.port.calls, 1,
+          reason: 'replay must not re-read even when the next read would '
+              'throw');
+    });
+
+    test(
+        'C. replay of a superseded draft returns the same superseded draft; '
+        'the newer draft stays current; zero planning reads', () async {
+      final harness = _Harness();
+      final first =
+          (await harness.stage(dailyTarget: 30)) as StudyPlanStageResultStaged;
+      final second =
+          (await harness.stage(dailyTarget: 50)) as StudyPlanStageResultStaged;
+      final callsAfterSequencing = harness.port.calls;
+      expect(harness.service.draftById(first.draft.draftId).outcome,
+          StudyPlanDraftOutcome.superseded);
+
+      final replay =
+          (await harness.stage(dailyTarget: 30)) as StudyPlanStageResultStaged;
+      expect(replay.draft.draftId, first.draft.draftId);
+      expect(replay.draft.outcome, StudyPlanDraftOutcome.superseded);
+      expect(harness.port.calls, callsAfterSequencing,
+          reason: 'replay must not re-read');
+      // The newer draft remains current.
+      expect(harness.service.draftById(second.draft.draftId).outcome,
+          StudyPlanDraftOutcome.pending);
+    });
+
+    test('D. committed replay stays committed without a new planning read',
+        () async {
+      final harness = _Harness();
+      final staged = (await harness.stage()) as StudyPlanStageResultStaged;
+      harness.service.beginCommit(staged.draft.draftId);
+      harness.service.markCommitted(staged.draft.draftId);
+      expect(harness.port.calls, 1);
+
+      final replay = (await harness.stage()) as StudyPlanStageResultStaged;
+      expect(replay.draft.draftId, staged.draft.draftId);
+      expect(replay.draft.outcome, StudyPlanDraftOutcome.committed);
+      expect(harness.port.calls, 1, reason: 'replay must not re-read');
+    });
   });
 }
