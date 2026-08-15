@@ -11,8 +11,8 @@ SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
 SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
 SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
 SPL-1-V0 Focused acceptance — COMPLETE
-SPL-1-CL Closure — NOT STARTED
-SPL-1 StudyPlan Agent Tool v0 — IN PROGRESS (not COMPLETE / not CLOSED)
+SPL-1-CL Closure — COMPLETE
+SPL-1 StudyPlan Agent Tool v0 — CLOSED / FROZEN
 ```
 
 Runtime schema is **v22** (additive `study_plans` table); Built-in Agent can
@@ -21,7 +21,7 @@ explicit adoption/replacement confirmation; durable adoption remains
 Application-controlled; Today / 特训 consumes a real adopted
 `ActiveStudyPlan` through deterministic dynamic selection (U0 delivered);
 V0 focused acceptance over the real production chain on synthetic SQLite is
-COMPLETE; MCP remains unchanged.
+COMPLETE; SPL-1 v0 is CLOSED / FROZEN; MCP remains unchanged.
 
 ## 1. Authority and scope
 
@@ -544,3 +544,36 @@ starts, and later stages never auto-activate.
 - `docs/architecture/mcp-v0-contract.md` — MCP v0 authority (unchanged);
 - `docs/product/ui-finalization-ia-freeze.md` — UI Finalization IA authority
   (unchanged).
+
+## 22. Closure (SPL-1-CL)
+
+SPL-1 StudyPlan Agent Tool v0 is **CLOSED / FROZEN**.
+
+Delivered (all sub-stages COMPLETE): the full v0 capability chain — Built-in
+Agent `propose_study_plan` staging (runtime-owned source authority, bounded
+deterministic preview, zero durable mutation), transient `StudyPlanDraft`
+lifecycle, explicit-UI-action-only adoption/replacement/stop with durable
+transaction-level CAS, the single global durable `ActiveStudyPlan` (schema
+v22, no Project ownership, no persisted question IDs, no provider
+payload/reasoning), Today / 特训 dynamic live selection (due / weak / new,
+overlap dedup, four priorities, `dailyTarget` cap, advisory mastery/horizon,
+state=3 non-terminal), the narrow non-preview Practice seam reusing the
+existing normal Review/FSRS mutation path, and V0 focused acceptance over the
+real production chain on synthetic SQLite (15/15).
+
+Frozen at closure:
+
+- runtime schema remains **v22**; no migration, no new dependency;
+- Agent READ catalog remains exactly six tools; MCP v0 remains exactly six
+  read-only tools; `propose_study_plan` is NOT an MCP tool;
+- FSRS / review scheduling formulas, W0, RAG, P7, Project / File lifecycle,
+  Conversation schema, and the legacy `StudyPlanBank` /
+  `StudyPlanBankCatalog` / `PlanConfigScreen` catalog are unchanged and
+  unrepurposed;
+- future behavior changes require a new explicitly authorized phase /
+  contract; none of the frozen non-goals (§19) are authorized by closure.
+
+CLOSED / FROZEN applies to the SPL-1 v0 contract/capability only. It does not
+freeze the whole application, does not auto-authorize future features, and
+does not prevent ordinary maintenance of already-frozen contracts under their
+own authorities.
