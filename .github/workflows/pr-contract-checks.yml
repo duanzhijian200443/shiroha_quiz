@@ -67,7 +67,7 @@ jobs:
       - name: Check committed diff
         shell: pwsh
         env:
-          BASE_REF: ${{ steps/base-ref.outputs.base_ref }}
+          BASE_REF: ${{ steps.base-ref.outputs.base_ref }}
         run: |
           & git diff --check "${env:BASE_REF}...HEAD"
           if ($LASTEXITCODE -ne 0) {
