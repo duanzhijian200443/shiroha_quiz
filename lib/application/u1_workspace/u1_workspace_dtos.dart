@@ -110,3 +110,37 @@ final class UnclassifiedAssets {
   final List<LibraryFileSummary> files;
   final List<QuestionBankSummary> banks;
 }
+
+enum LibraryFileArtifactStatus {
+  none,
+  available,
+  ocrRecommended,
+  unavailable,
+  failed,
+}
+
+final class LibraryFileArtifactState {
+  const LibraryFileArtifactState({
+    required this.status,
+    this.parserRoute,
+    this.revision,
+    this.errorMessage,
+  });
+
+  final LibraryFileArtifactStatus status;
+  final String? parserRoute;
+  final int? revision;
+  final String? errorMessage;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LibraryFileArtifactState &&
+          status == other.status &&
+          parserRoute == other.parserRoute &&
+          revision == other.revision &&
+          errorMessage == other.errorMessage;
+
+  @override
+  int get hashCode => Object.hash(status, parserRoute, revision, errorMessage);
+}

@@ -63,7 +63,10 @@ import 'services/import_pipeline/import_pipeline_service.dart';
 import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/task_manager.dart';
+import 'services/llm_providers/zhipu_ocr_client.dart';
 import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
+import 'services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
+import 'services/parsed_artifacts/parsed_artifact_generation_router.dart';
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
@@ -163,19 +166,6 @@ void main() {
       questionQuery: questionRepository,
       metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
     );
-    final u1WorkspaceFacade = U1WorkspaceFacade(
-      projectService: projectService,
-      fileRepository: libraryFileRepository,
-      fileIngestion: fileIngestionService,
-      folderService: folderService,
-      studyQueryService: studyQueryService,
-      mcpProjection: McpWorkspaceProjection(
-        state: McpCapabilityState.configuredAvailable,
-        transport: McpTransport.localStdio,
-        permission: McpPermission.readOnly,
-        toolNames: StudyMcpAdapter.toolNames,
-      ),
-    );
     final engineRepository = await activateAiEngineRepository(
       openDatabase: () async {
         await databaseHelper.database;
@@ -244,8 +234,29 @@ void main() {
       artifactStorage: ManagedArtifactStorageAdapter(
         managedRoot: Directory(p.join(supportDirectory.path, 'library_files')),
       ),
-      generationPort: DeterministicParsedArtifactGenerationAdapter(
-        managedFileStorage: managedFileStorage,
+      generationPort: ParsedArtifactGenerationRouter(
+        deterministicGeneration: DeterministicParsedArtifactGenerationAdapter(
+          managedFileStorage: managedFileStorage,
+        ),
+        ocrGeneration: OcrParsedArtifactGenerationAdapter(
+          managedFileStorage: managedFileStorage,
+          ocrClient: const ZhipuOcrClient(),
+          activeOcrProfileLoader: engineRepository.getActiveOcrEngine,
+        ),
+      ),
+    );
+    final u1WorkspaceFacade = U1WorkspaceFacade(
+      projectService: projectService,
+      fileRepository: libraryFileRepository,
+      fileIngestion: fileIngestionService,
+      folderService: folderService,
+      studyQueryService: studyQueryService,
+      parsedArtifactLifecycle: parsedArtifactLifecycle,
+      mcpProjection: McpWorkspaceProjection(
+        state: McpCapabilityState.configuredAvailable,
+        transport: McpTransport.localStdio,
+        permission: McpPermission.readOnly,
+        toolNames: StudyMcpAdapter.toolNames,
       ),
     );
     final retrievalService = RetrievalService(

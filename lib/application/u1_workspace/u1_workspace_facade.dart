@@ -5,6 +5,7 @@ import '../../domain/assets/library_folder.dart';
 import '../../domain/projects/project.dart';
 import '../file_library/file_library_ports.dart';
 import '../file_library/library_folder_service.dart';
+import '../parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../projects/project_service.dart';
 import '../study_query/study_query_dtos.dart';
 import '../study_query/study_query_service.dart';
@@ -18,12 +19,14 @@ final class U1WorkspaceFacade {
     required FileIngestionPort fileIngestion,
     required LibraryFolderService folderService,
     required StudyQueryService studyQueryService,
+    ParsedArtifactLifecyclePort? parsedArtifactLifecycle,
     required this.mcpProjection,
   })  : _projectService = projectService,
         _fileRepository = fileRepository,
         _fileIngestion = fileIngestion,
         _folderService = folderService,
-        _studyQueryService = studyQueryService;
+        _studyQueryService = studyQueryService,
+        _parsedArtifactLifecycle = parsedArtifactLifecycle;
 
   static const int recentFileLimit = 20;
 
@@ -32,6 +35,7 @@ final class U1WorkspaceFacade {
   final FileIngestionPort _fileIngestion;
   final LibraryFolderService _folderService;
   final StudyQueryService _studyQueryService;
+  final ParsedArtifactLifecyclePort? _parsedArtifactLifecycle;
   final McpWorkspaceProjection mcpProjection;
 
   Future<List<LearningSpaceSummary>> listLearningSpaces() async {
@@ -298,6 +302,199 @@ final class U1WorkspaceFacade {
       fileCount: fileIds.length,
       bankCount: bankNames.length,
     );
+  }
+
+  Future<LibraryFileArtifactState> getLibraryFileArtifactStatus(
+    String fileId,
+  ) async {
+    final lifecycle = _parsedArtifactLifecycle;
+    if (lifecycle == null) {
+      return const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.none,
+      );
+    }
+    try {
+      final snapshot = await lifecycle.getCurrentArtifact(fileId);
+      return LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.available,
+        parserRoute: snapshot.parserRoute,
+        revision: snapshot.artifact.revision,
+      );
+    } on ParsedArtifactLifecycleException catch (e) {
+      return switch (e.failure) {
+        ParsedArtifactLifecycleFailure.artifactMissing =>
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.none,
+          ),
+        ParsedArtifactLifecycleFailure.artifactCorrupt ||
+        ParsedArtifactLifecycleFailure.payloadUnsupported =>
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.failed,
+            errorMessage: '文件内容解析数据已损坏',
+          ),
+        _ => const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.none,
+          ),
+      };
+    } catch (_) {
+      return const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.none,
+      );
+    }
+  }
+
+  Future<LibraryFileArtifactState> ensureLibraryFileParsed(
+      String fileId) async {
+    final lifecycle = _parsedArtifactLifecycle;
+    if (lifecycle == null) {
+      return const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.unavailable,
+        errorMessage: '解析服务未初始化',
+      );
+    }
+    try {
+      final result = await lifecycle.ensureParsedArtifact(
+        fileId: fileId,
+        options: const ParsedArtifactParseOptions(
+          routeSelection: ParsedArtifactRouteSelection.auto,
+        ),
+      );
+      return LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.available,
+        parserRoute: result.snapshot.parserRoute,
+        revision: result.snapshot.artifact.revision,
+      );
+    } on ParsedArtifactLifecycleException catch (e) {
+      return _mapDeterministicParseFailure(fileId, e.failure);
+    } catch (_) {
+      return const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.failed,
+        errorMessage: '文件解析遇到错误，请稍后重试',
+      );
+    }
+  }
+
+  Future<LibraryFileArtifactState> ensureLibraryFileOcrPdf(
+      String fileId) async {
+    final lifecycle = _parsedArtifactLifecycle;
+    if (lifecycle == null) {
+      return const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.unavailable,
+        errorMessage: '解析服务未初始化',
+      );
+    }
+    try {
+      final result = await lifecycle.ensureParsedArtifact(
+        fileId: fileId,
+        options: const ParsedArtifactParseOptions(
+          routeSelection: ParsedArtifactRouteSelection.ocrPdf,
+        ),
+      );
+      return LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.available,
+        parserRoute: result.snapshot.parserRoute,
+        revision: result.snapshot.artifact.revision,
+      );
+    } on ParsedArtifactLifecycleException catch (e) {
+      return _mapOcrParseFailure(e.failure);
+    } catch (_) {
+      return const LibraryFileArtifactState(
+        status: LibraryFileArtifactStatus.failed,
+        errorMessage: '文件 OCR 解析失败，请稍后重试。',
+      );
+    }
+  }
+
+  Future<LibraryFileArtifactState> _mapDeterministicParseFailure(
+    String fileId,
+    ParsedArtifactLifecycleFailure failure,
+  ) async {
+    switch (failure) {
+      case ParsedArtifactLifecycleFailure.sourceUnavailable:
+        final file = await _fileRepository.findById(fileId);
+        final isPdf = file != null &&
+            (file.displayName.toLowerCase().endsWith('.pdf') ||
+                file.mimeType == 'application/pdf');
+        if (isPdf) {
+          return const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.ocrRecommended,
+          );
+        }
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.unavailable,
+          errorMessage: '文件内容当前不可读取。',
+        );
+      case ParsedArtifactLifecycleFailure.temporarilyUnavailable:
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.unavailable,
+          errorMessage: '解析服务暂不可用，请稍后重试。',
+        );
+      case ParsedArtifactLifecycleFailure.parseFailed:
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '文件解析失败，请稍后重试。',
+        );
+      case ParsedArtifactLifecycleFailure.fileNotFound:
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.unavailable,
+          errorMessage: '文件不存在。',
+        );
+      case ParsedArtifactLifecycleFailure.unsupportedRoute:
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '不支持的文件解析类型。',
+        );
+      case ParsedArtifactLifecycleFailure.artifactCorrupt:
+      case ParsedArtifactLifecycleFailure.payloadUnsupported:
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '文件内容解析数据已损坏。',
+        );
+      case ParsedArtifactLifecycleFailure.invalidRequest:
+      case ParsedArtifactLifecycleFailure.publishConflict:
+      case ParsedArtifactLifecycleFailure.artifactMissing:
+      case ParsedArtifactLifecycleFailure.internalError:
+        return const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '文件解析遇到错误，请稍后重试。',
+        );
+    }
+  }
+
+  LibraryFileArtifactState _mapOcrParseFailure(
+    ParsedArtifactLifecycleFailure failure,
+  ) {
+    return switch (failure) {
+      ParsedArtifactLifecycleFailure.temporarilyUnavailable =>
+        const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.unavailable,
+          errorMessage: '当前 OCR 服务不可用，请检查 OCR 引擎配置后重试。',
+        ),
+      ParsedArtifactLifecycleFailure.sourceUnavailable =>
+        const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.unavailable,
+          errorMessage: '文件内容当前不可读取。',
+        ),
+      ParsedArtifactLifecycleFailure.parseFailed =>
+        const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '文件 OCR 解析失败，请稍后重试。',
+        ),
+      ParsedArtifactLifecycleFailure.unsupportedRoute =>
+        const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '该文件不支持 OCR 识别。',
+        ),
+      ParsedArtifactLifecycleFailure.fileNotFound =>
+        const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.unavailable,
+          errorMessage: '文件不存在。',
+        ),
+      _ => const LibraryFileArtifactState(
+          status: LibraryFileArtifactStatus.failed,
+          errorMessage: '文件 OCR 解析失败，请稍后重试。',
+        ),
+    };
   }
 
   static LibraryFileSummary _fileSummary(LibraryFile file) {
