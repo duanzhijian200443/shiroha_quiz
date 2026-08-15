@@ -1,6 +1,6 @@
 # CONV-MOVE Conversation Relocation v0
 
-Status: **Canonical CONV-MOVE product and application contract. IN PROGRESS.**
+Status: **Canonical CONV-MOVE product and application contract. CLOSED / FROZEN.**
 
 ## 1. Authority and Scope
 
