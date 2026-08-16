@@ -81,12 +81,16 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   CONV-MOVE Conversation Relocation v0 — COMPLETE / CLOSED
   U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
   OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
+  B0-P0 .shiroha Backup / Restore canonical contract — COMPLETE
   Current runtime schema — v22
-  B0 .shiroha Backup / Restore — next canonical candidate
+  B0 .shiroha Backup / Restore — IN PROGRESS (next B0-D0)
 ```
 
-`B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
-Messages before a `.shiroha` backup/export package exists.
+B0-P0 is COMPLETE and froze the canonical `.shiroha` backup/restore contract
+in `docs/architecture/b0-shiroha-backup-restore.md`; it changed no production
+code. B0 is now IN PROGRESS with B0-D0 as the next serial stage. The C0-era
+note that persisted User Messages predated a `.shiroha` package remains
+historical rationale, not a current deferral.
 
 The current UI Finalization route is `UI-R0 -> UI-R1 -> UI-CL`. The old
 UI-R2 / UI-R3 large redesign plans are superseded and are not current
@@ -132,7 +136,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **J0-P0** | Bank identity decision | Decide `bank_name` compatibility vs additive stable `bankId` registry | decision only unless separately approved |
 | **J0** | Project v0 | Optional Project plus file/bank references; no file duplication | additive migration candidate |
 | **U1** | Information-architecture migration | Replace the primary Subject-library navigation role with Project-aware UI while retaining compatibility surfaces | normally unchanged beyond F0/J0 |
-| **B0** | Backup/export foundation | Versioned `.shiroha` package covering DB + managed user assets | unchanged unless package metadata needs additive support |
+| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; P0 contract frozen | unchanged (B0 adds no schema migration; current runtime stays v22) |
 | **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
@@ -214,6 +218,24 @@ A. use current `bank_name` as a temporary compatibility relation and record migr
 B. add a stable `bank_registry`/`bankId` identity while keeping current `bank_name` compatibility projection.
 
 Choose B only if it can remain additive and does not reopen QuestionList/Practice/WrongBook typed architecture. Otherwise choose A and defer the identity migration.
+
+### B0 — `.shiroha` Backup / Restore
+
+B0-P0 is COMPLETE and froze `docs/architecture/b0-shiroha-backup-restore.md`.
+B0 packages the sanitized SQLite snapshot plus managed `LibraryFile` original
+bytes behind `packageVersion = 1` and independent SQLite `schemaVersion`.
+B0-P0 changed no production code; D0 is the next stage.
+
+Frozen stage graph:
+
+```text
+B0-P0 Contract Freeze -> B0-D0 Package / Manifest Core -> B0-E0 Export
+  -> B0-I0 Whole Restore + Rollback -> B0-U0 Minimal UI
+  -> B0-V0 Round-trip / corruption acceptance -> B0-CL Closure
+```
+
+B0 adds no second migration authority and no schema migration in v0; current
+runtime schema stays v22.
 
 ### T0 — Application Tool Layer
 
@@ -490,6 +512,8 @@ Until separately authorized:
   authority.
 - `docs/architecture/p6-supplemental-answer-matching.md` is the focused P6
   authority.
+- `docs/architecture/b0-shiroha-backup-restore.md` is the focused B0
+  `.shiroha` backup/restore authority.
 - `docs/architecture/p7-ai-answer-candidates.md` is the focused P7
   authority.
 - `docs/product/SPL-1 StudyPlan Agent Tool v0.md` is the focused SPL-1
