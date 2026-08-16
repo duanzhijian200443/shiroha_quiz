@@ -202,7 +202,10 @@ abstract final class AppLogger {
     final record = LogRecord(
       timestamp: DateTime.now(),
       level: level,
+      correlationId: TraceContext.correlationId,
       traceId: TraceContext.traceId,
+      parentTraceId: TraceContext.parentTraceId,
+      operationKind: TraceContext.operationKind,
       taskId: TraceContext.taskId,
       module: module,
       message: _sanitizeString(message, maxLength: 4000),

@@ -5,6 +5,7 @@
 /// Domain stays free of turn/Agent state.
 library;
 
+import '../../core/observability/diagnostic_summary.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'agent_provider.dart';
 import 'retrieval_egress_grant.dart';
@@ -31,9 +32,13 @@ final class AgentTurnAlreadyCompleted extends AgentTurnResult {
 
 /// The turn failed with one fixed, safe, deterministic category.
 final class AgentTurnFailed extends AgentTurnResult {
-  const AgentTurnFailed(this.failure);
+  const AgentTurnFailed(this.failure, {this.summary});
 
   final AgentTurnFailure failure;
+
+  /// OBS-1 safe structured diagnostic snapshot for this failed turn. Optional
+  /// so hand-built sessions may omit it; production turns always provide it.
+  final DiagnosticSummary? summary;
 }
 
 /// Fixed safe Agent turn failure taxonomy.
@@ -147,6 +152,7 @@ final class AgentTurnSession {
     required this.events,
     required this.result,
     required this.cancel,
+    this.diagnosticId,
   });
 
   /// Transient progress events (text deltas, web phases, tool calls, and the
@@ -158,6 +164,12 @@ final class AgentTurnSession {
 
   /// Requests user cancellation of this turn.
   final void Function() cancel;
+
+  /// OBS-1 stable diagnostic id (`diagnosticId == correlationId`) for this
+  /// turn; present from turn creation onward on every production session.
+  /// One Agent Turn has exactly one diagnostic id; success and failure
+  /// belong to the same correlation.
+  final String? diagnosticId;
 }
 
 /// Presentation-facing start seam for a turn bound to a persisted User

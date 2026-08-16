@@ -5,6 +5,9 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import '../../core/observability/app_logger.dart';
+import '../../core/observability/diagnostic_summary.dart';
+import '../../core/observability/trace_context.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
 import '../conversations/conversation_repository.dart';
@@ -114,6 +117,8 @@ final class ShirohaAgentRuntime {
     final turn = _ActiveTurn(
       limits: _limits,
       requestId: '${conversationId}_${userMessageId}_${_turnRequestSequence++}',
+      correlationId: TraceContext.createCorrelationId(),
+      traceId: TraceContext.createTraceId(),
     );
     turn.timeoutTimer = Timer(_limits.turnTimeout, () {
       turn.timedOut = true;
@@ -123,6 +128,7 @@ final class ShirohaAgentRuntime {
       events: turn.events.stream,
       result: turn.result.future,
       cancel: turn.cancellation.cancel,
+      diagnosticId: turn.correlationId,
     );
     unawaited(
       _runTurn(
@@ -154,6 +160,7 @@ final class ShirohaAgentRuntime {
       events: events.stream,
       result: result.future,
       cancel: () {},
+      diagnosticId: TraceContext.createCorrelationId(),
     );
   }
 
@@ -163,27 +170,63 @@ final class ShirohaAgentRuntime {
     required String userMessageId,
     RetrievalEgressApproval? approval,
   }) async {
-    try {
-      final result = await _executeTurn(
-        turn,
-        conversationId: conversationId,
-        userMessageId: userMessageId,
-        approval: approval,
-      );
-      switch (result) {
-        case AgentTurnSuccess(:final assistantMessage):
-          _emit(turn, AgentTurnCompleted(assistantMessage));
-        case AgentTurnAlreadyCompleted(:final assistantMessage):
-          _emit(turn, AgentTurnCompleted(assistantMessage));
-        case AgentTurnFailed():
-          break;
-      }
-      turn.result.complete(result);
-    } catch (error) {
-      final failure = _mapFailure(error, turn);
-      _emit(turn, AgentTurnFailedEvent(failure));
-      turn.result.complete(AgentTurnFailed(failure));
-    }
+    // OBS-1: every production turn runs as a root operation inside its own
+    // trace zone. Provider rounds, tool calls, fallback, RAG retrieval and
+    // terminal events then carry the same correlation/trace automatically.
+    await TraceContext.run(
+      correlationId: turn.correlationId,
+      traceId: turn.traceId,
+      operationKind: TraceOperationKind.agentTurn,
+      action: () async {
+        AppLogger.info(
+          'Agent turn started',
+          module: 'Agent',
+          data: const <String, Object?>{'stage': 'turn_started'},
+        );
+        try {
+          final result = await _executeTurn(
+            turn,
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+            approval: approval,
+          );
+          switch (result) {
+            case AgentTurnSuccess(:final assistantMessage):
+              _emit(turn, AgentTurnCompleted(assistantMessage));
+            case AgentTurnAlreadyCompleted(:final assistantMessage):
+              _emit(turn, AgentTurnCompleted(assistantMessage));
+            case AgentTurnFailed():
+              break;
+          }
+          turn.result.complete(result);
+          AppLogger.info(
+            'Agent turn completed',
+            module: 'Agent',
+            data: <String, Object?>{
+              'stage': 'turn_completed',
+              'status': 'success',
+              'durationMs': turn.elapsedMilliseconds,
+            },
+          );
+        } catch (error) {
+          final failure = _mapFailure(error, turn);
+          _logTerminalTurnFailure(turn, error, failure);
+          final traceFailureCode =
+              error is _TurnFailure ? error.traceFailureCode : null;
+          final summary = DiagnosticSummary(
+            diagnosticId: turn.correlationId,
+            operation: 'agent_turn',
+            failure: traceFailureCode ?? failure.name,
+            providerRounds: turn.providerRounds,
+            toolCalls: turn.toolCallsCount,
+            lastTool: turn.lastToolName,
+            durationMs: turn.elapsedMilliseconds,
+          );
+          _emit(turn, AgentTurnFailedEvent(failure));
+          turn.result.complete(AgentTurnFailed(failure, summary: summary));
+        }
+      },
+    );
   }
 
   Future<AgentTurnResult> _executeTurn(
@@ -236,6 +279,11 @@ final class ShirohaAgentRuntime {
     }
 
     final resolved = await _resolveConfig();
+    AppLogger.info(
+      'Agent configuration resolved',
+      module: 'Agent',
+      data: const <String, Object?>{'stage': 'config_resolved'},
+    );
     _throwIfExpired(turn);
     var currentResolved = resolved;
     var provider = _providerFactory(currentResolved);
@@ -333,6 +381,15 @@ final class ShirohaAgentRuntime {
         reasoningEffort: currentResolved.config.reasoningEffort,
       );
       final _ProviderRound round;
+      final roundStopwatch = Stopwatch()..start();
+      AppLogger.info(
+        'Provider round started',
+        module: 'Agent',
+        data: <String, Object?>{
+          'stage': 'provider_round_started',
+          'providerRound': turn.providerRounds + 1,
+        },
+      );
       try {
         round = await _runProviderRound(turn, request);
       } catch (error) {
@@ -344,6 +401,15 @@ final class ShirohaAgentRuntime {
           error: error,
         )) {
           turn.fallbackAttempted = true;
+          AppLogger.info(
+            'Agent provider fallback attempted',
+            module: 'Agent',
+            data: <String, Object?>{
+              'stage': 'fallback_attempted',
+              'fallbackReason': _fallbackReasonOf(error),
+              'providerRound': turn.providerRounds + 1,
+            },
+          );
           currentResolved = ResolvedAgentConfig(
             config: resolved.config,
             profile: resolved.fallbackProfile!,
@@ -365,6 +431,17 @@ final class ShirohaAgentRuntime {
         }
         rethrow;
       }
+      turn.providerRounds++;
+      AppLogger.info(
+        'Provider round completed',
+        module: 'Agent',
+        data: <String, Object?>{
+          'stage': 'provider_round_completed',
+          'providerRound': turn.providerRounds,
+          'status': 'success',
+          'durationMs': roundStopwatch.elapsedMilliseconds,
+        },
+      );
 
       if (round.functionCalls.isEmpty) {
         final finalText = turn.visibleText.toString();
@@ -398,7 +475,10 @@ final class ShirohaAgentRuntime {
 
       turn.toolRoundsUsed++;
       if (turn.toolRoundsUsed > _limits.maxToolRounds) {
-        throw const _TurnFailure(AgentTurnFailure.toolLimitExceeded);
+        throw const _TurnFailure(
+          AgentTurnFailure.toolLimitExceeded,
+          traceFailureCode: 'tool_round_limit_exceeded',
+        );
       }
       final continuation = round.continuationState;
       if (continuation == null) {
@@ -406,7 +486,10 @@ final class ShirohaAgentRuntime {
       }
       if (turn.localCallsUsed + round.functionCalls.length >
           _limits.maxLocalCalls) {
-        throw const _TurnFailure(AgentTurnFailure.toolLimitExceeded);
+        throw const _TurnFailure(
+          AgentTurnFailure.toolLimitExceeded,
+          traceFailureCode: 'local_call_limit_exceeded',
+        );
       }
       for (final call in round.functionCalls) {
         if (!turn.seenCallIds.add(call.callId)) {
@@ -419,6 +502,17 @@ final class ShirohaAgentRuntime {
       for (final call in round.functionCalls) {
         _throwIfCancelled(turn);
         _emit(turn, AgentTurnToolCall(callId: call.callId, name: call.name));
+        final toolStopwatch = Stopwatch()..start();
+        final boundedCallId = _boundedCallId(call.callId);
+        AppLogger.info(
+          'Tool call started',
+          module: 'Agent',
+          data: <String, Object?>{
+            'stage': 'tool_call_started',
+            'toolName': call.name,
+            'callId': boundedCallId,
+          },
+        );
         final output = await _dispatchTool(
           turn,
           call,
@@ -428,6 +522,20 @@ final class ShirohaAgentRuntime {
           providerProfileId: resolved.profile.profileId,
           grant: retrievalGrant,
         );
+        final toolStatus = _toolCallStatus(output);
+        AppLogger.info(
+          'Tool call completed',
+          module: 'Agent',
+          data: <String, Object?>{
+            'stage': 'tool_call_completed',
+            'toolName': call.name,
+            'callId': boundedCallId,
+            ...toolStatus,
+            'durationMs': toolStopwatch.elapsedMilliseconds,
+          },
+        );
+        turn.toolCallsCount++;
+        turn.lastToolName = call.name;
         outputs.add(
           AgentFunctionToolOutput(callId: call.callId, output: output),
         );
@@ -579,24 +687,16 @@ final class ShirohaAgentRuntime {
           conversationFileIds:
               current.files.map((file) => file.fileId).toList(growable: false),
         );
-        return await retrievalDispatcher
-            .dispatch(
-              argumentsJson: call.argumentsJson,
-              grant: grant,
-              turnRequestId: turn.requestId,
-              conversationId: conversationId,
-              sourceUserMessageId: userMessageId,
-              providerProfileId: providerProfileId,
-              currentFileIds: currentFileIds,
-              serializationAllowed: () => _retrievalSerializationAllowed(
-                turn,
-                conversationId: conversationId,
-                userMessageId: userMessageId,
-                providerProfileId: providerProfileId,
-                grant: grant,
-              ),
-            )
-            .timeout(remaining);
+        return _dispatchRetrievalWithTrace(
+          turn: turn,
+          argumentsJson: call.argumentsJson,
+          grant: grant,
+          conversationId: conversationId,
+          sourceUserMessageId: userMessageId,
+          providerProfileId: providerProfileId,
+          currentFileIds: currentFileIds,
+          remaining: remaining,
+        );
       }
       if (call.name == AgentWriteProposalToolCatalog.toolName &&
           dispatcher != null) {
@@ -652,6 +752,142 @@ final class ShirohaAgentRuntime {
         },
       });
     }
+  }
+
+  /// OBS-1: the actual RAG retrieval runs as a child trace of the current
+  /// Agent turn (same correlation, new trace, parent = Agent trace) and logs
+  /// only structural counts and fixed status/failure codes. Retrieval
+  /// authorization stays untouched: the grant, per-turn approval and
+  /// serialization gate run inside the wrapped action unchanged. Logging is
+  /// best effort and never changes the retrieval outcome.
+  Future<String> _dispatchRetrievalWithTrace({
+    required _ActiveTurn turn,
+    required String argumentsJson,
+    required RetrievalEgressGrant? grant,
+    required String conversationId,
+    required String sourceUserMessageId,
+    required String providerProfileId,
+    required List<String> currentFileIds,
+    required Duration remaining,
+  }) async {
+    final retrievalDispatcher = _retrievalDispatcher!;
+    final stopwatch = Stopwatch()..start();
+    final requestedCounts = _retrievalRequestCounts(argumentsJson);
+    return TraceContext.runOperation(
+      operationKind: TraceOperationKind.ragRetrieval,
+      action: () async {
+        try {
+          final output = await retrievalDispatcher
+              .dispatch(
+                argumentsJson: argumentsJson,
+                grant: grant,
+                turnRequestId: turn.requestId,
+                conversationId: conversationId,
+                sourceUserMessageId: sourceUserMessageId,
+                providerProfileId: providerProfileId,
+                currentFileIds: currentFileIds,
+                serializationAllowed: () => _retrievalSerializationAllowed(
+                  turn,
+                  conversationId: conversationId,
+                  userMessageId: sourceUserMessageId,
+                  providerProfileId: providerProfileId,
+                  grant: grant,
+                ),
+              )
+              .timeout(remaining);
+          final outcome = _retrievalOutcome(output);
+          AppLogger.info(
+            'Agent file retrieval completed',
+            module: 'Retrieval',
+            data: <String, Object?>{
+              'stage': 'retrieval_completed',
+              'requestedFileCount': requestedCounts?.requested,
+              'effectiveFileCount': currentFileIds.length,
+              if (requestedCounts?.limit != null)
+                'limit': requestedCounts!.limit,
+              'hitCount': outcome.hitCount,
+              'issueCount': outcome.issueCount,
+              'status': outcome.status,
+              if (outcome.failureCode != null)
+                'failureCode': outcome.failureCode,
+              'durationMs': stopwatch.elapsedMilliseconds,
+            },
+          );
+          return output;
+        } catch (error) {
+          AppLogger.error(
+            'Agent file retrieval failed',
+            module: 'Retrieval',
+            data: <String, Object?>{
+              'stage': 'retrieval_completed',
+              'requestedFileCount': requestedCounts?.requested,
+              'effectiveFileCount': currentFileIds.length,
+              if (requestedCounts?.limit != null)
+                'limit': requestedCounts!.limit,
+              'status': 'failed',
+              'errorType': error.runtimeType.toString(),
+              'durationMs': stopwatch.elapsedMilliseconds,
+            },
+          );
+          rethrow;
+        }
+      },
+    );
+  }
+
+  /// Counts only; never decodes retrieval content.
+  ({int requested, int? limit})? _retrievalRequestCounts(
+    String argumentsJson,
+  ) {
+    try {
+      final decoded = jsonDecode(argumentsJson);
+      if (decoded is! Map || decoded['file_ids'] is! List) return null;
+      final limit = decoded['limit'];
+      return (
+        requested: (decoded['file_ids'] as List).length,
+        limit: limit is int ? limit : null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Extracts counts and fixed codes from the structured tool output only.
+  ({
+    String status,
+    int? hitCount,
+    int? issueCount,
+    String? failureCode,
+  }) _retrievalOutcome(String output) {
+    try {
+      final decoded = jsonDecode(output);
+      if (decoded is Map && decoded['ok'] == true && decoded['result'] is Map) {
+        final result = decoded['result'] as Map;
+        final hits = result['hits'];
+        final issues = result['issues'];
+        return (
+          status: 'success',
+          hitCount: hits is List ? hits.length : null,
+          issueCount: issues is List ? issues.length : null,
+          failureCode: null,
+        );
+      }
+      if (decoded is Map && decoded['error'] is Map) {
+        final code = (decoded['error'] as Map)['code'];
+        return (
+          status: 'failed',
+          hitCount: null,
+          issueCount: null,
+          failureCode: code is String ? code : null,
+        );
+      }
+    } catch (_) {}
+    return (
+      status: 'failed',
+      hitCount: null,
+      issueCount: null,
+      failureCode: null
+    );
   }
 
   Future<bool> _retrievalSerializationAllowed(
@@ -723,6 +959,14 @@ final class ShirohaAgentRuntime {
         return;
       }
       turn.proposalStaged = true;
+      AppLogger.info(
+        'Agent proposal staged',
+        module: 'Agent',
+        data: <String, Object?>{
+          'stage': 'proposal_staged',
+          'outcome': outcome,
+        },
+      );
       _emit(
         turn,
         AgentTurnProposalStaged(
@@ -758,6 +1002,14 @@ final class ShirohaAgentRuntime {
         return;
       }
       turn.studyPlanDraftStaged = true;
+      AppLogger.info(
+        'Agent study plan draft staged',
+        module: 'Agent',
+        data: <String, Object?>{
+          'stage': 'study_plan_draft_staged',
+          'studyPlanOutcome': outcome,
+        },
+      );
       _emit(
         turn,
         AgentTurnStudyPlanDraftStaged(
@@ -960,6 +1212,72 @@ final class ShirohaAgentRuntime {
     return AgentTurnFailure.internalError;
   }
 
+  /// OBS-1 best-effort terminal event: one structured record for
+  /// `turn_failed` / `turn_cancelled` / `turn_timeout` carrying only
+  /// fixed categories and counters. Never includes error bodies or stacks.
+  void _logTerminalTurnFailure(
+    _ActiveTurn turn,
+    Object error,
+    AgentTurnFailure failure,
+  ) {
+    final stage = switch (failure) {
+      AgentTurnFailure.timeout => 'turn_timeout',
+      AgentTurnFailure.cancelled => 'turn_cancelled',
+      _ => 'turn_failed',
+    };
+    final failureCode = error is _TurnFailure ? error.traceFailureCode : null;
+    AppLogger.error(
+      switch (failure) {
+        AgentTurnFailure.timeout => 'Agent turn timed out',
+        AgentTurnFailure.cancelled => 'Agent turn cancelled',
+        _ => 'Agent turn failed',
+      },
+      module: 'Agent',
+      data: <String, Object?>{
+        'stage': stage,
+        'status': 'failed',
+        'failure': failure.name,
+        if (failureCode != null) 'failureCode': failureCode,
+        'providerRounds': turn.providerRounds,
+        'toolCalls': turn.toolCallsCount,
+        'toolRoundsUsed': turn.toolRoundsUsed,
+        'localCallsUsed': turn.localCallsUsed,
+        'durationMs': turn.elapsedMilliseconds,
+      },
+    );
+  }
+
+  /// Fixed safe fallback category derived from the provider failure taxonomy.
+  static String _fallbackReasonOf(Object error) {
+    if (error is AgentProviderException) return error.failure.name;
+    return 'unknown';
+  }
+
+  /// Bounded provider call id: length-limited so the id can be logged and
+  /// filtered without unbounded provider-controlled strings.
+  static String _boundedCallId(String callId) {
+    return callId.length <= 64 ? callId : callId.substring(0, 64);
+  }
+
+  /// Fixed status/code derived from the structured tool output only; never
+  /// logs tool arguments or result bodies.
+  static Map<String, Object?> _toolCallStatus(String output) {
+    try {
+      final decoded = jsonDecode(output);
+      if (decoded is Map && decoded['ok'] == true) {
+        return const <String, Object?>{'status': 'success'};
+      }
+      if (decoded is Map && decoded['error'] is Map) {
+        final code = (decoded['error'] as Map)['code'];
+        return <String, Object?>{
+          'status': 'failed',
+          if (code is String && code.isNotEmpty) 'failureCode': code,
+        };
+      }
+    } catch (_) {}
+    return const <String, Object?>{'status': 'failed'};
+  }
+
   bool _canFallback({
     required _ActiveTurn turn,
     required ResolvedAgentConfig resolved,
@@ -1014,12 +1332,19 @@ final class _ActiveTurn {
   _ActiveTurn({
     required AgentRuntimeLimits limits,
     required this.requestId,
+    required this.correlationId,
+    required this.traceId,
   }) : _limits = limits {
     _stopwatch.start();
   }
 
   final AgentRuntimeLimits _limits;
   final String requestId;
+
+  /// OBS-1 root operation identity of this turn.
+  final String correlationId;
+  final String traceId;
+
   final AgentCancellationController cancellation =
       AgentCancellationController();
   final Stopwatch _stopwatch = Stopwatch();
@@ -1031,12 +1356,17 @@ final class _ActiveTurn {
   AgentProviderPort? provider;
   int toolRoundsUsed = 0;
   int localCallsUsed = 0;
+  int providerRounds = 0;
+  int toolCallsCount = 0;
+  String? lastToolName;
   bool fallbackAttempted = false;
   bool webProgressEmitted = false;
   bool proposalStaged = false;
   bool studyPlanDraftStaged = false;
   final Set<String> seenCallIds = <String>{};
   final StringBuffer visibleText = StringBuffer();
+
+  int get elapsedMilliseconds => _stopwatch.elapsedMilliseconds;
 
   Duration remainingBudget() {
     final elapsed = _stopwatch.elapsed;
@@ -1069,9 +1399,14 @@ final class _PendingFinalAssistant {
 }
 
 final class _TurnFailure implements Exception {
-  const _TurnFailure(this.failure);
+  const _TurnFailure(this.failure, {this.traceFailureCode});
 
   final AgentTurnFailure failure;
+
+  /// OBS-1 more specific trace-only failure code (for example
+  /// `tool_round_limit_exceeded` vs `local_call_limit_exceeded`). Never
+  /// changes the public [AgentTurnFailure] category.
+  final String? traceFailureCode;
 }
 
 final class _TurnTimeoutException implements Exception {

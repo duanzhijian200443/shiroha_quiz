@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
@@ -540,6 +541,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final controller = widget.conversationController;
     final active = controller.activeThread;
     final colors = theme.colorScheme;
+    final failedDiagnosticId = controller.turnDiagnosticId;
+    final diagnosticCopyText = controller.diagnosticCopyText;
     if (controller.isLoading && active == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -657,9 +660,38 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
             ],
           ],
+          if (controller.turnPhase == AssistantTurnPhase.failed &&
+              failedDiagnosticId != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              '诊断编号：$failedDiagnosticId',
+              key: const ValueKey<String>('a0-agent-diagnostic-id'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+            ),
+            if (diagnosticCopyText != null) ...[
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                key: const ValueKey<String>('a0-agent-copy-diagnostic'),
+                onPressed: () => _copyDiagnostic(diagnosticCopyText),
+                icon: const Icon(Icons.copy_rounded, size: 16),
+                label: const Text('复制诊断信息'),
+              ),
+            ],
+          ],
         ],
       ),
     );
+  }
+
+  Future<void> _copyDiagnostic(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    _feedback('诊断信息已复制');
   }
 }
 
