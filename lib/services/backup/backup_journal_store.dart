@@ -18,10 +18,13 @@ final class BackupJournalStore {
 
   final Directory _keyRoot;
   final String _journalPath;
+  String get _tombstonePath => '$_journalPath.tombstone';
 
   String get journalPath => _journalPath;
 
   Future<RestoreJournal?> read() async {
+    final tombstone = File(_tombstonePath);
+    if (await tombstone.exists()) return null;
     final file = File(_journalPath);
     final backup = File('$_journalPath.bak');
     final sourceFile = await file.exists()
@@ -42,11 +45,20 @@ final class BackupJournalStore {
   }
 
   Future<void> clear() async {
+    // Crash-safe clear order: publish a durable tombstone before deleting
+    // either generation. If the process dies after the current journal is
+    // removed but before the stale `.bak` is removed, startup sees the
+    // tombstone and never resurrects the older journal state.
+    await BackupFilesystem.atomicWriteString(_tombstonePath, 'tombstone');
     for (final path in <String>[_journalPath, '$_journalPath.bak']) {
       final file = File(path);
       if (await file.exists()) {
         await file.delete();
       }
+    }
+    final tombstone = File(_tombstonePath);
+    if (await tombstone.exists()) {
+      await tombstone.delete();
     }
   }
 

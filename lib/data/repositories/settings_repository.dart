@@ -1,3 +1,4 @@
+import '../../application/backup/backup_restore_gate.dart';
 import '../../core/database/database_helper.dart';
 
 class SettingsRepository {
@@ -22,9 +23,11 @@ class SettingsRepository {
     return value;
   }
 
-  Future<void> _saveSettingWithCache(String key, String value) async {
-    _cache[key] = value;
-    await _databaseHelper.saveSetting(key, value);
+  Future<void> _saveSettingWithCache(String key, String value) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      _cache[key] = value;
+      await _databaseHelper.saveSetting(key, value);
+    });
   }
 
   // --- App Theme ---

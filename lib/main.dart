@@ -145,7 +145,9 @@ void main() {
     final backupSnapshotRepository = BackupSnapshotRepository(
       databaseHelper: databaseHelper,
     );
+    late Future<void> Function() relaunchApp;
     final backupRestore = BackupRestoreCoordinator(
+      compositionReload: () => relaunchApp(),
       operations: BackupRestoreRuntime(
         databaseAuthority: SqliteBackupDatabaseAuthority(
           databaseHelper: databaseHelper,
@@ -178,7 +180,6 @@ void main() {
     }
 
     var isFirstComposition = true;
-    late Future<void> Function() relaunchApp;
 
     Future<void> composeAndRun() async {
       if (!isFirstComposition) {
@@ -404,9 +405,7 @@ void main() {
         studyPlanSelectionService: studyPlanSelectionService,
         studyPlanSessionLauncher: studyPlanSessionLauncher,
         backupRestore: backupRestore,
-        onRestoreCompleted: () {
-          unawaited(relaunchApp());
-        },
+        onRestoreCompleted: () {},
       ));
     }
 

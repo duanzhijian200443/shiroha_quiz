@@ -127,8 +127,19 @@ final class ParsedArtifactLifecycleService
   Future<ParsedArtifactEnsureResult> ensureParsedArtifact({
     required String fileId,
     required ParsedArtifactParseOptions options,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _ensureParsedArtifactUnchecked(
+        fileId: fileId,
+        options: options,
+      ),
+    );
+  }
+
+  Future<ParsedArtifactEnsureResult> _ensureParsedArtifactUnchecked({
+    required String fileId,
+    required ParsedArtifactParseOptions options,
   }) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     try {
       _validateFileId(fileId);
       return await _runFileMutationExclusive(fileId, () async {
@@ -172,8 +183,21 @@ final class ParsedArtifactLifecycleService
     required String fileId,
     required ParsedArtifactParseOptions options,
     required int expectedRevision,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _reparseArtifactUnchecked(
+        fileId: fileId,
+        options: options,
+        expectedRevision: expectedRevision,
+      ),
+    );
+  }
+
+  Future<ParsedArtifactEnsureResult> _reparseArtifactUnchecked({
+    required String fileId,
+    required ParsedArtifactParseOptions options,
+    required int expectedRevision,
   }) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     try {
       _validateFileId(fileId);
       return await _runFileMutationExclusive(fileId, () async {
@@ -212,8 +236,19 @@ final class ParsedArtifactLifecycleService
   Future<void> removeCurrentArtifact({
     required String fileId,
     required int expectedRevision,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _removeCurrentArtifactUnchecked(
+        fileId: fileId,
+        expectedRevision: expectedRevision,
+      ),
+    );
+  }
+
+  Future<void> _removeCurrentArtifactUnchecked({
+    required String fileId,
+    required int expectedRevision,
   }) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     try {
       _validateFileId(fileId);
       if (expectedRevision < 0) {

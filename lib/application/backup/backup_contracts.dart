@@ -129,6 +129,8 @@ abstract interface class BackupRestoreOperations {
   Future<BackupRestorePreview> inspectPackage(String packagePath);
   Future<BackupRestorePreview> prepareRestore(String packagePath);
   Future<void> cancelPreparedRestore();
-  Future<BackupRestoreSuccess> commitPreparedRestore();
+  Future<BackupRestoreSuccess> commitPreparedRestore({
+    Future<void> Function()? beforeCommitted,
+  });
   Future<BackupStartupRecovery> recoverStartupIfNeeded();
 }

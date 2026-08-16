@@ -8,10 +8,14 @@ import 'backup_contracts.dart';
 import 'backup_restore_gate.dart';
 
 final class BackupRestoreCoordinator {
-  BackupRestoreCoordinator({required BackupRestoreOperations operations})
-      : _operations = operations;
+  BackupRestoreCoordinator({
+    required BackupRestoreOperations operations,
+    Future<void> Function()? compositionReload,
+  })  : _operations = operations,
+        _compositionReload = compositionReload;
 
   final BackupRestoreOperations _operations;
+  final Future<void> Function()? _compositionReload;
   bool _busy = false;
 
   bool get isBusy => _busy;
@@ -31,7 +35,7 @@ final class BackupRestoreCoordinator {
       action: () async {
         final quiesced = quiesceMutations;
         if (quiesced) {
-          BackupRestoreMutationGate.instance.enterQuiescence();
+          await BackupRestoreMutationGate.instance.enterQuiescence();
         }
         try {
           return await action();
@@ -128,7 +132,9 @@ final class BackupRestoreCoordinator {
       operationKind: TraceOperationKind.backupRestore,
       quiesceMutations: true,
       action: () async {
-        final result = await _operations.commitPreparedRestore();
+        final result = await _operations.commitPreparedRestore(
+          beforeCommitted: _compositionReload,
+        );
         LogWriter.info(
           'B0 restore committed',
           module: 'Backup',

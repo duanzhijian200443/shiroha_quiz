@@ -69,9 +69,19 @@ final class AiAnswerCommitCommand {
   Future<AnswerCandidateReviewSession> commit({
     required AnswerCandidateReviewSession session,
     required AnswerCandidateConfirmation confirmation,
-  }) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _commitUnchecked(
+        session: session,
+        confirmation: confirmation,
+      ),
+    );
+  }
 
+  Future<AnswerCandidateReviewSession> _commitUnchecked({
+    required AnswerCandidateReviewSession session,
+    required AnswerCandidateConfirmation confirmation,
+  }) async {
     // 1. Deterministic local review-state validation (no transaction yet):
     //    exact revision, exact canonical candidate, confirmed outcome.
     final AnswerCandidate candidate;

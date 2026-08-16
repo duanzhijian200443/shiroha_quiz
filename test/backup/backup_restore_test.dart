@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/application/backup/backup_contracts.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
@@ -373,6 +375,35 @@ void main() {
     await expectLiveMutated();
   });
 
+  test('composition reload runs before COMMITTED and failure rolls back',
+      () async {
+    final package = await exportPackage();
+    final store = BackupJournalStore(keyRoot: restoreRoot);
+    final restoring = runtime();
+    await restoring.prepareRestore(package);
+
+    RestoreJournalState? stateDuringReload;
+    Future<void> beforeCommitted() async {
+      final journal = await store.read();
+      stateDuringReload = journal?.state;
+    }
+
+    await restoring.commitPreparedRestore(beforeCommitted: beforeCommitted);
+    expect(stateDuringReload, RestoreJournalState.swapping);
+
+    // A failed authoritative reload must roll back, not COMMIT.
+    await mutateLive();
+    final failingReload = runtime();
+    await failingReload.prepareRestore(package);
+    await expectLater(
+      failingReload.commitPreparedRestore(
+        beforeCommitted: () async => throw StateError('reload failed'),
+      ),
+      throwsA(isA<StateError>()),
+    );
+    await expectLiveMutated();
+  });
+
   test('post-swap managed-file corruption is detected before COMMITTED',
       () async {
     final package = await exportPackage();
@@ -455,6 +486,57 @@ void main() {
     await store.clear();
     expect(File(store.journalPath).existsSync(), isFalse);
     expect(File('${store.journalPath}.bak').existsSync(), isFalse);
+  });
+
+  test('tombstone prevents stale journal bak resurrection during clear crash',
+      () async {
+    final store = BackupJournalStore(keyRoot: restoreRoot);
+    final stale = RestoreJournal(
+      version: 1,
+      operationId: 'op-stale',
+      format: 'shiroha-backup',
+      packageVersion: 1,
+      schemaVersion: 22,
+      packageDigest: 'a' * 64,
+      state: RestoreJournalState.swapping,
+      updatedAtUtc: DateTime.utc(2026),
+      stagingKey: 'staging/op-stale',
+      rollbackDbKey: 'rollback/op-stale/db',
+      rollbackFilesKey: 'rollback/op-stale/files',
+    );
+    await store.write(stale);
+    await File(store.journalPath).rename('${store.journalPath}.bak');
+
+    // Simulate crash during terminal clear: current journal already removed,
+    // stale bak still present, and tombstone durable.
+    await BackupFilesystem.atomicWriteString(
+      '${store.journalPath}.tombstone',
+      'tombstone',
+    );
+    expect(await store.read(), isNull);
+
+    await store.clear();
+    expect(File(store.journalPath).existsSync(), isFalse);
+    expect(File('${store.journalPath}.bak').existsSync(), isFalse);
+    expect(File('${store.journalPath}.tombstone').existsSync(), isFalse);
+  });
+
+  test('startup recovery diagnostic id is the active valid OBS correlation',
+      () async {
+    late String correlationId;
+    final recovery = await TraceContext.runRoot<BackupStartupRecovery>(
+      operationKind: TraceOperationKind.backupRestore,
+      action: () {
+        correlationId = TraceContext.correlationId!;
+        return runtime().recoverStartupIfNeeded();
+      },
+    );
+    expect(recovery.diagnosticId, correlationId);
+    expect(
+      TraceContext.isValidCorrelationId(recovery.diagnosticId),
+      isTrue,
+    );
+    expect(recovery.diagnosticId, isNot('OBS-B0P0-SAFE'));
   });
 
   test('pre-commit cancel deletes staging and leaves live state unchanged',

@@ -88,7 +88,6 @@ final class ShirohaAgentRuntime {
     required String conversationId,
     required String userMessageId,
   }) {
-    _ensureMutationAllowed();
     return _startTurn(
         conversationId: conversationId, userMessageId: userMessageId);
   }
@@ -98,15 +97,10 @@ final class ShirohaAgentRuntime {
     required String userMessageId,
     required RetrievalEgressApproval approval,
   }) {
-    _ensureMutationAllowed();
     return _startTurn(
         conversationId: conversationId,
         userMessageId: userMessageId,
         approval: approval);
-  }
-
-  void _ensureMutationAllowed() {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
   }
 
   AgentTurnSession _startTurn({
@@ -117,7 +111,9 @@ final class ShirohaAgentRuntime {
     if (!_isBoundedId(conversationId) || !_isBoundedId(userMessageId)) {
       return _failedSession(AgentTurnFailure.invalidTarget);
     }
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     if (!_activeConversations.add(conversationId)) {
+      lease.release();
       return _failedSession(AgentTurnFailure.alreadyRunning);
     }
 

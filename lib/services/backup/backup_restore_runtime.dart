@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../../application/backup/backup_contracts.dart';
+import '../../core/observability/trace_context.dart';
 import '../../data/repositories/backup_snapshot_repository.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
@@ -278,7 +279,9 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
   }
 
   @override
-  Future<BackupRestoreSuccess> commitPreparedRestore() async {
+  Future<BackupRestoreSuccess> commitPreparedRestore({
+    Future<void> Function()? beforeCommitted,
+  }) async {
     final staged = _staged;
     if (staged == null) {
       throw const BackupException(BackupFailure.invalidPackage);
@@ -346,6 +349,10 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       await _database.validateOpenProduction();
       await _database.validateOpenProductionScrubInvariants();
       await _verifyLiveLibraryState(staged.manifest);
+
+      // B0 §14: authoritative in-memory invalidation/recomposition must
+      // complete BEFORE COMMITTED can be published or success reported.
+      await beforeCommitted?.call();
 
       journal = journal.copyWithState(RestoreJournalState.committed);
       await journalStore.write(journal);
@@ -787,7 +794,10 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       p.relative(path, from: _restoreRoot.path).replaceAll(r'\', '/');
 
   static String _diagnosticId() {
-    // Main/AppLogger owns the real OBS id. This fallback is a safe token.
-    return 'OBS-B0P0-SAFE';
+    final current = TraceContext.correlationId;
+    if (current != null && TraceContext.isValidCorrelationId(current)) {
+      return current;
+    }
+    return TraceContext.createCorrelationId();
   }
 }

@@ -223,6 +223,29 @@ class ImportTaskCoordinator {
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      return await _dispatchUnchecked(
+        lease,
+        sourceDescription: sourceDescription,
+        mode: mode,
+        parse: parse,
+        explanationRetentionMode: explanationRetentionMode,
+      );
+    } catch (_) {
+      lease.release();
+      rethrow;
+    }
+  }
+
+  Future<ImportTaskHandle> _dispatchUnchecked(
+    BackupRestoreMutationLease lease, {
+    required String sourceDescription,
+    required ImportParseMode mode,
+    required Future<ImportParseResult> Function(String taskId) parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+  }) async {
     await _readiness;
 
     final taskId = _taskIdFactory();
@@ -278,6 +301,7 @@ class ImportTaskCoordinator {
             handle: handle,
             sourceDescription: safeSourceDescription,
             parse: parse,
+            lease: lease,
           ),
         )));
     return handle;
@@ -287,6 +311,27 @@ class ImportTaskCoordinator {
     required List<ImportTaskBatchItem> items,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    final leases = <BackupRestoreMutationLease>[
+      for (var i = 0; i < items.length; i++)
+        BackupRestoreMutationGate.instance.acquireMutationLease(),
+    ];
+    try {
+      return await _dispatchIndependentBatchUnchecked(
+        leases,
+        items,
+      );
+    } catch (_) {
+      for (final lease in leases) {
+        lease.release();
+      }
+      rethrow;
+    }
+  }
+
+  Future<ImportTaskBatchHandle> _dispatchIndependentBatchUnchecked(
+    List<BackupRestoreMutationLease> leases,
+    List<ImportTaskBatchItem> items,
+  ) async {
     if (items.isEmpty) {
       throw ArgumentError.value(items, 'items', 'must not be empty');
     }
@@ -358,6 +403,7 @@ class ImportTaskCoordinator {
         handle: handle,
         sourceDescription: safeSourceDescription,
         parse: item.parse,
+        lease: leases[index],
       ));
     }
 
@@ -484,6 +530,29 @@ class ImportTaskCoordinator {
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      return await _retryOcrTaskUnchecked(
+        lease,
+        taskId: taskId,
+        sourceDescription: sourceDescription,
+        parse: parse,
+        explanationRetentionMode: explanationRetentionMode,
+      );
+    } catch (_) {
+      lease.release();
+      rethrow;
+    }
+  }
+
+  Future<ImportTaskHandle> _retryOcrTaskUnchecked(
+    BackupRestoreMutationLease lease, {
+    required String taskId,
+    required String sourceDescription,
+    required ImportTaskParseAction parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+  }) async {
     await _readiness;
     final matches = _taskManager.tasks.where((task) => task.id == taskId);
     if (matches.isEmpty ||
@@ -531,27 +600,32 @@ class ImportTaskCoordinator {
             handle: handle,
             sourceDescription: _safeSourceDescription(sourceDescription),
             parse: parse,
+            lease: lease,
           ),
         )));
     return handle;
   }
 
-  Future<void> _runScheduledTask(_ScheduledImportTask item) {
-    return ImportAttemptContext.run(
-      attempt: item.handle.attempt,
-      action: () => TraceContext.run(
-        taskId: item.handle.taskId,
-        traceId: item.handle.traceId,
-        correlationId: item.handle.correlationId,
-        parentTraceId: item.handle.parentTraceId,
-        operationKind: TraceOperationKind.importAttempt,
-        action: () => _runParse(
-          handle: item.handle,
-          sourceDescription: item.sourceDescription,
-          parse: item.parse,
+  Future<void> _runScheduledTask(_ScheduledImportTask item) async {
+    try {
+      return await ImportAttemptContext.run(
+        attempt: item.handle.attempt,
+        action: () => TraceContext.run(
+          taskId: item.handle.taskId,
+          traceId: item.handle.traceId,
+          correlationId: item.handle.correlationId,
+          parentTraceId: item.handle.parentTraceId,
+          operationKind: TraceOperationKind.importAttempt,
+          action: () => _runParse(
+            handle: item.handle,
+            sourceDescription: item.sourceDescription,
+            parse: item.parse,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      item.lease.release();
+    }
   }
 
   static String _uniqueValue(String candidate, Set<String> reserved) {
@@ -851,11 +925,13 @@ class _ScheduledImportTask {
     required this.handle,
     required this.sourceDescription,
     required this.parse,
+    required this.lease,
   });
 
   final ImportTaskHandle handle;
   final String sourceDescription;
   final ImportTaskParseAction parse;
+  final BackupRestoreMutationLease lease;
 }
 
 class _EmptyResultFailure {

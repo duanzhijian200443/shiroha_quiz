@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
@@ -185,6 +186,26 @@ class ReviewEngineService with WidgetsBindingObserver {
     required AiEngineRepository engineRepository,
     String? userAnswer,
     String? aiEvaluation,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _submitReviewResultUnchecked(
+        questionId,
+        grade,
+        durationMs,
+        engineRepository: engineRepository,
+        userAnswer: userAnswer,
+        aiEvaluation: aiEvaluation,
+      ),
+    );
+  }
+
+  Future<void> _submitReviewResultUnchecked(
+    String questionId,
+    int grade,
+    int durationMs, {
+    required AiEngineRepository engineRepository,
+    String? userAnswer,
+    String? aiEvaluation,
   }) async {
     _queue.add(_PendingWrite(
       questionId,
@@ -224,7 +245,9 @@ class ReviewEngineService with WidgetsBindingObserver {
   }
 
   Future<void> clearAllData() {
-    return ReviewRepository.instance.clearAllData();
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => ReviewRepository.instance.clearAllData(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBankStats() {
@@ -399,7 +422,13 @@ class ReviewEngineService with WidgetsBindingObserver {
   //  评级提交 (事务安全)
   // ================================================================
 
-  Future<void> submitReview(String questionId, int grade) async {
+  Future<void> submitReview(String questionId, int grade) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _submitReviewUnchecked(questionId, grade),
+    );
+  }
+
+  Future<void> _submitReviewUnchecked(String questionId, int grade) async {
     final states =
         await ReviewRepository.instance.fetchReviewStates([questionId]);
     if (!states.containsKey(questionId)) return;

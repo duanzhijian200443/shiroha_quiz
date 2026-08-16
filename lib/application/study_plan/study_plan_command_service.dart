@@ -142,8 +142,21 @@ final class StudyPlanCommandService {
     required String draftId,
     String? expectedActivePlanId,
     required bool replacementConfirmed,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _adoptDraftUnchecked(
+        draftId: draftId,
+        expectedActivePlanId: expectedActivePlanId,
+        replacementConfirmed: replacementConfirmed,
+      ),
+    );
+  }
+
+  Future<StudyPlanAdoptResult> _adoptDraftUnchecked({
+    required String draftId,
+    String? expectedActivePlanId,
+    required bool replacementConfirmed,
   }) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     if (!_isBoundedId(draftId)) {
       return const StudyPlanAdoptResultInvalidPlan();
     }
@@ -251,8 +264,15 @@ final class StudyPlanCommandService {
   /// Formally stops the current active study plan.
   Future<StudyPlanStopResult> stopActivePlan({
     required String expectedPlanId,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _stopActivePlanUnchecked(expectedPlanId: expectedPlanId),
+    );
+  }
+
+  Future<StudyPlanStopResult> _stopActivePlanUnchecked({
+    required String expectedPlanId,
   }) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     if (!_isBoundedId(expectedPlanId)) {
       return const StudyPlanStopResultStaleActivePlan();
     }
