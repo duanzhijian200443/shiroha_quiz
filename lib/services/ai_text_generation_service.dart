@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../application/questions/question_write_mutation_command.dart';
 import '../data/models/ai_engine_profile.dart';
 import '../data/models/question_draft.dart';
 import '../data/repositories/ai_engine_repository.dart';
@@ -15,11 +16,15 @@ class AiTextGenerationService {
     QuestionRepository? questionRepository,
   })  : _apiClient = apiClient,
         _engineRepository = engineRepository,
-        _questionRepository = questionRepository ?? QuestionRepository.instance;
+        _questionRepository = questionRepository ?? QuestionRepository.instance,
+        _questionWriteMutation = QuestionWriteMutationCommand(
+          questionRepository ?? QuestionRepository.instance,
+        );
 
   final LlmApiClient _apiClient;
   final AiEngineRepository _engineRepository;
   final QuestionRepository _questionRepository;
+  final QuestionWriteMutationCommand _questionWriteMutation;
 
   Future<String> judgeAnswer(
     String question,
@@ -136,10 +141,11 @@ class AiTextGenerationService {
     try {
       final drafts = await _callDraftList(profile, prompt);
       if (drafts.isNotEmpty) {
-        await _questionRepository.saveQuestionDraftsToBank(
+        await _questionWriteMutation.saveQuestionsToBank(
           bankName: targetBankName,
           folderName: '🎆 智能生成',
-          questions: drafts,
+          questions:
+              drafts.map((draft) => draft.toMap()).toList(growable: false),
         );
       }
       return drafts;

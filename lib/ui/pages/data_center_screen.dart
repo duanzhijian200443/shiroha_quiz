@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/models/subject_tree_index.dart';
+import '../../application/latex_migration/latex_migration_mutation_command.dart';
+import '../../application/questions/question_bank_folder_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/latex_migration_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -7,13 +9,15 @@ import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 
 class DataCenterScreen extends StatefulWidget {
-  const DataCenterScreen({Key? key}) : super(key: key);
+  const DataCenterScreen({super.key});
 
   @override
   State<DataCenterScreen> createState() => _DataCenterScreenState();
 }
 
 class _DataCenterScreenState extends State<DataCenterScreen> {
+  final QuestionBankFolderMutationCommand _folderMutation =
+      QuestionBankFolderMutationCommand(QuestionRepository.instance);
   SubjectTreeIndex? _subjectTreeIndex;
   bool _isLoading = true;
   bool _isSearching = false;
@@ -101,11 +105,12 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     );
 
     if (folderName != null && folderName.isNotEmpty) {
-      await QuestionRepository.instance.addCustomFolder(folderName);
+      await _folderMutation.addCustomFolder(folderName);
       await _loadRealData();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('已创建文件夹: $folderName')));
+      }
     }
   }
 
@@ -174,12 +179,14 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
       ),
     );
 
-    final result = await LatexMigrationService(
-      engineRepository: AiDependenciesScope.of(context).engineRepository,
-    ).runMigration(
-      onProgress: (processed, total, status) {
-        setDialogState(() => logLines.add(status));
-      },
+    final result = await const LatexMigrationMutationCommand().run(
+      () => LatexMigrationService(
+        engineRepository: AiDependenciesScope.of(context).engineRepository,
+      ).runMigration(
+        onProgress: (processed, total, status) {
+          setDialogState(() => logLines.add(status));
+        },
+      ),
     );
 
     if (mounted) {
@@ -269,11 +276,12 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     );
 
     if (newFolder != null && newFolder.isNotEmpty) {
-      await QuestionRepository.instance.updateBankFolder(bankName, newFolder);
+      await _folderMutation.updateBankFolder(bankName, newFolder);
       await _loadRealData();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('已移动至: $newFolder')));
+      }
     }
   }
 
@@ -405,7 +413,7 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
                         ),
                       ),
                     );
-                  }).toList(),
+                  }),
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(

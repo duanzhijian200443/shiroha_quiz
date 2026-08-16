@@ -8,6 +8,8 @@ final class _ScreenOperations implements BackupRestoreOperations {
   PreparedRestoreState? prepared;
   int prepareCalls = 0;
   int cancelCalls = 0;
+  int commitCalls = 0;
+  int inspectCalls = 0;
 
   @override
   PreparedRestoreState? get preparedRestore => prepared;
@@ -25,6 +27,7 @@ final class _ScreenOperations implements BackupRestoreOperations {
 
   @override
   Future<BackupRestorePreview> inspectPackage(String packagePath) async {
+    inspectCalls++;
     return _preview;
   }
 
@@ -45,6 +48,7 @@ final class _ScreenOperations implements BackupRestoreOperations {
   Future<BackupRestoreSuccess> commitPreparedRestore({
     Future<void> Function()? beforeCommitted,
   }) async {
+    commitCalls++;
     await beforeCommitted?.call();
     prepared = null;
     return const BackupRestoreSuccess(schemaVersion: 22, fileCount: 0);
@@ -96,11 +100,25 @@ void main() {
     expect(find.text('验证并准备恢复'), findsNothing);
     expect(find.text('数据版本：22'), findsOneWidget);
     expect(operations.prepareCalls, 0);
+    final picker = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '恢复备份'),
+    );
+    expect(picker.onPressed, isNull);
+    expect(operations.inspectCalls, 0);
 
     await tester.pumpWidget(_screen(coordinator, key: const ValueKey('new')));
     expect(find.text('开始恢复'), findsOneWidget);
     expect(find.text('验证并准备恢复'), findsNothing);
     expect(operations.prepareCalls, 0);
+    final recreatedPicker = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '恢复备份'),
+    );
+    expect(recreatedPicker.onPressed, isNull);
+    expect(operations.inspectCalls, 0);
+
+    await tester.tap(find.text('开始恢复'));
+    await tester.pumpAndSettle();
+    expect(operations.commitCalls, 1);
   });
 
   testWidgets('cancel clears the Application prepared projection',
@@ -116,6 +134,11 @@ void main() {
     expect(operations.preparedRestore, isNull);
     expect(find.text('开始恢复'), findsNothing);
     expect(find.text('验证并准备恢复'), findsNothing);
+
+    final picker = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '恢复备份'),
+    );
+    expect(picker.onPressed, isNotNull);
 
     await tester.pumpWidget(_screen(coordinator, key: const ValueKey('idle')));
     expect(find.text('开始恢复'), findsNothing);

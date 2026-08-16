@@ -251,7 +251,7 @@ void main() {
       expect(restored.diagnostics?['failedStage'], 'import_parse');
     });
 
-    test('TaskManager attachDiagnostics updates task successfully', () {
+    test('TaskManager attachDiagnostics updates task successfully', () async {
       final taskManager = TaskManager.instance;
       final task = ImportTask(
         id: 'test_task_4',
@@ -272,7 +272,7 @@ void main() {
       expect(updated.diagnostics!['some'], 'diagnostic');
 
       // Clean up task so it doesn't pollute database
-      taskManager.deleteTask('test_task_4');
+      await taskManager.deleteTask('test_task_4');
     });
 
     test('review draft replaces parsed data and preserves retention metadata',

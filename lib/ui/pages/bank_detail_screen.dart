@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'practice_page.dart';
 import 'question_list_screen.dart';
+import '../../application/questions/question_bank_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 
@@ -15,6 +16,8 @@ class BankDetailScreen extends StatefulWidget {
 
 class _BankDetailScreenState extends State<BankDetailScreen> {
   bool _isPomodoroActive = false;
+  final QuestionBankMutationCommand _questionBankMutation =
+      QuestionBankMutationCommand(QuestionRepository.instance);
 
   void _startPractice(BuildContext context, int? filterType) {
     Navigator.push(
@@ -33,11 +36,13 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
       String subtitle, int? type) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final textLevel1 = isDark ? Colors.white.withOpacity(0.87) : Colors.black87;
-    final textLevel2 = isDark ? Colors.white.withOpacity(0.60) : Colors.black54;
+    final textLevel1 =
+        isDark ? Colors.white.withValues(alpha: 0.87) : Colors.black87;
+    final textLevel2 =
+        isDark ? Colors.white.withValues(alpha: 0.60) : Colors.black54;
     final iconLevel3 = isDark ? Colors.white38 : Colors.black38;
     final cardBorder =
-        isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200;
+        isDark ? Colors.white.withValues(alpha: 0.1) : Colors.grey.shade200;
 
     return Card(
       elevation: 0,
@@ -65,8 +70,10 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final textLevel1 = isDark ? Colors.white.withOpacity(0.87) : Colors.black87;
-    final textLevel2 = isDark ? Colors.white.withOpacity(0.60) : Colors.black54;
+    final textLevel1 =
+        isDark ? Colors.white.withValues(alpha: 0.87) : Colors.black87;
+    final textLevel2 =
+        isDark ? Colors.white.withValues(alpha: 0.60) : Colors.black54;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -95,19 +102,20 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                     TextButton(
                       onPressed: () async {
                         Navigator.pop(ctx);
-                        await QuestionRepository.instance
+                        await _questionBankMutation
                             .deleteQuestionBank(widget.bankName);
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('题库已删除')));
-                          final currentBank = await SettingsRepository.instance
-                              .getCurrentBank();
-                          if (currentBank == widget.bankName) {
-                            await SettingsRepository.instance
-                                .setCurrentBank('点击修改选择题库');
-                          }
-                          if (mounted) Navigator.pop(context);
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('题库已删除')));
+                        final currentBank =
+                            await SettingsRepository.instance.getCurrentBank();
+                        if (!context.mounted) return;
+                        if (currentBank == widget.bankName) {
+                          await SettingsRepository.instance
+                              .setCurrentBank('点击修改选择题库');
+                          if (!context.mounted) return;
                         }
+                        Navigator.pop(context);
                       },
                       child: const Text('彻底删除',
                           style: TextStyle(
@@ -133,10 +141,11 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
           Card(
             elevation: 0,
             margin: const EdgeInsets.only(bottom: 24.0),
-            color: theme.primaryColor.withOpacity(0.05),
+            color: theme.primaryColor.withValues(alpha: 0.05),
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: theme.primaryColor.withOpacity(0.2))),
+                side: BorderSide(
+                    color: theme.primaryColor.withValues(alpha: 0.2))),
             child: ListTile(
               leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -173,7 +182,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
             subtitle:
                 Text('沉浸式专注，结束自动结算数据', style: TextStyle(color: textLevel2)),
             value: _isPomodoroActive,
-            activeColor: Colors.deepOrange,
+            activeThumbColor: Colors.deepOrange,
             contentPadding: EdgeInsets.zero,
             onChanged: (bool value) {
               setState(() {

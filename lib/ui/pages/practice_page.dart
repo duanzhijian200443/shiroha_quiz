@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../application/practice/practice_session_mutation_command.dart';
 import '../../application/questions/question_mutation_command.dart';
+import '../../application/questions/question_write_mutation_command.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
@@ -50,6 +52,10 @@ class PracticePage extends StatefulWidget {
 class _PracticePageState extends State<PracticePage> {
   final QuestionMutationCommand _questionMutation =
       QuestionMutationCommand(QuestionRepository.instance);
+  final PracticeSessionMutationCommand _practiceSessionMutation =
+      PracticeSessionMutationCommand(QuestionRepository.instance);
+  final QuestionWriteMutationCommand _questionWriteMutation =
+      QuestionWriteMutationCommand(QuestionRepository.instance);
   Timer? _pomodoroTimer;
   int _pomodoroSeconds = 1500; // 25分钟
   int _pomodoroStartTime = 0;
@@ -194,7 +200,7 @@ class _PracticePageState extends State<PracticePage> {
     final actualDuration = 1500 - _pomodoroSeconds;
 
     // 1. 强制数值安全落盘
-    await QuestionRepository.instance.insertPomodoroSession({
+    await _practiceSessionMutation.insertPomodoroSession({
       'id': DateTime.now().millisecondsSinceEpoch.toString(),
       'bank_name': widget.bankName ?? '默认题库',
       'start_time': _pomodoroStartTime,
@@ -882,7 +888,7 @@ class _PracticePageState extends State<PracticePage> {
     }
 
     try {
-      await QuestionRepository.instance.savePreviewQuestion(
+      await _questionWriteMutation.savePreviewQuestion(
         previewQuestion.toMap(),
       );
 

@@ -187,7 +187,7 @@ void main() {
         // B0-I0 in-memory invalidation: clear process-lifetime transient
         // state before constructing a fresh composition over the restored DB.
         SettingsRepository.instance.clearCache();
-        TaskManager.instance.resetTransientStateForRestore();
+        await TaskManager.instance.resetTransientStateForRestore();
         ReviewEngineService().resetTransientStateForRestore();
         ApprovedAgentWriteRepository.instance.clearTransientState();
       }

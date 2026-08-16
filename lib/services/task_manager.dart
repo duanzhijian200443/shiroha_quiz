@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
@@ -375,13 +376,16 @@ class TaskManager extends ChangeNotifier {
 
   final List<ImportTask> tasks = [];
 
-  /// B0-I0 in-memory invalidation. Clears pre-restore transient Import task
-  /// projections, write tails, and typed commit leases without writing to
-  /// SQLite. The restored durable `import_tasks` table is already empty.
-  void resetTransientStateForRestore() {
+  /// B0-I0 in-memory invalidation. Waits for the serialized review-draft
+  /// queue before clearing pre-restore transient Import task projections and
+  /// typed commit state. The restored durable `import_tasks` table is already
+  /// empty.
+  Future<void> resetTransientStateForRestore() async {
+    await _reviewDraftWriteTail;
     tasks.clear();
     _attemptWriteTails.clear();
     _typedCommitLeases.clear();
+    _reviewDraftWriteTail = Future<void>.value();
     ready = Future<void>.value();
     notifyListeners();
   }
@@ -439,12 +443,22 @@ class TaskManager extends ChangeNotifier {
     }..remove(keyAttemptToken);
   }
 
-  Future<void> _saveTask(ImportTask task) async {
-    if (!_persistTasks) return;
+  Future<void> _saveTask(ImportTask task) {
+    if (!_persistTasks) return Future<void>.value();
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    return _saveTaskWithLease(task, lease);
+  }
+
+  Future<void> _saveTaskWithLease(
+    ImportTask task,
+    BackupRestoreMutationLease lease,
+  ) async {
     try {
       await _persistTask(task);
     } catch (_) {
       _logTaskPersistenceFailure();
+    } finally {
+      lease.release();
     }
   }
 
@@ -1162,14 +1176,28 @@ class TaskManager extends ChangeNotifier {
   Future<ReviewDraftSaveResult> _enqueueReviewDraftWrite(
     Future<ReviewDraftSaveResult> Function() action,
   ) {
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     final completer = Completer<ReviewDraftSaveResult>();
-    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) async {
+    final previous = _reviewDraftWriteTail.then<void>(
+      (_) {},
+      onError: (_, __) {},
+    );
+    late final Future<void> operation;
+    operation = previous.then<void>((_) async {
       try {
         completer.complete(await action());
       } catch (error, stackTrace) {
         completer.completeError(error, stackTrace);
+      } finally {
+        lease.release();
       }
     });
+    _reviewDraftWriteTail = operation;
+    unawaited(operation.whenComplete(() {
+      if (identical(_reviewDraftWriteTail, operation)) {
+        _reviewDraftWriteTail = Future<void>.value();
+      }
+    }));
     return completer.future;
   }
 
@@ -1452,26 +1480,47 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  void deleteTask(String id) {
+  Future<void> deleteTask(String id) async {
     final idx = tasks.indexWhere((t) => t.id == id);
-    if (idx != -1) {
+    if (idx == -1) return;
+    if (!_persistTasks) {
       tasks.removeAt(idx);
-      if (_persistTasks) {
-        ImportTaskRepository.instance.deleteImportTask(id).catchError((e) {
-          debugPrint('Background task deletion failed: $e');
-        });
-      }
       notifyListeners();
+      return;
+    }
+
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      tasks.removeAt(idx);
+      notifyListeners();
+      try {
+        await ImportTaskRepository.instance.deleteImportTask(id);
+      } catch (_) {
+        _logTaskPersistenceFailure();
+      }
+    } finally {
+      lease.release();
     }
   }
 
-  void clearCompletedTasks() {
-    tasks.removeWhere((t) => t.status.isFinalState);
-    if (_persistTasks) {
-      ImportTaskRepository.instance.clearCompletedImportTasks().catchError((e) {
-        debugPrint('Clear completed tasks failed: $e');
-      });
+  Future<void> clearCompletedTasks() async {
+    if (!_persistTasks) {
+      tasks.removeWhere((t) => t.status.isFinalState);
+      notifyListeners();
+      return;
     }
-    notifyListeners();
+
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      tasks.removeWhere((t) => t.status.isFinalState);
+      notifyListeners();
+      try {
+        await ImportTaskRepository.instance.clearCompletedImportTasks();
+      } catch (_) {
+        _logTaskPersistenceFailure();
+      }
+    } finally {
+      lease.release();
+    }
   }
 }

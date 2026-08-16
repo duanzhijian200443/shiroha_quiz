@@ -76,13 +76,14 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
   }
 
   Future<void> _pickRestore() async {
+    if (_prepared) return;
     final picked = await FilePicker.platform.pickFiles(
       dialogTitle: '选择 .shiroha 备份文件',
       type: FileType.custom,
       allowedExtensions: const <String>['shiroha'],
     );
     final path = picked?.files.single.path;
-    if (path == null || !mounted) return;
+    if (path == null || !mounted || _prepared) return;
     setState(() {
       _state = _BackupUiState.validatingRestore;
       _message = null;
@@ -103,7 +104,8 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
 
   Future<void> _confirmRestore() async {
     final preview = _preview;
-    if (preview == null || _packagePath == null) return;
+    final packagePath = _packagePath;
+    if (_prepared || preview == null || packagePath == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -128,17 +130,18 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || _prepared) return;
 
     setState(() {
       _state = _BackupUiState.validatingRestore;
       _message = null;
     });
     try {
-      await widget.backupRestore.prepareRestore(_packagePath!);
+      await widget.backupRestore.prepareRestore(packagePath);
       if (!mounted) return;
       setState(() {
-        _preview = widget.backupRestore.preparedRestore?.preview ?? _preview;
+        _preview = widget.backupRestore.preparedRestore?.preview;
+        _packagePath = null;
         _state = _BackupUiState.readyToConfirm;
       });
     } catch (error) {
@@ -148,6 +151,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
   }
 
   Future<void> _commitRestore() async {
+    if (widget.backupRestore.preparedRestore == null) return;
     setState(() {
       _state = _BackupUiState.restoring;
       _message = null;
@@ -237,7 +241,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              onPressed: busy ? null : _pickRestore,
+              onPressed: busy || _prepared ? null : _pickRestore,
               icon: const Icon(Icons.settings_backup_restore),
               label: const Text('恢复备份'),
             ),

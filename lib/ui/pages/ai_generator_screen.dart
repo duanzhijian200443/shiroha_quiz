@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../application/questions/question_write_mutation_command.dart';
 import '../../data/models/question_draft.dart';
 import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/question_repository.dart';
@@ -21,6 +22,8 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   final TextEditingController _topicController = TextEditingController();
   final TextEditingController _bankNameController = TextEditingController();
   final QuestionRepository _questionRepository = QuestionRepository.instance;
+  final QuestionWriteMutationCommand _questionWriteMutation =
+      QuestionWriteMutationCommand(QuestionRepository.instance);
 
   // ── 状态 ──────────────────────────────────────────────────────────────────
   late final _AiFeedbackController _feedbackCtrl;
@@ -133,10 +136,10 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     }
 
     try {
-      await _questionRepository.saveQuestionDraftsToBank(
+      await _questionWriteMutation.saveQuestionsToBank(
         bankName: bankName,
         folderName: null,
-        questions: toSave,
+        questions: toSave.map((draft) => draft.toMap()).toList(growable: false),
       );
 
       if (!mounted) return;
