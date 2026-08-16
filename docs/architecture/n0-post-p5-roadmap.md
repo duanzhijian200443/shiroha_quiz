@@ -80,7 +80,9 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   OCR-UX Explicit OCR Activation v0 — COMPLETE / CLOSED
   CONV-MOVE Conversation Relocation v0 — COMPLETE / CLOSED
   U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
+  OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
   Current runtime schema — v22
+  B0 .shiroha Backup / Restore — next canonical candidate
 ```
 
 `B0 = DEFERRED, not cancelled`. C0 accepts the bounded risk of persisting User
