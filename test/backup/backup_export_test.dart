@@ -19,6 +19,19 @@ final class _InfiniteDisk implements BackupDiskSpaceProbe {
   Future<int?> availableBytes(String path) async => 1 << 40;
 }
 
+final class _PublishFailureFaults extends BackupFaultInjector {
+  _PublishFailureFaults(this.expectedTempPath);
+
+  final String expectedTempPath;
+  bool observedVerifiedSibling = false;
+
+  @override
+  Future<void> beforeExportPublish() async {
+    observedVerifiedSibling = File(expectedTempPath).existsSync();
+    throw StateError('synthetic publish failure');
+  }
+}
+
 void main() {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
@@ -30,18 +43,13 @@ void main() {
   late ManagedFileStorageAdapter storage;
   late BackupRestoreRuntime runtime;
 
-  setUp(() async {
-    temp = await Directory.systemTemp.createTemp('b0_export_');
-    dbDir = Directory(p.join(temp.path, 'db'))..createSync(recursive: true);
-    managedRoot = Directory(p.join(temp.path, 'managed'))
-      ..createSync(recursive: true);
-    restoreRoot = Directory(p.join(temp.path, 'restore'))
-      ..createSync(recursive: true);
-    await databaseFactory.setDatabasesPath(dbDir.path);
-    storage = ManagedFileStorageAdapter(managedRoot: managedRoot);
+  BackupRestoreRuntime buildRuntime({
+    BackupFaultInjector faultInjector = const BackupFaultInjector(),
+    String Function()? operationIdFactory,
+  }) {
     final helper = DatabaseHelper.instance;
     final snapshots = BackupSnapshotRepository(databaseHelper: helper);
-    runtime = BackupRestoreRuntime(
+    return BackupRestoreRuntime(
       databaseAuthority: SqliteBackupDatabaseAuthority(
         databaseHelper: helper,
         snapshotRepository: snapshots,
@@ -51,7 +59,21 @@ void main() {
       restoreRoot: restoreRoot,
       managedFilesRoot: managedRoot,
       diskSpaceProbe: const _InfiniteDisk(),
+      faultInjector: faultInjector,
+      operationIdFactory: operationIdFactory,
     );
+  }
+
+  setUp(() async {
+    temp = await Directory.systemTemp.createTemp('b0_export_');
+    dbDir = Directory(p.join(temp.path, 'db'))..createSync(recursive: true);
+    managedRoot = Directory(p.join(temp.path, 'managed'))
+      ..createSync(recursive: true);
+    restoreRoot = Directory(p.join(temp.path, 'restore'))
+      ..createSync(recursive: true);
+    await databaseFactory.setDatabasesPath(dbDir.path);
+    storage = ManagedFileStorageAdapter(managedRoot: managedRoot);
+    runtime = buildRuntime();
   });
 
   tearDown(() async {
@@ -213,6 +235,43 @@ void main() {
     final live = await DatabaseHelper.instance.database;
     final liveEngine = (await live.query('ai_engines')).single;
     expect(liveEngine['api_key'], apiKeySentinel);
+  });
+
+  test('existing destination survives a verified sibling publish failure',
+      () async {
+    await populate(apiKeySentinel: 'SECRET_API_KEY_SENTINEL');
+    final source = File(p.join(temp.path, 'source.txt'));
+    await source.writeAsBytes('abc123'.codeUnits, flush: true);
+    await storage.copyIntoManagedStorage(
+      externalPath: source.path,
+      storageKey: 'library/file-1',
+    );
+
+    final destination = p.join(temp.path, 'out', 'backup.shiroha');
+    await File(destination).parent.create(recursive: true);
+    await File(destination).writeAsString('OLD_SENTINEL', flush: true);
+    final expectedTemp = p.join(
+      p.dirname(destination),
+      'backup.shiroha.publish-test.tmp',
+    );
+    final faults = _PublishFailureFaults(expectedTemp);
+    final publishing = buildRuntime(
+      faultInjector: faults,
+      operationIdFactory: () => 'publish-test',
+    );
+
+    await expectLater(
+      publishing.exportTo(destination),
+      throwsA(isA<StateError>()),
+    );
+    expect(await File(destination).readAsString(), 'OLD_SENTINEL');
+    expect(faults.observedVerifiedSibling, isTrue);
+    expect(p.dirname(expectedTemp), p.dirname(destination));
+    expect(File(expectedTemp).existsSync(), isFalse);
+    expect(
+      File('$destination.publish-test.bak').existsSync(),
+      isFalse,
+    );
   });
 
   test('missing managed original fails export with no final package', () async {

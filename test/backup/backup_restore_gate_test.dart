@@ -19,6 +19,9 @@ final class _FakeOperations implements BackupRestoreOperations {
   int commitCalls = 0;
 
   @override
+  PreparedRestoreState? get preparedRestore => null;
+
+  @override
   Future<BackupExportSummary> exportTo(String destinationPath) async {
     return const BackupExportSummary(
       fileName: 'backup.shiroha',

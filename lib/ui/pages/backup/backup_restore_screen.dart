@@ -35,7 +35,18 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
   String? _message;
   BackupRestorePreview? _preview;
   String? _packagePath;
-  bool _prepared = false;
+
+  bool get _prepared => widget.backupRestore.preparedRestore != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final prepared = widget.backupRestore.preparedRestore;
+    if (prepared != null) {
+      _preview = prepared.preview;
+      _state = _BackupUiState.readyToConfirm;
+    }
+  }
 
   bool get _commitStarted => _state == _BackupUiState.restoring;
 
@@ -82,7 +93,6 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
       setState(() {
         _packagePath = path;
         _preview = preview;
-        _prepared = false;
         _state = _BackupUiState.readyToConfirm;
       });
     } catch (error) {
@@ -128,7 +138,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
       await widget.backupRestore.prepareRestore(_packagePath!);
       if (!mounted) return;
       setState(() {
-        _prepared = true;
+        _preview = widget.backupRestore.preparedRestore?.preview ?? _preview;
         _state = _BackupUiState.readyToConfirm;
       });
     } catch (error) {
@@ -164,7 +174,6 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
         _state = _BackupUiState.idle;
         _preview = null;
         _packagePath = null;
-        _prepared = false;
         _message = '已取消恢复，当前数据未改变';
       });
     } catch (error) {

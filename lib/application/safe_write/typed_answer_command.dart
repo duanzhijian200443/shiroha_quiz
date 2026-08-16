@@ -1,4 +1,5 @@
 import '../../domain/question/question_draft_v2.dart';
+import '../backup/backup_restore_gate.dart';
 
 /// Application seam for typed manual answer mutations (replace / clear /
 /// valid no-op) shared by Presentation and future W0 proposal flows.
@@ -35,10 +36,12 @@ final class TypedAnswerCommand {
     required QuestionDraftV2 expectedDraft,
     required QuestionAnswer? newAnswer,
   }) {
-    return _port.updateTypedAnswer(
-      storageId: storageId,
-      expectedDraft: expectedDraft,
-      newAnswer: newAnswer,
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _port.updateTypedAnswer(
+        storageId: storageId,
+        expectedDraft: expectedDraft,
+        newAnswer: newAnswer,
+      ),
     );
   }
 }

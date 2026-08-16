@@ -38,6 +38,35 @@ final class BackupRestorePreview {
   final int totalSizeBytes;
 }
 
+/// Application-owned projection of a successfully prepared restore.
+///
+/// It intentionally contains only safe preview metadata. The runtime keeps
+/// the package path internally so a recreated screen can resume the prepared
+/// operation without exposing an absolute path to Presentation.
+final class PreparedRestoreState {
+  const PreparedRestoreState({
+    required this.packageVersion,
+    required this.schemaVersion,
+    required this.createdAtUtc,
+    required this.fileCount,
+    required this.totalSizeBytes,
+  });
+
+  final int packageVersion;
+  final int schemaVersion;
+  final DateTime createdAtUtc;
+  final int fileCount;
+  final int totalSizeBytes;
+
+  BackupRestorePreview get preview => BackupRestorePreview(
+        packageVersion: packageVersion,
+        schemaVersion: schemaVersion,
+        createdAtUtc: createdAtUtc,
+        fileCount: fileCount,
+        totalSizeBytes: totalSizeBytes,
+      );
+}
+
 final class BackupRestoreSuccess {
   const BackupRestoreSuccess({
     required this.schemaVersion,
@@ -125,6 +154,8 @@ abstract interface class BackupDatabaseAuthority {
 /// Application coordinator owns tracing, concurrency, cancellation semantics
 /// and failure mapping around this seam.
 abstract interface class BackupRestoreOperations {
+  PreparedRestoreState? get preparedRestore;
+
   Future<BackupExportSummary> exportTo(String destinationPath);
   Future<BackupRestorePreview> inspectPackage(String packagePath);
   Future<BackupRestorePreview> prepareRestore(String packagePath);

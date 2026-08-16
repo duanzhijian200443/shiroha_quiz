@@ -29,6 +29,7 @@ import 'application/study_plan/study_plan_draft_service.dart';
 import 'application/study_plan/study_plan_pool_order.dart';
 import 'application/study_plan/study_plan_selection_service.dart';
 import 'core/database/database_helper.dart';
+import 'core/review_engine_service.dart';
 import 'core/observability/app_logger.dart';
 import 'application/projects/project_service.dart';
 import 'application/study_query/study_query_service.dart';
@@ -187,6 +188,7 @@ void main() {
         // state before constructing a fresh composition over the restored DB.
         SettingsRepository.instance.clearCache();
         TaskManager.instance.resetTransientStateForRestore();
+        ReviewEngineService().resetTransientStateForRestore();
         ApprovedAgentWriteRepository.instance.clearTransientState();
       }
       isFirstComposition = false;

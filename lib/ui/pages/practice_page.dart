@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../application/questions/question_mutation_command.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
@@ -47,6 +48,8 @@ class PracticePage extends StatefulWidget {
 }
 
 class _PracticePageState extends State<PracticePage> {
+  final QuestionMutationCommand _questionMutation =
+      QuestionMutationCommand(QuestionRepository.instance);
   Timer? _pomodoroTimer;
   int _pomodoroSeconds = 1500; // 25分钟
   int _pomodoroStartTime = 0;
@@ -1029,7 +1032,7 @@ class _PracticePageState extends State<PracticePage> {
     if (confirm != true) return;
 
     try {
-      await QuestionRepository.instance.deleteQuestion(qId);
+      await _questionMutation.deleteQuestion(qId);
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(

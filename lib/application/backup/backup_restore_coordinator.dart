@@ -20,6 +20,8 @@ final class BackupRestoreCoordinator {
 
   bool get isBusy => _busy;
 
+  PreparedRestoreState? get preparedRestore => _operations.preparedRestore;
+
   Future<T> _runExclusive<T>({
     required TraceOperationKind operationKind,
     required Future<T> Function() action,

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,16 @@ final class _InfiniteDisk implements BackupDiskSpaceProbe {
   Future<int?> availableBytes(String path) async => 1 << 40;
 }
 
+final class _CommitFreeSpaceFailure implements BackupDiskSpaceProbe {
+  int calls = 0;
+
+  @override
+  Future<int?> availableBytes(String path) async {
+    calls++;
+    return calls == 1 ? 1 << 40 : 0;
+  }
+}
+
 final class _Faults extends BackupFaultInjector {
   _Faults({
     this.onPrepared,
@@ -30,6 +41,9 @@ final class _Faults extends BackupFaultInjector {
     this.onFilesReplaced,
     this.onBeforeRollbackDb,
     this.onBeforeRollbackFiles,
+    this.onBeforeRollbackSnapshot,
+    this.onBeforeRollbackManagedFileCopy,
+    this.onBeforePreparedJournalWrite,
     this.onPermanentRollbackFailure,
     this.onBeforeCleanup,
     this.onBeforePostSwapValidation,
@@ -40,6 +54,9 @@ final class _Faults extends BackupFaultInjector {
   Future<void> Function()? onFilesReplaced;
   Future<void> Function()? onBeforeRollbackDb;
   Future<void> Function()? onBeforeRollbackFiles;
+  Future<void> Function()? onBeforeRollbackSnapshot;
+  Future<void> Function()? onBeforeRollbackManagedFileCopy;
+  Future<void> Function()? onBeforePreparedJournalWrite;
   Future<void> Function()? onPermanentRollbackFailure;
   Future<void> Function()? onBeforeCleanup;
   Future<void> Function()? onBeforePostSwapValidation;
@@ -57,6 +74,15 @@ final class _Faults extends BackupFaultInjector {
   @override
   Future<void> beforeRollbackFilesRestore() =>
       onBeforeRollbackFiles?.call() ?? Future.value();
+  @override
+  Future<void> beforeRollbackSnapshot() =>
+      onBeforeRollbackSnapshot?.call() ?? Future.value();
+  @override
+  Future<void> beforeRollbackManagedFileCopy() =>
+      onBeforeRollbackManagedFileCopy?.call() ?? Future.value();
+  @override
+  Future<void> beforePreparedJournalWrite() =>
+      onBeforePreparedJournalWrite?.call() ?? Future.value();
   @override
   Future<void> failRollbackPermanently() =>
       onPermanentRollbackFailure?.call() ?? Future.value();
@@ -81,8 +107,10 @@ void main() {
   late BackupSnapshotRepository snapshots;
   late String sourceHash;
 
-  BackupRestoreRuntime runtime(
-      {BackupFaultInjector faults = const BackupFaultInjector()}) {
+  BackupRestoreRuntime runtime({
+    BackupFaultInjector faults = const BackupFaultInjector(),
+    BackupDiskSpaceProbe diskSpaceProbe = const _InfiniteDisk(),
+  }) {
     return BackupRestoreRuntime(
       databaseAuthority: SqliteBackupDatabaseAuthority(
         databaseHelper: helper,
@@ -92,7 +120,7 @@ void main() {
       managedFileStorage: storage,
       restoreRoot: restoreRoot,
       managedFilesRoot: managedRoot,
-      diskSpaceProbe: const _InfiniteDisk(),
+      diskSpaceProbe: diskSpaceProbe,
       faultInjector: faults,
     );
   }
@@ -263,6 +291,120 @@ void main() {
     final journalFile =
         File(p.join(restoreRoot.path, 'journal', 'journal.json'));
     expect(journalFile.existsSync(), isFalse);
+  });
+
+  test('pre-PREPARED free-space failure keeps live state and avoids rollback',
+      () async {
+    final package = await exportPackage();
+    final disk = _CommitFreeSpaceFailure();
+    final restoring = runtime(diskSpaceProbe: disk);
+    await restoring.prepareRestore(package);
+
+    await expectLater(
+      restoring.commitPreparedRestore(),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.resourceLimitExceeded,
+      )),
+    );
+    expect(disk.calls, 2);
+    expect(restoring.preparedRestore, isNotNull);
+    await expectLiveRestored();
+    expect(
+      File(p.join(restoreRoot.path, 'journal', 'journal.json')).existsSync(),
+      isFalse,
+    );
+    expect(
+      Directory(p.join(restoreRoot.path, 'rollback')).existsSync()
+          ? Directory(p.join(restoreRoot.path, 'rollback')).listSync()
+          : const <FileSystemEntity>[],
+      isEmpty,
+    );
+    await restoring.cancelPreparedRestore();
+  });
+
+  test('pre-PREPARED snapshot failure is not reported as rollbackFailed',
+      () async {
+    final package = await exportPackage();
+    final restoring = runtime(
+      faults: _Faults(
+        onBeforeRollbackSnapshot: () async =>
+            throw const BackupException(BackupFailure.databaseInvalid),
+      ),
+    );
+    await restoring.prepareRestore(package);
+
+    await expectLater(
+      restoring.commitPreparedRestore(),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.databaseInvalid,
+      )),
+    );
+    expect(restoring.preparedRestore, isNotNull);
+    await expectLiveRestored();
+    expect(
+      File(p.join(restoreRoot.path, 'journal', 'journal.json')).existsSync(),
+      isFalse,
+    );
+    await restoring.cancelPreparedRestore();
+  });
+
+  test('pre-PREPARED managed-file snapshot failure cleans partial rollback',
+      () async {
+    final package = await exportPackage();
+    final restoring = runtime(
+      faults: _Faults(
+        onBeforeRollbackManagedFileCopy: () async =>
+            throw const BackupException(BackupFailure.integrityMismatch),
+      ),
+    );
+    await restoring.prepareRestore(package);
+
+    await expectLater(
+      restoring.commitPreparedRestore(),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.integrityMismatch,
+      )),
+    );
+    expect(restoring.preparedRestore, isNotNull);
+    await expectLiveRestored();
+    expect(
+      File(p.join(restoreRoot.path, 'journal', 'journal.json')).existsSync(),
+      isFalse,
+    );
+    await restoring.cancelPreparedRestore();
+  });
+
+  test('PRE-JOURNAL failure does not enter rollbackFailed', () async {
+    final package = await exportPackage();
+    final restoring = runtime(
+      faults: _Faults(
+        onBeforePreparedJournalWrite: () async =>
+            throw const BackupException(BackupFailure.databaseInvalid),
+      ),
+    );
+    await restoring.prepareRestore(package);
+
+    await expectLater(
+      restoring.commitPreparedRestore(),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.databaseInvalid,
+      )),
+    );
+    expect(restoring.preparedRestore, isNotNull);
+    await expectLiveRestored();
+    expect(
+      File(p.join(restoreRoot.path, 'journal', 'journal.json')).existsSync(),
+      isFalse,
+    );
+    await restoring.cancelPreparedRestore();
   });
 
   test(
@@ -488,7 +630,7 @@ void main() {
     expect(File('${store.journalPath}.bak').existsSync(), isFalse);
   });
 
-  test('tombstone prevents stale journal bak resurrection during clear crash',
+  test('clear marker is consumed once and future swapping journal recovers',
       () async {
     final store = BackupJournalStore(keyRoot: restoreRoot);
     final stale = RestoreJournal(
@@ -507,18 +649,44 @@ void main() {
     await store.write(stale);
     await File(store.journalPath).rename('${store.journalPath}.bak');
 
-    // Simulate crash during terminal clear: current journal already removed,
-    // stale bak still present, and tombstone durable.
+    // Generation A: simulate the crash window after the clear marker became
+    // durable while the stale .bak generation remained.
+    final staleDigest = BackupFilesystem.sha256File(
+      '${store.journalPath}.bak',
+    );
     await BackupFilesystem.atomicWriteString(
       '${store.journalPath}.tombstone',
-      'tombstone',
+      jsonEncode(<String, Object?>{
+        'version': 1,
+        'journalSha256': null,
+        'backupSha256': staleDigest,
+      }),
     );
     expect(await store.read(), isNull);
-
-    await store.clear();
     expect(File(store.journalPath).existsSync(), isFalse);
     expect(File('${store.journalPath}.bak').existsSync(), isFalse);
     expect(File('${store.journalPath}.tombstone').existsSync(), isFalse);
+
+    // Generation B: a later restore must not be hidden by the consumed
+    // marker. Use the real runtime crash seam so startup must recover the new
+    // SWAPPING journal rather than merely returning it from read().
+    final package = await exportPackage();
+    await mutateLive();
+    final crashing = runtime(
+      faults: _Faults(
+        onDbReplaced: () async => throw const BackupCrashSimulation(),
+      ),
+    );
+    await crashing.prepareRestore(package);
+    await expectLater(
+      crashing.commitPreparedRestore(),
+      throwsA(isA<BackupCrashSimulation>()),
+    );
+
+    final recovery = await runtime().recoverStartupIfNeeded();
+    expect(recovery.blocked, isFalse);
+    expect(recovery.recoveredJournalState, RestoreJournalState.rolledBack);
+    await expectLiveMutated();
   });
 
   test('startup recovery diagnostic id is the active valid OBS correlation',

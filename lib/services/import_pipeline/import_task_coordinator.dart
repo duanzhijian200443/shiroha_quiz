@@ -447,23 +447,24 @@ class ImportTaskCoordinator {
   }
 
   Future<ImportAttemptWriteStatus> cancelOcrTask(String taskId) async {
-    BackupRestoreMutationGate.instance.ensureMutationAllowed();
-    await _readiness;
-    final matches = _taskManager.tasks.where((task) => task.id == taskId);
-    if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
-    final task = matches.first;
-    if (task.parseMode != ImportParseMode.ocr.name) {
-      return ImportAttemptWriteStatus.invalidState;
-    }
-    final attempt = task.attemptRef;
-    if (attempt == null) return ImportAttemptWriteStatus.invalidState;
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      await _readiness;
+      final matches = _taskManager.tasks.where((task) => task.id == taskId);
+      if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
+      final task = matches.first;
+      if (task.parseMode != ImportParseMode.ocr.name) {
+        return ImportAttemptWriteStatus.invalidState;
+      }
+      final attempt = task.attemptRef;
+      if (attempt == null) return ImportAttemptWriteStatus.invalidState;
 
-    final persistence = _taskManager.requestAttemptCancellation(attempt);
-    _requestScheduler.cancel(
-      taskId: attempt.taskId,
-      attemptToken: attempt.attemptToken,
-    );
-    return persistence;
+      final persistence = _taskManager.requestAttemptCancellation(attempt);
+      _requestScheduler.cancel(
+        taskId: attempt.taskId,
+        attemptToken: attempt.attemptToken,
+      );
+      return persistence;
+    });
   }
 
   Future<ImportTaskHandle> retryOcrRequest({

@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/safe_write/typed_answer_command.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
+import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 
@@ -38,6 +41,9 @@ class _RecordingPort implements TypedAnswerPersistencePort {
 }
 
 void main() {
+  setUp(BackupRestoreMutationGate.resetForTesting);
+  tearDown(BackupRestoreMutationGate.resetForTesting);
+
   test('forwards the exact storage id, expected draft, and new answer',
       () async {
     final port = _RecordingPort();
@@ -83,6 +89,29 @@ void main() {
       ),
       throwsA(isA<StateError>()),
     );
+    expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
+  });
+
+  test('maintenance blocks typed persistence before the port is called',
+      () async {
+    final port = _RecordingPort();
+    final command = TypedAnswerCommand(port);
+    await BackupRestoreMutationGate.instance.enterQuiescence();
+
+    await expectLater(
+      command.updateTypedAnswer(
+        storageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+        expectedDraft: _draft(),
+        newAnswer: null,
+      ),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.restoreBlocked,
+      )),
+    );
+    expect(port.calls, isEmpty);
+    BackupRestoreMutationGate.instance.exitQuiescence();
   });
 
   group('application failure contract', () {

@@ -28,6 +28,10 @@ final class BackupCrashSimulation implements Exception {
 class BackupFaultInjector {
   const BackupFaultInjector();
 
+  Future<void> beforeExportPublish() async {}
+  Future<void> beforeRollbackSnapshot() async {}
+  Future<void> beforeRollbackManagedFileCopy() async {}
+  Future<void> beforePreparedJournalWrite() async {}
   Future<void> afterJournalPrepared() async {}
   Future<void> afterJournalSwapping() async {}
   Future<void> afterLiveDbReplaced() async {}
@@ -40,6 +44,8 @@ class BackupFaultInjector {
   Future<void> beforeRollbackFilesRestore() async {}
   Future<void> failRollbackPermanently() async {}
 }
+
+enum _RestoreCommitPhase { preJournal, prepared, swapping }
 
 final class BackupRestoreRuntime implements BackupRestoreOperations {
   BackupRestoreRuntime({
@@ -80,10 +86,33 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
   }
 
   @override
+  PreparedRestoreState? get preparedRestore {
+    final staged = _staged;
+    if (staged == null) return null;
+    final manifest = staged.manifest;
+    return PreparedRestoreState(
+      packageVersion: manifest.packageVersion,
+      schemaVersion: manifest.schemaVersion,
+      createdAtUtc: manifest.createdAtUtc,
+      fileCount: manifest.managedFileCount,
+      totalSizeBytes: manifest.totalDeclaredBytes,
+    );
+  }
+
+  @override
   Future<BackupExportSummary> exportTo(String destinationPath) async {
+    final destination = File(p.normalize(p.absolute(destinationPath)));
+    await destination.parent.create(recursive: true);
+    final operationId = _operationIdFactory();
     final workspace = await Directory(
-      p.join(_restoreRoot.path, 'export', _operationIdFactory()),
+      p.join(_restoreRoot.path, 'export', operationId),
     ).create(recursive: true);
+    final tempPackage = p.join(
+      destination.parent.path,
+      '${p.basename(destination.path)}.$operationId.tmp',
+    );
+    String? publishBackupPath;
+    var preservePublishBackup = false;
     try {
       final snapshotPath = p.join(
         workspace.path,
@@ -160,7 +189,6 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         flush: true,
       );
 
-      final tempPackage = p.join(workspace.path, 'package.shiroha.tmp');
       await BackupArchiveIo.writeStoredPackage(
         packagePath: tempPackage,
         manifestPath: manifestPath,
@@ -172,12 +200,38 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         manifest: manifest,
       );
 
-      final destination = File(destinationPath);
-      await destination.parent.create(recursive: true);
       if (await destination.exists()) {
-        await destination.delete();
+        publishBackupPath = p.join(
+          destination.parent.path,
+          '${p.basename(destination.path)}.$operationId.bak',
+        );
+        await destination.rename(publishBackupPath);
+        try {
+          await _faultInjector.beforeExportPublish();
+          await File(tempPackage).rename(destination.path);
+        } catch (_) {
+          try {
+            if (!await destination.exists() &&
+                await File(publishBackupPath).exists()) {
+              await File(publishBackupPath).rename(destination.path);
+            } else {
+              preservePublishBackup = true;
+            }
+          } catch (_) {
+            preservePublishBackup = true;
+          }
+          rethrow;
+        }
+        try {
+          await File(publishBackupPath).delete();
+        } catch (_) {
+          // A verified new package is already published. Retaining the
+          // sibling old copy is safer than turning cleanup into failure.
+        }
+      } else {
+        await _faultInjector.beforeExportPublish();
+        await File(tempPackage).rename(destination.path);
       }
-      await File(tempPackage).rename(destination.path);
 
       return BackupExportSummary(
         fileName: p.basename(destinationPath),
@@ -188,6 +242,10 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       );
     } finally {
       await _deleteIfExists(workspace);
+      await _deleteIfExists(File(tempPackage));
+      if (!preservePublishBackup && publishBackupPath != null) {
+        await _deleteIfExists(File(publishBackupPath));
+      }
     }
   }
 
@@ -303,6 +361,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     final liveDbPath = await _database.productionDatabasePath();
     final liveManaged = _managedFilesRoot;
 
+    var phase = _RestoreCommitPhase.preJournal;
     try {
       await _copyLiveToRollback(
         liveDbPath: liveDbPath,
@@ -330,11 +389,24 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
           (sum, file) => sum + file.sizeBytes,
         ),
       );
+      await _faultInjector.beforePreparedJournalWrite();
       await journalStore.write(journal);
+      phase = _RestoreCommitPhase.prepared;
       await _faultInjector.afterJournalPrepared();
 
       journal = journal.copyWithState(RestoreJournalState.swapping);
-      await journalStore.write(journal);
+      try {
+        await journalStore.write(journal);
+        phase = _RestoreCommitPhase.swapping;
+      } catch (_) {
+        final observed = await _readJournalOrNull(journalStore);
+        if (observed?.state == RestoreJournalState.swapping ||
+            observed?.state == RestoreJournalState.rollingBack ||
+            observed?.state == RestoreJournalState.rollbackFailed) {
+          phase = _RestoreCommitPhase.swapping;
+        }
+        rethrow;
+      }
       await _faultInjector.afterJournalSwapping();
 
       await _swapLiveState(
@@ -372,16 +444,34 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     } on BackupCrashSimulation {
       rethrow;
     } catch (_) {
-      await _rollbackFromJournalStore(
-        journalStore: journalStore,
-        liveDbPath: liveDbPath,
-        liveManaged: liveManaged,
-        rollbackDbPath: rollbackDbPath,
-        rollbackFilesPath: rollbackFilesPath,
-        stagingPath: staged.stagingPath,
-      );
-      _staged = null;
-      _stagedPackagePath = null;
+      switch (phase) {
+        case _RestoreCommitPhase.preJournal:
+          await _cleanupPreJournalFailure(
+            journalStore: journalStore,
+            rollbackDbPath: rollbackDbPath,
+            rollbackFilesPath: rollbackFilesPath,
+          );
+        case _RestoreCommitPhase.prepared:
+          await _cleanupPreparedFailure(
+            journalStore: journalStore,
+            stagingPath: staged.stagingPath,
+            rollbackDbPath: rollbackDbPath,
+            rollbackFilesPath: rollbackFilesPath,
+          );
+          _staged = null;
+          _stagedPackagePath = null;
+        case _RestoreCommitPhase.swapping:
+          await _rollbackFromJournalStore(
+            journalStore: journalStore,
+            liveDbPath: liveDbPath,
+            liveManaged: liveManaged,
+            rollbackDbPath: rollbackDbPath,
+            rollbackFilesPath: rollbackFilesPath,
+            stagingPath: staged.stagingPath,
+          );
+          _staged = null;
+          _stagedPackagePath = null;
+      }
       rethrow;
     }
   }
@@ -402,8 +492,10 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     );
     await Directory(rollbackDbPath).create(recursive: true);
     final rollbackDbFile = p.join(rollbackDbPath, 'shiroha_core_v1.db');
+    await _faultInjector.beforeRollbackSnapshot();
     await _snapshots.createRawConsistentSnapshot(rollbackDbFile);
     await _database.validateRollbackDatabaseFile(rollbackDbFile);
+    await _faultInjector.beforeRollbackManagedFileCopy();
     await BackupFilesystem.copyDirectoryContents(
       source: liveManaged,
       target: Directory(rollbackFilesPath),
@@ -412,6 +504,42 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       source: liveManaged,
       copy: Directory(rollbackFilesPath),
     );
+  }
+
+  Future<RestoreJournal?> _readJournalOrNull(
+    BackupJournalStore journalStore,
+  ) async {
+    try {
+      return await journalStore.read();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cleanupPreJournalFailure({
+    required BackupJournalStore journalStore,
+    required String rollbackDbPath,
+    required String rollbackFilesPath,
+  }) async {
+    await _deleteIfExists(Directory(rollbackDbPath));
+    await _deleteIfExists(Directory(rollbackFilesPath));
+    try {
+      await journalStore.clear();
+    } catch (_) {}
+  }
+
+  Future<void> _cleanupPreparedFailure({
+    required BackupJournalStore journalStore,
+    required String stagingPath,
+    required String rollbackDbPath,
+    required String rollbackFilesPath,
+  }) async {
+    await _deleteIfExists(Directory(stagingPath));
+    await _deleteIfExists(Directory(rollbackDbPath));
+    await _deleteIfExists(Directory(rollbackFilesPath));
+    try {
+      await journalStore.clear();
+    } catch (_) {}
   }
 
   Future<void> _verifyLiveLibraryState(BackupManifest manifest) async {

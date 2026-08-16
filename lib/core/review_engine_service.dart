@@ -126,8 +126,11 @@ class _PendingWrite {
     this.durationMs,
     this.userAnswer,
     this.aiEvaluation,
-    this.engineRepository,
-  );
+    this.engineRepository, {
+    required this.lease,
+  });
+
+  final BackupRestoreMutationLease lease;
 }
 
 // ================================================================
@@ -187,15 +190,15 @@ class ReviewEngineService with WidgetsBindingObserver {
     String? userAnswer,
     String? aiEvaluation,
   }) {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () => _submitReviewResultUnchecked(
-        questionId,
-        grade,
-        durationMs,
-        engineRepository: engineRepository,
-        userAnswer: userAnswer,
-        aiEvaluation: aiEvaluation,
-      ),
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    return _submitReviewResultUnchecked(
+      questionId,
+      grade,
+      durationMs,
+      lease: lease,
+      engineRepository: engineRepository,
+      userAnswer: userAnswer,
+      aiEvaluation: aiEvaluation,
     );
   }
 
@@ -203,6 +206,7 @@ class ReviewEngineService with WidgetsBindingObserver {
     String questionId,
     int grade,
     int durationMs, {
+    required BackupRestoreMutationLease lease,
     required AiEngineRepository engineRepository,
     String? userAnswer,
     String? aiEvaluation,
@@ -214,23 +218,34 @@ class ReviewEngineService with WidgetsBindingObserver {
       userAnswer,
       aiEvaluation,
       engineRepository,
+      lease: lease,
     ));
 
     if (_queue.length >= _batchSize) {
       _debounceTimer?.cancel();
+      _debounceTimer = null;
       await _flushNow();
       return;
     }
 
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(_debounceWindow, () {
-      if (_queue.isNotEmpty) _flushNow();
-    });
+    _scheduleDebouncedFlush();
   }
 
   Future<void> flushPending() async {
     _debounceTimer?.cancel();
+    _debounceTimer = null;
     if (_queue.isNotEmpty) await _flushNow();
+  }
+
+  /// Clears process-lifetime review state after B0 has drained all accepted
+  /// durable review writes and the restored database is authoritative.
+  void resetTransientStateForRestore() {
+    if (_queue.isNotEmpty || _flushing) {
+      throw StateError('Review writes must drain before restore reload.');
+    }
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _sessionQueue = null;
   }
 
   Future<Map<String, int>> getDashboardData() async {
@@ -582,11 +597,27 @@ class ReviewEngineService with WidgetsBindingObserver {
         statesToUpdate,
         logsToInsert,
       );
+      for (final item in batch) {
+        item.lease.release();
+      }
     } catch (_) {
       _queue.insertAll(0, batch);
       rethrow;
     } finally {
       _flushing = false;
+      if (_queue.isNotEmpty && _debounceTimer == null) {
+        _scheduleDebouncedFlush();
+      }
     }
+  }
+
+  void _scheduleDebouncedFlush() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceWindow, () {
+      _debounceTimer = null;
+      if (_queue.isNotEmpty) {
+        unawaited(_flushNow().catchError((_) {}));
+      }
+    });
   }
 }

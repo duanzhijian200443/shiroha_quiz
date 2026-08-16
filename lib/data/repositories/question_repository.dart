@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../../application/safe_write/typed_answer_command.dart';
+import '../../application/questions/question_mutation_command.dart';
 import '../../application/study_query/study_query_dtos.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
@@ -31,7 +32,10 @@ const String _globalWrongBookBankName = '🔥 全局错题本';
 const String _uncategorizedFolderName = '📁 未分类题库';
 
 class QuestionRepository
-    implements StudyQuestionQueryPort, TypedAnswerPersistencePort {
+    implements
+        StudyQuestionQueryPort,
+        TypedAnswerPersistencePort,
+        QuestionMutationPersistencePort {
   QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
         _uuid = uuid ?? const Uuid();
@@ -475,6 +479,7 @@ class QuestionRepository
     return index.availableFolders;
   }
 
+  @override
   Future<void> deleteQuestion(String id) {
     return _databaseHelper.deleteSingleQuestion(id);
   }
@@ -935,6 +940,7 @@ class QuestionRepository
     };
   }
 
+  @override
   Future<void> updateQuestion(Map<String, dynamic> question) {
     return _databaseHelper.updateQuestion(question);
   }

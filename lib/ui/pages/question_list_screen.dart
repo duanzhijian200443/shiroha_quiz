@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../application/answers/ai_answer_commit_command.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/answers/answer_candidate_review_session.dart';
+import '../../application/questions/question_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../domain/answers/answer_candidate.dart';
@@ -50,6 +51,9 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
 
   QuestionRepository get _questionRepository =>
       widget.questionRepository ?? QuestionRepository.instance;
+
+  QuestionMutationCommand get _questionMutation =>
+      QuestionMutationCommand(_questionRepository);
 
   @override
   void initState() {
@@ -151,7 +155,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     if (confirm != true) return;
     if (question.storageId.isEmpty) return;
     try {
-      await _questionRepository.deleteQuestion(question.storageId);
+      await _questionMutation.deleteQuestion(question.storageId);
       await _loadQuestions();
     } catch (_) {
       if (!mounted) return;
@@ -167,7 +171,10 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
     Navigator.push(
       context,
       MaterialPageRoute<bool>(
-        builder: (_) => QuestionEditScreen(question: payload),
+        builder: (_) => QuestionEditScreen(
+          question: payload,
+          mutationCommand: _questionMutation,
+        ),
       ),
     ).then((modified) {
       if (modified == true && mounted) _loadQuestions();
