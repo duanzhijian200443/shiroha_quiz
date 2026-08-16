@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:path/path.dart' as p;
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
@@ -221,6 +222,7 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     await _readiness;
 
     final taskId = _taskIdFactory();
@@ -284,6 +286,7 @@ class ImportTaskCoordinator {
   Future<ImportTaskBatchHandle> dispatchIndependentBatch({
     required List<ImportTaskBatchItem> items,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     if (items.isEmpty) {
       throw ArgumentError.value(items, 'items', 'must not be empty');
     }
@@ -398,6 +401,7 @@ class ImportTaskCoordinator {
   }
 
   Future<ImportAttemptWriteStatus> cancelOcrTask(String taskId) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     await _readiness;
     final matches = _taskManager.tasks.where((task) => task.id == taskId);
     if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
@@ -421,6 +425,7 @@ class ImportTaskCoordinator {
     required List<String> filePaths,
     required List<String> fileNames,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final parser = _parser;
     if (parser == null) {
       throw const ImportTaskCoordinatorDependencyException();
@@ -478,6 +483,7 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     await _readiness;
     final matches = _taskManager.tasks.where((task) => task.id == taskId);
     if (matches.isEmpty ||

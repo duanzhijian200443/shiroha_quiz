@@ -363,7 +363,7 @@ class TaskManager extends ChangeNotifier {
     ready = loadTasks == null ? Future<void>.value() : _loadTasksFromDb();
   }
 
-  late final Future<void> ready;
+  late Future<void> ready;
   final bool _persistTasks;
   final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
   final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
@@ -374,6 +374,18 @@ class TaskManager extends ChangeNotifier {
   static final Random _leaseRandom = Random.secure();
 
   final List<ImportTask> tasks = [];
+
+  /// B0-I0 in-memory invalidation. Clears pre-restore transient Import task
+  /// projections, write tails, and typed commit leases without writing to
+  /// SQLite. The restored durable `import_tasks` table is already empty.
+  void resetTransientStateForRestore() {
+    tasks.clear();
+    _attemptWriteTails.clear();
+    _typedCommitLeases.clear();
+    ready = Future<void>.value();
+    notifyListeners();
+  }
+
   int get processingCount =>
       tasks.where((t) => t.status == TaskStatus.processing).length;
   int get pendingCount =>

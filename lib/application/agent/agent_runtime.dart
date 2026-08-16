@@ -10,6 +10,7 @@ import '../../core/observability/log_writer.dart';
 import '../../core/observability/trace_context.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
+import '../backup/backup_restore_gate.dart';
 import '../conversations/conversation_repository.dart';
 import '../conversations/conversation_service.dart';
 import 'agent_config.dart';
@@ -87,6 +88,7 @@ final class ShirohaAgentRuntime {
     required String conversationId,
     required String userMessageId,
   }) {
+    _ensureMutationAllowed();
     return _startTurn(
         conversationId: conversationId, userMessageId: userMessageId);
   }
@@ -96,10 +98,15 @@ final class ShirohaAgentRuntime {
     required String userMessageId,
     required RetrievalEgressApproval approval,
   }) {
+    _ensureMutationAllowed();
     return _startTurn(
         conversationId: conversationId,
         userMessageId: userMessageId,
         approval: approval);
+  }
+
+  void _ensureMutationAllowed() {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
   }
 
   AgentTurnSession _startTurn({

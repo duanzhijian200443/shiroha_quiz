@@ -104,6 +104,7 @@ jobs:
           $tests = @(
             'test/architecture_boundary_test.dart',
             'test/backup/backup_manifest_test.dart',
+            'test/backup/backup_restore_gate_test.dart',
             'test/backup/backup_archive_io_test.dart',
             'test/backup/backup_export_test.dart',
             'test/backup/backup_restore_test.dart',

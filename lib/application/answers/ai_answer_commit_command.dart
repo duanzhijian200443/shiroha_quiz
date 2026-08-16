@@ -1,4 +1,5 @@
 import '../../domain/answers/answer_candidate.dart';
+import '../backup/backup_restore_gate.dart';
 import 'answer_candidate_review_session.dart';
 
 /// Safe typed failures of the P7-C0 confirmation/commit boundary.
@@ -69,6 +70,8 @@ final class AiAnswerCommitCommand {
     required AnswerCandidateReviewSession session,
     required AnswerCandidateConfirmation confirmation,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
+
     // 1. Deterministic local review-state validation (no transaction yet):
     //    exact revision, exact canonical candidate, confirmed outcome.
     final AnswerCandidate candidate;

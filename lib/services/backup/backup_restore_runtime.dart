@@ -75,9 +75,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
   BackupJournalStore? _journalStore;
 
   BackupJournalStore get _journalStoreOrCreate {
-    return _journalStore ??= BackupJournalStore(
-      journalRoot: Directory(p.join(_restoreRoot.path, 'journal')),
-    );
+    return _journalStore ??= BackupJournalStore(keyRoot: _restoreRoot);
   }
 
   @override
@@ -291,9 +289,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     }
 
     final operationId = _operationIdFactory();
-    final journalStore = BackupJournalStore(
-      journalRoot: Directory(p.join(_restoreRoot.path, 'journal')),
-    );
+    final journalStore = BackupJournalStore(keyRoot: _restoreRoot);
     final stagingKey = _relativeKey(staged.stagingPath);
     final rollbackKey = 'rollback/$operationId';
     final rollbackDbKey = '$rollbackKey/db';
@@ -348,10 +344,8 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       await _faultInjector.beforeReopenProduction();
       await _database.reopenProduction();
       await _database.validateOpenProduction();
-      final stagedFiles = await _database.readOpenProductionLibraryFiles();
-      if (stagedFiles.length != staged.manifest.managedFileCount) {
-        throw const BackupException(BackupFailure.integrityMismatch);
-      }
+      await _database.validateOpenProductionScrubInvariants();
+      await _verifyLiveLibraryState(staged.manifest);
 
       journal = journal.copyWithState(RestoreJournalState.committed);
       await journalStore.write(journal);
@@ -400,16 +394,84 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
           await _directorySize(liveManaged),
     );
     await Directory(rollbackDbPath).create(recursive: true);
-    if (await File(liveDbPath).exists()) {
-      await BackupFilesystem.copyAndMeasure(
-        sourcePath: liveDbPath,
-        targetPath: p.join(rollbackDbPath, 'shiroha_core_v1.db'),
-      );
-    }
+    final rollbackDbFile = p.join(rollbackDbPath, 'shiroha_core_v1.db');
+    await _snapshots.createRawConsistentSnapshot(rollbackDbFile);
+    await _database.validateRollbackDatabaseFile(rollbackDbFile);
     await BackupFilesystem.copyDirectoryContents(
       source: liveManaged,
       target: Directory(rollbackFilesPath),
     );
+    await _verifyDirectoryCopy(
+      source: liveManaged,
+      copy: Directory(rollbackFilesPath),
+    );
+  }
+
+  Future<void> _verifyLiveLibraryState(BackupManifest manifest) async {
+    final rows = await _database.readOpenProductionLibraryFiles();
+    final byId = <String, SnapshotLibraryFile>{
+      for (final row in rows) row.fileId: row,
+    };
+    if (byId.length != manifest.managedFileCount) {
+      throw const BackupException(BackupFailure.integrityMismatch);
+    }
+    for (final entry in manifest.managedFiles) {
+      final row = byId[entry.fileId];
+      if (row == null ||
+          row.storageKey != entry.storageKey ||
+          row.sizeBytes != entry.sizeBytes ||
+          row.sha256 != entry.sha256) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+      final file = _managedFiles.resolveManagedFile(entry.storageKey);
+      if (!await file.exists() ||
+          file.lengthSync() != entry.sizeBytes ||
+          BackupFilesystem.sha256File(file.path) != entry.sha256) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+    }
+  }
+
+  Future<void> _verifyDirectoryCopy({
+    required Directory source,
+    required Directory copy,
+  }) async {
+    if (!await source.exists()) {
+      if (!await copy.exists()) return;
+      final leftovers = await copy.list(recursive: true).length;
+      if (leftovers != 0) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+      return;
+    }
+    final sourceFiles = <String>{};
+    await for (final entity in source.list(recursive: true)) {
+      if (entity is Link) {
+        throw const BackupException(BackupFailure.unsafeArchivePath);
+      }
+      if (entity is! File) continue;
+      final relative = p.relative(entity.path, from: source.path);
+      sourceFiles.add(relative);
+      final target = File(p.join(copy.path, relative));
+      if (!await target.exists() ||
+          await target.length() != await entity.length() ||
+          BackupFilesystem.sha256File(target.path) !=
+              BackupFilesystem.sha256File(entity.path)) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+    }
+    final copyFiles = <String>{};
+    if (await copy.exists()) {
+      await for (final entity in copy.list(recursive: true)) {
+        if (entity is File) {
+          copyFiles.add(p.relative(entity.path, from: copy.path));
+        }
+      }
+    }
+    if (sourceFiles.length != copyFiles.length ||
+        !sourceFiles.containsAll(copyFiles)) {
+      throw const BackupException(BackupFailure.integrityMismatch);
+    }
   }
 
   Future<void> _swapLiveState({
@@ -561,6 +623,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
           try {
             await _database.reopenProduction();
             await _database.validateOpenProduction();
+            await _database.validateOpenProductionScrubInvariants();
           } catch (_) {
             if (Directory(rollbackDbPath).existsSync()) {
               await _restoreRollbackOnly(

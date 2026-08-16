@@ -177,200 +177,215 @@ void main() {
       return;
     }
 
-    final libraryFileRepository = LibraryFileRepository(
-      databaseHelper: databaseHelper,
-    );
-    final fileIngestionService = FileIngestionService(
-      storage: managedFileStorage,
-      repository: libraryFileRepository,
-    );
-    final projectRepository =
-        SqliteProjectRepository(databaseHelper: databaseHelper);
-    final projectService = ProjectService(repository: projectRepository);
-    const uuid = Uuid();
-    final conversationService = ConversationService(
-      repository: SqliteConversationRepository(databaseHelper: databaseHelper),
-      conversationIdFactory: uuid.v4,
-      messageIdFactory: uuid.v4,
-      clock: () => DateTime.now().toUtc(),
-    );
-    final folderService = LibraryFolderService(
-      repository: SqliteLibraryFolderRepository(
+    var isFirstComposition = true;
+    late Future<void> Function() relaunchApp;
+
+    Future<void> composeAndRun() async {
+      if (!isFirstComposition) {
+        // B0-I0 in-memory invalidation: clear process-lifetime transient
+        // state before constructing a fresh composition over the restored DB.
+        SettingsRepository.instance.clearCache();
+        TaskManager.instance.resetTransientStateForRestore();
+        ApprovedAgentWriteRepository.instance.clearTransientState();
+      }
+      isFirstComposition = false;
+
+      final libraryFileRepository = LibraryFileRepository(
         databaseHelper: databaseHelper,
-      ),
-      folderIdFactory: uuid.v4,
-    );
-    final questionRepository = QuestionRepository(
-      databaseHelper: databaseHelper,
-    );
-    final studyQueryService = StudyQueryService(
-      questionQuery: questionRepository,
-      metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
-    );
-    final engineRepository = await activateAiEngineRepository(
-      openDatabase: () async {
-        await databaseHelper.database;
-      },
-      store: databaseHelper,
-      migrationStore: databaseHelper,
-      createCredentialStore: SecureEngineCredentialStore.new,
-    );
-    // P7 composition: Presentation only sees the Application seams.
-    final answerGenerationService = AiAnswerGenerationService(
-      questionPort: questionRepository,
-      providerPort: AiAnswerProviderAdapter(engineRepository: engineRepository),
-      idFactory: uuid.v4,
-      clock: () => DateTime.now().toUtc(),
-    );
-    final answerCommitCommand = AiAnswerCommitCommand(
-      persistencePort: AiAnswerCommitRepository(databaseHelper: databaseHelper),
-    );
-    final agentConfigStore =
-        SqliteAgentConfigStore(databaseHelper: databaseHelper);
-    final agentProfileRepository = AiEngineAgentProfileRepository(
-      engineRepository: engineRepository,
-    );
-    final agentSettingsService = AgentSettingsService(
-      configStore: agentConfigStore,
-      profileCatalog: agentProfileRepository,
-    );
-    // W0 composition enablement point: removing this dispatcher registration
-    // (and the proposalService wiring below) turns the proposal capability
-    // off while keeping the six read tools.
-    final agentWritePersistence = ApprovedAgentWriteRepository.instance;
-    final agentWriteProposalService =
-        AgentWriteProposalService(agentWritePersistence);
-    final studyPlanReadRepository =
-        StudyPlanReadRepository(databaseHelper: databaseHelper);
-    final studyPlanDraftService = StudyPlanDraftService(
-      planningPort: studyPlanReadRepository,
-      draftIdFactory: uuid.v4,
-      clock: () => DateTime.now().toUtc(),
-    );
-    final studyPlanPersistenceRepository =
-        StudyPlanPersistenceRepository(databaseHelper: databaseHelper);
-    final studyPlanCommandService = StudyPlanCommandService(
-      draftService: studyPlanDraftService,
-      persistencePort: studyPlanPersistenceRepository,
-      planIdFactory: uuid.v4,
-      clock: () => DateTime.now().toUtc(),
-    );
-    // SPL-1-U0 focused seams: deterministic dynamic selection + the narrow
-    // Practice materialization/session adapter. All read from the same
-    // long-lived StudyPlan repositories; nothing new is persisted.
-    final studyPlanSelectionService = StudyPlanSelectionService(
-      persistencePort: studyPlanPersistenceRepository,
-      planningPort: studyPlanReadRepository,
-      candidateQueryPort: studyPlanReadRepository,
-      poolOrder: const StudyPlanPoolOrder(),
-      clock: () => DateTime.now().toUtc(),
-    );
-    final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
-    final parsedArtifactRepository =
-        ParsedArtifactRepository(databaseHelper: databaseHelper);
-    final parsedArtifactLifecycle = ParsedArtifactLifecycleService(
-      libraryFileRepository: libraryFileRepository,
-      artifactRepository: parsedArtifactRepository,
-      artifactStorage: ManagedArtifactStorageAdapter(
-        managedRoot: Directory(p.join(supportDirectory.path, 'library_files')),
-      ),
-      generationPort: ParsedArtifactGenerationRouter(
-        deterministicGeneration: DeterministicParsedArtifactGenerationAdapter(
-          managedFileStorage: managedFileStorage,
+      );
+      final fileIngestionService = FileIngestionService(
+        storage: managedFileStorage,
+        repository: libraryFileRepository,
+      );
+      final projectRepository =
+          SqliteProjectRepository(databaseHelper: databaseHelper);
+      final projectService = ProjectService(repository: projectRepository);
+      const uuid = Uuid();
+      final conversationService = ConversationService(
+        repository:
+            SqliteConversationRepository(databaseHelper: databaseHelper),
+        conversationIdFactory: uuid.v4,
+        messageIdFactory: uuid.v4,
+        clock: () => DateTime.now().toUtc(),
+      );
+      final folderService = LibraryFolderService(
+        repository: SqliteLibraryFolderRepository(
+          databaseHelper: databaseHelper,
         ),
-        ocrGeneration: OcrParsedArtifactGenerationAdapter(
-          managedFileStorage: managedFileStorage,
-          ocrClient: const ZhipuOcrClient(),
-          activeOcrProfileLoader: engineRepository.getActiveOcrEngine,
-        ),
-      ),
-    );
-    final u1WorkspaceFacade = U1WorkspaceFacade(
-      projectService: projectService,
-      fileRepository: libraryFileRepository,
-      fileIngestion: fileIngestionService,
-      folderService: folderService,
-      studyQueryService: studyQueryService,
-      parsedArtifactLifecycle: parsedArtifactLifecycle,
-      mcpProjection: McpWorkspaceProjection(
-        state: McpCapabilityState.configuredAvailable,
-        transport: McpTransport.localStdio,
-        permission: McpPermission.readOnly,
-        toolNames: StudyMcpAdapter.toolNames,
-      ),
-    );
-    final retrievalService = RetrievalService(
-      scopeResolver: ApplicationRetrievalScopeResolver(
-        projectRepository: projectRepository,
-        conversationService: conversationService,
-      ),
-      artifactSource: ParsedArtifactRetrievalSource(
-        lifecycle: parsedArtifactLifecycle,
-        metadata: parsedArtifactRepository,
-      ),
-      index: SqliteRetrievalIndexRepository(databaseHelper: databaseHelper),
-      chunker: const DeterministicSourceChunker(),
-    );
-    final agentRuntime = ShirohaAgentRuntime(
-      conversationService: conversationService,
-      configResolver: AgentRuntimeConfigResolver(
+        folderIdFactory: uuid.v4,
+      );
+      final questionRepository = QuestionRepository(
+        databaseHelper: databaseHelper,
+      );
+      final studyQueryService = StudyQueryService(
+        questionQuery: questionRepository,
+        metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
+      );
+      final engineRepository = await activateAiEngineRepository(
+        openDatabase: () async {
+          await databaseHelper.database;
+        },
+        store: databaseHelper,
+        migrationStore: databaseHelper,
+        createCredentialStore: SecureEngineCredentialStore.new,
+      );
+      // P7 composition: Presentation only sees the Application seams.
+      final answerGenerationService = AiAnswerGenerationService(
+        questionPort: questionRepository,
+        providerPort:
+            AiAnswerProviderAdapter(engineRepository: engineRepository),
+        idFactory: uuid.v4,
+        clock: () => DateTime.now().toUtc(),
+      );
+      final answerCommitCommand = AiAnswerCommitCommand(
+        persistencePort:
+            AiAnswerCommitRepository(databaseHelper: databaseHelper),
+      );
+      final agentConfigStore =
+          SqliteAgentConfigStore(databaseHelper: databaseHelper);
+      final agentProfileRepository = AiEngineAgentProfileRepository(
+        engineRepository: engineRepository,
+      );
+      final agentSettingsService = AgentSettingsService(
         configStore: agentConfigStore,
-        profileResolver: agentProfileRepository,
-      ),
-      providerFactory: (resolved) => DeepSeekResponsesProvider(
-        profile: resolved.profile,
-        clientFactory: () => http.Client(),
-      ),
-      toolDispatcher: AgentStudyToolDispatcher(service: studyQueryService),
-      proposalDispatcher: AgentWriteProposalToolDispatcher(
-        persistence: agentWritePersistence,
-        proposalService: agentWriteProposalService,
-      ),
-      studyPlanDispatcher: AgentStudyPlanToolDispatcher(
+        profileCatalog: agentProfileRepository,
+      );
+      // W0 composition enablement point: removing this dispatcher registration
+      // (and the proposalService wiring below) turns the proposal capability
+      // off while keeping the six read tools.
+      final agentWritePersistence = ApprovedAgentWriteRepository.instance;
+      final agentWriteProposalService =
+          AgentWriteProposalService(agentWritePersistence);
+      final studyPlanReadRepository =
+          StudyPlanReadRepository(databaseHelper: databaseHelper);
+      final studyPlanDraftService = StudyPlanDraftService(
+        planningPort: studyPlanReadRepository,
+        draftIdFactory: uuid.v4,
+        clock: () => DateTime.now().toUtc(),
+      );
+      final studyPlanPersistenceRepository =
+          StudyPlanPersistenceRepository(databaseHelper: databaseHelper);
+      final studyPlanCommandService = StudyPlanCommandService(
         draftService: studyPlanDraftService,
-      ),
-      retrievalDispatcher: AgentRetrievalToolDispatcher(
-        retrieval: retrievalService,
-      ),
-    );
-    final taskManager = TaskManager.instance;
-    final aiService = AiService(
-      engineRepository: engineRepository,
-      taskManager: taskManager,
-    );
-    final ocrRequestScheduler = OcrRequestScheduler();
-    final importPipelineService = ImportPipelineService(
-      aiService: aiService,
-      engineRepository: engineRepository,
-      taskManager: taskManager,
-      ocrRequestScheduler: ocrRequestScheduler,
-    );
-    final importTaskCoordinator = ImportTaskCoordinator(
-      taskManager: taskManager,
-      parser: importPipelineService.parseFiles,
-      requestScheduler: ocrRequestScheduler,
-      onReadyForReview: (sourceDescription) {
-        rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-          content: Text('$sourceDescription 解析完成，请前往传输中心校对入库'),
-          backgroundColor: Colors.orange,
-        ));
-      },
-    );
+        persistencePort: studyPlanPersistenceRepository,
+        planIdFactory: uuid.v4,
+        clock: () => DateTime.now().toUtc(),
+      );
+      // SPL-1-U0 focused seams: deterministic dynamic selection + the narrow
+      // Practice materialization/session adapter. All read from the same
+      // long-lived StudyPlan repositories; nothing new is persisted.
+      final studyPlanSelectionService = StudyPlanSelectionService(
+        persistencePort: studyPlanPersistenceRepository,
+        planningPort: studyPlanReadRepository,
+        candidateQueryPort: studyPlanReadRepository,
+        poolOrder: const StudyPlanPoolOrder(),
+        clock: () => DateTime.now().toUtc(),
+      );
+      final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
+      final parsedArtifactRepository =
+          ParsedArtifactRepository(databaseHelper: databaseHelper);
+      final parsedArtifactLifecycle = ParsedArtifactLifecycleService(
+        libraryFileRepository: libraryFileRepository,
+        artifactRepository: parsedArtifactRepository,
+        artifactStorage: ManagedArtifactStorageAdapter(
+          managedRoot:
+              Directory(p.join(supportDirectory.path, 'library_files')),
+        ),
+        generationPort: ParsedArtifactGenerationRouter(
+          deterministicGeneration: DeterministicParsedArtifactGenerationAdapter(
+            managedFileStorage: managedFileStorage,
+          ),
+          ocrGeneration: OcrParsedArtifactGenerationAdapter(
+            managedFileStorage: managedFileStorage,
+            ocrClient: const ZhipuOcrClient(),
+            activeOcrProfileLoader: engineRepository.getActiveOcrEngine,
+          ),
+        ),
+      );
+      final u1WorkspaceFacade = U1WorkspaceFacade(
+        projectService: projectService,
+        fileRepository: libraryFileRepository,
+        fileIngestion: fileIngestionService,
+        folderService: folderService,
+        studyQueryService: studyQueryService,
+        parsedArtifactLifecycle: parsedArtifactLifecycle,
+        mcpProjection: McpWorkspaceProjection(
+          state: McpCapabilityState.configuredAvailable,
+          transport: McpTransport.localStdio,
+          permission: McpPermission.readOnly,
+          toolNames: StudyMcpAdapter.toolNames,
+        ),
+      );
+      final retrievalService = RetrievalService(
+        scopeResolver: ApplicationRetrievalScopeResolver(
+          projectRepository: projectRepository,
+          conversationService: conversationService,
+        ),
+        artifactSource: ParsedArtifactRetrievalSource(
+          lifecycle: parsedArtifactLifecycle,
+          metadata: parsedArtifactRepository,
+        ),
+        index: SqliteRetrievalIndexRepository(databaseHelper: databaseHelper),
+        chunker: const DeterministicSourceChunker(),
+      );
+      final agentRuntime = ShirohaAgentRuntime(
+        conversationService: conversationService,
+        configResolver: AgentRuntimeConfigResolver(
+          configStore: agentConfigStore,
+          profileResolver: agentProfileRepository,
+        ),
+        providerFactory: (resolved) => DeepSeekResponsesProvider(
+          profile: resolved.profile,
+          clientFactory: () => http.Client(),
+        ),
+        toolDispatcher: AgentStudyToolDispatcher(service: studyQueryService),
+        proposalDispatcher: AgentWriteProposalToolDispatcher(
+          persistence: agentWritePersistence,
+          proposalService: agentWriteProposalService,
+        ),
+        studyPlanDispatcher: AgentStudyPlanToolDispatcher(
+          draftService: studyPlanDraftService,
+        ),
+        retrievalDispatcher: AgentRetrievalToolDispatcher(
+          retrieval: retrievalService,
+        ),
+      );
+      final taskManager = TaskManager.instance;
+      final aiService = AiService(
+        engineRepository: engineRepository,
+        taskManager: taskManager,
+      );
+      final ocrRequestScheduler = OcrRequestScheduler();
+      final importPipelineService = ImportPipelineService(
+        aiService: aiService,
+        engineRepository: engineRepository,
+        taskManager: taskManager,
+        ocrRequestScheduler: ocrRequestScheduler,
+      );
+      final importTaskCoordinator = ImportTaskCoordinator(
+        taskManager: taskManager,
+        parser: importPipelineService.parseFiles,
+        requestScheduler: ocrRequestScheduler,
+        onReadyForReview: (sourceDescription) {
+          rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
+            content: Text('$sourceDescription 解析完成，请前往传输中心校对入库'),
+            backgroundColor: Colors.orange,
+          ));
+        },
+      );
 
-    final savedTheme = await SettingsRepository.instance.getAppTheme();
-    if (savedTheme.isNotEmpty) {
-      globalThemeNotifier.value = savedTheme;
-    }
+      final savedTheme = await SettingsRepository.instance.getAppTheme();
+      if (savedTheme.isNotEmpty) {
+        globalThemeNotifier.value = savedTheme;
+      }
 
-    // 初始化 flutter_tex MathJax 渲染服务
-    // Windows/Linux/macOS 桌面端的 webview_flutter 无完整实现，跳过
-    if (Platform.isAndroid || Platform.isIOS) {
-      await TeXRenderingServer.start();
-    }
+      // 初始化 flutter_tex MathJax 渲染服务
+      // Windows/Linux/macOS 桌面端的 webview_flutter 无完整实现，跳过
+      if (Platform.isAndroid || Platform.isIOS) {
+        await TeXRenderingServer.start();
+      }
 
-    AppLogger.info('Application started', module: 'Application');
-    late void Function() relaunchApp;
-    relaunchApp = () {
+      AppLogger.info('Application started', module: 'Application');
       runApp(ShirohaQuizApp(
         engineRepository: engineRepository,
         aiService: aiService,
@@ -389,10 +404,14 @@ void main() {
         studyPlanSelectionService: studyPlanSelectionService,
         studyPlanSessionLauncher: studyPlanSessionLauncher,
         backupRestore: backupRestore,
-        onRestoreCompleted: relaunchApp,
+        onRestoreCompleted: () {
+          unawaited(relaunchApp());
+        },
       ));
-    };
-    relaunchApp();
+    }
+
+    relaunchApp = composeAndRun;
+    await composeAndRun();
   }, (error, stackTrace) {
     AppLogger.error(
       'Unhandled root-zone error',

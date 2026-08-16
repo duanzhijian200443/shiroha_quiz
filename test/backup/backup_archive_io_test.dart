@@ -218,6 +218,83 @@ void main() {
     );
   });
 
+  test('deflate output is bounded during streaming', () async {
+    final package = p.join(temp.path, 'deflate_bomb.shiroha');
+    final zero10 = List<int>.filled(10, 0);
+    final manifest = BackupManifest(
+      schemaVersion: 22,
+      createdAtUtc: DateTime.utc(2026, 1, 1),
+      database: BackupDatabaseEntry(
+        archivePath: BackupValues.databaseArchivePath,
+        sizeBytes: 10,
+        sha256: sha256Hex(zero10),
+      ),
+      managedFiles: const <BackupManagedFileEntry>[],
+    );
+    final bomb = List<int>.filled(1024 * 1024, 0);
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string(BackupValues.manifestArchivePath, manifest.encode()),
+      )
+      ..addFile(
+        ArchiveFile(BackupValues.databaseArchivePath, bomb.length, bomb),
+      );
+    final output = OutputFileStream(package);
+    ZipEncoder().encode(archive, output: output);
+    output.closeSync();
+
+    // Rewrite declared uncompressed size from 1 MiB to 10 in both headers;
+    // the deflate stream still expands to 1 MiB, so only streaming output
+    // accounting can stop the bomb.
+    final bytes = Uint8List.fromList(File(package).readAsBytesSync());
+    final inspectInput = InputFileStream(package);
+    final directory = ZipDirectory.read(inspectInput);
+    inspectInput.closeSync();
+    final dbHeader = directory.fileHeaders.singleWhere(
+      (header) => header.filename == BackupValues.databaseArchivePath,
+    );
+    final localOffset = dbHeader.localHeaderOffset!;
+    void writeUint32(int offset, int value) {
+      bytes[offset] = value & 0xff;
+      bytes[offset + 1] = (value >> 8) & 0xff;
+      bytes[offset + 2] = (value >> 16) & 0xff;
+      bytes[offset + 3] = (value >> 24) & 0xff;
+    }
+
+    writeUint32(localOffset + 18, 10);
+    final centralOffset = directory.centralDirectoryOffset;
+    var cursor = centralOffset;
+    while (cursor + 46 <= bytes.length &&
+        bytes[cursor] == 0x50 &&
+        bytes[cursor + 1] == 0x4b &&
+        bytes[cursor + 2] == 0x01 &&
+        bytes[cursor + 3] == 0x02) {
+      final nameLength = bytes[cursor + 28] | (bytes[cursor + 29] << 8);
+      final extraLength = bytes[cursor + 30] | (bytes[cursor + 31] << 8);
+      final commentLength = bytes[cursor + 32] | (bytes[cursor + 33] << 8);
+      final name = String.fromCharCodes(
+        bytes.sublist(cursor + 46, cursor + 46 + nameLength),
+      );
+      if (name == BackupValues.databaseArchivePath) {
+        writeUint32(cursor + 24, 10);
+      }
+      cursor += 46 + nameLength + extraLength + commentLength;
+    }
+    await File(package).writeAsBytes(bytes, flush: true);
+
+    await expectLater(
+      BackupArchiveIo.extractAndValidate(
+        packagePath: package,
+        stagingRoot: p.join(temp.path, 'bomb_staging'),
+      ),
+      throwsA(isA<BackupException>().having(
+        (e) => e.failure,
+        'failure',
+        BackupFailure.resourceLimitExceeded,
+      )),
+    );
+  });
+
   test('encrypted package entry is rejected', () async {
     final package = p.join(temp.path, 'encrypted.shiroha');
     final archive = Archive()

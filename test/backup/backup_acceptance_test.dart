@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 import 'package:shiroha_quiz/services/backup/backup_archive_io.dart';
 import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
 import 'package:shiroha_quiz/services/backup/backup_filesystem.dart';
@@ -365,6 +366,65 @@ void main() {
     expect(
       storage.resolveManagedFile('library/file-1').readAsBytesSync(),
       fileBytes,
+    );
+  });
+
+  test(
+      'restore rejects an unsanitized DB carrying credentials and derived rows',
+      () async {
+    final rawDb = p.join(temp.path, 'raw.shiroha.db');
+    await snapshots.createRawConsistentSnapshot(rawDb);
+    final rawManifest = BackupManifest(
+      schemaVersion: 22,
+      createdAtUtc: DateTime.utc(2026),
+      database: BackupDatabaseEntry(
+        archivePath: BackupValues.databaseArchivePath,
+        sizeBytes: File(rawDb).lengthSync(),
+        sha256: BackupFilesystem.sha256File(rawDb),
+      ),
+      managedFiles: <BackupManagedFileEntry>[
+        BackupManagedFileEntry(
+          fileId: 'file-1',
+          storageKey: 'library/file-1',
+          archivePath: BackupValues.managedArchivePath('file-1'),
+          sizeBytes: fileBytes.length,
+          sha256: fileHash,
+        ),
+      ],
+    );
+    final manifestPath = p.join(temp.path, 'raw_manifest.json');
+    await File(manifestPath).writeAsString(rawManifest.encode(), flush: true);
+    final rawPackage = p.join(temp.path, 'raw_package.shiroha');
+    await BackupArchiveIo.writeStoredPackage(
+      packagePath: rawPackage,
+      manifestPath: manifestPath,
+      databasePath: rawDb,
+      files: <ArchiveSourceFile>[
+        ArchiveSourceFile(
+          fileId: 'file-1',
+          path: storage.resolveManagedFile('library/file-1').path,
+        ),
+      ],
+    );
+
+    final restoring = BackupRestoreRuntime(
+      databaseAuthority: SqliteBackupDatabaseAuthority(
+        databaseHelper: helper,
+        snapshotRepository: snapshots,
+      ),
+      snapshotRepository: snapshots,
+      managedFileStorage: storage,
+      restoreRoot: restoreRoot,
+      managedFilesRoot: managedRoot,
+      diskSpaceProbe: const _InfiniteDisk(),
+    );
+    await expectLater(
+      restoring.prepareRestore(rawPackage),
+      throwsA(isA<BackupException>().having(
+        (e) => e.failure,
+        'failure',
+        BackupFailure.databaseInvalid,
+      )),
     );
   });
 

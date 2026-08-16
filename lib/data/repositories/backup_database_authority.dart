@@ -36,9 +36,19 @@ final class SqliteBackupDatabaseAuthority implements BackupDatabaseAuthority {
       _snapshots.openStagedAndValidate(path);
 
   @override
+  Future<void> validateRollbackDatabaseFile(String path) =>
+      _snapshots.openRollbackAndValidateSchema(path);
+
+  @override
   Future<void> validateOpenProduction() async {
     final db = await _databaseHelper.database;
     await DatabaseHelper.validateStagedBackupSchema(db);
+  }
+
+  @override
+  Future<void> validateOpenProductionScrubInvariants() async {
+    final db = await _databaseHelper.database;
+    await _snapshots.validateScrubInvariantsOn(db);
   }
 
   @override

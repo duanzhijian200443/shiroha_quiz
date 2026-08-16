@@ -20,6 +20,19 @@ final class BackupSnapshotRepository {
   Future<BackupSnapshot> createSanitizedSnapshot(
     String snapshotPath,
   ) async {
+    await createRawConsistentSnapshot(snapshotPath);
+    try {
+      return await _sanitizeAndRead(snapshotPath);
+    } catch (_) {
+      await _deleteIfExists(snapshotPath);
+      rethrow;
+    }
+  }
+
+  /// Creates a transactionally consistent, unsanitized snapshot through
+  /// SQLite `VACUUM INTO`. Used by export sanitization and by the restore
+  /// rollback baseline; never a bare file copy of an open WAL database.
+  Future<void> createRawConsistentSnapshot(String snapshotPath) async {
     final snapshot = File(snapshotPath);
     if (await snapshot.exists()) {
       throw const BackupException(BackupFailure.snapshotUnavailable);
@@ -29,21 +42,12 @@ final class BackupSnapshotRepository {
     final db = await _databaseHelper.database;
     final quoted = snapshotPath.replaceAll("'", "''");
     try {
-      // SQLite's VACUUM INTO is a recognized consistent snapshot primitive;
-      // it never copies the live file while WAL/runtime is active.
       await db.execute("VACUUM INTO '$quoted'");
     } catch (_) {
       throw const BackupException(BackupFailure.snapshotUnavailable);
     }
     if (!await snapshot.exists()) {
       throw const BackupException(BackupFailure.snapshotUnavailable);
-    }
-
-    try {
-      return await _sanitizeAndRead(snapshotPath);
-    } catch (_) {
-      await _deleteIfExists(snapshotPath);
-      rethrow;
     }
   }
 
@@ -165,16 +169,35 @@ final class BackupSnapshotRepository {
     return (rows.single['count'] as int) > 0;
   }
 
+  /// Public scrub-invariant validator. Restore must prove a candidate or
+  /// newly installed DB is credential-scrubbed and derived/transient-free;
+  /// schema validation alone is not sufficient.
+  Future<void> validateScrubInvariantsOn(Database db) {
+    return _validateInvariants(db);
+  }
+
+  Future<void> openRollbackAndValidateSchema(String rollbackDatabasePath) {
+    return _openAndValidate(rollbackDatabasePath,
+        includeScrubInvariants: false);
+  }
+
   Future<void> openStagedAndValidate(
     String stagedDatabasePath,
-  ) async {
-    if (await File(stagedDatabasePath).exists() == false) {
+  ) {
+    return _openAndValidate(stagedDatabasePath, includeScrubInvariants: true);
+  }
+
+  Future<void> _openAndValidate(
+    String databasePath, {
+    required bool includeScrubInvariants,
+  }) async {
+    if (await File(databasePath).exists() == false) {
       throw const BackupException(BackupFailure.databaseInvalid);
     }
     final Database migrated;
     try {
       migrated = await _databaseHelper.openPathForStagedMigration(
-        stagedDatabasePath,
+        databasePath,
       );
     } catch (_) {
       throw const BackupException(BackupFailure.databaseInvalid);
@@ -186,6 +209,9 @@ final class BackupSnapshotRepository {
         throw const BackupException(BackupFailure.unsupportedSchemaVersion);
       }
       await DatabaseHelper.validateStagedBackupSchema(migrated);
+      if (includeScrubInvariants) {
+        await _validateInvariants(migrated);
+      }
     } finally {
       await migrated.close();
     }

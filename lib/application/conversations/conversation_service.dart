@@ -1,6 +1,7 @@
 library;
 
 import '../../domain/conversations/conversation.dart';
+import '../backup/backup_restore_gate.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'conversation_repository.dart';
 
@@ -30,6 +31,7 @@ final class ConversationService {
     required String content,
     Iterable<String> fileIds = const <String>[],
   }) async {
+    _ensureMutationAllowed();
     if (scope.isUnavailableLearningSpace) {
       throw const ConversationException(ConversationFailure.scopeUnavailable);
     }
@@ -79,6 +81,7 @@ final class ConversationService {
     required String conversationId,
     required String content,
   }) {
+    _ensureMutationAllowed();
     _validateInputId(conversationId, label: 'Conversation');
     final normalizedContent = _normalizeContent(content);
     return _repositoryCall(
@@ -103,6 +106,7 @@ final class ConversationService {
     required String conversationId,
     required String content,
   }) {
+    _ensureMutationAllowed();
     _validateInputId(conversationId, label: 'Conversation');
     final normalizedContent = _normalizeContent(content);
     return _repositoryCall(
@@ -120,6 +124,7 @@ final class ConversationService {
     required String conversationId,
     required String fileId,
   }) {
+    _ensureMutationAllowed();
     _validateInputId(conversationId, label: 'Conversation');
     _validateInputId(fileId, label: 'File');
     return _repositoryCall(
@@ -135,6 +140,7 @@ final class ConversationService {
     required String conversationId,
     required String fileId,
   }) {
+    _ensureMutationAllowed();
     _validateInputId(conversationId, label: 'Conversation');
     _validateInputId(fileId, label: 'File');
     return _repositoryCall(
@@ -150,6 +156,7 @@ final class ConversationService {
     required String conversationId,
     required ConversationScope targetScope,
   }) async {
+    _ensureMutationAllowed();
     _validateInputId(conversationId, label: 'Conversation');
     if (targetScope.isUnavailableLearningSpace) {
       throw const ConversationException(ConversationFailure.scopeUnavailable);
@@ -211,10 +218,15 @@ final class ConversationService {
   }
 
   Future<void> deleteConversation(String conversationId) {
+    _ensureMutationAllowed();
     _validateInputId(conversationId, label: 'Conversation');
     return _repositoryCall(
       () => _repository.deleteConversation(conversationId),
     );
+  }
+
+  void _ensureMutationAllowed() {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
   }
 
   String _newId(String Function() factory, {required String label}) {

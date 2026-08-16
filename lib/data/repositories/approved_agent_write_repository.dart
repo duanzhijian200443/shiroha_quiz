@@ -30,6 +30,11 @@ final class ApprovedAgentWriteRepository
       ApprovedAgentWriteRepository();
 
   final DatabaseHelper _databaseHelper;
+
+  /// B0-I0 composition reload hook. The durable repository itself has no
+  /// in-memory proposal cache; proposal staging lives in the Application
+  /// service instance which is reconstructed on restore reload.
+  void clearTransientState() {}
   static const QuestionV2PersistenceMapper _mapper =
       QuestionV2PersistenceMapper();
   static const TypedAnswerPersistenceKernel _kernel =

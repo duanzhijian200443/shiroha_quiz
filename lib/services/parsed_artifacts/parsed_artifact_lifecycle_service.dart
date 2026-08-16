@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../application/parsed_artifacts/parsed_artifact_ports.dart';
@@ -127,6 +128,7 @@ final class ParsedArtifactLifecycleService
     required String fileId,
     required ParsedArtifactParseOptions options,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     try {
       _validateFileId(fileId);
       return await _runFileMutationExclusive(fileId, () async {
@@ -171,6 +173,7 @@ final class ParsedArtifactLifecycleService
     required ParsedArtifactParseOptions options,
     required int expectedRevision,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     try {
       _validateFileId(fileId);
       return await _runFileMutationExclusive(fileId, () async {
@@ -210,6 +213,7 @@ final class ParsedArtifactLifecycleService
     required String fileId,
     required int expectedRevision,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     try {
       _validateFileId(fileId);
       if (expectedRevision < 0) {

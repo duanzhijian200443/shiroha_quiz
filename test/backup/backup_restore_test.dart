@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/domain/backup/restore_journal.dart';
 import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
 import 'package:shiroha_quiz/services/backup/backup_filesystem.dart';
+import 'package:shiroha_quiz/services/backup/backup_journal_store.dart';
 import 'package:shiroha_quiz/services/backup/backup_restore_runtime.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
 
@@ -372,6 +373,26 @@ void main() {
     await expectLiveMutated();
   });
 
+  test('post-swap managed-file corruption is detected before COMMITTED',
+      () async {
+    final package = await exportPackage();
+    final corrupting = runtime(
+      faults: _Faults(
+        onFilesReplaced: () async {
+          await storage
+              .resolveManagedFile('library/file-1')
+              .writeAsBytes('corrupt'.codeUnits, flush: true);
+        },
+      ),
+    );
+    await corrupting.prepareRestore(package);
+    await expectLater(
+      corrupting.commitPreparedRestore(),
+      throwsA(isA<BackupException>()),
+    );
+    await expectLiveRestored();
+  });
+
   test('double crash during rollback resumes and ends ROLLED_BACK', () async {
     final package = await exportPackage();
     final firstCrash = runtime(
@@ -400,6 +421,40 @@ void main() {
     final recovery = await runtime().recoverStartupIfNeeded();
     expect(recovery.blocked, isFalse);
     expect(recovery.recoveredJournalState, RestoreJournalState.rolledBack);
+  });
+
+  test('journal keys resolve against restore root, not journal directory',
+      () async {
+    final store = BackupJournalStore(keyRoot: restoreRoot);
+    final journal = RestoreJournal(
+      version: 1,
+      operationId: 'op-1',
+      format: 'shiroha-backup',
+      packageVersion: 1,
+      schemaVersion: 22,
+      packageDigest: 'a' * 64,
+      state: RestoreJournalState.prepared,
+      updatedAtUtc: DateTime.utc(2026),
+      stagingKey: 'staging/op-1',
+      rollbackDbKey: 'rollback/op-1/db',
+      rollbackFilesKey: 'rollback/op-1/files',
+    );
+    await store.write(journal);
+
+    expect(
+      store.resolveKey('staging/op-1'),
+      p.join(restoreRoot.path, 'staging', 'op-1'),
+    );
+
+    // Simulate the crash window where the previous journal was renamed to
+    // .bak before the replacement became visible.
+    await File(store.journalPath).rename('${store.journalPath}.bak');
+    final recovered = await store.read();
+    expect(recovered?.state, RestoreJournalState.prepared);
+
+    await store.clear();
+    expect(File(store.journalPath).existsSync(), isFalse);
+    expect(File('${store.journalPath}.bak').existsSync(), isFalse);
   });
 
   test('pre-commit cancel deletes staging and leaves live state unchanged',

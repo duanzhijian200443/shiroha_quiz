@@ -8,19 +8,29 @@ import '../../domain/backup/restore_journal.dart';
 import 'backup_filesystem.dart';
 
 final class BackupJournalStore {
-  BackupJournalStore({required Directory journalRoot})
-      : _journalPath = p.join(journalRoot.path, 'journal.json'),
-        _root = journalRoot;
+  /// [keyRoot] owns the safe relative keys stored in the journal; the JSON
+  /// file itself lives under [keyRoot]/journal/journal.json so it is outside
+  /// every swapped root but keys resolve against the same root that runtime
+  /// paths are created under.
+  BackupJournalStore({required Directory keyRoot})
+      : _keyRoot = keyRoot,
+        _journalPath = p.join(keyRoot.path, 'journal', 'journal.json');
 
+  final Directory _keyRoot;
   final String _journalPath;
-  final Directory _root;
 
   String get journalPath => _journalPath;
 
   Future<RestoreJournal?> read() async {
     final file = File(_journalPath);
-    if (!await file.exists()) return null;
-    final source = await file.readAsString();
+    final backup = File('$_journalPath.bak');
+    final sourceFile = await file.exists()
+        ? file
+        : await backup.exists()
+            ? backup
+            : null;
+    if (sourceFile == null) return null;
+    final source = await sourceFile.readAsString();
     return RestoreJournal.fromJsonString(source);
   }
 
@@ -32,14 +42,16 @@ final class BackupJournalStore {
   }
 
   Future<void> clear() async {
-    final file = File(_journalPath);
-    if (await file.exists()) {
-      await file.delete();
+    for (final path in <String>[_journalPath, '$_journalPath.bak']) {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
     }
   }
 
   String resolveKey(String key) {
-    final root = p.normalize(p.absolute(_root.path));
+    final root = p.normalize(p.absolute(_keyRoot.path));
     final resolved = p.normalize(p.absolute(p.join(root, key)));
     if (!p.isWithin(root, resolved) && resolved != root) {
       throw const BackupException(BackupFailure.unsafeArchivePath);

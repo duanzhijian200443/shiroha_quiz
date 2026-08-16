@@ -5,6 +5,7 @@ import '../../core/observability/trace_context.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
 import 'backup_contracts.dart';
+import 'backup_restore_gate.dart';
 
 final class BackupRestoreCoordinator {
   BackupRestoreCoordinator({required BackupRestoreOperations operations})
@@ -18,17 +19,27 @@ final class BackupRestoreCoordinator {
   Future<T> _runExclusive<T>({
     required TraceOperationKind operationKind,
     required Future<T> Function() action,
+    bool quiesceMutations = false,
   }) {
     if (_busy) {
       throw const BackupException(BackupFailure.restoreBusy);
     }
+    BackupRestoreMutationGate.instance.acquireExclusive();
     _busy = true;
     return TraceContext.runRoot<T>(
       operationKind: operationKind,
       action: () async {
+        final quiesced = quiesceMutations;
+        if (quiesced) {
+          BackupRestoreMutationGate.instance.enterQuiescence();
+        }
         try {
           return await action();
         } finally {
+          if (quiesced) {
+            BackupRestoreMutationGate.instance.exitQuiescence();
+          }
+          BackupRestoreMutationGate.instance.releaseExclusive();
           _busy = false;
         }
       },
@@ -115,6 +126,7 @@ final class BackupRestoreCoordinator {
   Future<BackupRestoreSuccess> commitPreparedRestore() {
     return _runExclusive(
       operationKind: TraceOperationKind.backupRestore,
+      quiesceMutations: true,
       action: () async {
         final result = await _operations.commitPreparedRestore();
         LogWriter.info(

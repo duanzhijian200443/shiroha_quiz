@@ -57,10 +57,18 @@ abstract final class BackupFilesystem {
     return (sizeBytes: sizeBytes, sha256: hasher.digestHex());
   }
 
+  /// Durable-enough journal replace with a backup generation.
+  ///
+  /// Never leaves a crash window where the previous journal is already
+  /// deleted and the new one is not yet visible: the previous file is first
+  /// renamed to `.bak`, then the fsynced temp file replaces it. If the
+  /// process dies between those two renames, [BackupJournalStore.read]
+  /// falls back to `.bak`.
   static Future<void> atomicWriteString(String path, String content) async {
     final file = File(path);
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.tmp');
+    final backup = File('${file.path}.bak');
     final raf = await temp.open(mode: FileMode.write);
     try {
       raf.writeStringSync(content);
@@ -68,10 +76,25 @@ abstract final class BackupFilesystem {
     } finally {
       await raf.close();
     }
-    if (await file.exists()) {
-      await file.delete();
+
+    if (await backup.exists()) {
+      await backup.delete();
     }
-    await temp.rename(file.path);
+    final hadPrevious = await file.exists();
+    if (hadPrevious) {
+      await file.rename(backup.path);
+    }
+    try {
+      await temp.rename(file.path);
+    } catch (_) {
+      if (hadPrevious && !await file.exists() && await backup.exists()) {
+        await backup.rename(file.path);
+      }
+      rethrow;
+    }
+    if (await backup.exists()) {
+      await backup.delete();
+    }
   }
 
   static Future<void> atomicWriteJson(

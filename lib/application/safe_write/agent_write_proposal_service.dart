@@ -1,4 +1,5 @@
 import '../../domain/question/question_draft_v2.dart';
+import '../backup/backup_restore_gate.dart';
 import 'agent_write_persistence.dart';
 import 'agent_write_proposal.dart';
 import 'agent_write_proposed_answer_policy.dart';
@@ -67,6 +68,7 @@ final class AgentWriteProposalService {
     bool Function(AgentWriteProposal candidate)? resultSizeGate,
     bool Function()? lifecycleMutationAllowed,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     if (!_answerPolicy.isStructurallyValidPayload(proposedAnswer)) {
       return const AgentWriteStageResultIneligible();
     }
@@ -129,6 +131,7 @@ final class AgentWriteProposalService {
   /// commit. Reapproval reports the existing committed outcome; an approval
   /// attempt on a rejected or superseded proposal performs zero writes.
   Future<AgentWriteProposal> approveProposal(String proposalId) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final proposal = _requireProposal(proposalId);
     switch (proposal.outcome) {
       case AgentWriteProposalOutcome.pending:

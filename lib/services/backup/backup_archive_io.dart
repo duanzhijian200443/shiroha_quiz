@@ -404,7 +404,7 @@ abstract final class BackupArchiveIo {
     if (raw == null) throw const BackupException(BackupFailure.invalidPackage);
     await File(targetPath).parent.create(recursive: true);
     final file = await File(targetPath).open(mode: FileMode.write);
-    final output = _FileHashOutput(file);
+    final output = _FileHashOutput(file, maxBytes: declaredLimit);
     try {
       if (zf.compressionMethod == ArchiveFile.DEFLATE) {
         Inflate.stream(raw, output);
@@ -463,11 +463,50 @@ final class ArchiveSourceFile {
   final String path;
 }
 
+final class _RecentBytes {
+  _RecentBytes() : _ring = Uint8List(32768);
+
+  final Uint8List _ring;
+  int _length = 0;
+
+  int get length => _length;
+
+  void addByte(int value) {
+    _ring[_length % _ring.length] = value;
+    _length++;
+  }
+
+  void addBytes(List<int> bytes, int count) {
+    for (var i = 0; i < count; i++) {
+      addByte(bytes[i]);
+    }
+  }
+
+  List<int> subset(int start, [int? end]) {
+    if (_length == 0) return const <int>[];
+    var resolvedStart = start < 0 ? _length + start : start;
+    var resolvedEnd = end == null
+        ? _length
+        : end < 0
+            ? _length + end
+            : end;
+    if (resolvedStart < 0) resolvedStart = 0;
+    if (resolvedEnd > _length) resolvedEnd = _length;
+    if (resolvedEnd <= resolvedStart) return const <int>[];
+    final result = Uint8List(resolvedEnd - resolvedStart);
+    for (var i = resolvedStart; i < resolvedEnd; i++) {
+      result[i - resolvedStart] = _ring[i % _ring.length];
+    }
+    return result;
+  }
+}
+
 final class _BoundedBytesOutput extends OutputStreamBase {
   _BoundedBytesOutput({required this.hardCeiling});
 
   final int hardCeiling;
   final BytesBuilder _builder = BytesBuilder(copy: false);
+  final _RecentBytes _recent = _RecentBytes();
   int _length = 0;
 
   @override
@@ -487,6 +526,7 @@ final class _BoundedBytesOutput extends OutputStreamBase {
   void writeByte(int value) {
     _ensure(1);
     _builder.addByte(value);
+    _recent.addByte(value);
     _length++;
   }
 
@@ -495,8 +535,11 @@ final class _BoundedBytesOutput extends OutputStreamBase {
     final count = len ?? bytes.length;
     _ensure(count);
     _builder.add(bytes is Uint8List ? bytes : Uint8List.fromList(bytes));
+    _recent.addBytes(bytes, count);
     _length += count;
   }
+
+  List<int> subset(int start, [int? end]) => _recent.subset(start, end);
 
   @override
   void writeInputStream(InputStreamBase stream) {
@@ -542,32 +585,46 @@ final class _BoundedBytesOutput extends OutputStreamBase {
 }
 
 final class _FileHashOutput extends OutputStreamBase {
-  _FileHashOutput(this._file);
+  _FileHashOutput(this._file, {required this.maxBytes});
 
   final RandomAccessFile _file;
+  final int maxBytes;
   final StreamingSha256 _hasher = StreamingSha256();
+  final _RecentBytes _recent = _RecentBytes();
   int _length = 0;
 
   @override
   int get length => _length;
+
+  void _ensure(int count) {
+    if (_length + count > maxBytes) {
+      throw const BackupException(BackupFailure.resourceLimitExceeded);
+    }
+  }
 
   @override
   void flush() => _file.flushSync();
 
   @override
   void writeByte(int value) {
+    _ensure(1);
     _file.writeByteSync(value);
     _hasher.update(<int>[value]);
+    _recent.addByte(value);
     _length++;
   }
 
   @override
   void writeBytes(List<int> bytes, [int? len]) {
     final count = len ?? bytes.length;
+    _ensure(count);
     _file.writeFromSync(bytes, 0, count);
     _hasher.update(bytes, 0, count);
+    _recent.addBytes(bytes, count);
     _length += count;
   }
+
+  List<int> subset(int start, [int? end]) => _recent.subset(start, end);
 
   @override
   void writeInputStream(InputStreamBase stream) {

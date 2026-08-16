@@ -115,7 +115,9 @@ abstract interface class BackupDatabaseAuthority {
   Future<void> closeProduction();
   Future<void> reopenProduction();
   Future<void> validateDatabaseFile(String path);
+  Future<void> validateRollbackDatabaseFile(String path);
   Future<void> validateOpenProduction();
+  Future<void> validateOpenProductionScrubInvariants();
   Future<List<SnapshotLibraryFile>> readOpenProductionLibraryFiles();
 }
 
