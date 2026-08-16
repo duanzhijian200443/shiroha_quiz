@@ -121,6 +121,50 @@ void main() {
     BackupRestoreMutationGate.instance.exitQuiescence();
   });
 
+  test('exam generation holds quiescence and follow-up create stays blocked',
+      () async {
+    final persistence = _ExamPersistence();
+    final command = ExamMutationCommand(persistence);
+    final generationRelease = Completer<List<Map<String, dynamic>>>();
+
+    final pendingGeneration = runExamGeneration(
+      () => generationRelease.future,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(BackupRestoreMutationGate.instance.activeMutationCount, 1);
+
+    final drained = BackupRestoreMutationGate.instance.enterQuiescence();
+    var drainCompleted = false;
+    unawaited(drained.then((_) => drainCompleted = true));
+    await Future<void>.delayed(Duration.zero);
+    expect(drainCompleted, isFalse);
+
+    generationRelease.complete(const <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'generated-1'},
+    ]);
+    final generated = await pendingGeneration;
+    await drained;
+
+    expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
+    expect(drainCompleted, isTrue);
+    await expectLater(
+      command.createExamPaper('Generated exam', 1, generated),
+      _restoreBlocked(),
+    );
+    expect(persistence.createCalls, 0);
+    BackupRestoreMutationGate.instance.exitQuiescence();
+  });
+
+  test('exam generation failure releases the lease', () async {
+    await expectLater(
+      runExamGeneration<List<Map<String, dynamic>>>(
+        () async => throw StateError('synthetic generation failure'),
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
+  });
+
   test('subjective grading holds lease across judge and terminal writes',
       () async {
     final persistence = _ExamPersistence();

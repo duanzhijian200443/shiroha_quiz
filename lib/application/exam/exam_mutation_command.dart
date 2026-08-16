@@ -54,6 +54,14 @@ typedef ExamSubjectiveJudge = Future<ExamSubjectiveGrade?> Function(
   ExamSubjectiveTask task,
 );
 
+/// Holds a B0 mutation lease while a future Exam creation is still being
+/// generated. If restore maintenance is requested during this provider wait,
+/// quiescence cannot pass early; the follow-up gated create is then rejected
+/// before persistence while maintenance remains asserted.
+Future<T> runExamGeneration<T>(Future<T> Function() generate) {
+  return BackupRestoreMutationGate.instance.runMutation(generate);
+}
+
 /// Application authority for every production Exam mutation.
 final class ExamMutationCommand {
   const ExamMutationCommand(this._persistence);
