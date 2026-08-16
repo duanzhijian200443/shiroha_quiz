@@ -74,6 +74,10 @@ Archive/path safety is fail-closed:
   named by this contract; no package payload is interpreted or executed.
 - `manifest.json` is a regular JSON file entry, not a directory or link.
 
+Resource admission for entry count, manifest bytes, declared sizes,
+compression methods, streaming output, and free-space preflight is frozen in
+§12 and is enforced before and during extraction.
+
 The manifest must not copy Conversation text, Question text, typed sidecar
 payloads, or user file bytes. Those bytes remain only inside
 `database/shiroha.db` or `files/library/<fileId>` as applicable.
@@ -300,6 +304,8 @@ Type/format rules:
 - `managedFiles[].fileId`/`storageKey` match the snapshot `library_files` row;
   `storageKey` must pass the F0 safe-storage-key validation.
 - `sizeBytes` are non-negative integers; `sha256` values are lowercase hex.
+- Every declared `sizeBytes` value must pass the v0 entry and package ceilings
+  in §12 before extraction.
 - v1 emits no extra root fields. Any future bounded format metadata must use a
   separately versioned strict DTO and an unknown metadata version must fail
   closed.
@@ -340,6 +346,7 @@ Frozen restore pipeline:
 ```text
 package
 | strict manifest validation
+| archive resource admission
 | extract to isolated staging root
 | digest / size validation
 | validate staged DB
@@ -353,6 +360,9 @@ package
 
 - Extraction is isolated; no package path is used to access anything outside
   the staging root.
+- Resource admission (§12) is fail-closed: limit breaches stop extraction
+  immediately and clean staging with the fixed safe failure
+  `resourceLimitExceeded`.
 - Every pre-commit failure leaves live DB, live managed files, and secure
   credentials unchanged.
 - Only after all staged validation succeeds may LIVE be touched.
@@ -427,10 +437,16 @@ pre-restore DB + managed files
 
 - LIVE may be touched only after the staged package has been fully validated.
 - Complete rollback copies of the pre-restore DB and managed files must be
-  prepared before the first live mutation.
+  prepared and verified before the first live mutation.
+- The durable restore journal (§11) must be in `SWAPPING` state before the
+  first live mutation. Live mutation without a durable `SWAPPING` journal is
+  forbidden.
 - If DB replacement fails, managed-file replacement fails, reopen fails, or
-  post-swap validation fails, the implementation must attempt to restore the
-  complete ROLLBACK state.
+  post-swap validation fails, the implementation must transition the journal
+  to `ROLLING_BACK` and attempt to restore the complete ROLLBACK state.
+- Rollback success transitions the journal to `ROLLED_BACK`; rollback failure
+  transitions it to the terminal `ROLLBACK_FAILED` state. In either case,
+  restore is not reported as success.
 
 Restore success may be reported only when all are true:
 
@@ -440,25 +456,197 @@ new DB valid
 new managed originals valid
 +
 application reopened/reinitialized successfully
++
+journal durably COMMITTED
 ```
 
-Only after success may old rollback state be cleaned up.
+After `COMMITTED`, old rollback state cleanup is best-effort. A cleanup
+failure leaves the journal in `COMMITTED` for startup retry and does not
+invalidate the already-committed durable state.
 
-## 11. Cancellation
+## 11. Durable restore journal and startup recovery
 
-Before commit:
+B0-I0 must persist a **durable restore journal** for every whole-restore
+commit. Crash recovery is frozen by this contract, not left as an I0
+implementation choice.
+
+### Journal placement and integrity
+
+- The journal lives outside all swapped roots: not inside the live DB
+  directory, not inside the live managed-files root, and not inside package
+  staging. A DB or managed-files swap must never delete or replace it.
+- The journal is local device state and is never packaged inside `.shiroha`.
+- It is a strict versioned DTO with `restoreJournalVersion = 1`; an unknown
+  required version, unknown state, or malformed journal fails closed.
+- Every state transition is flushed/fsynced durably before the corresponding
+  filesystem action may begin.
+- Journal content is bounded metadata only: journal version, operationId,
+  package format/`packageVersion`/`schemaVersion`, package or manifest digest,
+  state, `updatedAt`, counts, byte counts, and safe relative rollback/staging
+  identities. It must never contain displayName, absolute paths, user content,
+  credential material, or a manifest body.
+
+### Frozen state machine
+
+```text
+PREPARED -> SWAPPING -> COMMITTED
+                |
+                v
+          ROLLING_BACK -> ROLLED_BACK
+                |
+                v
+          ROLLBACK_FAILED
+```
+
+- `PREPARED`: staged package validated; complete pre-restore DB + managed-file
+  rollback state copied and verified; no live mutation has begun.
+- `SWAPPING`: journal durably `SWAPPING` before the first live mutation;
+  replacement, reopen, and post-swap validation are in progress.
+- `COMMITTED`: new DB and managed originals valid and the application has
+  reopened/reinitialized successfully. Only then may restore report success.
+- `ROLLING_BACK`: failure or crash after `SWAPPING`; restoration of the old
+  state is in progress.
+- `ROLLED_BACK`: the complete old state is restored and verified; restore has
+  failed safely and is never reported as success.
+- `ROLLBACK_FAILED`: rollback itself could not restore the complete old state.
+  This is a terminal failure; the journal is retained.
+
+Commit-success ordering:
+
+```text
+staged package fully validated
+-> rollback copies complete + verified
+-> journal durably PREPARED
+-> journal durably SWAPPING
+-> live swap + reopen + post-swap validation
+-> journal durably COMMITTED
+-> report success
+-> best-effort cleanup
+```
+
+No live DB or managed-file mutation may begin before `PREPARED` exists and
+`SWAPPING` is durably recorded.
+
+### Startup recovery
+
+The journal check must run **before production database initialization** and
+before normal Application composition enters service. It is forbidden to open
+the live DB and enter normal operation while an unfinished restore journal
+exists.
+
+No journal -> normal startup.
+
+Valid journal:
+
+- `PREPARED`, `SWAPPING`, or `ROLLING_BACK`: startup must complete rollback
+  from the verified rollback state, verify the old DB and old managed
+  originals, transition to `ROLLED_BACK`, clean staging, clear the journal,
+  and only then enter normal operation with the old state. Startup must never
+  discard an unfinished journal and open the potentially mixed live state.
+- `ROLLED_BACK`: startup verifies the restored old state, cleans staging,
+  clears the journal, and enters normal operation with the old state.
+- `COMMITTED`: startup verifies the new state can be reopened/validated,
+  completes best-effort cleanup, clears the journal, and enters normal
+  operation. If new-state verification fails while complete rollback state
+  still exists, startup transitions to `ROLLING_BACK`; if complete rollback
+  state no longer exists, startup transitions to `ROLLBACK_FAILED`.
+- `ROLLBACK_FAILED`: startup must not enter normal operation. The app enters a
+  maintenance/blocked state, exposes the OBS `diagnosticId` / safe diagnostic
+  summary, and retains the journal. No automatic destructive recovery is
+  attempted.
+
+A malformed or unknown-version journal is fail-closed: normal startup is
+blocked, the journal evidence is retained, and only a safe diagnostic summary
+may be surfaced.
+
+During journal recovery the app remains quiescent: no user mutation, Agent
+turn, Import/OCR/ParsedArtifact mutation, Conversation mutation, or second
+backup/restore may start.
+
+## 12. Archive resource admission and disk-exhaustion defense
+
+ZIP path safety alone is insufficient. B0 v0 enforces fail-closed resource
+admission before and during extraction.
+
+Frozen v0 limits:
+
+```text
+maxArchiveEntries                     = 65,536
+manifestEntryMaxBytes                 = 16 MiB (16,777,216 bytes)
+databaseMaxDeclaredSizeBytes          = 4 GiB  (4,294,967,296 bytes)
+singleManagedFileMaxDeclaredSizeBytes = 8 GiB  (8,589,934,592 bytes)
+packageMaxDeclaredUncompressedBytes   = 16 GiB (17,179,869,184 bytes)
+```
+
+- `maxArchiveEntries` counts every archive entry: manifest, database, and all
+  managed originals.
+- The manifest entry's compressed and uncompressed bytes are each limited to
+  `manifestEntryMaxBytes`; the parser never buffers more.
+- `database.sizeBytes` and each `managedFiles[].sizeBytes` must respect their
+  entry ceilings and their sum must respect the package ceiling.
+- These limits are `packageVersion = 1` contract values. A later version may
+  raise them only through a new package-version contract.
+
+Enforcement before extraction:
+
+- validate the archive entry count and reject `resourceLimitExceeded` when the
+  bound is exceeded;
+- reject encrypted entries and any compression method not explicitly allowed.
+  v0 accepts only ZIP stored and deflate methods; anything else is a fixed
+  `unsupportedCompression` safe failure;
+- require every ZIP entry's declared uncompressed size to match the manifest
+  field for that entry; mismatch fails closed;
+- enforce all declared-size ceilings before writing any staged bytes.
+
+Streaming extraction:
+
+- decompression/output is streamed while counting bytes per entry and total;
+  actual output is the authority, never the ZIP header alone;
+- if actual bytes would exceed the manifest-declared size, the entry ceiling,
+  the package ceiling, or the entry-count bound, extraction terminates
+  immediately, staging is deleted, and `resourceLimitExceeded` is returned;
+- a disk-write failure such as out-of-space is normalized to
+  `resourceLimitExceeded`, never a raw OS error/path.
+
+Export must apply the same entry-count, manifest-byte, entry-size, and package
+ceiling checks before building the temporary archive. A library whose snapshot
+or manifest would exceed a v0 limit fails `resourceLimitExceeded` with zero
+live mutation.
+
+Free-space preflight:
+
+- Export: before building the temporary archive, verify available space covers
+  the snapshot DB size + packaged original bytes + final/temporary package
+  coexistence + working reserve. Failure -> `resourceLimitExceeded`, zero live
+  mutation.
+- Restore extraction: before extraction, verify available space covers the
+  declared package uncompressed total + working reserve.
+- Restore commit: before creating rollback copies and touching LIVE, verify
+  available space covers the current live DB + current live managed originals
+  + working reserve.
+- The working reserve is `max(512 MiB, 10% of the operation's durable byte
+  requirement)` and is a contract floor, not a suggestion.
+
+`resourceLimitExceeded` is a fixed safe failureCode. It must flow through the
+existing OBS diagnostic summary without logging entry names, manifest body,
+absolute paths, or user content.
+
+## 13. Cancellation
+
+Before commit (journal absent or `PREPARED`, and before any live mutation):
 
 ```text
 cancel
 -> delete staging
+-> clear any PREPARED journal
 -> ZERO LIVE MUTATION
 ```
 
-After the commit phase begins, cancellation is disabled. The operation must
-either complete successfully or execute rollback; it may not stop half-way and
-leave a mixed state.
+After the journal durably enters `SWAPPING`, cancellation is disabled. The
+operation must either complete successfully or execute rollback through
+`ROLLING_BACK`; it may not stop half-way and leave a mixed state.
 
-## 12. In-memory state
+## 14. In-memory state
 
 Restore success freezes the following behavior:
 
@@ -470,7 +658,7 @@ Restore success freezes the following behavior:
 
 The implementation mechanism is chosen in B0-I0, but this behavior is frozen.
 
-## 13. Idempotency
+## 15. Idempotency
 
 Restoring the same `.shiroha` twice must produce the same durable state:
 
@@ -482,7 +670,7 @@ restore -> restore again
 Restore must not duplicate Questions, Conversations, LibraryFiles, or
 StudyPlans.
 
-## 14. OBS-1 observability
+## 16. OBS-1 observability
 
 B0 Export and Restore must enter the unified operation trace. The bounded
 operation kinds are:
@@ -501,19 +689,25 @@ Only these fields may be recorded:
 - status;
 - fixed failureCode.
 
+Fixed safe failureCodes include the restore journal terminal states
+(`ROLLBACK_FAILED`) and resource admission (`resourceLimitExceeded`,
+`unsupportedCompression`); failureCode values must remain fixed enum-like
+tokens, never derived from an exception message or path.
+
 OBS must never log:
 
 - file displayName;
 - absolute path;
 - question/conversation content;
 - manifest body;
+- restore journal body;
 - API key.
 
 Failures must be able to return the existing OBS `diagnosticId` and safe
 diagnostic summary. OBS-1 remains schema v22; B0-P0 adds no telemetry or log
 schema.
 
-## 15. Non-goals
+## 17. Non-goals
 
 B0 v0 explicitly excludes:
 
@@ -536,7 +730,7 @@ B0 v0 explicitly excludes:
 
 The ordering `Package -> Transfer -> Sync` remains unchanged.
 
-## 16. Stage graph and risk
+## 18. Stage graph and risk
 
 Frozen stage graph:
 
@@ -570,7 +764,7 @@ All B0 implementation stages are `SERIAL`. A later stage never auto-activates
 before the previous checkpoint closes. B0-P0 is docs-only and already satisfies
 that boundary.
 
-## 17. Required B0-V0 acceptance matrix
+## 19. Required B0-V0 acceptance matrix
 
 The B0-V0 acceptance suite must cover:
 
@@ -601,9 +795,25 @@ The B0-V0 acceptance suite must cover:
 25. DB swap failure restores original live state;
 26. managed-file swap failure restores original live state;
 27. post-swap reopen failure restores original live state;
-28. restore success invalidates/reloads stale in-memory state.
+28. restore success invalidates/reloads stale in-memory state;
+29. crash after DB swap but before managed-file swap recovers the complete
+    pre-restore durable state at next startup;
+30. startup detects an unfinished restore journal before production DB
+    initialization and never opens a mixed LIVE state;
+31. `ROLLING_BACK` interrupted by another crash resumes rollback at next
+    startup and ends in `ROLLED_BACK`;
+32. rollback failure leaves `ROLLBACK_FAILED` terminal state and blocks normal
+    startup without deleting the journal;
+33. a small archive declaring oversized total/manifest/entry sizes is rejected
+    as `resourceLimitExceeded` before staged bytes are written;
+34. entry-count overflow, encrypted entry, or unsupported compression method
+    is rejected before extraction;
+35. actual streamed decompressed bytes exceeding declared size or package
+    ceiling terminate immediately and delete staging;
+36. export/restore free-space preflight failure returns
+    `resourceLimitExceeded` with zero live mutation.
 
-## 18. Contract authorities
+## 20. Contract authorities
 
 - `ARCHITECTURE.md` — repository-wide architecture boundary and current v22
   schema statement.
