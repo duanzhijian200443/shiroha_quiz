@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../application/agent/agent_config.dart';
 import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
+import '../../core/observability/diagnostic_summary.dart';
 import '../../application/agent/retrieval_egress_grant.dart';
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/conversations/conversation_service.dart';
@@ -98,9 +99,21 @@ final class ConversationController extends ChangeNotifier {
   StreamSubscription<AgentTurnEvent>? _turnEvents;
   String? _retryConversationId;
   String? _retryUserMessageId;
+  String? _activeDiagnosticId;
   int _turnEpoch = 0;
   int _threadRevision = 0;
   bool _disposed = false;
+
+  /// OBS-1 safe diagnostic snapshot of the last failed turn; null otherwise.
+  /// Never contains message content, tool payloads, RAG passages, provider
+  /// bodies, paths or stacks.
+  DiagnosticSummary? turnDiagnostic;
+
+  String? get turnDiagnosticId => turnDiagnostic?.diagnosticId;
+
+  String? get diagnosticCopyText => turnDiagnostic == null
+      ? null
+      : DiagnosticSummaryFormatter.format(turnDiagnostic!);
 
   /// Passive-dismissal Presentation state: one exact proposal identity per
   /// source User turn, grouped by source Conversation. This remains transient
@@ -555,6 +568,9 @@ final class ConversationController extends ChangeNotifier {
             conversationId: conversationId,
             userMessageId: userMessageId,
           );
+    // OBS-1: the diagnostic id is stable from turn creation onward; the
+    // Presentation never invents its own id.
+    _activeDiagnosticId = session.diagnosticId;
     _activeSession = session;
     _turnEvents = session.events.listen(
       (event) => _projectTurnEvent(event, session, epoch),
@@ -645,8 +661,8 @@ final class ConversationController extends ChangeNotifier {
         } catch (_) {
           errorMessage = conversationReadSafeError;
         }
-      case AgentTurnFailed(:final failure):
-        _showTurnFailure(failure);
+      case AgentTurnFailed(:final failure, :final summary):
+        _showTurnFailure(failure, summary: summary);
     }
     if (!_disposed) notifyListeners();
   }
@@ -672,13 +688,31 @@ final class ConversationController extends ChangeNotifier {
     _threadRevision++;
   }
 
-  void _showTurnFailure(AgentTurnFailure failure) {
+  void _showTurnFailure(AgentTurnFailure failure,
+      {DiagnosticSummary? summary}) {
     turnFailure = failure;
     turnPhase = failure == AgentTurnFailure.cancelled
         ? AssistantTurnPhase.cancelled
         : AssistantTurnPhase.failed;
     errorMessage = _agentFailureMessage(failure);
     statusMessage = failure == AgentTurnFailure.cancelled ? '已停止生成' : null;
+    final diagnosticId = _activeDiagnosticId;
+    final candidate = summary ??
+        (diagnosticId == null
+            ? null
+            : DiagnosticSummary(
+                diagnosticId: diagnosticId,
+                operation: 'agent_turn',
+                failure: failure.name,
+              ));
+    // OBS-1: only a strictly valid correlation id may surface the diagnostic
+    // number and the copy affordance.
+    turnDiagnostic = candidate != null &&
+            DiagnosticSummaryFormatter.isValidDiagnosticId(
+              candidate.diagnosticId,
+            )
+        ? candidate
+        : null;
   }
 
   Future<AgentTurnFailure?> _loadConfigurationFailure() async {
@@ -972,6 +1006,8 @@ final class ConversationController extends ChangeNotifier {
     _clearProposal();
     _clearStudyPlanDraft();
     turnFailure = null;
+    turnDiagnostic = null;
+    _activeDiagnosticId = null;
     turnPhase = AssistantTurnPhase.idle;
     if (clearRetry) {
       _retryConversationId = null;

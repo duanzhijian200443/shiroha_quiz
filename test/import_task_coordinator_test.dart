@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_failure_classifier.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
@@ -13,6 +14,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -1071,5 +1073,387 @@ void main() {
       ),
       throwsA(isA<TypedReviewSnapshotException>()),
     );
+  });
+
+  group('OBS-1 import correlation', () {
+    test('initial attempt creates task/correlation/trace with attempt 1',
+        () async {
+      var traceIndex = 0;
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => 'obs-initial-task',
+        traceIdFactory: () => 'obs-trace-${traceIndex++}',
+        attemptTokenFactory: () => 'obs-attempt-1',
+      );
+      final handle = await coordinator.dispatch(
+        sourceDescription: 'same.pdf',
+        mode: ImportParseMode.ocr,
+        parse: (_) async => const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'content': 'Synthetic question',
+              'standard_answer': 'A',
+            },
+          ],
+        ),
+      );
+
+      final task = await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+
+      expect(handle.taskId, 'obs-initial-task');
+      expect(handle.attemptNumber, 1);
+      expect(handle.correlationId, isNotNull);
+      expect(
+        handle.correlationId,
+        matches(TraceContext.correlationIdPattern),
+      );
+      expect(handle.parentTraceId, isNull);
+      expect(task.correlationId, handle.correlationId);
+      expect(task.attemptNumber, 1);
+      expect(task.traceId, handle.traceId);
+
+      // The attempt runs inside an importAttempt trace with the correlation.
+      final dispatched = logSink.records.where(
+        (record) => record.data['stage'] == 'import_dispatch',
+      );
+      expect(dispatched, isNotEmpty);
+      expect(dispatched.first.correlationId, handle.correlationId);
+      expect(dispatched.first.traceId, handle.traceId);
+      expect(
+        dispatched.first.operationKind,
+        TraceOperationKind.importAttempt,
+      );
+      expect(dispatched.first.taskId, handle.taskId);
+    });
+
+    test(
+        'retry keeps task and correlation, changes trace/token/attempt and '
+        'points parent at the previous attempt', () async {
+      var traceIndex = 0;
+      var attemptIndex = 0;
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => 'obs-retry-task',
+        traceIdFactory: () => 'obs-trace-${traceIndex++}',
+        attemptTokenFactory: () => 'obs-attempt-${attemptIndex++}',
+      );
+
+      final firstHandle = await coordinator.dispatch(
+        sourceDescription: 'same.pdf',
+        mode: ImportParseMode.ocr,
+        parse: (_) async => throw StateError('synthetic first failure'),
+      );
+      await _waitForTask(
+        manager,
+        firstHandle.taskId,
+        (task) => task.status == TaskStatus.error,
+      );
+
+      final secondHandle = await coordinator.retryOcrTask(
+        taskId: firstHandle.taskId,
+        sourceDescription: 'same.pdf',
+        parse: (_) async => const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '2',
+              'content': 'Synthetic retry question',
+              'standard_answer': 'B',
+            },
+          ],
+        ),
+      );
+      final retried = await _waitForTask(
+        manager,
+        firstHandle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+
+      expect(secondHandle.taskId, firstHandle.taskId);
+      expect(secondHandle.correlationId, firstHandle.correlationId);
+      expect(secondHandle.traceId, isNot(firstHandle.traceId));
+      expect(secondHandle.attemptToken, isNot(firstHandle.attemptToken));
+      expect(secondHandle.attemptNumber, firstHandle.attemptNumber + 1);
+      expect(secondHandle.attemptNumber, 2);
+      expect(secondHandle.parentTraceId, firstHandle.traceId);
+
+      expect(retried.correlationId, firstHandle.correlationId);
+      expect(retried.traceId, secondHandle.traceId);
+      expect(retried.attemptNumber, 2);
+      expect(retried.attemptToken, secondHandle.attemptToken);
+      expect(
+        retried.diagnostics?[TaskManager.keyParentTraceId],
+        firstHandle.traceId,
+      );
+
+      // Correlation metadata survives progress -> failure -> retry -> review.
+      expect(firstHandle.correlationId, isNotNull);
+      expect(retried.status, TaskStatus.pendingReview);
+    });
+
+    test('batch identity stays independent from per-task correlation',
+        () async {
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        batchIdFactory: () => 'obs-batch',
+      );
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: <ImportTaskBatchItem>[
+          ImportTaskBatchItem(
+            sourceDescription: 'a.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (_) async => const ImportParseResult(
+              questions: <Map<String, dynamic>>[
+                <String, dynamic>{'q_num': '1', 'content': 'A'},
+              ],
+            ),
+          ),
+          ImportTaskBatchItem(
+            sourceDescription: 'b.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (_) async => const ImportParseResult(
+              questions: <Map<String, dynamic>>[
+                <String, dynamic>{'q_num': '1', 'content': 'B'},
+              ],
+            ),
+          ),
+        ],
+      );
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+
+      expect(batch.batchId, 'obs-batch');
+      expect(batch.tasks, hasLength(2));
+      expect(batch.tasks[0].correlationId, isNotNull);
+      expect(batch.tasks[1].correlationId, isNotNull);
+      expect(
+        batch.tasks[0].correlationId,
+        isNot(batch.tasks[1].correlationId),
+      );
+      for (final handle in batch.tasks) {
+        expect(handle.correlationId, isNot(batch.batchId));
+        final task = manager.tasks.firstWhere(
+          (task) => task.id == handle.taskId,
+        );
+        expect(task.batchId, 'obs-batch');
+        expect(task.correlationId, handle.correlationId);
+      }
+    });
+
+    test('batch tasks inside an enclosing trace still own fresh correlations',
+        () async {
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        batchIdFactory: () => 'obs-nested-batch',
+      );
+      final batch = await TraceContext.run(
+        correlationId: 'OBS-AAAA-BBBB',
+        traceId: 'trace-enclosing',
+        operationKind: TraceOperationKind.agentTurn,
+        action: () => coordinator.dispatchIndependentBatch(
+          items: <ImportTaskBatchItem>[
+            ImportTaskBatchItem(
+              sourceDescription: 'a.pdf',
+              mode: ImportParseMode.ocr,
+              parse: (_) async => const ImportParseResult(
+                questions: <Map<String, dynamic>>[
+                  <String, dynamic>{'q_num': '1', 'content': 'A'},
+                ],
+              ),
+            ),
+            ImportTaskBatchItem(
+              sourceDescription: 'b.pdf',
+              mode: ImportParseMode.ocr,
+              parse: (_) async => const ImportParseResult(
+                questions: <Map<String, dynamic>>[
+                  <String, dynamic>{'q_num': '1', 'content': 'B'},
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+
+      expect(batch.batchId, 'obs-nested-batch');
+      expect(batch.tasks, hasLength(2));
+      final first = batch.tasks[0];
+      final second = batch.tasks[1];
+      expect(first.correlationId, isNot(second.correlationId));
+      expect(first.correlationId, isNot('OBS-AAAA-BBBB'));
+      expect(second.correlationId, isNot('OBS-AAAA-BBBB'));
+      expect(
+        first.correlationId,
+        matches(TraceContext.correlationIdPattern),
+      );
+      // The enclosing trace is the parent of every task in the batch.
+      expect(first.parentTraceId, 'trace-enclosing');
+      expect(second.parentTraceId, 'trace-enclosing');
+      // Persisted metadata matches the handles.
+      for (final handle in batch.tasks) {
+        final task = manager.tasks.firstWhere(
+          (task) => task.id == handle.taskId,
+        );
+        expect(task.correlationId, handle.correlationId);
+        expect(task.parentTraceId, 'trace-enclosing');
+        expect(task.batchId, 'obs-nested-batch');
+      }
+    });
+
+    test(
+        'real ImportPipeline executed inside importAttempt correlation never leaks '
+        'filename, absolute path, or question content into correlated LogRecords',
+        () async {
+      const filenameSentinel = 'PRIVATE_FILENAME_SENTINEL.pdf';
+      const pathSentinel = r'C:\private\secrets\PRIVATE_FILENAME_SENTINEL.pdf';
+      const contentSentinel = 'PRIVATE_QUESTION_STEM_CONTENT_SENTINEL';
+
+      final pipeline = ImportPipelineService.forTesting(
+        textParser: (rawText, {required taskId, required isMarkdown}) async =>
+            <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'content': contentSentinel,
+            'standard_answer': 'A',
+          },
+        ],
+        visionParser: (imagePaths) async => const <Map<String, dynamic>>[],
+        ocrParser: (
+            {required filePath,
+            required sourceName,
+            required format,
+            required ExplanationRetentionMode explanationRetentionMode}) async {
+          return const OcrImportResult(
+            questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'q_num': '1',
+                'content': contentSentinel,
+                'standard_answer': 'A',
+              },
+            ],
+            warnings: <String>[],
+            diagnostics: <String, dynamic>{},
+            usedOcr: true,
+          );
+        },
+      );
+
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        parser: pipeline.parseFiles,
+        taskIdFactory: () => 'obs-privacy-task',
+        traceIdFactory: () => 'obs-privacy-trace',
+      );
+
+      final handle = await coordinator.dispatchRequest(
+        sourceDescription: filenameSentinel,
+        filePaths: const <String>[pathSentinel],
+        fileNames: const <String>[filenameSentinel],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+      );
+
+      final task = await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+      await AppLogger.flush();
+
+      expect(handle.correlationId, isNotNull);
+      expect(
+        handle.correlationId,
+        matches(TraceContext.correlationIdPattern),
+      );
+      expect(task.correlationId, handle.correlationId);
+
+      // Collect all LogRecords associated with this correlationId.
+      final correlatedRecords = logSink.records
+          .where((record) => record.correlationId == handle.correlationId)
+          .toList();
+
+      expect(
+        correlatedRecords,
+        isNotEmpty,
+        reason: 'Correlated LogRecords must be captured',
+      );
+
+      // ImportPipeline structural records must exist and be correlated.
+      final pipelineStartRecords = correlatedRecords.where(
+        (record) => record.message == 'Import file processing started',
+      );
+      expect(
+        pipelineStartRecords,
+        isNotEmpty,
+        reason: 'Import file processing started log must be recorded',
+      );
+      final startRecord = pipelineStartRecords.first;
+      expect(startRecord.module, 'ImportPipeline');
+      expect(startRecord.data['fileIndex'], 0);
+      expect(startRecord.data['format'], 'pdf');
+      expect(
+        startRecord.data.containsKey('sourceName'),
+        isFalse,
+        reason: 'sourceName must be omitted from structured log data',
+      );
+
+      final pipelineSpanRecords = correlatedRecords.where(
+        (record) => record.message.startsWith('Import pipeline'),
+      );
+      expect(
+        pipelineSpanRecords,
+        isNotEmpty,
+        reason: 'Import pipeline span must be recorded',
+      );
+
+      // Assert that NO correlated LogRecord contains filename, path, or content sentinels.
+      for (final record in correlatedRecords) {
+        final recordJson = jsonEncode(record.toJson());
+        expect(
+          recordJson,
+          isNot(contains(filenameSentinel)),
+          reason:
+              'Log record ${record.message} must not contain filename sentinel',
+        );
+        expect(
+          recordJson,
+          isNot(contains('PRIVATE_FILENAME_SENTINEL')),
+          reason:
+              'Log record ${record.message} must not contain filename token',
+        );
+        expect(
+          recordJson,
+          isNot(contains(r'C:\private\secrets')),
+          reason:
+              'Log record ${record.message} must not contain absolute path sentinel',
+        );
+        expect(
+          recordJson,
+          isNot(contains(contentSentinel)),
+          reason:
+              'Log record ${record.message} must not contain question content sentinel',
+        );
+      }
+    });
   });
 }

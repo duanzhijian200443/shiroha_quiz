@@ -187,7 +187,6 @@ class ImportPipelineService {
         module: 'ImportPipeline',
         data: <String, Object?>{
           'fileIndex': fileIdx,
-          'sourceName': sourceName,
           'format': format.name,
         },
       );

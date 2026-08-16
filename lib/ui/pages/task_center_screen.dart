@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/observability/diagnostic_summary.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
 import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_diagnostic_summary.dart';
@@ -130,6 +131,11 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
     final progress = task.percent.clamp(0.0, 1.0).toDouble();
     final presentation = TaskCenterProjection.presentationFor(task);
     final actionPending = _pendingActionTaskIds.contains(task.id);
+    // OBS-1: the diagnostic affordance only appears for strictly valid
+    // correlation ids (fixed OBS-XXXX-XXXX format).
+    final correlationId = task.correlationId;
+    final hasValidDiagnosticId = correlationId != null &&
+        DiagnosticSummaryFormatter.isValidDiagnosticId(correlationId);
 
     return Card(
       key: ValueKey<String>('import-task-${task.id}'),
@@ -225,6 +231,38 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                       fontFamily: 'monospace',
                     ),
                   ),
+                  if (task.status == TaskStatus.error &&
+                      hasValidDiagnosticId) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '诊断编号：$correlationId',
+                            key:
+                                ValueKey<String>('task-correlation-${task.id}'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          key: ValueKey<String>(
+                            'task-copy-diagnostic-${task.id}',
+                          ),
+                          onPressed: () => _copyImportDiagnostic(task),
+                          icon: const Icon(Icons.copy_rounded, size: 16),
+                          tooltip: '复制诊断信息',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                  ],
                   if (task.status == TaskStatus.processing) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
@@ -559,6 +597,28 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
       isScrollControlled: true,
       builder: (_) => _ImportTaskDiagnosticSheet(task: task),
     );
+  }
+
+  /// OBS-1: copies only the whitelist diagnostic summary of a failed Import
+  /// attempt. Never copies messages, tool payloads, RAG content, provider
+  /// bodies, paths or stacks.
+  Future<void> _copyImportDiagnostic(ImportTask task) async {
+    final correlationId = task.correlationId;
+    if (correlationId == null) return;
+    final summary = DiagnosticSummary(
+      diagnosticId: correlationId,
+      operation: 'import_attempt',
+      failure: task.diagnostics?['errorType']?.toString(),
+      status: 'failed',
+      taskId: task.id,
+      attemptNumber: task.attemptNumber,
+      traceId: task.traceId,
+    );
+    final text = DiagnosticSummaryFormatter.format(summary);
+    if (text == null) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    _showSafeActionMessage('诊断信息已复制');
   }
 }
 

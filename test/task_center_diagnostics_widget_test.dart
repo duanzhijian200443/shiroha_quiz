@@ -1045,4 +1045,111 @@ void main() {
     expect(find.text('private exception body'), findsNothing);
     expect(find.text(r'C:\private\import.log'), findsNothing);
   });
+
+  group('OBS-1 import diagnostic activation', () {
+    testWidgets(
+        'failed Import exposes the diagnostic number and whitelist '
+        'copy', (WidgetTester tester) async {
+      TaskManager.instance.tasks.add(
+        ImportTask(
+          id: 'obs-failed',
+          title: 'private-exam.pdf',
+          status: TaskStatus.error,
+          errorMsg: 'some internal exception detail that must not be copied',
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: 'trace-obs-failed',
+            TaskManager.keyCorrelationId: 'OBS-7Q2M-92KD',
+            TaskManager.keyParseMode: 'ocr',
+            TaskManager.keyAttemptNumber: 2,
+            TaskManager.keyAttemptToken: 'attempt-obs-failed',
+            TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+            'errorType': 'ZhipuOcrRequestException',
+          },
+        ),
+      );
+
+      await tester.pumpWidget(createWidgetUnderTest());
+      await tester.pump();
+      await selectCategory(tester, TaskCenterCategory.error);
+
+      expect(find.text('诊断编号：OBS-7Q2M-92KD'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('task-copy-diagnostic-obs-failed')),
+      );
+      await tester.pump();
+
+      expect(clipboardText, isNotNull);
+      expect(clipboardText, contains('diagnosticId=OBS-7Q2M-92KD'));
+      expect(clipboardText, contains('operation=import_attempt'));
+      expect(clipboardText, contains('taskId=obs-failed'));
+      expect(clipboardText, contains('attemptNumber=2'));
+      expect(clipboardText, contains('traceId=trace-obs-failed'));
+      expect(clipboardText, contains('failure=ZhipuOcrRequestException'));
+      // Whitelist only: no file title, no error body, no paths.
+      expect(clipboardText, isNot(contains('private-exam.pdf')));
+      expect(
+        clipboardText,
+        isNot(contains('internal exception detail')),
+      );
+      expect(clipboardText, isNot(contains(r'C:\')));
+    });
+
+    testWidgets('failed Import without correlation hides the diagnostic row',
+        (WidgetTester tester) async {
+      TaskManager.instance.tasks.add(
+        createOcrAttemptTask(
+          id: 'obs-no-correlation',
+          status: TaskStatus.error,
+          attemptState: ImportAttemptState.failed,
+        ),
+      );
+
+      await tester.pumpWidget(createWidgetUnderTest());
+      await tester.pump();
+      await selectCategory(tester, TaskCenterCategory.error);
+
+      expect(find.textContaining('诊断编号：'), findsNothing);
+      expect(
+        find.byKey(
+          const ValueKey<String>('task-copy-diagnostic-obs-no-correlation'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+        'failed Import with a malformed correlation hides the '
+        'diagnostic row and never copies it', (WidgetTester tester) async {
+      const sentinel = 'SENTINEL-CORRELATION-SECRET';
+      TaskManager.instance.tasks.add(
+        ImportTask(
+          id: 'obs-malformed',
+          title: 'private-exam.pdf',
+          status: TaskStatus.error,
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: 'trace-obs-malformed',
+            TaskManager.keyCorrelationId: 'OBS-<sentinel>',
+            TaskManager.keyParseMode: 'ocr',
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: 'attempt-obs-malformed',
+            TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+          },
+        ),
+      );
+
+      await tester.pumpWidget(createWidgetUnderTest());
+      await tester.pump();
+      await selectCategory(tester, TaskCenterCategory.error);
+
+      expect(find.textContaining('诊断编号：'), findsNothing);
+      expect(
+        find.byKey(
+          const ValueKey<String>('task-copy-diagnostic-obs-malformed'),
+        ),
+        findsNothing,
+      );
+      expect(clipboardText, isNull);
+      expect(find.textContaining(sentinel), findsNothing);
+    });
+  });
 }

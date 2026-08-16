@@ -41,6 +41,10 @@ class ImportTask {
 
   // 诊断元数据快捷获取
   String? get traceId => diagnostics?[TaskManager.keyTraceId]?.toString();
+  String? get correlationId =>
+      diagnostics?[TaskManager.keyCorrelationId]?.toString();
+  String? get parentTraceId =>
+      diagnostics?[TaskManager.keyParentTraceId]?.toString();
   String? get parseMode => diagnostics?[TaskManager.keyParseMode]?.toString();
   int get attemptNumber {
     final value = diagnostics?[TaskManager.keyAttemptNumber];
@@ -315,6 +319,8 @@ enum ImportAttemptWriteStatus {
 
 class TaskManager extends ChangeNotifier {
   static const String keyTraceId = '_traceId';
+  static const String keyCorrelationId = '_correlationId';
+  static const String keyParentTraceId = '_parentTraceId';
   static const String keyParseMode = '_parseMode';
   static const String keyBatchId = '_batchId';
   static const String keySelectionIndex = '_selectionIndex';
@@ -700,6 +706,9 @@ class TaskManager extends ChangeNotifier {
     }
 
     final stableMetadata = _taskMetadata(task);
+    // OBS-1 retry lineage: the new attempt inherits the same correlation and
+    // points its parent trace at the previous attempt's trace.
+    final previousTraceId = task.traceId;
     task.status = TaskStatus.processing;
     task.progressText = '已进入后台队列...';
     task.percent = 0.1;
@@ -721,6 +730,9 @@ class TaskManager extends ChangeNotifier {
         keyImportStorageRoute: stableMetadata[keyImportStorageRoute],
       if (stableMetadata[keyImportStorageReason] != null)
         keyImportStorageReason: stableMetadata[keyImportStorageReason],
+      if (stableMetadata[keyCorrelationId] != null)
+        keyCorrelationId: stableMetadata[keyCorrelationId],
+      if (previousTraceId != null) keyParentTraceId: previousTraceId,
       keyTraceId: nextAttempt.traceId,
       keyParseMode: parseMode,
       keyExplanationRetentionMode: explanationRetentionMode.name,
@@ -809,6 +821,8 @@ class TaskManager extends ChangeNotifier {
     final metadata = <String, dynamic>{};
     for (final key in <String>[
       keyTraceId,
+      keyCorrelationId,
+      keyParentTraceId,
       keyParseMode,
       keyBatchId,
       keySelectionIndex,
@@ -893,6 +907,8 @@ class TaskManager extends ChangeNotifier {
     final next = Map<String, dynamic>.from(diagnostics);
     for (final key in <String>[
       keyTraceId,
+      keyCorrelationId,
+      keyParentTraceId,
       keyParseMode,
       keyBatchId,
       keySelectionIndex,

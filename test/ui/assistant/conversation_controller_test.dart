@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/application/safe_write/agent_write_persistence.dart
 import 'package:shiroha_quiz/application/safe_write/agent_write_proposal.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
 import 'package:shiroha_quiz/application/safe_write/typed_answer_command.dart';
+import 'package:shiroha_quiz/core/observability/diagnostic_summary.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
@@ -1263,6 +1264,89 @@ void main() {
       expect(controller.errorMessage, isNotNull);
     });
   });
+
+  group('OBS-1 agent diagnostic presentation', () {
+    test('failed turn exposes the stable diagnostic number and whitelist copy',
+        () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness(diagnosticId: 'OBS-7Q2M-92KD');
+      final controller = _controller(repository, start: turn.start);
+
+      await controller.send('secret question content');
+      turn.complete(
+        const AgentTurnFailed(AgentTurnFailure.toolLimitExceeded),
+      );
+      await _flush();
+
+      expect(controller.turnPhase, AssistantTurnPhase.failed);
+      expect(controller.turnDiagnosticId, 'OBS-7Q2M-92KD');
+      final copy = controller.diagnosticCopyText;
+      expect(copy, isNotNull);
+      expect(copy, contains('diagnosticId=OBS-7Q2M-92KD'));
+      expect(copy, contains('operation=agent_turn'));
+      expect(copy, contains('failure=toolLimitExceeded'));
+      expect(copy, isNot(contains('secret question content')));
+    });
+
+    test('runtime-provided summary enriches the diagnostic copy', () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness(diagnosticId: 'OBS-7Q2M-92KD');
+      final controller = _controller(repository, start: turn.start);
+
+      await controller.send('question');
+      turn.complete(
+        AgentTurnFailed(
+          AgentTurnFailure.toolLimitExceeded,
+          summary: const DiagnosticSummary(
+            diagnosticId: 'OBS-7Q2M-92KD',
+            operation: 'agent_turn',
+            failure: 'tool_round_limit_exceeded',
+            providerRounds: 5,
+            toolCalls: 6,
+            lastTool: 'get_study_overview',
+            durationMs: 10324,
+          ),
+        ),
+      );
+      await _flush();
+
+      final copy = controller.diagnosticCopyText!;
+      expect(copy, contains('failure=tool_round_limit_exceeded'));
+      expect(copy, contains('providerRounds=5'));
+      expect(copy, contains('lastTool=get_study_overview'));
+    });
+
+    test('session without diagnostic id fails without diagnostic UI', () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness();
+      final controller = _controller(repository, start: turn.start);
+
+      await controller.send('question');
+      turn.complete(const AgentTurnFailed(AgentTurnFailure.timeout));
+      await _flush();
+
+      expect(controller.turnPhase, AssistantTurnPhase.failed);
+      expect(controller.turnDiagnosticId, isNull);
+      expect(controller.diagnosticCopyText, isNull);
+      expect(controller.errorMessage, isNot(contains('OBS-')));
+    });
+
+    test('malformed diagnostic id never surfaces the diagnostic affordance',
+        () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness(diagnosticId: 'OBS-<SENTINEL>!bad id');
+      final controller = _controller(repository, start: turn.start);
+
+      await controller.send('secret question');
+      turn.complete(const AgentTurnFailed(AgentTurnFailure.timeout));
+      await _flush();
+
+      expect(controller.turnFailure, AgentTurnFailure.timeout);
+      expect(controller.turnDiagnosticId, isNull);
+      expect(controller.diagnosticCopyText, isNull);
+      expect(controller.errorMessage, isNot(contains('SENTINEL')));
+    });
+  });
 }
 
 ConversationController _controller(
@@ -1304,9 +1388,10 @@ bool _isAssistant(ConversationMessage message) =>
 Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
 final class _TurnHarness {
-  _TurnHarness({this.cancelCompletes = false});
+  _TurnHarness({this.cancelCompletes = false, this.diagnosticId});
 
   final bool cancelCompletes;
+  final String? diagnosticId;
   final StreamController<AgentTurnEvent> _events =
       StreamController<AgentTurnEvent>.broadcast();
   final Completer<AgentTurnResult> _result = Completer<AgentTurnResult>();
@@ -1321,6 +1406,7 @@ final class _TurnHarness {
         complete(const AgentTurnFailed(AgentTurnFailure.cancelled));
       }
     },
+    diagnosticId: diagnosticId,
   );
 
   AgentTurnSession start({

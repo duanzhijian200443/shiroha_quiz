@@ -30,12 +30,22 @@ class ImportTaskHandle {
     required this.traceId,
     required this.attemptNumber,
     required this.attemptToken,
+    this.correlationId,
+    this.parentTraceId,
   });
 
   final String taskId;
   final String traceId;
   final int attemptNumber;
   final String attemptToken;
+
+  /// OBS-1 correlation identity of this import lineage. Every attempt of one
+  /// ImportTask keeps the same correlationId.
+  final String? correlationId;
+
+  /// OBS-1 parent trace: the trace that directly triggered this attempt
+  /// (null for the initial attempt without an enclosing operation).
+  final String? parentTraceId;
 
   ImportAttemptRef get attempt => ImportAttemptRef(
         taskId: taskId,
@@ -216,11 +226,19 @@ class ImportTaskCoordinator {
     final taskId = _taskIdFactory();
     final traceId = _traceIdFactory();
     final attemptToken = _attemptTokenFactory();
+    // OBS-1: an initial Import attempt inherits an enclosing operation's
+    // correlation when one exists (future Agent-triggered import), otherwise
+    // it opens a new root correlation.
+    final correlationId =
+        TraceContext.correlationId ?? TraceContext.createCorrelationId();
+    final parentTraceId = TraceContext.traceId;
     final handle = ImportTaskHandle(
       taskId: taskId,
       traceId: traceId,
       attemptNumber: 1,
       attemptToken: attemptToken,
+      correlationId: correlationId,
+      parentTraceId: parentTraceId,
     );
     final safeSourceDescription = _safeSourceDescription(sourceDescription);
     final writeStatus = await _taskManager.addAttemptTask(ImportTask(
@@ -230,6 +248,8 @@ class ImportTaskCoordinator {
       percent: 0.1,
       diagnostics: <String, dynamic>{
         TaskManager.keyTraceId: traceId,
+        TaskManager.keyCorrelationId: correlationId,
+        if (parentTraceId != null) TaskManager.keyParentTraceId: parentTraceId,
         TaskManager.keyParseMode: mode.name,
         TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
         TaskManager.keyAttemptNumber: handle.attemptNumber,
@@ -295,11 +315,19 @@ class ImportTaskCoordinator {
       final attemptToken =
           _uniqueValue(_attemptTokenFactory(), reservedAttemptTokens);
       reservedAttemptTokens.add(attemptToken);
+      // OBS-1: each ImportTask in a batch ALWAYS owns a fresh correlation
+      // (never merged with the product-level batchId and never inherited
+      // from an enclosing operation); the enclosing trace becomes the
+      // parent of every task in the batch.
+      final correlationId = TraceContext.createCorrelationId();
+      final parentTraceId = TraceContext.traceId;
       final handle = ImportTaskHandle(
         taskId: taskId,
         traceId: traceId,
         attemptNumber: 1,
         attemptToken: attemptToken,
+        correlationId: correlationId,
+        parentTraceId: parentTraceId,
       );
       final safeSourceDescription =
           _safeSourceDescription(item.sourceDescription);
@@ -310,6 +338,9 @@ class ImportTaskCoordinator {
         percent: 0.1,
         diagnostics: <String, dynamic>{
           TaskManager.keyTraceId: traceId,
+          TaskManager.keyCorrelationId: correlationId,
+          if (parentTraceId != null)
+            TaskManager.keyParentTraceId: parentTraceId,
           TaskManager.keyParseMode: item.mode.name,
           TaskManager.keyExplanationRetentionMode:
               item.explanationRetentionMode.name,
@@ -467,11 +498,18 @@ class ImportTaskCoordinator {
     final traceId = _uniqueValue(_traceIdFactory(), reservedTraceIds);
     final attemptToken =
         _uniqueValue(_attemptTokenFactory(), reservedAttemptTokens);
+    // OBS-1 retry lineage: same taskId, same correlationId, new traceId and
+    // parent trace pointing at the previous attempt's trace.
+    final correlationId =
+        task.correlationId ?? TraceContext.createCorrelationId();
+    final parentTraceId = task.traceId;
     final handle = ImportTaskHandle(
       taskId: taskId,
       traceId: traceId,
       attemptNumber: task.attemptNumber + 1,
       attemptToken: attemptToken,
+      correlationId: correlationId,
+      parentTraceId: parentTraceId,
     );
     final writeStatus = await _taskManager.restartAttempt(
       handle.attempt,
@@ -498,6 +536,9 @@ class ImportTaskCoordinator {
       action: () => TraceContext.run(
         taskId: item.handle.taskId,
         traceId: item.handle.traceId,
+        correlationId: item.handle.correlationId,
+        parentTraceId: item.handle.parentTraceId,
+        operationKind: TraceOperationKind.importAttempt,
         action: () => _runParse(
           handle: item.handle,
           sourceDescription: item.sourceDescription,
@@ -537,7 +578,10 @@ class ImportTaskCoordinator {
       AppLogger.info(
         'Import parsing started',
         module: 'Import',
-        data: const <String, Object?>{'stage': 'import_parse'},
+        data: <String, Object?>{
+          'stage': 'import_parse',
+          'attemptNumber': handle.attemptNumber,
+        },
       );
       final result = await parse(handle.taskId);
       AppLogger.info(
@@ -545,6 +589,7 @@ class ImportTaskCoordinator {
         module: 'Import',
         data: <String, Object?>{
           'stage': 'import_parse',
+          'attemptNumber': handle.attemptNumber,
           'durationMs': stopwatch.elapsedMilliseconds,
         },
       );
@@ -742,6 +787,8 @@ class ImportTaskCoordinator {
       clearSensitivePayload: true,
       diagnostics: <String, dynamic>{
         'traceId': handle.traceId,
+        if (handle.correlationId != null)
+          TaskManager.keyCorrelationId: handle.correlationId,
         'failedStage': 'import_parse',
         'errorType': failure.errorType,
         'status': status ?? 'failed',
