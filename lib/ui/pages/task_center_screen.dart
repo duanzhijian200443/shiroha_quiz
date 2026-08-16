@@ -131,6 +131,11 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
     final progress = task.percent.clamp(0.0, 1.0).toDouble();
     final presentation = TaskCenterProjection.presentationFor(task);
     final actionPending = _pendingActionTaskIds.contains(task.id);
+    // OBS-1: the diagnostic affordance only appears for strictly valid
+    // correlation ids (fixed OBS-XXXX-XXXX format).
+    final correlationId = task.correlationId;
+    final hasValidDiagnosticId = correlationId != null &&
+        DiagnosticSummaryFormatter.isValidDiagnosticId(correlationId);
 
     return Card(
       key: ValueKey<String>('import-task-${task.id}'),
@@ -227,13 +232,13 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                     ),
                   ),
                   if (task.status == TaskStatus.error &&
-                      task.correlationId != null) ...[
+                      hasValidDiagnosticId) ...[
                     const SizedBox(height: 6),
                     Row(
                       children: [
                         Expanded(
                           child: Text(
-                            '诊断编号：${task.correlationId}',
+                            '诊断编号：$correlationId',
                             key:
                                 ValueKey<String>('task-correlation-${task.id}'),
                             maxLines: 1,

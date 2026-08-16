@@ -69,13 +69,15 @@ abstract final class TraceContext {
         _traceIdKey: traceId ?? createTraceId(),
         _parentTraceIdKey: parentTraceId,
         _operationKindKey: operationKind,
-        if (taskId != null) _taskIdKey: taskId,
+        _taskIdKey: taskId,
       },
     );
   }
 
   /// Runs [action] as a root operation: a new correlation, a new trace and
-  /// `parentTraceId = null`, regardless of any enclosing zone.
+  /// `parentTraceId = null`, regardless of any enclosing zone. A root never
+  /// inherits the enclosing zone's taskId: without an explicit [taskId] the
+  /// root zone observes `taskId == null`.
   static Future<T> runRoot<T>({
     required TraceOperationKind operationKind,
     required Future<T> Function() action,
@@ -108,7 +110,8 @@ abstract final class TraceContext {
     return run(
       action: action,
       traceId: traceId ?? createTraceId(),
-      taskId: taskId,
+      // A child operation inherits the enclosing taskId (current behavior).
+      taskId: taskId ?? current[_taskIdKey] as String?,
       correlationId: correlationId ?? current[_correlationIdKey] as String?,
       parentTraceId: parentTraceId ?? current[_traceIdKey] as String?,
       operationKind: operationKind,

@@ -153,11 +153,14 @@ turn_timeout
 ```
 
 Structured fields only, e.g. `providerRound = 3`,
-`toolName = get_weak_questions`, `callId = <bounded provider call id>`,
-`durationMs = 43`, `status = success`. Tool arguments, tool output and
-model response text are never logged. Provider rounds and ordinary Tool
-Calls are events/spans of the **same Agent trace**; no per-round traceId is
-created.
+`toolName = get_weak_questions`, `callId = <strict opaque token>`,
+`durationMs = 43`, `status = success`. Tool names are normalized: known
+registered tool names keep their canonical form, anything else becomes
+`unknown_tool`. Call ids must match a strict opaque token pattern
+(letters/digits/underscore/hyphen, ≤ 64); anything else becomes
+`invalid_call_id`. Tool arguments, tool output and model response text are
+never logged. Provider rounds and ordinary Tool Calls are events/spans of
+the **same Agent trace**; no per-round traceId is created.
 
 ## 8. RAG retrieval child trace
 
@@ -302,10 +305,15 @@ OBS-1 timing/duplication evidence.
 
 `lib/core/observability/diagnostic_summary.dart` defines
 `DiagnosticSummary` (whitelist fields only) and
-`DiagnosticSummaryFormatter` (fixed field names, per-value length cap 64,
-total cap 2000, control-character stripping, id/operation pattern
-validation; returns null when unsafe, so callers simply hide the
-affordance). No arbitrary `Map<String, dynamic>` copy path is allowed.
+`DiagnosticSummaryFormatter` (fixed field names, total cap 2000; returns
+null when unsafe, so callers simply hide the affordance). The diagnostic id
+must strictly match the frozen OBS-1 correlation format
+(`^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$`, `DiagnosticSummaryFormatter
+.isValidDiagnosticId`); every other field (failure/status/lastTool/taskId/
+traceId) must match the fixed safe token pattern
+(`^[A-Za-z0-9_-]{1,64}$`) or the field is omitted. UI affordances
+(diagnostic number, copy action) only appear after this strict validation
+passes. No arbitrary `Map<String, dynamic>` copy path is allowed.
 
 ## 22. Import UI minimum activation
 
@@ -361,9 +369,16 @@ lib/ui/pages/task_center_screen.dart
 `lib/application/agent/agent_retrieval_tool.dart` was intentionally not
 modified: the RAG child trace wraps the dispatcher call in the runtime,
 where the grant/serialization authority already lives. Files listed but not
-touched are not force-edited. The architecture boundary test allowlist was
-extended to let the application layer import the pure-Dart
-`lib/core/observability/` facility.
+touched are not force-edited.
+
+Application purity: the Application layer may import only the exact
+pure-Dart observability seam — `log_record.dart`, `trace_context.dart`,
+`log_writer.dart` and `diagnostic_summary.dart`. The platform-backed
+logger (`app_logger.dart`: dart:io, Flutter foundation, path_provider) is
+rejected by the architecture gate; `AppLogger` delegates record production
+to the pure `LogWriter` seam, so Agent/Import logging behavior is
+identical while `agent_runtime.dart` never transitively depends on
+Flutter/path_provider/dart:io.
 
 ## 27. Verification summary (self-check evidence, not semantic approval)
 

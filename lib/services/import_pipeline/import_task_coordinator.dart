@@ -315,10 +315,11 @@ class ImportTaskCoordinator {
       final attemptToken =
           _uniqueValue(_attemptTokenFactory(), reservedAttemptTokens);
       reservedAttemptTokens.add(attemptToken);
-      // OBS-1: each ImportTask in a batch owns its own correlation (never
-      // merged with the product-level batchId).
-      final correlationId =
-          TraceContext.correlationId ?? TraceContext.createCorrelationId();
+      // OBS-1: each ImportTask in a batch ALWAYS owns a fresh correlation
+      // (never merged with the product-level batchId and never inherited
+      // from an enclosing operation); the enclosing trace becomes the
+      // parent of every task in the batch.
+      final correlationId = TraceContext.createCorrelationId();
       final parentTraceId = TraceContext.traceId;
       final handle = ImportTaskHandle(
         taskId: taskId,

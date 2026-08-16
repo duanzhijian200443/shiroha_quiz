@@ -1330,6 +1330,22 @@ void main() {
       expect(controller.diagnosticCopyText, isNull);
       expect(controller.errorMessage, isNot(contains('OBS-')));
     });
+
+    test('malformed diagnostic id never surfaces the diagnostic affordance',
+        () async {
+      final repository = _MemoryRepository();
+      final turn = _TurnHarness(diagnosticId: 'OBS-<SENTINEL>!bad id');
+      final controller = _controller(repository, start: turn.start);
+
+      await controller.send('secret question');
+      turn.complete(const AgentTurnFailed(AgentTurnFailure.timeout));
+      await _flush();
+
+      expect(controller.turnFailure, AgentTurnFailure.timeout);
+      expect(controller.turnDiagnosticId, isNull);
+      expect(controller.diagnosticCopyText, isNull);
+      expect(controller.errorMessage, isNot(contains('SENTINEL')));
+    });
   });
 }
 

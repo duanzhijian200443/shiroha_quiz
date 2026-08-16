@@ -697,7 +697,7 @@ final class ConversationController extends ChangeNotifier {
     errorMessage = _agentFailureMessage(failure);
     statusMessage = failure == AgentTurnFailure.cancelled ? '已停止生成' : null;
     final diagnosticId = _activeDiagnosticId;
-    turnDiagnostic = summary ??
+    final candidate = summary ??
         (diagnosticId == null
             ? null
             : DiagnosticSummary(
@@ -705,6 +705,14 @@ final class ConversationController extends ChangeNotifier {
                 operation: 'agent_turn',
                 failure: failure.name,
               ));
+    // OBS-1: only a strictly valid correlation id may surface the diagnostic
+    // number and the copy affordance.
+    turnDiagnostic = candidate != null &&
+            DiagnosticSummaryFormatter.isValidDiagnosticId(
+              candidate.diagnosticId,
+            )
+        ? candidate
+        : null;
   }
 
   Future<AgentTurnFailure?> _loadConfigurationFailure() async {

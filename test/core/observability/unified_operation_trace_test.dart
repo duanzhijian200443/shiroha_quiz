@@ -142,6 +142,40 @@ void main() {
       expect(TraceContext.correlationId, isNull);
       expect(TraceContext.traceId, isNull);
     });
+
+    test('runRoot inside a task zone does not inherit the parent taskId',
+        () async {
+      await TraceContext.runRoot(
+        operationKind: TraceOperationKind.importAttempt,
+        taskId: 'task-T1',
+        action: () async {
+          final parentCorrelation = TraceContext.correlationId;
+          await TraceContext.runRoot(
+            operationKind: TraceOperationKind.agentTurn,
+            action: () async {
+              expect(TraceContext.taskId, isNull);
+              expect(TraceContext.correlationId, isNot(parentCorrelation));
+              expect(TraceContext.parentTraceId, isNull);
+            },
+          );
+        },
+      );
+    });
+
+    test('runOperation child inherits the enclosing taskId', () async {
+      await TraceContext.runRoot(
+        operationKind: TraceOperationKind.importAttempt,
+        taskId: 'task-T1',
+        action: () async {
+          await TraceContext.runOperation(
+            operationKind: TraceOperationKind.ragRetrieval,
+            action: () async {
+              expect(TraceContext.taskId, 'task-T1');
+            },
+          );
+        },
+      );
+    });
   });
 
   group('OBS-1 logger injection', () {
@@ -267,24 +301,25 @@ void main() {
     });
 
     test('rejects invalid or missing diagnostic ids', () {
-      expect(
-        DiagnosticSummaryFormatter.format(
-          const DiagnosticSummary(
-            diagnosticId: 'not-a-diag-id!',
-            operation: 'agent_turn',
+      for (final id in <String>[
+        '',
+        'not-a-diag-id!',
+        'obs-7q2m-91kd',
+        'OBS-7Q2M-91KD-extra',
+        'OBS-7Q2M-91K',
+        'OBS-7Q2M-91KD ',
+        'OBS-7Q2M-91KD\n',
+        'OBS-<script>alert</script>',
+      ]) {
+        expect(
+          DiagnosticSummaryFormatter.format(
+            DiagnosticSummary(diagnosticId: id, operation: 'agent_turn'),
           ),
-        ),
-        isNull,
-      );
-      expect(
-        DiagnosticSummaryFormatter.format(
-          const DiagnosticSummary(
-            diagnosticId: '',
-            operation: 'agent_turn',
-          ),
-        ),
-        isNull,
-      );
+          isNull,
+          reason: 'Expected strict rejection for diagnostic id: $id',
+        );
+        expect(DiagnosticSummaryFormatter.isValidDiagnosticId(id), isFalse);
+      }
       expect(
         DiagnosticSummaryFormatter.format(
           const DiagnosticSummary(
@@ -296,40 +331,47 @@ void main() {
       );
     });
 
-    test('bounds value length', () {
+    test('accepts exactly the frozen OBS-XXXX-XXXX format', () {
+      for (final id in <String>[
+        'OBS-7Q2M-91KD',
+        'OBS-AAAA-BBBB',
+        'OBS-ABCD-2345',
+      ]) {
+        expect(
+          DiagnosticSummaryFormatter.isValidDiagnosticId(id),
+          isTrue,
+          reason: 'Expected valid diagnostic id: $id',
+        );
+      }
+      expect(
+        DiagnosticSummaryFormatter.format(
+          const DiagnosticSummary(
+            diagnosticId: 'OBS-7Q2M-91KD',
+            operation: 'agent_turn',
+          ),
+        ),
+        isNotNull,
+      );
+    });
+
+    test('omits values that are not fixed safe tokens', () {
       final text = DiagnosticSummaryFormatter.format(
         DiagnosticSummary(
           diagnosticId: 'OBS-7Q2M-91KD',
           operation: 'agent_turn',
-          failure: List.filled(200, 'f').join(),
-          lastTool: 'tool_${List.filled(500, 'x').join()}',
-        ),
-      )!;
-
-      expect(
-        text,
-        contains(
-          "failure=${List.filled(DiagnosticSummaryFormatter.maxValueLength, 'f').join()}",
-        ),
-      );
-      expect(
-        text,
-        isNot(contains("failure=${List.filled(200, 'f').join()}")),
-      );
-      expect(text.length, lessThanOrEqualTo(2000));
-    });
-
-    test('strips control characters from values', () {
-      final text = DiagnosticSummaryFormatter.format(
-        const DiagnosticSummary(
-          diagnosticId: 'OBS-7Q2M-91KD',
-          operation: 'agent_turn',
           failure: 'a\nb\rc',
+          lastTool: 'tool_${List.filled(500, 'x').join()}',
+          taskId: 'task_ok_1',
+          status: 'ok',
         ),
       )!;
 
-      expect(text, contains('failure=a b c'));
-      expect(text, isNot(contains('failure=a\nb\rc')));
+      // Non-token values (control chars, unbounded length) are omitted.
+      expect(text, isNot(contains('failure=')));
+      expect(text, isNot(contains('lastTool=')));
+      expect(text, contains('taskId=task_ok_1'));
+      expect(text, contains('status=ok'));
+      expect(text.length, lessThanOrEqualTo(2000));
     });
   });
 }

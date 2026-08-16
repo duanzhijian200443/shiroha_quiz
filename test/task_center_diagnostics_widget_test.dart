@@ -1116,5 +1116,40 @@ void main() {
         findsNothing,
       );
     });
+
+    testWidgets(
+        'failed Import with a malformed correlation hides the '
+        'diagnostic row and never copies it', (WidgetTester tester) async {
+      const sentinel = 'SENTINEL-CORRELATION-SECRET';
+      TaskManager.instance.tasks.add(
+        ImportTask(
+          id: 'obs-malformed',
+          title: 'private-exam.pdf',
+          status: TaskStatus.error,
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: 'trace-obs-malformed',
+            TaskManager.keyCorrelationId: 'OBS-<sentinel>',
+            TaskManager.keyParseMode: 'ocr',
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: 'attempt-obs-malformed',
+            TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+          },
+        ),
+      );
+
+      await tester.pumpWidget(createWidgetUnderTest());
+      await tester.pump();
+      await selectCategory(tester, TaskCenterCategory.error);
+
+      expect(find.textContaining('诊断编号：'), findsNothing);
+      expect(
+        find.byKey(
+          const ValueKey<String>('task-copy-diagnostic-obs-malformed'),
+        ),
+        findsNothing,
+      );
+      expect(clipboardText, isNull);
+      expect(find.textContaining(sentinel), findsNothing);
+    });
   });
 }

@@ -52,8 +52,23 @@ abstract final class DiagnosticSummaryFormatter {
   static const int maxValueLength = 64;
   static const int maxTotalLength = 2000;
 
-  static final RegExp _diagnosticIdPattern = RegExp(r'^[A-Za-z0-9_-]{1,32}$');
+  /// Strict OBS-1 correlation format (`OBS-XXXX-XXXX`, uppercase alphabet
+  /// without ambiguity-prone I/O, digits 2-9). A diagnostic id that does not
+  /// match this pattern must never be displayed or copied.
+  static final RegExp _diagnosticIdPattern =
+      RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$');
+
   static final RegExp _operationPattern = RegExp(r'^[a-z_]{1,32}$');
+
+  /// Fixed safe token/category pattern for whitelist fields: letters,
+  /// digits, underscore and hyphen only, bounded length. Any value that does
+  /// not conform is omitted from the formatted output.
+  static final RegExp _tokenPattern = RegExp(r'^[A-Za-z0-9_\-]{1,64}$');
+
+  /// True only for strictly valid OBS-1 diagnostic ids; callers use this to
+  /// gate user-visible diagnostic affordances.
+  static bool isValidDiagnosticId(String value) =>
+      _diagnosticIdPattern.hasMatch(value);
 
   static String? format(DiagnosticSummary summary) {
     final diagnosticId = summary.diagnosticId;
@@ -66,19 +81,19 @@ abstract final class DiagnosticSummaryFormatter {
     final buffer = StringBuffer(
       'Shiroha diagnostic\n\ndiagnosticId=$diagnosticId\noperation=$operation',
     );
-    void add(String key, Object? value) {
-      if (value == null) return;
-      buffer.write('\n$key=${_boundedValue(value.toString())}');
+    void add(String key, String? value) {
+      if (value == null || !_tokenPattern.hasMatch(value)) return;
+      buffer.write('\n$key=$value');
     }
 
     add('failure', summary.failure);
     add('status', summary.status);
-    add('providerRounds', summary.providerRounds);
-    add('toolCalls', summary.toolCalls);
+    add('providerRounds', summary.providerRounds?.toString());
+    add('toolCalls', summary.toolCalls?.toString());
     add('lastTool', summary.lastTool);
-    add('durationMs', summary.durationMs);
+    add('durationMs', summary.durationMs?.toString());
     add('taskId', summary.taskId);
-    add('attemptNumber', summary.attemptNumber);
+    add('attemptNumber', summary.attemptNumber?.toString());
     add('traceId', summary.traceId);
 
     var text = buffer.toString();
@@ -86,13 +101,5 @@ abstract final class DiagnosticSummaryFormatter {
       text = '${text.substring(0, maxTotalLength)}...[TRUNCATED]';
     }
     return text;
-  }
-
-  static String _boundedValue(String value) {
-    var sanitized = value.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
-    if (sanitized.length > maxValueLength) {
-      sanitized = sanitized.substring(0, maxValueLength);
-    }
-    return sanitized;
   }
 }

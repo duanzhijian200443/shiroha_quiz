@@ -5,8 +5,8 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
-import '../../core/observability/app_logger.dart';
 import '../../core/observability/diagnostic_summary.dart';
+import '../../core/observability/log_writer.dart';
 import '../../core/observability/trace_context.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
@@ -156,11 +156,13 @@ final class ShirohaAgentRuntime {
     events.add(AgentTurnFailedEvent(failure));
     events.close();
     result.complete(AgentTurnFailed(failure));
+    // OBS-1 (P3-1): a pre-run rejection (invalidTarget/alreadyRunning) never
+    // enters the turn pipeline, so it has no trace and must not expose a
+    // diagnostic id that cannot be correlated to any log.
     return AgentTurnSession(
       events: events.stream,
       result: result.future,
       cancel: () {},
-      diagnosticId: TraceContext.createCorrelationId(),
     );
   }
 
@@ -178,7 +180,7 @@ final class ShirohaAgentRuntime {
       traceId: turn.traceId,
       operationKind: TraceOperationKind.agentTurn,
       action: () async {
-        AppLogger.info(
+        LogWriter.info(
           'Agent turn started',
           module: 'Agent',
           data: const <String, Object?>{'stage': 'turn_started'},
@@ -199,7 +201,7 @@ final class ShirohaAgentRuntime {
               break;
           }
           turn.result.complete(result);
-          AppLogger.info(
+          LogWriter.info(
             'Agent turn completed',
             module: 'Agent',
             data: <String, Object?>{
@@ -279,7 +281,7 @@ final class ShirohaAgentRuntime {
     }
 
     final resolved = await _resolveConfig();
-    AppLogger.info(
+    LogWriter.info(
       'Agent configuration resolved',
       module: 'Agent',
       data: const <String, Object?>{'stage': 'config_resolved'},
@@ -382,7 +384,7 @@ final class ShirohaAgentRuntime {
       );
       final _ProviderRound round;
       final roundStopwatch = Stopwatch()..start();
-      AppLogger.info(
+      LogWriter.info(
         'Provider round started',
         module: 'Agent',
         data: <String, Object?>{
@@ -401,7 +403,7 @@ final class ShirohaAgentRuntime {
           error: error,
         )) {
           turn.fallbackAttempted = true;
-          AppLogger.info(
+          LogWriter.info(
             'Agent provider fallback attempted',
             module: 'Agent',
             data: <String, Object?>{
@@ -432,7 +434,7 @@ final class ShirohaAgentRuntime {
         rethrow;
       }
       turn.providerRounds++;
-      AppLogger.info(
+      LogWriter.info(
         'Provider round completed',
         module: 'Agent',
         data: <String, Object?>{
@@ -503,14 +505,15 @@ final class ShirohaAgentRuntime {
         _throwIfCancelled(turn);
         _emit(turn, AgentTurnToolCall(callId: call.callId, name: call.name));
         final toolStopwatch = Stopwatch()..start();
-        final boundedCallId = _boundedCallId(call.callId);
-        AppLogger.info(
+        final safeCallId = _safeCallId(call.callId);
+        final safeToolName = _safeToolName(call.name);
+        LogWriter.info(
           'Tool call started',
           module: 'Agent',
           data: <String, Object?>{
             'stage': 'tool_call_started',
-            'toolName': call.name,
-            'callId': boundedCallId,
+            'toolName': safeToolName,
+            'callId': safeCallId,
           },
         );
         final output = await _dispatchTool(
@@ -523,19 +526,19 @@ final class ShirohaAgentRuntime {
           grant: retrievalGrant,
         );
         final toolStatus = _toolCallStatus(output);
-        AppLogger.info(
+        LogWriter.info(
           'Tool call completed',
           module: 'Agent',
           data: <String, Object?>{
             'stage': 'tool_call_completed',
-            'toolName': call.name,
-            'callId': boundedCallId,
+            'toolName': safeToolName,
+            'callId': safeCallId,
             ...toolStatus,
             'durationMs': toolStopwatch.elapsedMilliseconds,
           },
         );
         turn.toolCallsCount++;
-        turn.lastToolName = call.name;
+        turn.lastToolName = safeToolName;
         outputs.add(
           AgentFunctionToolOutput(callId: call.callId, output: output),
         );
@@ -796,7 +799,7 @@ final class ShirohaAgentRuntime {
               )
               .timeout(remaining);
           final outcome = _retrievalOutcome(output);
-          AppLogger.info(
+          LogWriter.info(
             'Agent file retrieval completed',
             module: 'Retrieval',
             data: <String, Object?>{
@@ -815,7 +818,7 @@ final class ShirohaAgentRuntime {
           );
           return output;
         } catch (error) {
-          AppLogger.error(
+          LogWriter.error(
             'Agent file retrieval failed',
             module: 'Retrieval',
             data: <String, Object?>{
@@ -959,7 +962,7 @@ final class ShirohaAgentRuntime {
         return;
       }
       turn.proposalStaged = true;
-      AppLogger.info(
+      LogWriter.info(
         'Agent proposal staged',
         module: 'Agent',
         data: <String, Object?>{
@@ -1002,7 +1005,7 @@ final class ShirohaAgentRuntime {
         return;
       }
       turn.studyPlanDraftStaged = true;
-      AppLogger.info(
+      LogWriter.info(
         'Agent study plan draft staged',
         module: 'Agent',
         data: <String, Object?>{
@@ -1226,7 +1229,7 @@ final class ShirohaAgentRuntime {
       _ => 'turn_failed',
     };
     final failureCode = error is _TurnFailure ? error.traceFailureCode : null;
-    AppLogger.error(
+    LogWriter.error(
       switch (failure) {
         AgentTurnFailure.timeout => 'Agent turn timed out',
         AgentTurnFailure.cancelled => 'Agent turn cancelled',
@@ -1253,11 +1256,26 @@ final class ShirohaAgentRuntime {
     return 'unknown';
   }
 
-  /// Bounded provider call id: length-limited so the id can be logged and
-  /// filtered without unbounded provider-controlled strings.
-  static String _boundedCallId(String callId) {
-    return callId.length <= 64 ? callId : callId.substring(0, 64);
-  }
+  /// Registered local tool names. Anything else is provider-controlled and
+  /// must never be logged as-is.
+  static final Set<String> _registeredToolNames = <String>{
+    ...AgentStudyToolCatalog.toolNames,
+    AgentRetrievalToolCatalog.toolName,
+    AgentWriteProposalToolCatalog.toolName,
+    AgentStudyPlanToolCatalog.toolName,
+  };
+
+  /// Normalizes a provider-supplied tool name: known registered names keep
+  /// their canonical form; anything else becomes the fixed safe token.
+  static String _safeToolName(String name) =>
+      _registeredToolNames.contains(name) ? name : 'unknown_tool';
+
+  /// Strict opaque provider call token. Anything else (embedded user text,
+  /// punctuation, unbounded length) is normalized to the fixed safe token.
+  static final RegExp _opaqueCallIdPattern = RegExp(r'^[A-Za-z0-9_\-]{1,64}$');
+
+  static String _safeCallId(String callId) =>
+      _opaqueCallIdPattern.hasMatch(callId) ? callId : 'invalid_call_id';
 
   /// Fixed status/code derived from the structured tool output only; never
   /// logs tool arguments or result bodies.

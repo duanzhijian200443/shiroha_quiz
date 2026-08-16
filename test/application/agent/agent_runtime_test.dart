@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/diagnostic_summary.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
@@ -3166,6 +3167,102 @@ void main() {
       final encoded = record.toJson().toString();
       expect(encoded, isNot(contains('function')));
       expect(encoded, isNot(contains(retrievalBody)));
+    });
+
+    test('pre-run rejected sessions carry no diagnostic id', () async {
+      final harness = _Harness(scripts: <_Script>[_finalAnswer('ok')]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final first = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final rejected = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+
+      expect(rejected.diagnosticId, isNull);
+      expect(
+        _failureOf(await rejected.result),
+        AgentTurnFailure.alreadyRunning,
+      );
+      expect(await first.result, isA<AgentTurnSuccess>());
+    });
+
+    test('malformed provider tool identity is normalized before logging',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const state = _TestContinuationState('s');
+      const sentinel = 'SENTINEL-TOOL-SECRET';
+      final harness = _Harness(scripts: <_Script>[
+        _toolRound(<AgentProviderFunctionCall>[
+          _call(
+            'call-$sentinel-!@#',
+            name: 'evil_tool_$sentinel',
+          ),
+        ], state),
+        _finalAnswer('done'),
+      ]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final result = await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+      await AppLogger.flush();
+
+      expect(result, isA<AgentTurnSuccess>());
+      final completed = sink.records
+          .where((r) => r.data['stage'] == 'tool_call_completed')
+          .toList();
+      expect(completed, hasLength(1));
+      expect(completed.single.data['toolName'], 'unknown_tool');
+      expect(completed.single.data['callId'], 'invalid_call_id');
+      final encoded =
+          sink.records.map((record) => record.toJson().toString()).join('\n');
+      expect(encoded, isNot(contains(sentinel)));
+      expect(encoded, isNot(contains('evil_tool_')));
+    });
+
+    test('malformed tool identity never reaches the diagnostic summary',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const state = _TestContinuationState('s');
+      const sentinel = 'SENTINEL-SUMMARY-SECRET';
+      final harness = _Harness(scripts: <_Script>[
+        for (var round = 0; round < 5; round++)
+          _toolRound(<AgentProviderFunctionCall>[
+            _call(
+              'call-$sentinel-$round-!',
+              name: 'evil_tool_${sentinel}_$round',
+            ),
+          ], state),
+      ]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(_failureOf(result), AgentTurnFailure.toolLimitExceeded);
+      final failed = result as AgentTurnFailed;
+      expect(failed.summary, isNotNull);
+      expect(failed.summary!.lastTool, 'unknown_tool');
+      expect(failed.summary!.failure, 'tool_round_limit_exceeded');
+      final text = DiagnosticSummaryFormatter.format(failed.summary!)!;
+      expect(text, isNot(contains(sentinel)));
+      expect(text, isNot(contains('evil_tool_')));
     });
   });
 }

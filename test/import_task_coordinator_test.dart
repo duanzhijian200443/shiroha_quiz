@@ -1250,5 +1250,72 @@ void main() {
         expect(task.correlationId, handle.correlationId);
       }
     });
+
+    test('batch tasks inside an enclosing trace still own fresh correlations',
+        () async {
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        batchIdFactory: () => 'obs-nested-batch',
+      );
+      final batch = await TraceContext.run(
+        correlationId: 'OBS-AAAA-BBBB',
+        traceId: 'trace-enclosing',
+        operationKind: TraceOperationKind.agentTurn,
+        action: () => coordinator.dispatchIndependentBatch(
+          items: <ImportTaskBatchItem>[
+            ImportTaskBatchItem(
+              sourceDescription: 'a.pdf',
+              mode: ImportParseMode.ocr,
+              parse: (_) async => const ImportParseResult(
+                questions: <Map<String, dynamic>>[
+                  <String, dynamic>{'q_num': '1', 'content': 'A'},
+                ],
+              ),
+            ),
+            ImportTaskBatchItem(
+              sourceDescription: 'b.pdf',
+              mode: ImportParseMode.ocr,
+              parse: (_) async => const ImportParseResult(
+                questions: <Map<String, dynamic>>[
+                  <String, dynamic>{'q_num': '1', 'content': 'B'},
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+
+      expect(batch.batchId, 'obs-nested-batch');
+      expect(batch.tasks, hasLength(2));
+      final first = batch.tasks[0];
+      final second = batch.tasks[1];
+      expect(first.correlationId, isNot(second.correlationId));
+      expect(first.correlationId, isNot('OBS-AAAA-BBBB'));
+      expect(second.correlationId, isNot('OBS-AAAA-BBBB'));
+      expect(
+        first.correlationId,
+        matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+      );
+      // The enclosing trace is the parent of every task in the batch.
+      expect(first.parentTraceId, 'trace-enclosing');
+      expect(second.parentTraceId, 'trace-enclosing');
+      // Persisted metadata matches the handles.
+      for (final handle in batch.tasks) {
+        final task = manager.tasks.firstWhere(
+          (task) => task.id == handle.taskId,
+        );
+        expect(task.correlationId, handle.correlationId);
+        expect(task.parentTraceId, 'trace-enclosing');
+        expect(task.batchId, 'obs-nested-batch');
+      }
+    });
   });
 }

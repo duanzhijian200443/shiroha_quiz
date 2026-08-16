@@ -7,13 +7,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'log_record.dart';
-import 'trace_context.dart';
+import 'log_writer.dart';
 
-abstract interface class LogSink {
-  Future<void> write(LogRecord record);
-
-  Future<void> flush();
-}
+export 'log_writer.dart' show LogSink;
 
 /// Writes newline-delimited JSON and rotates files before they grow too large.
 class RotatingFileLogSink implements LogSink {
@@ -79,8 +75,13 @@ class RotatingFileLogSink implements LogSink {
   Future<void> flush() => _pendingWrite;
 }
 
+/// Platform-backed logger facade (OBS-1).
+///
+/// This file owns everything that needs `dart:io` / Flutter /
+/// `path_provider` (rotating file sink, debug console echo, log directory
+/// bootstrap) and delegates record production to the pure-Dart [LogWriter]
+/// seam, so Application-layer code never depends on this file.
 abstract final class AppLogger {
-  static LogSink? _sink;
   static String? _logDirectoryPath;
 
   static String? get logDirectoryPath => _logDirectoryPath;
@@ -89,7 +90,9 @@ abstract final class AppLogger {
     try {
       final baseDirectory = directory ?? await getApplicationSupportDirectory();
       final logDirectory = Directory(p.join(baseDirectory.path, 'logs'));
-      _sink = RotatingFileLogSink(directory: logDirectory);
+      LogWriter.setSink(RotatingFileLogSink(directory: logDirectory));
+      LogWriter.setRecordHandler(_echoRecordInDebug);
+      LogWriter.setSinkErrorHandler(_reportSinkError);
       _logDirectoryPath = logDirectory.path;
       info('File logging initialized', module: 'Observability');
     } catch (error, stackTrace) {
@@ -99,8 +102,22 @@ abstract final class AppLogger {
 
   @visibleForTesting
   static void setSink(LogSink? sink) {
-    _sink = sink;
     _logDirectoryPath = null;
+    LogWriter.setSink(sink);
+    // Debug console echo stays active even without a sink, preserving the
+    // original AppLogger debug behavior.
+    LogWriter.setRecordHandler(_echoRecordInDebug);
+    LogWriter.setSinkErrorHandler(
+      sink == null ? null : _reportSinkError,
+    );
+  }
+
+  static void _echoRecordInDebug(LogRecord record) {
+    if (kDebugMode) debugPrint(jsonEncode(record.toJson()));
+  }
+
+  static void _reportSinkError(Object error, StackTrace stack) {
+    debugPrint('Unable to write application log: $error\n$stack');
   }
 
   static void debug(
@@ -108,7 +125,7 @@ abstract final class AppLogger {
     String? module,
     Map<String, Object?> data = const <String, Object?>{},
   }) {
-    _write(LogLevel.debug, message, module: module, data: data);
+    LogWriter.debug(message, module: module, data: data);
   }
 
   static void info(
@@ -116,7 +133,7 @@ abstract final class AppLogger {
     String? module,
     Map<String, Object?> data = const <String, Object?>{},
   }) {
-    _write(LogLevel.info, message, module: module, data: data);
+    LogWriter.info(message, module: module, data: data);
   }
 
   static void warning(
@@ -125,15 +142,7 @@ abstract final class AppLogger {
     Object? error,
     Map<String, Object?> data = const <String, Object?>{},
   }) {
-    _write(
-      LogLevel.warning,
-      message,
-      module: module,
-      data: <String, Object?>{
-        ...data,
-        if (error != null) 'error': error.toString(),
-      },
-    );
+    LogWriter.warning(message, module: module, error: error, data: data);
   }
 
   static void error(
@@ -143,15 +152,12 @@ abstract final class AppLogger {
     StackTrace? stackTrace,
     Map<String, Object?> data = const <String, Object?>{},
   }) {
-    _write(
-      LogLevel.error,
+    LogWriter.error(
       message,
       module: module,
-      data: <String, Object?>{
-        ...data,
-        if (error != null) 'error': error.toString(),
-        if (stackTrace != null) 'stackTrace': stackTrace.toString(),
-      },
+      error: error,
+      stackTrace: stackTrace,
+      data: data,
     );
   }
 
@@ -189,117 +195,5 @@ abstract final class AppLogger {
     }
   }
 
-  static Future<void> flush() async {
-    await _sink?.flush();
-  }
-
-  static void _write(
-    LogLevel level,
-    String message, {
-    String? module,
-    required Map<String, Object?> data,
-  }) {
-    final record = LogRecord(
-      timestamp: DateTime.now(),
-      level: level,
-      correlationId: TraceContext.correlationId,
-      traceId: TraceContext.traceId,
-      parentTraceId: TraceContext.parentTraceId,
-      operationKind: TraceContext.operationKind,
-      taskId: TraceContext.taskId,
-      module: module,
-      message: _sanitizeString(message, maxLength: 4000),
-      data: _sanitizeMap(data),
-    );
-
-    if (kDebugMode) debugPrint(jsonEncode(record.toJson()));
-    final sink = _sink;
-    if (sink != null) {
-      unawaited(sink.write(record).catchError((Object error, StackTrace stack) {
-        debugPrint('Unable to write application log: $error\n$stack');
-      }));
-    }
-  }
-
-  static Map<String, Object?> _sanitizeMap(Map<String, Object?> source) {
-    return source.map(
-      (key, value) => MapEntry(key, _sanitizeValue(key, value)),
-    );
-  }
-
-  static Object? _sanitizeValue(String key, Object? value) {
-    final normalizedKey = key.toLowerCase().replaceAll(RegExp(r'[_-]'), '');
-    if (normalizedKey.contains('authorization') ||
-        normalizedKey.contains('apikey') ||
-        normalizedKey.contains('accesstoken') ||
-        normalizedKey == 'token' ||
-        normalizedKey.contains('password') ||
-        normalizedKey.contains('secret')) {
-      return '[REDACTED]';
-    }
-    if (value is Map) {
-      return value.map<String, Object?>(
-        (nestedKey, nestedValue) => MapEntry(
-          nestedKey.toString(),
-          _sanitizeValue(nestedKey.toString(), nestedValue),
-        ),
-      );
-    }
-    if (value is Iterable) {
-      return value
-          .take(100)
-          .map((item) => _sanitizeValue(key, item))
-          .toList(growable: false);
-    }
-    if (value is num || value is bool || value == null) return value;
-    return _sanitizeString(value.toString(), maxLength: 12000);
-  }
-
-  static String _sanitizeString(String value, {required int maxLength}) {
-    var sanitized = value;
-
-    sanitized = sanitized.replaceAllMapped(
-      RegExp(
-        r'([?&](?:api[_-]?key|key|access[_-]?token|token|authorization|auth|password|secret|client[_-]?secret)=)([^&#\s]+)',
-        caseSensitive: false,
-      ),
-      (match) => '${match.group(1)}[REDACTED]',
-    );
-    sanitized = sanitized.replaceAllMapped(
-      RegExp(
-        r'''((?:"|')?\bauthorization\b(?:"|')?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\r\n,;}]+)''',
-        caseSensitive: false,
-      ),
-      (match) => '${match.group(1)}[REDACTED]',
-    );
-    sanitized = sanitized.replaceAll(
-      RegExp(r'Bearer\s+[^\s,;]+', caseSensitive: false),
-      'Bearer [REDACTED]',
-    );
-    sanitized = sanitized.replaceAllMapped(
-      RegExp(
-        r'''((?:"|')?\b(?:api[_-]?key|access[_-]?token|token|password|secret|client[_-]?secret)\b(?:"|')?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^&#\s,;}]+)''',
-        caseSensitive: false,
-      ),
-      (match) => '${match.group(1)}[REDACTED]',
-    );
-    sanitized = sanitized.replaceAllMapped(
-      RegExp(
-        r'(\b(?:API|Vision|Gemini|Zhipu|GLM-OCR)[^\r\n]*?(?:Error|failed)\s*:\s*\d+\s*-\s*)([^\r\n]*)',
-        caseSensitive: false,
-      ),
-      (match) => '${match.group(1)}[REDACTED]',
-    );
-    sanitized = sanitized.replaceAllMapped(
-      RegExp(
-        r'''((?:"|')?\b(?:file[_-]?)?path\b(?:"|')?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\r\n,;}]+)''',
-        caseSensitive: false,
-      ),
-      (match) => '${match.group(1)}[REDACTED]',
-    );
-    if (sanitized.length > maxLength) {
-      sanitized = '${sanitized.substring(0, maxLength)}...[TRUNCATED]';
-    }
-    return sanitized;
-  }
+  static Future<void> flush() => LogWriter.flush();
 }

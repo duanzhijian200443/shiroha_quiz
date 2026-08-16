@@ -380,6 +380,36 @@ void main() {
       );
     });
 
+    test('application never imports the platform logger implementation', () {
+      // OBS-1 purity gate: app_logger.dart (dart:io, Flutter foundation,
+      // path_provider) must stay outside the application layer; the Agent
+      // runtime depends only on the pure LogWriter seam.
+      final offenders = <String>[];
+      for (final file in _dartFilesUnder('lib/application')) {
+        final source = file.readAsStringSync();
+        if (source.contains('app_logger.dart') ||
+            source.contains('path_provider') ||
+            source.contains('package:flutter/')) {
+          offenders.add(_normalizePath(file.path));
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason: 'Application files must not import platform logging or '
+            'Flutter infrastructure:\n${offenders.join('\n')}',
+      );
+
+      final runtime = File(
+        'lib/application/agent/agent_runtime.dart',
+      ).readAsStringSync();
+      expect(runtime, contains('log_writer.dart'));
+      expect(runtime, isNot(contains('app_logger.dart')));
+      expect(runtime, isNot(contains('dart:io')));
+      expect(runtime, isNot(contains('package:flutter')));
+      expect(runtime, isNot(contains('path_provider')));
+    });
+
     group('application dependency allowlist', () {
       const importingFile = 'lib/application/import_review/review_session.dart';
 
@@ -411,8 +441,9 @@ void main() {
         }
       });
 
-      test('allows pure SDK, domain, application, and observability targets',
-          () {
+      test(
+          'allows pure SDK, domain, application, and pure-observability '
+          'targets', () {
         const allowedUris = <String>[
           'dart:async',
           'dart:collection',
@@ -425,7 +456,9 @@ void main() {
           'package:shiroha_quiz/domain/source/source_document.dart',
           'package:shiroha_quiz/application/import_review/review_session.dart',
           'package:shiroha_quiz/core/observability/trace_context.dart',
-          '../../core/observability/app_logger.dart',
+          '../../core/observability/log_writer.dart',
+          '../../core/observability/log_record.dart',
+          '../../core/observability/diagnostic_summary.dart',
         ];
 
         for (final uri in allowedUris) {
@@ -433,6 +466,24 @@ void main() {
             _isAllowedApplicationDependency(importingFile, uri),
             isTrue,
             reason: 'Expected application dependency allowed: $uri',
+          );
+        }
+      });
+
+      test(
+          'rejects platform-bearing observability implementations from '
+          'application', () {
+        const importingFile =
+            'lib/application/import_review/review_session.dart';
+        for (final uri in <String>[
+          '../../core/observability/app_logger.dart',
+          'package:shiroha_quiz/core/observability/app_logger.dart',
+        ]) {
+          expect(
+            _isAllowedApplicationDependency(importingFile, uri),
+            isFalse,
+            reason: 'Platform-bearing app_logger.dart must stay outside '
+                'the application layer: $uri',
           );
         }
       });
@@ -1010,10 +1061,20 @@ bool _isAllowedApplicationDependency(String importingPath, String uri) {
   if (_allowedApplicationSdkUris.contains(resolved)) return true;
   return resolved.startsWith('lib/application/') ||
       resolved.startsWith('lib/domain/') ||
-      // OBS-1: core/observability is a pure-Dart cross-layer facility (zone
-      // correlation + structured logging) consumed by the Agent application
-      // runtime; it never reaches data, UI or provider layers.
-      resolved.startsWith('lib/core/observability/');
+      // OBS-1: only the exact proven-pure observability files may be imported
+      // by the application layer. Platform-bearing implementations
+      // (app_logger.dart: dart:io, Flutter foundation, path_provider) are
+      // rejected; application code must use the pure LogWriter seam.
+      _isPureObservabilityFile(resolved);
+}
+
+/// The application-importable pure-Dart observability seam. These files have
+/// no dart:io / Flutter / path_provider dependencies.
+bool _isPureObservabilityFile(String resolved) {
+  return resolved == 'lib/core/observability/log_record.dart' ||
+      resolved == 'lib/core/observability/trace_context.dart' ||
+      resolved == 'lib/core/observability/log_writer.dart' ||
+      resolved == 'lib/core/observability/diagnostic_summary.dart';
 }
 
 List<String> _applicationImportUris(String directiveSource) {
