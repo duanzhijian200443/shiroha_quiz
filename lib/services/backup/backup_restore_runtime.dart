@@ -32,6 +32,8 @@ class BackupFaultInjector {
   Future<void> afterLiveDbReplaced() async {}
   Future<void> afterLiveFilesDeleted() async {}
   Future<void> afterLiveFilesReplaced() async {}
+  Future<void> beforePostSwapValidation() async {}
+  Future<void> beforeReopenProduction() async {}
   Future<void> beforeCommittedCleanup() async {}
   Future<void> beforeRollbackDbRestore() async {}
   Future<void> beforeRollbackFilesRestore() async {}
@@ -341,7 +343,9 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         liveDbPath: liveDbPath,
         liveManaged: liveManaged,
       );
+      await _faultInjector.beforePostSwapValidation();
 
+      await _faultInjector.beforeReopenProduction();
       await _database.reopenProduction();
       await _database.validateOpenProduction();
       final stagedFiles = await _database.readOpenProductionLibraryFiles();

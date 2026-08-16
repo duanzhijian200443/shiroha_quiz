@@ -23,35 +23,28 @@ final class _InfiniteDisk implements BackupDiskSpaceProbe {
 final class _Faults extends BackupFaultInjector {
   _Faults({
     this.onPrepared,
-    this.onSwapping,
     this.onDbReplaced,
-    this.onFilesDeleted,
     this.onFilesReplaced,
     this.onBeforeRollbackDb,
     this.onBeforeRollbackFiles,
     this.onPermanentRollbackFailure,
     this.onBeforeCleanup,
+    this.onBeforePostSwapValidation,
   });
 
   Future<void> Function()? onPrepared;
-  Future<void> Function()? onSwapping;
   Future<void> Function()? onDbReplaced;
-  Future<void> Function()? onFilesDeleted;
   Future<void> Function()? onFilesReplaced;
   Future<void> Function()? onBeforeRollbackDb;
   Future<void> Function()? onBeforeRollbackFiles;
   Future<void> Function()? onPermanentRollbackFailure;
   Future<void> Function()? onBeforeCleanup;
+  Future<void> Function()? onBeforePostSwapValidation;
 
   @override
   Future<void> afterJournalPrepared() => onPrepared?.call() ?? Future.value();
   @override
-  Future<void> afterJournalSwapping() => onSwapping?.call() ?? Future.value();
-  @override
   Future<void> afterLiveDbReplaced() => onDbReplaced?.call() ?? Future.value();
-  @override
-  Future<void> afterLiveFilesDeleted() =>
-      onFilesDeleted?.call() ?? Future.value();
   @override
   Future<void> afterLiveFilesReplaced() =>
       onFilesReplaced?.call() ?? Future.value();
@@ -67,6 +60,9 @@ final class _Faults extends BackupFaultInjector {
   @override
   Future<void> beforeCommittedCleanup() =>
       onBeforeCleanup?.call() ?? Future.value();
+  @override
+  Future<void> beforePostSwapValidation() =>
+      onBeforePostSwapValidation?.call() ?? Future.value();
 }
 
 void main() {
@@ -339,6 +335,71 @@ void main() {
       File(p.join(restoreRoot.path, 'journal', 'journal.json')).existsSync(),
       isFalse,
     );
+  });
+
+  test('DB replacement failure rolls back original durable state', () async {
+    final package = await exportPackage();
+    await mutateLive();
+    final failing = runtime(
+      faults: _Faults(
+        onDbReplaced: () async =>
+            throw const BackupException(BackupFailure.databaseInvalid),
+      ),
+    );
+    await failing.prepareRestore(package);
+    await expectLater(
+      failing.commitPreparedRestore(),
+      throwsA(isA<BackupException>()),
+    );
+    await expectLiveMutated();
+  });
+
+  test('post-swap validation failure rolls back original durable state',
+      () async {
+    final package = await exportPackage();
+    await mutateLive();
+    final failing = runtime(
+      faults: _Faults(
+        onBeforePostSwapValidation: () async =>
+            throw const BackupException(BackupFailure.integrityMismatch),
+      ),
+    );
+    await failing.prepareRestore(package);
+    await expectLater(
+      failing.commitPreparedRestore(),
+      throwsA(isA<BackupException>()),
+    );
+    await expectLiveMutated();
+  });
+
+  test('double crash during rollback resumes and ends ROLLED_BACK', () async {
+    final package = await exportPackage();
+    final firstCrash = runtime(
+      faults: _Faults(
+        onFilesReplaced: () async =>
+            throw const BackupException(BackupFailure.integrityMismatch),
+        onBeforeRollbackDb: () async => throw const BackupCrashSimulation(),
+      ),
+    );
+    await firstCrash.prepareRestore(package);
+    await expectLater(
+      firstCrash.commitPreparedRestore(),
+      throwsA(isA<BackupCrashSimulation>()),
+    );
+
+    final secondCrash = runtime(
+      faults: _Faults(
+        onBeforeRollbackFiles: () async => throw const BackupCrashSimulation(),
+      ),
+    );
+    await expectLater(
+      secondCrash.recoverStartupIfNeeded(),
+      throwsA(isA<BackupCrashSimulation>()),
+    );
+
+    final recovery = await runtime().recoverStartupIfNeeded();
+    expect(recovery.blocked, isFalse);
+    expect(recovery.recoveredJournalState, RestoreJournalState.rolledBack);
   });
 
   test('pre-commit cancel deletes staging and leaves live state unchanged',

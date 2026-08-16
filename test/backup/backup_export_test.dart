@@ -11,7 +11,6 @@ import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/services/backup/backup_archive_io.dart';
 import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
 import 'package:shiroha_quiz/services/backup/backup_restore_runtime.dart';
-import 'package:shiroha_quiz/services/file_library/managed_file_storage.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
 
 final class _InfiniteDisk implements BackupDiskSpaceProbe {
