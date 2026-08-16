@@ -1,14 +1,19 @@
 # B0 `.shiroha` Backup / Restore — Focused Canonical Contract v0
 
-Status: **Canonical B0 authority — B0-P0 CONTRACT FROZEN**.
+Status: **Canonical B0 authority — B0 v0 CLOSED / FROZEN**.
 
 This document freezes the B0 v0 package, export, restore, rollback, version
 compatibility, exclusion/scrub, observability, and acceptance contract for the
-`.shiroha` backup/restore capability. B0-P0 is a design freeze only: it adds
-canonical documentation and changes no production code, tests, UI, schema, or
-dependency set.
+`.shiroha` backup/restore capability.
 
-After B0-P0, the frozen implementation order is:
+Implementation status amendment: B0-P0 froze this contract as docs-only. The
+serial implementation stages B0-D0 (package/manifest core), B0-E0 (export),
+B0-I0 (whole restore + durable journal + crash recovery + rollback), B0-U0
+(minimal backup/restore UI), B0-V0 (focused acceptance), and B0-CL (canonical
+closure) are COMPLETE. Runtime schema remains v22; B0 adds no migration and no
+dependency changes.
+
+The frozen implementation order was:
 
 ```text
 B0-D0 -> B0-E0 -> B0-I0 -> B0-U0 -> B0-V0 -> B0-CL
@@ -803,6 +808,20 @@ V0/CL = T2
 All B0 implementation stages are `SERIAL`. A later stage never auto-activates
 before the previous checkpoint closes. B0-P0 is docs-only and already satisfies
 that boundary.
+
+Stage closure status:
+
+```text
+B0-P0 Contract Freeze — COMPLETE
+B0-D0 Package / Manifest Core — COMPLETE
+B0-E0 Export — COMPLETE
+B0-I0 Whole Restore + Rollback — COMPLETE
+B0-U0 Minimal UI — COMPLETE
+B0-V0 Round-trip / corruption acceptance — COMPLETE
+B0-CL Closure — COMPLETE
+
+B0 .shiroha Backup / Restore — CLOSED / FROZEN
+```
 
 ## 19. Required B0-V0 acceptance matrix
 
