@@ -20,6 +20,7 @@ import 'application/agent/agent_retrieval_tool.dart';
 import 'application/answers/ai_answer_commit_command.dart';
 import 'application/answers/ai_answer_generation.dart';
 import 'application/conversations/conversation_service.dart';
+import 'application/exam/exam_mutation_command.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
@@ -44,6 +45,7 @@ import 'data/repositories/backup_snapshot_repository.dart';
 import 'data/repositories/agent_profile_repository.dart';
 import 'data/repositories/approved_agent_write_repository.dart';
 import 'data/repositories/conversation_repository.dart';
+import 'data/repositories/exam_repository.dart';
 import 'data/repositories/library_file_repository.dart';
 import 'data/repositories/library_folder_repository.dart';
 import 'data/repositories/project_repository.dart';
@@ -219,6 +221,9 @@ void main() {
       );
       final questionRepository = QuestionRepository(
         databaseHelper: databaseHelper,
+      );
+      final examMutationCommand = ExamMutationCommand(
+        ExamRepository(databaseHelper: databaseHelper),
       );
       final studyQueryService = StudyQueryService(
         questionQuery: questionRepository,
@@ -396,6 +401,7 @@ void main() {
         importTaskCoordinator: importTaskCoordinator,
         answerGenerationService: answerGenerationService,
         answerCommitCommand: answerCommitCommand,
+        examMutationCommand: examMutationCommand,
         u1WorkspaceFacade: u1WorkspaceFacade,
         conversationService: conversationService,
         agentSettingsService: agentSettingsService,
@@ -433,6 +439,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.importTaskCoordinator,
     required this.answerGenerationService,
     required this.answerCommitCommand,
+    required this.examMutationCommand,
     required this.u1WorkspaceFacade,
     required this.conversationService,
     required this.agentSettingsService,
@@ -455,6 +462,7 @@ class ShirohaQuizApp extends StatelessWidget {
   /// P7 Application seams for the AI answer review UI.
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
+  final ExamMutationCommand examMutationCommand;
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
@@ -482,6 +490,7 @@ class ShirohaQuizApp extends StatelessWidget {
           importTaskCoordinator: importTaskCoordinator,
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
+          examMutationCommand: examMutationCommand,
           child: MaterialApp(
             title: 'Shiroha Quiz',
             navigatorKey: globalNavigatorKey, // 核心新增：挂载全局路由引擎

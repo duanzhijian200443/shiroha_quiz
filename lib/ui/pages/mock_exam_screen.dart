@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import '../../data/repositories/exam_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../../application/exam/exam_mutation_command.dart';
 import '../../main.dart';
 import '../widgets/markdown_extensions.dart';
 
@@ -12,12 +12,12 @@ class MockExamScreen extends StatefulWidget {
   final List<Map<String, dynamic>> questions;
   final int durationMinutes;
 
-  const MockExamScreen(
-      {Key? key,
-      required this.paperId,
-      required this.questions,
-      required this.durationMinutes})
-      : super(key: key);
+  const MockExamScreen({
+    super.key,
+    required this.paperId,
+    required this.questions,
+    required this.durationMinutes,
+  });
 
   @override
   State<MockExamScreen> createState() => _MockExamScreenState();
@@ -78,9 +78,15 @@ class _MockExamScreenState extends State<MockExamScreen> {
         builder: (_) => const Center(child: CircularProgressIndicator()));
 
     try {
+      final dependencies = AiDependenciesScope.of(context);
+      final examMutation = dependencies.examMutationCommand;
+      final aiService = dependencies.aiService;
       // 1. 提交答案并获取需要 AI 批改的主观题任务
-      final tasks = await ExamRepository.instance
-          .submitExamPaper(widget.paperId, _userAnswers, widget.questions);
+      final tasks = await examMutation.submitExamPaper(
+        widget.paperId,
+        _userAnswers,
+        widget.questions,
+      );
 
       if (mounted) {
         Navigator.pop(context); // 关闭 Loading
@@ -97,41 +103,61 @@ class _MockExamScreenState extends State<MockExamScreen> {
             content: Text('🚀 客观题已批改！主观题已转入后台 AI 阅卷...'),
             backgroundColor: Colors.blueAccent));
 
-        // 派发至后台事件循环，不阻塞 UI
-        Future.microtask(() async {
-          for (var task in tasks) {
-            try {
-              final feedback = await AiDependenciesScope.of(context)
-                  .aiService
-                  .judgeAnswer(task['question'], task['sAns'], task['uAns']);
+        // Start immediately so the accepted background mutation acquires its
+        // lease before a restore can be requested, without blocking this UI.
+        unawaited(() async {
+          try {
+            await examMutation.gradeSubjectiveAnswers(
+              paperId: widget.paperId,
+              tasks: tasks
+                  .map(
+                    (task) => ExamSubjectiveTask(
+                      questionId: task['qId'].toString(),
+                      question: task['question'].toString(),
+                      standardAnswer: task['sAns'].toString(),
+                      userAnswer: task['uAns'].toString(),
+                    ),
+                  )
+                  .toList(growable: false),
+              judge: (task) async {
+                try {
+                  final feedback = await aiService.judgeAnswer(
+                    task.question,
+                    task.standardAnswer,
+                    task.userAnswer,
+                  );
 
-              // 智能提取 AI 打分 (0-100)，折算为 1 分满分
-              final match = RegExp(r'\d+').firstMatch(feedback);
-              double scoreRatio = 0.0;
-              if (match != null) {
-                double parsed = double.tryParse(match.group(0)!) ?? 0.0;
-                scoreRatio = (parsed / 100.0).clamp(0.0, 1.0);
-              } else {
-                // 容错：如果 AI 没给数字，按语义判断
-                scoreRatio = (feedback.contains('对') ||
-                        feedback.contains('正确') ||
-                        feedback.contains('得分'))
-                    ? 1.0
-                    : 0.0;
-              }
-
-              await ExamRepository.instance.updateExamAiScore(
-                  widget.paperId, task['qId'], feedback, scoreRatio);
-            } catch (e) {
-              debugPrint('AI 判卷单题异常: $e');
-            }
+                  // 智能提取 AI 打分 (0-100)，折算为 1 分满分
+                  final match = RegExp(r'\d+').firstMatch(feedback);
+                  double scoreRatio = 0.0;
+                  if (match != null) {
+                    final parsed = double.tryParse(match.group(0)!) ?? 0.0;
+                    scoreRatio = (parsed / 100.0).clamp(0.0, 1.0);
+                  } else {
+                    // 容错：如果 AI 没给数字，按语义判断
+                    scoreRatio = (feedback.contains('对') ||
+                            feedback.contains('正确') ||
+                            feedback.contains('得分'))
+                        ? 1.0
+                        : 0.0;
+                  }
+                  return ExamSubjectiveGrade(
+                    feedback: feedback,
+                    scoreRatio: scoreRatio,
+                  );
+                } catch (e) {
+                  debugPrint('AI 判卷单题异常: $e');
+                  return null;
+                }
+              },
+            );
+            rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(
+                content: Text('🎉 试卷 AI 批改完成！请下拉刷新模考中心查看成绩。'),
+                backgroundColor: Colors.green));
+          } catch (e) {
+            debugPrint('AI 判卷后台任务未完成: $e');
           }
-          // 所有主观题批改完毕，封板出分
-          await ExamRepository.instance.finishExamGrading(widget.paperId);
-          rootScaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(
-              content: Text('🎉 试卷 AI 批改完成！请下拉刷新模考中心查看成绩。'),
-              backgroundColor: Colors.green));
-        });
+        }());
       }
     } catch (e) {
       if (mounted) {
@@ -176,8 +202,9 @@ class _MockExamScreenState extends State<MockExamScreen> {
     int h = seconds ~/ 3600;
     int m = (seconds % 3600) ~/ 60;
     int s = seconds % 60;
-    if (h > 0)
+    if (h > 0) {
       return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
@@ -215,7 +242,7 @@ class _MockExamScreenState extends State<MockExamScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.1),
+                  color: Colors.redAccent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(4)),
               child: Text(isObjective ? '单选题' : (type == 2 ? '填空题' : '简答题'),
                   style: const TextStyle(
@@ -241,12 +268,12 @@ class _MockExamScreenState extends State<MockExamScreen> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? Theme.of(context).primaryColor.withOpacity(0.1)
+                      ? Theme.of(context).primaryColor.withValues(alpha: 0.1)
                       : Theme.of(context).cardTheme.color,
                   border: Border.all(
                       color: isSelected
                           ? Theme.of(context).primaryColor
-                          : Colors.grey.withOpacity(0.2),
+                          : Colors.grey.withValues(alpha: 0.2),
                       width: isSelected ? 2 : 1),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -277,7 +304,9 @@ class _MockExamScreenState extends State<MockExamScreen> {
               fillColor: Theme.of(context).cardTheme.color,
               border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.withOpacity(0.2))),
+                  borderSide: BorderSide(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                  )),
             ),
           ),
       ],
@@ -302,7 +331,7 @@ class _MockExamScreenState extends State<MockExamScreen> {
         appBar: AppBar(
           automaticallyImplyLeading: false,
           backgroundColor: isDanger
-              ? Colors.redAccent.withOpacity(0.1)
+              ? Colors.redAccent.withValues(alpha: 0.1)
               : theme.scaffoldBackgroundColor,
           title: Row(
             mainAxisSize: MainAxisSize.min,
@@ -344,7 +373,7 @@ class _MockExamScreenState extends State<MockExamScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(color: theme.cardTheme.color, boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, -4))
             ]),

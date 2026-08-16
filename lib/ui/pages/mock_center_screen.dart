@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import 'ai_generator_screen.dart';
@@ -61,7 +62,9 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
   }
 
   Future<void> _deletePaper(String id) async {
-    await ExamRepository.instance.deleteExamPaper(id);
+    await AiDependenciesScope.of(context)
+        .examMutationCommand
+        .deleteExamPaper(id);
     _loadPapers();
   }
 
@@ -268,7 +271,9 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                               backgroundColor: Colors.orange),
                                           onPressed: () async {
                                             Navigator.pop(ctx);
-                                            await ExamRepository.instance
+                                            await AiDependenciesScope.of(
+                                                    context)
+                                                .examMutationCommand
                                                 .finishExamGrading(paper['id']);
                                             _loadPapers();
                                           },

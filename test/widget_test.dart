@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
@@ -137,6 +138,9 @@ final class _EmptyAgentProfiles implements AgentProfileCatalogPort {
   @override
   Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
 }
+
+final class _EmptyExamMutationPersistence extends Fake
+    implements ExamMutationPersistencePort {}
 
 final class _EmptyWritePersistence implements AgentWritePersistencePort {
   @override
@@ -349,6 +353,9 @@ Widget _buildTestApp() {
   final answerCommitCommand = AiAnswerCommitCommand(
     persistencePort: _FailClosedCommitPort(),
   );
+  final examMutationCommand = ExamMutationCommand(
+    _EmptyExamMutationPersistence(),
+  );
   return ShirohaQuizApp(
     engineRepository: engineRepository,
     aiService: aiService,
@@ -356,6 +363,7 @@ Widget _buildTestApp() {
     importTaskCoordinator: importTaskCoordinator,
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
+    examMutationCommand: examMutationCommand,
     u1WorkspaceFacade: _emptyWorkspaceFacade(),
     conversationService: _emptyConversationService(),
     agentSettingsService: AgentSettingsService(

@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
@@ -255,6 +256,9 @@ class _Harness {
           importTaskCoordinator: _FakeImportTaskCoordinator(),
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
+          examMutationCommand: ExamMutationCommand(
+            _FakeExamMutationPersistence(),
+          ),
           child: QuestionListScreen(
             bankName: _bankName,
             questionRepository: repository,
@@ -269,6 +273,9 @@ class _Harness {
 class _FakeEngineRepository extends Fake implements AiEngineRepository {
   _FakeEngineRepository();
 }
+
+class _FakeExamMutationPersistence extends Fake
+    implements ExamMutationPersistencePort {}
 
 class _FakeAiService extends Fake implements AiService {
   _FakeAiService();

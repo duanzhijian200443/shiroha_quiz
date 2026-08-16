@@ -186,6 +186,8 @@ jobs:
             'test/core/observability/unified_operation_trace_test.dart',
             'test/import_task_coordinator_test.dart',
             'test/application/questions/question_mutation_command_test.dart',
+            'test/application/exam/exam_mutation_command_test.dart',
+            'test/application/agent/agent_settings_mutation_test.dart',
             'test/services/task_manager_backup_restore_mutation_test.dart',
             'test/application/safe_write/typed_answer_command_test.dart',
             'test/task_center_diagnostics_widget_test.dart',

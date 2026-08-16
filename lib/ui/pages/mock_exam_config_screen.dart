@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../data/repositories/exam_repository.dart';
+import '../dependencies/ai_dependencies_scope.dart';
 import 'mock_exam_screen.dart';
 
 class MockExamConfigScreen extends StatefulWidget {
   final String initialBank;
-  const MockExamConfigScreen({Key? key, required this.initialBank})
-      : super(key: key);
+  const MockExamConfigScreen({super.key, required this.initialBank});
 
   @override
   State<MockExamConfigScreen> createState() => _MockExamConfigScreenState();
@@ -43,7 +43,8 @@ class _MockExamConfigScreenState extends State<MockExamConfigScreen> {
 
       // 2. 核心合流：将抽出的题目正式落盘为试卷 (source_type: 0)
       final paperTitle = '${widget.initialBank} 随机模考';
-      final paperId = await ExamRepository.instance
+      final paperId = await AiDependenciesScope.of(context)
+          .examMutationCommand
           .createExamPaper(paperTitle, 0, questions);
 
       if (!mounted) return;

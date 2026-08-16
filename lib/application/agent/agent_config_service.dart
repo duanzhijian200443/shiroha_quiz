@@ -1,4 +1,5 @@
 import 'agent_config.dart';
+import '../backup/backup_restore_gate.dart';
 
 abstract interface class AgentConfigStorePort {
   Future<String?> readAgentConfig();
@@ -201,7 +202,13 @@ final class AgentSettingsService {
     }
   }
 
-  Future<void> save(AgentConfig config) async {
+  Future<void> save(AgentConfig config) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _saveUnchecked(config),
+    );
+  }
+
+  Future<void> _saveUnchecked(AgentConfig config) async {
     try {
       final profiles = await _profileCatalog.listMainProfiles();
       if (!profiles
