@@ -9,6 +9,8 @@ enum TraceOperationKind {
   importAttempt,
   parsedArtifactGeneration,
   ragRetrieval,
+  backupExport,
+  backupRestore,
 }
 
 /// Correlation data that follows an asynchronous operation through Dart zones.

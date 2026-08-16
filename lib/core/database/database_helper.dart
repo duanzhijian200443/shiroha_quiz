@@ -26,6 +26,9 @@ class DatabaseHelper
   static const String _dbName = 'shiroha_core_v1.db';
   static const int _dbVersion = studyPlanSchemaVersion;
 
+  static String get databaseFileName => _dbName;
+  static int get databaseVersion => _dbVersion;
+
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
   /// Exact frozen v15 additive sidecar definition.
@@ -525,6 +528,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
 
   static DatabaseHelper get instance => _instance ??= DatabaseHelper._();
 
+  Future<String> getProductionDatabasePath() async =>
+      join(await getDatabasesPath(), _dbName);
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     if (_openingDatabase != null) return _openingDatabase!;
@@ -557,6 +563,34 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
       _database = null;
     }
     _openedDatabasePath = null;
+  }
+
+  /// Opens a B0 staged database through the existing migration authority.
+  ///
+  /// This is the only B0 migration path: same onConfigure/onCreate/onUpgrade
+  /// callbacks as production, applied to the staged file only. The returned
+  /// handle is owned by the caller. The singleton database is never touched.
+  Future<Database> openPathForStagedMigration(String path) async {
+    return openDatabase(
+      path,
+      version: _dbVersion,
+      onConfigure: _onConfigure,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+  }
+
+  /// Runs the current schema validation authority against an opened staged
+  /// B0 database. B0 never adds a second migration/validation authority.
+  static Future<void> validateStagedBackupSchema(Database db) async {
+    await _validateV15Schema(db);
+    await _validateLibraryFilesSchema(db);
+    await _validateProjectSchema(db);
+    await _validateLibraryFolderSchema(db);
+    await _validateConversationSchema(db);
+    await _validateParsedArtifactSchema(db);
+    await validateRetrievalV21Schema(db);
+    await validateStudyPlanV22Schema(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
