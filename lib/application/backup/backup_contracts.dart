@@ -115,6 +115,8 @@ abstract interface class BackupDatabaseAuthority {
   Future<void> closeProduction();
   Future<void> reopenProduction();
   Future<void> validateDatabaseFile(String path);
+  Future<void> validateOpenProduction();
+  Future<List<SnapshotLibraryFile>> readOpenProductionLibraryFiles();
 }
 
 /// High-level B0 operations implemented by the infrastructure layer. The

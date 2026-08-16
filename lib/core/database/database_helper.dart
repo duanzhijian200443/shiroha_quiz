@@ -17,6 +17,7 @@ enum DatabaseRuntimeProfile {
   production,
   isolatedSmokeInMemory,
   explicitReadOnly,
+  explicitFile,
 }
 
 class DatabaseHelper
@@ -473,6 +474,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   static bool _runtimeProfileConfigured = false;
   static String? _openedDatabasePath;
   static String? _explicitReadOnlyPath;
+  static String? _explicitFileDatabasePath;
 
   static DatabaseRuntimeProfile get runtimeProfile => _runtimeProfile;
 
@@ -492,6 +494,13 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     }
     if (profile == DatabaseRuntimeProfile.explicitReadOnly) {
       _explicitReadOnlyPath = _resolveExistingAbsolutePath(databasePath);
+    } else if (profile == DatabaseRuntimeProfile.explicitFile) {
+      if (databasePath == null || databasePath.trim().isEmpty) {
+        throw const DatabaseRuntimeException(
+          DatabaseRuntimeFailure.invalidPath,
+        );
+      }
+      _explicitFileDatabasePath = join(databasePath, _dbName);
     } else if (databasePath != null) {
       throw const DatabaseRuntimeException(
         DatabaseRuntimeFailure.unexpectedPath,
@@ -618,6 +627,27 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   Future<Database> _initDatabase() async {
     if (_runtimeProfile == DatabaseRuntimeProfile.explicitReadOnly) {
       return _openExplicitReadOnlyDatabase();
+    }
+    if (_runtimeProfile == DatabaseRuntimeProfile.explicitFile) {
+      final path = _explicitFileDatabasePath;
+      if (path == null) {
+        throw const DatabaseRuntimeException(
+          DatabaseRuntimeFailure.invalidPath,
+        );
+      }
+      final directory = Directory(dirname(path));
+      if (!directory.existsSync()) {
+        directory.createSync(recursive: true);
+      }
+      final database = await openDatabase(
+        path,
+        version: _dbVersion,
+        onConfigure: _onConfigure,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+      _openedDatabasePath = path;
+      return database;
     }
     final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
     final useInMemory = isTest ||
@@ -2103,6 +2133,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     _runtimeProfile = DatabaseRuntimeProfile.production;
     _runtimeProfileConfigured = false;
     _explicitReadOnlyPath = null;
+    _explicitFileDatabasePath = null;
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBanksSummary() async {

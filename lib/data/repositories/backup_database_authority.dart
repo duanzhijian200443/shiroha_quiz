@@ -34,4 +34,25 @@ final class SqliteBackupDatabaseAuthority implements BackupDatabaseAuthority {
   @override
   Future<void> validateDatabaseFile(String path) =>
       _snapshots.openStagedAndValidate(path);
+
+  @override
+  Future<void> validateOpenProduction() async {
+    final db = await _databaseHelper.database;
+    await DatabaseHelper.validateStagedBackupSchema(db);
+  }
+
+  @override
+  Future<List<SnapshotLibraryFile>> readOpenProductionLibraryFiles() async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query('library_files', orderBy: 'file_id');
+    return <SnapshotLibraryFile>[
+      for (final row in rows)
+        SnapshotLibraryFile(
+          fileId: row['file_id']! as String,
+          storageKey: row['storage_key']! as String,
+          sizeBytes: row['size_bytes']! as int,
+          sha256: row['sha256']! as String,
+        ),
+    ];
+  }
 }

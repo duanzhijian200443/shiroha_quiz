@@ -16,9 +16,15 @@ import 'backup_disk_space.dart';
 import 'backup_filesystem.dart';
 import 'backup_journal_store.dart';
 
+/// Thrown by fault hooks to simulate a process crash: the runtime must NOT
+/// roll back on this signal; the journal remains for startup recovery.
+final class BackupCrashSimulation implements Exception {
+  const BackupCrashSimulation();
+}
+
 /// Fault hooks used by deterministic restore tests. Production wiring passes
 /// a no-op injector.
-final class BackupFaultInjector {
+class BackupFaultInjector {
   const BackupFaultInjector();
 
   Future<void> afterJournalPrepared() async {}
@@ -26,6 +32,7 @@ final class BackupFaultInjector {
   Future<void> afterLiveDbReplaced() async {}
   Future<void> afterLiveFilesDeleted() async {}
   Future<void> afterLiveFilesReplaced() async {}
+  Future<void> beforeCommittedCleanup() async {}
   Future<void> beforeRollbackDbRestore() async {}
   Future<void> beforeRollbackFilesRestore() async {}
   Future<void> failRollbackPermanently() async {}
@@ -285,10 +292,10 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     final journalStore = BackupJournalStore(
       journalRoot: Directory(p.join(_restoreRoot.path, 'journal')),
     );
-    final stagingKey = p.relative(staged.stagingPath, from: _restoreRoot.path);
-    final rollbackKey = p.join('rollback', operationId);
-    final rollbackDbKey = p.join(rollbackKey, 'db');
-    final rollbackFilesKey = p.join(rollbackKey, 'files');
+    final stagingKey = _relativeKey(staged.stagingPath);
+    final rollbackKey = 'rollback/$operationId';
+    final rollbackDbKey = '$rollbackKey/db';
+    final rollbackFilesKey = '$rollbackKey/files';
     final rollbackDbPath = journalStore.resolveKey(rollbackDbKey);
     final rollbackFilesPath = journalStore.resolveKey(rollbackFilesKey);
 
@@ -336,8 +343,8 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       );
 
       await _database.reopenProduction();
-      await _database.validateDatabaseFile(liveDbPath);
-      final stagedFiles = await _snapshots.readStagedLibraryFiles(liveDbPath);
+      await _database.validateOpenProduction();
+      final stagedFiles = await _database.readOpenProductionLibraryFiles();
       if (stagedFiles.length != staged.manifest.managedFileCount) {
         throw const BackupException(BackupFailure.integrityMismatch);
       }
@@ -357,6 +364,8 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         schemaVersion: staged.manifest.schemaVersion,
         fileCount: staged.manifest.managedFileCount,
       );
+    } on BackupCrashSimulation {
+      rethrow;
     } catch (_) {
       await _rollbackFromJournalStore(
         journalStore: journalStore,
@@ -416,10 +425,13 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
 
     await BackupFilesystem.deleteDirectoryContents(liveManaged);
     await _faultInjector.afterLiveFilesDeleted();
-    await BackupFilesystem.copyDirectoryContents(
-      source: Directory(staged.managedFilesPath),
-      target: liveManaged,
-    );
+    for (final entry in staged.manifest.managedFiles) {
+      final target = _managedFiles.resolveManagedFile(entry.storageKey);
+      await BackupFilesystem.copyAndMeasure(
+        sourcePath: p.join(staged.managedFilesPath, entry.fileId),
+        targetPath: target.path,
+      );
+    }
     await _faultInjector.afterLiveFilesReplaced();
   }
 
@@ -451,7 +463,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       );
       await _faultInjector.failRollbackPermanently();
       await _database.reopenProduction();
-      await _database.validateDatabaseFile(liveDbPath);
+      await _database.validateOpenProduction();
       await journalStore
           .write(journal.copyWithState(RestoreJournalState.rolledBack));
       await _cleanupBestEffort(
@@ -461,6 +473,8 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         rollbackDbPath: rollbackDbPath,
         rollbackFilesPath: rollbackFilesPath,
       );
+    } on BackupCrashSimulation {
+      rethrow;
     } catch (_) {
       final failed = current.copyWithState(
         RestoreJournalState.rollbackFailed,
@@ -473,11 +487,22 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
   @override
   Future<BackupStartupRecovery> recoverStartupIfNeeded() async {
     final journalStore = _journalStoreOrCreate;
-    final journal = await journalStore.read();
-    if (journal == null) {
+    final RestoreJournal journal;
+    try {
+      final value = await journalStore.read();
+      if (value == null) {
+        return BackupStartupRecovery(
+          blocked: false,
+          diagnosticId: _diagnosticId(),
+        );
+      }
+      journal = value;
+    } on BackupException catch (error) {
       return BackupStartupRecovery(
-        blocked: false,
-        diagnosticId: _diagnosticId(),
+        blocked: true,
+        diagnosticId: error.diagnosticId ?? _diagnosticId(),
+        failure: error.failure,
+        recoveredJournalState: RestoreJournalState.rollbackFailed,
       );
     }
     final liveDbPath = await _database.productionDatabasePath();
@@ -518,7 +543,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
           );
         case RestoreJournalState.rolledBack:
           await _database.reopenProduction();
-          await _database.validateDatabaseFile(liveDbPath);
+          await _database.validateOpenProduction();
           await _deleteIfExists(Directory(stagingPath));
           await _deleteIfExists(Directory(rollbackDbPath));
           await _deleteIfExists(Directory(rollbackFilesPath));
@@ -531,7 +556,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         case RestoreJournalState.committed:
           try {
             await _database.reopenProduction();
-            await _database.validateDatabaseFile(liveDbPath);
+            await _database.validateOpenProduction();
           } catch (_) {
             if (Directory(rollbackDbPath).existsSync()) {
               await _restoreRollbackOnly(
@@ -606,17 +631,20 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       journal.copyWithState(RestoreJournalState.rollingBack),
     );
     await _database.closeProduction();
+    await _faultInjector.beforeRollbackDbRestore();
     await BackupFilesystem.copyAndMeasure(
       sourcePath: p.join(rollbackDbPath, 'shiroha_core_v1.db'),
       targetPath: liveDbPath,
     );
+    await _faultInjector.beforeRollbackFilesRestore();
     await BackupFilesystem.deleteDirectoryContents(liveManaged);
     await BackupFilesystem.copyDirectoryContents(
       source: Directory(rollbackFilesPath),
       target: liveManaged,
     );
+    await _faultInjector.failRollbackPermanently();
     await _database.reopenProduction();
-    await _database.validateDatabaseFile(liveDbPath);
+    await _database.validateOpenProduction();
     await journalStore
         .write(journal.copyWithState(RestoreJournalState.rolledBack));
     await _deleteIfExists(Directory(stagingPath));
@@ -633,6 +661,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     required String rollbackFilesPath,
   }) async {
     try {
+      await _faultInjector.beforeCommittedCleanup();
       await _deleteIfExists(Directory(stagingPath));
       await _deleteIfExists(Directory(rollbackDbPath));
       await _deleteIfExists(Directory(rollbackFilesPath));
@@ -686,6 +715,9 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       await entity.delete(recursive: true);
     }
   }
+
+  String _relativeKey(String path) =>
+      p.relative(path, from: _restoreRoot.path).replaceAll(r'\', '/');
 
   static String _diagnosticId() {
     // Main/AppLogger owns the real OBS id. This fallback is a safe token.

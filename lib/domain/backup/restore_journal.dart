@@ -70,7 +70,15 @@ final class RestoreJournal {
       'rollbackDbKey',
       'rollbackFilesKey',
     };
-    if (!keys.containsAll(requiredKeys) || keys.length != requiredKeys.length) {
+    const optionalKeys = <String>{
+      'fileCount',
+      'databaseSizeBytes',
+      'managedBytes',
+    };
+    if (!keys.containsAll(requiredKeys) ||
+        keys.any(
+          (key) => !requiredKeys.contains(key) && !optionalKeys.contains(key),
+        )) {
       throw const BackupException(BackupFailure.journalInvalid);
     }
     final version = json['version'];
