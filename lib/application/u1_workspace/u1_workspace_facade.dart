@@ -310,7 +310,8 @@ final class U1WorkspaceFacade {
     final lifecycle = _parsedArtifactLifecycle;
     if (lifecycle == null) {
       return const LibraryFileArtifactState(
-        status: LibraryFileArtifactStatus.none,
+        status: LibraryFileArtifactStatus.unavailable,
+        errorMessage: '解析服务未初始化',
       );
     }
     try {
@@ -326,19 +327,37 @@ final class U1WorkspaceFacade {
           const LibraryFileArtifactState(
             status: LibraryFileArtifactStatus.none,
           ),
+        ParsedArtifactLifecycleFailure.temporarilyUnavailable =>
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.unavailable,
+            errorMessage: '暂时无法读取解析状态，请稍后重试',
+          ),
+        ParsedArtifactLifecycleFailure.fileNotFound ||
+        ParsedArtifactLifecycleFailure.sourceUnavailable =>
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.unavailable,
+            errorMessage: '文件内容当前不可读取',
+          ),
         ParsedArtifactLifecycleFailure.artifactCorrupt ||
         ParsedArtifactLifecycleFailure.payloadUnsupported =>
           const LibraryFileArtifactState(
             status: LibraryFileArtifactStatus.failed,
             errorMessage: '文件内容解析数据已损坏',
           ),
-        _ => const LibraryFileArtifactState(
-            status: LibraryFileArtifactStatus.none,
+        ParsedArtifactLifecycleFailure.internalError ||
+        ParsedArtifactLifecycleFailure.invalidRequest ||
+        ParsedArtifactLifecycleFailure.unsupportedRoute ||
+        ParsedArtifactLifecycleFailure.parseFailed ||
+        ParsedArtifactLifecycleFailure.publishConflict =>
+          const LibraryFileArtifactState(
+            status: LibraryFileArtifactStatus.failed,
+            errorMessage: '暂时无法读取解析状态，请稍后重试',
           ),
       };
     } catch (_) {
       return const LibraryFileArtifactState(
-        status: LibraryFileArtifactStatus.none,
+        status: LibraryFileArtifactStatus.failed,
+        errorMessage: '暂时无法读取解析状态，请稍后重试',
       );
     }
   }

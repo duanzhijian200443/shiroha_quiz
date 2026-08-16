@@ -294,7 +294,8 @@ class FileLibraryController extends ChangeNotifier {
       artifactState = await facade.getLibraryFileArtifactStatus(fileId);
     } catch (_) {
       artifactState = const LibraryFileArtifactState(
-        status: LibraryFileArtifactStatus.none,
+        status: LibraryFileArtifactStatus.failed,
+        errorMessage: '暂时无法读取解析状态，请稍后重试',
       );
     }
     notifyListeners();
