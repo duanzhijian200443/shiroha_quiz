@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_failure_classifier.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
@@ -1071,5 +1072,183 @@ void main() {
       ),
       throwsA(isA<TypedReviewSnapshotException>()),
     );
+  });
+
+  group('OBS-1 import correlation', () {
+    test('initial attempt creates task/correlation/trace with attempt 1',
+        () async {
+      var traceIndex = 0;
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => 'obs-initial-task',
+        traceIdFactory: () => 'obs-trace-${traceIndex++}',
+        attemptTokenFactory: () => 'obs-attempt-1',
+      );
+      final handle = await coordinator.dispatch(
+        sourceDescription: 'same.pdf',
+        mode: ImportParseMode.ocr,
+        parse: (_) async => const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'content': 'Synthetic question',
+              'standard_answer': 'A',
+            },
+          ],
+        ),
+      );
+
+      final task = await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+
+      expect(handle.taskId, 'obs-initial-task');
+      expect(handle.attemptNumber, 1);
+      expect(handle.correlationId, isNotNull);
+      expect(
+        handle.correlationId,
+        matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+      );
+      expect(handle.parentTraceId, isNull);
+      expect(task.correlationId, handle.correlationId);
+      expect(task.attemptNumber, 1);
+      expect(task.traceId, handle.traceId);
+
+      // The attempt runs inside an importAttempt trace with the correlation.
+      final dispatched = logSink.records.where(
+        (record) => record.data['stage'] == 'import_dispatch',
+      );
+      expect(dispatched, isNotEmpty);
+      expect(dispatched.first.correlationId, handle.correlationId);
+      expect(dispatched.first.traceId, handle.traceId);
+      expect(
+        dispatched.first.operationKind,
+        TraceOperationKind.importAttempt,
+      );
+      expect(dispatched.first.taskId, handle.taskId);
+    });
+
+    test(
+        'retry keeps task and correlation, changes trace/token/attempt and '
+        'points parent at the previous attempt', () async {
+      var traceIndex = 0;
+      var attemptIndex = 0;
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => 'obs-retry-task',
+        traceIdFactory: () => 'obs-trace-${traceIndex++}',
+        attemptTokenFactory: () => 'obs-attempt-${attemptIndex++}',
+      );
+
+      final firstHandle = await coordinator.dispatch(
+        sourceDescription: 'same.pdf',
+        mode: ImportParseMode.ocr,
+        parse: (_) async => throw StateError('synthetic first failure'),
+      );
+      await _waitForTask(
+        manager,
+        firstHandle.taskId,
+        (task) => task.status == TaskStatus.error,
+      );
+
+      final secondHandle = await coordinator.retryOcrTask(
+        taskId: firstHandle.taskId,
+        sourceDescription: 'same.pdf',
+        parse: (_) async => const ImportParseResult(
+          questions: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '2',
+              'content': 'Synthetic retry question',
+              'standard_answer': 'B',
+            },
+          ],
+        ),
+      );
+      final retried = await _waitForTask(
+        manager,
+        firstHandle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+
+      expect(secondHandle.taskId, firstHandle.taskId);
+      expect(secondHandle.correlationId, firstHandle.correlationId);
+      expect(secondHandle.traceId, isNot(firstHandle.traceId));
+      expect(secondHandle.attemptToken, isNot(firstHandle.attemptToken));
+      expect(secondHandle.attemptNumber, firstHandle.attemptNumber + 1);
+      expect(secondHandle.attemptNumber, 2);
+      expect(secondHandle.parentTraceId, firstHandle.traceId);
+
+      expect(retried.correlationId, firstHandle.correlationId);
+      expect(retried.traceId, secondHandle.traceId);
+      expect(retried.attemptNumber, 2);
+      expect(retried.attemptToken, secondHandle.attemptToken);
+      expect(
+        retried.diagnostics?[TaskManager.keyParentTraceId],
+        firstHandle.traceId,
+      );
+
+      // Correlation metadata survives progress -> failure -> retry -> review.
+      expect(firstHandle.correlationId, isNotNull);
+      expect(retried.status, TaskStatus.pendingReview);
+    });
+
+    test('batch identity stays independent from per-task correlation',
+        () async {
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        batchIdFactory: () => 'obs-batch',
+      );
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: <ImportTaskBatchItem>[
+          ImportTaskBatchItem(
+            sourceDescription: 'a.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (_) async => const ImportParseResult(
+              questions: <Map<String, dynamic>>[
+                <String, dynamic>{'q_num': '1', 'content': 'A'},
+              ],
+            ),
+          ),
+          ImportTaskBatchItem(
+            sourceDescription: 'b.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (_) async => const ImportParseResult(
+              questions: <Map<String, dynamic>>[
+                <String, dynamic>{'q_num': '1', 'content': 'B'},
+              ],
+            ),
+          ),
+        ],
+      );
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+
+      expect(batch.batchId, 'obs-batch');
+      expect(batch.tasks, hasLength(2));
+      expect(batch.tasks[0].correlationId, isNotNull);
+      expect(batch.tasks[1].correlationId, isNotNull);
+      expect(
+        batch.tasks[0].correlationId,
+        isNot(batch.tasks[1].correlationId),
+      );
+      for (final handle in batch.tasks) {
+        expect(handle.correlationId, isNot(batch.batchId));
+        final task = manager.tasks.firstWhere(
+          (task) => task.id == handle.taskId,
+        );
+        expect(task.batchId, 'obs-batch');
+        expect(task.correlationId, handle.correlationId);
+      }
+    });
   });
 }

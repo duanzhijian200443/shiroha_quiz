@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -226,4 +229,139 @@ void main() {
     expect(failingDeterministic.generateCalls, 1);
     expect(failingOcr.generateCalls, 0);
   });
+
+  group('OBS-1 generation trace', () {
+    late _MemoryLogSink sink;
+
+    setUp(() {
+      sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+    });
+
+    tearDown(() {
+      AppLogger.setSink(null);
+    });
+
+    Future<void> flushLogs() => AppLogger.flush();
+
+    test('standalone generation opens a root correlation', () async {
+      final document = await router.generate(
+        file: file(),
+        artifactId: 'artifact-standalone',
+        plan: ParsedArtifactGenerationPlan(
+          parserRoute: 'txt',
+          parserVersion: 'v1',
+          optionsSchemaVersion: 1,
+        ),
+      );
+      await flushLogs();
+
+      expect(document.documentRef.sourceId, 'artifact-standalone');
+      final records = sink.records
+          .where((r) => r.data['stage'] == 'parsed_artifact_generation')
+          .toList();
+      expect(records, hasLength(1));
+      final record = records.single;
+      expect(record.operationKind, TraceOperationKind.parsedArtifactGeneration);
+      expect(record.correlationId,
+          matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')));
+      expect(record.parentTraceId, isNull);
+      expect(record.data['parserRoute'], 'txt');
+      expect(record.data['artifactId'], 'artifact-standalone');
+      expect(record.data['status'], 'success');
+      expect(record.data['durationMs'], isA<int>());
+    });
+
+    test(
+        'generation under an existing Agent context inherits correlation '
+        'and creates a child trace', () async {
+      await TraceContext.run(
+        correlationId: 'OBS-AAAA-BBBB',
+        traceId: 'trace-agent-root',
+        operationKind: TraceOperationKind.agentTurn,
+        action: () => router.generate(
+          file: file(),
+          artifactId: 'artifact-child',
+          plan: ParsedArtifactGenerationPlan(
+            parserRoute: 'txt',
+            parserVersion: 'v1',
+            optionsSchemaVersion: 1,
+          ),
+        ),
+      );
+      await flushLogs();
+
+      final records = sink.records
+          .where((r) => r.data['stage'] == 'parsed_artifact_generation')
+          .toList();
+      expect(records, hasLength(1));
+      final record = records.single;
+      expect(record.correlationId, 'OBS-AAAA-BBBB');
+      expect(record.parentTraceId, 'trace-agent-root');
+      expect(record.traceId, isNot('trace-agent-root'));
+      expect(record.operationKind, TraceOperationKind.parsedArtifactGeneration);
+    });
+
+    test('generation logging never contains SourceDocument content', () async {
+      await router.generate(
+        file: file(displayName: 'private-exam.pdf'),
+        artifactId: 'artifact-secret',
+        plan: ParsedArtifactGenerationPlan(
+          parserRoute: 'txt',
+          parserVersion: 'v1',
+          optionsSchemaVersion: 1,
+        ),
+      );
+      await flushLogs();
+
+      final encoded =
+          sink.records.map((record) => record.toJson().toString()).join('\n');
+      expect(encoded, isNot(contains('txt content')));
+      expect(encoded, isNot(contains('private-exam.pdf')));
+    });
+
+    test('failed generation logs fixed errorType and rethrows', () async {
+      final failingOcr = _RecordingGenerationPort('fail');
+      final failingRouter = ParsedArtifactGenerationRouter(
+        deterministicGeneration: deterministic,
+        ocrGeneration: failingOcr,
+      );
+      await expectLater(
+        failingRouter.generate(
+          file: file(displayName: 'a.png'),
+          artifactId: 'artifact-fail',
+          plan: ParsedArtifactGenerationPlan(
+            parserRoute: 'ocr_image',
+            parserVersion: 'v1',
+            optionsSchemaVersion: 1,
+          ),
+        ),
+        throwsA(
+          isA<ParsedArtifactGenerationException>().having(
+            (error) => error.failure,
+            'failure',
+            ParsedArtifactGenerationFailure.sourceUnavailable,
+          ),
+        ),
+      );
+      await flushLogs();
+
+      final record = sink.records.single;
+      expect(record.data['status'], 'failed');
+      expect(record.data['errorType'], isA<String>());
+      expect(record.data['parserRoute'], 'ocr_image');
+    });
+  });
+}
+
+class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
 }

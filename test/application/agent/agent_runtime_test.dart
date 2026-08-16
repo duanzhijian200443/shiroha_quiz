@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
 import 'package:shiroha_quiz/application/agent/agent_retrieval_tool.dart';
@@ -2764,6 +2767,407 @@ void main() {
       },
     );
   });
+  group('OBS-1 agent trace', () {
+    tearDown(() {
+      AppLogger.setSink(null);
+    });
+
+    test('every production turn session exposes one stable diagnostic id',
+        () async {
+      final harness = _Harness(scripts: <_Script>[_finalAnswer('ok')]);
+      final (conversationId, userMessageId) = await harness.seedUser('q1');
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      expect(session.diagnosticId, isNotNull);
+      expect(
+        session.diagnosticId,
+        matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+      );
+
+      final result = await session.result;
+      expect(result, isA<AgentTurnSuccess>());
+      expect(session.diagnosticId, isNotNull);
+    });
+
+    test('two turns never share a diagnostic id', () async {
+      final harness = _Harness(
+        scripts: <_Script>[_finalAnswer('ok'), _finalAnswer('ok')],
+      );
+      final (cid1, mid1) = await harness.seedUser('q1');
+      final (cid2, mid2) = await harness.seedUser('q2');
+      final first = harness.runtime.startTurn(
+        conversationId: cid1,
+        userMessageId: mid1,
+      );
+      final second = harness.runtime.startTurn(
+        conversationId: cid2,
+        userMessageId: mid2,
+      );
+      expect(second.diagnosticId, isNot(first.diagnosticId));
+      expect(await first.result, isA<AgentTurnSuccess>());
+      expect(await second.result, isA<AgentTurnSuccess>());
+    });
+
+    test('provider rounds are events of the same Agent trace', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const state = _TestContinuationState('s');
+      final harness = _Harness(scripts: <_Script>[
+        _toolRound(<AgentProviderFunctionCall>[_call('call-1')], state),
+        _finalAnswer('done'),
+      ]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(result, isA<AgentTurnSuccess>());
+      final starts = sink.records
+          .where((r) => r.data['stage'] == 'provider_round_started')
+          .toList();
+      final completes = sink.records
+          .where((r) => r.data['stage'] == 'provider_round_completed')
+          .toList();
+      expect(starts, hasLength(2));
+      expect(completes, hasLength(2));
+      expect(completes.map((r) => r.data['providerRound']), <Object?>[1, 2]);
+      expect(completes.every((r) => r.data['status'] == 'success'), isTrue);
+
+      // Provider rounds must not create their own trace ids.
+      final traces = sink.records
+          .where((r) => r.traceId != null)
+          .map((r) => r.traceId)
+          .toSet();
+      expect(traces, hasLength(1));
+      final correlations = sink.records
+          .where((r) => r.correlationId != null)
+          .map((r) => r.correlationId)
+          .toSet();
+      expect(correlations, <Object?>{session.diagnosticId});
+    });
+
+    test('tool calls log name, bounded callId, duration and status only',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const state = _TestContinuationState('s');
+      final harness = _Harness(scripts: <_Script>[
+        _toolRound(<AgentProviderFunctionCall>[
+          _call(
+            'call-arg-1',
+            name: 'list_question_banks',
+            arguments: '{"secret":"arg-payload"}',
+          ),
+        ], state),
+        _finalAnswer('done'),
+      ]);
+      harness.dispatcher.output =
+          '{"ok":true,"result":{"secret":"result-payload"}}';
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+      await AppLogger.flush();
+
+      final completed = sink.records
+          .where((r) => r.data['stage'] == 'tool_call_completed')
+          .toList();
+      expect(completed, hasLength(1));
+      final record = completed.single;
+      expect(record.data['toolName'], 'list_question_banks');
+      expect(record.data['callId'], 'call-arg-1');
+      expect(record.data['status'], 'success');
+      expect(record.data['durationMs'], isA<int>());
+      final encoded = record.toJson().toString();
+      expect(encoded, isNot(contains('arg-payload')));
+      expect(encoded, isNot(contains('result-payload')));
+      expect(encoded, isNot(contains('"secret"')));
+    });
+
+    test('tool-round overflow keeps the public failure and traces the code',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const state = _TestContinuationState('s');
+      final harness = _Harness(scripts: <_Script>[
+        _toolRound(<AgentProviderFunctionCall>[_call('call-1')], state),
+        _toolRound(<AgentProviderFunctionCall>[_call('call-2')], state),
+        _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
+        _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
+        _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
+      ]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(_failureOf(result), AgentTurnFailure.toolLimitExceeded);
+      final failed = result as AgentTurnFailed;
+      expect(failed.summary, isNotNull);
+      expect(failed.summary!.diagnosticId, session.diagnosticId);
+      expect(failed.summary!.operation, 'agent_turn');
+      expect(failed.summary!.failure, 'tool_round_limit_exceeded');
+      expect(failed.summary!.providerRounds, 5);
+      expect(failed.summary!.toolCalls, 4);
+      final terminal = sink.records.lastWhere(
+        (r) => r.data['stage'] == 'turn_failed',
+      );
+      expect(terminal.data['failureCode'], 'tool_round_limit_exceeded');
+      expect(terminal.correlationId, session.diagnosticId);
+    });
+
+    test('local-call overflow traces local_call_limit_exceeded', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      final calls = List<AgentProviderFunctionCall>.generate(
+        9,
+        (index) => _call('call-${index + 1}'),
+      );
+      final harness = _Harness(
+        scripts: <_Script>[
+          _toolRound(calls, const _TestContinuationState('s')),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(_failureOf(result), AgentTurnFailure.toolLimitExceeded);
+      final failed = result as AgentTurnFailed;
+      expect(failed.summary!.failure, 'local_call_limit_exceeded');
+      final terminal = sink.records.lastWhere(
+        (r) => r.data['stage'] == 'turn_failed',
+      );
+      expect(terminal.data['failureCode'], 'local_call_limit_exceeded');
+    });
+
+    test('fallback stays on the same trace with one safe event', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      final harness = _Harness(
+        fallbackProfileId: 'profile-fallback',
+        scripts: <_Script>[
+          (request, token) async* {
+            throw const AgentProviderException(
+              AgentProviderFailure.rateLimited,
+            );
+          },
+        ],
+        fallbackScripts: <_Script>[_finalAnswer('Fallback Answer')],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(harness.fallbackProvider.callCount, 1);
+      final fallbackRecords = sink.records
+          .where((r) => r.data['stage'] == 'fallback_attempted')
+          .toList();
+      expect(fallbackRecords, hasLength(1));
+      final fallback = fallbackRecords.single;
+      expect(fallback.data['fallbackReason'], 'rateLimited');
+      expect(fallback.correlationId, session.diagnosticId);
+
+      final traces = sink.records
+          .where((r) => r.traceId != null)
+          .map((r) => r.traceId)
+          .toSet();
+      expect(traces, hasLength(1));
+      final messages = await harness.messagesOf(conversationId);
+      expect(messages.where(_isAssistant), hasLength(1));
+    });
+
+    test('cancellation and timeout produce structured terminal events',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      final harness = _Harness(
+        scripts: <_Script>[
+          (request, token) async* {
+            yield AgentProviderTextDelta('partial');
+            await token.whenCancelled;
+            throw const AgentProviderException(
+              AgentProviderFailure.cancelled,
+            );
+          },
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+      session.events.listen((_) {});
+      await Future<void>.delayed(Duration.zero);
+      session.cancel();
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(_failureOf(result), AgentTurnFailure.cancelled);
+      final cancelled = sink.records.lastWhere(
+        (r) => r.data['stage'] == 'turn_cancelled',
+      );
+      expect(cancelled.data['failure'], 'cancelled');
+      expect(cancelled.correlationId, session.diagnosticId);
+
+      final timeoutSink = _MemoryLogSink();
+      AppLogger.setSink(timeoutSink);
+      final timeoutHarness = _Harness(
+        limits: const AgentRuntimeLimits(
+          turnTimeout: Duration(milliseconds: 250),
+        ),
+        scripts: <_Script>[
+          (request, token) async* {
+            await token.whenCancelled;
+            throw const AgentProviderException(
+              AgentProviderFailure.cancelled,
+            );
+          },
+        ],
+      );
+      final (cid2, mid2) = await timeoutHarness.seedUser('question');
+      final timeoutResult = await timeoutHarness.runtime
+          .startTurn(conversationId: cid2, userMessageId: mid2)
+          .result;
+      await AppLogger.flush();
+
+      expect(_failureOf(timeoutResult), AgentTurnFailure.timeout);
+      final timedOut = timeoutSink.records.lastWhere(
+        (r) => r.data['stage'] == 'turn_timeout',
+      );
+      expect(timedOut.data['failure'], 'timeout');
+    });
+
+    test('StudyPlan staging logs outcome only without preview content',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      final harness = _Harness(
+        wireStudyPlan: true,
+        scripts: <_Script>[
+          _toolRound(
+            <AgentProviderFunctionCall>[_studyPlanCall('sp-1')],
+            const _TestContinuationState('s'),
+          ),
+          _finalAnswer('done'),
+        ],
+      );
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+      await AppLogger.flush();
+
+      final staged = sink.records
+          .where((r) => r.data['stage'] == 'study_plan_draft_staged')
+          .toList();
+      expect(staged, hasLength(1));
+      final record = staged.single;
+      expect(record.data['studyPlanOutcome'], isA<String>());
+      final encoded = record.toJson().toString();
+      expect(encoded, isNot(contains('Math')));
+      expect(encoded, isNot(contains('daily_target')));
+    });
+
+    test('Agent retrieval creates a RAG child trace with structural counts',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const state = _TestContinuationState('rag');
+      const retrievalBody = 'retrieval content that must never be logged';
+      final harness = _Harness(
+        wireRetrieval: true,
+        scripts: <_Script>[
+          _toolRound(<AgentProviderFunctionCall>[
+            _call(
+              'rag-1',
+              name: AgentRetrievalToolCatalog.toolName,
+              arguments: '{"query":"function","file_ids":["file-1"],"limit":3}',
+            ),
+          ], state),
+          _finalAnswer('done'),
+        ],
+      );
+      harness.retrievalIndex.hits = <RetrievalHit>[
+        _runtimeHit(retrievalBody),
+        _runtimeHit(retrievalBody),
+      ];
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+        fileIds: const <String>['file-1'],
+      );
+      final session = harness.runtime.startTurnWithRetrieval(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+        approval: RetrievalEgressApproval(const <String>['file-1']),
+      );
+      final result = await session.result;
+      await AppLogger.flush();
+
+      expect(result, isA<AgentTurnSuccess>());
+      final retrievalRecords = sink.records
+          .where((r) => r.data['stage'] == 'retrieval_completed')
+          .toList();
+      expect(retrievalRecords, hasLength(1));
+      final record = retrievalRecords.single;
+      expect(record.operationKind, TraceOperationKind.ragRetrieval);
+      expect(record.correlationId, session.diagnosticId);
+      expect(record.parentTraceId, isNotNull);
+      expect(record.traceId, isNot(record.parentTraceId));
+      final turnStarted = sink.records.firstWhere(
+        (r) => r.data['stage'] == 'turn_started',
+      );
+      expect(record.parentTraceId, turnStarted.traceId);
+      expect(record.data['requestedFileCount'], 1);
+      expect(record.data['effectiveFileCount'], 1);
+      expect(record.data['limit'], 3);
+      expect(record.data['hitCount'], 2);
+      expect(record.data['issueCount'], 0);
+      expect(record.data['status'], 'success');
+      expect(record.data['durationMs'], isA<int>());
+
+      final encoded = record.toJson().toString();
+      expect(encoded, isNot(contains('function')));
+      expect(encoded, isNot(contains(retrievalBody)));
+    });
+  });
 }
 
 typedef _Call = AgentProviderFunctionCall;
@@ -3488,4 +3892,19 @@ AgentTurnFailure _failureOf(AgentTurnResult result) {
     AgentTurnFailed(:final failure) => failure,
     _ => fail('expected AgentTurnFailed, got $result'),
   };
+}
+
+bool _isAssistant(ConversationMessage message) =>
+    message.role == ConversationMessageRole.assistant;
+
+class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
 }

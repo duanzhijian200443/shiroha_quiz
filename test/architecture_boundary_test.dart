@@ -411,7 +411,8 @@ void main() {
         }
       });
 
-      test('allows pure SDK, domain, and application targets', () {
+      test('allows pure SDK, domain, application, and observability targets',
+          () {
         const allowedUris = <String>[
           'dart:async',
           'dart:collection',
@@ -423,6 +424,8 @@ void main() {
           '../review_metrics.dart',
           'package:shiroha_quiz/domain/source/source_document.dart',
           'package:shiroha_quiz/application/import_review/review_session.dart',
+          'package:shiroha_quiz/core/observability/trace_context.dart',
+          '../../core/observability/app_logger.dart',
         ];
 
         for (final uri in allowedUris) {
@@ -1006,7 +1009,11 @@ bool _isAllowedApplicationDependency(String importingPath, String uri) {
 
   if (_allowedApplicationSdkUris.contains(resolved)) return true;
   return resolved.startsWith('lib/application/') ||
-      resolved.startsWith('lib/domain/');
+      resolved.startsWith('lib/domain/') ||
+      // OBS-1: core/observability is a pure-Dart cross-layer facility (zone
+      // correlation + structured logging) consumed by the Agent application
+      // runtime; it never reaches data, UI or provider layers.
+      resolved.startsWith('lib/core/observability/');
 }
 
 List<String> _applicationImportUris(String directiveSource) {
