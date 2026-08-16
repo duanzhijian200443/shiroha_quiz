@@ -16,7 +16,13 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
+import 'package:shiroha_quiz/application/study_plan/study_plan_command_service.dart';
+import 'package:shiroha_quiz/application/study_plan/study_plan_draft_service.dart';
+import 'package:shiroha_quiz/application/study_plan/study_plan_ports.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/study_plan/active_study_plan.dart';
+import 'package:shiroha_quiz/domain/study_plan/study_plan_draft.dart';
+import 'package:shiroha_quiz/domain/study_plan/study_plan_values.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 
 void main() {
@@ -1347,6 +1353,273 @@ void main() {
       expect(controller.errorMessage, isNot(contains('SENTINEL')));
     });
   });
+
+  group('Conversation relocation mutation symmetry', () {
+    test(
+        'A: move pending -> approveProposal() -> zero proposal service calls, remains pending',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      await _stagePendingProposal(turns, persistence, service);
+      await _completeTurn(turns, controller);
+
+      expect(controller.canApproveProposal, isTrue);
+
+      final moveCompleter = Completer<void>();
+      repository.moveCompleter = moveCompleter;
+
+      final moveFuture = controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+      await _flush();
+
+      expect(controller.isMovingConversation, isTrue);
+      expect(controller.canApproveProposal, isFalse);
+
+      await controller.approveProposal();
+
+      expect(persistence.commitCalls, isEmpty);
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+      expect(controller.proposalActionPending, isFalse);
+
+      moveCompleter.complete();
+      final moveSuccess = await moveFuture;
+      expect(moveSuccess, isTrue);
+      expect(controller.isMovingConversation, isFalse);
+    });
+
+    test(
+        'B: move pending -> rejectProposal() -> zero proposal service calls, remains pending',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      final proposal = await _stagePendingProposal(turns, persistence, service);
+      await _completeTurn(turns, controller);
+
+      expect(controller.canRejectProposal, isTrue);
+
+      final moveCompleter = Completer<void>();
+      repository.moveCompleter = moveCompleter;
+
+      final moveFuture = controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+      await _flush();
+
+      expect(controller.isMovingConversation, isTrue);
+      expect(controller.canRejectProposal, isFalse);
+
+      controller.rejectProposal();
+
+      expect(controller.proposalOutcome, AgentWriteProposalOutcome.pending);
+      expect(controller.proposalActionPending, isFalse);
+      expect(service.proposalById(proposal.id).outcome,
+          AgentWriteProposalOutcome.pending);
+
+      moveCompleter.complete();
+      final moveSuccess = await moveFuture;
+      expect(moveSuccess, isTrue);
+      expect(controller.isMovingConversation, isFalse);
+    });
+
+    test(
+        'C: move pending -> initiateAdoptStudyPlan() -> zero study plan command calls, remains pending',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final draftService = _makeDraftService();
+      final persistence = _FakeStudyPlanPersistencePort();
+      final cmdService = _makeCommandService(draftService, persistence);
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        studyPlanDraftService: draftService,
+        studyPlanCommandService: cmdService,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      await _stagePendingStudyPlan(
+        turns,
+        draftService,
+        conversationId: 'conversation-1',
+        messageId: 'message-1',
+      );
+      await _completeTurn(turns, controller);
+
+      expect(controller.canAdoptStudyPlan, isTrue);
+
+      final moveCompleter = Completer<void>();
+      repository.moveCompleter = moveCompleter;
+
+      final moveFuture = controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+      await _flush();
+
+      expect(controller.isMovingConversation, isTrue);
+      expect(controller.canAdoptStudyPlan, isFalse);
+
+      await controller.initiateAdoptStudyPlan();
+
+      expect(persistence.adoptCalls, 0);
+      expect(controller.studyPlanOutcome, StudyPlanDraftOutcome.pending);
+      expect(controller.studyPlanActionPending, isFalse);
+
+      moveCompleter.complete();
+      final moveSuccess = await moveFuture;
+      expect(moveSuccess, isTrue);
+      expect(controller.isMovingConversation, isFalse);
+    });
+
+    test(
+        'D: move pending -> rejectStudyPlan() -> zero draft reject calls, remains pending',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final draftService = _makeDraftService();
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        studyPlanDraftService: draftService,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      final draft = await _stagePendingStudyPlan(
+        turns,
+        draftService,
+        conversationId: 'conversation-1',
+        messageId: 'message-1',
+      );
+      await _completeTurn(turns, controller);
+
+      expect(controller.canRejectStudyPlan, isTrue);
+
+      final moveCompleter = Completer<void>();
+      repository.moveCompleter = moveCompleter;
+
+      final moveFuture = controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+      await _flush();
+
+      expect(controller.isMovingConversation, isTrue);
+      expect(controller.canRejectStudyPlan, isFalse);
+
+      controller.rejectStudyPlan();
+
+      expect(controller.studyPlanOutcome, StudyPlanDraftOutcome.pending);
+      expect(controller.studyPlanActionPending, isFalse);
+      expect(draftService.draftById(draft.draftId).outcome,
+          StudyPlanDraftOutcome.pending);
+
+      moveCompleter.complete();
+      final moveSuccess = await moveFuture;
+      expect(moveSuccess, isTrue);
+      expect(controller.isMovingConversation, isFalse);
+    });
+
+    test(
+        'E: UI capability gates: isMovingConversation == true disables all 4 mutation capabilities',
+        () async {
+      final repository = _MemoryRepository();
+      final turns = <_TurnHarness>[];
+      final persistence = _FakeProposalPersistence();
+      final service = AgentWriteProposalService(persistence);
+      final draftService = _makeDraftService();
+      final controller = _controller(
+        repository,
+        start: ({required conversationId, required userMessageId}) {
+          final turn = _TurnHarness();
+          turns.add(turn);
+          return turn.session;
+        },
+        proposalService: service,
+        studyPlanDraftService: draftService,
+      );
+
+      expect(await controller.send('question'), isTrue);
+      await _stagePendingProposal(turns, persistence, service);
+      await _stagePendingStudyPlan(
+        turns,
+        draftService,
+        conversationId: 'conversation-1',
+        messageId: 'message-1',
+      );
+      await _completeTurn(turns, controller);
+
+      expect(controller.canApproveProposal, isTrue);
+      expect(controller.canRejectProposal, isTrue);
+      expect(controller.canAdoptStudyPlan, isTrue);
+      expect(controller.canRejectStudyPlan, isTrue);
+
+      controller.isMovingConversation = true;
+
+      expect(controller.canApproveProposal, isFalse);
+      expect(controller.canRejectProposal, isFalse);
+      expect(controller.canAdoptStudyPlan, isFalse);
+      expect(controller.canRejectStudyPlan, isFalse);
+    });
+
+    test(
+        'F: existing reverse gate preserved: proposalActionPending or studyPlanActionPending rejects move without repository mutation',
+        () async {
+      final repository = _MemoryRepository();
+      final controller = _controller(repository, start: _TurnHarness().start);
+      await repository.seedConversation('conv-1', 'msg-1');
+      await controller.openConversation('conv-1');
+
+      // proposal action pending blocks move
+      controller.proposalActionPending = true;
+      final moveResult1 = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+      expect(moveResult1, isFalse);
+      expect(repository.moveCalls, 0);
+
+      // studyPlan action pending blocks move
+      controller.proposalActionPending = false;
+      controller.studyPlanActionPending = true;
+      final moveResult2 = await controller.moveActiveConversation(
+        ConversationScope.learningSpace('project-1'),
+      );
+      expect(moveResult2, isFalse);
+      expect(repository.moveCalls, 0);
+    });
+  });
 }
 
 ConversationController _controller(
@@ -1354,6 +1627,8 @@ ConversationController _controller(
   required AgentTurnStarter start,
   bool configured = true,
   AgentWriteProposalService? proposalService,
+  StudyPlanDraftService? studyPlanDraftService,
+  StudyPlanCommandService? studyPlanCommandService,
 }) {
   final configStore = _ConfigStore(
     configured
@@ -1378,6 +1653,8 @@ ConversationController _controller(
     ),
     startAgentTurn: start,
     proposalService: proposalService,
+    studyPlanDraftService: studyPlanDraftService,
+    studyPlanCommandService: studyPlanCommandService,
   );
 }
 
@@ -1554,6 +1831,124 @@ Future<AgentWriteProposal> _stageProposalOn(
   );
   await _flush();
   return proposal;
+}
+
+final class _FakeStudyPlanPlanningPort implements StudyPlanPlanningPort {
+  @override
+  Future<StudyPlanPlanningAdmission> loadPlanningContext({
+    required ConversationScope sourceScope,
+    required String bankName,
+    required DateTime now,
+  }) async {
+    return StudyPlanPlanningAdmitted(
+      StudyPlanPlanningContext(
+        bankName: bankName,
+        questionCount: 100,
+        masteredCount: 30,
+        dueCount: 20,
+        weakCount: 10,
+        newCount: 40,
+      ),
+    );
+  }
+}
+
+final class _FakeStudyPlanPersistencePort implements StudyPlanPersistencePort {
+  ActiveStudyPlan? currentActivePlan;
+  int adoptCalls = 0;
+  Completer<StudyPlanPersistenceCommitResult>? adoptCompleter;
+  StudyPlanPersistenceCommitResult nextAdoptResult =
+      const StudyPlanPersistenceCommitStaleScope();
+
+  @override
+  Future<ActiveStudyPlan?> loadActivePlan() async => currentActivePlan;
+
+  @override
+  Future<StudyPlanPersistenceCommitResult> commitAdoption({
+    required String planId,
+    required String bankName,
+    String? goal,
+    required int dailyTarget,
+    required StudyPlanPriority priority,
+    int? horizonDays,
+    String? sourceConversationId,
+    String? sourceUserMessageId,
+    required ConversationScope sourceScope,
+    required DateTime adoptedAt,
+    String? expectedActivePlanId,
+    required bool replacementConfirmed,
+  }) async {
+    adoptCalls++;
+    if (adoptCompleter != null) {
+      return adoptCompleter!.future;
+    }
+    return nextAdoptResult;
+  }
+
+  @override
+  Future<StudyPlanPersistenceStopResult> stopActivePlan({
+    required String expectedPlanId,
+  }) async {
+    return const StudyPlanPersistenceStopSuccess();
+  }
+}
+
+StudyPlanDraftService _makeDraftService() {
+  var seq = 0;
+  return StudyPlanDraftService(
+    planningPort: _FakeStudyPlanPlanningPort(),
+    draftIdFactory: () => 'draft-${++seq}',
+    clock: () => DateTime.utc(2026, 8, 16),
+  );
+}
+
+StudyPlanCommandService _makeCommandService(
+  StudyPlanDraftService draftService,
+  StudyPlanPersistencePort persistencePort,
+) {
+  var seq = 0;
+  return StudyPlanCommandService(
+    draftService: draftService,
+    persistencePort: persistencePort,
+    planIdFactory: () => 'plan-${++seq}',
+    clock: () => DateTime.utc(2026, 8, 16),
+  );
+}
+
+Future<StudyPlanDraft> _stagePendingStudyPlan(
+  List<_TurnHarness> turns,
+  StudyPlanDraftService draftService, {
+  required String conversationId,
+  required String messageId,
+}) async {
+  final result = await draftService.stage(
+    sourceScope: ConversationScope.global(),
+    sourceConversationId: conversationId,
+    sourceMessageId: messageId,
+    bankName: 'synthetic-bank',
+    dailyTarget: 10,
+    priority: StudyPlanPriority.dueFirst,
+  );
+  final draft = (result as StudyPlanStageResultStaged).draft;
+  turns.single.emit(
+    AgentTurnStudyPlanDraftStaged(
+      draftId: draft.draftId,
+      outcome: 'pending',
+      preview: <String, Object?>{
+        'bank_name': 'synthetic-bank',
+        'daily_target': 10,
+        'priority': 'due_first',
+        'question_count': 100,
+        'mastered_count': 30,
+        'due_count': 20,
+        'weak_count': 10,
+        'new_count': 40,
+        'estimated_days': 10,
+      },
+    ),
+  );
+  await _flush();
+  return draft;
 }
 
 Future<void> _completeTurn(

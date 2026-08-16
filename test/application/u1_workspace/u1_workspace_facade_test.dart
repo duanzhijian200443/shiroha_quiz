@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
+import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
@@ -597,6 +598,143 @@ void main() {
       final status = await facade.getLibraryFileArtifactStatus('file-a');
       expect(status.status, LibraryFileArtifactStatus.failed);
       expect(status.errorMessage, '文件内容解析数据已损坏');
+    });
+
+    test('lifecycle null -> unavailable with fixed safe message', () async {
+      final facadeWithoutLifecycle = U1WorkspaceFacade(
+        projectService: ProjectService(
+          repository: projects,
+          projectIdFactory: () => 'project-new',
+        ),
+        fileRepository: files,
+        fileIngestion: ingestion,
+        folderService: LibraryFolderService(
+          repository: folders,
+          folderIdFactory: () => 'folder-new',
+        ),
+        studyQueryService: StudyQueryService(
+          questionQuery: _QuestionPort(const <QuestionBankSummary>[]),
+          metricsQuery: _MetricsPort(),
+        ),
+        parsedArtifactLifecycle: null,
+        mcpProjection: McpWorkspaceProjection(
+          state: McpCapabilityState.configuredAvailable,
+          transport: McpTransport.localStdio,
+          permission: McpPermission.readOnly,
+          toolNames: const <String>['list_question_banks'],
+        ),
+      );
+      final status =
+          await facadeWithoutLifecycle.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.unavailable);
+      expect(status.errorMessage, '解析服务未初始化');
+    });
+
+    test('temporarilyUnavailable -> unavailable with safe message', () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.temporarilyUnavailable,
+      );
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.unavailable);
+      expect(status.errorMessage, '暂时无法读取解析状态，请稍后重试');
+    });
+
+    test(
+        'fileNotFound and sourceUnavailable -> unavailable (not ocrRecommended)',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.sourceUnavailable,
+      );
+      final statusSource = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(statusSource.status, LibraryFileArtifactStatus.unavailable);
+      expect(
+          statusSource.status, isNot(LibraryFileArtifactStatus.ocrRecommended));
+      expect(statusSource.errorMessage, '文件内容当前不可读取');
+
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.fileNotFound,
+      );
+      final statusNotFound =
+          await facade.getLibraryFileArtifactStatus('file-a');
+      expect(statusNotFound.status, LibraryFileArtifactStatus.unavailable);
+      expect(statusNotFound.errorMessage, '文件内容当前不可读取');
+    });
+
+    test('payloadUnsupported -> failed with safe message', () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.payloadUnsupported,
+      );
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.failed);
+      expect(status.errorMessage, '文件内容解析数据已损坏');
+    });
+
+    test('internalError and other typed failures -> failed with safe message',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      for (final failure in <ParsedArtifactLifecycleFailure>[
+        ParsedArtifactLifecycleFailure.internalError,
+        ParsedArtifactLifecycleFailure.invalidRequest,
+        ParsedArtifactLifecycleFailure.unsupportedRoute,
+        ParsedArtifactLifecycleFailure.parseFailed,
+        ParsedArtifactLifecycleFailure.publishConflict,
+      ]) {
+        lifecycle.currentError = ParsedArtifactLifecycleException(failure);
+        final status = await facade.getLibraryFileArtifactStatus('file-a');
+        expect(status.status, LibraryFileArtifactStatus.failed,
+            reason: 'failure $failure should map to failed');
+        expect(status.errorMessage, '暂时无法读取解析状态，请稍后重试');
+      }
+    });
+
+    test(
+        'unexpected exception -> failed with safe message, never leaks toString',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = Exception('SECRET_DATABASE_LEAK');
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.failed);
+      expect(status.errorMessage, '暂时无法读取解析状态，请稍后重试');
+      expect(status.errorMessage, isNot(contains('SECRET_DATABASE_LEAK')));
+    });
+
+    test('status query failure never triggers ensureParsedArtifact or OCR',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.sourceUnavailable,
+      );
+      final status = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(status.status, LibraryFileArtifactStatus.unavailable);
+      expect(lifecycle.ensureCalls, isEmpty);
+    });
+
+    test(
+        'FileLibraryController.loadArtifactStatus unexpected throw maps to failed',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = StateError('Unexpected crash in lifecycle');
+      final controller = FileLibraryController(facade);
+      await controller.loadArtifactStatus('file-a');
+      expect(
+          controller.artifactState?.status, LibraryFileArtifactStatus.failed);
+      expect(controller.artifactState?.errorMessage, '暂时无法读取解析状态，请稍后重试');
+    });
+
+    test(
+        'FileLibraryController.loadArtifactStatus artifactMissing maps to none',
+        () async {
+      files.values['file-a'] = _file('file-a', 1);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.artifactMissing,
+      );
+      final controller = FileLibraryController(facade);
+      await controller.loadArtifactStatus('file-a');
+      expect(controller.artifactState?.status, LibraryFileArtifactStatus.none);
+      expect(controller.artifactState?.errorMessage, isNull);
     });
   });
 }

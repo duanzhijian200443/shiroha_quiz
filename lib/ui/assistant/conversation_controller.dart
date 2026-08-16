@@ -143,10 +143,12 @@ final class ConversationController extends ChangeNotifier {
   bool get canApproveProposal =>
       proposalOutcome == AgentWriteProposalOutcome.pending &&
       !hasActiveTurn &&
-      !proposalActionPending;
+      !proposalActionPending &&
+      !isMovingConversation;
   bool get canRejectProposal =>
       proposalOutcome == AgentWriteProposalOutcome.pending &&
-      !proposalActionPending;
+      !proposalActionPending &&
+      !isMovingConversation;
 
   bool get hasStudyPlanCard =>
       studyPlanDraftId != null && studyPlanOutcome != null;
@@ -154,11 +156,13 @@ final class ConversationController extends ChangeNotifier {
   bool get canAdoptStudyPlan =>
       studyPlanOutcome == StudyPlanDraftOutcome.pending &&
       !hasActiveTurn &&
-      !studyPlanActionPending;
+      !studyPlanActionPending &&
+      !isMovingConversation;
 
   bool get canRejectStudyPlan =>
       studyPlanOutcome == StudyPlanDraftOutcome.pending &&
-      !studyPlanActionPending;
+      !studyPlanActionPending &&
+      !isMovingConversation;
 
   String? get studyPlanStatusText => switch (studyPlanOutcome) {
         null => null,
@@ -848,7 +852,8 @@ final class ConversationController extends ChangeNotifier {
     if (service == null ||
         id == null ||
         proposalOutcome != AgentWriteProposalOutcome.pending ||
-        proposalActionPending) {
+        proposalActionPending ||
+        isMovingConversation) {
       return;
     }
     proposalActionPending = true;
@@ -890,7 +895,8 @@ final class ConversationController extends ChangeNotifier {
     if (service == null ||
         id == null ||
         proposalOutcome != AgentWriteProposalOutcome.pending ||
-        proposalActionPending) {
+        proposalActionPending ||
+        isMovingConversation) {
       return;
     }
     proposalActionPending = true;
@@ -1186,7 +1192,8 @@ final class ConversationController extends ChangeNotifier {
     if (cmd == null ||
         id == null ||
         studyPlanOutcome != StudyPlanDraftOutcome.pending ||
-        studyPlanActionPending) {
+        studyPlanActionPending ||
+        isMovingConversation) {
       return;
     }
     studyPlanActionPending = true;
@@ -1246,7 +1253,8 @@ final class ConversationController extends ChangeNotifier {
         draftService == null ||
         id == null ||
         studyPlanOutcome != StudyPlanDraftOutcome.pending ||
-        studyPlanActionPending) {
+        studyPlanActionPending ||
+        isMovingConversation) {
       return;
     }
     studyPlanActionPending = true;
@@ -1311,7 +1319,8 @@ final class ConversationController extends ChangeNotifier {
     if (draftService == null ||
         id == null ||
         studyPlanOutcome != StudyPlanDraftOutcome.pending ||
-        studyPlanActionPending) {
+        studyPlanActionPending ||
+        isMovingConversation) {
       return;
     }
     studyPlanActionPending = true;
