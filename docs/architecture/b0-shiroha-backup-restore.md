@@ -499,7 +499,9 @@ PREPARED -> SWAPPING -> COMMITTED
 ```
 
 - `PREPARED`: staged package validated; complete pre-restore DB + managed-file
-  rollback state copied and verified; no live mutation has begun.
+  rollback state copied and verified; no live mutation has begun. Startup
+  recovery in `PREPARED` is equivalent to pre-commit cancellation and is a
+  ZERO LIVE MUTATION path.
 - `SWAPPING`: journal durably `SWAPPING` before the first live mutation;
   replacement, reopen, and post-swap validation are in progress.
 - `COMMITTED`: new DB and managed originals valid and the application has
@@ -538,18 +540,46 @@ No journal -> normal startup.
 
 Valid journal:
 
-- `PREPARED`, `SWAPPING`, or `ROLLING_BACK`: startup must complete rollback
-  from the verified rollback state, verify the old DB and old managed
-  originals, transition to `ROLLED_BACK`, clean staging, clear the journal,
-  and only then enter normal operation with the old state. Startup must never
-  discard an unfinished journal and open the potentially mixed live state.
-- `ROLLED_BACK`: startup verifies the restored old state, cleans staging,
-  clears the journal, and enters normal operation with the old state.
+- `PREPARED`: verify the journal is valid, then recover with **ZERO LIVE
+  MUTATION**:
+
+```text
+PREPARED
+-> verify journal is valid
+-> DO NOT modify LIVE DB
+-> DO NOT modify LIVE managed files
+-> delete staging
+-> delete temporary rollback copies
+-> clear journal
+-> normal startup using untouched LIVE state
+```
+
+  Hard invariant: `PREPARED startup recovery = ZERO LIVE MUTATION`.
+  `PREPARED` is equivalent to pre-commit cancellation because `SWAPPING` has
+  not been durably entered, therefore the contract guarantees no LIVE
+  mutation was permitted. Startup must not overwrite LIVE with the rollback
+  copy merely "for safety".
+
+- `SWAPPING`: LIVE may be partially replaced. Startup must transition/recover
+  through `ROLLING_BACK` and restore the complete pre-restore durable state
+  before normal startup.
+
+- `ROLLING_BACK`: startup resumes rollback, verifies the old DB and old
+  managed originals, transitions to `ROLLED_BACK`, and only then may normal
+  startup proceed with the old state.
+
+- `ROLLED_BACK`: startup verifies the restored old state, cleans staging and
+  rollback temporary state, clears the journal, and enters normal startup with
+  the old state.
+
 - `COMMITTED`: startup verifies the new state can be reopened/validated,
   completes best-effort cleanup, clears the journal, and enters normal
   operation. If new-state verification fails while complete rollback state
   still exists, startup transitions to `ROLLING_BACK`; if complete rollback
-  state no longer exists, startup transitions to `ROLLBACK_FAILED`.
+  state no longer exists, startup transitions to `ROLLBACK_FAILED`. Cleanup
+  failure does not change the already-committed success state; a retained
+  `COMMITTED` journal is retried at next startup.
+
 - `ROLLBACK_FAILED`: startup must not enter normal operation. The app enters a
   maintenance/blocked state, exposes the OBS `diagnosticId` / safe diagnostic
   summary, and retains the journal. No automatic destructive recovery is
@@ -594,17 +624,27 @@ Enforcement before extraction:
 - reject encrypted entries and any compression method not explicitly allowed.
   v0 accepts only ZIP stored and deflate methods; anything else is a fixed
   `unsupportedCompression` safe failure;
-- require every ZIP entry's declared uncompressed size to match the manifest
-  field for that entry; mismatch fails closed;
+- `manifest.json` has no `sizeBytes` field for itself. For this entry only,
+  require ZIP declared uncompressed size `<= manifestEntryMaxBytes`; it must
+  not be compared against a nonexistent manifest field;
+- for `database/shiroha.db` and every `files/library/<fileId>` entry, require
+  ZIP declared uncompressed size `==` the corresponding manifest `sizeBytes`;
+  mismatch fails closed;
 - enforce all declared-size ceilings before writing any staged bytes.
 
 Streaming extraction:
 
 - decompression/output is streamed while counting bytes per entry and total;
   actual output is the authority, never the ZIP header alone;
-- if actual bytes would exceed the manifest-declared size, the entry ceiling,
-  the package ceiling, or the entry-count bound, extraction terminates
-  immediately, staging is deleted, and `resourceLimitExceeded` is returned;
+- `manifest.json`: actual streamed bytes must be
+  `<= manifestEntryMaxBytes`. Exceeding it terminates extraction immediately,
+  deletes staging, and returns `resourceLimitExceeded`;
+- `database/shiroha.db` and `files/library/<fileId>`: actual streamed bytes
+  must equal the corresponding manifest `sizeBytes`. If the stream would
+  exceed `sizeBytes`, the entry ceiling, or the package ceiling, extraction
+  terminates immediately and returns `resourceLimitExceeded`; an actual byte
+  count below `sizeBytes` also fails closed before commit;
+- SHA-256 and package total ceiling checks remain mandatory after streaming;
 - a disk-write failure such as out-of-space is normalized to
   `resourceLimitExceeded`, never a raw OS error/path.
 
@@ -811,7 +851,15 @@ The B0-V0 acceptance suite must cover:
 35. actual streamed decompressed bytes exceeding declared size or package
     ceiling terminate immediately and delete staging;
 36. export/restore free-space preflight failure returns
-    `resourceLimitExceeded` with zero live mutation.
+    `resourceLimitExceeded` with zero live mutation;
+37. crash after durable `PREPARED` but before `SWAPPING`: startup performs
+    zero live DB writes and zero live managed-file writes, deletes transient
+    staging/rollback state, clears the journal, and boots the untouched
+    pre-restore LIVE state;
+38. archive size admission distinguishes `manifest.json` (bounded only by
+    `manifestEntryMaxBytes`, declared and streamed) from
+    `database/shiroha.db` / `files/library/<fileId>` (ZIP declared size and
+    streamed actual size must each equal manifest `sizeBytes`).
 
 ## 20. Contract authorities
 
