@@ -75,7 +75,10 @@ void main() {
 
   test('review draft and Task Center deletes reject new writes in maintenance',
       () async {
-    final manager = TaskManager.forTesting(saveTask: (_) async {})
+    var saveCalls = 0;
+    final manager = TaskManager.forTesting(saveTask: (_) async {
+      saveCalls++;
+    })
       ..tasks.add(_reviewTask());
 
     await BackupRestoreMutationGate.instance.enterQuiescence();
@@ -89,9 +92,53 @@ void main() {
       ),
       _restoreBlocked(),
     );
+    expect(
+      () => manager.mergeReviewDraftAnswerDistillation(
+        'review-task',
+        reviewItemId: 'review-item-1',
+        expectedRevision: 0,
+        standardAnswer: 'Blocked',
+        status: 'ai_applied',
+      ),
+      _restoreBlocked(),
+    );
+    expect(
+      () => manager.updateProgress('review-task', 'Blocked', 0.5),
+      _restoreBlocked(),
+    );
     await expectLater(manager.deleteTask('review-task'), _restoreBlocked());
     await expectLater(manager.clearCompletedTasks(), _restoreBlocked());
+    expect(saveCalls, 0);
     expect(manager.tasks, hasLength(1));
+    BackupRestoreMutationGate.instance.exitQuiescence();
+  });
+
+  test('startup stale-task cleanup holds the lease until deletion completes',
+      () async {
+    final release = Completer<void>();
+    var cleanupStarted = false;
+    final manager = TaskManager.forTesting(
+      loadTasks: () async => <Map<String, dynamic>>[],
+      deleteOldImportTasks: (_) async {
+        cleanupStarted = true;
+        await release.future;
+      },
+    );
+
+    expect(cleanupStarted, isTrue);
+    expect(BackupRestoreMutationGate.instance.activeMutationCount, 1);
+
+    final drained = BackupRestoreMutationGate.instance.enterQuiescence();
+    var drainCompleted = false;
+    unawaited(drained.then((_) => drainCompleted = true));
+    await Future<void>.delayed(Duration.zero);
+    expect(drainCompleted, isFalse);
+
+    release.complete();
+    await manager.ready;
+    await drained;
+    expect(drainCompleted, isTrue);
+    expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
     BackupRestoreMutationGate.instance.exitQuiescence();
   });
 }

@@ -350,7 +350,8 @@ class TaskManager extends ChangeNotifier {
   TaskManager._internal()
       : _persistTasks = true,
         _saveTaskOverride = null,
-        _loadTasksOverride = null {
+        _loadTasksOverride = null,
+        _deleteOldImportTasksOverride = null {
     ready = _loadTasksFromDb();
   }
 
@@ -358,16 +359,21 @@ class TaskManager extends ChangeNotifier {
   TaskManager.forTesting({
     Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
     Future<List<Map<String, dynamic>>> Function()? loadTasks,
+    Future<void> Function(int olderThanUnix)? deleteOldImportTasks,
   })  : _persistTasks = saveTask != null,
         _saveTaskOverride = saveTask,
-        _loadTasksOverride = loadTasks {
-    ready = loadTasks == null ? Future<void>.value() : _loadTasksFromDb();
+        _loadTasksOverride = loadTasks,
+        _deleteOldImportTasksOverride = deleteOldImportTasks {
+    ready = loadTasks == null && deleteOldImportTasks == null
+        ? Future<void>.value()
+        : _loadTasksFromDb();
   }
 
   late Future<void> ready;
   final bool _persistTasks;
   final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
   final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
+  final Future<void> Function(int olderThanUnix)? _deleteOldImportTasksOverride;
   Future<void> _reviewDraftWriteTail = Future<void>.value();
   final Map<String, Future<void>> _attemptWriteTails = <String, Future<void>>{};
   final Map<String, TypedCommitAttemptLease> _typedCommitLeases =
@@ -398,15 +404,18 @@ class TaskManager extends ChangeNotifier {
   Future<void> _loadTasksFromDb() async {
     try {
       final loader = _loadTasksOverride;
+      final threeDaysAgo = DateTime.now()
+              .subtract(const Duration(days: 3))
+              .millisecondsSinceEpoch ~/
+          1000;
       final List<Map<String, dynamic>> maps;
       if (loader != null) {
+        if (_deleteOldImportTasksOverride != null) {
+          await _deleteOldImportTasks(threeDaysAgo);
+        }
         maps = await loader();
       } else {
-        final threeDaysAgo = DateTime.now()
-                .subtract(const Duration(days: 3))
-                .millisecondsSinceEpoch ~/
-            1000;
-        await ImportTaskRepository.instance.deleteOldImportTasks(threeDaysAgo);
+        await _deleteOldImportTasks(threeDaysAgo);
         maps = await ImportTaskRepository.instance.getAllImportTasks();
       }
       tasks.clear();
@@ -425,6 +434,17 @@ class TaskManager extends ChangeNotifier {
     } catch (_) {
       debugPrint('Error loading tasks from SQLite');
     }
+  }
+
+  Future<void> _deleteOldImportTasks(int olderThanUnix) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      final override = _deleteOldImportTasksOverride;
+      if (override != null) {
+        await override(olderThanUnix);
+        return;
+      }
+      await ImportTaskRepository.instance.deleteOldImportTasks(olderThanUnix);
+    });
   }
 
   void _markLoadedTaskInterrupted(ImportTask task) {
