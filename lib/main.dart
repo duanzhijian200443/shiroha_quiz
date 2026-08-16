@@ -10,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
 import 'application/agent/agent_config_service.dart';
+import 'application/backup/backup_restore_coordinator.dart';
 import 'application/agent/agent_runtime.dart';
 import 'application/agent/agent_study_plan_tool_dispatcher.dart';
 import 'application/agent/agent_study_tool_dispatcher.dart';
@@ -37,6 +38,8 @@ import 'data/repositories/ai_engine_repository.dart';
 import 'data/credentials/secure_engine_credential_store.dart';
 import 'data/credentials/ai_engine_credential_activation.dart';
 import 'data/repositories/agent_config_repository.dart';
+import 'data/repositories/backup_database_authority.dart';
+import 'data/repositories/backup_snapshot_repository.dart';
 import 'data/repositories/agent_profile_repository.dart';
 import 'data/repositories/approved_agent_write_repository.dart';
 import 'data/repositories/conversation_repository.dart';
@@ -55,6 +58,7 @@ import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
 import 'services/answers/ai_answer_provider_adapter.dart';
 import 'services/agent/deepseek_responses_provider.dart';
+import 'services/backup/backup_restore_runtime.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
@@ -72,6 +76,7 @@ import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
+import 'ui/pages/backup/backup_restore_screen.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/pages/main_screen.dart';
@@ -135,10 +140,46 @@ void main() {
     }
 
     final databaseHelper = DatabaseHelper.instance;
+    final supportDirectory = await getApplicationSupportDirectory();
+    final managedFileStorage = await ManagedFileStorageAdapter.appManaged();
+    final backupSnapshotRepository = BackupSnapshotRepository(
+      databaseHelper: databaseHelper,
+    );
+    final backupRestore = BackupRestoreCoordinator(
+      operations: BackupRestoreRuntime(
+        databaseAuthority: SqliteBackupDatabaseAuthority(
+          databaseHelper: databaseHelper,
+          snapshotRepository: backupSnapshotRepository,
+        ),
+        snapshotRepository: backupSnapshotRepository,
+        managedFileStorage: managedFileStorage,
+        restoreRoot: Directory(p.join(supportDirectory.path, 'restore')),
+        managedFilesRoot:
+            Directory(p.join(supportDirectory.path, 'library_files')),
+      ),
+    );
+    // Hard B0-I0 startup order: unfinished restore journal recovery MUST
+    // complete before any production DatabaseHelper open.
+    final b0StartupRecovery = await backupRestore.recoverStartupIfNeeded();
+    if (b0StartupRecovery.blocked) {
+      AppLogger.error(
+        'B0 restore startup recovery blocked normal initialization',
+        module: 'Backup',
+        data: <String, Object?>{
+          'stage': 'startup_recovery',
+          'status': 'blocked',
+          'failureCode': b0StartupRecovery.failure?.name,
+        },
+      );
+      runApp(
+        BackupMaintenanceScreen(diagnosticId: b0StartupRecovery.diagnosticId),
+      );
+      return;
+    }
+
     final libraryFileRepository = LibraryFileRepository(
       databaseHelper: databaseHelper,
     );
-    final managedFileStorage = await ManagedFileStorageAdapter.appManaged();
     final fileIngestionService = FileIngestionService(
       storage: managedFileStorage,
       repository: libraryFileRepository,
@@ -225,7 +266,6 @@ void main() {
       clock: () => DateTime.now().toUtc(),
     );
     final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
-    final supportDirectory = await getApplicationSupportDirectory();
     final parsedArtifactRepository =
         ParsedArtifactRepository(databaseHelper: databaseHelper);
     final parsedArtifactLifecycle = ParsedArtifactLifecycleService(
@@ -329,24 +369,30 @@ void main() {
     }
 
     AppLogger.info('Application started', module: 'Application');
-    runApp(ShirohaQuizApp(
-      engineRepository: engineRepository,
-      aiService: aiService,
-      importPipelineService: importPipelineService,
-      importTaskCoordinator: importTaskCoordinator,
-      answerGenerationService: answerGenerationService,
-      answerCommitCommand: answerCommitCommand,
-      u1WorkspaceFacade: u1WorkspaceFacade,
-      conversationService: conversationService,
-      agentSettingsService: agentSettingsService,
-      startAgentTurn: agentRuntime.startTurn,
-      startRetrievalTurn: agentRuntime.startTurnWithRetrieval,
-      proposalService: agentWriteProposalService,
-      studyPlanDraftService: studyPlanDraftService,
-      studyPlanCommandService: studyPlanCommandService,
-      studyPlanSelectionService: studyPlanSelectionService,
-      studyPlanSessionLauncher: studyPlanSessionLauncher,
-    ));
+    late void Function() relaunchApp;
+    relaunchApp = () {
+      runApp(ShirohaQuizApp(
+        engineRepository: engineRepository,
+        aiService: aiService,
+        importPipelineService: importPipelineService,
+        importTaskCoordinator: importTaskCoordinator,
+        answerGenerationService: answerGenerationService,
+        answerCommitCommand: answerCommitCommand,
+        u1WorkspaceFacade: u1WorkspaceFacade,
+        conversationService: conversationService,
+        agentSettingsService: agentSettingsService,
+        startAgentTurn: agentRuntime.startTurn,
+        startRetrievalTurn: agentRuntime.startTurnWithRetrieval,
+        proposalService: agentWriteProposalService,
+        studyPlanDraftService: studyPlanDraftService,
+        studyPlanCommandService: studyPlanCommandService,
+        studyPlanSelectionService: studyPlanSelectionService,
+        studyPlanSessionLauncher: studyPlanSessionLauncher,
+        backupRestore: backupRestore,
+        onRestoreCompleted: relaunchApp,
+      ));
+    };
+    relaunchApp();
   }, (error, stackTrace) {
     AppLogger.error(
       'Unhandled root-zone error',
@@ -377,6 +423,8 @@ class ShirohaQuizApp extends StatelessWidget {
     this.studyPlanCommandService,
     this.studyPlanSelectionService,
     this.studyPlanSessionLauncher,
+    this.backupRestore,
+    this.onRestoreCompleted,
   });
 
   final AiEngineRepository engineRepository;
@@ -399,6 +447,8 @@ class ShirohaQuizApp extends StatelessWidget {
   /// SPL-1-U0 focused seams (selection + Practice materialization adapter).
   final StudyPlanSelectionService? studyPlanSelectionService;
   final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
+  final BackupRestoreCoordinator? backupRestore;
+  final VoidCallback? onRestoreCompleted;
 
   @override
   Widget build(BuildContext context) {
@@ -429,6 +479,8 @@ class ShirohaQuizApp extends StatelessWidget {
               studyPlanCommandService: studyPlanCommandService,
               studyPlanSelectionService: studyPlanSelectionService,
               studyPlanSessionLauncher: studyPlanSessionLauncher,
+              backupRestore: backupRestore,
+              onRestoreCompleted: onRestoreCompleted,
             ),
           ),
         );

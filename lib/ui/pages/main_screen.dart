@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../application/agent/agent_config_service.dart';
+import '../../application/backup/backup_restore_coordinator.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
@@ -26,6 +27,8 @@ class MainScreen extends StatefulWidget {
     this.studyPlanCommandService,
     this.studyPlanSelectionService,
     this.studyPlanSessionLauncher,
+    this.backupRestore,
+    this.onRestoreCompleted,
   });
 
   final U1WorkspaceFacade u1WorkspaceFacade;
@@ -38,6 +41,8 @@ class MainScreen extends StatefulWidget {
   final StudyPlanCommandService? studyPlanCommandService;
   final StudyPlanSelectionService? studyPlanSelectionService;
   final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
+  final BackupRestoreCoordinator? backupRestore;
+  final VoidCallback? onRestoreCompleted;
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -83,6 +88,8 @@ class _MainScreenState extends State<MainScreen> {
       ProfileScreen(
         engineRepository: dependencies.engineRepository,
         agentSettingsService: widget.agentSettingsService,
+        backupRestore: widget.backupRestore,
+        onRestoreCompleted: widget.onRestoreCompleted,
       ), // Tab 2 — 我的
     ];
     return Scaffold(
