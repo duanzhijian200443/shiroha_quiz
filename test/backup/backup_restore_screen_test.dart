@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_contracts.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
-import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/ui/pages/backup/backup_restore_screen.dart';
 
 final class _ScreenOperations implements BackupRestoreOperations {
