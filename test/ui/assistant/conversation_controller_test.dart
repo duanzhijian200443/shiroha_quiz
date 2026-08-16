@@ -1269,7 +1269,7 @@ void main() {
     test('failed turn exposes the stable diagnostic number and whitelist copy',
         () async {
       final repository = _MemoryRepository();
-      final turn = _TurnHarness(diagnosticId: 'OBS-7Q2M-91KD');
+      final turn = _TurnHarness(diagnosticId: 'OBS-7Q2M-92KD');
       final controller = _controller(repository, start: turn.start);
 
       await controller.send('secret question content');
@@ -1279,10 +1279,10 @@ void main() {
       await _flush();
 
       expect(controller.turnPhase, AssistantTurnPhase.failed);
-      expect(controller.turnDiagnosticId, 'OBS-7Q2M-91KD');
+      expect(controller.turnDiagnosticId, 'OBS-7Q2M-92KD');
       final copy = controller.diagnosticCopyText;
       expect(copy, isNotNull);
-      expect(copy, contains('diagnosticId=OBS-7Q2M-91KD'));
+      expect(copy, contains('diagnosticId=OBS-7Q2M-92KD'));
       expect(copy, contains('operation=agent_turn'));
       expect(copy, contains('failure=toolLimitExceeded'));
       expect(copy, isNot(contains('secret question content')));
@@ -1290,7 +1290,7 @@ void main() {
 
     test('runtime-provided summary enriches the diagnostic copy', () async {
       final repository = _MemoryRepository();
-      final turn = _TurnHarness(diagnosticId: 'OBS-7Q2M-91KD');
+      final turn = _TurnHarness(diagnosticId: 'OBS-7Q2M-92KD');
       final controller = _controller(repository, start: turn.start);
 
       await controller.send('question');
@@ -1298,7 +1298,7 @@ void main() {
         AgentTurnFailed(
           AgentTurnFailure.toolLimitExceeded,
           summary: const DiagnosticSummary(
-            diagnosticId: 'OBS-7Q2M-91KD',
+            diagnosticId: 'OBS-7Q2M-92KD',
             operation: 'agent_turn',
             failure: 'tool_round_limit_exceeded',
             providerRounds: 5,

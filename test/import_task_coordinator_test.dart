@@ -14,6 +14,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -1110,7 +1111,7 @@ void main() {
       expect(handle.correlationId, isNotNull);
       expect(
         handle.correlationId,
-        matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+        matches(TraceContext.correlationIdPattern),
       );
       expect(handle.parentTraceId, isNull);
       expect(task.correlationId, handle.correlationId);
@@ -1302,7 +1303,7 @@ void main() {
       expect(second.correlationId, isNot('OBS-AAAA-BBBB'));
       expect(
         first.correlationId,
-        matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+        matches(TraceContext.correlationIdPattern),
       );
       // The enclosing trace is the parent of every task in the batch.
       expect(first.parentTraceId, 'trace-enclosing');
@@ -1315,6 +1316,143 @@ void main() {
         expect(task.correlationId, handle.correlationId);
         expect(task.parentTraceId, 'trace-enclosing');
         expect(task.batchId, 'obs-nested-batch');
+      }
+    });
+
+    test(
+        'real ImportPipeline executed inside importAttempt correlation never leaks '
+        'filename, absolute path, or question content into correlated LogRecords',
+        () async {
+      const filenameSentinel = 'PRIVATE_FILENAME_SENTINEL.pdf';
+      const pathSentinel = r'C:\private\secrets\PRIVATE_FILENAME_SENTINEL.pdf';
+      const contentSentinel = 'PRIVATE_QUESTION_STEM_CONTENT_SENTINEL';
+
+      final pipeline = ImportPipelineService.forTesting(
+        textParser: (rawText, {required taskId, required isMarkdown}) async =>
+            <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'content': contentSentinel,
+            'standard_answer': 'A',
+          },
+        ],
+        visionParser: (imagePaths) async => const <Map<String, dynamic>>[],
+        ocrParser: (
+            {required filePath,
+            required sourceName,
+            required format,
+            required ExplanationRetentionMode explanationRetentionMode}) async {
+          return const OcrImportResult(
+            questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'q_num': '1',
+                'content': contentSentinel,
+                'standard_answer': 'A',
+              },
+            ],
+            warnings: <String>[],
+            diagnostics: <String, dynamic>{},
+            usedOcr: true,
+          );
+        },
+      );
+
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        parser: pipeline.parseFiles,
+        taskIdFactory: () => 'obs-privacy-task',
+        traceIdFactory: () => 'obs-privacy-trace',
+      );
+
+      final handle = await coordinator.dispatchRequest(
+        sourceDescription: filenameSentinel,
+        filePaths: const <String>[pathSentinel],
+        fileNames: const <String>[filenameSentinel],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+      );
+
+      final task = await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+      await AppLogger.flush();
+
+      expect(handle.correlationId, isNotNull);
+      expect(
+        handle.correlationId,
+        matches(TraceContext.correlationIdPattern),
+      );
+      expect(task.correlationId, handle.correlationId);
+
+      // Collect all LogRecords associated with this correlationId.
+      final correlatedRecords = logSink.records
+          .where((record) => record.correlationId == handle.correlationId)
+          .toList();
+
+      expect(
+        correlatedRecords,
+        isNotEmpty,
+        reason: 'Correlated LogRecords must be captured',
+      );
+
+      // ImportPipeline structural records must exist and be correlated.
+      final pipelineStartRecords = correlatedRecords.where(
+        (record) => record.message == 'Import file processing started',
+      );
+      expect(
+        pipelineStartRecords,
+        isNotEmpty,
+        reason: 'Import file processing started log must be recorded',
+      );
+      final startRecord = pipelineStartRecords.first;
+      expect(startRecord.module, 'ImportPipeline');
+      expect(startRecord.data['fileIndex'], 0);
+      expect(startRecord.data['format'], 'pdf');
+      expect(
+        startRecord.data.containsKey('sourceName'),
+        isFalse,
+        reason: 'sourceName must be omitted from structured log data',
+      );
+
+      final pipelineSpanRecords = correlatedRecords.where(
+        (record) => record.message.startsWith('Import pipeline'),
+      );
+      expect(
+        pipelineSpanRecords,
+        isNotEmpty,
+        reason: 'Import pipeline span must be recorded',
+      );
+
+      // Assert that NO correlated LogRecord contains filename, path, or content sentinels.
+      for (final record in correlatedRecords) {
+        final recordJson = jsonEncode(record.toJson());
+        expect(
+          recordJson,
+          isNot(contains(filenameSentinel)),
+          reason:
+              'Log record ${record.message} must not contain filename sentinel',
+        );
+        expect(
+          recordJson,
+          isNot(contains('PRIVATE_FILENAME_SENTINEL')),
+          reason:
+              'Log record ${record.message} must not contain filename token',
+        );
+        expect(
+          recordJson,
+          isNot(contains(r'C:\private\secrets')),
+          reason:
+              'Log record ${record.message} must not contain absolute path sentinel',
+        );
+        expect(
+          recordJson,
+          isNot(contains(contentSentinel)),
+          reason:
+              'Log record ${record.message} must not contain question content sentinel',
+        );
       }
     });
   });

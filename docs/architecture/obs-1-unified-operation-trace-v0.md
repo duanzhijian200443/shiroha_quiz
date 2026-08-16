@@ -95,7 +95,7 @@ Example record:
 
 ```json
 {
-  "correlationId": "OBS-7Q2M-91KD",
+  "correlationId": "OBS-7Q2M-92KD",
   "traceId": "trace-...",
   "parentTraceId": "trace-...",
   "operationKind": "ragRetrieval",
@@ -308,8 +308,8 @@ OBS-1 timing/duplication evidence.
 `DiagnosticSummaryFormatter` (fixed field names, total cap 2000; returns
 null when unsafe, so callers simply hide the affordance). The diagnostic id
 must strictly match the frozen OBS-1 correlation format
-(`^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$`, `DiagnosticSummaryFormatter
-.isValidDiagnosticId`); every other field (failure/status/lastTool/taskId/
+(`^OBS-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$` / `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`,
+`DiagnosticSummaryFormatter.isValidDiagnosticId`); every other field (failure/status/lastTool/taskId/
 traceId) must match the fixed safe token pattern
 (`^[A-Za-z0-9_-]{1,64}$`) or the field is omitted. UI affordances
 (diagnostic number, copy action) only appear after this strict validation

@@ -263,8 +263,7 @@ void main() {
       expect(records, hasLength(1));
       final record = records.single;
       expect(record.operationKind, TraceOperationKind.parsedArtifactGeneration);
-      expect(record.correlationId,
-          matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')));
+      expect(record.correlationId, matches(TraceContext.correlationIdPattern));
       expect(record.parentTraceId, isNull);
       expect(record.data['parserRoute'], 'txt');
       expect(record.data['artifactId'], 'artifact-standalone');

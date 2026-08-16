@@ -120,7 +120,18 @@ abstract final class TraceContext {
 
   /// Short random diagnostic id in the form `OBS-XXXX-XXXX`. No time, file,
   /// user or conversation semantics; safe for display and log filtering.
-  static const String _correlationAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  ///
+  /// Frozen base-32 alphabet without ambiguity-prone I/O/0/1.
+  static const String correlationAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  /// Strict OBS-1 correlation pattern (`OBS-XXXX-XXXX`, uppercase alphabet
+  /// [correlationAlphabet]).
+  static final RegExp correlationIdPattern =
+      RegExp('^OBS-[$correlationAlphabet]{4}-[$correlationAlphabet]{4}\$');
+
+  /// True only for strictly valid OBS-1 correlation / diagnostic ids.
+  static bool isValidCorrelationId(String value) =>
+      correlationIdPattern.hasMatch(value);
 
   static String createCorrelationId() {
     final buffer = StringBuffer('OBS-');
@@ -128,7 +139,7 @@ abstract final class TraceContext {
       if (group > 0) buffer.write('-');
       for (var index = 0; index < 4; index++) {
         buffer.write(
-          _correlationAlphabet[_random.nextInt(_correlationAlphabet.length)],
+          correlationAlphabet[_random.nextInt(correlationAlphabet.length)],
         );
       }
     }

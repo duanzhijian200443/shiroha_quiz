@@ -1,3 +1,5 @@
+import 'trace_context.dart';
+
 /// OBS-1 whitelist-only diagnostic summary used for user-facing
 /// `复制诊断信息` (copy diagnostic info) actions.
 ///
@@ -52,12 +54,6 @@ abstract final class DiagnosticSummaryFormatter {
   static const int maxValueLength = 64;
   static const int maxTotalLength = 2000;
 
-  /// Strict OBS-1 correlation format (`OBS-XXXX-XXXX`, uppercase alphabet
-  /// without ambiguity-prone I/O, digits 2-9). A diagnostic id that does not
-  /// match this pattern must never be displayed or copied.
-  static final RegExp _diagnosticIdPattern =
-      RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$');
-
   static final RegExp _operationPattern = RegExp(r'^[a-z_]{1,32}$');
 
   /// Fixed safe token/category pattern for whitelist fields: letters,
@@ -68,12 +64,12 @@ abstract final class DiagnosticSummaryFormatter {
   /// True only for strictly valid OBS-1 diagnostic ids; callers use this to
   /// gate user-visible diagnostic affordances.
   static bool isValidDiagnosticId(String value) =>
-      _diagnosticIdPattern.hasMatch(value);
+      TraceContext.isValidCorrelationId(value);
 
   static String? format(DiagnosticSummary summary) {
     final diagnosticId = summary.diagnosticId;
     final operation = summary.operation;
-    if (!_diagnosticIdPattern.hasMatch(diagnosticId) ||
+    if (!isValidDiagnosticId(diagnosticId) ||
         !_operationPattern.hasMatch(operation)) {
       return null;
     }

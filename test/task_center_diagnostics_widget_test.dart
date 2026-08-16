@@ -1058,7 +1058,7 @@ void main() {
           errorMsg: 'some internal exception detail that must not be copied',
           diagnostics: <String, dynamic>{
             TaskManager.keyTraceId: 'trace-obs-failed',
-            TaskManager.keyCorrelationId: 'OBS-7Q2M-91KD',
+            TaskManager.keyCorrelationId: 'OBS-7Q2M-92KD',
             TaskManager.keyParseMode: 'ocr',
             TaskManager.keyAttemptNumber: 2,
             TaskManager.keyAttemptToken: 'attempt-obs-failed',
@@ -1072,14 +1072,14 @@ void main() {
       await tester.pump();
       await selectCategory(tester, TaskCenterCategory.error);
 
-      expect(find.text('诊断编号：OBS-7Q2M-91KD'), findsOneWidget);
+      expect(find.text('诊断编号：OBS-7Q2M-92KD'), findsOneWidget);
       await tester.tap(
         find.byKey(const ValueKey<String>('task-copy-diagnostic-obs-failed')),
       );
       await tester.pump();
 
       expect(clipboardText, isNotNull);
-      expect(clipboardText, contains('diagnosticId=OBS-7Q2M-91KD'));
+      expect(clipboardText, contains('diagnosticId=OBS-7Q2M-92KD'));
       expect(clipboardText, contains('operation=import_attempt'));
       expect(clipboardText, contains('taskId=obs-failed'));
       expect(clipboardText, contains('attemptNumber=2'));

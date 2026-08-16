@@ -2784,7 +2784,7 @@ void main() {
       expect(session.diagnosticId, isNotNull);
       expect(
         session.diagnosticId,
-        matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+        matches(TraceContext.correlationIdPattern),
       );
 
       final result = await session.result;

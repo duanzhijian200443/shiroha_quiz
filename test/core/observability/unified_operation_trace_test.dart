@@ -29,7 +29,7 @@ void main() {
         action: () async {
           expect(
             TraceContext.correlationId,
-            matches(RegExp(r'^OBS-[A-Z0-9]{4}-[A-Z0-9]{4}$')),
+            matches(TraceContext.correlationIdPattern),
           );
           expect(TraceContext.traceId, startsWith('trace-'));
           expect(TraceContext.parentTraceId, isNull);
@@ -279,7 +279,7 @@ void main() {
     test('formats the frozen whitelist example shape', () {
       final text = DiagnosticSummaryFormatter.format(
         const DiagnosticSummary(
-          diagnosticId: 'OBS-7Q2M-91KD',
+          diagnosticId: 'OBS-7Q2M-92KD',
           operation: 'agent_turn',
           failure: 'tool_round_limit_exceeded',
           providerRounds: 5,
@@ -291,7 +291,7 @@ void main() {
 
       expect(text, isNotNull);
       expect(text, startsWith('Shiroha diagnostic'));
-      expect(text, contains('diagnosticId=OBS-7Q2M-91KD'));
+      expect(text, contains('diagnosticId=OBS-7Q2M-92KD'));
       expect(text, contains('operation=agent_turn'));
       expect(text, contains('failure=tool_round_limit_exceeded'));
       expect(text, contains('providerRounds=5'));
@@ -304,12 +304,16 @@ void main() {
       for (final id in <String>[
         '',
         'not-a-diag-id!',
-        'obs-7q2m-91kd',
-        'OBS-7Q2M-91KD-extra',
-        'OBS-7Q2M-91K',
-        'OBS-7Q2M-91KD ',
-        'OBS-7Q2M-91KD\n',
+        'obs-7q2m-92kd',
+        'OBS-7Q2M-92KD-extra',
+        'OBS-7Q2M-92K',
+        'OBS-7Q2M-92KD ',
+        'OBS-7Q2M-92KD\n',
         'OBS-<script>alert</script>',
+        'OBS-IIII-AAAA',
+        'OBS-OOOO-AAAA',
+        'OBS-0000-AAAA',
+        'OBS-1111-AAAA',
       ]) {
         expect(
           DiagnosticSummaryFormatter.format(
@@ -323,7 +327,7 @@ void main() {
       expect(
         DiagnosticSummaryFormatter.format(
           const DiagnosticSummary(
-            diagnosticId: 'OBS-7Q2M-91KD',
+            diagnosticId: 'OBS-7Q2M-92KD',
             operation: 'Not An Operation',
           ),
         ),
@@ -333,7 +337,7 @@ void main() {
 
     test('accepts exactly the frozen OBS-XXXX-XXXX format', () {
       for (final id in <String>[
-        'OBS-7Q2M-91KD',
+        'OBS-7Q2M-92KD',
         'OBS-AAAA-BBBB',
         'OBS-ABCD-2345',
       ]) {
@@ -346,18 +350,27 @@ void main() {
       expect(
         DiagnosticSummaryFormatter.format(
           const DiagnosticSummary(
-            diagnosticId: 'OBS-7Q2M-91KD',
+            diagnosticId: 'OBS-7Q2M-92KD',
             operation: 'agent_turn',
           ),
         ),
         isNotNull,
       );
+
+      for (var i = 0; i < 50; i++) {
+        final generated = TraceContext.createCorrelationId();
+        expect(
+          DiagnosticSummaryFormatter.isValidDiagnosticId(generated),
+          isTrue,
+          reason: 'Generated id $generated must be strictly valid',
+        );
+      }
     });
 
     test('omits values that are not fixed safe tokens', () {
       final text = DiagnosticSummaryFormatter.format(
         DiagnosticSummary(
-          diagnosticId: 'OBS-7Q2M-91KD',
+          diagnosticId: 'OBS-7Q2M-92KD',
           operation: 'agent_turn',
           failure: 'a\nb\rc',
           lastTool: 'tool_${List.filled(500, 'x').join()}',
