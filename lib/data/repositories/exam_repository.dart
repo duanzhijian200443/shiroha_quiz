@@ -1,7 +1,8 @@
+import '../../application/exam/exam_mutation_command.dart';
 import '../../core/database/database_helper.dart';
 import '../models/question_draft.dart';
 
-class ExamRepository {
+class ExamRepository implements ExamMutationPersistencePort {
   ExamRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
@@ -17,10 +18,12 @@ class ExamRepository {
     return _databaseHelper.getAllExamPapers();
   }
 
+  @override
   Future<void> deleteExamPaper(String id) {
     return _databaseHelper.deleteExamPaper(id);
   }
 
+  @override
   Future<String> createExamPaper(
     String title,
     int sourceType,
@@ -58,6 +61,7 @@ class ExamRepository {
         bankName, singleCount, subjectiveCount);
   }
 
+  @override
   Future<List<Map<String, dynamic>>> submitExamPaper(
     String paperId,
     Map<int, dynamic> userAnswers,
@@ -66,6 +70,7 @@ class ExamRepository {
     return _databaseHelper.submitExamPaper(paperId, userAnswers, questions);
   }
 
+  @override
   Future<void> updateExamAiScore(
     String paperId,
     String questionId,
@@ -76,6 +81,7 @@ class ExamRepository {
         paperId, questionId, aiFeedback, scoreRatio);
   }
 
+  @override
   Future<void> finishExamGrading(String paperId) {
     return _databaseHelper.finishExamGrading(paperId);
   }

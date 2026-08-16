@@ -1,3 +1,4 @@
+import '../../application/backup/backup_restore_gate.dart';
 import '../models/ai_engine_profile.dart';
 import '../persistence/ai_engine_store.dart';
 import '../persistence/engine_credential_store.dart';
@@ -70,45 +71,53 @@ class AiEngineRepository {
     return profile;
   }
 
-  Future<void> saveEngine(AiEngineProfile profile) async {
-    await _runEngineExclusive(
-      profile.id,
-      () => _saveEngineActivated(_credentialStore, profile),
+  Future<void> saveEngine(AiEngineProfile profile) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _runEngineExclusive(
+        profile.id,
+        () => _saveEngineActivated(_credentialStore, profile),
+      ),
     );
   }
 
-  Future<void> setActiveEngine(String id, AiEngineType type) =>
-      _store.setActiveAiEngine(id, type);
-
-  Future<void> deleteEngine(String id) async {
-    await _runEngineExclusive(
-      id,
-      () => _deleteEngineActivated(_credentialStore, id),
+  Future<void> setActiveEngine(String id, AiEngineType type) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _store.setActiveAiEngine(id, type),
     );
   }
 
-  Future<void> renameEngine(
-      String id, String newName, AiEngineType type) async {
-    await _runEngineExclusive(id, () async {
-      final engines = await getEngines(type);
-      final target = engines.where((e) => e.id == id).firstOrNull;
-      if (target == null) return;
-      final renamed = AiEngineProfile(
-        id: target.id,
-        engineType: target.engineType,
-        name: newName,
-        apiKey: target.apiKey,
-        baseUrl: target.baseUrl,
-        modelName: target.modelName,
-        temperature: target.temperature,
-        reasoningEffort: target.reasoningEffort,
-        isActive: target.isActive,
-      );
-      // Metadata-only mutation: never create/delete/rewrite a credential.
-      // A missing credential stays missing; a present one is preserved in the
-      // secure store while the metadata write scrubs api_key.
-      await _store.saveAiEngine(_withApiKey(renamed, ''));
-    });
+  Future<void> deleteEngine(String id) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _runEngineExclusive(
+        id,
+        () => _deleteEngineActivated(_credentialStore, id),
+      ),
+    );
+  }
+
+  Future<void> renameEngine(String id, String newName, AiEngineType type) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _runEngineExclusive(id, () async {
+        final engines = await getEngines(type);
+        final target = engines.where((e) => e.id == id).firstOrNull;
+        if (target == null) return;
+        final renamed = AiEngineProfile(
+          id: target.id,
+          engineType: target.engineType,
+          name: newName,
+          apiKey: target.apiKey,
+          baseUrl: target.baseUrl,
+          modelName: target.modelName,
+          temperature: target.temperature,
+          reasoningEffort: target.reasoningEffort,
+          isActive: target.isActive,
+        );
+        // Metadata-only mutation: never create/delete/rewrite a credential.
+        // A missing credential stays missing; a present one is preserved in the
+        // secure store while the metadata write scrubs api_key.
+        await _store.saveAiEngine(_withApiKey(renamed, ''));
+      }),
+    );
   }
 
   /// Runs [action] exclusively for [engineId]: concurrent mutations of the

@@ -17,6 +17,7 @@ enum DatabaseRuntimeProfile {
   production,
   isolatedSmokeInMemory,
   explicitReadOnly,
+  explicitFile,
 }
 
 class DatabaseHelper
@@ -25,6 +26,9 @@ class DatabaseHelper
 
   static const String _dbName = 'shiroha_core_v1.db';
   static const int _dbVersion = studyPlanSchemaVersion;
+
+  static String get databaseFileName => _dbName;
+  static int get databaseVersion => _dbVersion;
 
   static const String _questionV2SidecarTable = 'question_v2_payloads';
 
@@ -470,6 +474,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   static bool _runtimeProfileConfigured = false;
   static String? _openedDatabasePath;
   static String? _explicitReadOnlyPath;
+  static String? _explicitFileDatabasePath;
 
   static DatabaseRuntimeProfile get runtimeProfile => _runtimeProfile;
 
@@ -489,6 +494,13 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     }
     if (profile == DatabaseRuntimeProfile.explicitReadOnly) {
       _explicitReadOnlyPath = _resolveExistingAbsolutePath(databasePath);
+    } else if (profile == DatabaseRuntimeProfile.explicitFile) {
+      if (databasePath == null || databasePath.trim().isEmpty) {
+        throw const DatabaseRuntimeException(
+          DatabaseRuntimeFailure.invalidPath,
+        );
+      }
+      _explicitFileDatabasePath = join(databasePath, _dbName);
     } else if (databasePath != null) {
       throw const DatabaseRuntimeException(
         DatabaseRuntimeFailure.unexpectedPath,
@@ -525,6 +537,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
 
   static DatabaseHelper get instance => _instance ??= DatabaseHelper._();
 
+  Future<String> getProductionDatabasePath() async =>
+      join(await getDatabasesPath(), _dbName);
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     if (_openingDatabase != null) return _openingDatabase!;
@@ -559,6 +574,34 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     _openedDatabasePath = null;
   }
 
+  /// Opens a B0 staged database through the existing migration authority.
+  ///
+  /// This is the only B0 migration path: same onConfigure/onCreate/onUpgrade
+  /// callbacks as production, applied to the staged file only. The returned
+  /// handle is owned by the caller. The singleton database is never touched.
+  Future<Database> openPathForStagedMigration(String path) async {
+    return openDatabase(
+      path,
+      version: _dbVersion,
+      onConfigure: _onConfigure,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+  }
+
+  /// Runs the current schema validation authority against an opened staged
+  /// B0 database. B0 never adds a second migration/validation authority.
+  static Future<void> validateStagedBackupSchema(Database db) async {
+    await _validateV15Schema(db);
+    await _validateLibraryFilesSchema(db);
+    await _validateProjectSchema(db);
+    await _validateLibraryFolderSchema(db);
+    await _validateConversationSchema(db);
+    await _validateParsedArtifactSchema(db);
+    await validateRetrievalV21Schema(db);
+    await validateStudyPlanV22Schema(db);
+  }
+
   /// Opens a database handle with the current production schema callbacks.
   ///
   /// Available only under `FLUTTER_TEST`. The returned handle is owned by
@@ -584,6 +627,27 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   Future<Database> _initDatabase() async {
     if (_runtimeProfile == DatabaseRuntimeProfile.explicitReadOnly) {
       return _openExplicitReadOnlyDatabase();
+    }
+    if (_runtimeProfile == DatabaseRuntimeProfile.explicitFile) {
+      final path = _explicitFileDatabasePath;
+      if (path == null) {
+        throw const DatabaseRuntimeException(
+          DatabaseRuntimeFailure.invalidPath,
+        );
+      }
+      final directory = Directory(dirname(path));
+      if (!directory.existsSync()) {
+        directory.createSync(recursive: true);
+      }
+      final database = await openDatabase(
+        path,
+        version: _dbVersion,
+        onConfigure: _onConfigure,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+      _openedDatabasePath = path;
+      return database;
     }
     final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
     final useInMemory = isTest ||
@@ -2069,6 +2133,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     _runtimeProfile = DatabaseRuntimeProfile.production;
     _runtimeProfileConfigured = false;
     _explicitReadOnlyPath = null;
+    _explicitFileDatabasePath = null;
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBanksSummary() async {

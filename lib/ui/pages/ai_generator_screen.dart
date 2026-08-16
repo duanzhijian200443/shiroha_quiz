@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../application/questions/question_write_mutation_command.dart';
 import '../../data/models/question_draft.dart';
-import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
@@ -21,6 +21,8 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   final TextEditingController _topicController = TextEditingController();
   final TextEditingController _bankNameController = TextEditingController();
   final QuestionRepository _questionRepository = QuestionRepository.instance;
+  final QuestionWriteMutationCommand _questionWriteMutation =
+      QuestionWriteMutationCommand(QuestionRepository.instance);
 
   // ── 状态 ──────────────────────────────────────────────────────────────────
   late final _AiFeedbackController _feedbackCtrl;
@@ -133,10 +135,10 @@ class _AiQuizScreenState extends State<AiQuizScreen>
     }
 
     try {
-      await _questionRepository.saveQuestionDraftsToBank(
+      await _questionWriteMutation.saveQuestionsToBank(
         bankName: bankName,
         folderName: null,
-        questions: toSave,
+        questions: toSave.map((draft) => draft.toMap()).toList(growable: false),
       );
 
       if (!mounted) return;
@@ -850,24 +852,26 @@ class _AiQuizScreenState extends State<AiQuizScreen>
   }
 
   Future<void> _generateExam(int s, int f, int sh, String customPrompt) async {
+    final dependencies = AiDependenciesScope.of(context);
+    final aiService = dependencies.aiService;
+    final examMutationCommand = dependencies.examMutationCommand;
     _beginLoading();
 
     try {
-      final result =
-          await AiDependenciesScope.of(context).aiService.generateExamPaper(
-                topic: _topicController.text.trim(),
-                singleCount: s,
-                fillCount: f,
-                shortCount: sh,
-                customPrompt: customPrompt,
-              );
+      final result = await aiService.generateExamPaper(
+        topic: _topicController.text.trim(),
+        singleCount: s,
+        fillCount: f,
+        shortCount: sh,
+        customPrompt: customPrompt,
+      );
 
       // 2. 核心合流：将 AI 生成的全新题目直接落盘为试卷 (source_type: 1)
       final paperTitle = '${_topicController.text.trim()} AI模拟卷';
-      await ExamRepository.instance.createExamPaperFromDrafts(
+      await examMutationCommand.createExamPaper(
         paperTitle,
         1,
-        result,
+        result.map((question) => question.toMap()).toList(growable: false),
       );
 
       if (mounted) {

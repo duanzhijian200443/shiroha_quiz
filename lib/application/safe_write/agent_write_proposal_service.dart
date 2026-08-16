@@ -1,4 +1,5 @@
 import '../../domain/question/question_draft_v2.dart';
+import '../backup/backup_restore_gate.dart';
 import 'agent_write_persistence.dart';
 import 'agent_write_proposal.dart';
 import 'agent_write_proposed_answer_policy.dart';
@@ -66,6 +67,22 @@ final class AgentWriteProposalService {
     required QuestionAnswer proposedAnswer,
     bool Function(AgentWriteProposal candidate)? resultSizeGate,
     bool Function()? lifecycleMutationAllowed,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _stageProposalUnchecked(
+        admissionRequest: admissionRequest,
+        proposedAnswer: proposedAnswer,
+        resultSizeGate: resultSizeGate,
+        lifecycleMutationAllowed: lifecycleMutationAllowed,
+      ),
+    );
+  }
+
+  Future<AgentWriteStageResult> _stageProposalUnchecked({
+    required AgentWriteAdmissionRequest admissionRequest,
+    required QuestionAnswer proposedAnswer,
+    bool Function(AgentWriteProposal candidate)? resultSizeGate,
+    bool Function()? lifecycleMutationAllowed,
   }) async {
     if (!_answerPolicy.isStructurallyValidPayload(proposedAnswer)) {
       return const AgentWriteStageResultIneligible();
@@ -128,7 +145,14 @@ final class AgentWriteProposalService {
   /// once (`pending -> committing`); concurrent approvals share one in-flight
   /// commit. Reapproval reports the existing committed outcome; an approval
   /// attempt on a rejected or superseded proposal performs zero writes.
-  Future<AgentWriteProposal> approveProposal(String proposalId) async {
+  Future<AgentWriteProposal> approveProposal(String proposalId) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _approveProposalUnchecked(proposalId),
+    );
+  }
+
+  Future<AgentWriteProposal> _approveProposalUnchecked(
+      String proposalId) async {
     final proposal = _requireProposal(proposalId);
     switch (proposal.outcome) {
       case AgentWriteProposalOutcome.pending:

@@ -1,3 +1,4 @@
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../data/models/question_draft.dart';
 import '../../data/models/typed_import_commit_guard.dart';
@@ -96,6 +97,29 @@ class ImportCommitService {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     List<QuestionExplanationOverride>? explanationOverrides,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _commitLegacyUnchecked(
+        bankName: bankName,
+        folderName: folderName,
+        questions: questions,
+        taskId: taskId,
+        diagnostics: diagnostics,
+        explanationRetentionMode: explanationRetentionMode,
+        explanationOverrides: explanationOverrides,
+      ),
+    );
+  }
+
+  Future<ImportCommitResult> _commitLegacyUnchecked({
+    required String bankName,
+    required String folderName,
+    required List<QuestionDraft> questions,
+    String? taskId,
+    required Map<String, dynamic> diagnostics,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+    List<QuestionExplanationOverride>? explanationOverrides,
   }) async {
     final finalizedMaps = finalizeAndAuditImportQuestions(
       questions.map((question) => question.toMap()),
@@ -161,6 +185,36 @@ class ImportCommitService {
   /// task, never falls back to the legacy writer, and maps to the fixed safe
   /// [TypedReviewCommitException].
   Future<ImportCommitResult> commitTyped({
+    required String bankName,
+    required String folderName,
+    required List<TypedReviewCommitInput> items,
+    required String taskId,
+    required String attemptToken,
+    required int attemptNumber,
+    required int expectedReviewDraftRevision,
+    required ImportStorageRoute storageRoute,
+    required String storageReason,
+    required ExplanationRetentionMode explanationRetentionMode,
+    List<QuestionExplanationOverride>? explanationOverrides,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _commitTypedUnchecked(
+        bankName: bankName,
+        folderName: folderName,
+        items: items,
+        taskId: taskId,
+        attemptToken: attemptToken,
+        attemptNumber: attemptNumber,
+        expectedReviewDraftRevision: expectedReviewDraftRevision,
+        storageRoute: storageRoute,
+        storageReason: storageReason,
+        explanationRetentionMode: explanationRetentionMode,
+        explanationOverrides: explanationOverrides,
+      ),
+    );
+  }
+
+  Future<ImportCommitResult> _commitTypedUnchecked({
     required String bankName,
     required String folderName,
     required List<TypedReviewCommitInput> items,

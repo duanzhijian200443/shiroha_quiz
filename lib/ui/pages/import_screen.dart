@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../application/questions/question_bank_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/bank_update_notifier.dart';
 import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
@@ -13,6 +14,8 @@ class ImportScreen extends StatefulWidget {
 
 class _ImportScreenState extends State<ImportScreen> {
   late Future<List<Map<String, dynamic>>> _banksFuture;
+  final QuestionBankMutationCommand _questionBankMutation =
+      QuestionBankMutationCommand(QuestionRepository.instance);
 
   @override
   void initState() {
@@ -54,12 +57,14 @@ class _ImportScreenState extends State<ImportScreen> {
 
     if (confirmed == true) {
       try {
-        await QuestionRepository.instance.deleteQuestionBank(bankName);
+        await _questionBankMutation.deleteQuestionBank(bankName);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('题库 "$bankName" 已删除')),
         );
         _loadBanks(); // Refresh the list
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('删除失败: $e')),
         );

@@ -16,6 +16,7 @@
 library;
 
 import '../../domain/projects/project.dart';
+import '../backup/backup_restore_gate.dart';
 import 'project_repository.dart';
 
 final class ProjectService {
@@ -39,14 +40,16 @@ final class ProjectService {
     return 'project_${stamp}_$_sequence';
   }
 
-  Future<Project> createProject({required String displayName}) async {
-    final project = Project(
-      projectId: _projectIdFactory(),
-      displayName: displayName,
-      createdAt: DateTime.now().toUtc(),
-    );
-    await _repository.createProject(project);
-    return project;
+  Future<Project> createProject({required String displayName}) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      final project = Project(
+        projectId: _projectIdFactory(),
+        displayName: displayName,
+        createdAt: DateTime.now().toUtc(),
+      );
+      await _repository.createProject(project);
+      return project;
+    });
   }
 
   Future<List<Project>> listProjects() => _repository.listProjects();
@@ -57,44 +60,59 @@ final class ProjectService {
   Future<Project> renameProject({
     required String projectId,
     required String displayName,
-  }) async {
-    Project.validateDisplayName(displayName);
-    return _repository.renameProject(
-      projectId: projectId,
-      displayName: displayName,
-    );
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      Project.validateDisplayName(displayName);
+      return _repository.renameProject(
+        projectId: projectId,
+        displayName: displayName,
+      );
+    });
   }
 
   Future<void> deleteProject(String projectId) =>
-      _repository.deleteProject(projectId);
+      BackupRestoreMutationGate.instance.runMutation(
+        () => _repository.deleteProject(projectId),
+      );
 
   Future<void> attachFile({
     required String projectId,
     required String fileId,
   }) =>
-      _repository.attachFile(projectId: projectId, fileId: fileId);
+      BackupRestoreMutationGate.instance.runMutation(
+        () => _repository.attachFile(projectId: projectId, fileId: fileId),
+      );
 
   Future<void> detachFile({
     required String projectId,
     required String fileId,
   }) =>
-      _repository.detachFile(projectId: projectId, fileId: fileId);
+      BackupRestoreMutationGate.instance.runMutation(
+        () => _repository.detachFile(projectId: projectId, fileId: fileId),
+      );
 
   Future<void> attachBank({
     required String projectId,
     required String bankName,
-  }) async {
-    if (bankName.trim().isEmpty) {
-      throw const FormatException('Bank relation keys must not be empty.');
-    }
-    return _repository.attachBank(projectId: projectId, bankName: bankName);
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      if (bankName.trim().isEmpty) {
+        throw const FormatException('Bank relation keys must not be empty.');
+      }
+      return _repository.attachBank(projectId: projectId, bankName: bankName);
+    });
   }
 
   Future<void> detachBank({
     required String projectId,
     required String bankName,
   }) =>
-      _repository.detachBank(projectId: projectId, bankName: bankName);
+      BackupRestoreMutationGate.instance.runMutation(
+        () => _repository.detachBank(
+          projectId: projectId,
+          bankName: bankName,
+        ),
+      );
 
   Future<List<String>> listProjectFileIds(String projectId) =>
       _repository.listProjectFileIds(projectId);

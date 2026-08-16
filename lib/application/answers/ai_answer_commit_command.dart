@@ -1,4 +1,5 @@
 import '../../domain/answers/answer_candidate.dart';
+import '../backup/backup_restore_gate.dart';
 import 'answer_candidate_review_session.dart';
 
 /// Safe typed failures of the P7-C0 confirmation/commit boundary.
@@ -66,6 +67,18 @@ final class AiAnswerCommitCommand {
   final AiAnswerCommitPersistencePort persistencePort;
 
   Future<AnswerCandidateReviewSession> commit({
+    required AnswerCandidateReviewSession session,
+    required AnswerCandidateConfirmation confirmation,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _commitUnchecked(
+        session: session,
+        confirmation: confirmation,
+      ),
+    );
+  }
+
+  Future<AnswerCandidateReviewSession> _commitUnchecked({
     required AnswerCandidateReviewSession session,
     required AnswerCandidateConfirmation confirmation,
   }) async {

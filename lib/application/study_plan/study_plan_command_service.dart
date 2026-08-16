@@ -18,6 +18,7 @@ library;
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_draft.dart';
 import '../../domain/study_plan/study_plan_values.dart';
+import '../backup/backup_restore_gate.dart';
 import 'study_plan_draft_service.dart';
 import 'study_plan_ports.dart';
 
@@ -141,6 +142,20 @@ final class StudyPlanCommandService {
     required String draftId,
     String? expectedActivePlanId,
     required bool replacementConfirmed,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _adoptDraftUnchecked(
+        draftId: draftId,
+        expectedActivePlanId: expectedActivePlanId,
+        replacementConfirmed: replacementConfirmed,
+      ),
+    );
+  }
+
+  Future<StudyPlanAdoptResult> _adoptDraftUnchecked({
+    required String draftId,
+    String? expectedActivePlanId,
+    required bool replacementConfirmed,
   }) async {
     if (!_isBoundedId(draftId)) {
       return const StudyPlanAdoptResultInvalidPlan();
@@ -248,6 +263,14 @@ final class StudyPlanCommandService {
 
   /// Formally stops the current active study plan.
   Future<StudyPlanStopResult> stopActivePlan({
+    required String expectedPlanId,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _stopActivePlanUnchecked(expectedPlanId: expectedPlanId),
+    );
+  }
+
+  Future<StudyPlanStopResult> _stopActivePlanUnchecked({
     required String expectedPlanId,
   }) async {
     if (!_isBoundedId(expectedPlanId)) {

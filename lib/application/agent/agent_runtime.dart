@@ -10,6 +10,7 @@ import '../../core/observability/log_writer.dart';
 import '../../core/observability/trace_context.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
+import '../backup/backup_restore_gate.dart';
 import '../conversations/conversation_repository.dart';
 import '../conversations/conversation_service.dart';
 import 'agent_config.dart';
@@ -110,7 +111,9 @@ final class ShirohaAgentRuntime {
     if (!_isBoundedId(conversationId) || !_isBoundedId(userMessageId)) {
       return _failedSession(AgentTurnFailure.invalidTarget);
     }
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     if (!_activeConversations.add(conversationId)) {
+      lease.release();
       return _failedSession(AgentTurnFailure.alreadyRunning);
     }
 
@@ -119,6 +122,7 @@ final class ShirohaAgentRuntime {
       requestId: '${conversationId}_${userMessageId}_${_turnRequestSequence++}',
       correlationId: TraceContext.createCorrelationId(),
       traceId: TraceContext.createTraceId(),
+      mutationLease: lease,
     );
     turn.timeoutTimer = Timer(_limits.turnTimeout, () {
       turn.timedOut = true;
@@ -145,6 +149,7 @@ final class ShirohaAgentRuntime {
           );
         }
         if (!turn.events.isClosed) turn.events.close();
+        turn.mutationLease.release();
       }),
     );
     return session;
@@ -200,7 +205,7 @@ final class ShirohaAgentRuntime {
             case AgentTurnFailed():
               break;
           }
-          turn.result.complete(result);
+          _completeTurnResult(turn, result);
           LogWriter.info(
             'Agent turn completed',
             module: 'Agent',
@@ -225,10 +230,18 @@ final class ShirohaAgentRuntime {
             durationMs: turn.elapsedMilliseconds,
           );
           _emit(turn, AgentTurnFailedEvent(failure));
-          turn.result.complete(AgentTurnFailed(failure, summary: summary));
+          _completeTurnResult(
+            turn,
+            AgentTurnFailed(failure, summary: summary),
+          );
         }
       },
     );
+  }
+
+  void _completeTurnResult(_ActiveTurn turn, AgentTurnResult result) {
+    turn.mutationLease.release();
+    if (!turn.result.isCompleted) turn.result.complete(result);
   }
 
   Future<AgentTurnResult> _executeTurn(
@@ -1352,6 +1365,7 @@ final class _ActiveTurn {
     required this.requestId,
     required this.correlationId,
     required this.traceId,
+    required this.mutationLease,
   }) : _limits = limits {
     _stopwatch.start();
   }
@@ -1362,6 +1376,7 @@ final class _ActiveTurn {
   /// OBS-1 root operation identity of this turn.
   final String correlationId;
   final String traceId;
+  final BackupRestoreMutationLease mutationLease;
 
   final AgentCancellationController cancellation =
       AgentCancellationController();

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
@@ -125,8 +126,11 @@ class _PendingWrite {
     this.durationMs,
     this.userAnswer,
     this.aiEvaluation,
-    this.engineRepository,
-  );
+    this.engineRepository, {
+    required this.lease,
+  });
+
+  final BackupRestoreMutationLease lease;
 }
 
 // ================================================================
@@ -185,6 +189,27 @@ class ReviewEngineService with WidgetsBindingObserver {
     required AiEngineRepository engineRepository,
     String? userAnswer,
     String? aiEvaluation,
+  }) {
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    return _submitReviewResultUnchecked(
+      questionId,
+      grade,
+      durationMs,
+      lease: lease,
+      engineRepository: engineRepository,
+      userAnswer: userAnswer,
+      aiEvaluation: aiEvaluation,
+    );
+  }
+
+  Future<void> _submitReviewResultUnchecked(
+    String questionId,
+    int grade,
+    int durationMs, {
+    required BackupRestoreMutationLease lease,
+    required AiEngineRepository engineRepository,
+    String? userAnswer,
+    String? aiEvaluation,
   }) async {
     _queue.add(_PendingWrite(
       questionId,
@@ -193,23 +218,34 @@ class ReviewEngineService with WidgetsBindingObserver {
       userAnswer,
       aiEvaluation,
       engineRepository,
+      lease: lease,
     ));
 
     if (_queue.length >= _batchSize) {
       _debounceTimer?.cancel();
+      _debounceTimer = null;
       await _flushNow();
       return;
     }
 
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(_debounceWindow, () {
-      if (_queue.isNotEmpty) _flushNow();
-    });
+    _scheduleDebouncedFlush();
   }
 
   Future<void> flushPending() async {
     _debounceTimer?.cancel();
+    _debounceTimer = null;
     if (_queue.isNotEmpty) await _flushNow();
+  }
+
+  /// Clears process-lifetime review state after B0 has drained all accepted
+  /// durable review writes and the restored database is authoritative.
+  void resetTransientStateForRestore() {
+    if (_queue.isNotEmpty || _flushing) {
+      throw StateError('Review writes must drain before restore reload.');
+    }
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _sessionQueue = null;
   }
 
   Future<Map<String, int>> getDashboardData() async {
@@ -224,7 +260,9 @@ class ReviewEngineService with WidgetsBindingObserver {
   }
 
   Future<void> clearAllData() {
-    return ReviewRepository.instance.clearAllData();
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => ReviewRepository.instance.clearAllData(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBankStats() {
@@ -399,7 +437,13 @@ class ReviewEngineService with WidgetsBindingObserver {
   //  评级提交 (事务安全)
   // ================================================================
 
-  Future<void> submitReview(String questionId, int grade) async {
+  Future<void> submitReview(String questionId, int grade) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _submitReviewUnchecked(questionId, grade),
+    );
+  }
+
+  Future<void> _submitReviewUnchecked(String questionId, int grade) async {
     final states =
         await ReviewRepository.instance.fetchReviewStates([questionId]);
     if (!states.containsKey(questionId)) return;
@@ -553,11 +597,27 @@ class ReviewEngineService with WidgetsBindingObserver {
         statesToUpdate,
         logsToInsert,
       );
+      for (final item in batch) {
+        item.lease.release();
+      }
     } catch (_) {
       _queue.insertAll(0, batch);
       rethrow;
     } finally {
       _flushing = false;
+      if (_queue.isNotEmpty && _debounceTimer == null) {
+        _scheduleDebouncedFlush();
+      }
     }
+  }
+
+  void _scheduleDebouncedFlush() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceWindow, () {
+      _debounceTimer = null;
+      if (_queue.isNotEmpty) {
+        unawaited(_flushNow().catchError((_) {}));
+      }
+    });
   }
 }

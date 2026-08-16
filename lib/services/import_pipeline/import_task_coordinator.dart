@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:path/path.dart' as p;
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
@@ -221,6 +222,30 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      return await _dispatchUnchecked(
+        lease,
+        sourceDescription: sourceDescription,
+        mode: mode,
+        parse: parse,
+        explanationRetentionMode: explanationRetentionMode,
+      );
+    } catch (_) {
+      lease.release();
+      rethrow;
+    }
+  }
+
+  Future<ImportTaskHandle> _dispatchUnchecked(
+    BackupRestoreMutationLease lease, {
+    required String sourceDescription,
+    required ImportParseMode mode,
+    required Future<ImportParseResult> Function(String taskId) parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+  }) async {
     await _readiness;
 
     final taskId = _taskIdFactory();
@@ -276,6 +301,7 @@ class ImportTaskCoordinator {
             handle: handle,
             sourceDescription: safeSourceDescription,
             parse: parse,
+            lease: lease,
           ),
         )));
     return handle;
@@ -284,6 +310,28 @@ class ImportTaskCoordinator {
   Future<ImportTaskBatchHandle> dispatchIndependentBatch({
     required List<ImportTaskBatchItem> items,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    final leases = <BackupRestoreMutationLease>[
+      for (var i = 0; i < items.length; i++)
+        BackupRestoreMutationGate.instance.acquireMutationLease(),
+    ];
+    try {
+      return await _dispatchIndependentBatchUnchecked(
+        leases,
+        items,
+      );
+    } catch (_) {
+      for (final lease in leases) {
+        lease.release();
+      }
+      rethrow;
+    }
+  }
+
+  Future<ImportTaskBatchHandle> _dispatchIndependentBatchUnchecked(
+    List<BackupRestoreMutationLease> leases,
+    List<ImportTaskBatchItem> items,
+  ) async {
     if (items.isEmpty) {
       throw ArgumentError.value(items, 'items', 'must not be empty');
     }
@@ -355,6 +403,7 @@ class ImportTaskCoordinator {
         handle: handle,
         sourceDescription: safeSourceDescription,
         parse: item.parse,
+        lease: leases[index],
       ));
     }
 
@@ -398,22 +447,24 @@ class ImportTaskCoordinator {
   }
 
   Future<ImportAttemptWriteStatus> cancelOcrTask(String taskId) async {
-    await _readiness;
-    final matches = _taskManager.tasks.where((task) => task.id == taskId);
-    if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
-    final task = matches.first;
-    if (task.parseMode != ImportParseMode.ocr.name) {
-      return ImportAttemptWriteStatus.invalidState;
-    }
-    final attempt = task.attemptRef;
-    if (attempt == null) return ImportAttemptWriteStatus.invalidState;
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      await _readiness;
+      final matches = _taskManager.tasks.where((task) => task.id == taskId);
+      if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
+      final task = matches.first;
+      if (task.parseMode != ImportParseMode.ocr.name) {
+        return ImportAttemptWriteStatus.invalidState;
+      }
+      final attempt = task.attemptRef;
+      if (attempt == null) return ImportAttemptWriteStatus.invalidState;
 
-    final persistence = _taskManager.requestAttemptCancellation(attempt);
-    _requestScheduler.cancel(
-      taskId: attempt.taskId,
-      attemptToken: attempt.attemptToken,
-    );
-    return persistence;
+      final persistence = _taskManager.requestAttemptCancellation(attempt);
+      _requestScheduler.cancel(
+        taskId: attempt.taskId,
+        attemptToken: attempt.attemptToken,
+      );
+      return persistence;
+    });
   }
 
   Future<ImportTaskHandle> retryOcrRequest({
@@ -421,6 +472,7 @@ class ImportTaskCoordinator {
     required List<String> filePaths,
     required List<String> fileNames,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final parser = _parser;
     if (parser == null) {
       throw const ImportTaskCoordinatorDependencyException();
@@ -478,6 +530,30 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
+    BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      return await _retryOcrTaskUnchecked(
+        lease,
+        taskId: taskId,
+        sourceDescription: sourceDescription,
+        parse: parse,
+        explanationRetentionMode: explanationRetentionMode,
+      );
+    } catch (_) {
+      lease.release();
+      rethrow;
+    }
+  }
+
+  Future<ImportTaskHandle> _retryOcrTaskUnchecked(
+    BackupRestoreMutationLease lease, {
+    required String taskId,
+    required String sourceDescription,
+    required ImportTaskParseAction parse,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+  }) async {
     await _readiness;
     final matches = _taskManager.tasks.where((task) => task.id == taskId);
     if (matches.isEmpty ||
@@ -525,27 +601,32 @@ class ImportTaskCoordinator {
             handle: handle,
             sourceDescription: _safeSourceDescription(sourceDescription),
             parse: parse,
+            lease: lease,
           ),
         )));
     return handle;
   }
 
-  Future<void> _runScheduledTask(_ScheduledImportTask item) {
-    return ImportAttemptContext.run(
-      attempt: item.handle.attempt,
-      action: () => TraceContext.run(
-        taskId: item.handle.taskId,
-        traceId: item.handle.traceId,
-        correlationId: item.handle.correlationId,
-        parentTraceId: item.handle.parentTraceId,
-        operationKind: TraceOperationKind.importAttempt,
-        action: () => _runParse(
-          handle: item.handle,
-          sourceDescription: item.sourceDescription,
-          parse: item.parse,
+  Future<void> _runScheduledTask(_ScheduledImportTask item) async {
+    try {
+      return await ImportAttemptContext.run(
+        attempt: item.handle.attempt,
+        action: () => TraceContext.run(
+          taskId: item.handle.taskId,
+          traceId: item.handle.traceId,
+          correlationId: item.handle.correlationId,
+          parentTraceId: item.handle.parentTraceId,
+          operationKind: TraceOperationKind.importAttempt,
+          action: () => _runParse(
+            handle: item.handle,
+            sourceDescription: item.sourceDescription,
+            parse: item.parse,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      item.lease.release();
+    }
   }
 
   static String _uniqueValue(String candidate, Set<String> reserved) {
@@ -845,11 +926,13 @@ class _ScheduledImportTask {
     required this.handle,
     required this.sourceDescription,
     required this.parse,
+    required this.lease,
   });
 
   final ImportTaskHandle handle;
   final String sourceDescription;
   final ImportTaskParseAction parse;
+  final BackupRestoreMutationLease lease;
 }
 
 class _EmptyResultFailure {

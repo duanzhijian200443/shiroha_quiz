@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../application/questions/question_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../models/persisted_question_view.dart';
@@ -27,6 +28,9 @@ class _WrongBookPageState extends State<WrongBookPage> {
 
   QuestionRepository get _questionRepository =>
       widget.questionRepository ?? QuestionRepository.instance;
+
+  QuestionMutationCommand get _questionMutation =>
+      QuestionMutationCommand(_questionRepository);
 
   @override
   void initState() {
@@ -91,7 +95,7 @@ class _WrongBookPageState extends State<WrongBookPage> {
     try {
       // Typed rows rely on the v15 FK `ON DELETE CASCADE` to remove the
       // sidecar; clearing review-only state is untouched by this page.
-      await _questionRepository.deleteQuestion(question.storageId);
+      await _questionMutation.deleteQuestion(question.storageId);
       await _loadQuestions();
     } catch (_) {
       if (!mounted) return;
@@ -107,7 +111,10 @@ class _WrongBookPageState extends State<WrongBookPage> {
     Navigator.push(
       context,
       MaterialPageRoute<bool>(
-        builder: (_) => QuestionEditScreen(question: payload),
+        builder: (_) => QuestionEditScreen(
+          question: payload,
+          mutationCommand: _questionMutation,
+        ),
       ),
     ).then((modified) {
       if (modified == true && mounted) _loadQuestions();

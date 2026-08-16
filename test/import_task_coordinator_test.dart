@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
@@ -16,6 +17,8 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_field_poli
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
+import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<ImportTask> _waitForTask(
@@ -90,6 +93,7 @@ void main() {
   late _MemoryLogSink logSink;
 
   setUp(() async {
+    BackupRestoreMutationGate.resetForTesting();
     await manager.ready;
     manager.tasks.clear();
     logSink = _MemoryLogSink();
@@ -100,6 +104,7 @@ void main() {
     await AppLogger.flush();
     AppLogger.setSink(null);
     manager.tasks.clear();
+    BackupRestoreMutationGate.resetForTesting();
   });
 
   test('waits for task manager readiness before creating or parsing a task',
@@ -444,6 +449,40 @@ void main() {
     expect(afterOldReturn.attemptToken, secondHandle.attemptToken);
     expect(afterOldReturn.status, TaskStatus.pendingReview);
     expect(afterOldReturn.parsedData?.single['q_num'], '2');
+  });
+
+  test('maintenance blocks OCR cancellation before durable task mutation',
+      () async {
+    final task = ImportTask(
+      id: 'cancel-blocked-task',
+      title: 'Synthetic OCR task',
+      status: TaskStatus.processing,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyParseMode: ImportParseMode.ocr.name,
+        TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptToken: 'cancel-blocked-attempt',
+        TaskManager.keyAttemptState: ImportAttemptState.running.name,
+        TaskManager.keyTraceId: 'cancel-blocked-trace',
+      },
+    );
+    manager.tasks.add(task);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+    );
+
+    await BackupRestoreMutationGate.instance.enterQuiescence();
+    await expectLater(
+      coordinator.cancelOcrTask(task.id),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.restoreBlocked,
+      )),
+    );
+    expect(task.status, TaskStatus.processing);
+    expect(task.attemptState, ImportAttemptState.running);
+    BackupRestoreMutationGate.instance.exitQuiescence();
   });
 
   test('retry request rebuilds OCR parsing from newly selected files',

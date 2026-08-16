@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
@@ -60,6 +61,82 @@ typedef _Script = Stream<AgentProviderEvent> Function(
 );
 
 void main() {
+  setUp(BackupRestoreMutationGate.resetForTesting);
+  tearDown(BackupRestoreMutationGate.resetForTesting);
+
+  group('B0 mutation lease lifecycle', () {
+    test('real runtime releases the lease on terminal success', () async {
+      final harness = _Harness(scripts: <_Script>[_finalAnswer('ok')]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+
+      final result = await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+
+      expect(result, isA<AgentTurnSuccess>());
+      expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
+      await BackupRestoreMutationGate.instance.enterQuiescence();
+      BackupRestoreMutationGate.instance.exitQuiescence();
+    });
+
+    test('real runtime releases the lease on provider failure', () async {
+      final harness = _Harness(scripts: <_Script>[
+        (request, token) async* {
+          throw const AgentProviderException(
+            AgentProviderFailure.temporarilyUnavailable,
+          );
+        },
+      ]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+
+      final result = await harness.runtime
+          .startTurn(
+            conversationId: conversationId,
+            userMessageId: userMessageId,
+          )
+          .result;
+
+      expect(_failureOf(result), AgentTurnFailure.temporarilyUnavailable);
+      expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
+      await BackupRestoreMutationGate.instance.enterQuiescence();
+      BackupRestoreMutationGate.instance.exitQuiescence();
+    });
+
+    test('real runtime releases the lease on cancellation', () async {
+      final providerStarted = Completer<void>();
+      final harness = _Harness(scripts: <_Script>[
+        (request, token) async* {
+          providerStarted.complete();
+          await token.whenCancelled;
+          throw const AgentProviderException(AgentProviderFailure.cancelled);
+        },
+      ]);
+      final (conversationId, userMessageId) = await harness.seedUser(
+        'question',
+      );
+      final session = harness.runtime.startTurn(
+        conversationId: conversationId,
+        userMessageId: userMessageId,
+      );
+
+      await providerStarted.future;
+      session.cancel();
+      final result = await session.result;
+
+      expect(_failureOf(result), AgentTurnFailure.cancelled);
+      expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
+      await BackupRestoreMutationGate.instance.enterQuiescence();
+      BackupRestoreMutationGate.instance.exitQuiescence();
+    });
+  });
+
   group('basic turn', () {
     test(
       'persists exactly one Assistant message for a simple answer',

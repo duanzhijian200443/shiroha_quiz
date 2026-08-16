@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../application/agent/agent_config_service.dart';
+import '../../application/backup/backup_restore_coordinator.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
 import 'agent_settings_screen.dart';
+import 'backup/backup_restore_screen.dart';
 import 'ai_settings_screen.dart';
 import 'knowledge_base_screen.dart';
 import 'wrong_book_page.dart';
@@ -18,11 +20,15 @@ class ProfileScreen extends StatefulWidget {
     required this.engineRepository,
     required this.agentSettingsService,
     this.heatmapLoader,
+    this.backupRestore,
+    this.onRestoreCompleted,
   });
 
   final AiEngineRepository engineRepository;
   final AgentSettingsService agentSettingsService;
   final ProfileHeatmapLoader? heatmapLoader;
+  final BackupRestoreCoordinator? backupRestore;
+  final VoidCallback? onRestoreCompleted;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -277,6 +283,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       final isDarkTheme = currentTheme == 'dark';
                       return _SettingsCard(
                         children: [
+                          if (widget.backupRestore != null)
+                            _SettingsRow(
+                              key: const ValueKey<String>(
+                                'profile-backup-row',
+                              ),
+                              icon: Icons.settings_backup_restore,
+                              title: '备份与恢复',
+                              subtitle: '导出或恢复 .shiroha 备份',
+                              onTap: () => _push(
+                                BackupRestoreScreen(
+                                  backupRestore: widget.backupRestore!,
+                                  onRestoreCompleted:
+                                      widget.onRestoreCompleted ?? () {},
+                                ),
+                              ),
+                            ),
                           _SettingsRow(
                             key: const ValueKey<String>(
                               'profile-appearance-row',

@@ -1,6 +1,7 @@
 library;
 
 import '../../domain/conversations/conversation.dart';
+import '../backup/backup_restore_gate.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'conversation_repository.dart';
 
@@ -30,49 +31,54 @@ final class ConversationService {
     required String content,
     Iterable<String> fileIds = const <String>[],
   }) async {
-    if (scope.isUnavailableLearningSpace) {
-      throw const ConversationException(ConversationFailure.scopeUnavailable);
-    }
-    final normalizedContent = _normalizeContent(content);
-    final now = normalizeConversationTimestamp(_clock());
-    final conversationId = _newId(
-      _conversationIdFactory,
-      label: 'Conversation',
-    );
-    final messageId = _newId(_messageIdFactory, label: 'Message');
-    final normalizedFileIds = <String>[];
-    final seenFileIds = <String>{};
-    for (final fileId in fileIds) {
-      try {
-        validateConversationId(fileId, label: 'File');
-      } on FormatException {
-        throw const ConversationException(ConversationFailure.invalidInput);
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    try {
+      if (scope.isUnavailableLearningSpace) {
+        throw const ConversationException(ConversationFailure.scopeUnavailable);
       }
-      if (seenFileIds.add(fileId)) normalizedFileIds.add(fileId);
+      final normalizedContent = _normalizeContent(content);
+      final now = normalizeConversationTimestamp(_clock());
+      final conversationId = _newId(
+        _conversationIdFactory,
+        label: 'Conversation',
+      );
+      final messageId = _newId(_messageIdFactory, label: 'Message');
+      final normalizedFileIds = <String>[];
+      final seenFileIds = <String>{};
+      for (final fileId in fileIds) {
+        try {
+          validateConversationId(fileId, label: 'File');
+        } on FormatException {
+          throw const ConversationException(ConversationFailure.invalidInput);
+        }
+        if (seenFileIds.add(fileId)) normalizedFileIds.add(fileId);
+      }
+      final conversation = Conversation(
+        conversationId: conversationId,
+        scope: scope,
+        title: conversationTitleFromMessage(normalizedContent),
+        createdAt: now,
+        updatedAt: now,
+      );
+      final firstMessage = ConversationMessage(
+        messageId: messageId,
+        conversationId: conversationId,
+        sequence: 1,
+        role: ConversationMessageRole.user,
+        content: normalizedContent,
+        createdAt: now,
+      );
+      return _repositoryCall(
+        () => _repository.createWithFirstMessage(
+          conversation: conversation,
+          firstMessage: firstMessage,
+          fileIds: normalizedFileIds,
+          attachedAt: now,
+        ),
+      );
+    } finally {
+      lease.release();
     }
-    final conversation = Conversation(
-      conversationId: conversationId,
-      scope: scope,
-      title: conversationTitleFromMessage(normalizedContent),
-      createdAt: now,
-      updatedAt: now,
-    );
-    final firstMessage = ConversationMessage(
-      messageId: messageId,
-      conversationId: conversationId,
-      sequence: 1,
-      role: ConversationMessageRole.user,
-      content: normalizedContent,
-      createdAt: now,
-    );
-    return _repositoryCall(
-      () => _repository.createWithFirstMessage(
-        conversation: conversation,
-        firstMessage: firstMessage,
-        fileIds: normalizedFileIds,
-        attachedAt: now,
-      ),
-    );
   }
 
   Future<AppendMessageResult> appendUserMessage({
@@ -81,13 +87,15 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     final normalizedContent = _normalizeContent(content);
-    return _repositoryCall(
-      () => _repository.appendMessage(
-        conversationId: conversationId,
-        messageId: _newId(_messageIdFactory, label: 'Message'),
-        role: ConversationMessageRole.user,
-        content: normalizedContent,
-        createdAt: normalizeConversationTimestamp(_clock()),
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _repositoryCall(
+        () => _repository.appendMessage(
+          conversationId: conversationId,
+          messageId: _newId(_messageIdFactory, label: 'Message'),
+          role: ConversationMessageRole.user,
+          content: normalizedContent,
+          createdAt: normalizeConversationTimestamp(_clock()),
+        ),
       ),
     );
   }
@@ -105,13 +113,15 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     final normalizedContent = _normalizeContent(content);
-    return _repositoryCall(
-      () => _repository.appendMessage(
-        conversationId: conversationId,
-        messageId: _newId(_messageIdFactory, label: 'Message'),
-        role: ConversationMessageRole.assistant,
-        content: normalizedContent,
-        createdAt: normalizeConversationTimestamp(_clock()),
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _repositoryCall(
+        () => _repository.appendMessage(
+          conversationId: conversationId,
+          messageId: _newId(_messageIdFactory, label: 'Message'),
+          role: ConversationMessageRole.assistant,
+          content: normalizedContent,
+          createdAt: normalizeConversationTimestamp(_clock()),
+        ),
       ),
     );
   }
@@ -122,11 +132,13 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     _validateInputId(fileId, label: 'File');
-    return _repositoryCall(
-      () => _repository.attachFile(
-        conversationId: conversationId,
-        fileId: fileId,
-        attachedAt: normalizeConversationTimestamp(_clock()),
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _repositoryCall(
+        () => _repository.attachFile(
+          conversationId: conversationId,
+          fileId: fileId,
+          attachedAt: normalizeConversationTimestamp(_clock()),
+        ),
       ),
     );
   }
@@ -137,11 +149,13 @@ final class ConversationService {
   }) {
     _validateInputId(conversationId, label: 'Conversation');
     _validateInputId(fileId, label: 'File');
-    return _repositoryCall(
-      () => _repository.detachFile(
-        conversationId: conversationId,
-        fileId: fileId,
-        detachedAt: normalizeConversationTimestamp(_clock()),
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _repositoryCall(
+        () => _repository.detachFile(
+          conversationId: conversationId,
+          fileId: fileId,
+          detachedAt: normalizeConversationTimestamp(_clock()),
+        ),
       ),
     );
   }
@@ -149,18 +163,22 @@ final class ConversationService {
   Future<MoveConversationResult> moveConversation({
     required String conversationId,
     required ConversationScope targetScope,
-  }) async {
-    _validateInputId(conversationId, label: 'Conversation');
-    if (targetScope.isUnavailableLearningSpace) {
-      throw const ConversationException(ConversationFailure.scopeUnavailable);
-    }
-    return _repositoryCall(
-      () => _repository.moveConversation(
-        conversationId: conversationId,
-        targetScope: targetScope,
-        movedAt: normalizeConversationTimestamp(_clock()),
-      ),
-    );
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      _validateInputId(conversationId, label: 'Conversation');
+      if (targetScope.isUnavailableLearningSpace) {
+        throw const ConversationException(
+          ConversationFailure.scopeUnavailable,
+        );
+      }
+      return _repositoryCall(
+        () => _repository.moveConversation(
+          conversationId: conversationId,
+          targetScope: targetScope,
+          movedAt: normalizeConversationTimestamp(_clock()),
+        ),
+      );
+    });
   }
 
   Future<List<ConversationFileRef>> listAttachableFiles({int limit = 100}) {
@@ -211,10 +229,12 @@ final class ConversationService {
   }
 
   Future<void> deleteConversation(String conversationId) {
-    _validateInputId(conversationId, label: 'Conversation');
-    return _repositoryCall(
-      () => _repository.deleteConversation(conversationId),
-    );
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      _validateInputId(conversationId, label: 'Conversation');
+      return _repositoryCall(
+        () => _repository.deleteConversation(conversationId),
+      );
+    });
   }
 
   String _newId(String Function() factory, {required String label}) {

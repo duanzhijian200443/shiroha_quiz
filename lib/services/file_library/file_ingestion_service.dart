@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../domain/assets/library_file.dart';
 import 'managed_file_storage.dart';
@@ -35,6 +36,20 @@ class FileIngestionService implements FileIngestionPort {
   /// omitted.
   @override
   Future<LibraryFile> ingest({
+    required String externalPath,
+    required String displayName,
+    String? mimeType,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      return _ingestUnchecked(
+        externalPath: externalPath,
+        displayName: displayName,
+        mimeType: mimeType,
+      );
+    });
+  }
+
+  Future<LibraryFile> _ingestUnchecked({
     required String externalPath,
     required String displayName,
     String? mimeType,

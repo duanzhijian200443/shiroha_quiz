@@ -82,15 +82,21 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
   OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
   B0-P0 .shiroha Backup / Restore canonical contract — COMPLETE
+  B0-D0 Package / Manifest Core — COMPLETE
+  B0-E0 Export — COMPLETE
+  B0-I0 Whole Restore + Rollback — COMPLETE
+  B0-U0 Minimal UI — COMPLETE
+  B0-V0 Round-trip / corruption acceptance — COMPLETE
+  B0-CL Closure — COMPLETE
   Current runtime schema — v22
-  B0 .shiroha Backup / Restore — IN PROGRESS (next B0-D0)
+  B0 .shiroha Backup / Restore — CLOSED / FROZEN
 ```
 
-B0-P0 is COMPLETE and froze the canonical `.shiroha` backup/restore contract
-in `docs/architecture/b0-shiroha-backup-restore.md`; it changed no production
-code. B0 is now IN PROGRESS with B0-D0 as the next serial stage. The C0-era
-note that persisted User Messages predated a `.shiroha` package remains
-historical rationale, not a current deferral.
+B0-P0 through B0-CL are COMPLETE and B0 v0 is CLOSED / FROZEN. The canonical
+contract and closure status are in
+`docs/architecture/b0-shiroha-backup-restore.md`. The C0-era note that
+persisted User Messages predated a `.shiroha` package remains historical
+rationale, not a current deferral.
 
 The current UI Finalization route is `UI-R0 -> UI-R1 -> UI-CL`. The old
 UI-R2 / UI-R3 large redesign plans are superseded and are not current
@@ -136,7 +142,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **J0-P0** | Bank identity decision | Decide `bank_name` compatibility vs additive stable `bankId` registry | decision only unless separately approved |
 | **J0** | Project v0 | Optional Project plus file/bank references; no file duplication | additive migration candidate |
 | **U1** | Information-architecture migration | Replace the primary Subject-library navigation role with Project-aware UI while retaining compatibility surfaces | normally unchanged beyond F0/J0 |
-| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; P0 contract frozen | unchanged (B0 adds no schema migration; current runtime stays v22) |
+| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 adds no schema migration; current runtime stays v22) |
 | **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
@@ -221,10 +227,10 @@ Choose B only if it can remain additive and does not reopen QuestionList/Practic
 
 ### B0 — `.shiroha` Backup / Restore
 
-B0-P0 is COMPLETE and froze `docs/architecture/b0-shiroha-backup-restore.md`.
-B0 packages the sanitized SQLite snapshot plus managed `LibraryFile` original
-bytes behind `packageVersion = 1` and independent SQLite `schemaVersion`.
-B0-P0 changed no production code; D0 is the next stage.
+B0 v0 is CLOSED / FROZEN. `docs/architecture/b0-shiroha-backup-restore.md`
+is the canonical authority. B0 packages the sanitized SQLite snapshot plus
+managed `LibraryFile` original bytes behind `packageVersion = 1` and
+independent SQLite `schemaVersion`; B0-D0 through B0-CL are COMPLETE.
 
 Frozen stage graph:
 

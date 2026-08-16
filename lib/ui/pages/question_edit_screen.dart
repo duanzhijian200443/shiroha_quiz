@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import '../../application/questions/question_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../../utils/ai_data_sanitizer.dart';
@@ -7,7 +8,13 @@ import '../widgets/markdown_extensions.dart';
 
 class QuestionEditScreen extends StatefulWidget {
   final Map<String, dynamic> question;
-  const QuestionEditScreen({super.key, required this.question});
+  final QuestionMutationCommand? mutationCommand;
+
+  const QuestionEditScreen({
+    super.key,
+    required this.question,
+    this.mutationCommand,
+  });
 
   @override
   State<QuestionEditScreen> createState() => _QuestionEditScreenState();
@@ -86,16 +93,19 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     }
 
     try {
-      await QuestionRepository.instance.updateQuestion(updated);
+      final command = widget.mutationCommand ??
+          QuestionMutationCommand(QuestionRepository.instance);
+      await command.updateQuestion(updated);
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('题目修改成功')));
         Navigator.pop(context, true); // 返回 true 标识已修改
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('保存失败: $e'), backgroundColor: Colors.redAccent));
+      }
     }
   }
 

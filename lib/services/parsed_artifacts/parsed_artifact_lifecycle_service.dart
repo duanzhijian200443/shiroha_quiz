@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../application/parsed_artifacts/parsed_artifact_ports.dart';
@@ -126,6 +127,18 @@ final class ParsedArtifactLifecycleService
   Future<ParsedArtifactEnsureResult> ensureParsedArtifact({
     required String fileId,
     required ParsedArtifactParseOptions options,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _ensureParsedArtifactUnchecked(
+        fileId: fileId,
+        options: options,
+      ),
+    );
+  }
+
+  Future<ParsedArtifactEnsureResult> _ensureParsedArtifactUnchecked({
+    required String fileId,
+    required ParsedArtifactParseOptions options,
   }) async {
     try {
       _validateFileId(fileId);
@@ -170,6 +183,20 @@ final class ParsedArtifactLifecycleService
     required String fileId,
     required ParsedArtifactParseOptions options,
     required int expectedRevision,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _reparseArtifactUnchecked(
+        fileId: fileId,
+        options: options,
+        expectedRevision: expectedRevision,
+      ),
+    );
+  }
+
+  Future<ParsedArtifactEnsureResult> _reparseArtifactUnchecked({
+    required String fileId,
+    required ParsedArtifactParseOptions options,
+    required int expectedRevision,
   }) async {
     try {
       _validateFileId(fileId);
@@ -207,6 +234,18 @@ final class ParsedArtifactLifecycleService
 
   @override
   Future<void> removeCurrentArtifact({
+    required String fileId,
+    required int expectedRevision,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _removeCurrentArtifactUnchecked(
+        fileId: fileId,
+        expectedRevision: expectedRevision,
+      ),
+    );
+  }
+
+  Future<void> _removeCurrentArtifactUnchecked({
     required String fileId,
     required int expectedRevision,
   }) async {

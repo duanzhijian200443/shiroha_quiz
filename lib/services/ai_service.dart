@@ -1,3 +1,4 @@
+import '../application/exam/exam_mutation_command.dart';
 import '../data/models/question_draft.dart';
 import '../data/models/question_parse_mode.dart';
 import '../data/repositories/ai_engine_repository.dart';
@@ -97,13 +98,15 @@ class AiService {
       required int singleCount,
       required int fillCount,
       required int shortCount,
-      String? customPrompt}) async {
-    return _textGenerationService.generateExamPaper(
-      topic: topic,
-      singleCount: singleCount,
-      fillCount: fillCount,
-      shortCount: shortCount,
-      customPrompt: customPrompt,
+      String? customPrompt}) {
+    return runExamGeneration(
+      () => _textGenerationService.generateExamPaper(
+        topic: topic,
+        singleCount: singleCount,
+        fillCount: fillCount,
+        shortCount: shortCount,
+        customPrompt: customPrompt,
+      ),
     );
   }
 

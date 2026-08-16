@@ -3,6 +3,11 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../../application/safe_write/typed_answer_command.dart';
+import '../../application/questions/question_mutation_command.dart';
+import '../../application/questions/question_bank_folder_mutation_command.dart';
+import '../../application/questions/question_bank_mutation_command.dart';
+import '../../application/questions/question_write_mutation_command.dart';
+import '../../application/practice/practice_session_mutation_command.dart';
 import '../../application/study_query/study_query_dtos.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
@@ -31,7 +36,14 @@ const String _globalWrongBookBankName = '🔥 全局错题本';
 const String _uncategorizedFolderName = '📁 未分类题库';
 
 class QuestionRepository
-    implements StudyQuestionQueryPort, TypedAnswerPersistencePort {
+    implements
+        StudyQuestionQueryPort,
+        TypedAnswerPersistencePort,
+        QuestionMutationPersistencePort,
+        QuestionBankMutationPersistencePort,
+        QuestionBankFolderMutationPersistencePort,
+        QuestionWriteMutationPersistencePort,
+        PracticeSessionMutationPersistencePort {
   QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
         _uuid = uuid ?? const Uuid();
@@ -45,6 +57,7 @@ class QuestionRepository
   static const TypedAnswerPersistenceKernel _typedAnswerKernel =
       TypedAnswerPersistenceKernel();
 
+  @override
   Future<void> saveQuestionsToBank({
     required String bankName,
     required String? folderName,
@@ -475,11 +488,13 @@ class QuestionRepository
     return index.availableFolders;
   }
 
+  @override
   Future<void> deleteQuestion(String id) {
     return _databaseHelper.deleteSingleQuestion(id);
   }
 
   /// Delete an entire question bank and clear the current-bank cache if needed.
+  @override
   Future<void> deleteQuestionBank(String bankName) async {
     await _databaseHelper.deleteQuestionBank(bankName);
     // If the deleted bank was the active one, reset the cached value.
@@ -499,10 +514,12 @@ class QuestionRepository
     return _databaseHelper.getSubjectTree();
   }
 
+  @override
   Future<void> addCustomFolder(String folderName) {
     return _databaseHelper.addCustomFolder(folderName);
   }
 
+  @override
   Future<void> updateBankFolder(String bankName, String folderName) {
     return _databaseHelper.updateBankFolder(bankName, folderName);
   }
@@ -935,6 +952,7 @@ class QuestionRepository
     };
   }
 
+  @override
   Future<void> updateQuestion(Map<String, dynamic> question) {
     return _databaseHelper.updateQuestion(question);
   }
@@ -981,6 +999,7 @@ class QuestionRepository
   // Pomodoro session
   // ---------------------------------------------------------------------------
 
+  @override
   Future<void> insertPomodoroSession(Map<String, dynamic> session) {
     return _databaseHelper.insertPomodoroSession(session);
   }
@@ -999,6 +1018,7 @@ class QuestionRepository
   // Replaces the inline DatabaseHelper.instance.database usage in practice_page.
   // ---------------------------------------------------------------------------
 
+  @override
   Future<void> savePreviewQuestion(Map<String, dynamic> question) async {
     final db = await _databaseHelper.database;
     final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
