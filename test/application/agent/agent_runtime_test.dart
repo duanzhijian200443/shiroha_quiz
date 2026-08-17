@@ -691,7 +691,7 @@ void main() {
     );
 
     test(
-        'gracefully bounds tool rounds when a fifth provider response requires local tools',
+        'gracefully bounds tool rounds at exact cap (4) and completes in 5 provider rounds',
         () async {
       const state = _TestContinuationState('s');
       final harness = _Harness(
@@ -700,7 +700,6 @@ void main() {
           _toolRound(<AgentProviderFunctionCall>[_call('call-2')], state),
           _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
           _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
-          _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
           _finalAnswer('Bounded answer after 4 tool rounds'),
         ],
       );
@@ -717,12 +716,13 @@ void main() {
 
       expect(result, isA<AgentTurnSuccess>());
       expect(harness.dispatcher.calls, hasLength(4));
-      expect(harness.provider.callCount, 6);
+      expect(harness.provider.callCount, 5);
       expect(await harness.messagesOf(conversationId), hasLength(2));
     });
 
     group('Tool budget graceful degradation', () {
-      test('Case A: accepts exact remaining budget boundary without rejection',
+      test(
+          'Case A: exact local-call boundary (8) closes tool phase immediately with real outputs',
           () async {
         final round1Calls = List<AgentProviderFunctionCall>.generate(
           3,
@@ -733,10 +733,15 @@ void main() {
           (index) => _call('call-r2-$index'),
         );
         final harness = _Harness(
+          webEnabled: true,
+          capabilities: const AgentProviderCapabilities(
+            functionTools: true,
+            nativeWebSearch: true,
+          ),
           scripts: <_Script>[
             _toolRound(round1Calls, const _TestContinuationState('s1')),
             _toolRound(round2Calls, const _TestContinuationState('s2')),
-            _finalAnswer('All 8 calls processed successfully'),
+            _finalAnswer('All 8 calls processed successfully and bounded'),
           ],
         );
         final (conversationId, userMessageId) = await harness.seedUser(
@@ -752,8 +757,22 @@ void main() {
 
         expect(result, isA<AgentTurnSuccess>());
         expect(harness.dispatcher.calls, hasLength(8));
+        expect(harness.provider.callCount, 3);
+        // Request 0: initial with tools & native web
+        expect(harness.provider.requests[0].tools, isNotEmpty);
+        expect(harness.provider.requests[0].enableNativeWebSearch, isTrue);
+        // Request 1: after round 1 with tools & native web
+        expect(harness.provider.requests[1].tools, isNotEmpty);
+        expect(harness.provider.requests[1].enableNativeWebSearch, isTrue);
         expect(harness.provider.requests[1].toolOutputs, hasLength(3));
+        // Request 2: after reaching 8 calls, closed immediately (tools empty, native web false)
+        expect(harness.provider.requests[2].tools, isEmpty);
+        expect(harness.provider.requests[2].enableNativeWebSearch, isFalse);
         expect(harness.provider.requests[2].toolOutputs, hasLength(5));
+        // Real outputs preserved, never synthetic tool_budget_insufficient
+        for (final out in harness.provider.requests[2].toolOutputs) {
+          expect(out.output, isNot(contains('tool_budget_insufficient')));
+        }
       });
 
       test('Case B: oversized batch gracefully degrades without turn failure',
@@ -963,16 +982,20 @@ void main() {
       });
 
       test(
-          'Case G: tool rounds cap (4) gracefully bounds and completes with prose answer',
+          'Case G: exact tool-round boundary (4) closes tool phase immediately with real outputs',
           () async {
         const state = _TestContinuationState('s');
         final harness = _Harness(
+          webEnabled: true,
+          capabilities: const AgentProviderCapabilities(
+            functionTools: true,
+            nativeWebSearch: true,
+          ),
           scripts: <_Script>[
             _toolRound(<AgentProviderFunctionCall>[_call('call-1')], state),
             _toolRound(<AgentProviderFunctionCall>[_call('call-2')], state),
             _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
             _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
-            _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
             _finalAnswer('Bounded answer after 4 tool rounds'),
           ],
         );
@@ -989,8 +1012,19 @@ void main() {
 
         expect(result, isA<AgentTurnSuccess>());
         expect(harness.dispatcher.calls, hasLength(4));
-        expect(harness.provider.callCount, 6);
-        expect(harness.provider.requests[5].tools, isEmpty);
+        expect(harness.provider.callCount, 5);
+        for (var i = 0; i < 4; i++) {
+          expect(harness.provider.requests[i].tools, isNotEmpty);
+          expect(harness.provider.requests[i].enableNativeWebSearch, isTrue);
+        }
+        // Round 5 (final prose) received empty tools, web disabled, and real Round-4 output
+        expect(harness.provider.requests[4].tools, isEmpty);
+        expect(harness.provider.requests[4].enableNativeWebSearch, isFalse);
+        expect(harness.provider.requests[4].toolOutputs, hasLength(1));
+        expect(
+          harness.provider.requests[4].toolOutputs.single.output,
+          isNot(contains('tool_budget_insufficient')),
+        );
       });
 
       test('Case H: tool phase closure disables native web search', () async {
@@ -1064,7 +1098,6 @@ void main() {
             _toolRound(<AgentProviderFunctionCall>[_call('call-r2')], state),
             _toolRound(<AgentProviderFunctionCall>[_call('call-r3')], state),
             _toolRound(<AgentProviderFunctionCall>[_call('call-r4')], state),
-            _toolRound(<AgentProviderFunctionCall>[_call('call-r5')], state),
             _finalAnswer('Tool round bounded answer'),
           ],
         );
@@ -3333,7 +3366,6 @@ void main() {
         _toolRound(<AgentProviderFunctionCall>[_call('call-2')], state),
         _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
         _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
-        _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
         _finalAnswer('Finished safely after 4 tool rounds'),
       ]);
       final (conversationId, userMessageId) = await harness.seedUser(
@@ -3682,7 +3714,7 @@ void main() {
       const state = _TestContinuationState('s');
       const sentinel = 'SENTINEL-SUMMARY-SECRET';
       final harness = _Harness(scripts: <_Script>[
-        for (var round = 0; round < 5; round++)
+        for (var round = 0; round < 4; round++)
           _toolRound(<AgentProviderFunctionCall>[
             _call(
               'call-$sentinel-$round-!',

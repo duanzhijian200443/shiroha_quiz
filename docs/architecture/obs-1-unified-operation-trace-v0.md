@@ -181,24 +181,35 @@ text are never logged. `RetrievalEgressGrant`, per-turn authorization and
 
 ## 9. Agent tool limit diagnosis
 
-`maxToolRounds = 4` and `maxLocalCalls = 8` are unchanged hard bounds. When
-either budget is exhausted during a turn, the runtime gracefully closes the tool
-phase (`toolPhaseClosed = true`, disabling both local function tools and native
-web search) and returns structured `tool_budget_insufficient` outputs, allowing
-the Provider one final prose-only continuation round to produce a bounded answer
-from available evidence. The internal trace distinguishes the exhausted budget
-reason:
+`maxToolRounds = 4` and `maxLocalCalls = 8` are unchanged hard dispatch bounds.
+The runtime distinguishes two budget exhaustion mechanisms:
+
+1. **Exact legal exhaustion**: when a legal batch executes and brings
+   `toolRoundsUsed == maxToolRounds (4)` or `localCallsUsed == maxLocalCalls (8)`,
+   the real tool outputs are preserved and the tool phase is immediately closed
+   (`toolPhaseClosed = true`, disabling function tools and native web search)
+   before constructing the next Provider request. The next Provider request
+   receives the real tool outputs and empty tools, allowing the Provider to
+   produce its final prose answer from the gathered evidence.
+2. **Oversized requested batch**: when an incoming tool batch would exceed the
+   remaining tool budget (`localCallsUsed + requestedCalls > maxLocalCalls`),
+   the runtime performs an atomic whole-batch zero-dispatch (0 tool execution,
+   0 proposal mutation, 0 StudyPlan mutation), returning structured
+   `tool_budget_insufficient` safe rejection outputs for all requested calls and
+   closing the tool phase before the next prose-only round.
+
+The internal trace distinguishes the exhausted budget reason:
 
 ```text
-reason / failureCode = tool_round_limit_exceeded
+reason = tool_round_limit_exceeded
 toolRoundsUsed = 4, maxToolRounds = 4
 ```
 
 vs.
 
 ```text
-reason / failureCode = local_call_limit_exceeded
-localCallsUsed + requestedCalls > maxLocalCalls (8)
+reason = local_call_limit_exceeded
+localCallsUsed == maxLocalCalls (8) or localCallsUsed + requestedCalls > maxLocalCalls (8)
 ```
 
 ## 10. Fallback observability
@@ -391,9 +402,10 @@ Flutter/path_provider/dart:io.
   covers TraceContext root/child/async/explicit/sibling contracts, logger
   auto-injection, sentinel absence and the formatter limits.
 - `agent_runtime_test.dart` OBS group covers diagnostic id stability,
-  same-trace provider rounds, tool-call whitelist logging, both overflow
-  failureCodes, fallback single-event same-trace, cancellation/timeout
-  terminal events, StudyPlan outcome-only staging and the RAG child trace.
+  same-trace provider rounds, tool-call whitelist logging, both tool-budget
+  closure reasons (tool_round_limit_exceeded and local_call_limit_exceeded),
+  fallback single-event same-trace, cancellation/timeout terminal events,
+  StudyPlan outcome-only staging and the RAG child trace.
 - `import_task_coordinator_test.dart` covers initial attempt identity,
   retry lineage (task/correlation unchanged; trace/token/attempt changed;
   parent = previous trace) and batch/correlation independence.

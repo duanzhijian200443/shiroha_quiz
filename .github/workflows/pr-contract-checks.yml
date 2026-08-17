@@ -158,6 +158,7 @@ jobs:
             'test/application/agent/agent_retrieval_tool_test.dart',
             'test/application/agent/agent_runtime_test.dart',
             'test/application/agent/shiroha_system_prompt_test.dart',
+            'test/services/agent/deepseek_responses_provider_test.dart',
             'test/core/review_engine_mutation_lifetime_test.dart',
             'test/data/repositories/parsed_artifact_repository_test.dart',
             'test/services/file_library/managed_artifact_storage_adapter_test.dart',

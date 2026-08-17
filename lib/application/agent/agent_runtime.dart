@@ -592,6 +592,25 @@ final class ShirohaAgentRuntime {
       continuationState = continuation;
       toolOutputs = outputs;
       retrievalOutputCallIds = nextRetrievalOutputCallIds;
+
+      if (turn.toolRoundsUsed >= _limits.maxToolRounds ||
+          turn.localCallsUsed >= _limits.maxLocalCalls) {
+        toolPhaseClosed = true;
+        final budgetExhaustedReason =
+            turn.toolRoundsUsed >= _limits.maxToolRounds
+                ? 'tool_round_limit_exceeded'
+                : 'local_call_limit_exceeded';
+        LogWriter.info(
+          'Tool budget exhausted, closing tool phase',
+          module: 'Agent',
+          data: <String, Object?>{
+            'stage': 'tool_phase_closed',
+            'reason': budgetExhaustedReason,
+            'toolRoundsUsed': turn.toolRoundsUsed,
+            'localCallsUsed': turn.localCallsUsed,
+          },
+        );
+      }
     }
   }
 
