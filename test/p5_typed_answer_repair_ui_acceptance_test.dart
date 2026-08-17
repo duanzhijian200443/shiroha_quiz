@@ -406,7 +406,10 @@ void main() {
       <String>['opt_b'],
     );
     expect(await readStandardAnswer(tester, db), '乙|||Explanation.');
-    expect(await readUserVersion(tester, db), 22);
+    expect(
+      await readUserVersion(tester, db),
+      DatabaseHelper.databaseVersion,
+    );
   });
 
   testWidgets('WrongBook: typed row follows the same repair flow and reloads',

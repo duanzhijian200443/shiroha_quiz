@@ -39,6 +39,8 @@ class PracticePage extends StatefulWidget {
   /// sessions.
   final bool usePreparedStudySession;
   final RecordAnswerAttemptCommand? recordAnswerAttemptCommand;
+  final Future<void> Function(String questionId, int grade)?
+      submitReviewOverride;
 
   const PracticePage({
     super.key,
@@ -49,6 +51,7 @@ class PracticePage extends StatefulWidget {
     this.initialIndex,
     this.usePreparedStudySession = false,
     this.recordAnswerAttemptCommand,
+    this.submitReviewOverride,
   });
 
   @override
@@ -264,7 +267,10 @@ class _PracticePageState extends State<PracticePage> {
     if (!isPreview) {
       setState(() => _isSubmittingGrade = true);
       try {
-        await ReviewEngineService().submitReview(view.storageId, grade);
+        final submitFn =
+            widget.submitReviewOverride ?? ReviewEngineService().submitReview;
+        await submitFn(view.storageId, grade);
+        if (!mounted) return;
         if (grade == 1) {
           ReviewEngineService().requeueQuestion(view.source!);
         }

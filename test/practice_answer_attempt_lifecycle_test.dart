@@ -49,12 +49,21 @@ class _DelayedAttemptPort implements AnswerAttemptPersistencePort {
 }
 
 class _FakeEngineRepository extends Fake implements AiEngineRepository {}
-class _FakeImportPipelineService extends Fake implements ImportPipelineService {}
-class _FakeImportTaskCoordinator extends Fake implements ImportTaskCoordinator {}
-class _FakeStudyQuestionQueryPort extends Fake implements StudyQuestionQueryPort {}
+
+class _FakeImportPipelineService extends Fake
+    implements ImportPipelineService {}
+
+class _FakeImportTaskCoordinator extends Fake
+    implements ImportTaskCoordinator {}
+
+class _FakeStudyQuestionQueryPort extends Fake
+    implements StudyQuestionQueryPort {}
+
 class _FakeAiAnswerProviderPort extends Fake implements AiAnswerProviderPort {}
+
 class _FakeAiAnswerCommitPersistencePort extends Fake
     implements AiAnswerCommitPersistencePort {}
+
 class _FakeExamMutationPersistence extends Fake
     implements ExamMutationPersistencePort {}
 
@@ -558,5 +567,126 @@ void main() {
     expect(spyAi.judgeAnswerCallCount, 0);
     expect(delayedPort.recorded, hasLength(1));
     expect(delayedPort.recorded.first.questionId, _storageIdA);
+  });
+
+  testWidgets(
+      'Grade submission path: popping page while FSRS grade persistence is pending completes durable write but prevents requeue and post-dispose setState',
+      (tester) async {
+    final gradeGate = Completer<void>();
+
+    await tester.runAsync(() async {
+      final db = await DatabaseHelper.instance.database;
+      await _insertTyped(
+        db,
+        _choiceDraft(questionId: 'q-grade-race', correctOptionId: 'opt_a'),
+        storageId: _storageIdA,
+      );
+    });
+
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PracticePage(
+                    bankName: _bankName,
+                    submitReviewOverride: (questionId, grade) async {
+                      await gradeGate.future;
+                      await ReviewEngineService()
+                          .submitReview(questionId, grade);
+                    },
+                  ),
+                ),
+              );
+            },
+            child: const Text('Open Practice'),
+          ),
+        ),
+      ),
+    );
+
+    // Open PracticePage
+    await tester.tap(find.text('Open Practice'));
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump();
+      if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
+          find
+              .byKey(const ValueKey<String>('practice-option-0'))
+              .evaluate()
+              .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+    }
+
+    expect(find.byKey(const ValueKey<String>('practice-option-0')),
+        findsOneWidget);
+
+    // Select Option A
+    await tester.tap(find.byKey(const ValueKey<String>('practice-option-0')));
+    await settle(tester);
+
+    // Click "查看答案"
+    await tester
+        .tap(find.byKey(const ValueKey<String>('practice-reveal-answer')));
+    await settle(tester);
+
+    expect(find.text('重来'), findsOneWidget);
+
+    // Tap "重来" (Grade 1 / Again) -> starts submitReviewOverride and awaits gradeGate.future
+    await tester.tap(find.text('重来'));
+    await tester.pump();
+
+    // Pop the PracticePage while persistence is in-flight
+    navigatorKey.currentState!.pop();
+    await settle(tester);
+
+    // Confirm PracticePage is no longer in widget tree (disposed)
+    expect(find.byType(PracticePage), findsNothing);
+
+    // Release delayed review persistence and let async continuation settle
+    await tester.runAsync(() async {
+      gradeGate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await settle(tester);
+
+    // Assert 1: Zero unhandled Flutter exceptions (no setState on disposed widget)
+    expect(tester.takeException(), isNull);
+
+    // Assert 2: Durable ReviewState mutation completed in database
+    await tester.runAsync(() async {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'review_states',
+        where: 'question_id = ?',
+        whereArgs: <Object?>[_storageIdA],
+      );
+      expect(rows, isNotEmpty);
+      expect(rows.first['lapses'], 1);
+      expect(rows.first['reps'], 1);
+      expect(rows.first['state'], 1);
+      expect((rows.first['last_lapse_time'] as num) > 0, isTrue);
+
+      final logs = await db.query(
+        'review_logs',
+        where: 'question_id = ?',
+        whereArgs: <Object?>[_storageIdA],
+      );
+      expect(logs, hasLength(1));
+      expect(logs.first['grade'], 1);
+    });
+
+    // Assert 3: Abandoned queue was NOT mutated with a requeued question
+    expect(ReviewEngineService().popNextQuestion(), isNull);
+
+    // Assert 4: Zero post-dispose completion dialog was presented
+    expect(find.text('🎉 任务完成'), findsNothing);
   });
 }
