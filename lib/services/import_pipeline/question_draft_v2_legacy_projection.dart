@@ -270,12 +270,10 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
-      case ImageNode(:final altText):
-        if (altText != null && altText.isNotEmpty) {
-          buffer.write(altText);
-        } else {
-          buffer.write('[图片]');
-        }
+      case ImageNode():
+        // Image structure belongs to the typed draft. The legacy map predates
+        // durable image content and must retain its exact text-only parity.
+        break;
       case RawFallbackNode():
         break;
     }
@@ -292,11 +290,6 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
         _materializeContentNodes(part.content, fragment.slice),
       ).trim();
       if (text.isNotEmpty) parts.add(text);
-    } else if (part is SourceAssetPart) {
-      final altText = part.alternativeText != null
-          ? _searchText(part.alternativeText!.nodes).trim()
-          : '';
-      parts.add(altText.isNotEmpty ? altText : '[图片]');
     }
   }
   return parts.join('\n');
@@ -316,11 +309,6 @@ int _untrimmedTextLength(
         _materializeContentNodes(part.content, fragment.slice),
       );
       if (text.isNotEmpty) parts.add(text);
-    } else if (part is SourceAssetPart) {
-      final altText = part.alternativeText != null
-          ? _searchText(part.alternativeText!.nodes)
-          : '';
-      parts.add(altText.isNotEmpty ? altText : '[图片]');
     }
   }
   return parts.join('\n').length;
@@ -577,9 +565,18 @@ int _rawTextLength(QuestionRegion region, {required bool isOcr}) {
       : _fragmentText(region, QuestionRegionField.stem).length;
 }
 
+Iterable<SourceRef> _legacySourceRefs(QuestionRegion region) sync* {
+  final seen = <SourceRef>{};
+  for (final fragment in region.fragments) {
+    if (fragment.part is! SourceContentPart) continue;
+    final ref = fragment.sourceRef;
+    if (seen.add(ref)) yield ref;
+  }
+}
+
 List<int> _pageNumbers(QuestionRegion region) {
   final pages = <int>[];
-  for (final ref in region.sourceRefs) {
+  for (final ref in _legacySourceRefs(region)) {
     for (final point in <SourcePoint?>[ref.start, ref.end]) {
       final page = point?.pageNumber;
       if (page != null && !pages.contains(page)) pages.add(page);
@@ -591,7 +588,7 @@ List<int> _pageNumbers(QuestionRegion region) {
 
 List<String> _blockIds(QuestionRegion region) {
   final blocks = <String>[];
-  for (final ref in region.sourceRefs) {
+  for (final ref in _legacySourceRefs(region)) {
     for (final point in <SourcePoint?>[ref.start, ref.end]) {
       final block = point?.blockId;
       if (block != null && !blocks.contains(block)) blocks.add(block);

@@ -1,6 +1,7 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
+
 import 'package:path/path.dart' as p;
+
 import '../../../domain/assets/asset_ref.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
@@ -8,6 +9,7 @@ import '../../../domain/import/import_issue.dart';
 import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
+import '../../backup/sha256.dart';
 import '../../file_library/managed_content_asset_store.dart';
 import '../ocr_document.dart';
 
@@ -321,7 +323,7 @@ SourceDocument _convertWithoutBlocks({
           text.substring(commaIndex + 1).replaceAll(RegExp(r'\s+'), ''),
         );
         if (bytes.isEmpty) throw const FormatException('Empty image bytes');
-        final digest = sha256.convert(bytes).toString();
+        final digest = sha256Hex(bytes);
         assetId = '$digest.png';
       }
     } else {

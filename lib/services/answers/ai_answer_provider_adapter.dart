@@ -598,7 +598,9 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
       TextNode(:final text) => text.runes.length,
       InlineMathNode(:final latex) => latex.runes.length,
       BlockMathNode(:final latex) => latex.runes.length,
-      ImageNode(:final altText) => (altText ?? '').runes.length,
+      // Provider output never admits image nodes, but the sealed-domain
+      // switch must remain exhaustive as ContentNode evolves.
+      ImageNode() => 0,
       RawFallbackNode() => 0, // Unreachable: raw fallback is never created.
     };
   }

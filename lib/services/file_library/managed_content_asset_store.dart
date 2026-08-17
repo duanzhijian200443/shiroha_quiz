@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
+
 import 'package:path/path.dart' as p;
 
 import '../../domain/backup/archive_path_policy.dart';
+import '../backup/sha256.dart';
 
 /// Abstract storage authority for question rich content assets (images).
 abstract interface class ContentAssetStore {
@@ -111,7 +112,7 @@ final class ManagedContentAssetStore implements ContentAssetStore {
     if (bytes.isEmpty) {
       throw const FormatException('Cannot store empty image bytes.');
     }
-    final digest = sha256.convert(bytes).toString();
+    final digest = sha256Hex(bytes);
     final ext = _extensionForMime(mimeType);
     final fileName = '$digest$ext';
     final storageKey = 'content_assets/$fileName';

@@ -373,11 +373,10 @@ final class AgentWriteProposalToolDispatcher {
           'type': 'block_math',
           'latex': latex,
         },
-      ImageNode(:final assetRef, :final altText) => <String, Object?>{
-          'type': 'image',
-          'asset_ref': assetRef,
-          if (altText != null) 'alt_text': altText,
-        },
+      // Proposal previews deliberately do not expose durable local asset
+      // references. Image content stays visible only as an unsupported marker
+      // on this bounded Agent result surface.
+      ImageNode() => <String, Object?>{'type': 'unsupported'},
       RawFallbackNode() => <String, Object?>{'type': 'unsupported'},
     };
   }
