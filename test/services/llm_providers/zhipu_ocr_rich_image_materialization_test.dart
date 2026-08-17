@@ -130,7 +130,8 @@ void main() {
       document,
       sourceId: 'source_rich_image',
     );
-    final sourceAsset = sourceDocument.parts.whereType<SourceAssetPart>().single;
+    final sourceAsset =
+        sourceDocument.parts.whereType<SourceAssetPart>().single;
     final durableRef = 'content_assets/${sourceAsset.asset.assetId}';
     expect(durableRef, startsWith('content_assets/'));
     expect(durableRef, isNot(contains(cropUrl)));
