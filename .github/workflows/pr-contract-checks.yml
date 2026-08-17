@@ -205,6 +205,10 @@ jobs:
             'test/p7_ai_answer_ui_acceptance_test.dart',
             'test/p7_v0_acceptance_test.dart',
             'test/spl1_v0_acceptance_test.dart',
+            'test/core/database/study_plan_v22_migration_test.dart',
+            'test/core/database/answer_attempt_v23_schema_test.dart',
+            'test/application/attempt/answer_attempt_test.dart',
+            'test/practice_answer_attempt_lifecycle_test.dart',
             'test/p5_typed_answer_repair_ui_acceptance_test.dart'
           )
 

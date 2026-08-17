@@ -8,6 +8,7 @@ import '../../data/models/ai_engine_profile.dart';
 import '../../data/persistence/ai_engine_store.dart';
 import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
+import 'answer_attempt_v23_schema.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
 import 'study_plan_v22_schema.dart';
@@ -25,7 +26,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = studyPlanSchemaVersion;
+  static const int _dbVersion = answerAttemptSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -842,6 +843,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await db.execute(_parsedArtifactsDdl);
     await createRetrievalV21Schema(db);
     await createStudyPlanV22Schema(db);
+    await createAnswerAttemptV23Schema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -850,6 +852,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await _validateParsedArtifactSchema(db);
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
+    await validateAnswerAttemptV23Schema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -995,6 +998,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 22) {
       await createStudyPlanV22Schema(db);
     }
+    if (oldVersion < 23) {
+      await createAnswerAttemptV23Schema(db);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -1003,6 +1009,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await _validateParsedArtifactSchema(db);
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
+    await validateAnswerAttemptV23Schema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -2490,9 +2497,15 @@ SELECT
       return await db.rawQuery('''
         SELECT q.* 
         FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE r.lapses > 0
-        ORDER BY r.last_lapse_time DESC
+        LEFT JOIN review_states r ON q.id = r.question_id
+        WHERE (
+          EXISTS (
+            SELECT 1 FROM answer_attempts aa
+            WHERE aa.question_id = q.id AND aa.correctness = 0
+          )
+          OR (r.lapses IS NOT NULL AND r.lapses > 0)
+        )
+        ORDER BY COALESCE(r.last_lapse_time, 0) DESC, q.id DESC
       ''');
     }
 
@@ -2880,9 +2893,16 @@ SELECT
       if (bankName == '🔥 全局错题本') {
         return await db.rawQuery('''
           SELECT q.* FROM questions q
-          JOIN review_states r ON q.id = r.question_id
+          LEFT JOIN review_states r ON q.id = r.question_id
           JOIN questions_fts f ON q.id = f.id
-          WHERE r.lapses > 0 AND questions_fts MATCH ?
+          WHERE (
+            EXISTS (
+              SELECT 1 FROM answer_attempts aa
+              WHERE aa.question_id = q.id AND aa.correctness = 0
+            )
+            OR (r.lapses IS NOT NULL AND r.lapses > 0)
+          ) AND questions_fts MATCH ?
+          ORDER BY COALESCE(r.last_lapse_time, 0) DESC, q.id DESC
         ''', [safeMatchStr]);
       }
       return await db.rawQuery('''
@@ -2896,8 +2916,15 @@ SELECT
       if (bankName == '🔥 全局错题本') {
         return await db.rawQuery('''
           SELECT q.* FROM questions q
-          JOIN review_states r ON q.id = r.question_id
-          WHERE r.lapses > 0 AND (q.content LIKE ? OR q.explanation LIKE ?)
+          LEFT JOIN review_states r ON q.id = r.question_id
+          WHERE (
+            EXISTS (
+              SELECT 1 FROM answer_attempts aa
+              WHERE aa.question_id = q.id AND aa.correctness = 0
+            )
+            OR (r.lapses IS NOT NULL AND r.lapses > 0)
+          ) AND (q.content LIKE ? OR q.explanation LIKE ?)
+          ORDER BY COALESCE(r.last_lapse_time, 0) DESC, q.id DESC
         ''', [likeQuery, likeQuery]);
       }
       return await db.rawQuery('''
@@ -2959,9 +2986,15 @@ SELECT
     return await db.rawQuery('''
       SELECT q.*, r.user_answer as last_wrong_answer 
       FROM questions q
-      JOIN review_states r ON q.id = r.question_id
-      WHERE r.lapses > 0
-      ORDER BY r.last_lapse_time DESC
+      LEFT JOIN review_states r ON q.id = r.question_id
+      WHERE (
+        EXISTS (
+          SELECT 1 FROM answer_attempts aa
+          WHERE aa.question_id = q.id AND aa.correctness = 0
+        )
+        OR (r.lapses IS NOT NULL AND r.lapses > 0)
+      )
+      ORDER BY COALESCE(r.last_lapse_time, 0) DESC, q.id DESC
       LIMIT ?
     ''', [limit]);
   }

@@ -400,6 +400,10 @@ class ReviewEngineService with WidgetsBindingObserver {
     double dNew = d - (grade - 3) * 0.8;
     dNew = math.max(1.0, math.min(10.0, dNew));
 
+    if (grade == 1) {
+      lapses++;
+    }
+
     // 2. 稳定性 S 的计算
     double sNew;
     if (reps == 0) {
@@ -407,7 +411,6 @@ class ReviewEngineService with WidgetsBindingObserver {
     } else {
       if (grade == 1) {
         sNew = math.max(1.0, s * math.exp(-0.3 * dNew));
-        lapses++;
       } else {
         double gradeMultiplier = grade == 2 ? 0.8 : (grade == 3 ? 1.0 : 1.3);
         double factor = math.exp(0.1 * (10 - dNew)) * gradeMultiplier;

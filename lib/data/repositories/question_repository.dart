@@ -891,10 +891,16 @@ class QuestionRepository
              p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
              p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
       FROM questions q
-      JOIN review_states r ON q.id = r.question_id
+      LEFT JOIN review_states r ON q.id = r.question_id
       LEFT JOIN question_v2_payloads p ON q.id = p.question_id
-      WHERE r.lapses > 0
-      ORDER BY r.last_lapse_time DESC
+      WHERE (
+        EXISTS (
+          SELECT 1 FROM answer_attempts aa
+          WHERE aa.question_id = q.id AND aa.correctness = 0
+        )
+        OR (r.lapses IS NOT NULL AND r.lapses > 0)
+      )
+      ORDER BY COALESCE(r.last_lapse_time, 0) DESC, q.id DESC
     ''');
   }
 

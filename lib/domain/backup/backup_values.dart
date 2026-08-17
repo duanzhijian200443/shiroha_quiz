@@ -3,7 +3,7 @@
 abstract final class BackupValues {
   static const String format = 'shiroha-backup';
   static const int packageVersion = 1;
-  static const int currentSchemaVersion = 22;
+  static const int currentSchemaVersion = 23;
 
   static const String manifestArchivePath = 'manifest.json';
   static const String databaseArchivePath = 'database/shiroha.db';

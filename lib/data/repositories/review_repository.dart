@@ -118,7 +118,18 @@ class ReviewRepository implements StudyMetricsQueryPort {
         (SELECT COUNT(*) FROM review_states WHERE state = 3) AS mastered_count,
         (SELECT COUNT(*) FROM review_states WHERE next_review_time <= ?) AS review_due,
         (SELECT COUNT(*) FROM review_logs WHERE review_time >= ?) AS today_practice,
-        (SELECT COUNT(*) FROM review_states WHERE lapses > 0) AS wrong_count
+        (
+          SELECT COUNT(DISTINCT q.id)
+          FROM questions q
+          LEFT JOIN review_states r ON q.id = r.question_id
+          WHERE (
+            EXISTS (
+              SELECT 1 FROM answer_attempts aa
+              WHERE aa.question_id = q.id AND aa.correctness = 0
+            )
+            OR (r.lapses IS NOT NULL AND r.lapses > 0)
+          )
+        ) AS wrong_count
     ''', [now, todayStart]);
 
     final row = rows.first;
@@ -134,6 +145,7 @@ class ReviewRepository implements StudyMetricsQueryPort {
 
   Future<void> clearAllData() async {
     final db = await _db;
+    await db.delete('answer_attempts');
     await db.delete('review_states');
     await db.delete('review_logs');
     await db.delete('questions');
@@ -159,12 +171,18 @@ class ReviewRepository implements StudyMetricsQueryPort {
 
     if (bankName == _globalWrongBookBankName) {
       final res = await db.rawQuery('''
-        SELECT COUNT(q.id) as total,
+        SELECT COUNT(DISTINCT q.id) as total,
                SUM(CASE WHEN r.next_review_time <= ? THEN 1 ELSE 0 END) as review_count,
                SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END) as mastered_count
         FROM questions q
-        JOIN review_states r ON q.id = r.question_id
-        WHERE r.lapses > 0
+        LEFT JOIN review_states r ON q.id = r.question_id
+        WHERE (
+          EXISTS (
+            SELECT 1 FROM answer_attempts aa
+            WHERE aa.question_id = q.id AND aa.correctness = 0
+          )
+          OR (r.lapses IS NOT NULL AND r.lapses > 0)
+        )
       ''', [nowUnix]);
 
       final total = (res.first['total'] as int?) ?? 0;
@@ -233,7 +251,13 @@ class ReviewRepository implements StudyMetricsQueryPort {
         SELECT r.next_review_time
         FROM review_states r
         JOIN questions q ON q.id = r.question_id
-        WHERE r.lapses > 0
+        WHERE (
+          EXISTS (
+            SELECT 1 FROM answer_attempts aa
+            WHERE aa.question_id = q.id AND aa.correctness = 0
+          )
+          OR r.lapses > 0
+        )
           AND r.state > 0
           AND r.next_review_time >= ?
           AND r.next_review_time < ?
@@ -256,9 +280,19 @@ class ReviewRepository implements StudyMetricsQueryPort {
 
   Future<int> getGlobalLapseCount() async {
     final db = await _db;
-    final lapseRes = await db.rawQuery(
-        'SELECT COUNT(question_id) as count FROM review_states WHERE lapses > 0');
-    return (lapseRes.first['count'] as int?) ?? 0;
+    final lapseRes = await db.rawQuery('''
+      SELECT COUNT(DISTINCT q.id) as count
+      FROM questions q
+      LEFT JOIN review_states r ON q.id = r.question_id
+      WHERE (
+        EXISTS (
+          SELECT 1 FROM answer_attempts aa
+          WHERE aa.question_id = q.id AND aa.correctness = 0
+        )
+        OR (r.lapses IS NOT NULL AND r.lapses > 0)
+      )
+    ''');
+    return (lapseRes.first['count'] as num?)?.toInt() ?? 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -283,7 +317,13 @@ class ReviewRepository implements StudyMetricsQueryPort {
           COUNT(DISTINCT CASE WHEN rs.state = 3 THEN q.id END) AS mastered_count,
           COUNT(DISTINCT CASE WHEN rs.next_review_time <= ? THEN q.id END) AS due_count,
           COUNT(DISTINCT CASE WHEN rl.review_time >= ? THEN q.id END) AS today_practice_count,
-          COUNT(DISTINCT CASE WHEN rs.lapses > 0 THEN q.id END) AS wrong_count
+          COUNT(DISTINCT CASE WHEN (
+            EXISTS (
+              SELECT 1 FROM answer_attempts aa
+              WHERE aa.question_id = q.id AND aa.correctness = 0
+            )
+            OR (rs.lapses IS NOT NULL AND rs.lapses > 0)
+          ) THEN q.id END) AS wrong_count
         FROM questions q
         LEFT JOIN review_states rs ON rs.question_id = q.id
         LEFT JOIN review_logs rl ON rl.question_id = q.id
@@ -426,10 +466,17 @@ class ReviewRepository implements StudyMetricsQueryPort {
         SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time,
                $payloadColumns
         FROM questions q
-        JOIN review_states r ON q.id = r.question_id
+        LEFT JOIN review_states r ON q.id = r.question_id
         LEFT JOIN question_v2_payloads p ON q.id = p.question_id
-        WHERE r.lapses > 0 AND r.next_review_time <= ? $typeCondition
-        ORDER BY r.next_review_time ASC
+        WHERE (
+          EXISTS (
+            SELECT 1 FROM answer_attempts aa
+            WHERE aa.question_id = q.id AND aa.correctness = 0
+          )
+          OR (r.lapses IS NOT NULL AND r.lapses > 0)
+        )
+        AND (r.state IS NULL OR r.state = 0 OR r.next_review_time <= ?) $typeCondition
+        ORDER BY COALESCE(r.next_review_time, 0) ASC
         LIMIT ?
       ''', <Object?>[nowUnix, ...args, limit]);
     } else {
