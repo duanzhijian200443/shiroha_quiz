@@ -30,7 +30,6 @@ dependencies:
   gpt_markdown: ^1.1.7
   flutter_tex: ^5.2.6
   archive: ^3.6.1
-  crypto: ^3.0.7
   path_provider: ^2.1.5
   image_picker: ^1.2.2
   pdfx: ^2.9.2

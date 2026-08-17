@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -8,6 +7,7 @@ import '../../application/backup/backup_contracts.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
+import '../../services/backup/sha256.dart';
 import '../../services/file_library/managed_content_asset_store.dart';
 import '../../services/file_library/managed_file_storage.dart';
 
@@ -104,7 +104,7 @@ final class BackupSnapshotRepository {
                     fileId: p.basename(key),
                     storageKey: key,
                     sizeBytes: bytes.length,
-                    sha256: sha256.convert(bytes).toString(),
+                    sha256: sha256Hex(bytes),
                   ),
                 );
               }
