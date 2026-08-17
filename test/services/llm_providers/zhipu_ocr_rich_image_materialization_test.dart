@@ -58,46 +58,50 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.method == 'POST') {
           postCount++;
-          return http.Response(
-            jsonEncode(<String, Object?>{
-              'md_results': 'synthetic',
-              'layout_details': <Object?>[
-                <Object?>[
-                  <String, Object?>{
-                    'index': 1,
-                    'label': 'text',
-                    'content': '一、选择题（本题共1小题）',
-                  },
-                  <String, Object?>{
-                    'index': 2,
-                    'label': 'text',
-                    'content': '1. 设函数 f(x)=x，则下列正确的是（ ）',
-                  },
-                  <String, Object?>{
-                    'index': 3,
-                    'label': 'image',
-                    'content': cropUrl,
-                  },
-                  <String, Object?>{
-                    'index': 4,
-                    'label': 'text',
-                    'content': 'A. 1\nB. 2\nC. 3\nD. 4',
-                  },
-                  <String, Object?>{
-                    'index': 5,
-                    'label': 'text',
-                    'content': '答案：A',
-                  },
-                ],
+          final body = jsonEncode(<String, Object?>{
+            'md_results': 'synthetic',
+            'layout_details': <Object?>[
+              <Object?>[
+                <String, Object?>{
+                  'index': 1,
+                  'label': 'text',
+                  'content': '一、选择题（本题共1小题）',
+                },
+                <String, Object?>{
+                  'index': 2,
+                  'label': 'text',
+                  'content': '1. 设函数 f(x)=x，则下列正确的是（ ）',
+                },
+                <String, Object?>{
+                  'index': 3,
+                  'label': 'image',
+                  'content': cropUrl,
+                },
+                <String, Object?>{
+                  'index': 4,
+                  'label': 'text',
+                  'content': 'A. 1\nB. 2\nC. 3\nD. 4',
+                },
+                <String, Object?>{
+                  'index': 5,
+                  'label': 'text',
+                  'content': '答案：A',
+                },
               ],
-              'data_info': <String, Object?>{
-                'num_pages': 1,
-                'pages': <Object?>[
-                  <String, Object?>{'width': 600, 'height': 800},
-                ],
-              },
-            }),
+            ],
+            'data_info': <String, Object?>{
+              'num_pages': 1,
+              'pages': <Object?>[
+                <String, Object?>{'width': 600, 'height': 800},
+              ],
+            },
+          });
+          return http.Response.bytes(
+            utf8.encode(body),
             200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
           );
         }
         if (request.method == 'GET' && request.url.toString() == cropUrl) {
@@ -166,26 +170,30 @@ void main() {
           getCount++;
           return http.Response.bytes(pngBytes, 200);
         }
-        return http.Response(
-          jsonEncode(<String, Object?>{
-            'md_results': 'synthetic',
-            'layout_details': <Object?>[
-              <Object?>[
-                <String, Object?>{
-                  'index': 1,
-                  'label': 'image',
-                  'content': unsafeUrl,
-                },
-              ],
+        final body = jsonEncode(<String, Object?>{
+          'md_results': 'synthetic',
+          'layout_details': <Object?>[
+            <Object?>[
+              <String, Object?>{
+                'index': 1,
+                'label': 'image',
+                'content': unsafeUrl,
+              },
             ],
-            'data_info': <String, Object?>{
-              'num_pages': 1,
-              'pages': <Object?>[
-                <String, Object?>{'width': 600, 'height': 800},
-              ],
-            },
-          }),
+          ],
+          'data_info': <String, Object?>{
+            'num_pages': 1,
+            'pages': <Object?>[
+              <String, Object?>{'width': 600, 'height': 800},
+            ],
+          },
+        });
+        return http.Response.bytes(
+          utf8.encode(body),
           200,
+          headers: <String, String>{
+            'content-type': 'application/json; charset=utf-8',
+          },
         );
       }),
     );
