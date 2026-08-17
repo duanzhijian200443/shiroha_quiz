@@ -877,6 +877,8 @@ class _PracticePageState extends State<PracticePage> {
                           }
                         }
 
+                        if (!mounted) return;
+
                         setState(() => _isAiJudging = true);
 
                         final feedback = await aiService.judgeAnswer(

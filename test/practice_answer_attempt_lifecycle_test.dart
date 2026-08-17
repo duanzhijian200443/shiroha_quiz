@@ -1,10 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
+import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/review_engine_service.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/data/repositories/answer_attempt_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/data/repositories/review_repository.dart';
@@ -12,8 +21,54 @@ import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/services/ai_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
+import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
 import 'package:shiroha_quiz/ui/pages/practice_page.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+class _SpyAiService extends Fake implements AiService {
+  int judgeAnswerCallCount = 0;
+  @override
+  Future<String> judgeAnswer(String stem, String standard, String user) async {
+    judgeAnswerCallCount++;
+    return 'Good answer';
+  }
+}
+
+class _DelayedAttemptPort implements AnswerAttemptPersistencePort {
+  final Completer<void> gate = Completer<void>();
+  final List<AnswerAttempt> recorded = <AnswerAttempt>[];
+
+  @override
+  Future<void> recordAttempt(AnswerAttempt attempt) async {
+    await gate.future;
+    recorded.add(attempt);
+  }
+
+  @override
+  Future<List<AnswerAttempt>> getAttemptsForQuestion(String questionId) async =>
+      recorded.where((a) => a.questionId == questionId).toList();
+
+  @override
+  Future<int> countIncorrectQuestions({String? bankName}) async => 0;
+
+  @override
+  Future<void> clearAllData() async {
+    recorded.clear();
+  }
+}
+
+class _FakeEngineRepository extends Fake implements AiEngineRepository {}
+class _FakeImportPipelineService extends Fake implements ImportPipelineService {}
+class _FakeImportTaskCoordinator extends Fake implements ImportTaskCoordinator {}
+class _FakeStudyQuestionQueryPort extends Fake implements StudyQuestionQueryPort {}
+class _FakeAiAnswerProviderPort extends Fake implements AiAnswerProviderPort {}
+class _FakeAiAnswerCommitPersistencePort extends Fake
+    implements AiAnswerCommitPersistencePort {}
+class _FakeExamMutationPersistence extends Fake
+    implements ExamMutationPersistencePort {}
 
 const _mapper = QuestionV2PersistenceMapper();
 const _bankName = 'attempt_test_bank';
@@ -416,5 +471,104 @@ void main() {
       // Empty text direct reveal must NOT create fake attempt!
       expect(attempts2, isEmpty);
     });
+  });
+
+  testWidgets(
+      'Subjective AI evaluation path: popping page while attempt persistence is pending cancels AI call and prevents setState on unmounted widget',
+      (tester) async {
+    final spyAi = _SpyAiService();
+    final delayedPort = _DelayedAttemptPort();
+    final command = RecordAnswerAttemptCommand(delayedPort);
+
+    await tester.runAsync(() async {
+      final db = await DatabaseHelper.instance.database;
+      await _insertTyped(
+        db,
+        QuestionDraftV2(
+          questionId: 'q-subj-race',
+          kind: QuestionKind.shortAnswer,
+          stem: _text('Subjective Race Question'),
+          options: const <QuestionOption>[],
+          answer: ContentAnswer(content: _text('Standard Answer')),
+        ),
+        storageId: _storageIdA,
+      );
+    });
+
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      AiDependenciesScope(
+        engineRepository: _FakeEngineRepository(),
+        aiService: spyAi,
+        importPipelineService: _FakeImportPipelineService(),
+        importTaskCoordinator: _FakeImportTaskCoordinator(),
+        answerGenerationService: AiAnswerGenerationService(
+          questionPort: _FakeStudyQuestionQueryPort(),
+          providerPort: _FakeAiAnswerProviderPort(),
+          idFactory: () => 'id',
+          clock: () => DateTime.now(),
+        ),
+        answerCommitCommand: AiAnswerCommitCommand(
+          persistencePort: _FakeAiAnswerCommitPersistencePort(),
+        ),
+        examMutationCommand:
+            ExamMutationCommand(_FakeExamMutationPersistence()),
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PracticePage(
+                      bankName: _bankName,
+                      recordAnswerAttemptCommand: command,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Open Practice'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Open PracticePage
+    await tester.tap(find.text('Open Practice'));
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump();
+      if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
+          find.byType(TextField).evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+    }
+
+    expect(find.byType(TextField), findsOneWidget);
+
+    // Enter answer text
+    await tester.enterText(find.byType(TextField), 'My subjective race answer');
+    await settle(tester);
+
+    // Tap "呼叫 AI 助教判卷"
+    await tester.tap(find.text('呼叫 AI 助教判卷'));
+    await tester.pump(); // Start execution until await delayedPort.gate.future
+
+    // Pop the PracticePage while persistence is in-flight
+    navigatorKey.currentState!.pop();
+    await settle(tester);
+
+    // Release delayed persistence
+    delayedPort.gate.complete();
+    await settle(tester);
+
+    // Assert: No unhandled Flutter exception occurred, AI was NOT called, attempt was recorded
+    expect(tester.takeException(), isNull);
+    expect(spyAi.judgeAnswerCallCount, 0);
+    expect(delayedPort.recorded, hasLength(1));
+    expect(delayedPort.recorded.first.questionId, _storageIdA);
   });
 }
