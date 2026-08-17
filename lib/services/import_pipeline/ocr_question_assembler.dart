@@ -68,11 +68,19 @@ class OcrQuestionAssembler {
       diagnostics.add('dangling_latex');
     }
 
-    final repairRecommended = region.isCrossPage ||
-        content.trim().isEmpty ||
-        (type == 0 && optionExtract.options.length < 2) ||
-        (type == 0 && answer.trim().isEmpty) ||
-        diagnostics.contains('dangling_latex');
+    final reasons = <String>[];
+    if (region.isCrossPage) reasons.add('cross_page');
+    if (content.trim().isEmpty) reasons.add('empty_content');
+    if (type == 0 && optionExtract.options.length < 2) {
+      reasons.add('choice_options_less_than_2');
+    }
+    if (type == 0 && answer.trim().isEmpty) {
+      reasons.add('choice_missing_answer');
+    }
+    if (diagnostics.contains('dangling_latex')) {
+      reasons.add('dangling_latex');
+    }
+    final repairRecommended = reasons.isNotEmpty;
     question = <String, dynamic>{
       ...question,
       'diagnostics': diagnostics.toSet().toList(),
@@ -83,6 +91,7 @@ class OcrQuestionAssembler {
       diagnostics: diagnostics.toSet().toList(),
       repairRecommended: repairRecommended,
       rejected: content.trim().isEmpty && region.rawText.trim().length < 8,
+      repairRecommendationReasons: reasons,
     );
   }
 

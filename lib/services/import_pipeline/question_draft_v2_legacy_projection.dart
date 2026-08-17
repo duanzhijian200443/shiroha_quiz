@@ -270,6 +270,12 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
+      case ImageNode(:final altText):
+        if (altText != null && altText.isNotEmpty) {
+          buffer.write(altText);
+        } else {
+          buffer.write('[图片]');
+        }
       case RawFallbackNode():
         break;
     }
@@ -286,6 +292,11 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
         _materializeContentNodes(part.content, fragment.slice),
       ).trim();
       if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      final altText = part.alternativeText != null
+          ? _searchText(part.alternativeText!.nodes).trim()
+          : '';
+      parts.add(altText.isNotEmpty ? altText : '[图片]');
     }
   }
   return parts.join('\n');
@@ -305,6 +316,11 @@ int _untrimmedTextLength(
         _materializeContentNodes(part.content, fragment.slice),
       );
       if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      final altText = part.alternativeText != null
+          ? _searchText(part.alternativeText!.nodes)
+          : '';
+      parts.add(altText.isNotEmpty ? altText : '[图片]');
     }
   }
   return parts.join('\n').length;
@@ -342,11 +358,7 @@ void _guardNoRawFallback(
           _materializeContentNodes(content, fragment.slice),
         );
       case SourceAssetPart():
-        throw LegacyProjectionUnsupportedException(
-          kindCode: 'source_asset',
-          message: 'Asset fragments cannot be projected losslessly by the '
-              'legacy map.',
-        );
+        break;
       case SourceTablePart():
         throw LegacyProjectionUnsupportedException(
           kindCode: 'source_table',
@@ -367,13 +379,6 @@ void _guardProjectionBoundary(
   QuestionDraftV2 draft,
   QuestionRegion region,
 ) {
-  if (draft.assetRefs.isNotEmpty) {
-    throw LegacyProjectionUnsupportedException(
-      kindCode: 'source_asset',
-      message: 'Source-qualified asset identity cannot be projected '
-          'losslessly by the legacy map.',
-    );
-  }
   _guardNoRawFallback(draft, region);
   _guardDraftRegionConsistency(draft, region);
 }

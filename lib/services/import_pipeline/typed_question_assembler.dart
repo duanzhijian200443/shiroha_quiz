@@ -60,12 +60,23 @@ final class TypedQuestionAssembler {
             target.add(const TextNode('\n'));
           }
           target.addAll(nodes);
-        case SourceAssetPart():
-          throw QuestionRegionUnsupportedException(
-            kindCode: 'source_asset',
-            field: fragment.field,
-            message: 'Asset identity and field position cannot be projected '
-                'losslessly by QuestionDraftV2.',
+        case SourceAssetPart(:final asset, :final alternativeText):
+          final target =
+              nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty) {
+            target.add(const TextNode('\n'));
+          }
+          final altText = alternativeText != null
+              ? _joinedText(alternativeText.nodes)
+              : null;
+          final assetRef = asset.assetId.startsWith('content_assets/')
+              ? asset.assetId
+              : 'content_assets/${asset.assetId}';
+          target.add(
+            ImageNode(
+              assetRef: assetRef,
+              altText: altText,
+            ),
           );
         case SourceTablePart():
           throw QuestionRegionUnsupportedException(
@@ -490,6 +501,12 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
+      case ImageNode(:final altText):
+        if (altText != null && altText.isNotEmpty) {
+          buffer.write(altText);
+        } else {
+          buffer.write('[图片]');
+        }
       case RawFallbackNode():
         break;
     }

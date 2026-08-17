@@ -248,6 +248,8 @@ bool _contentNodeEquals(ContentNode left, ContentNode right) {
     TextNode(:final text) => text == (right as TextNode).text,
     InlineMathNode(:final latex) => latex == (right as InlineMathNode).latex,
     BlockMathNode(:final latex) => latex == (right as BlockMathNode).latex,
+    ImageNode(:final assetRef, :final altText) =>
+      assetRef == (right as ImageNode).assetRef && altText == right.altText,
     RawFallbackNode(:final rawJson) =>
       _jsonValueEquals(rawJson, (right as RawFallbackNode).rawJson),
   };
@@ -258,6 +260,8 @@ int _contentNodeHash(ContentNode node) {
     TextNode(:final text) => Object.hash('text', text),
     InlineMathNode(:final latex) => Object.hash('inline_math', latex),
     BlockMathNode(:final latex) => Object.hash('block_math', latex),
+    ImageNode(:final assetRef, :final altText) =>
+      Object.hash('image', assetRef, altText),
     RawFallbackNode(:final rawJson) =>
       Object.hash('raw_fallback', _jsonValueHash(rawJson)),
   };

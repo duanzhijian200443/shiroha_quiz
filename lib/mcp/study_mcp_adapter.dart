@@ -382,6 +382,11 @@ final class StudyMcpAdapter {
           'type': 'block_math',
           'latex': latex
         },
+      StudyImageNode(:final assetRef, :final altText) => <String, Object?>{
+          'type': 'image',
+          'assetRef': assetRef,
+          if (altText != null) 'altText': altText,
+        },
       StudyUnsupportedNode() => <String, Object?>{'type': 'unsupported'},
     };
   }

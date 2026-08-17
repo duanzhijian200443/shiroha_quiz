@@ -77,7 +77,7 @@ abstract final class BackupArchiveIo {
         final stream = InputFileStream(source.path);
         inputs.add(stream);
         final file = ArchiveFile.stream(
-          BackupValues.managedArchivePath(source.fileId),
+          source.archivePath ?? BackupValues.managedArchivePath(source.fileId),
           File(source.path).lengthSync(),
           stream,
         )..compress = false;
@@ -457,10 +457,15 @@ abstract final class BackupArchiveIo {
 }
 
 final class ArchiveSourceFile {
-  const ArchiveSourceFile({required this.fileId, required this.path});
+  const ArchiveSourceFile({
+    required this.fileId,
+    required this.path,
+    this.archivePath,
+  });
 
   final String fileId;
   final String path;
+  final String? archivePath;
 }
 
 final class _RecentBytes {

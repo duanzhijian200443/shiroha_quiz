@@ -18,4 +18,6 @@ abstract final class BackupValues {
   static const int freeSpaceWorkingReserveBytes = 512 * 1024 * 1024;
 
   static String managedArchivePath(String fileId) => 'files/library/$fileId';
+  static String managedArchivePathForStorageKey(String storageKey) =>
+      'files/$storageKey';
 }

@@ -68,6 +68,10 @@ final class AiAnswerSafeContent {
           TextNode(:final text) => AiAnswerSafeText(text),
           InlineMathNode(:final latex) => AiAnswerSafeInlineMath(latex),
           BlockMathNode(:final latex) => AiAnswerSafeBlockMath(latex),
+          ImageNode(:final altText) =>
+            altText != null && altText.trim().isNotEmpty
+                ? AiAnswerSafeText('[图片: $altText]')
+                : const AiAnswerSafeText('[图片]'),
           RawFallbackNode() => throw const FormatException(
               'AI provider requests cannot carry raw fallback content.',
             ),

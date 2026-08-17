@@ -166,9 +166,7 @@ void main() {
   });
 
   group('TypedQuestionAssembler lossless and explicit failure paths', () {
-    test(
-        'fails for asset parts without alternative text because position '
-        'cannot be projected losslessly', () {
+    test('assembles asset parts into ImageNode and populates assetRefs', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -190,26 +188,17 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
+      final draft = assembler.assemble(region, questionId: 'q_1');
+      expect(draft.stem.nodes.first, isA<ImageNode>());
       expect(
-        () => assembler.assemble(region, questionId: 'q_1'),
-        throwsA(
-          isA<QuestionRegionUnsupportedException>()
-              .having((error) => error.kindCode, 'kindCode', 'source_asset')
-              .having(
-                (error) => error.field,
-                'field',
-                QuestionRegionField.stem,
-              )
-              .having(
-                (error) => error.message,
-                'message',
-                allOf(contains('identity'), contains('position')),
-              ),
-        ),
+        (draft.stem.nodes.first as ImageNode).assetRef,
+        'content_assets/asset_1',
       );
+      expect(draft.assetRefs.length, 1);
+      expect(draft.assetRefs.first.asset.assetId, 'asset_1');
     });
 
-    test('fails explicitly for asset alternative text', () {
+    test('preserves asset alternative text on ImageNode', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -226,12 +215,11 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
+      final draft = assembler.assemble(region, questionId: 'q_1');
+      expect(draft.stem.nodes.first, isA<ImageNode>());
       expect(
-        () => assembler.assemble(region, questionId: 'q_1'),
-        throwsA(
-          isA<QuestionRegionUnsupportedException>()
-              .having((error) => error.kindCode, 'kindCode', 'source_asset'),
-        ),
+        (draft.stem.nodes.first as ImageNode).altText,
+        '图示',
       );
     });
 
@@ -678,6 +666,8 @@ String _searchTextOf(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
+      case ImageNode(:final altText):
+        buffer.write(altText ?? '[图片]');
       case RawFallbackNode():
         break;
     }

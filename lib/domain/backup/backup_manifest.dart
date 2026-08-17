@@ -54,9 +54,12 @@ final class BackupManagedFileEntry {
     final archivePath = _requiredString(json, 'archivePath');
     final sizeBytes = _requiredInt(json, 'sizeBytes');
     final sha256 = _requiredString(json, 'sha256');
+    final expectedArchivePath = archivePath ==
+            BackupValues.managedArchivePath(fileId) ||
+        archivePath == BackupValues.managedArchivePathForStorageKey(storageKey);
     if (!_isSafeFileId(fileId) ||
         !ArchivePathPolicy.isSafeManagedStorageKey(storageKey) ||
-        archivePath != BackupValues.managedArchivePath(fileId) ||
+        !expectedArchivePath ||
         sizeBytes < 0 ||
         sizeBytes > BackupValues.singleManagedFileMaxDeclaredSizeBytes ||
         !_isSha256(sha256)) {

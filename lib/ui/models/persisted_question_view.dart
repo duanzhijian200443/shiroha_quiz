@@ -240,6 +240,8 @@ abstract final class PersistedQuestionViewAdapter {
           parts.add(latex);
         case BlockMathNode(:final latex):
           parts.add(latex);
+        case ImageNode(:final altText):
+          if (altText != null && altText.isNotEmpty) parts.add(altText);
         case RawFallbackNode():
           break;
       }

@@ -588,6 +588,8 @@ final class AiAnswerGenerationService {
           total += text.runes.length;
         case InlineMathNode(:final latex) || BlockMathNode(:final latex):
           total += latex.runes.length;
+        case ImageNode():
+          total += 1;
         case RawFallbackNode():
           break; // Already rejected before counting; never contributes.
       }
@@ -606,6 +608,8 @@ final class AiAnswerGenerationService {
           if (text.trim().isNotEmpty) return true;
         case InlineMathNode(:final latex) || BlockMathNode(:final latex):
           if (latex.trim().isNotEmpty) return true;
+        case ImageNode():
+          return true;
         case RawFallbackNode():
           return false;
       }

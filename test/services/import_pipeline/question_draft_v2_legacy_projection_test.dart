@@ -576,7 +576,7 @@ void main() {
       );
     }
 
-    test('rejects a draft carrying source-qualified assets', () {
+    test('projects a draft carrying source-qualified assets', () {
       final region = simpleRegion();
       final base = assembler.assemble(region, questionId: 'task_q1');
       final draft = QuestionDraftV2(
@@ -596,10 +596,15 @@ void main() {
         ],
         issues: base.issues,
       );
-      expectUnsupported(draft, region, 'source_asset');
+      final result = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+      expect(result.question['content'], isNotEmpty);
     });
 
-    test('rejects SourceAssetPart fragments instead of ignoring them', () {
+    test('projects SourceAssetPart fragments with [图片] placeholder', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -613,7 +618,13 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
-      expectUnsupported(matchingDraft(region), region, 'source_asset');
+      final draft = assembler.assemble(region, questionId: 'task_q1');
+      final result = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+      expect(result.question['content'], contains('[图片]'));
     });
 
     test('rejects SourceTablePart fragments instead of ignoring them', () {

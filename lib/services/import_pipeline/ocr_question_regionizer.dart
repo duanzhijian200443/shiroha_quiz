@@ -787,6 +787,21 @@ class OcrQuestionRegionizer {
   }
 
   List<_OcrTextUnit> _splitBlock(OcrBlock block) {
+    final type = block.type.trim().toLowerCase();
+    final rawText = block.text.trim();
+    if (type == 'image' ||
+        type == 'figure' ||
+        rawText.startsWith('data:image/')) {
+      return [
+        _OcrTextUnit(
+          block: block,
+          text: '[图片]',
+          wasSplit: false,
+          startsAtBlockStart: true,
+        ),
+      ];
+    }
+
     final text = block.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final boundaries = <int>{0, text.length};
 

@@ -124,7 +124,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
       final body = <String, dynamic>{
         'model': model,
         'file': dataUrl,
-        'return_crop_images': false,
+        'return_crop_images': true,
         'need_layout_visualization': false,
         'request_id': _requestId(sourceName, startPage),
         if (startPage != null) 'start_page_id': startPage,

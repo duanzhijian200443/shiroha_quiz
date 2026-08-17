@@ -230,6 +230,14 @@ _PartBinding? _textBinding(
 }
 
 String? _singleTextForPart(SourcePart part) {
+  if (part is SourceAssetPart) {
+    if (part.alternativeText != null &&
+        part.alternativeText!.nodes.length == 1) {
+      final node = part.alternativeText!.nodes.single;
+      if (node is TextNode) return node.text;
+    }
+    return '[图片]';
+  }
   final content = switch (part) {
     SourceContentPart(:final content) => content,
     SourceAssetPart(:final alternativeText) => alternativeText,

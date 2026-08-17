@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -7,15 +8,21 @@ import '../../application/backup/backup_contracts.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
+import '../../services/file_library/managed_content_asset_store.dart';
+import '../../services/file_library/managed_file_storage.dart';
 
 /// B0 data authority for consistent SQLite snapshots and staged DB
 /// validation/scrub. Raw SQL and sqflite imports are intentionally confined
 /// to this repository (architecture boundary: data/repositories).
 final class BackupSnapshotRepository {
-  BackupSnapshotRepository({DatabaseHelper? databaseHelper})
-      : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
+  BackupSnapshotRepository({
+    DatabaseHelper? databaseHelper,
+    ManagedFileStorage? managedFileStorage,
+  })  : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
+        _managedFileStorage = managedFileStorage;
 
   final DatabaseHelper _databaseHelper;
+  final ManagedFileStorage? _managedFileStorage;
 
   Future<BackupSnapshot> createSanitizedSnapshot(
     String snapshotPath,
@@ -75,6 +82,37 @@ final class BackupSnapshotRepository {
             sha256: row['sha256']! as String,
           ),
       ];
+
+      if (await _tableExists(candidate, 'question_v2_payloads')) {
+        final payloadRows = await candidate.query('question_v2_payloads');
+        final seenAssetKeys = <String>{};
+        for (final row in payloadRows) {
+          final payloadJson = row['payload_json'] as String?;
+          if (payloadJson == null) continue;
+          final matches =
+              RegExp(r'"assetRef"\s*:\s*"([^"]+)"').allMatches(payloadJson);
+          for (final m in matches) {
+            final key = m.group(1);
+            if (key != null && key.isNotEmpty && seenAssetKeys.add(key)) {
+              final resolvedFile =
+                  _managedFileStorage?.resolveManagedFile(key) ??
+                      DefaultContentAssetResolver.instance.resolveAsset(key);
+              if (resolvedFile != null && resolvedFile.existsSync()) {
+                final bytes = resolvedFile.readAsBytesSync();
+                files.add(
+                  SnapshotLibraryFile(
+                    fileId: p.basename(key),
+                    storageKey: key,
+                    sizeBytes: bytes.length,
+                    sha256: sha256.convert(bytes).toString(),
+                  ),
+                );
+              }
+            }
+          }
+        }
+      }
+
       return BackupSnapshot(
         databasePath: snapshotPath,
         schemaVersion: schemaVersion,

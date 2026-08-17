@@ -303,9 +303,17 @@ class OcrImportService {
         }
       }
 
+      final repairRecommendationReasons = <String>{};
+      final repairRecommendationReasonCounts = <String, int>{};
+
       for (final candidate in assembled) {
         final region = candidate.region;
         var result = candidate.result;
+        for (final reason in result.repairRecommendationReasons) {
+          repairRecommendationReasons.add(reason);
+          repairRecommendationReasonCounts[reason] =
+              (repairRecommendationReasonCounts[reason] ?? 0) + 1;
+        }
         if (isStemOnly && _hasNonEmptyAnswer(result.question)) {
           clearedAssemblerAnswerCount++;
         }
@@ -386,6 +394,9 @@ class OcrImportService {
         'finalQuestionCount': questions.length,
         ...roleAssessment.toDiagnostics(),
         'repairRecommendedCount': repairRecommendedCount,
+        'repairRecommendationReasons': (repairRecommendationReasons.toList()
+          ..sort()),
+        'repairRecommendationReasonCounts': repairRecommendationReasonCounts,
         'repairAttemptCount': repairAttemptedCount,
         'repairAttemptedCount': repairAttemptedCount,
         'repairAppliedCount': repairAppliedCount,
@@ -492,6 +503,7 @@ class OcrImportService {
       diagnostics: finalizedDiagnostics,
       repairRecommended: result.repairRecommended,
       rejected: result.rejected,
+      repairRecommendationReasons: result.repairRecommendationReasons,
     );
   }
 
