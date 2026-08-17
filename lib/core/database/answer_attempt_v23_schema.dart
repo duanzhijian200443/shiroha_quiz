@@ -114,6 +114,36 @@ Future<void> validateAnswerAttemptV23Schema(DatabaseExecutor db) async {
     throw const AnswerAttemptSchemaException(
         AnswerAttemptSchemaFailure.malformedSchema);
   }
+
+  // Strict Index Validation
+  final indexRows = await db.rawQuery(
+    "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND name IN ('idx_answer_attempts_question_answered', 'idx_answer_attempts_correctness_answered')",
+  );
+  if (indexRows.length != 2) {
+    throw const AnswerAttemptSchemaException(
+        AnswerAttemptSchemaFailure.malformedSchema);
+  }
+  final indexMap = <String, Map<String, dynamic>>{
+    for (final r in indexRows) r['name'] as String: r,
+  };
+
+  final qIdx = indexMap['idx_answer_attempts_question_answered'];
+  if (qIdx == null ||
+      qIdx['tbl_name'] != 'answer_attempts' ||
+      _canonicalizeSql(qIdx['sql'] as String? ?? '') !=
+          _canonicalizeSql(answerAttemptsQuestionAnsweredIndexDdl)) {
+    throw const AnswerAttemptSchemaException(
+        AnswerAttemptSchemaFailure.malformedSchema);
+  }
+
+  final cIdx = indexMap['idx_answer_attempts_correctness_answered'];
+  if (cIdx == null ||
+      cIdx['tbl_name'] != 'answer_attempts' ||
+      _canonicalizeSql(cIdx['sql'] as String? ?? '') !=
+          _canonicalizeSql(answerAttemptsCorrectnessAnsweredIndexDdl)) {
+    throw const AnswerAttemptSchemaException(
+        AnswerAttemptSchemaFailure.malformedSchema);
+  }
 }
 
 String _canonicalizeSql(String sql) => sql

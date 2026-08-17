@@ -292,4 +292,76 @@ void main() {
       await db.close();
     }
   });
+
+  test(
+      'S6: validateAnswerAttemptV23Schema strictly verifies both frozen indexes',
+      () async {
+    final db =
+        await DatabaseHelper.instance.openPathForTesting(inMemoryDatabasePath);
+    try {
+      // 1. Correct two indexes -> PASS
+      await expectLater(validateAnswerAttemptV23Schema(db), completes);
+
+      // 2. Drop question_answered index -> FAIL
+      await db.execute('DROP INDEX idx_answer_attempts_question_answered');
+      await expectLater(
+        () => validateAnswerAttemptV23Schema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+
+      // Recreate with wrong column order (answered_at, question_id) -> FAIL
+      await db.execute(
+        'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(answered_at, question_id)',
+      );
+      await expectLater(
+        () => validateAnswerAttemptV23Schema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+
+      // Recreate with question_id only -> FAIL
+      await db.execute('DROP INDEX idx_answer_attempts_question_answered');
+      await db.execute(
+        'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(question_id)',
+      );
+      await expectLater(
+        () => validateAnswerAttemptV23Schema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+
+      // Recreate with answered_at DESC -> FAIL
+      await db.execute('DROP INDEX idx_answer_attempts_question_answered');
+      await db.execute(
+        'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(question_id, answered_at DESC)',
+      );
+      await expectLater(
+        () => validateAnswerAttemptV23Schema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+
+      // Restore correct question_answered index
+      await db.execute('DROP INDEX idx_answer_attempts_question_answered');
+      await db.execute(
+        'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(question_id, answered_at)',
+      );
+      await expectLater(validateAnswerAttemptV23Schema(db), completes);
+
+      // 3. Drop correctness_answered index -> FAIL
+      await db.execute('DROP INDEX idx_answer_attempts_correctness_answered');
+      await expectLater(
+        () => validateAnswerAttemptV23Schema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+
+      // Recreate with answered_at DESC -> FAIL
+      await db.execute(
+        'CREATE INDEX idx_answer_attempts_correctness_answered ON answer_attempts(correctness, answered_at DESC)',
+      );
+      await expectLater(
+        () => validateAnswerAttemptV23Schema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+    } finally {
+      await db.close();
+    }
+  });
 }
