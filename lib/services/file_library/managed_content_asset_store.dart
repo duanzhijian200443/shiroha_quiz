@@ -41,7 +41,7 @@ abstract interface class ContentAssetResolver {
   File? resolveAsset(String assetRef);
 }
 
-/// Global ambient resolver for UI and tests.
+/// Global ambient resolver for the production composition, UI and tests.
 final class DefaultContentAssetResolver implements ContentAssetResolver {
   DefaultContentAssetResolver._();
 
@@ -49,6 +49,13 @@ final class DefaultContentAssetResolver implements ContentAssetResolver {
       DefaultContentAssetResolver._();
 
   ContentAssetStore? _store;
+
+  /// The content-asset authority installed by the production composition.
+  ///
+  /// Import adapters may use this only as the fallback authority when no
+  /// explicit store was injected. The durable namespace remains
+  /// `content_assets/`; callers must never persist local absolute paths.
+  ContentAssetStore? get activeStore => _store;
 
   /// Sets the active content asset store.
   void setStore(ContentAssetStore? store) {
@@ -127,22 +134,49 @@ final class ManagedContentAssetStore implements ContentAssetStore {
     }
 
     final targetFile = File(p.join(targetDir.path, fileName));
-    if (targetFile.existsSync() && targetFile.lengthSync() == bytes.length) {
+    if (_hasExpectedDigest(targetFile, digest)) {
       return storageKey;
     }
 
-    final tmpFile = File(p.join(targetDir.path,
-        '$fileName.tmp_${DateTime.now().microsecondsSinceEpoch}'));
-    tmpFile.writeAsBytesSync(bytes, flush: true);
-    tmpFile.renameSync(targetFile.path);
+    final tmpFile = File(
+      p.join(
+        targetDir.path,
+        '$fileName.tmp_${DateTime.now().microsecondsSinceEpoch}',
+      ),
+    );
+    try {
+      tmpFile.writeAsBytesSync(bytes, flush: true);
 
+      // Another writer may have completed the same content-addressed write
+      // while this temporary file was being flushed. Re-check before replacing
+      // an existing target.
+      if (_hasExpectedDigest(targetFile, digest)) {
+        return storageKey;
+      }
+      if (targetFile.existsSync()) {
+        targetFile.deleteSync();
+      }
+      tmpFile.renameSync(targetFile.path);
+    } finally {
+      if (tmpFile.existsSync()) {
+        tmpFile.deleteSync();
+      }
+    }
+
+    if (!_hasExpectedDigest(targetFile, digest)) {
+      throw const FileSystemException(
+        'Content asset write did not preserve the expected digest.',
+      );
+    }
     return storageKey;
   }
 
   @override
   File? resolveAsset(String assetRef) {
     final trimmed = assetRef.trim();
-    if (trimmed.isEmpty) return null;
+    if (trimmed.isEmpty || !trimmed.startsWith('content_assets/')) {
+      return null;
+    }
     if (!ArchivePathPolicy.isSafeManagedStorageKey(trimmed)) {
       return null;
     }
@@ -153,13 +187,22 @@ final class ManagedContentAssetStore implements ContentAssetStore {
     return file;
   }
 
+  bool _hasExpectedDigest(File file, String expectedDigest) {
+    if (!file.existsSync()) return false;
+    try {
+      return sha256Hex(file.readAsBytesSync()) == expectedDigest;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   static String _extensionForMime(String mimeType) {
-    return switch (mimeType.toLowerCase()) {
+    return switch (mimeType.toLowerCase().split(';').first.trim()) {
       'image/png' => '.png',
       'image/jpeg' || 'image/jpg' => '.jpg',
       'image/webp' => '.webp',
       'image/gif' => '.gif',
-      _ => '.png',
+      _ => throw const FormatException('Unsupported image MIME type.'),
     };
   }
 }
