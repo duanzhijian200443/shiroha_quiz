@@ -46,18 +46,6 @@ class _DelayedAttemptPort implements AnswerAttemptPersistencePort {
     await gate.future;
     recorded.add(attempt);
   }
-
-  @override
-  Future<List<AnswerAttempt>> getAttemptsForQuestion(String questionId) async =>
-      recorded.where((a) => a.questionId == questionId).toList();
-
-  @override
-  Future<int> countIncorrectQuestions({String? bankName}) async => 0;
-
-  @override
-  Future<void> clearAllData() async {
-    recorded.clear();
-  }
 }
 
 class _FakeEngineRepository extends Fake implements AiEngineRepository {}
