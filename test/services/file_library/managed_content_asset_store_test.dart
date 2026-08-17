@@ -15,6 +15,7 @@ void main() {
   });
 
   tearDown(() async {
+    DefaultContentAssetResolver.instance.setStore(null);
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
@@ -42,6 +43,25 @@ void main() {
       expect(file.readAsBytesSync(), equals(sampleBytes));
     });
 
+    test('repairs a corrupt same-length content-addressed target', () async {
+      final expected = Uint8List.fromList([1, 2, 3, 4, 5]);
+      final key = await store.storeBytes(
+        bytes: expected,
+        mimeType: 'image/png',
+      );
+      final target = store.resolveAsset(key)!;
+      target.writeAsBytesSync(<int>[5, 4, 3, 2, 1], flush: true);
+      expect(target.lengthSync(), expected.length);
+
+      final repairedKey = await store.storeBytes(
+        bytes: expected,
+        mimeType: 'image/png',
+      );
+
+      expect(repairedKey, key);
+      expect(store.resolveAsset(key)!.readAsBytesSync(), expected);
+    });
+
     test('stores and parses data URL successfully', () async {
       final rawBytes = utf8.encode('fake-image-bytes');
       final base64String = base64Encode(rawBytes);
@@ -57,7 +77,7 @@ void main() {
       expect(file.readAsBytesSync(), equals(rawBytes));
     });
 
-    test('throws on invalid data URL', () async {
+    test('throws on invalid data URL and unsupported MIME', () async {
       expect(
         () => store.storeDataUrl('invalid_string'),
         throwsFormatException,
@@ -70,17 +90,26 @@ void main() {
         () => store.storeDataUrl('data:image/png;notbase64,abc'),
         throwsFormatException,
       );
+      expect(
+        () => store.storeBytesSync(
+          bytes: const <int>[1, 2, 3],
+          mimeType: 'application/octet-stream',
+        ),
+        throwsFormatException,
+      );
     });
 
-    test('prevents path traversal in resolveAsset', () {
+    test('prevents path traversal and cross-namespace resolution', () {
       expect(store.resolveAsset('../secret.txt'), isNull);
       expect(store.resolveAsset('/absolute/path/file.png'), isNull);
       expect(store.resolveAsset(r'..\windows\secret.txt'), isNull);
       expect(store.resolveAsset('content_assets/../../secret.txt'), isNull);
+      expect(store.resolveAsset('library/other-managed-file'), isNull);
     });
 
     test('DefaultContentAssetResolver delegates to configured store', () async {
       DefaultContentAssetResolver.instance.setStore(store);
+      expect(DefaultContentAssetResolver.instance.activeStore, same(store));
       final bytes = Uint8List.fromList([10, 20, 30]);
       final key = await store.storeBytes(
         bytes: bytes,
