@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../application/practice/practice_session_mutation_command.dart';
+import '../../application/practice/record_answer_attempt_command.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_write_mutation_command.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
+import '../../data/repositories/answer_attempt_repository.dart';
 import '../../data/repositories/question_repository.dart';
+import '../../domain/attempt/answer_attempt.dart';
 import '../../services/llm_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../models/practice_question_view.dart';
@@ -34,6 +38,9 @@ class PracticePage extends StatefulWidget {
   /// bypasses normal review/FSRS mutation and must never carry StudyPlan
   /// sessions.
   final bool usePreparedStudySession;
+  final RecordAnswerAttemptCommand? recordAnswerAttemptCommand;
+  final Future<void> Function(String questionId, int grade)?
+      submitReviewOverride;
 
   const PracticePage({
     super.key,
@@ -43,6 +50,8 @@ class PracticePage extends StatefulWidget {
     this.initialQuestions,
     this.initialIndex,
     this.usePreparedStudySession = false,
+    this.recordAnswerAttemptCommand,
+    this.submitReviewOverride,
   });
 
   @override
@@ -56,6 +65,10 @@ class _PracticePageState extends State<PracticePage> {
       PracticeSessionMutationCommand(QuestionRepository.instance);
   final QuestionWriteMutationCommand _questionWriteMutation =
       QuestionWriteMutationCommand(QuestionRepository.instance);
+  RecordAnswerAttemptCommand get _recordAttemptCommand =>
+      widget.recordAnswerAttemptCommand ??
+      RecordAnswerAttemptCommand(AnswerAttemptRepository.instance);
+
   Timer? _pomodoroTimer;
   int _pomodoroSeconds = 1500; // 25分钟
   int _pomodoroStartTime = 0;
@@ -74,6 +87,11 @@ class _PracticePageState extends State<PracticePage> {
 
   final TextEditingController _subjectiveController = TextEditingController();
   bool _showStandardAnswerDirectly = false;
+
+  bool _attemptRecordedForCurrentPresentation = false;
+  bool _isRecordingAttempt = false;
+  bool _isSubmittingGrade = false;
+  int _questionPresentedTimestamp = 0;
 
   // Preview mode support
   List<Question>? _previewQuestions;
@@ -165,6 +183,10 @@ class _PracticePageState extends State<PracticePage> {
       _selectedOptionId = null;
       _subjectiveController.clear();
       _showStandardAnswerDirectly = false;
+      _attemptRecordedForCurrentPresentation = false;
+      _isRecordingAttempt = false;
+      _isSubmittingGrade = false;
+      _questionPresentedTimestamp = DateTime.now().millisecondsSinceEpoch;
     });
   }
 
@@ -237,29 +259,123 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Future<void> _submitGrade(int grade) async {
-    if (_currentQuestion == null) return;
+    if (_currentQuestion == null || _isSubmittingGrade) return;
 
     final view = _currentQuestion!;
     final isPreview = view.isPreview;
 
     if (!isPreview) {
-      // 1. 异步触发底层 SQLite 事务落盘 FSRS 数据
-      // 不使用 await 阻塞 UI，保障极速切换体验
-      ReviewEngineService().submitReview(view.storageId, grade);
-
-      // 2. 错题回炉机制：如果是“重来(1)”，O(1) 压入队列尾部
-      if (grade == 1) {
-        ReviewEngineService().requeueQuestion(view.source!);
+      setState(() => _isSubmittingGrade = true);
+      try {
+        final submitFn =
+            widget.submitReviewOverride ?? ReviewEngineService().submitReview;
+        await submitFn(view.storageId, grade);
+        if (!mounted) return;
+        if (grade == 1) {
+          ReviewEngineService().requeueQuestion(view.source!);
+        }
+      } catch (e) {
+        debugPrint('Submit review failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('提交评级失败，请重试')),
+          );
+        }
+        return;
+      } finally {
+        if (mounted) {
+          setState(() => _isSubmittingGrade = false);
+        }
       }
     }
 
-    // 3. 计步器联动
     if (widget.isPomodoroActive) {
       _solvedInPomodoro++;
     }
 
-    // 4. 极速切换下一题
     _loadNextQuestion();
+  }
+
+  Future<void> _handleRevealAnswer() async {
+    if (_currentQuestion == null) return;
+    if (!isSubjective &&
+        _selectedOptionIndex == null &&
+        _selectedOptionId == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先选择一个答案')));
+      return;
+    }
+
+    if (_isRecordingAttempt || _attemptRecordedForCurrentPresentation) {
+      return;
+    }
+
+    final view = _currentQuestion!;
+    if (view.isPreview) {
+      setState(() {
+        _isAnswerRevealed = true;
+        _attemptRecordedForCurrentPresentation = true;
+      });
+      return;
+    }
+
+    setState(() => _isRecordingAttempt = true);
+
+    try {
+      final isTypedOption = _selectedOptionId != null;
+      final bool isCorrect;
+      final String payloadJson;
+      if (isTypedOption) {
+        isCorrect = view.answerOptionIds.contains(_selectedOptionId);
+        payloadJson = AnswerAttemptPayload.choice(
+          optionIds: <String>[_selectedOptionId!],
+        );
+      } else {
+        final letter = String.fromCharCode(65 + _selectedOptionIndex!);
+        isCorrect = view.legacyAnswer.trim().toUpperCase() == letter;
+        payloadJson = AnswerAttemptPayload.legacyChoice(
+          labels: <String>[letter],
+        );
+      }
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final durationMs = _questionPresentedTimestamp > 0
+          ? (nowMs - _questionPresentedTimestamp).clamp(0, 86400000)
+          : null;
+
+      final attempt = AnswerAttempt(
+        attemptId: const Uuid().v4(),
+        questionId: view.storageId,
+        sessionKind: widget.usePreparedStudySession
+            ? AnswerAttemptSessionKind.focused
+            : AnswerAttemptSessionKind.normal,
+        modality: AnswerAttemptModality.choice,
+        answerPayloadJson: payloadJson,
+        correctness: isCorrect,
+        answeredAt: nowMs ~/ 1000,
+        durationMs: durationMs,
+      );
+
+      await _recordAttemptCommand.recordAttempt(attempt);
+
+      if (mounted) {
+        setState(() {
+          _attemptRecordedForCurrentPresentation = true;
+          _isAnswerRevealed = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Record answer attempt failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('记录本次作答失败，请重试')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRecordingAttempt = false);
+      }
+    }
   }
 
   @override
@@ -714,7 +830,7 @@ class _PracticePageState extends State<PracticePage> {
                 label: const Text('呼叫 AI 助教判卷',
                     style:
                         TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                onPressed: _isAiJudging
+                onPressed: _isAiJudging || _isRecordingAttempt
                     ? null
                     : () async {
                         final uAnswer = _subjectiveController.text.trim();
@@ -723,12 +839,56 @@ class _PracticePageState extends State<PracticePage> {
                               const SnackBar(content: Text('请先输入你的解答')));
                           return;
                         }
+                        if (_isRecordingAttempt || _isAiJudging) return;
+                        final aiService =
+                            AiDependenciesScope.of(context).aiService;
+
+                        final view = _currentQuestion!;
+                        if (!view.isPreview &&
+                            !_attemptRecordedForCurrentPresentation) {
+                          setState(() => _isRecordingAttempt = true);
+                          try {
+                            final nowMs = DateTime.now().millisecondsSinceEpoch;
+                            final durationMs = _questionPresentedTimestamp > 0
+                                ? (nowMs - _questionPresentedTimestamp)
+                                    .clamp(0, 86400000)
+                                : null;
+                            final attempt = AnswerAttempt(
+                              attemptId: const Uuid().v4(),
+                              questionId: view.storageId,
+                              sessionKind: widget.usePreparedStudySession
+                                  ? AnswerAttemptSessionKind.focused
+                                  : AnswerAttemptSessionKind.normal,
+                              modality: AnswerAttemptModality.text,
+                              answerPayloadJson:
+                                  AnswerAttemptPayload.text(text: uAnswer),
+                              correctness: null,
+                              answeredAt: nowMs ~/ 1000,
+                              durationMs: durationMs,
+                            );
+                            await _recordAttemptCommand.recordAttempt(attempt);
+                            _attemptRecordedForCurrentPresentation = true;
+                          } catch (e) {
+                            debugPrint('Record text answer attempt failed: $e');
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('记录本次作答失败，请重试')),
+                              );
+                            }
+                            return;
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isRecordingAttempt = false);
+                            }
+                          }
+                        }
+
+                        if (!mounted) return;
+
                         setState(() => _isAiJudging = true);
 
-                        final feedback = await AiDependenciesScope.of(context)
-                            .aiService
-                            .judgeAnswer(
-                                view.stemText, view.answerText, uAnswer);
+                        final feedback = await aiService.judgeAnswer(
+                            view.stemText, view.answerText, uAnswer);
 
                         if (mounted) {
                           setState(() {
@@ -748,12 +908,58 @@ class _PracticePageState extends State<PracticePage> {
               ),
             ),
             TextButton(
-              onPressed: () {
-                setState(() {
-                  _showStandardAnswerDirectly = true;
-                  _isAnswerRevealed = true;
-                });
-              },
+              onPressed: _isRecordingAttempt
+                  ? null
+                  : () async {
+                      final uAnswer = _subjectiveController.text.trim();
+                      final view = _currentQuestion!;
+                      if (uAnswer.isNotEmpty &&
+                          !view.isPreview &&
+                          !_attemptRecordedForCurrentPresentation) {
+                        setState(() => _isRecordingAttempt = true);
+                        try {
+                          final nowMs = DateTime.now().millisecondsSinceEpoch;
+                          final durationMs = _questionPresentedTimestamp > 0
+                              ? (nowMs - _questionPresentedTimestamp)
+                                  .clamp(0, 86400000)
+                              : null;
+                          final attempt = AnswerAttempt(
+                            attemptId: const Uuid().v4(),
+                            questionId: view.storageId,
+                            sessionKind: widget.usePreparedStudySession
+                                ? AnswerAttemptSessionKind.focused
+                                : AnswerAttemptSessionKind.normal,
+                            modality: AnswerAttemptModality.text,
+                            answerPayloadJson:
+                                AnswerAttemptPayload.text(text: uAnswer),
+                            correctness: null,
+                            answeredAt: nowMs ~/ 1000,
+                            durationMs: durationMs,
+                          );
+                          await _recordAttemptCommand.recordAttempt(attempt);
+                          _attemptRecordedForCurrentPresentation = true;
+                        } catch (e) {
+                          debugPrint('Record text answer attempt failed: $e');
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('记录本次作答失败，请重试')),
+                            );
+                          }
+                          return;
+                        } finally {
+                          if (mounted) {
+                            setState(() => _isRecordingAttempt = false);
+                          }
+                        }
+                      }
+
+                      if (mounted) {
+                        setState(() {
+                          _showStandardAnswerDirectly = true;
+                          _isAnswerRevealed = true;
+                        });
+                      }
+                    },
               child: const Text('跳过 AI，直接看答案自评'),
             )
           ],
@@ -797,16 +1003,7 @@ class _PracticePageState extends State<PracticePage> {
                     borderRadius: BorderRadius.circular(16)),
                 elevation: 0,
               ),
-              onPressed: () {
-                if (!isSubjective &&
-                    _selectedOptionIndex == null &&
-                    _selectedOptionId == null) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('请先选择一个答案')));
-                  return;
-                }
-                setState(() => _isAnswerRevealed = true);
-              },
+              onPressed: _isRecordingAttempt ? null : _handleRevealAnswer,
               child: const Text('查看答案',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
@@ -866,7 +1063,7 @@ class _PracticePageState extends State<PracticePage> {
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          onPressed: () => _submitGrade(grade),
+          onPressed: _isSubmittingGrade ? null : () => _submitGrade(grade),
           child:
               Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
         ),

@@ -136,7 +136,7 @@ void main() {
       () async {
     final db = await openSeam(inMemoryDatabasePath);
     try {
-      expect(await userVersion(db), 22);
+      expect(await userVersion(db), DatabaseHelper.databaseVersion);
       await expectV18Shape(db);
       expect(await db.query('library_folders'), isEmpty);
       expect(await db.query('library_file_folders'), isEmpty);
@@ -161,7 +161,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 22);
+      expect(await userVersion(upgraded), DatabaseHelper.databaseVersion);
       await expectV18Shape(upgraded);
       expect(await upgraded.query('library_folders'), isEmpty);
       expect(await upgraded.query('library_file_folders'), isEmpty);

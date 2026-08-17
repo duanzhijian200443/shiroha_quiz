@@ -183,6 +183,17 @@ void main() {
       'source_user_message_id': null,
       'adopted_at': 1,
     });
+    await db.insert('answer_attempts', <String, Object?>{
+      'attempt_id': 'att-1',
+      'question_id': 'q-1',
+      'session_kind': 'normal',
+      'modality': 'choice',
+      'answer_payload_json':
+          '{"version":1,"kind":"choice","option_ids":["opt_a"]}',
+      'correctness': 1,
+      'answered_at': 1,
+      'duration_ms': 5000,
+    });
     await db.insert('ai_engines', <String, Object?>{
       'id': 'engine-1',
       'engine_type': 'text',
@@ -277,7 +288,7 @@ void main() {
   }
 
   test(
-      'populated v22 round trip preserves durable state and excludes derived state',
+      'populated current-schema round trip preserves durable state and excludes derived state',
       () async {
     final package = await exportPackage();
     final manifest = await BackupArchiveIo.readManifestOnly(package);
@@ -323,6 +334,8 @@ void main() {
     expect((await restored.query('conversations')).single['conversation_id'],
         'conv-1');
     expect((await restored.query('study_plans')).single['plan_id'], 'plan-1');
+    expect((await restored.query('answer_attempts')).single['attempt_id'],
+        'att-1');
     expect(
       storage.resolveManagedFile('library/file-1').readAsBytesSync(),
       fileBytes,
