@@ -86,8 +86,11 @@ final class AnswerAttemptPayload {
     });
   }
 
-  /// Validates that [jsonStr] is a valid structural answer attempt payload.
-  static void validatePayloadJson(String jsonStr) {
+  /// Validates that [jsonStr] matches [modality] and is a valid version 1 payload.
+  static void validateForModality(
+    AnswerAttemptModality modality,
+    String jsonStr,
+  ) {
     if (jsonStr.trim().isEmpty) {
       throw const FormatException('Payload JSON must not be empty');
     }
@@ -96,8 +99,78 @@ final class AnswerAttemptPayload {
       throw const FormatException('Payload JSON must be a Map');
     }
     final version = decoded['version'];
-    if (version is! int || version < 1) {
-      throw const FormatException('Payload version must be a positive int');
+    if (version is! int || version != currentVersion) {
+      throw FormatException(
+          'Payload version must be exactly $currentVersion, but was $version');
+    }
+    final kind = decoded['kind'];
+    if (kind is! String) {
+      throw const FormatException('Payload kind must be a String');
+    }
+
+    switch (modality) {
+      case AnswerAttemptModality.choice:
+        if (kind != 'choice' && kind != 'legacy_choice') {
+          throw FormatException(
+              'choice modality requires kind "choice" or "legacy_choice", but got "$kind"');
+        }
+        if (kind == 'choice') {
+          final optionIds = decoded['option_ids'];
+          if (optionIds is! List || optionIds.isEmpty) {
+            throw const FormatException(
+                'choice payload must have non-empty option_ids');
+          }
+          for (final item in optionIds) {
+            if (item is! String || item.trim().isEmpty) {
+              throw const FormatException(
+                  'option_ids must contain non-empty Strings');
+            }
+          }
+        } else {
+          final labels = decoded['labels'];
+          if (labels is! List || labels.isEmpty) {
+            throw const FormatException(
+                'legacy_choice payload must have non-empty labels');
+          }
+          for (final item in labels) {
+            if (item is! String || item.trim().isEmpty) {
+              throw const FormatException(
+                  'labels must contain non-empty Strings');
+            }
+          }
+        }
+      case AnswerAttemptModality.text:
+        if (kind != 'text') {
+          throw FormatException(
+              'text modality requires kind "text", but got "$kind"');
+        }
+        final text = decoded['text'];
+        if (text is! String || text.trim().isEmpty) {
+          throw const FormatException('text payload must have non-empty text');
+        }
+    }
+  }
+
+  /// Validates that [jsonStr] is a valid structural answer attempt payload.
+  static void validatePayloadJson(
+    String jsonStr, {
+    AnswerAttemptModality? modality,
+  }) {
+    if (modality != null) {
+      validateForModality(modality, jsonStr);
+      return;
+    }
+    if (jsonStr.trim().isEmpty) {
+      throw const FormatException('Payload JSON must not be empty');
+    }
+    final decoded = jsonDecode(jsonStr);
+    if (decoded is! Map<String, Object?>) {
+      throw const FormatException('Payload JSON must be a Map');
+    }
+    final version = decoded['version'];
+    if (version is! int || version != currentVersion) {
+      throw FormatException(
+          'Payload version must be exactly $currentVersion, but was $version');
     }
     final kind = decoded['kind'];
     if (kind is! String) {
@@ -105,34 +178,11 @@ final class AnswerAttemptPayload {
     }
     switch (kind) {
       case 'choice':
-        final optionIds = decoded['option_ids'];
-        if (optionIds is! List || optionIds.isEmpty) {
-          throw const FormatException(
-              'choice payload must have non-empty option_ids');
-        }
-        for (final item in optionIds) {
-          if (item is! String || item.trim().isEmpty) {
-            throw const FormatException(
-                'option_ids must contain non-empty Strings');
-          }
-        }
+        validateForModality(AnswerAttemptModality.choice, jsonStr);
       case 'legacy_choice':
-        final labels = decoded['labels'];
-        if (labels is! List || labels.isEmpty) {
-          throw const FormatException(
-              'legacy_choice payload must have non-empty labels');
-        }
-        for (final item in labels) {
-          if (item is! String || item.trim().isEmpty) {
-            throw const FormatException(
-                'labels must contain non-empty Strings');
-          }
-        }
+        validateForModality(AnswerAttemptModality.choice, jsonStr);
       case 'text':
-        final text = decoded['text'];
-        if (text is! String || text.trim().isEmpty) {
-          throw const FormatException('text payload must have non-empty text');
-        }
+        validateForModality(AnswerAttemptModality.text, jsonStr);
       default:
         throw FormatException('Unsupported payload kind: $kind');
     }

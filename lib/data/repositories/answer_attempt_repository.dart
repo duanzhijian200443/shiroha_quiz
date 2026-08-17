@@ -20,6 +20,10 @@ final class AnswerAttemptRepository implements AnswerAttemptPersistencePort {
 
   @override
   Future<void> recordAttempt(AnswerAttempt attempt) async {
+    AnswerAttemptPayload.validateForModality(
+      attempt.modality,
+      attempt.answerPayloadJson,
+    );
     final db = await _db;
     await db.insert(
       'answer_attempts',

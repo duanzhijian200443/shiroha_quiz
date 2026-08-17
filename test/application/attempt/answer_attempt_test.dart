@@ -87,6 +87,68 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     });
+
+    test(
+        'validatePayloadJson and validateForModality reject unknown or invalid versions',
+        () {
+      expect(
+        () => AnswerAttemptPayload.validatePayloadJson(
+            '{"version": 999, "kind": "choice", "option_ids": ["opt_1"]}'),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => AnswerAttemptPayload.validatePayloadJson(
+            '{"version": 0, "kind": "choice", "option_ids": ["opt_1"]}'),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => AnswerAttemptPayload.validatePayloadJson(
+            '{"version": -1, "kind": "choice", "option_ids": ["opt_1"]}'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('validateForModality enforces modality-kind invariant matching', () {
+      final choicePayload =
+          AnswerAttemptPayload.choice(optionIds: <String>['opt_1']);
+      final legacyChoicePayload =
+          AnswerAttemptPayload.legacyChoice(labels: <String>['A']);
+      final textPayload = AnswerAttemptPayload.text(text: 'My answer');
+
+      // Valid combinations
+      expect(
+        () => AnswerAttemptPayload.validateForModality(
+            AnswerAttemptModality.choice, choicePayload),
+        returnsNormally,
+      );
+      expect(
+        () => AnswerAttemptPayload.validateForModality(
+            AnswerAttemptModality.choice, legacyChoicePayload),
+        returnsNormally,
+      );
+      expect(
+        () => AnswerAttemptPayload.validateForModality(
+            AnswerAttemptModality.text, textPayload),
+        returnsNormally,
+      );
+
+      // Mismatched combinations
+      expect(
+        () => AnswerAttemptPayload.validateForModality(
+            AnswerAttemptModality.choice, textPayload),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => AnswerAttemptPayload.validateForModality(
+            AnswerAttemptModality.text, choicePayload),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => AnswerAttemptPayload.validateForModality(
+            AnswerAttemptModality.text, legacyChoicePayload),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 
   group('AnswerAttempt domain and repository', () {
@@ -149,6 +211,58 @@ void main() {
       expect(await repo.getAttemptsForQuestion('q-100'), isEmpty);
       expect(await repo.getAttemptsForQuestion('q-200'), isEmpty);
       expect(await repo.countIncorrectQuestions(), 0);
+    });
+
+    test('command and repository enforce payload validation before persistence',
+        () async {
+      final dbPath = p.join(tempDir.path, 'attempt_validation.db');
+      await DatabaseHelper.instance.openPathForTesting(dbPath);
+
+      final repo = AnswerAttemptRepository();
+      final command = RecordAnswerAttemptCommand(repo);
+
+      // Mismatched modality and payload
+      final badAttempt = AnswerAttempt(
+        attemptId: 'att-bad-modal',
+        questionId: 'q-bad',
+        sessionKind: AnswerAttemptSessionKind.normal,
+        modality: AnswerAttemptModality.choice,
+        answerPayloadJson: AnswerAttemptPayload.text(text: 'text answer'),
+        correctness: null,
+        answeredAt: 1700000000,
+      );
+
+      expect(
+        () => command.recordAttempt(badAttempt),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => repo.recordAttempt(badAttempt),
+        throwsA(isA<FormatException>()),
+      );
+
+      // Malformed JSON
+      final malformedAttempt = AnswerAttempt(
+        attemptId: 'att-bad-json',
+        questionId: 'q-bad',
+        sessionKind: AnswerAttemptSessionKind.normal,
+        modality: AnswerAttemptModality.text,
+        answerPayloadJson: '{invalid json}',
+        correctness: null,
+        answeredAt: 1700000000,
+      );
+
+      expect(
+        () => command.recordAttempt(malformedAttempt),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => repo.recordAttempt(malformedAttempt),
+        throwsA(isA<FormatException>()),
+      );
+
+      // Verify zero attempts written
+      expect(await repo.getAttemptsForQuestion('q-bad'), isEmpty);
     });
   });
 }

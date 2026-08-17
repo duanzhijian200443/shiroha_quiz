@@ -14,6 +14,10 @@ final class RecordAnswerAttemptCommand {
   final AnswerAttemptPersistencePort _persistence;
 
   Future<void> recordAttempt(AnswerAttempt attempt) {
+    AnswerAttemptPayload.validateForModality(
+      attempt.modality,
+      attempt.answerPayloadJson,
+    );
     return BackupRestoreMutationGate.instance.runMutation(
       () => _persistence.recordAttempt(attempt),
     );
