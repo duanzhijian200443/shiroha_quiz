@@ -270,10 +270,16 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
-      case ImageNode():
-        // Image structure belongs to the typed draft. The legacy map predates
-        // durable image content and must retain its exact text-only parity.
-        break;
+      case ImageNode(:final altText):
+        // Legacy text projection degrades images to a safe placeholder.
+        // Only plain altText is admitted; assetRef, paths, DataURLs and
+        // Base64 payloads belong exclusively to the typed RichContent
+        // authority and must never leak into the legacy map.
+        if (altText != null && altText.isNotEmpty) {
+          buffer.write(altText);
+        } else {
+          buffer.write('[图片]');
+        }
       case RawFallbackNode():
         break;
     }
@@ -290,6 +296,13 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
         _materializeContentNodes(part.content, fragment.slice),
       ).trim();
       if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      // Legacy placeholder for image assets. Only safe altText or the
+      // fixed [图片] marker; never assetRef, paths or binary payloads.
+      final altText = part.alternativeText != null
+          ? _searchText(part.alternativeText!.nodes).trim()
+          : '';
+      parts.add(altText.isNotEmpty ? altText : '[图片]');
     }
   }
   return parts.join('\n');
@@ -309,6 +322,11 @@ int _untrimmedTextLength(
         _materializeContentNodes(part.content, fragment.slice),
       );
       if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      final altText = part.alternativeText != null
+          ? _searchText(part.alternativeText!.nodes)
+          : '';
+      parts.add(altText.isNotEmpty ? altText : '[图片]');
     }
   }
   return parts.join('\n').length;
