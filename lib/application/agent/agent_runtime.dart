@@ -346,7 +346,8 @@ final class ShirohaAgentRuntime {
       retrievableFileIds:
           retrievalGrant?.approvedFileIds.toSet() ?? const <String>{},
     );
-    final tools = <AgentFunctionToolDefinition>[
+    var toolPhaseClosed = false;
+    final baseTools = <AgentFunctionToolDefinition>[
       ...AgentStudyToolCatalog.definitions,
       if (proposalCapabilityEnabled) AgentWriteProposalToolCatalog.definition,
       if (studyPlanCapabilityEnabled) AgentStudyPlanToolCatalog.definition,
@@ -383,10 +384,12 @@ final class ShirohaAgentRuntime {
       }
       _throwIfExpired(turn);
       _throwIfCancelled(turn);
+      final currentTools =
+          toolPhaseClosed ? const <AgentFunctionToolDefinition>[] : baseTools;
       final request = AgentProviderRequest(
         systemPrompt: systemPrompt,
         messages: history.messages,
-        tools: tools,
+        tools: currentTools,
         toolOutputs: toolOutputs,
         continuationState: continuationState,
         enableNativeWebSearch:
@@ -453,6 +456,7 @@ final class ShirohaAgentRuntime {
         data: <String, Object?>{
           'stage': 'provider_round_completed',
           'providerRound': turn.providerRounds,
+          'functionCallCount': round.functionCalls.length,
           'status': 'success',
           'durationMs': roundStopwatch.elapsedMilliseconds,
         },
@@ -488,6 +492,10 @@ final class ShirohaAgentRuntime {
         }
       }
 
+      if (toolPhaseClosed) {
+        throw const _TurnFailure(AgentTurnFailure.providerMalformed);
+      }
+
       turn.toolRoundsUsed++;
       if (turn.toolRoundsUsed > _limits.maxToolRounds) {
         throw const _TurnFailure(
@@ -499,17 +507,25 @@ final class ShirohaAgentRuntime {
       if (continuation == null) {
         throw const _TurnFailure(AgentTurnFailure.providerMalformed);
       }
-      if (turn.localCallsUsed + round.functionCalls.length >
-          _limits.maxLocalCalls) {
-        throw const _TurnFailure(
-          AgentTurnFailure.toolLimitExceeded,
-          traceFailureCode: 'local_call_limit_exceeded',
-        );
-      }
       for (final call in round.functionCalls) {
         if (!turn.seenCallIds.add(call.callId)) {
           throw const _TurnFailure(AgentTurnFailure.providerMalformed);
         }
+      }
+
+      if (turn.localCallsUsed + round.functionCalls.length >
+          _limits.maxLocalCalls) {
+        toolPhaseClosed = true;
+        continuationState = continuation;
+        toolOutputs = <AgentFunctionToolOutput>[
+          for (final call in round.functionCalls)
+            AgentFunctionToolOutput(
+              callId: call.callId,
+              output: _toolBudgetInsufficientOutput(),
+            ),
+        ];
+        retrievalOutputCallIds = const <String>{};
+        continue;
       }
 
       final outputs = <AgentFunctionToolOutput>[];
@@ -956,6 +972,16 @@ final class ShirohaAgentRuntime {
         'error': <String, Object?>{
           'code': 'access_denied',
           'message': 'File content is unavailable.',
+          'retryable': false,
+        },
+      });
+
+  String _toolBudgetInsufficientOutput() => jsonEncode(const <String, Object?>{
+        'ok': false,
+        'error': <String, Object?>{
+          'code': 'tool_budget_insufficient',
+          'message': 'The requested tool batch exceeds the remaining tool budget. '
+              'Use the information already available and provide the best bounded answer.',
           'retryable': false,
         },
       });
