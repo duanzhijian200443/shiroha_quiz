@@ -1025,7 +1025,7 @@ void main() {
 
       final second = await _openSeam(path);
       try {
-        expect(await _userVersion(second), 22);
+        expect(await _userVersion(second), DatabaseHelper.databaseVersion);
         expect(
           (await second.rawQuery('PRAGMA foreign_keys')).single.values.single,
           1,
@@ -1091,7 +1091,7 @@ void main() {
     test('fresh v15 database matches the frozen sidecar contract', () async {
       final db = await _openSeam(p.join(tempDir.path, 'r6d_fresh.db'));
       try {
-        expect(await _userVersion(db), 22);
+        expect(await _userVersion(db), DatabaseHelper.databaseVersion);
         expect(
           (await db.rawQuery('PRAGMA foreign_keys')).single.values.single,
           1,
@@ -1142,7 +1142,8 @@ void main() {
 
         final upgraded = await _openSeam(path);
         try {
-          expect(await _userVersion(upgraded), 22, reason: 'v$oldVersion');
+          expect(await _userVersion(upgraded), DatabaseHelper.databaseVersion,
+              reason: 'v$oldVersion');
           expect(
             (await upgraded.rawQuery('PRAGMA foreign_keys'))
                 .single

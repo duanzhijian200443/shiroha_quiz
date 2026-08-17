@@ -161,7 +161,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 22);
+      expect(await userVersion(upgraded), DatabaseHelper.databaseVersion);
       expect(await c0Schema(upgraded), freshSchema);
       expect(await upgraded.query('conversations'), isEmpty);
       expect(await upgraded.query('conversation_messages'), isEmpty);

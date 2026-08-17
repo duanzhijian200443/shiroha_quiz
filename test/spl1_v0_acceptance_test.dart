@@ -298,8 +298,8 @@ void main() {
       expect(row['source_user_message_id'], 'msg_v0_c');
       expect((row['adopted_at'] as num).toInt(), greaterThanOrEqualTo(0));
 
-      // Schema remains v22 and no new migration ran.
-      expect(await _userVersion(db), 22);
+      // Schema remains at DatabaseHelper.databaseVersion and no new migration ran.
+      expect(await _userVersion(db), DatabaseHelper.databaseVersion);
 
       // No question IDs are persisted inside the plan; no provider payload /
       // reasoning is persisted.
@@ -1028,7 +1028,7 @@ void main() {
       expect(AgentStudyPlanToolCatalog.toolName, 'propose_study_plan');
       expect(AgentStudyToolCatalog.toolNames,
           isNot(contains('propose_study_plan')));
-      expect(await _userVersion(await _db()), 22);
+      expect(await _userVersion(await _db()), DatabaseHelper.databaseVersion);
     });
   });
 }

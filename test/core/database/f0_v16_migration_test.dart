@@ -198,7 +198,7 @@ void main() {
   test('fresh v16 create matches the frozen library_files contract', () async {
     final db = await openSeam(inMemoryDatabasePath);
     try {
-      expect(await userVersion(db), 22);
+      expect(await userVersion(db), DatabaseHelper.databaseVersion);
       expect(
         (await db.rawQuery('PRAGMA foreign_keys')).single.values.single,
         1,
@@ -225,7 +225,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 22);
+      expect(await userVersion(upgraded), DatabaseHelper.databaseVersion);
       await expectCanonicalLibraryFiles(upgraded);
       expect(await upgraded.query('library_files'), isEmpty);
 
@@ -268,7 +268,7 @@ void main() {
     // Reopen at v16 is idempotent and retains everything.
     final reopened = await openSeam(path);
     try {
-      expect(await userVersion(reopened), 22);
+      expect(await userVersion(reopened), DatabaseHelper.databaseVersion);
       expect(
         await reopened.query(
           'question_v2_payloads',
@@ -297,7 +297,7 @@ void main() {
 
     final upgraded = await openSeam(path);
     try {
-      expect(await userVersion(upgraded), 22);
+      expect(await userVersion(upgraded), DatabaseHelper.databaseVersion);
       await expectCanonicalLibraryFiles(upgraded);
       // The v14 fixture dropped the sidecar table entirely, so v16 recreates
       // it empty; the underlying rows and review state must survive.

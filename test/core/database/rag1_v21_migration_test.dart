@@ -86,7 +86,7 @@ void main() {
       expect(
           (await upgraded.rawQuery('PRAGMA user_version'))
               .single['user_version'],
-          22);
+          DatabaseHelper.databaseVersion);
       expect(await upgraded.query('library_files'), hasLength(1));
       await upgraded.insert('retrieval_index_builds', <String, Object?>{
         'build_id': 'build-rag1',
