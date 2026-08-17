@@ -789,9 +789,10 @@ class OcrQuestionRegionizer {
   List<_OcrTextUnit> _splitBlock(OcrBlock block) {
     final type = block.type.trim().toLowerCase();
     final rawText = block.text.trim();
-    if (type == 'image' ||
-        type == 'figure' ||
-        rawText.startsWith('data:image/')) {
+    if (rawText.isNotEmpty &&
+        (type == 'image' ||
+            type == 'figure' ||
+            rawText.startsWith('data:image/'))) {
       return [
         _OcrTextUnit(
           block: block,

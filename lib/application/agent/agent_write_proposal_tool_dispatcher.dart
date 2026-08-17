@@ -373,6 +373,11 @@ final class AgentWriteProposalToolDispatcher {
           'type': 'block_math',
           'latex': latex,
         },
+      ImageNode(:final assetRef, :final altText) => <String, Object?>{
+          'type': 'image',
+          'asset_ref': assetRef,
+          if (altText != null) 'alt_text': altText,
+        },
       RawFallbackNode() => <String, Object?>{'type': 'unsupported'},
     };
   }

@@ -154,8 +154,7 @@ List<_IndexedOcrBlock> _usableBlocks(OcrDocument document) {
         blockEncounter < page.blocks.length;
         blockEncounter++) {
       final block = page.blocks[blockEncounter];
-      final type = block.type.trim().toLowerCase();
-      if (block.text.trim().isEmpty && type != 'image' && type != 'figure') {
+      if (block.text.trim().isEmpty) {
         continue;
       }
       indexedBlocks.add(

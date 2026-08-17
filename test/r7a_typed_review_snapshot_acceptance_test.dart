@@ -38,7 +38,11 @@ class _FakeDistiller implements SubjectiveAnswerDistiller {
   }
 }
 
-Map<String, Object?> _envelope({bool withMarker = false}) {
+Map<String, Object?> _envelope({
+  int number = 1,
+  String stemText = 'Synthetic question 1',
+  bool withMarker = false,
+}) {
   const codec = TypedReviewSnapshotCodec();
   final encoded = codec.encode(
     TypedReviewSnapshot(
@@ -47,9 +51,9 @@ Map<String, Object?> _envelope({bool withMarker = false}) {
       draft: QuestionDraftV2(
         questionId: _uuidB,
         kind: QuestionKind.singleChoice,
-        questionNumber: 1,
-        stem: RichContent(nodes: const <ContentNode>[
-          TextNode('Synthetic typed stem'),
+        questionNumber: number,
+        stem: RichContent(nodes: <ContentNode>[
+          TextNode(stemText),
         ]),
         options: <QuestionOption>[
           QuestionOption(
@@ -64,7 +68,7 @@ Map<String, Object?> _envelope({bool withMarker = false}) {
       ),
       baselineLegacy: LegacyReviewBaseline(
         type: 0,
-        questionNumber: 1,
+        questionNumber: number,
         content: 'Synthetic baseline',
         options: <String>['A'],
         standardAnswer: 'A',
@@ -87,18 +91,23 @@ Map<String, dynamic> _question({
   bool includeReviewItemId = true,
   bool withSecretMarker = false,
 }) {
+  final contentText = content.isEmpty ? 'Synthetic question $number' : content;
   return <String, dynamic>{
     'q_num': number,
     'question_number': number,
     'source_page_indices': <int>[number - 1],
     'source_block_ids': <String>['synthetic-block-$number'],
     'type': type,
-    'content': content.isEmpty ? 'Synthetic question $number' : content,
+    'content': contentText,
     'options': options,
     'standard_answer': standardAnswer,
     'explanation': 'Synthetic explanation $number',
     if (includeReviewItemId) TaskManager.keyReviewItemId: 'review-item-$number',
-    TypedReviewSnapshotCodec.mapKey: _envelope(withMarker: withSecretMarker),
+    TypedReviewSnapshotCodec.mapKey: _envelope(
+      number: number,
+      stemText: contentText,
+      withMarker: withSecretMarker,
+    ),
   };
 }
 
