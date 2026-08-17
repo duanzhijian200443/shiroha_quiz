@@ -73,6 +73,8 @@ final class OcrSourceDocumentAdapter {
     }
 
     indexedBlocks.sort(_compareIndexedBlocks);
+    final assetStore =
+        _assetStore ?? DefaultContentAssetResolver.instance.activeStore;
     final parts = <SourcePart>[];
     for (final indexed in indexedBlocks) {
       final block = indexed.block;
@@ -124,7 +126,7 @@ final class OcrSourceDocumentAdapter {
         );
       }
 
-      final mapped = _mapBlock(block, sourceRef, _assetStore);
+      final mapped = _mapBlock(block, sourceRef, assetStore);
       parts.add(mapped.part);
       if (mapped.structureUnsupported) {
         issues.add(
