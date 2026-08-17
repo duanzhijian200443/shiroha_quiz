@@ -34,7 +34,8 @@ void main() {
         await DatabaseHelper.instance.openPathForTesting(inMemoryDatabasePath);
     try {
       final versionRows = await db.rawQuery('PRAGMA user_version');
-      expect(versionRows.single['user_version'], 23);
+      expect(
+          versionRows.single['user_version'], DatabaseHelper.databaseVersion);
 
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'study_plans'",
@@ -117,7 +118,8 @@ void main() {
     final upgraded = await DatabaseHelper.instance.openPathForTesting(path);
     try {
       final versionRows = await upgraded.rawQuery('PRAGMA user_version');
-      expect(versionRows.single['user_version'], 23);
+      expect(
+          versionRows.single['user_version'], DatabaseHelper.databaseVersion);
 
       // Verify old data is intact
       final questions = await upgraded.query('questions');

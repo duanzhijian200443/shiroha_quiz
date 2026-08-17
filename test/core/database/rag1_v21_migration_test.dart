@@ -30,7 +30,7 @@ void main() {
         await DatabaseHelper.instance.openPathForTesting(inMemoryDatabasePath);
     try {
       expect((await db.rawQuery('PRAGMA user_version')).single['user_version'],
-          23);
+          DatabaseHelper.databaseVersion);
       final objects = await db.rawQuery(
           "SELECT type, name FROM sqlite_master WHERE name LIKE 'retrieval_%' ORDER BY name");
       expect(

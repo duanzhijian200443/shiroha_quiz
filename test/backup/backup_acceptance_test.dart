@@ -288,7 +288,7 @@ void main() {
   }
 
   test(
-      'populated v22 round trip preserves durable state and excludes derived state',
+      'populated current-schema round trip preserves durable state and excludes derived state',
       () async {
     final package = await exportPackage();
     final manifest = await BackupArchiveIo.readManifestOnly(package);

@@ -221,7 +221,7 @@ Future<void> _plantDecoy(Database db, String storageId) async {
 
 Future<void> _assertV18(Database db) async {
   final version = await db.rawQuery('PRAGMA user_version');
-  expect(version.single['user_version'], 23);
+  expect(version.single['user_version'], DatabaseHelper.databaseVersion);
 }
 
 /// Runs one real-async database chunk: the FakeAsync widget-test zone cannot
