@@ -99,6 +99,71 @@ void main() {
     );
 
     test(
+      'toolPhaseClosed bounded request serializes zero function tools and zero native web search',
+      () async {
+        final initialClient = _FixtureClient(functionCallOnlySse);
+        final continuationClient = _FixtureClient(textDeltaAndCompletedSse);
+        var clientIndex = 0;
+        final provider = _provider(
+          clientFactory: () => <http.Client>[
+            initialClient,
+            continuationClient,
+          ][clientIndex++],
+        );
+        final tool = AgentFunctionToolDefinition(
+          name: 'search_questions',
+          description: 'Search the local question bank.',
+          inputSchema: <String, Object?>{'type': 'object'},
+        );
+        final initialEvents = await provider
+            .stream(
+              _request(
+                tools: <AgentFunctionToolDefinition>[tool],
+                enableNativeWebSearch: false,
+              ),
+              AgentCancellationController().token,
+            )
+            .toList();
+        final continuationState = initialEvents
+            .whereType<AgentProviderCompleted>()
+            .single
+            .continuationState;
+        expect(continuationState, isNotNull);
+
+        final boundedRequest = _request(
+          continuationState: continuationState,
+          tools: const <AgentFunctionToolDefinition>[],
+          enableNativeWebSearch: false,
+          toolOutputs: <AgentFunctionToolOutput>[
+            AgentFunctionToolOutput(
+              callId: 'call-2',
+              output:
+                  '{"ok":false,"error":{"code":"tool_budget_insufficient"}}',
+            ),
+          ],
+        );
+
+        await provider
+            .stream(boundedRequest, AgentCancellationController().token)
+            .drain<void>();
+        final body =
+            jsonDecode(continuationClient.requestBody!) as Map<String, dynamic>;
+
+        expect(body.containsKey('tools'), isFalse);
+        expect(body['tools'], isNull);
+        expect(continuationClient.requestBody, isNot(contains('"tools"')));
+        expect(
+          continuationClient.requestBody,
+          isNot(contains('"type":"web_search"')),
+        );
+        expect(
+          continuationClient.requestBody,
+          isNot(contains('"type":"function"')),
+        );
+      },
+    );
+
+    test(
       'manually replays opaque output items and function output statelessly',
       () async {
         final initialClient = _FixtureClient(functionAndWebSse);

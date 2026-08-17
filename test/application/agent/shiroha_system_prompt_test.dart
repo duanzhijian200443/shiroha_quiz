@@ -17,10 +17,49 @@ void main() {
         'Shiroha Quiz.',
       ),
     );
-    expect(prompt, contains('READ_ONLY'));
-    expect(prompt, contains('local read-only tools exposed for this turn'));
-    expect(prompt, contains('no autonomous mutation'));
-    expect(prompt, contains('Never claim that writes occurred.'));
+    expect(prompt, isNot(contains('You are READ_ONLY.')));
+    expect(prompt, isNot(contains('no autonomous mutation')));
+    expect(prompt, isNot(contains('Never claim that writes occurred.')));
+    expect(
+      prompt,
+      contains(
+        'READ: You may autonomously use only the exposed read and retrieval '
+        'tools for this turn when study data or file content is needed.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'DRAFT / STAGE: When designated proposal tools are exposed, you may '
+        'autonomously create and stage draft proposals for user review; '
+        'staging a proposal is not committing, adopting, or activating it.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'COMMIT: Autonomous formal commits, adoptions, or activations are '
+        'forbidden. Formal commit/adoption requires explicit user confirmation '
+        "through the product's formal action; natural-language agreement is "
+        'not approval or adoption.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'DESTRUCTIVE: Destructive operations must never be performed '
+        'autonomously.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Claims: You may state that a draft proposal or study plan draft '
+        'was staged for review, but you must never claim that a proposal was '
+        'committed, a study plan was activated, or formal data was modified '
+        'before explicit user confirmation.',
+      ),
+    );
     expect(prompt, contains('propose_missing_answer'));
     expect(prompt, contains('DRAFT/STAGE proposal'));
     expect(
@@ -41,6 +80,33 @@ void main() {
       contains(
         'Use local study tools when study data is '
         'needed.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Prefer aggregate study tools before per-question detail tools.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Use the minimum number of tool calls needed for a reliable answer.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Do not blindly fan out over every question when aggregate evidence '
+        'is enough.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'When exhaustive analysis cannot fit within the available tool '
+        'budget, provide a bounded analysis and clearly state the scope '
+        'instead of pretending that a partial sample represents the whole.',
       ),
     );
     expect(prompt, contains('Never invent tool results.'));
@@ -77,25 +143,23 @@ void main() {
   });
 
   test(
-      'with the proposal capability disabled, stays READ_ONLY truthful and '
+      'with the proposal capability disabled, stays authority truthful and '
       'does not advertise the proposal tool', () {
     final prompt = const ShirohaSystemPrompt().build(
       scope: ConversationScope.global(),
       proposalCapabilityEnabled: false,
     );
 
-    expect(prompt, contains('You are READ_ONLY.'));
-    expect(prompt, contains('local read-only tools exposed for this turn'));
-    expect(prompt, contains('no autonomous mutation'));
+    expect(prompt, isNot(contains('You are READ_ONLY.')));
+    expect(prompt, isNot(contains('no autonomous mutation')));
+    expect(prompt, isNot(contains('Never claim that writes occurred.')));
+    expect(prompt,
+        contains('READ: You may autonomously use only the exposed read'));
     expect(prompt, isNot(contains('propose_missing_answer')));
-    expect(prompt, isNot(contains('DRAFT/STAGE')));
-    expect(prompt, isNot(contains('proposal')));
     expect(
       prompt,
       isNot(contains('approve, commit, replace, clear, or delete')),
     );
-    expect(prompt, isNot(contains('Natural-language agreement')));
-    expect(prompt, contains('Never claim that writes occurred.'));
     expect(prompt, contains('Never invent tool results.'));
     expect(
       prompt,

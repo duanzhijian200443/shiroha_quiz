@@ -218,12 +218,10 @@ final class ShirohaAgentRuntime {
         } catch (error) {
           final failure = _mapFailure(error, turn);
           _logTerminalTurnFailure(turn, error, failure);
-          final traceFailureCode =
-              error is _TurnFailure ? error.traceFailureCode : null;
           final summary = DiagnosticSummary(
             diagnosticId: turn.correlationId,
             operation: 'agent_turn',
-            failure: traceFailureCode ?? failure.name,
+            failure: failure.name,
             providerRounds: turn.providerRounds,
             toolCalls: turn.toolCallsCount,
             lastTool: turn.lastToolName,
@@ -346,7 +344,8 @@ final class ShirohaAgentRuntime {
       retrievableFileIds:
           retrievalGrant?.approvedFileIds.toSet() ?? const <String>{},
     );
-    final tools = <AgentFunctionToolDefinition>[
+    var toolPhaseClosed = false;
+    final baseTools = <AgentFunctionToolDefinition>[
       ...AgentStudyToolCatalog.definitions,
       if (proposalCapabilityEnabled) AgentWriteProposalToolCatalog.definition,
       if (studyPlanCapabilityEnabled) AgentStudyPlanToolCatalog.definition,
@@ -383,14 +382,17 @@ final class ShirohaAgentRuntime {
       }
       _throwIfExpired(turn);
       _throwIfCancelled(turn);
+      final currentTools =
+          toolPhaseClosed ? const <AgentFunctionToolDefinition>[] : baseTools;
       final request = AgentProviderRequest(
         systemPrompt: systemPrompt,
         messages: history.messages,
-        tools: tools,
+        tools: currentTools,
         toolOutputs: toolOutputs,
         continuationState: continuationState,
-        enableNativeWebSearch:
-            currentResolved.config.webEnabled && capabilities.nativeWebSearch,
+        enableNativeWebSearch: !toolPhaseClosed &&
+            currentResolved.config.webEnabled &&
+            capabilities.nativeWebSearch,
         maxOutputTokens: _limits.maxOutputTokens,
         temperature: currentResolved.config.temperature,
         reasoningEffort: currentResolved.config.reasoningEffort,
@@ -453,6 +455,7 @@ final class ShirohaAgentRuntime {
         data: <String, Object?>{
           'stage': 'provider_round_completed',
           'providerRound': turn.providerRounds,
+          'functionCallCount': round.functionCalls.length,
           'status': 'success',
           'durationMs': roundStopwatch.elapsedMilliseconds,
         },
@@ -488,29 +491,55 @@ final class ShirohaAgentRuntime {
         }
       }
 
-      turn.toolRoundsUsed++;
-      if (turn.toolRoundsUsed > _limits.maxToolRounds) {
-        throw const _TurnFailure(
-          AgentTurnFailure.toolLimitExceeded,
-          traceFailureCode: 'tool_round_limit_exceeded',
-        );
+      if (toolPhaseClosed) {
+        throw const _TurnFailure(AgentTurnFailure.providerMalformed);
       }
+
       final continuation = round.continuationState;
       if (continuation == null) {
         throw const _TurnFailure(AgentTurnFailure.providerMalformed);
-      }
-      if (turn.localCallsUsed + round.functionCalls.length >
-          _limits.maxLocalCalls) {
-        throw const _TurnFailure(
-          AgentTurnFailure.toolLimitExceeded,
-          traceFailureCode: 'local_call_limit_exceeded',
-        );
       }
       for (final call in round.functionCalls) {
         if (!turn.seenCallIds.add(call.callId)) {
           throw const _TurnFailure(AgentTurnFailure.providerMalformed);
         }
       }
+
+      final toolRoundBudgetExhausted =
+          turn.toolRoundsUsed >= _limits.maxToolRounds;
+      final localCallBudgetExhausted =
+          turn.localCallsUsed + round.functionCalls.length >
+              _limits.maxLocalCalls;
+
+      if (toolRoundBudgetExhausted || localCallBudgetExhausted) {
+        toolPhaseClosed = true;
+        final budgetExhaustedReason = toolRoundBudgetExhausted
+            ? 'tool_round_limit_exceeded'
+            : 'local_call_limit_exceeded';
+        LogWriter.info(
+          'Tool budget exhausted, closing tool phase',
+          module: 'Agent',
+          data: <String, Object?>{
+            'stage': 'tool_phase_closed',
+            'reason': budgetExhaustedReason,
+            'toolRoundsUsed': turn.toolRoundsUsed,
+            'localCallsUsed': turn.localCallsUsed,
+            'requestedCalls': round.functionCalls.length,
+          },
+        );
+        continuationState = continuation;
+        toolOutputs = <AgentFunctionToolOutput>[
+          for (final call in round.functionCalls)
+            AgentFunctionToolOutput(
+              callId: call.callId,
+              output: _toolBudgetInsufficientOutput(),
+            ),
+        ];
+        retrievalOutputCallIds = const <String>{};
+        continue;
+      }
+
+      turn.toolRoundsUsed++;
 
       final outputs = <AgentFunctionToolOutput>[];
       final nextRetrievalOutputCallIds = <String>{};
@@ -563,6 +592,25 @@ final class ShirohaAgentRuntime {
       continuationState = continuation;
       toolOutputs = outputs;
       retrievalOutputCallIds = nextRetrievalOutputCallIds;
+
+      if (turn.toolRoundsUsed >= _limits.maxToolRounds ||
+          turn.localCallsUsed >= _limits.maxLocalCalls) {
+        toolPhaseClosed = true;
+        final budgetExhaustedReason =
+            turn.toolRoundsUsed >= _limits.maxToolRounds
+                ? 'tool_round_limit_exceeded'
+                : 'local_call_limit_exceeded';
+        LogWriter.info(
+          'Tool budget exhausted, closing tool phase',
+          module: 'Agent',
+          data: <String, Object?>{
+            'stage': 'tool_phase_closed',
+            'reason': budgetExhaustedReason,
+            'toolRoundsUsed': turn.toolRoundsUsed,
+            'localCallsUsed': turn.localCallsUsed,
+          },
+        );
+      }
     }
   }
 
@@ -960,6 +1008,16 @@ final class ShirohaAgentRuntime {
         },
       });
 
+  String _toolBudgetInsufficientOutput() => jsonEncode(const <String, Object?>{
+        'ok': false,
+        'error': <String, Object?>{
+          'code': 'tool_budget_insufficient',
+          'message': 'The requested tool batch exceeds the remaining tool budget. '
+              'Use the information already available and provide the best bounded answer.',
+          'retryable': false,
+        },
+      });
+
   /// Emits a typed proposal-staged event when the proposal tool returned a
   /// successful staging/replay result. Event shaping never fails the turn.
   void _maybeEmitProposalStaged(_ActiveTurn turn, String output) {
@@ -1241,7 +1299,7 @@ final class ShirohaAgentRuntime {
       AgentTurnFailure.cancelled => 'turn_cancelled',
       _ => 'turn_failed',
     };
-    final failureCode = error is _TurnFailure ? error.traceFailureCode : null;
+    final failureCode = failure.name;
     LogWriter.error(
       switch (failure) {
         AgentTurnFailure.timeout => 'Agent turn timed out',
@@ -1253,7 +1311,7 @@ final class ShirohaAgentRuntime {
         'stage': stage,
         'status': 'failed',
         'failure': failure.name,
-        if (failureCode != null) 'failureCode': failureCode,
+        'failureCode': failureCode,
         'providerRounds': turn.providerRounds,
         'toolCalls': turn.toolCallsCount,
         'toolRoundsUsed': turn.toolRoundsUsed,
@@ -1432,14 +1490,9 @@ final class _PendingFinalAssistant {
 }
 
 final class _TurnFailure implements Exception {
-  const _TurnFailure(this.failure, {this.traceFailureCode});
+  const _TurnFailure(this.failure);
 
   final AgentTurnFailure failure;
-
-  /// OBS-1 more specific trace-only failure code (for example
-  /// `tool_round_limit_exceeded` vs `local_call_limit_exceeded`). Never
-  /// changes the public [AgentTurnFailure] category.
-  final String? traceFailureCode;
 }
 
 final class _TurnTimeoutException implements Exception {
