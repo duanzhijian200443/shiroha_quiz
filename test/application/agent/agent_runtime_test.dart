@@ -7,7 +7,6 @@ import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
-import 'package:shiroha_quiz/core/observability/diagnostic_summary.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
@@ -691,7 +690,9 @@ void main() {
       },
     );
 
-    test('fails when a fifth provider response requires local tools', () async {
+    test(
+        'gracefully bounds tool rounds when a fifth provider response requires local tools',
+        () async {
       const state = _TestContinuationState('s');
       final harness = _Harness(
         scripts: <_Script>[
@@ -700,6 +701,7 @@ void main() {
           _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
           _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
           _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
+          _finalAnswer('Bounded answer after 4 tool rounds'),
         ],
       );
       final (conversationId, userMessageId) = await harness.seedUser(
@@ -713,9 +715,10 @@ void main() {
           )
           .result;
 
-      expect(_failureOf(result), AgentTurnFailure.toolLimitExceeded);
-      expect(harness.provider.callCount, 5);
-      expect(await harness.messagesOf(conversationId), hasLength(1));
+      expect(result, isA<AgentTurnSuccess>());
+      expect(harness.dispatcher.calls, hasLength(4));
+      expect(harness.provider.callCount, 6);
+      expect(await harness.messagesOf(conversationId), hasLength(2));
     });
 
     group('Tool budget graceful degradation', () {
@@ -958,6 +961,127 @@ void main() {
         expect(_failureOf(result), AgentTurnFailure.providerMalformed);
         expect(harness.dispatcher.calls, isEmpty);
       });
+
+      test(
+          'Case G: tool rounds cap (4) gracefully bounds and completes with prose answer',
+          () async {
+        const state = _TestContinuationState('s');
+        final harness = _Harness(
+          scripts: <_Script>[
+            _toolRound(<AgentProviderFunctionCall>[_call('call-1')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-2')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
+            _finalAnswer('Bounded answer after 4 tool rounds'),
+          ],
+        );
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+        );
+
+        final result = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
+
+        expect(result, isA<AgentTurnSuccess>());
+        expect(harness.dispatcher.calls, hasLength(4));
+        expect(harness.provider.callCount, 6);
+        expect(harness.provider.requests[5].tools, isEmpty);
+      });
+
+      test('Case H: tool phase closure disables native web search', () async {
+        final calls = List<AgentProviderFunctionCall>.generate(
+          9,
+          (index) => _call('call-r1-$index'),
+        );
+        final harness = _Harness(
+          webEnabled: true,
+          capabilities: const AgentProviderCapabilities(
+            functionTools: true,
+            nativeWebSearch: true,
+          ),
+          scripts: <_Script>[
+            _toolRound(calls, const _TestContinuationState('s1')),
+            _finalAnswer('Answer after web disabled'),
+          ],
+        );
+        final (conversationId, userMessageId) = await harness.seedUser(
+          'question',
+        );
+
+        final result = await harness.runtime
+            .startTurn(
+              conversationId: conversationId,
+              userMessageId: userMessageId,
+            )
+            .result;
+
+        expect(result, isA<AgentTurnSuccess>());
+        expect(harness.provider.requests[0].enableNativeWebSearch, isTrue);
+        expect(harness.provider.requests[1].enableNativeWebSearch, isFalse);
+        expect(harness.provider.requests[1].tools, isEmpty);
+      });
+
+      test(
+          'Case I: diagnostics logs distinguish local_call_limit_exceeded vs tool_round_limit_exceeded',
+          () async {
+        final sink = _MemoryLogSink();
+        AppLogger.setSink(sink);
+
+        // Sub-case 1: local_call_limit_exceeded
+        final localCalls = List<AgentProviderFunctionCall>.generate(
+          9,
+          (index) => _call('call-local-$index'),
+        );
+        final harnessLocal = _Harness(
+          scripts: <_Script>[
+            _toolRound(localCalls, const _TestContinuationState('s1')),
+            _finalAnswer('Local call bounded answer'),
+          ],
+        );
+        final (convId1, msgId1) = await harnessLocal.seedUser('q1');
+        await harnessLocal.runtime
+            .startTurn(conversationId: convId1, userMessageId: msgId1)
+            .result;
+        await AppLogger.flush();
+
+        final localClosedEvent = sink.records.firstWhere(
+          (r) =>
+              r.data['stage'] == 'tool_phase_closed' &&
+              r.data['reason'] == 'local_call_limit_exceeded',
+        );
+        expect(localClosedEvent.data['reason'], 'local_call_limit_exceeded');
+
+        // Sub-case 2: tool_round_limit_exceeded
+        const state = _TestContinuationState('s');
+        final harnessRound = _Harness(
+          scripts: <_Script>[
+            _toolRound(<AgentProviderFunctionCall>[_call('call-r1')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-r2')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-r3')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-r4')], state),
+            _toolRound(<AgentProviderFunctionCall>[_call('call-r5')], state),
+            _finalAnswer('Tool round bounded answer'),
+          ],
+        );
+        final (convId2, msgId2) = await harnessRound.seedUser('q2');
+        await harnessRound.runtime
+            .startTurn(conversationId: convId2, userMessageId: msgId2)
+            .result;
+        await AppLogger.flush();
+
+        final roundClosedEvent = sink.records.firstWhere(
+          (r) =>
+              r.data['stage'] == 'tool_phase_closed' &&
+              r.data['reason'] == 'tool_round_limit_exceeded',
+        );
+        expect(roundClosedEvent.data['reason'], 'tool_round_limit_exceeded');
+        expect(roundClosedEvent.data['toolRoundsUsed'], 4);
+      });
     });
 
     test('fails safely on duplicate tool call ids', () async {
@@ -1061,9 +1185,14 @@ void main() {
       );
       final unwiredPrompt = unwired.provider.requests.single.systemPrompt;
       expect(unwiredPrompt, isNot(contains('You are READ_ONLY.')));
+      expect(unwiredPrompt, isNot(contains('no autonomous mutation')));
       expect(
         unwiredPrompt,
-        contains('READ: You may use only the exposed read'),
+        isNot(contains('Never claim that writes occurred.')),
+      );
+      expect(
+        unwiredPrompt,
+        contains('READ: You may autonomously use only the exposed read'),
       );
       expect(unwiredPrompt, isNot(contains('propose_missing_answer')));
 
@@ -1112,7 +1241,8 @@ void main() {
           'Never claim that a proposal was committed or formally written.',
         ),
       );
-      expect(wiredPrompt, contains('Never claim that writes occurred.'));
+      expect(wiredPrompt, isNot(contains('no autonomous mutation')));
+      expect(wiredPrompt, isNot(contains('Never claim that writes occurred.')));
     });
 
     test(
@@ -3192,7 +3322,8 @@ void main() {
       expect(encoded, isNot(contains('"secret"')));
     });
 
-    test('tool-round overflow keeps the public failure and traces the code',
+    test(
+        'tool-round overflow logs tool_phase_closed with reason and bounds execution',
         () async {
       final sink = _MemoryLogSink();
       AppLogger.setSink(sink);
@@ -3203,6 +3334,7 @@ void main() {
         _toolRound(<AgentProviderFunctionCall>[_call('call-3')], state),
         _toolRound(<AgentProviderFunctionCall>[_call('call-4')], state),
         _toolRound(<AgentProviderFunctionCall>[_call('call-5')], state),
+        _finalAnswer('Finished safely after 4 tool rounds'),
       ]);
       final (conversationId, userMessageId) = await harness.seedUser(
         'question',
@@ -3214,19 +3346,13 @@ void main() {
       final result = await session.result;
       await AppLogger.flush();
 
-      expect(_failureOf(result), AgentTurnFailure.toolLimitExceeded);
-      final failed = result as AgentTurnFailed;
-      expect(failed.summary, isNotNull);
-      expect(failed.summary!.diagnosticId, session.diagnosticId);
-      expect(failed.summary!.operation, 'agent_turn');
-      expect(failed.summary!.failure, 'tool_round_limit_exceeded');
-      expect(failed.summary!.providerRounds, 5);
-      expect(failed.summary!.toolCalls, 4);
-      final terminal = sink.records.lastWhere(
-        (r) => r.data['stage'] == 'turn_failed',
+      expect(result, isA<AgentTurnSuccess>());
+      expect(harness.dispatcher.calls, hasLength(4));
+      final closed = sink.records.firstWhere(
+        (r) => r.data['stage'] == 'tool_phase_closed',
       );
-      expect(terminal.data['failureCode'], 'tool_round_limit_exceeded');
-      expect(terminal.correlationId, session.diagnosticId);
+      expect(closed.data['reason'], 'tool_round_limit_exceeded');
+      expect(closed.data['toolRoundsUsed'], 4);
     });
 
     test(
@@ -3563,6 +3689,7 @@ void main() {
               name: 'evil_tool_${sentinel}_$round',
             ),
           ], state),
+        _finalAnswer('Safe prose answer'),
       ]);
       final (conversationId, userMessageId) = await harness.seedUser(
         'question',
@@ -3574,14 +3701,21 @@ void main() {
       final result = await session.result;
       await AppLogger.flush();
 
-      expect(_failureOf(result), AgentTurnFailure.toolLimitExceeded);
-      final failed = result as AgentTurnFailed;
-      expect(failed.summary, isNotNull);
-      expect(failed.summary!.lastTool, 'unknown_tool');
-      expect(failed.summary!.failure, 'tool_round_limit_exceeded');
-      final text = DiagnosticSummaryFormatter.format(failed.summary!)!;
-      expect(text, isNot(contains(sentinel)));
-      expect(text, isNot(contains('evil_tool_')));
+      expect(result, isA<AgentTurnSuccess>());
+      final toolRecords = sink.records
+          .where((r) =>
+              r.data['stage'] == 'tool_call_started' ||
+              r.data['stage'] == 'tool_call_completed')
+          .toList();
+      expect(toolRecords, hasLength(8)); // 4 started + 4 completed
+      for (final r in toolRecords) {
+        expect(r.data['toolName'], 'unknown_tool');
+        expect(r.data['callId'], 'invalid_call_id');
+      }
+      final encoded =
+          sink.records.map((record) => record.toJson().toString()).join('\n');
+      expect(encoded, isNot(contains(sentinel)));
+      expect(encoded, isNot(contains('evil_tool_')));
     });
   });
 }

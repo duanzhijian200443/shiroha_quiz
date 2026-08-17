@@ -181,19 +181,24 @@ text are never logged. `RetrievalEgressGrant`, per-turn authorization and
 
 ## 9. Agent tool limit diagnosis
 
-`maxToolRounds = 4` and `maxLocalCalls = 8` are unchanged. The public
-failure `AgentTurnFailure.toolLimitExceeded` is unchanged (Presentation
-contract does not drift). The internal trace distinguishes:
+`maxToolRounds = 4` and `maxLocalCalls = 8` are unchanged hard bounds. When
+either budget is exhausted during a turn, the runtime gracefully closes the tool
+phase (`toolPhaseClosed = true`, disabling both local function tools and native
+web search) and returns structured `tool_budget_insufficient` outputs, allowing
+the Provider one final prose-only continuation round to produce a bounded answer
+from available evidence. The internal trace distinguishes the exhausted budget
+reason:
 
 ```text
-failureCode = tool_round_limit_exceeded
-toolRoundsUsed = 5, maxToolRounds = 4
+reason / failureCode = tool_round_limit_exceeded
+toolRoundsUsed = 4, maxToolRounds = 4
 ```
 
 vs.
 
 ```text
-failureCode = local_call_limit_exceeded
+reason / failureCode = local_call_limit_exceeded
+localCallsUsed + requestedCalls > maxLocalCalls (8)
 ```
 
 ## 10. Fallback observability

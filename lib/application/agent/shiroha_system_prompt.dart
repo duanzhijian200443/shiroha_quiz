@@ -25,29 +25,30 @@ final class ShirohaSystemPrompt {
       ..writeln()
       ..writeln('Permission:')
       ..writeln(
-        '- READ: You may use only the exposed read and retrieval tools for '
-        'this turn when study data or file content is needed.',
+        '- READ: You may autonomously use only the exposed read and retrieval '
+        'tools for this turn when study data or file content is needed.',
       )
       ..writeln(
         '- DRAFT / STAGE: When designated proposal tools are exposed, you may '
-        'create draft proposals for user review; staging a proposal is not '
-        'committing, adopting, or activating it.',
+        'autonomously create and stage draft proposals for user review; '
+        'staging a proposal is not committing, adopting, or activating it.',
       )
       ..writeln(
-        '- COMMIT: Formal commits and activations require explicit user '
-        "confirmation through the product's formal action; natural-language "
-        'agreement is not approval or adoption.',
+        '- COMMIT: Autonomous formal commits, adoptions, or activations are '
+        'forbidden. Formal commit/adoption requires explicit user confirmation '
+        "through the product's formal action; natural-language agreement is "
+        'not approval or adoption.',
       )
       ..writeln(
         '- DESTRUCTIVE: Destructive operations must never be performed '
         'autonomously.',
       )
       ..writeln(
-        '- Claims: Never claim that a proposal was committed, a study plan was '
-        'activated, or data was modified before formal confirmation.',
-      )
-      ..writeln('- no autonomous mutation')
-      ..writeln('- Never claim that writes occurred.');
+        '- Claims: You may state that a draft proposal or study plan draft '
+        'was staged for review, but you must never claim that a proposal was '
+        'committed, a study plan was activated, or formal data was modified '
+        'before explicit user confirmation.',
+      );
     if (proposalCapabilityEnabled) {
       buffer
         ..writeln(

@@ -218,12 +218,10 @@ final class ShirohaAgentRuntime {
         } catch (error) {
           final failure = _mapFailure(error, turn);
           _logTerminalTurnFailure(turn, error, failure);
-          final traceFailureCode =
-              error is _TurnFailure ? error.traceFailureCode : null;
           final summary = DiagnosticSummary(
             diagnosticId: turn.correlationId,
             operation: 'agent_turn',
-            failure: traceFailureCode ?? failure.name,
+            failure: failure.name,
             providerRounds: turn.providerRounds,
             toolCalls: turn.toolCallsCount,
             lastTool: turn.lastToolName,
@@ -392,8 +390,9 @@ final class ShirohaAgentRuntime {
         tools: currentTools,
         toolOutputs: toolOutputs,
         continuationState: continuationState,
-        enableNativeWebSearch:
-            currentResolved.config.webEnabled && capabilities.nativeWebSearch,
+        enableNativeWebSearch: !toolPhaseClosed &&
+            currentResolved.config.webEnabled &&
+            capabilities.nativeWebSearch,
         maxOutputTokens: _limits.maxOutputTokens,
         temperature: currentResolved.config.temperature,
         reasoningEffort: currentResolved.config.reasoningEffort,
@@ -496,13 +495,6 @@ final class ShirohaAgentRuntime {
         throw const _TurnFailure(AgentTurnFailure.providerMalformed);
       }
 
-      turn.toolRoundsUsed++;
-      if (turn.toolRoundsUsed > _limits.maxToolRounds) {
-        throw const _TurnFailure(
-          AgentTurnFailure.toolLimitExceeded,
-          traceFailureCode: 'tool_round_limit_exceeded',
-        );
-      }
       final continuation = round.continuationState;
       if (continuation == null) {
         throw const _TurnFailure(AgentTurnFailure.providerMalformed);
@@ -513,9 +505,28 @@ final class ShirohaAgentRuntime {
         }
       }
 
-      if (turn.localCallsUsed + round.functionCalls.length >
-          _limits.maxLocalCalls) {
+      final toolRoundBudgetExhausted =
+          turn.toolRoundsUsed >= _limits.maxToolRounds;
+      final localCallBudgetExhausted =
+          turn.localCallsUsed + round.functionCalls.length >
+              _limits.maxLocalCalls;
+
+      if (toolRoundBudgetExhausted || localCallBudgetExhausted) {
         toolPhaseClosed = true;
+        final budgetExhaustedReason = toolRoundBudgetExhausted
+            ? 'tool_round_limit_exceeded'
+            : 'local_call_limit_exceeded';
+        LogWriter.info(
+          'Tool budget exhausted, closing tool phase',
+          module: 'Agent',
+          data: <String, Object?>{
+            'stage': 'tool_phase_closed',
+            'reason': budgetExhaustedReason,
+            'toolRoundsUsed': turn.toolRoundsUsed,
+            'localCallsUsed': turn.localCallsUsed,
+            'requestedCalls': round.functionCalls.length,
+          },
+        );
         continuationState = continuation;
         toolOutputs = <AgentFunctionToolOutput>[
           for (final call in round.functionCalls)
@@ -527,6 +538,8 @@ final class ShirohaAgentRuntime {
         retrievalOutputCallIds = const <String>{};
         continue;
       }
+
+      turn.toolRoundsUsed++;
 
       final outputs = <AgentFunctionToolOutput>[];
       final nextRetrievalOutputCallIds = <String>{};
@@ -1267,7 +1280,7 @@ final class ShirohaAgentRuntime {
       AgentTurnFailure.cancelled => 'turn_cancelled',
       _ => 'turn_failed',
     };
-    final failureCode = error is _TurnFailure ? error.traceFailureCode : null;
+    final failureCode = failure.name;
     LogWriter.error(
       switch (failure) {
         AgentTurnFailure.timeout => 'Agent turn timed out',
@@ -1279,7 +1292,7 @@ final class ShirohaAgentRuntime {
         'stage': stage,
         'status': 'failed',
         'failure': failure.name,
-        if (failureCode != null) 'failureCode': failureCode,
+        'failureCode': failureCode,
         'providerRounds': turn.providerRounds,
         'toolCalls': turn.toolCallsCount,
         'toolRoundsUsed': turn.toolRoundsUsed,
@@ -1458,14 +1471,9 @@ final class _PendingFinalAssistant {
 }
 
 final class _TurnFailure implements Exception {
-  const _TurnFailure(this.failure, {this.traceFailureCode});
+  const _TurnFailure(this.failure);
 
   final AgentTurnFailure failure;
-
-  /// OBS-1 more specific trace-only failure code (for example
-  /// `tool_round_limit_exceeded` vs `local_call_limit_exceeded`). Never
-  /// changes the public [AgentTurnFailure] category.
-  final String? traceFailureCode;
 }
 
 final class _TurnTimeoutException implements Exception {

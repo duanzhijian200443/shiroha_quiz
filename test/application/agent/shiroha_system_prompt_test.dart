@@ -18,27 +18,30 @@ void main() {
       ),
     );
     expect(prompt, isNot(contains('You are READ_ONLY.')));
+    expect(prompt, isNot(contains('no autonomous mutation')));
+    expect(prompt, isNot(contains('Never claim that writes occurred.')));
     expect(
       prompt,
       contains(
-        'READ: You may use only the exposed read and retrieval tools for '
-        'this turn when study data or file content is needed.',
+        'READ: You may autonomously use only the exposed read and retrieval '
+        'tools for this turn when study data or file content is needed.',
       ),
     );
     expect(
       prompt,
       contains(
         'DRAFT / STAGE: When designated proposal tools are exposed, you may '
-        'create draft proposals for user review; staging a proposal is not '
-        'committing, adopting, or activating it.',
+        'autonomously create and stage draft proposals for user review; '
+        'staging a proposal is not committing, adopting, or activating it.',
       ),
     );
     expect(
       prompt,
       contains(
-        'COMMIT: Formal commits and activations require explicit user '
-        "confirmation through the product's formal action; natural-language "
-        'agreement is not approval or adoption.',
+        'COMMIT: Autonomous formal commits, adoptions, or activations are '
+        'forbidden. Formal commit/adoption requires explicit user confirmation '
+        "through the product's formal action; natural-language agreement is "
+        'not approval or adoption.',
       ),
     );
     expect(
@@ -51,12 +54,12 @@ void main() {
     expect(
       prompt,
       contains(
-        'Claims: Never claim that a proposal was committed, a study plan was '
-        'activated, or data was modified before formal confirmation.',
+        'Claims: You may state that a draft proposal or study plan draft '
+        'was staged for review, but you must never claim that a proposal was '
+        'committed, a study plan was activated, or formal data was modified '
+        'before explicit user confirmation.',
       ),
     );
-    expect(prompt, contains('no autonomous mutation'));
-    expect(prompt, contains('Never claim that writes occurred.'));
     expect(prompt, contains('propose_missing_answer'));
     expect(prompt, contains('DRAFT/STAGE proposal'));
     expect(
@@ -148,14 +151,15 @@ void main() {
     );
 
     expect(prompt, isNot(contains('You are READ_ONLY.')));
-    expect(prompt, contains('READ: You may use only the exposed read'));
-    expect(prompt, contains('no autonomous mutation'));
+    expect(prompt, isNot(contains('no autonomous mutation')));
+    expect(prompt, isNot(contains('Never claim that writes occurred.')));
+    expect(prompt,
+        contains('READ: You may autonomously use only the exposed read'));
     expect(prompt, isNot(contains('propose_missing_answer')));
     expect(
       prompt,
       isNot(contains('approve, commit, replace, clear, or delete')),
     );
-    expect(prompt, contains('Never claim that writes occurred.'));
     expect(prompt, contains('Never invent tool results.'));
     expect(
       prompt,
