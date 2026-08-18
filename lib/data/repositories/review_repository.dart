@@ -145,10 +145,12 @@ class ReviewRepository implements StudyMetricsQueryPort {
 
   Future<void> clearAllData() async {
     final db = await _db;
-    await db.delete('answer_attempts');
-    await db.delete('review_states');
-    await db.delete('review_logs');
-    await db.delete('questions');
+    await db.transaction((txn) async {
+      await txn.delete('answer_attempts');
+      await txn.delete('review_states');
+      await txn.delete('review_logs');
+      await txn.delete('questions');
+    });
   }
 
   Future<List<Map<String, dynamic>>> getQuestionBankStats(int nowUnix) async {

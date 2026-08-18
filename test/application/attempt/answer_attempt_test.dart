@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/answer_attempt_repository.dart';
+import 'package:shiroha_quiz/data/repositories/review_repository.dart';
 import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -30,6 +31,53 @@ void main() {
       }
     } catch (_) {}
   });
+
+  Future<void> seedClearAllData() async {
+    final db = await DatabaseHelper.instance.database;
+
+    await db.insert('questions', <String, Object?>{
+      'id': 'q-clear-all',
+      'type': 0,
+      'content': 'clear-all question',
+      'options': null,
+      'standard_answer': 'A',
+      'explanation': null,
+      'raw_explanation': null,
+      'created_at': 1700000000,
+      'bank_name': '默认题库',
+    });
+    await db.insert('review_states', <String, Object?>{
+      'question_id': 'q-clear-all',
+      'state': 0,
+      'next_review_time': 1700000000,
+      'lapses': 0,
+      'difficulty': 5.0,
+      'stability': 0.0,
+      'reps': 0,
+      'last_lapse_time': null,
+      'last_review_time': null,
+    });
+    await db.insert('review_logs', <String, Object?>{
+      'id': 'log-clear-all',
+      'question_id': 'q-clear-all',
+      'grade': 1,
+      'review_time': 1700000000,
+      'duration_ms': 1000,
+      'user_answer': null,
+      'ai_evaluation': null,
+    });
+    await db.insert('answer_attempts', <String, Object?>{
+      'attempt_id': 'att-clear-all',
+      'question_id': 'q-clear-all',
+      'session_kind': 'normal',
+      'modality': 'choice',
+      'answer_payload_json':
+          '{"version":1,"kind":"choice","option_ids":["opt_a"]}',
+      'correctness': 0,
+      'answered_at': 1700000000,
+      'duration_ms': 1000,
+    });
+  }
 
   group('AnswerAttemptPayload', () {
     test('choice payload creates valid json and passes validation', () {
@@ -211,6 +259,41 @@ void main() {
       expect(await repo.getAttemptsForQuestion('q-100'), isEmpty);
       expect(await repo.getAttemptsForQuestion('q-200'), isEmpty);
       expect(await repo.countIncorrectQuestions(), 0);
+    });
+
+    test('clearAllData clears all four data classes', () async {
+      await seedClearAllData();
+      final db = await DatabaseHelper.instance.database;
+
+      await ReviewRepository().clearAllData();
+
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('review_states'), isEmpty);
+      expect(await db.query('review_logs'), isEmpty);
+      expect(await db.query('answer_attempts'), isEmpty);
+    });
+
+    test('clearAllData rolls back every delete when a later delete fails',
+        () async {
+      await seedClearAllData();
+      final db = await DatabaseHelper.instance.database;
+      await db.execute('''
+        CREATE TRIGGER fail_clear_all_review_logs
+        BEFORE DELETE ON review_logs
+        BEGIN
+          SELECT RAISE(ABORT, 'clear-all test failure');
+        END;
+      ''');
+
+      await expectLater(
+        ReviewRepository().clearAllData(),
+        throwsA(isA<Exception>()),
+      );
+
+      expect(await db.query('questions'), hasLength(1));
+      expect(await db.query('review_states'), hasLength(1));
+      expect(await db.query('review_logs'), hasLength(1));
+      expect(await db.query('answer_attempts'), hasLength(1));
     });
 
     test('command and repository enforce payload validation before persistence',
