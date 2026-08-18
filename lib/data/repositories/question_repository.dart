@@ -534,11 +534,7 @@ class QuestionRepository
         QuestionBankDeleteFailure.transactionFailed,
       );
     }
-    // If the deleted bank was the active one, reset the cached value.
-    final current = await SettingsRepository.instance.getCurrentBank();
-    if (current == bankName) {
-      await SettingsRepository.instance.setCurrentBank('点击修改选择题库');
-    }
+    SettingsRepository.instance.clearCurrentBankCache();
   }
 
   // ---------------------------------------------------------------------------

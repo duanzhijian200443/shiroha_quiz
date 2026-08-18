@@ -2261,6 +2261,14 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
             whereArgs: [bankName],
           );
         }
+        if (await tableExists('app_settings')) {
+          await txn.update(
+            'app_settings',
+            {'value': '点击修改选择题库'},
+            where: 'key = ? AND value = ?',
+            whereArgs: ['current_bank', bankName],
+          );
+        }
       });
     } on QuestionBankDeletePersistenceException {
       rethrow;

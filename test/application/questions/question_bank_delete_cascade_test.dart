@@ -3,6 +3,7 @@ import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/questions/question_bank_mutation_command.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const _targetBank = 'd1c_target_bank';
@@ -223,11 +224,13 @@ void main() {
 
   setUp(() async {
     BackupRestoreMutationGate.resetForTesting();
+    SettingsRepository.instance.clearCache();
     await DatabaseHelper.resetRuntimeProfileForTesting();
   });
 
   tearDown(() async {
     BackupRestoreMutationGate.resetForTesting();
+    SettingsRepository.instance.clearCache();
     await DatabaseHelper.resetRuntimeProfileForTesting();
   });
 
@@ -236,6 +239,7 @@ void main() {
       () async {
     final db = await _database();
     await _seedBank(db, includeOtherBank: true);
+    await SettingsRepository.instance.setCurrentBank(_targetBank);
     final paperId = await DatabaseHelper.instance.createExamPaper(
       'D1C preserved exam',
       0,
@@ -379,6 +383,10 @@ void main() {
       ),
       hasLength(1),
     );
+    expect(
+      await SettingsRepository.instance.getCurrentBank(),
+      '点击修改选择题库',
+    );
   });
 
   test('deletes a legacy bank when the exam reference table is absent',
@@ -521,5 +529,53 @@ void main() {
     );
 
     await _expectTargetBankToRemain(db);
+  });
+
+  test('rolls back bank deletion when current-bank update fails', () async {
+    final db = await _database();
+    await _seedBank(db);
+    await SettingsRepository.instance.setCurrentBank(_targetBank);
+    await db.execute('''
+      CREATE TRIGGER d1c_block_current_bank_update
+      BEFORE UPDATE OF value ON app_settings
+      WHEN OLD.key = 'current_bank' AND OLD.value = 'd1c_target_bank'
+      BEGIN
+        SELECT RAISE(ABORT, 'd1c_synthetic_current_bank_failure');
+      END;
+    ''');
+
+    await expectLater(
+      _deleteTargetBank(),
+      throwsA(
+        isA<QuestionBankDeleteException>().having(
+          (error) => error.failure,
+          'failure',
+          QuestionBankDeleteFailure.transactionFailed,
+        ),
+      ),
+    );
+
+    await _expectTargetBankToRemain(db);
+    expect(
+      await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: <Object?>['current_bank'],
+      ),
+      hasLength(1),
+    );
+    expect(
+      (await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: <Object?>['current_bank'],
+      ))
+          .single['value'],
+      _targetBank,
+    );
+    expect(
+      await SettingsRepository.instance.getCurrentBank(),
+      _targetBank,
+    );
   });
 }
