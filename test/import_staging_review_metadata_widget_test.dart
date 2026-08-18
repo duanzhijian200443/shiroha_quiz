@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/services/import_review/import_review_item.dart';
+import 'package:shiroha_quiz/services/import_review/import_review_metadata.dart';
+import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +18,7 @@ void main() {
   Widget buildTestableWidget(List<Map<String, dynamic>> questions) {
     return MaterialApp(
       home: ImportStagingScreen(
+        key: UniqueKey(),
         parsedQuestions: questions,
         warnings: const [],
       ),
@@ -58,5 +63,329 @@ void main() {
 
     expect(find.text('图文融合'), findsNothing);
     expect(find.text('老题目数据'), findsOneWidget);
+  });
+
+  testWidgets('Shows candidate, review-only, and unavailable states distinctly',
+      (WidgetTester tester) async {
+    Future<void> pumpQuestion(Map<String, dynamic> question) async {
+      await tester.pumpWidget(buildTestableWidget([question]));
+      await tester.pumpAndSettle();
+    }
+
+    await pumpQuestion({
+      'content': 'Eligible question',
+      'type': 0,
+      'options': ['A'],
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['answer_conflict'],
+        'repairCandidateCodes': ['choice_options_less_than_2'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Review-only question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['answer_conflict'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Unavailable metadata question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': 'not-a-map',
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Healthy question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': [],
+        'repairCandidateCodes': [],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Rejects invalid candidate metadata without exposing eligibility',
+      (WidgetTester tester) async {
+    Future<void> pumpQuestion(List<dynamic> candidateCodes) async {
+      await tester.pumpWidget(buildTestableWidget([
+        {
+          'content': 'Invalid candidate question',
+          'type': 0,
+          'options': ['A'],
+          'standard_answer': 'A',
+          '_import_review': {
+            'repairCandidateCodes': candidateCodes,
+          },
+        },
+      ]));
+      await tester.pumpAndSettle();
+    }
+
+    for (final candidateCodes in <List<dynamic>>[
+      <dynamic>[123],
+      <dynamic>['not_a_real_candidate'],
+      <dynamic>['cross_page'],
+    ]) {
+      await pumpQuestion(candidateCodes);
+      expect(
+        find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('question-repair-candidate-0')),
+        findsNothing,
+      );
+    }
+  });
+
+  testWidgets('Review-only notice follows analyzer severity',
+      (WidgetTester tester) async {
+    Future<void> pumpQuestion(Map<String, dynamic> question) async {
+      await tester.pumpWidget(buildTestableWidget([question]));
+      await tester.pumpAndSettle();
+    }
+
+    await pumpQuestion({
+      'content': 'Fused info question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['fused_from_text_vision'],
+      },
+    });
+    expect(find.text('图文融合'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Vision info question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['vision_only'],
+      },
+    });
+    expect(find.text('视觉来源'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Answer conflict question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['answer_conflict'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+
+    await pumpQuestion({
+      'content': r'Latex warning question',
+      'type': 3,
+      'standard_answer': 'A',
+      'explanation': r'Broken \begin{matrix}1',
+      'raw_explanation': r'Broken \begin{matrix}1',
+      '_import_review': {
+        'riskHints': ['latex_unrenderable'],
+        'latexInvalidFields': ['content'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Persists unavailable metadata state across draft reload',
+      (WidgetTester tester) async {
+    Map<String, dynamic>? savedTaskMap;
+    final taskManager = TaskManager.forTesting(
+      saveTask: (taskMap) async {
+        savedTaskMap = taskMap;
+      },
+    );
+    final task = ImportTask(
+      id: 'metadata-roundtrip-task',
+      title: 'Metadata roundtrip',
+      status: TaskStatus.pendingReview,
+      parsedData: [
+        {
+          'content': 'Unavailable metadata question',
+          'type': 2,
+          'standard_answer': 'A',
+          '_import_review': 'not-a-map',
+        },
+      ],
+    );
+    taskManager.tasks.add(task);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ImportStagingScreen(
+          parsedQuestions: task.parsedData!,
+          taskId: task.id,
+          taskManager: taskManager,
+          questionRepository: QuestionRepository.instance,
+          warnings: const [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+      findsOneWidget,
+    );
+    expect(savedTaskMap, isNotNull);
+
+    final persistedTask = ImportTask.fromMap(savedTaskMap!);
+    final reloadedItem = ImportReviewItem.fromMap(
+      persistedTask.parsedData!.single,
+      0,
+    );
+    expect(
+      reloadedItem.metadataProjectionState,
+      ImportReviewMetadataProjectionState.unavailable,
+    );
+    expect(
+      persistedTask.parsedData!.single[ImportReviewMetadata.key],
+      containsPair(
+        ImportReviewMetadata.projectionStateKey,
+        ImportReviewMetadataProjectionState.unavailable.name,
+      ),
+    );
+  });
+
+  testWidgets(
+      'Upgrades legacy metadata only when finalization emits a review signal',
+      (WidgetTester tester) async {
+    Future<Map<String, dynamic>> pumpAndReadPersistedQuestion({
+      required String taskId,
+      required Map<String, dynamic> question,
+    }) async {
+      Map<String, dynamic>? savedTaskMap;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (taskMap) async {
+          savedTaskMap = taskMap;
+        },
+      );
+      final task = ImportTask(
+        id: taskId,
+        title: taskId,
+        status: TaskStatus.pendingReview,
+        parsedData: [question],
+      );
+      taskManager.tasks.add(task);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ImportStagingScreen(
+            key: UniqueKey(),
+            parsedQuestions: task.parsedData!,
+            taskId: task.id,
+            taskManager: taskManager,
+            questionRepository: QuestionRepository.instance,
+            warnings: const [],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(savedTaskMap, isNotNull);
+      return ImportTask.fromMap(savedTaskMap!).parsedData!.single;
+    }
+
+    final healthyLegacy = await pumpAndReadPersistedQuestion(
+      taskId: 'healthy-legacy-task',
+      question: {
+        'content': 'Healthy legacy question',
+        'type': 2,
+        'standard_answer': 'A',
+      },
+    );
+    expect(healthyLegacy.containsKey(ImportReviewMetadata.key), isFalse);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    final eligibleLegacy = await pumpAndReadPersistedQuestion(
+      taskId: 'eligible-legacy-task',
+      question: {
+        'content': 'Eligible legacy question',
+        'type': 0,
+        'options': ['A'],
+        'standard_answer': 'A',
+      },
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsOneWidget,
+    );
+    expect(
+      eligibleLegacy[ImportReviewMetadata.key],
+      containsPair(
+        'repairCandidateCodes',
+        contains('choice_options_less_than_2'),
+      ),
+    );
+    final reloadedEligible = ImportReviewItem.fromMap(eligibleLegacy, 0);
+    expect(
+      reloadedEligible.metadataProjectionState,
+      ImportReviewMetadataProjectionState.available,
+    );
   });
 }

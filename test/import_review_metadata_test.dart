@@ -71,5 +71,123 @@ void main() {
       expect(item.metadata.source, 'fused');
       // Should not crash, 123 is safely stringified or ignored
     });
+
+    test('tracks absent, available, and unavailable metadata projections', () {
+      final absent = ImportReviewItem.fromMap(
+        {'content': 'Legacy question'},
+        0,
+      );
+      expect(
+        absent.metadataProjectionState,
+        ImportReviewMetadataProjectionState.notProvided,
+      );
+
+      final available = ImportReviewItem.fromMap(
+        {
+          'content': 'Eligible question',
+          '_import_review': {
+            'riskHints': ['answer_conflict'],
+            'repairCandidateCodes': ['choice_options_less_than_2'],
+          },
+        },
+        1,
+      );
+      expect(
+        available.metadataProjectionState,
+        ImportReviewMetadataProjectionState.available,
+      );
+
+      final unavailable = ImportReviewItem.fromMap(
+        {
+          'content': 'Unavailable metadata question',
+          '_import_review': 'not-a-map',
+        },
+        2,
+      );
+      expect(
+        unavailable.metadataProjectionState,
+        ImportReviewMetadataProjectionState.unavailable,
+      );
+      expect(unavailable.metadata.repairCandidateCodes, isEmpty);
+
+      final malformedField = ImportReviewItem.fromMap(
+        {
+          'content': 'Malformed metadata question',
+          '_import_review': {'riskHints': 'not-a-list'},
+        },
+        3,
+      );
+      expect(
+        malformedField.metadataProjectionState,
+        ImportReviewMetadataProjectionState.unavailable,
+      );
+
+      for (final invalidCandidateCodes in <List<dynamic>>[
+        <dynamic>[123],
+        <dynamic>['not_a_real_candidate'],
+        <dynamic>['cross_page'],
+      ]) {
+        final invalidCandidate = ImportReviewItem.fromMap(
+          {
+            'content': 'Invalid candidate metadata question',
+            ImportReviewMetadata.key: {
+              'repairCandidateCodes': invalidCandidateCodes,
+            },
+          },
+          4,
+        );
+        expect(
+          invalidCandidate.metadataProjectionState,
+          ImportReviewMetadataProjectionState.unavailable,
+        );
+
+        final persistedInvalidCandidate =
+            invalidCandidate.toPersistedMetadata();
+        expect(
+          persistedInvalidCandidate?[ImportReviewMetadata.projectionStateKey],
+          ImportReviewMetadataProjectionState.unavailable.name,
+        );
+        final reloadedInvalidCandidate = ImportReviewItem.fromMap(
+          {
+            ...invalidCandidate.draft.toMap(),
+            ImportReviewMetadata.key: persistedInvalidCandidate,
+          },
+          4,
+        );
+        expect(
+          reloadedInvalidCandidate.metadataProjectionState,
+          ImportReviewMetadataProjectionState.unavailable,
+        );
+      }
+
+      expect(absent.toPersistedMetadata(), isNull);
+      final persistedLegacyQuestion = <String, dynamic>{
+        ...absent.draft.toMap(),
+      };
+      final reloadedLegacy = ImportReviewItem.fromMap(
+        persistedLegacyQuestion,
+        0,
+      );
+      expect(
+        reloadedLegacy.metadataProjectionState,
+        ImportReviewMetadataProjectionState.notProvided,
+      );
+      final persistedUnavailable = unavailable.toPersistedMetadata();
+      expect(
+        persistedUnavailable?[ImportReviewMetadata.projectionStateKey],
+        ImportReviewMetadataProjectionState.unavailable.name,
+      );
+      final reloadedUnavailable = ImportReviewItem.fromMap(
+        {
+          ...unavailable.draft.toMap(),
+          ImportReviewMetadata.key: persistedUnavailable,
+        },
+        2,
+      );
+      expect(
+        reloadedUnavailable.metadataProjectionState,
+        ImportReviewMetadataProjectionState.unavailable,
+      );
+    });
   });
 }

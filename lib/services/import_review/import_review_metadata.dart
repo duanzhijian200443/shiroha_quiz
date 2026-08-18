@@ -1,5 +1,12 @@
+enum ImportReviewMetadataProjectionState {
+  notProvided,
+  available,
+  unavailable,
+}
+
 class ImportReviewMetadata {
   static const key = '_import_review';
+  static const projectionStateKey = '_projectionState';
 
   final String source; // text / vision / fused / unknown
   final List<String> sources;
@@ -8,6 +15,15 @@ class ImportReviewMetadata {
   final List<String> riskHints;
   final List<String> repairCandidateCodes;
   final List<String> latexInvalidFields;
+
+  bool get hasMeaningfulReviewMetadata =>
+      source != 'unknown' ||
+      sources.isNotEmpty ||
+      fragmentKinds.isNotEmpty ||
+      originalIndices.isNotEmpty ||
+      riskHints.isNotEmpty ||
+      repairCandidateCodes.isNotEmpty ||
+      latexInvalidFields.isNotEmpty;
 
   const ImportReviewMetadata({
     required this.source,

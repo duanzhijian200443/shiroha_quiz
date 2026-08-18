@@ -27,6 +27,7 @@ import '../../services/import_review/import_review_visible_item.dart';
 import '../../services/import_review/import_review_report.dart';
 import '../../services/import_review/import_review_report_builder.dart';
 import '../../services/import_review/import_review_report_formatter.dart';
+import '../../services/import_review/import_review_metadata.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/import_review/typed_review_result_builder.dart';
 import '../../services/bank_update_notifier.dart';
@@ -995,12 +996,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         final question = <String, dynamic>{
           ...?_snapshotProvenance[item.originalIndex],
           ...item.draft.toMap(),
-          '_import_review': item.metadata.toMap(),
           TaskManager.keyReviewItemId: _reviewItemIds[item.originalIndex],
           _explanationOverrideKey: (_explanationOverrides[item.originalIndex] ??
                   QuestionExplanationOverride.inherit)
               .name,
         };
+        final persistedMetadata = item.toPersistedMetadata();
+        if (persistedMetadata != null) {
+          question[ImportReviewMetadata.key] = persistedMetadata;
+        }
         final status =
             SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
           _answerDistillationStatuses[item.originalIndex],
@@ -1306,15 +1310,32 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     _allItems = _allItems.map((item) {
       final question = <String, dynamic>{
         ...item.draft.toMap(),
-        '_import_review': item.metadata.toMap(),
       };
+      final persistedMetadata = item.toPersistedMetadata();
+      if (persistedMetadata != null) {
+        question[ImportReviewMetadata.key] = persistedMetadata;
+      }
       final finalized = finalizeAndAuditImportQuestion(
         question,
         mode: _explanationRetentionMode,
         override: _explanationOverrides[item.originalIndex] ??
             QuestionExplanationOverride.inherit,
       );
-      return ImportReviewItem.fromMap(finalized, item.originalIndex);
+      final finalizedItem =
+          ImportReviewItem.fromMap(finalized, item.originalIndex);
+      final projectionState = switch (item.metadataProjectionState) {
+        ImportReviewMetadataProjectionState.unavailable =>
+          ImportReviewMetadataProjectionState.unavailable,
+        ImportReviewMetadataProjectionState.available =>
+          finalizedItem.metadataProjectionState,
+        ImportReviewMetadataProjectionState.notProvided =>
+          finalizedItem.metadata.hasMeaningfulReviewMetadata
+              ? ImportReviewMetadataProjectionState.available
+              : ImportReviewMetadataProjectionState.notProvided,
+      };
+      return finalizedItem.copyWith(
+        metadataProjectionState: projectionState,
+      );
     }).toList();
   }
 
@@ -2378,6 +2399,18 @@ class _QuestionCard extends StatelessWidget {
     final question = item.draft;
     final standardAnswer = question.standardAnswer.trim();
     final explanation = question.explanation.trim();
+    final metadataAvailable = item.metadataProjectionState ==
+        ImportReviewMetadataProjectionState.available;
+    final metadataUnavailable = item.metadataProjectionState ==
+        ImportReviewMetadataProjectionState.unavailable;
+    final hasWarningOrError = issues.any(
+      (issue) =>
+          issue.severity == ImportReviewSeverity.warning ||
+          issue.severity == ImportReviewSeverity.error,
+    );
+    final reviewOnly = metadataAvailable &&
+        item.metadata.repairCandidateCodes.isEmpty &&
+        hasWarningOrError;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2446,7 +2479,30 @@ class _QuestionCard extends StatelessWidget {
               const SizedBox(height: 8),
               _IssueSummary(issues: issues),
             ],
-            if (item.metadata.repairCandidateCodes.isNotEmpty) ...[
+            if (metadataUnavailable) ...[
+              const SizedBox(height: 8),
+              _RepairEligibilityNotice(
+                key: ValueKey(
+                  'question-repair-metadata-unavailable-${item.originalIndex}',
+                ),
+                icon: Icons.error_outline,
+                color: Colors.redAccent,
+                message: '审核元数据不可用，无法判断 AI 修补资格，请人工核对或重试。',
+              ),
+            ],
+            if (reviewOnly) ...[
+              const SizedBox(height: 8),
+              _RepairEligibilityNotice(
+                key: ValueKey(
+                  'question-repair-review-only-${item.originalIndex}',
+                ),
+                icon: Icons.person_search_outlined,
+                color: Colors.orangeAccent,
+                message: '本题存在解析风险，需要人工核对；当前不支持 AI 自动修补。',
+              ),
+            ],
+            if (metadataAvailable &&
+                item.metadata.repairCandidateCodes.isNotEmpty) ...[
               const SizedBox(height: 8),
               Chip(
                 key: ValueKey(
@@ -2620,6 +2676,49 @@ class _IssueSummary extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RepairEligibilityNotice extends StatelessWidget {
+  const _RepairEligibilityNotice({
+    super.key,
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
