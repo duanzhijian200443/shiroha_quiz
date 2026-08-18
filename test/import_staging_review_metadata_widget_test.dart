@@ -205,4 +205,88 @@ void main() {
       ),
     );
   });
+
+  testWidgets(
+      'Upgrades legacy metadata only when finalization emits a review signal',
+      (WidgetTester tester) async {
+    Future<Map<String, dynamic>> pumpAndReadPersistedQuestion({
+      required String taskId,
+      required Map<String, dynamic> question,
+    }) async {
+      Map<String, dynamic>? savedTaskMap;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (taskMap) async {
+          savedTaskMap = taskMap;
+        },
+      );
+      final task = ImportTask(
+        id: taskId,
+        title: taskId,
+        status: TaskStatus.pendingReview,
+        parsedData: [question],
+      );
+      taskManager.tasks.add(task);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ImportStagingScreen(
+            key: UniqueKey(),
+            parsedQuestions: task.parsedData!,
+            taskId: task.id,
+            taskManager: taskManager,
+            questionRepository: QuestionRepository.instance,
+            warnings: const [],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(savedTaskMap, isNotNull);
+      return ImportTask.fromMap(savedTaskMap!).parsedData!.single;
+    }
+
+    final healthyLegacy = await pumpAndReadPersistedQuestion(
+      taskId: 'healthy-legacy-task',
+      question: {
+        'content': 'Healthy legacy question',
+        'type': 2,
+        'standard_answer': 'A',
+      },
+    );
+    expect(healthyLegacy.containsKey(ImportReviewMetadata.key), isFalse);
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    final eligibleLegacy = await pumpAndReadPersistedQuestion(
+      taskId: 'eligible-legacy-task',
+      question: {
+        'content': 'Eligible legacy question',
+        'type': 0,
+        'options': ['A'],
+        'standard_answer': 'A',
+      },
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsOneWidget,
+    );
+    expect(
+      eligibleLegacy[ImportReviewMetadata.key],
+      containsPair(
+        'repairCandidateCodes',
+        contains('choice_options_less_than_2'),
+      ),
+    );
+    final reloadedEligible = ImportReviewItem.fromMap(eligibleLegacy, 0);
+    expect(
+      reloadedEligible.metadataProjectionState,
+      ImportReviewMetadataProjectionState.available,
+    );
+  });
 }

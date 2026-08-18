@@ -16,6 +16,15 @@ class ImportReviewMetadata {
   final List<String> repairCandidateCodes;
   final List<String> latexInvalidFields;
 
+  bool get hasMeaningfulReviewMetadata =>
+      source != 'unknown' ||
+      sources.isNotEmpty ||
+      fragmentKinds.isNotEmpty ||
+      originalIndices.isNotEmpty ||
+      riskHints.isNotEmpty ||
+      repairCandidateCodes.isNotEmpty ||
+      latexInvalidFields.isNotEmpty;
+
   const ImportReviewMetadata({
     required this.source,
     required this.sources,

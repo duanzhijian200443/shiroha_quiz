@@ -1321,8 +1321,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         override: _explanationOverrides[item.originalIndex] ??
             QuestionExplanationOverride.inherit,
       );
-      return ImportReviewItem.fromMap(finalized, item.originalIndex).copyWith(
-        metadataProjectionState: item.metadataProjectionState,
+      final finalizedItem =
+          ImportReviewItem.fromMap(finalized, item.originalIndex);
+      final projectionState = switch (item.metadataProjectionState) {
+        ImportReviewMetadataProjectionState.unavailable =>
+          ImportReviewMetadataProjectionState.unavailable,
+        ImportReviewMetadataProjectionState.available =>
+          finalizedItem.metadataProjectionState,
+        ImportReviewMetadataProjectionState.notProvided =>
+          finalizedItem.metadata.hasMeaningfulReviewMetadata
+              ? ImportReviewMetadataProjectionState.available
+              : ImportReviewMetadataProjectionState.notProvided,
+      };
+      return finalizedItem.copyWith(
+        metadataProjectionState: projectionState,
       );
     }).toList();
   }
