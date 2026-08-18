@@ -147,6 +147,10 @@ class ReviewEngineService with WidgetsBindingObserver {
   final List<_PendingWrite> _queue = [];
   Timer? _debounceTimer;
   bool _flushing = false;
+  // Shared completion for the batch currently being flushed. Reset and
+  // lifecycle callers must await this future instead of observing only the
+  // queue, because the active batch has already been removed from it.
+  Future<void>? _activeFlushFuture;
 
   // 双端队列调度器 (O(1) 内存会话)
   Queue<PersistedQuestion>? _sessionQueue;
@@ -231,16 +235,27 @@ class ReviewEngineService with WidgetsBindingObserver {
     _scheduleDebouncedFlush();
   }
 
+  /// Drains both queued writes and the batch currently in flight.
   Future<void> flushPending() async {
-    _debounceTimer?.cancel();
-    _debounceTimer = null;
-    if (_queue.isNotEmpty) await _flushNow();
+    while (true) {
+      _debounceTimer?.cancel();
+      _debounceTimer = null;
+
+      final activeFlush = _activeFlushFuture;
+      if (activeFlush != null) {
+        await activeFlush;
+        continue;
+      }
+
+      if (_queue.isEmpty) return;
+      await _flushNow();
+    }
   }
 
   /// Clears process-lifetime review state after B0 has drained all accepted
   /// durable review writes and the restored database is authoritative.
   void resetTransientStateForRestore() {
-    if (_queue.isNotEmpty || _flushing) {
+    if (_queue.isNotEmpty || _flushing || _activeFlushFuture != null) {
       throw StateError('Review writes must drain before restore reload.');
     }
     _debounceTimer?.cancel();
@@ -269,7 +284,10 @@ class ReviewEngineService with WidgetsBindingObserver {
   /// scheduling values without clearing either review or answer history.
   Future<void> resetReviewState(String questionId) {
     return BackupRestoreMutationGate.instance.runMutation(
-      () => ReviewRepository.instance.resetReviewState(questionId),
+      () async {
+        await flushPending();
+        await ReviewRepository.instance.resetReviewState(questionId);
+      },
     );
   }
 
@@ -520,8 +538,18 @@ class ReviewEngineService with WidgetsBindingObserver {
   //  内部批量写
   // ================================================================
 
-  Future<void> _flushNow() async {
-    if (_flushing || _queue.isEmpty) return;
+  Future<void> _flushNow() {
+    final activeFlush = _activeFlushFuture;
+    if (activeFlush != null) return activeFlush;
+    if (_queue.isEmpty) return Future<void>.value();
+
+    final completion = Completer<void>();
+    _activeFlushFuture = completion.future;
+    unawaited(_runFlush(completion));
+    return completion.future;
+  }
+
+  Future<void> _runFlush(Completer<void> completion) async {
     _flushing = true;
 
     final batch = List<_PendingWrite>.from(_queue);
@@ -611,11 +639,15 @@ class ReviewEngineService with WidgetsBindingObserver {
       for (final item in batch) {
         item.lease.release();
       }
-    } catch (_) {
+      completion.complete();
+    } catch (error, stackTrace) {
       _queue.insertAll(0, batch);
-      rethrow;
+      completion.completeError(error, stackTrace);
     } finally {
       _flushing = false;
+      if (identical(_activeFlushFuture, completion.future)) {
+        _activeFlushFuture = null;
+      }
       if (_queue.isNotEmpty && _debounceTimer == null) {
         _scheduleDebouncedFlush();
       }

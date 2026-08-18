@@ -2,8 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/review_engine_service.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import '../../support/memory_engine_credential_store.dart';
 
 const _questionId = 'd1d-reset-question';
 
@@ -23,7 +26,7 @@ Future<void> _seedReviewStateHistory(Database db) async {
     'question_id': _questionId,
     'state': 3,
     'next_review_time': 1700003600,
-    'lapses': 4,
+    'lapses': 0,
     'difficulty': 2.5,
     'stability': 42.0,
     'reps': 8,
@@ -54,6 +57,7 @@ Future<void> _seedReviewStateHistory(Database db) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final reviewEngine = ReviewEngineService();
 
   setUpAll(() {
     sqfliteFfiInit();
@@ -62,10 +66,14 @@ void main() {
 
   setUp(() async {
     BackupRestoreMutationGate.resetForTesting();
+    await reviewEngine.flushPending();
+    reviewEngine.resetTransientStateForRestore();
     await DatabaseHelper.resetRuntimeProfileForTesting();
   });
 
   tearDown(() async {
+    await reviewEngine.flushPending();
+    reviewEngine.resetTransientStateForRestore();
     BackupRestoreMutationGate.resetForTesting();
     await DatabaseHelper.resetRuntimeProfileForTesting();
   });
@@ -120,6 +128,66 @@ void main() {
     final state = (await db.query('review_states')).single;
     expect(state['state'], 3);
     expect((await db.query('review_logs')), hasLength(1));
+    expect((await db.query('answer_attempts')), hasLength(1));
+  });
+
+  test('reset wins after an accepted pending review write', () async {
+    final db = await DatabaseHelper.instance.database;
+    await _seedReviewStateHistory(db);
+    final repository = AiEngineRepository(
+      store: DatabaseHelper.instance,
+      credentialStore: MemoryEngineCredentialStore(),
+    );
+
+    await reviewEngine.submitReviewResult(
+      _questionId,
+      3,
+      1200,
+      engineRepository: repository,
+    );
+    await reviewEngine.resetReviewState(_questionId);
+    await reviewEngine.flushPending();
+
+    final state = (await db.query('review_states')).single;
+    expect(state['state'], 0);
+    expect(state['next_review_time'], 0);
+    expect(state['lapses'], 0);
+    expect(state['difficulty'], 5.0);
+    expect(state['stability'], 0.0);
+    expect(state['reps'], 0);
+    expect(state['last_lapse_time'], 0);
+    expect(state['last_review_time'], 0);
+
+    final logs = await db.query('review_logs');
+    expect(logs, hasLength(2));
+    expect(logs.any((row) => row['id'] == 'd1d-review-log'), isTrue);
+    expect(logs.where((row) => row['grade'] == 3), hasLength(1));
+    expect(await db.query('answer_attempts'), hasLength(1));
+  });
+
+  test('reset waits for an already active review flush', () async {
+    final db = await DatabaseHelper.instance.database;
+    await _seedReviewStateHistory(db);
+    final repository = AiEngineRepository(
+      store: DatabaseHelper.instance,
+      credentialStore: MemoryEngineCredentialStore(),
+    );
+
+    await reviewEngine.submitReviewResult(
+      _questionId,
+      3,
+      1200,
+      engineRepository: repository,
+    );
+    final activeFlush = reviewEngine.flushPending();
+    final reset = reviewEngine.resetReviewState(_questionId);
+    await Future.wait<void>(<Future<void>>[activeFlush, reset]);
+
+    final state = (await db.query('review_states')).single;
+    expect(state['state'], 0);
+    expect(state['next_review_time'], 0);
+    expect(state['reps'], 0);
+    expect((await db.query('review_logs')), hasLength(2));
     expect((await db.query('answer_attempts')), hasLength(1));
   });
 }
