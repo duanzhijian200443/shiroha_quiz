@@ -341,7 +341,7 @@ void main() {
               (part) => (part as UnsupportedSourcePart).kindCode,
             ),
         <String>[
-          'ocr_table',
+          'ocr_table_invalid',
           'ocr_image',
           'ocr_image',
           'ocr_unknown',

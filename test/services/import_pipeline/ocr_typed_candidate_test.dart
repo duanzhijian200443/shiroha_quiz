@@ -671,9 +671,40 @@ void main() {
       }
     });
 
+    test('raw_explanation with benign HTML wrapper differences is allowed', () {
+      for (final raw in <String>[
+        '<div align="center">Synthetic explanation 1</div>',
+        '<p><span>Synthetic explanation 1</span></p>',
+      ]) {
+        final question = _finalQuestion(number: 1)..['raw_explanation'] = raw;
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              _candidate(
+                questionNumber: 1,
+                questionId: _questionUuidA,
+                reviewItemId: _reviewUuidA,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+        expect(result.reason, 'typed_candidate_ready',
+            reason: 'benign wrapper in raw_explanation must be allowed');
+        // Verify provenance was not mutated:
+        expect(
+          result.questions.single['raw_explanation'],
+          raw,
+          reason:
+              'gate PASS must preserve exact original raw_explanation bytes',
+        );
+      }
+    });
+
     test('raw_explanation divergence fails the whole batch', () {
       final question = _finalQuestion(number: 1)
-        ..['raw_explanation'] = 'Extra information not in explanation';
+        ..['raw_explanation'] = '<div>Synthetic explanation 1 with diff</div>';
       final result = applyOcrTypedCandidateGate(
         batch: OcrTypedCandidateBatch(
           candidates: <OcrTypedCandidate>[
@@ -693,6 +724,35 @@ void main() {
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,
       );
+    });
+
+    test('raw_explanation with dangerous or unsupported HTML tags fails gate',
+        () {
+      for (final raw in <String>[
+        '<script>alert(1)</script>Synthetic explanation 1',
+        '<table><tr><td>表格</td></tr></table>',
+      ]) {
+        final question = _finalQuestion(number: 1)..['raw_explanation'] = raw;
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              _candidate(
+                questionNumber: 1,
+                questionId: _questionUuidA,
+                reviewItemId: _reviewUuidA,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+        expect(
+          result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+          isFalse,
+        );
+      }
     });
 
     test('projection mismatches are strict and remove every envelope', () {

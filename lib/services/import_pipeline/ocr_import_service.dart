@@ -441,9 +441,24 @@ class OcrImportService {
         typedImageNodeCount += _countImageNodes(candidate.draft);
       }
 
+      final allReferencedBlockIds = <String>{
+        for (final candidate in assembled) ...candidate.region.sourceBlockIds,
+      };
+      final referencedImageBlockCount = document.flattenedBlocks.where((b) {
+        final t = b.type.trim().toLowerCase();
+        final isImg = t == 'image' ||
+            t == 'figure' ||
+            b.text.trim().startsWith('data:image/');
+        return isImg && allReferencedBlockIds.contains(b.blockId);
+      }).length;
+      final unreferencedImageBlockCount =
+          imageBlockCount - referencedImageBlockCount;
+
       diagnostics.addAll({
         'tableBlockCount': tableBlockCount,
         'imageBlockCount': imageBlockCount,
+        'referencedImageBlockCount': referencedImageBlockCount,
+        'unreferencedImageBlockCount': unreferencedImageBlockCount,
         'typedImageNodeCount': typedImageNodeCount,
         'resolvedImageAssetCount': typedImageNodeCount,
       });

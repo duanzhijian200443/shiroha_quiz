@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_regi
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_safe_html_cleanup.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -398,7 +399,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
-    if (baselines[number]! != candidate.projectedLegacy ||
+    if (!_baselineParity(baselines[number]!, candidate.projectedLegacy) ||
         !_provenanceParity(candidate, question)) {
       return _ineligible(
         finalQuestions,
@@ -518,7 +519,8 @@ bool _rawExplanationAllowed(
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
-  return raw.isEmpty || raw == explanation;
+  if (raw.isEmpty || raw == explanation) return true;
+  return isSafeHtmlNormalizedExplanationEqual(raw, explanation);
 }
 
 bool _provenanceParity(
@@ -537,6 +539,39 @@ bool _provenanceParity(
   }
   for (var index = 0; index < blocks.length; index++) {
     if (blocks[index] != candidate.sourceBlockIds[index]) return false;
+  }
+  return true;
+}
+
+bool _baselineParity(LegacyReviewBaseline left, LegacyReviewBaseline right) {
+  if (left == right) return true;
+  if (left.type != right.type ||
+      left.questionNumber != right.questionNumber ||
+      left.options.length != right.options.length) {
+    return false;
+  }
+  if (!isSafeHtmlNormalizedExplanationEqual(left.content, right.content)) {
+    return false;
+  }
+  for (var i = 0; i < left.options.length; i++) {
+    if (!isSafeHtmlNormalizedExplanationEqual(
+      left.options[i],
+      right.options[i],
+    )) {
+      return false;
+    }
+  }
+  if (!isSafeHtmlNormalizedExplanationEqual(
+    left.standardAnswer,
+    right.standardAnswer,
+  )) {
+    return false;
+  }
+  if (!isSafeHtmlNormalizedExplanationEqual(
+    left.explanation,
+    right.explanation,
+  )) {
+    return false;
   }
   return true;
 }
