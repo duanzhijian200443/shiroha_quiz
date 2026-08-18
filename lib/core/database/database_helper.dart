@@ -2166,10 +2166,47 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   Future<void> deleteSingleQuestion(String questionId) async {
     final db = await instance.database;
     await db.transaction((txn) async {
+      final examReferenceTable = await txn.rawQuery(
+        "SELECT type FROM sqlite_master WHERE name = 'paper_questions' LIMIT 1",
+      );
+      if (examReferenceTable.isNotEmpty) {
+        final references = await txn.query(
+          'paper_questions',
+          columns: ['paper_id'],
+          where: 'question_id = ?',
+          whereArgs: [questionId],
+          limit: 1,
+        );
+        if (references.isNotEmpty) {
+          throw StateError('Question is referenced by an exam paper');
+        }
+      }
+
       await txn.rawDelete(
           'DELETE FROM review_logs WHERE question_id = ?', [questionId]);
       await txn.rawDelete(
           'DELETE FROM review_states WHERE question_id = ?', [questionId]);
+      final sidecarTable = await txn.rawQuery(
+        "SELECT type FROM sqlite_master WHERE name = 'question_v2_payloads' "
+        'LIMIT 1',
+      );
+      if (sidecarTable.isNotEmpty) {
+        await txn.delete(
+          'question_v2_payloads',
+          where: 'question_id = ?',
+          whereArgs: [questionId],
+        );
+      }
+      final ftsTable = await txn.rawQuery(
+        "SELECT type FROM sqlite_master WHERE name = 'questions_fts' LIMIT 1",
+      );
+      if (ftsTable.isNotEmpty) {
+        await txn.delete(
+          'questions_fts',
+          where: 'id = ?',
+          whereArgs: [questionId],
+        );
+      }
       await txn.rawDelete('DELETE FROM questions WHERE id = ?', [questionId]);
     });
   }
