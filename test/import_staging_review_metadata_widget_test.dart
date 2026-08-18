@@ -146,6 +146,105 @@ void main() {
     );
   });
 
+  testWidgets('Rejects invalid candidate metadata without exposing eligibility',
+      (WidgetTester tester) async {
+    Future<void> pumpQuestion(List<dynamic> candidateCodes) async {
+      await tester.pumpWidget(buildTestableWidget([
+        {
+          'content': 'Invalid candidate question',
+          'type': 0,
+          'options': ['A'],
+          'standard_answer': 'A',
+          '_import_review': {
+            'repairCandidateCodes': candidateCodes,
+          },
+        },
+      ]));
+      await tester.pumpAndSettle();
+    }
+
+    for (final candidateCodes in <List<dynamic>>[
+      <dynamic>[123],
+      <dynamic>['not_a_real_candidate'],
+      <dynamic>['cross_page'],
+    ]) {
+      await pumpQuestion(candidateCodes);
+      expect(
+        find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('question-repair-candidate-0')),
+        findsNothing,
+      );
+    }
+  });
+
+  testWidgets('Review-only notice follows analyzer severity',
+      (WidgetTester tester) async {
+    Future<void> pumpQuestion(Map<String, dynamic> question) async {
+      await tester.pumpWidget(buildTestableWidget([question]));
+      await tester.pumpAndSettle();
+    }
+
+    await pumpQuestion({
+      'content': 'Fused info question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['fused_from_text_vision'],
+      },
+    });
+    expect(find.text('图文融合'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Vision info question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['vision_only'],
+      },
+    });
+    expect(find.text('视觉来源'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Answer conflict question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['answer_conflict'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+
+    await pumpQuestion({
+      'content': r'Latex warning question',
+      'type': 3,
+      'standard_answer': 'A',
+      'explanation': r'Broken \begin{matrix}1',
+      'raw_explanation': r'Broken \begin{matrix}1',
+      '_import_review': {
+        'riskHints': ['latex_unrenderable'],
+        'latexInvalidFields': ['content'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Persists unavailable metadata state across draft reload',
       (WidgetTester tester) async {
     Map<String, dynamic>? savedTaskMap;

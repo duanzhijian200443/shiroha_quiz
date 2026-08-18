@@ -2403,9 +2403,14 @@ class _QuestionCard extends StatelessWidget {
         ImportReviewMetadataProjectionState.available;
     final metadataUnavailable = item.metadataProjectionState ==
         ImportReviewMetadataProjectionState.unavailable;
+    final hasWarningOrError = issues.any(
+      (issue) =>
+          issue.severity == ImportReviewSeverity.warning ||
+          issue.severity == ImportReviewSeverity.error,
+    );
     final reviewOnly = metadataAvailable &&
-        item.metadata.riskHints.isNotEmpty &&
-        item.metadata.repairCandidateCodes.isEmpty;
+        item.metadata.repairCandidateCodes.isEmpty &&
+        hasWarningOrError;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

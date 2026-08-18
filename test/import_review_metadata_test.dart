@@ -122,6 +122,44 @@ void main() {
         ImportReviewMetadataProjectionState.unavailable,
       );
 
+      for (final invalidCandidateCodes in <List<dynamic>>[
+        <dynamic>[123],
+        <dynamic>['not_a_real_candidate'],
+        <dynamic>['cross_page'],
+      ]) {
+        final invalidCandidate = ImportReviewItem.fromMap(
+          {
+            'content': 'Invalid candidate metadata question',
+            ImportReviewMetadata.key: {
+              'repairCandidateCodes': invalidCandidateCodes,
+            },
+          },
+          4,
+        );
+        expect(
+          invalidCandidate.metadataProjectionState,
+          ImportReviewMetadataProjectionState.unavailable,
+        );
+
+        final persistedInvalidCandidate =
+            invalidCandidate.toPersistedMetadata();
+        expect(
+          persistedInvalidCandidate?[ImportReviewMetadata.projectionStateKey],
+          ImportReviewMetadataProjectionState.unavailable.name,
+        );
+        final reloadedInvalidCandidate = ImportReviewItem.fromMap(
+          {
+            ...invalidCandidate.draft.toMap(),
+            ImportReviewMetadata.key: persistedInvalidCandidate,
+          },
+          4,
+        );
+        expect(
+          reloadedInvalidCandidate.metadataProjectionState,
+          ImportReviewMetadataProjectionState.unavailable,
+        );
+      }
+
       expect(absent.toPersistedMetadata(), isNull);
       final persistedLegacyQuestion = <String, dynamic>{
         ...absent.draft.toMap(),

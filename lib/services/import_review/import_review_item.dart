@@ -62,7 +62,7 @@ class ImportReviewItem {
         });
         final hasProjectionStateMarker =
             rawMeta.containsKey(ImportReviewMetadata.projectionStateKey);
-        if (!hasProjectionStateMarker && !_hasInvalidListContainer(rawMeta)) {
+        if (!hasProjectionStateMarker && !_hasInvalidProjectionShape(rawMeta)) {
           metadataProjectionState =
               ImportReviewMetadataProjectionState.available;
         }
@@ -80,7 +80,7 @@ class ImportReviewItem {
     );
   }
 
-  static bool _hasInvalidListContainer(Map<dynamic, dynamic> rawMeta) {
+  static bool _hasInvalidProjectionShape(Map<dynamic, dynamic> rawMeta) {
     const listKeys = {
       'sources',
       'fragmentKinds',
@@ -92,6 +92,54 @@ class ImportReviewItem {
     for (final key in listKeys) {
       if (rawMeta.containsKey(key) && rawMeta[key] is! List) return true;
     }
+
+    const stringListKeys = {
+      'sources',
+      'fragmentKinds',
+      'riskHints',
+    };
+    for (final key in stringListKeys) {
+      final value = rawMeta[key];
+      if (value is List && value.any((element) => element is! String)) {
+        return true;
+      }
+    }
+
+    final rawCandidateCodes = rawMeta['repairCandidateCodes'];
+    if (rawCandidateCodes is List) {
+      for (final element in rawCandidateCodes) {
+        if (element is! String) return true;
+        final code = element.trim();
+        if (code.isEmpty || !_formalRepairCandidateCodes.contains(code)) {
+          return true;
+        }
+      }
+    }
+
+    final rawLatexFields = rawMeta['latexInvalidFields'];
+    if (rawLatexFields is List) {
+      for (final element in rawLatexFields) {
+        if (element is! String || !_safeLatexFields.contains(element)) {
+          return true;
+        }
+      }
+    }
+
     return false;
   }
+
+  // This is the current output set of ImportQuestionRepairPolicy.candidateCodes.
+  static const _formalRepairCandidateCodes = <String>{
+    'empty_content',
+    'choice_options_less_than_2',
+    'dangling_latex',
+    'choice_missing_answer',
+  };
+
+  static const _safeLatexFields = <String>{
+    'content',
+    'options',
+    'standard_answer',
+    'explanation',
+  };
 }
