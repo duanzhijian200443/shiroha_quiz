@@ -627,7 +627,7 @@ void main() {
       expect(result.question['content'], contains('[图片]'));
     });
 
-    test('rejects SourceTablePart fragments instead of ignoring them', () {
+    test('projects SourceTablePart fragments with safe plain text', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -637,7 +637,8 @@ void main() {
               sourceRef: blockRef(),
               rows: <Iterable<RichContent>>[
                 <RichContent>[
-                  RichContent(nodes: <ContentNode>[const TextNode('cell')]),
+                  RichContent(
+                      nodes: <ContentNode>[const TextNode('stem text')]),
                 ],
               ],
             ),
@@ -645,7 +646,13 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
-      expectUnsupported(matchingDraft(region), region, 'source_table');
+      final draft = matchingDraft(region);
+      final result = const QuestionDraftV2LegacyProjector().project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+      expect(result.question['content'], 'stem text');
     });
 
     test('rejects UnsupportedSourcePart fragments with their kind code', () {

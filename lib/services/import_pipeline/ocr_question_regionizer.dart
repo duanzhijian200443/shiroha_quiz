@@ -1,4 +1,5 @@
 import 'ocr_document.dart';
+import 'ocr_table_projection.dart';
 import 'reference_answer_section.dart';
 import 'text_question_region.dart';
 
@@ -797,6 +798,19 @@ class OcrQuestionRegionizer {
         _OcrTextUnit(
           block: block,
           text: '[图片]',
+          wasSplit: false,
+          startsAtBlockStart: true,
+        ),
+      ];
+    }
+
+    if (rawText.isNotEmpty && type == 'table') {
+      final safeText =
+          OcrTableProjector.projectHtmlToPlainText(rawText) ?? rawText;
+      return [
+        _OcrTextUnit(
+          block: block,
+          text: safeText,
           wasSplit: false,
           startsAtBlockStart: true,
         ),

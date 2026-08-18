@@ -12,6 +12,7 @@ import '../../../domain/source/source_ref.dart';
 import '../../backup/sha256.dart';
 import '../../file_library/managed_content_asset_store.dart';
 import '../ocr_document.dart';
+import '../ocr_table_projection.dart';
 
 final _ocrTypeControlPattern = RegExp(r'[\u0000-\u001f\u007f]');
 
@@ -261,14 +262,7 @@ SourceDocument _convertWithoutBlocks({
         ),
         structureUnsupported: false,
       ),
-    'table' => (
-        part: UnsupportedSourcePart(
-          sourceRef: sourceRef,
-          kindCode: 'ocr_table',
-          fallbackContent: _textContent(block.text),
-        ),
-        structureUnsupported: true,
-      ),
+    'table' => _mapTableBlock(block, sourceRef),
     'image' || 'figure' => _mapImageBlock(block, sourceRef, assetStore),
     _ => (
         part: UnsupportedSourcePart(
@@ -279,6 +273,30 @@ SourceDocument _convertWithoutBlocks({
         structureUnsupported: true,
       ),
   };
+}
+
+({SourcePart part, bool structureUnsupported}) _mapTableBlock(
+  OcrBlock block,
+  SourceRef sourceRef,
+) {
+  final tablePart = OcrTableProjector.parseHtmlTable(
+    block.text,
+    sourceRef: sourceRef,
+  );
+  if (tablePart != null) {
+    return (
+      part: tablePart,
+      structureUnsupported: false,
+    );
+  }
+  return (
+    part: UnsupportedSourcePart(
+      sourceRef: sourceRef,
+      kindCode: 'ocr_table_invalid',
+      fallbackContent: _textContent(block.text),
+    ),
+    structureUnsupported: true,
+  );
 }
 
 ({SourcePart part, bool structureUnsupported}) _mapImageBlock(

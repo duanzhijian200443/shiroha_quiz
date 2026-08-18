@@ -189,8 +189,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     final isReferenced =
         (startBlock != null && referencedBlockIds.contains(startBlock)) ||
             (endBlock != null && referencedBlockIds.contains(endBlock));
-    if (isReferenced &&
-        (part is SourceTablePart || part is UnsupportedSourcePart)) {
+    if (isReferenced && part is UnsupportedSourcePart) {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,

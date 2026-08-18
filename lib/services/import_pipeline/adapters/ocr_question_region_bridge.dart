@@ -6,6 +6,7 @@ import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
 import '../ocr_question_regionizer.dart';
+import '../ocr_table_projection.dart';
 import '../text_question_region.dart';
 
 const _ocrKnownDiagnostics = <String>{
@@ -237,6 +238,9 @@ String? _singleTextForPart(SourcePart part) {
       if (node is TextNode) return node.text;
     }
     return '[图片]';
+  }
+  if (part is SourceTablePart) {
+    return OcrTableProjector.projectToPlainText(part);
   }
   final content = switch (part) {
     SourceContentPart(:final content) => content,

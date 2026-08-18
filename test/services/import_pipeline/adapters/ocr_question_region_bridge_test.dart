@@ -165,7 +165,7 @@ void main() {
             .map((fragment) => fragment.part)
             .whereType<UnsupportedSourcePart>()
             .map((part) => part.kindCode),
-        containsAllInOrder(const <String>['ocr_table', 'ocr_image']),
+        containsAllInOrder(const <String>['ocr_table_invalid', 'ocr_image']),
       );
     });
 

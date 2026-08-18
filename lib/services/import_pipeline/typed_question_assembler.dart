@@ -5,6 +5,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
+import 'ocr_table_projection.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
 /// [QuestionDraftV2] without changing the frozen domain models or inventing an
@@ -79,12 +80,16 @@ final class TypedQuestionAssembler {
             ),
           );
         case SourceTablePart():
-          throw QuestionRegionUnsupportedException(
-            kindCode: 'source_table',
-            field: fragment.field,
-            message: 'Table content cannot be expressed losslessly by '
-                'QuestionDraftV2.',
+          final text = OcrTableProjector.projectToPlainText(
+            fragment.part as SourceTablePart,
           );
+          if (text.trim().isEmpty) break;
+          final target =
+              nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty) {
+            target.add(const TextNode('\n'));
+          }
+          target.add(TextNode(text));
         case UnsupportedSourcePart(:final kindCode):
           throw QuestionRegionUnsupportedException(
             kindCode: kindCode,
@@ -154,7 +159,25 @@ final class TypedQuestionAssembler {
         nodes: <ContentNode>[TextNode(inlineExplanation.trim())],
       );
     } else if (explanationNodes.isNotEmpty && explanationText == null) {
-      explanationContent = RichContent(nodes: explanationNodes);
+      if (explanationNodes.first is TextNode) {
+        final first = explanationNodes.first as TextNode;
+        final stripped = _stripFieldLabels(first.text);
+        if (stripped.isEmpty) {
+          explanationContent =
+              RichContent(nodes: explanationNodes.skip(1).toList());
+        } else if (stripped != first.text) {
+          explanationContent = RichContent(
+            nodes: <ContentNode>[
+              TextNode(stripped),
+              ...explanationNodes.skip(1),
+            ],
+          );
+        } else {
+          explanationContent = RichContent(nodes: explanationNodes);
+        }
+      } else {
+        explanationContent = RichContent(nodes: explanationNodes);
+      }
     }
     final effectiveExplanation =
         explanationContent == null ? '' : _searchText(explanationContent.nodes);
@@ -223,6 +246,13 @@ final class TypedQuestionAssembler {
         'empty_content',
         ImportIssueSeverity.warning,
         ImportIssueField.stem,
+      );
+    }
+    if (region.fragments.any((f) => f.part is SourceTablePart)) {
+      addIssue(
+        'table_text_projection',
+        ImportIssueSeverity.info,
+        null,
       );
     }
     if (_isStructurallyEmpty(stemContent.nodes)) {

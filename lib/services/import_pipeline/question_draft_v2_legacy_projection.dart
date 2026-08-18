@@ -7,6 +7,7 @@ import '../../domain/source/source_ref.dart';
 import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
+import 'ocr_table_projection.dart';
 
 /// Explicit, stable projection profile selecting the legacy map shape,
 /// provenance fields, and source tag of one authoritative legacy assembler.
@@ -303,6 +304,9 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
           ? _searchText(part.alternativeText!.nodes).trim()
           : '';
       parts.add(altText.isNotEmpty ? altText : '[图片]');
+    } else if (part is SourceTablePart) {
+      final text = OcrTableProjector.projectToPlainText(part).trim();
+      if (text.isNotEmpty) parts.add(text);
     }
   }
   return parts.join('\n');
@@ -327,6 +331,9 @@ int _untrimmedTextLength(
           ? _searchText(part.alternativeText!.nodes)
           : '';
       parts.add(altText.isNotEmpty ? altText : '[图片]');
+    } else if (part is SourceTablePart) {
+      final text = OcrTableProjector.projectToPlainText(part);
+      if (text.isNotEmpty) parts.add(text);
     }
   }
   return parts.join('\n').length;
@@ -366,11 +373,7 @@ void _guardNoRawFallback(
       case SourceAssetPart():
         break;
       case SourceTablePart():
-        throw LegacyProjectionUnsupportedException(
-          kindCode: 'source_table',
-          message: 'Table fragments cannot be projected losslessly by the '
-              'legacy map.',
-        );
+        break;
       case UnsupportedSourcePart(:final kindCode):
         throw LegacyProjectionUnsupportedException(
           kindCode: kindCode,
@@ -587,7 +590,8 @@ Iterable<SourceRef> _legacySourceRefs(QuestionRegion region) sync* {
   final seen = <SourceRef>{};
   for (final fragment in region.fragments) {
     if (fragment.part is! SourceContentPart &&
-        fragment.part is! SourceAssetPart) {
+        fragment.part is! SourceAssetPart &&
+        fragment.part is! SourceTablePart) {
       continue;
     }
     final ref = fragment.sourceRef;

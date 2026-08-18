@@ -440,6 +440,76 @@ void main() {
   });
 
   test(
+      'mixed batch with image in Q1 and table in Q2 reaches typedV2 with 2/2 envelopes',
+      () async {
+    final tempDir = Directory.systemTemp.createTempSync('r7b_mixed_test_');
+    try {
+      final store = ManagedContentAssetStore(managedRoot: tempDir);
+      final client = _FakeOcrDocumentClient(_mixedImageAndTableBatchDocument());
+      final ocrService = OcrImportService(
+        engineRepository: _FakeAiEngineRepository(_ocrProfile()),
+        ocrClient: client,
+        assetStore: store,
+        repairService: const _FakeRepairService(),
+        uuidV4Factory: _uuidFactory(),
+      );
+      final pipeline = ImportPipelineService.forTesting(
+        textParser: (rawText, {required taskId, required isMarkdown}) async =>
+            fail('text parser must not run'),
+        visionParser: (imagePaths) async => fail('vision parser must not run'),
+        ocrParser: ocrService.tryParse,
+      );
+      final parseResult = await pipeline.parseFiles(
+        ImportParseRequest(
+          filePaths: const <String>['single.pdf'],
+          fileNames: const <String>[_sourceName],
+          mode: ImportParseMode.ocr,
+          maxConcurrency: 1,
+          taskId: 'r7b-acceptance-mixed-batch',
+        ),
+      );
+
+      expect(parseResult.storageRoute, ImportStorageRoute.typedV2);
+      expect(parseResult.storageReason, 'typed_candidate_ready');
+      expect(parseResult.questions, hasLength(2));
+
+      // 2/2 envelopes
+      final q1 = parseResult.questions[0];
+      final q2 = parseResult.questions[1];
+      expect(q1.containsKey(TypedReviewSnapshotCodec.mapKey), isTrue);
+      expect(q2.containsKey(TypedReviewSnapshotCodec.mapKey), isTrue);
+
+      // Q1: ImageNode exists and file is on disk
+      const codec = TypedReviewSnapshotCodec();
+      final snap1 = codec.decodeRequired(q1[TypedReviewSnapshotCodec.mapKey]);
+      final imageNodes = snap1.draft.stem.nodes.whereType<ImageNode>().toList();
+      expect(imageNodes, hasLength(1));
+      final imageNode = imageNodes.single;
+      expect(imageNode.assetRef, startsWith('content_assets/'));
+      final resolvedFile = store.resolveAsset(imageNode.assetRef);
+      expect(resolvedFile, isNotNull);
+      expect(resolvedFile!.existsSync(), isTrue);
+      expect(resolvedFile.lengthSync(), greaterThan(0));
+
+      // Q2: table readable, zero raw HTML tags
+      final snap2 = codec.decodeRequired(q2[TypedReviewSnapshotCodec.mapKey]);
+      final explText = snap2.draft.explanation!.nodes
+          .whereType<TextNode>()
+          .map((n) => n.text)
+          .join();
+      expect(explText, contains('分布 | 期望'));
+      expect(explText, contains('B(n,p) | np'));
+      expect(q2['explanation']?.toString().contains('<table'), isFalse);
+      expect(q2['explanation']?.toString().contains('<tr'), isFalse);
+      expect(q2['explanation']?.toString().contains('<td'), isFalse);
+    } finally {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test(
       'reference-answer merged regions still generate candidates but strict '
       'provenance parity keeps the batch legacy', () async {
     final client = _FakeOcrDocumentClient(_referenceAnswerDocument());
@@ -711,6 +781,32 @@ OcrDocument _imageInQuestionDocument() {
           _block('q_1_img', 1, 2, tinyPngDataUrl, type: 'image'),
           _block('answer_1', 1, 3, '答案：synthetic-result-1'),
           _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _mixedImageAndTableBatchDocument() {
+  const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const tableHtml =
+      '<table border="1"><tr><td>分布</td><td>期望</td></tr><tr><td>B(n,p)</td><td>np</td></tr></table>';
+  return _document(
+    'r7b_synthetic_mixed_batch.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1_text', 1, 1, '1. 如图所示：'),
+          _block('q_1_img', 1, 2, tinyPngDataUrl, type: 'image'),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+          _block('q_2_text', 1, 5, '2. 常见分布计算：'),
+          _block('answer_2', 1, 6, '答案：synthetic-result-2'),
+          _block('explanation_2', 1, 7, '解析：请参考分布表：'),
+          _block('table_2', 1, 8, tableHtml, type: 'table'),
         ],
       ),
     ],

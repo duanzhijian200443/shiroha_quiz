@@ -241,12 +241,14 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.unknown,
       );
+      final assembledTable = assembler.assemble(tableRegion, questionId: 'q_1');
       expect(
-        () => assembler.assemble(tableRegion, questionId: 'q_1'),
-        throwsA(
-          isA<QuestionRegionUnsupportedException>()
-              .having((error) => error.kindCode, 'kindCode', 'source_table'),
-        ),
+        assembledTable.stem.nodes.whereType<TextNode>().single.text,
+        'cell',
+      );
+      expect(
+        assembledTable.issues.any((i) => i.code == 'table_text_projection'),
+        isTrue,
       );
 
       final unsupportedRegion = QuestionRegion(
@@ -256,7 +258,7 @@ void main() {
             field: QuestionRegionField.stem,
             part: UnsupportedSourcePart(
               sourceRef: _docRef(),
-              kindCode: 'ocr_table',
+              kindCode: 'ocr_unknown',
               fallbackContent: RichContent(
                 nodes: <ContentNode>[const TextNode('表格')],
               ),
@@ -269,7 +271,7 @@ void main() {
         () => assembler.assemble(unsupportedRegion, questionId: 'q_1'),
         throwsA(
           isA<QuestionRegionUnsupportedException>()
-              .having((error) => error.kindCode, 'kindCode', 'ocr_table'),
+              .having((error) => error.kindCode, 'kindCode', 'ocr_unknown'),
         ),
       );
     });
