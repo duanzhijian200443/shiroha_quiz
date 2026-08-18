@@ -34,6 +34,17 @@ class ReviewRepository implements StudyMetricsQueryPort {
 
   static final ReviewRepository instance = ReviewRepository();
 
+  static const Map<String, Object?> _reviewStateResetValues = <String, Object?>{
+    'state': 0,
+    'next_review_time': 0,
+    'lapses': 0,
+    'difficulty': 5.0,
+    'stability': 0.0,
+    'reps': 0,
+    'last_lapse_time': 0,
+    'last_review_time': 0,
+  };
+
   final DatabaseHelper _databaseHelper;
   static const QuestionV2PersistenceMapper _mapper =
       QuestionV2PersistenceMapper();
@@ -143,6 +154,9 @@ class ReviewRepository implements StudyMetricsQueryPort {
     };
   }
 
+  /// Explicit clear-all review/question-data purge. This is intentionally
+  /// separate from [resetReviewState], which only resets mutable scheduling
+  /// columns and never deletes ReviewLog or AnswerAttempt history.
   Future<void> clearAllData() async {
     final db = await _db;
     await db.transaction((txn) async {
@@ -150,6 +164,24 @@ class ReviewRepository implements StudyMetricsQueryPort {
       await txn.delete('review_states');
       await txn.delete('review_logs');
       await txn.delete('questions');
+    });
+  }
+
+  /// D1D targeted ReviewState reset.
+  ///
+  /// The question and its ReviewState row remain in place; only the mutable
+  /// FSRS scheduling values return to the same baseline used for new
+  /// questions. ReviewLog and AnswerAttempt are separate history authorities
+  /// and are deliberately outside this operation.
+  Future<void> resetReviewState(String questionId) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.update(
+        'review_states',
+        Map<String, Object?>.from(_reviewStateResetValues),
+        where: 'question_id = ?',
+        whereArgs: <Object?>[questionId],
+      );
     });
   }
 
