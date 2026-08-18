@@ -512,7 +512,28 @@ class QuestionRepository
   /// Delete an entire question bank and clear the current-bank cache if needed.
   @override
   Future<void> deleteQuestionBank(String bankName) async {
-    await _databaseHelper.deleteQuestionBank(bankName);
+    try {
+      await _databaseHelper.deleteQuestionBank(bankName);
+    } on QuestionBankDeletePersistenceException catch (error) {
+      throw switch (error.failure) {
+        QuestionBankDeletePersistenceFailure.examReferenced =>
+          const QuestionBankDeleteException(
+            QuestionBankDeleteFailure.examReferenced,
+          ),
+        QuestionBankDeletePersistenceFailure.referenceCheckUnavailable =>
+          const QuestionBankDeleteException(
+            QuestionBankDeleteFailure.unavailable,
+          ),
+        QuestionBankDeletePersistenceFailure.transactionFailed =>
+          const QuestionBankDeleteException(
+            QuestionBankDeleteFailure.transactionFailed,
+          ),
+      };
+    } catch (_) {
+      throw const QuestionBankDeleteException(
+        QuestionBankDeleteFailure.transactionFailed,
+      );
+    }
     // If the deleted bank was the active one, reset the cached value.
     final current = await SettingsRepository.instance.getCurrentBank();
     if (current == bankName) {
