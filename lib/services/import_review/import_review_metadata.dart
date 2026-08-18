@@ -6,6 +6,7 @@ enum ImportReviewMetadataProjectionState {
 
 class ImportReviewMetadata {
   static const key = '_import_review';
+  static const projectionStateKey = '_projectionState';
 
   final String source; // text / vision / fused / unknown
   final List<String> sources;

@@ -30,6 +30,21 @@ class ImportReviewItem {
     );
   }
 
+  Map<String, dynamic>? toPersistedMetadata() {
+    switch (metadataProjectionState) {
+      case ImportReviewMetadataProjectionState.notProvided:
+        return null;
+      case ImportReviewMetadataProjectionState.available:
+        return metadata.toMap();
+      case ImportReviewMetadataProjectionState.unavailable:
+        return {
+          ...metadata.toMap(),
+          ImportReviewMetadata.projectionStateKey:
+              ImportReviewMetadataProjectionState.unavailable.name,
+        };
+    }
+  }
+
   factory ImportReviewItem.fromMap(Map<String, dynamic> map, int index) {
     final draft = QuestionDraft.fromMap(map);
     final rawMeta = map[ImportReviewMetadata.key];
@@ -45,7 +60,9 @@ class ImportReviewItem {
         rawMeta.forEach((k, v) {
           metadataMap![k.toString()] = v;
         });
-        if (!_hasInvalidListContainer(rawMeta)) {
+        final hasProjectionStateMarker =
+            rawMeta.containsKey(ImportReviewMetadata.projectionStateKey);
+        if (!hasProjectionStateMarker && !_hasInvalidListContainer(rawMeta)) {
           metadataProjectionState =
               ImportReviewMetadataProjectionState.available;
         }

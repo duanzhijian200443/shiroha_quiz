@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/services/import_review/import_review_item.dart';
+import 'package:shiroha_quiz/services/import_review/import_review_metadata.dart';
+import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,7 +79,7 @@ void main() {
       'standard_answer': 'A',
       '_import_review': {
         'riskHints': ['answer_conflict'],
-        'repairCandidateCodes': ['cross_page'],
+        'repairCandidateCodes': ['choice_options_less_than_2'],
       },
     });
     expect(
@@ -139,6 +143,66 @@ void main() {
     expect(
       find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
       findsNothing,
+    );
+  });
+
+  testWidgets('Persists unavailable metadata state across draft reload',
+      (WidgetTester tester) async {
+    Map<String, dynamic>? savedTaskMap;
+    final taskManager = TaskManager.forTesting(
+      saveTask: (taskMap) async {
+        savedTaskMap = taskMap;
+      },
+    );
+    final task = ImportTask(
+      id: 'metadata-roundtrip-task',
+      title: 'Metadata roundtrip',
+      status: TaskStatus.pendingReview,
+      parsedData: [
+        {
+          'content': 'Unavailable metadata question',
+          'type': 2,
+          'standard_answer': 'A',
+          '_import_review': 'not-a-map',
+        },
+      ],
+    );
+    taskManager.tasks.add(task);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ImportStagingScreen(
+          parsedQuestions: task.parsedData!,
+          taskId: task.id,
+          taskManager: taskManager,
+          questionRepository: QuestionRepository.instance,
+          warnings: const [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+      findsOneWidget,
+    );
+    expect(savedTaskMap, isNotNull);
+
+    final persistedTask = ImportTask.fromMap(savedTaskMap!);
+    final reloadedItem = ImportReviewItem.fromMap(
+      persistedTask.parsedData!.single,
+      0,
+    );
+    expect(
+      reloadedItem.metadataProjectionState,
+      ImportReviewMetadataProjectionState.unavailable,
+    );
+    expect(
+      persistedTask.parsedData!.single[ImportReviewMetadata.key],
+      containsPair(
+        ImportReviewMetadata.projectionStateKey,
+        ImportReviewMetadataProjectionState.unavailable.name,
+      ),
     );
   });
 }

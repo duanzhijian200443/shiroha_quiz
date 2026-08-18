@@ -996,12 +996,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         final question = <String, dynamic>{
           ...?_snapshotProvenance[item.originalIndex],
           ...item.draft.toMap(),
-          '_import_review': item.metadata.toMap(),
           TaskManager.keyReviewItemId: _reviewItemIds[item.originalIndex],
           _explanationOverrideKey: (_explanationOverrides[item.originalIndex] ??
                   QuestionExplanationOverride.inherit)
               .name,
         };
+        final persistedMetadata = item.toPersistedMetadata();
+        if (persistedMetadata != null) {
+          question[ImportReviewMetadata.key] = persistedMetadata;
+        }
         final status =
             SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
           _answerDistillationStatuses[item.originalIndex],
@@ -1307,8 +1310,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     _allItems = _allItems.map((item) {
       final question = <String, dynamic>{
         ...item.draft.toMap(),
-        '_import_review': item.metadata.toMap(),
       };
+      final persistedMetadata = item.toPersistedMetadata();
+      if (persistedMetadata != null) {
+        question[ImportReviewMetadata.key] = persistedMetadata;
+      }
       final finalized = finalizeAndAuditImportQuestion(
         question,
         mode: _explanationRetentionMode,

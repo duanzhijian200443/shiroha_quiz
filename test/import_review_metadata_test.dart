@@ -87,7 +87,7 @@ void main() {
           'content': 'Eligible question',
           '_import_review': {
             'riskHints': ['answer_conflict'],
-            'repairCandidateCodes': ['cross_page'],
+            'repairCandidateCodes': ['choice_options_less_than_2'],
           },
         },
         1,
@@ -119,6 +119,35 @@ void main() {
       );
       expect(
         malformedField.metadataProjectionState,
+        ImportReviewMetadataProjectionState.unavailable,
+      );
+
+      expect(absent.toPersistedMetadata(), isNull);
+      final persistedLegacyQuestion = <String, dynamic>{
+        ...absent.draft.toMap(),
+      };
+      final reloadedLegacy = ImportReviewItem.fromMap(
+        persistedLegacyQuestion,
+        0,
+      );
+      expect(
+        reloadedLegacy.metadataProjectionState,
+        ImportReviewMetadataProjectionState.notProvided,
+      );
+      final persistedUnavailable = unavailable.toPersistedMetadata();
+      expect(
+        persistedUnavailable?[ImportReviewMetadata.projectionStateKey],
+        ImportReviewMetadataProjectionState.unavailable.name,
+      );
+      final reloadedUnavailable = ImportReviewItem.fromMap(
+        {
+          ...unavailable.draft.toMap(),
+          ImportReviewMetadata.key: persistedUnavailable,
+        },
+        2,
+      );
+      expect(
+        reloadedUnavailable.metadataProjectionState,
         ImportReviewMetadataProjectionState.unavailable,
       );
     });
