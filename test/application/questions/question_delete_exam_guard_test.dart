@@ -140,7 +140,13 @@ void main() {
 
     await expectLater(
       _deleteQuestion(),
-      throwsA(isA<StateError>()),
+      throwsA(
+        isA<QuestionDeleteException>().having(
+          (error) => error.failure,
+          'failure',
+          QuestionDeleteFailure.examReferenced,
+        ),
+      ),
     );
 
     await _expectQuestionAndHistoryToRemain(db);
@@ -160,7 +166,38 @@ void main() {
 
     await expectLater(
       _deleteQuestion(),
-      throwsA(isA<Exception>()),
+      throwsA(
+        isA<QuestionDeleteException>().having(
+          (error) => error.failure,
+          'failure',
+          QuestionDeleteFailure.unavailable,
+        ),
+      ),
+    );
+
+    await _expectQuestionAndHistoryToRemain(db);
+  });
+
+  test('maps a delete transaction failure to a fixed typed failure', () async {
+    final db = await _database();
+    await _seedQuestionWithReviewData(db);
+    await db.execute('''
+      CREATE TRIGGER d1b_block_review_log_delete
+      BEFORE DELETE ON review_logs
+      BEGIN
+        SELECT RAISE(ABORT, 'd1b_synthetic_delete_failure');
+      END;
+    ''');
+
+    await expectLater(
+      _deleteQuestion(),
+      throwsA(
+        isA<QuestionDeleteException>().having(
+          (error) => error.failure,
+          'failure',
+          QuestionDeleteFailure.transactionFailed,
+        ),
+      ),
     );
 
     await _expectQuestionAndHistoryToRemain(db);

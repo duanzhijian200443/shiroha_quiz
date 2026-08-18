@@ -1,4 +1,20 @@
+import '../../domain/backup/backup_manifest.dart';
 import '../backup/backup_restore_gate.dart';
+
+enum QuestionDeleteFailure {
+  examReferenced,
+  unavailable,
+  transactionFailed,
+}
+
+final class QuestionDeleteException implements Exception {
+  const QuestionDeleteException(this.failure);
+
+  final QuestionDeleteFailure failure;
+
+  @override
+  String toString() => 'QuestionDeleteException(${failure.name})';
+}
 
 /// Persistence seam for the remaining legacy-question mutations.
 ///
@@ -17,10 +33,20 @@ final class QuestionMutationCommand {
 
   final QuestionMutationPersistencePort _persistence;
 
-  Future<void> deleteQuestion(String id) {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () => _persistence.deleteQuestion(id),
-    );
+  Future<void> deleteQuestion(String id) async {
+    try {
+      await BackupRestoreMutationGate.instance.runMutation(
+        () => _persistence.deleteQuestion(id),
+      );
+    } on QuestionDeleteException {
+      rethrow;
+    } on BackupException {
+      rethrow;
+    } catch (_) {
+      throw const QuestionDeleteException(
+        QuestionDeleteFailure.transactionFailed,
+      );
+    }
   }
 
   Future<void> updateQuestion(Map<String, dynamic> question) {
