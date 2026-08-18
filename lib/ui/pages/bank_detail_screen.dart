@@ -8,7 +8,14 @@ import '../../data/repositories/settings_repository.dart';
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
 
-  const BankDetailScreen({super.key, required this.bankName});
+  @visibleForTesting
+  final QuestionBankMutationCommand? questionBankMutation;
+
+  const BankDetailScreen({
+    super.key,
+    required this.bankName,
+    this.questionBankMutation,
+  });
 
   @override
   State<BankDetailScreen> createState() => _BankDetailScreenState();
@@ -16,7 +23,9 @@ class BankDetailScreen extends StatefulWidget {
 
 class _BankDetailScreenState extends State<BankDetailScreen> {
   bool _isPomodoroActive = false;
-  final QuestionBankMutationCommand _questionBankMutation =
+
+  QuestionBankMutationCommand get _questionBankMutation =>
+      widget.questionBankMutation ??
       QuestionBankMutationCommand(QuestionRepository.instance);
 
   void _startPractice(BuildContext context, int? filterType) {
@@ -102,20 +111,27 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                     TextButton(
                       onPressed: () async {
                         Navigator.pop(ctx);
-                        await _questionBankMutation
-                            .deleteQuestionBank(widget.bankName);
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('题库已删除')));
-                        final currentBank =
-                            await SettingsRepository.instance.getCurrentBank();
-                        if (!context.mounted) return;
-                        if (currentBank == widget.bankName) {
-                          await SettingsRepository.instance
-                              .setCurrentBank('点击修改选择题库');
+                        try {
+                          await _questionBankMutation
+                              .deleteQuestionBank(widget.bankName);
                           if (!context.mounted) return;
+                          final currentBank = await SettingsRepository.instance
+                              .getCurrentBank();
+                          if (!context.mounted) return;
+                          if (currentBank == widget.bankName) {
+                            await SettingsRepository.instance
+                                .setCurrentBank('点击修改选择题库');
+                            if (!context.mounted) return;
+                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('题库已删除')));
+                          Navigator.pop(context);
+                        } catch (error) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('删除失败: $error')),
+                          );
                         }
-                        Navigator.pop(context);
                       },
                       child: const Text('彻底删除',
                           style: TextStyle(

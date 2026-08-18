@@ -9,7 +9,17 @@ import '../../core/state/dashboard_notifier.dart';
 import 'wrong_book_page.dart';
 
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({
+    super.key,
+    this.clearAllDataAction,
+    this.avatarImage,
+  });
+
+  @visibleForTesting
+  final Future<void> Function()? clearAllDataAction;
+
+  @visibleForTesting
+  final ImageProvider<Object>? avatarImage;
 
   static const Color _bgColor = Color(0xFFF4F6FA);
   static const Color _primaryColor = Color(0xFF4C6ED7);
@@ -43,8 +53,8 @@ class ProfilePage extends StatelessWidget {
           child: SizedBox(
             width: 80,
             height: 80,
-            child: Image.asset(
-              'assets/流萤.png',
+            child: Image(
+              image: avatarImage ?? const AssetImage('assets/流萤.png'),
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => Container(
                 color: const Color(0xFFE8ECF4),
@@ -201,7 +211,9 @@ class ProfilePage extends StatelessWidget {
             onPressed: () async {
               Navigator.of(ctx).pop();
               try {
-                await ReviewEngineService().clearAllData();
+                final clearAll =
+                    clearAllDataAction ?? ReviewEngineService().clearAllData;
+                await clearAll();
                 DashboardNotifier.notify();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context)
