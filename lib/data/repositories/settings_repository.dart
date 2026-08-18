@@ -49,6 +49,10 @@ class SettingsRepository {
     await _saveSettingWithCache('current_bank', bankName);
   }
 
+  void clearCurrentBankCache() {
+    _cache.remove('current_bank');
+  }
+
   // --- Daily Quota ---
   Future<int> getDailyQuota(String bankName, {int defaultQuota = 15}) async {
     final key = '${bankName}_daily_quota';

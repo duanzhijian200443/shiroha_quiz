@@ -751,9 +751,7 @@ void main() {
       expect(await db.query('question_v2_payloads'), isEmpty);
       expect(await db.query('review_states'), isEmpty);
       expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
-      // The frozen bank-delete path does not remove folder mappings; the
-      // observable row is documented rather than asserted away.
-      expect(await db.query('bank_folders'), hasLength(1));
+      expect(await db.query('bank_folders'), isEmpty);
     });
   });
 

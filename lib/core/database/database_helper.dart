@@ -29,6 +29,22 @@ final class QuestionDeletePersistenceException implements Exception {
   String toString() => 'QuestionDeletePersistenceException(${failure.name})';
 }
 
+enum QuestionBankDeletePersistenceFailure {
+  examReferenced,
+  referenceCheckUnavailable,
+  transactionFailed,
+}
+
+final class QuestionBankDeletePersistenceException implements Exception {
+  const QuestionBankDeletePersistenceException(this.failure);
+
+  final QuestionBankDeletePersistenceFailure failure;
+
+  @override
+  String toString() =>
+      'QuestionBankDeletePersistenceException(${failure.name})';
+}
+
 enum DatabaseRuntimeProfile {
   production,
   isolatedSmokeInMemory,
@@ -2166,16 +2182,101 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
 
   Future<void> deleteQuestionBank(String bankName) async {
     final db = await instance.database;
-    await db.transaction((txn) async {
-      await txn.rawDelete(
-          'DELETE FROM review_logs WHERE question_id IN (SELECT id FROM questions WHERE bank_name = ?)',
-          [bankName]);
-      await txn.rawDelete(
-          'DELETE FROM review_states WHERE question_id IN (SELECT id FROM questions WHERE bank_name = ?)',
-          [bankName]);
-      await txn
-          .rawDelete('DELETE FROM questions WHERE bank_name = ?', [bankName]);
-    });
+    try {
+      await db.transaction((txn) async {
+        Future<bool> tableExists(String tableName) async {
+          final rows = await txn.rawQuery(
+            "SELECT type FROM sqlite_master WHERE name = ? LIMIT 1",
+            [tableName],
+          );
+          return rows.isNotEmpty;
+        }
+
+        try {
+          if (await tableExists('paper_questions')) {
+            final references = await txn.rawQuery('''
+              SELECT 1
+              FROM paper_questions
+              WHERE question_id IN (
+                SELECT id FROM questions WHERE bank_name = ?
+              )
+              LIMIT 1
+            ''', [bankName]);
+            if (references.isNotEmpty) {
+              throw const QuestionBankDeletePersistenceException(
+                QuestionBankDeletePersistenceFailure.examReferenced,
+              );
+            }
+          }
+        } on QuestionBankDeletePersistenceException {
+          rethrow;
+        } catch (_) {
+          throw const QuestionBankDeletePersistenceException(
+            QuestionBankDeletePersistenceFailure.referenceCheckUnavailable,
+          );
+        }
+
+        await txn.rawDelete(
+          'DELETE FROM review_logs WHERE question_id IN '
+          '(SELECT id FROM questions WHERE bank_name = ?)',
+          [bankName],
+        );
+        await txn.rawDelete(
+          'DELETE FROM review_states WHERE question_id IN '
+          '(SELECT id FROM questions WHERE bank_name = ?)',
+          [bankName],
+        );
+
+        if (await tableExists(_questionV2SidecarTable)) {
+          await txn.rawDelete(
+            'DELETE FROM $_questionV2SidecarTable WHERE question_id IN '
+            '(SELECT id FROM questions WHERE bank_name = ?)',
+            [bankName],
+          );
+        }
+        if (await tableExists('questions_fts')) {
+          await txn.rawDelete(
+            'DELETE FROM questions_fts WHERE id IN '
+            '(SELECT id FROM questions WHERE bank_name = ?)',
+            [bankName],
+          );
+        }
+
+        await txn.rawDelete(
+          'DELETE FROM questions WHERE bank_name = ?',
+          [bankName],
+        );
+
+        if (await tableExists('bank_folders')) {
+          await txn.delete(
+            'bank_folders',
+            where: 'bank_name = ?',
+            whereArgs: [bankName],
+          );
+        }
+        if (await tableExists(_projectBanksTable)) {
+          await txn.delete(
+            _projectBanksTable,
+            where: 'bank_name = ?',
+            whereArgs: [bankName],
+          );
+        }
+        if (await tableExists('app_settings')) {
+          await txn.update(
+            'app_settings',
+            {'value': '点击修改选择题库'},
+            where: 'key = ? AND value = ?',
+            whereArgs: ['current_bank', bankName],
+          );
+        }
+      });
+    } on QuestionBankDeletePersistenceException {
+      rethrow;
+    } catch (_) {
+      throw const QuestionBankDeletePersistenceException(
+        QuestionBankDeletePersistenceFailure.transactionFailed,
+      );
+    }
   }
 
   Future<void> deleteSingleQuestion(String questionId) async {
