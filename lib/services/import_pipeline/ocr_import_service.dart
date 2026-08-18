@@ -1,5 +1,6 @@
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../core/observability/trace_context.dart';
+import '../file_library/managed_content_asset_store.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../task_manager.dart';
 import 'package:uuid/uuid.dart';
@@ -43,6 +44,7 @@ class OcrImportService {
   OcrImportService({
     required OcrDocumentClient ocrClient,
     required AiEngineRepository engineRepository,
+    required ContentAssetStore assetStore,
     OcrQuestionRegionizer regionizer = const OcrQuestionRegionizer(),
     OcrQuestionAssembler assembler = const OcrQuestionAssembler(),
     ReferenceAnswerExtractor referenceAnswerExtractor =
@@ -54,6 +56,7 @@ class OcrImportService {
     String Function()? uuidV4Factory,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
+        _assetStore = assetStore,
         _regionizer = regionizer,
         _assembler = assembler,
         _referenceAnswerExtractor = referenceAnswerExtractor,
@@ -68,6 +71,7 @@ class OcrImportService {
 
   final OcrDocumentClient _ocrClient;
   final AiEngineRepository _engineRepository;
+  final ContentAssetStore _assetStore;
   final OcrQuestionRegionizer _regionizer;
   final OcrQuestionAssembler _assembler;
   final ReferenceAnswerExtractor _referenceAnswerExtractor;
@@ -536,6 +540,7 @@ class OcrImportService {
         regions: regions,
         legacyQuestions: legacyQuestions,
         uuidV4Factory: _uuidV4Factory,
+        assetStore: _assetStore,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(

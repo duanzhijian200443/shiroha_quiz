@@ -16,6 +16,8 @@ import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 
+import '../../support/memory_content_asset_store.dart';
+
 const _sourceUuid = '11111111-1111-4111-8111-111111111111';
 const _questionUuidA = '22222222-2222-4222-8222-222222222222';
 const _questionUuidB = '33333333-3333-4333-8333-333333333333';
@@ -238,7 +240,9 @@ void main() {
       expect(batch.candidates, hasLength(1));
     });
 
-    test('table structure makes the whole batch ineligible', () {
+    test(
+        'table structure inside question region makes the whole batch ineligible',
+        () {
       final document = _tableDocument();
       final regionized = _regionizer.regionize(document);
       expect(regionized.regions, hasLength(1));
@@ -254,6 +258,49 @@ void main() {
         batch.failure,
         OcrTypedCandidateFailure.unsupportedStructure,
       );
+    });
+
+    test('table structure outside question regions does not disqualify batch',
+        () {
+      final document = _unreferencedTableDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+    });
+
+    test(
+        'image with ContentAssetStore materializes ImageNode with stored bytes in assetStore',
+        () {
+      final document = _imageInQuestionDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final assetStore = MemoryContentAssetStore();
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+        assetStore: assetStore,
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      final imageNodes =
+          candidate.draft.stem.nodes.whereType<ImageNode>().toList();
+      expect(imageNodes, hasLength(1));
+      final imageNode = imageNodes.single;
+      expect(imageNode.assetRef, startsWith('content_assets/'));
+      expect(assetStore.storage.containsKey(imageNode.assetRef), isTrue);
+      expect(assetStore.storage[imageNode.assetRef], isNotEmpty);
     });
 
     test('image and unknown structures make the whole batch ineligible', () {
@@ -1082,6 +1129,44 @@ OcrDocument _tableDocument() {
   );
 }
 
+OcrDocument _unreferencedTableDocument() {
+  return _document(
+    'r7b_synthetic_unreferenced_table.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('header_table', 1, 0, '表格：考试科目与分数分布表', type: 'table'),
+          _block('section', 1, 1, '三、解答题'),
+          _block('q_1', 1, 2, '1. Synthetic prompt marker 1.'),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _imageInQuestionDocument() {
+  const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  return _document(
+    'r7b_synthetic_image_in_question.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1_text', 1, 1, '1. 如图所示：'),
+          _block('q_1_img', 1, 2, tinyPngDataUrl, type: 'image'),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
 OcrDocument _unsupportedTypeDocument(String type) {
   return _document(
     'r7b_synthetic_unsupported_$type.pdf',
@@ -1090,15 +1175,10 @@ OcrDocument _unsupportedTypeDocument(String type) {
         pageIndex: 1,
         blocks: <OcrBlock>[
           _block('section', 1, 0, '三、解答题'),
-          _block(
-            'q_1',
-            1,
-            1,
-            '1. Synthetic prompt marker 1.',
-            type: type,
-          ),
-          _block('answer_1', 1, 2, '答案：synthetic-result-1'),
-          _block('explanation_1', 1, 3, '解析：Synthetic explanation 1'),
+          _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
+          _block('q_1_unsupported', 1, 2, 'Unsupported content', type: type),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
         ],
       ),
     ],

@@ -6,6 +6,7 @@ import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../ai_service.dart';
+import '../file_library/managed_content_asset_store.dart';
 import '../task_manager.dart';
 import 'final_question_latex_audit.dart';
 import 'import_document_role.dart';
@@ -60,6 +61,7 @@ class ImportPipelineService {
     required AiService aiService,
     required AiEngineRepository engineRepository,
     required TaskManager taskManager,
+    required ContentAssetStore contentAssetStore,
     OcrRequestScheduler? ocrRequestScheduler,
   }) : this._(
           textParser: (
@@ -79,6 +81,7 @@ class ImportPipelineService {
           ocrParser: OcrImportService(
             ocrClient: const ZhipuOcrClient(),
             engineRepository: engineRepository,
+            assetStore: contentAssetStore,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
             taskManager: taskManager,
           ).tryParse,

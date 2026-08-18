@@ -586,7 +586,10 @@ int _rawTextLength(QuestionRegion region, {required bool isOcr}) {
 Iterable<SourceRef> _legacySourceRefs(QuestionRegion region) sync* {
   final seen = <SourceRef>{};
   for (final fragment in region.fragments) {
-    if (fragment.part is! SourceContentPart) continue;
+    if (fragment.part is! SourceContentPart &&
+        fragment.part is! SourceAssetPart) {
+      continue;
+    }
     final ref = fragment.sourceRef;
     if (seen.add(ref)) yield ref;
   }

@@ -373,6 +373,7 @@ void main() {
         aiService: aiService,
         engineRepository: engineRepository,
         taskManager: taskManager,
+        contentAssetStore: contentAssetStore,
         ocrRequestScheduler: ocrRequestScheduler,
       );
       final importTaskCoordinator = ImportTaskCoordinator(

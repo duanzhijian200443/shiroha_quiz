@@ -179,8 +179,18 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     );
   }
 
+  final referencedBlockIds = <String>{
+    for (final region in regions) ...region.sourceBlockIds,
+  };
+
   for (final part in sourceDocument.parts) {
-    if (part is SourceTablePart || part is UnsupportedSourcePart) {
+    final startBlock = part.sourceRef.start?.blockId;
+    final endBlock = part.sourceRef.end?.blockId;
+    final isReferenced =
+        (startBlock != null && referencedBlockIds.contains(startBlock)) ||
+            (endBlock != null && referencedBlockIds.contains(endBlock));
+    if (isReferenced &&
+        (part is SourceTablePart || part is UnsupportedSourcePart)) {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,

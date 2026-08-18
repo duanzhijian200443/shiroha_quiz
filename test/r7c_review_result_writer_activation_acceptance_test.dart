@@ -44,6 +44,7 @@ import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/memory_content_asset_store.dart';
 import 'support/unsupported_ai_engine_store.dart';
 
 const _sourceName = 'r7c_acceptance_single.pdf';
@@ -287,6 +288,7 @@ Future<
   final ocrService = OcrImportService(
     engineRepository: _FakeAiEngineRepository(_ocrProfile()),
     ocrClient: client,
+    assetStore: MemoryContentAssetStore(),
     repairService: const _FakeRepairService(),
     uuidV4Factory: _uuidFactory(),
   );
