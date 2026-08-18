@@ -265,6 +265,14 @@ class ReviewEngineService with WidgetsBindingObserver {
     );
   }
 
+  /// D1D targeted reset: restore one question's mutable ReviewState
+  /// scheduling values without clearing either review or answer history.
+  Future<void> resetReviewState(String questionId) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => ReviewRepository.instance.resetReviewState(questionId),
+    );
+  }
+
   Future<List<Map<String, dynamic>>> getQuestionBankStats() {
     final int now = TimeUtil.getRealUTCTimestamp();
     return ReviewRepository.instance.getQuestionBankStats(now);
