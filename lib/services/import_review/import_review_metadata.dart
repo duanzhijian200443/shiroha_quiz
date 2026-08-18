@@ -1,3 +1,9 @@
+enum ImportReviewMetadataProjectionState {
+  notProvided,
+  available,
+  unavailable,
+}
+
 class ImportReviewMetadata {
   static const key = '_import_review';
 

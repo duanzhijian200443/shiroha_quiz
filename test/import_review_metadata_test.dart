@@ -71,5 +71,56 @@ void main() {
       expect(item.metadata.source, 'fused');
       // Should not crash, 123 is safely stringified or ignored
     });
+
+    test('tracks absent, available, and unavailable metadata projections', () {
+      final absent = ImportReviewItem.fromMap(
+        {'content': 'Legacy question'},
+        0,
+      );
+      expect(
+        absent.metadataProjectionState,
+        ImportReviewMetadataProjectionState.notProvided,
+      );
+
+      final available = ImportReviewItem.fromMap(
+        {
+          'content': 'Eligible question',
+          '_import_review': {
+            'riskHints': ['answer_conflict'],
+            'repairCandidateCodes': ['cross_page'],
+          },
+        },
+        1,
+      );
+      expect(
+        available.metadataProjectionState,
+        ImportReviewMetadataProjectionState.available,
+      );
+
+      final unavailable = ImportReviewItem.fromMap(
+        {
+          'content': 'Unavailable metadata question',
+          '_import_review': 'not-a-map',
+        },
+        2,
+      );
+      expect(
+        unavailable.metadataProjectionState,
+        ImportReviewMetadataProjectionState.unavailable,
+      );
+      expect(unavailable.metadata.repairCandidateCodes, isEmpty);
+
+      final malformedField = ImportReviewItem.fromMap(
+        {
+          'content': 'Malformed metadata question',
+          '_import_review': {'riskHints': 'not-a-list'},
+        },
+        3,
+      );
+      expect(
+        malformedField.metadataProjectionState,
+        ImportReviewMetadataProjectionState.unavailable,
+      );
+    });
   });
 }

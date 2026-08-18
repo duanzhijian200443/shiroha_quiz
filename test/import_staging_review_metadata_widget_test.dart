@@ -14,6 +14,7 @@ void main() {
   Widget buildTestableWidget(List<Map<String, dynamic>> questions) {
     return MaterialApp(
       home: ImportStagingScreen(
+        key: UniqueKey(),
         parsedQuestions: questions,
         warnings: const [],
       ),
@@ -58,5 +59,86 @@ void main() {
 
     expect(find.text('图文融合'), findsNothing);
     expect(find.text('老题目数据'), findsOneWidget);
+  });
+
+  testWidgets('Shows candidate, review-only, and unavailable states distinctly',
+      (WidgetTester tester) async {
+    Future<void> pumpQuestion(Map<String, dynamic> question) async {
+      await tester.pumpWidget(buildTestableWidget([question]));
+      await tester.pumpAndSettle();
+    }
+
+    await pumpQuestion({
+      'content': 'Eligible question',
+      'type': 0,
+      'options': ['A'],
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['answer_conflict'],
+        'repairCandidateCodes': ['cross_page'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Review-only question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': ['answer_conflict'],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Unavailable metadata question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': 'not-a-map',
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+
+    await pumpQuestion({
+      'content': 'Healthy question',
+      'type': 2,
+      'standard_answer': 'A',
+      '_import_review': {
+        'riskHints': [],
+        'repairCandidateCodes': [],
+      },
+    });
+    expect(
+      find.byKey(const ValueKey('question-repair-candidate-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('question-repair-metadata-unavailable-0')),
+      findsNothing,
+    );
   });
 }

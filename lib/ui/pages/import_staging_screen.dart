@@ -27,6 +27,7 @@ import '../../services/import_review/import_review_visible_item.dart';
 import '../../services/import_review/import_review_report.dart';
 import '../../services/import_review/import_review_report_builder.dart';
 import '../../services/import_review/import_review_report_formatter.dart';
+import '../../services/import_review/import_review_metadata.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/import_review/typed_review_result_builder.dart';
 import '../../services/bank_update_notifier.dart';
@@ -1314,7 +1315,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         override: _explanationOverrides[item.originalIndex] ??
             QuestionExplanationOverride.inherit,
       );
-      return ImportReviewItem.fromMap(finalized, item.originalIndex);
+      return ImportReviewItem.fromMap(finalized, item.originalIndex).copyWith(
+        metadataProjectionState: item.metadataProjectionState,
+      );
     }).toList();
   }
 
@@ -2378,6 +2381,13 @@ class _QuestionCard extends StatelessWidget {
     final question = item.draft;
     final standardAnswer = question.standardAnswer.trim();
     final explanation = question.explanation.trim();
+    final metadataAvailable = item.metadataProjectionState ==
+        ImportReviewMetadataProjectionState.available;
+    final metadataUnavailable = item.metadataProjectionState ==
+        ImportReviewMetadataProjectionState.unavailable;
+    final reviewOnly = metadataAvailable &&
+        item.metadata.riskHints.isNotEmpty &&
+        item.metadata.repairCandidateCodes.isEmpty;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2446,7 +2456,30 @@ class _QuestionCard extends StatelessWidget {
               const SizedBox(height: 8),
               _IssueSummary(issues: issues),
             ],
-            if (item.metadata.repairCandidateCodes.isNotEmpty) ...[
+            if (metadataUnavailable) ...[
+              const SizedBox(height: 8),
+              _RepairEligibilityNotice(
+                key: ValueKey(
+                  'question-repair-metadata-unavailable-${item.originalIndex}',
+                ),
+                icon: Icons.error_outline,
+                color: Colors.redAccent,
+                message: '审核元数据不可用，无法判断 AI 修补资格，请人工核对或重试。',
+              ),
+            ],
+            if (reviewOnly) ...[
+              const SizedBox(height: 8),
+              _RepairEligibilityNotice(
+                key: ValueKey(
+                  'question-repair-review-only-${item.originalIndex}',
+                ),
+                icon: Icons.person_search_outlined,
+                color: Colors.orangeAccent,
+                message: '本题存在解析风险，需要人工核对；当前不支持 AI 自动修补。',
+              ),
+            ],
+            if (metadataAvailable &&
+                item.metadata.repairCandidateCodes.isNotEmpty) ...[
               const SizedBox(height: 8),
               Chip(
                 key: ValueKey(
@@ -2620,6 +2653,49 @@ class _IssueSummary extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RepairEligibilityNotice extends StatelessWidget {
+  const _RepairEligibilityNotice({
+    super.key,
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );

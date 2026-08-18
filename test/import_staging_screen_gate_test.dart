@@ -367,6 +367,10 @@ void main() {
     expect(find.textContaining('警告: 1'), findsOneWidget);
     expect(find.text('LaTeX 异常'), findsOneWidget);
     expect(
+      find.text('本题存在解析风险，需要人工核对；当前不支持 AI 自动修补。'),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('question-repair-candidate-0')),
       findsNothing,
     );
@@ -378,6 +382,10 @@ void main() {
 
     expect(find.textContaining('警告: 0'), findsOneWidget);
     expect(find.text('LaTeX 异常'), findsNothing);
+    expect(
+      find.text('本题存在解析风险，需要人工核对；当前不支持 AI 自动修补。'),
+      findsNothing,
+    );
     expect(
       find.byKey(const ValueKey('question-repair-candidate-0')),
       findsNothing,
