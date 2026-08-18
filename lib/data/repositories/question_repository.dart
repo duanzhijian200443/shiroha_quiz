@@ -489,8 +489,24 @@ class QuestionRepository
   }
 
   @override
-  Future<void> deleteQuestion(String id) {
-    return _databaseHelper.deleteSingleQuestion(id);
+  Future<void> deleteQuestion(String id) async {
+    try {
+      await _databaseHelper.deleteSingleQuestion(id);
+    } on QuestionDeletePersistenceException catch (error) {
+      throw switch (error.failure) {
+        QuestionDeletePersistenceFailure.examReferenced =>
+          const QuestionDeleteException(QuestionDeleteFailure.examReferenced),
+        QuestionDeletePersistenceFailure.referenceCheckUnavailable =>
+          const QuestionDeleteException(QuestionDeleteFailure.unavailable),
+        QuestionDeletePersistenceFailure.transactionFailed =>
+          const QuestionDeleteException(
+              QuestionDeleteFailure.transactionFailed),
+      };
+    } catch (_) {
+      throw const QuestionDeleteException(
+        QuestionDeleteFailure.transactionFailed,
+      );
+    }
   }
 
   /// Delete an entire question bank and clear the current-bank cache if needed.

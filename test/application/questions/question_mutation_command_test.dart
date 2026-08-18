@@ -64,7 +64,13 @@ void main() {
 
     await expectLater(
       command.deleteQuestion('question-1'),
-      throwsA(isA<StateError>()),
+      throwsA(
+        isA<QuestionDeleteException>().having(
+          (error) => error.failure,
+          'failure',
+          QuestionDeleteFailure.transactionFailed,
+        ),
+      ),
     );
     expect(BackupRestoreMutationGate.instance.activeMutationCount, 0);
   });
