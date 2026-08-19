@@ -42,6 +42,9 @@ abstract interface class RetrievalIndexPort {
     required int maxHitBytes,
     required int maxResultBytes,
   });
+
+  /// Invalidates all derived retrieval rows for [fileId]. This operation is
+  /// idempotent and safe to retry after a failed cleanup.
   Future<void> removeIndex(String fileId);
 }
 

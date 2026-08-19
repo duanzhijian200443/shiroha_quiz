@@ -11,6 +11,8 @@ import '../../application/backup/backup_restore_gate.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../application/parsed_artifacts/parsed_artifact_ports.dart';
+import '../../application/retrieval/retrieval_ports.dart';
+import '../../core/observability/log_writer.dart';
 import '../../domain/assets/library_file.dart';
 import '../../domain/assets/parsed_artifact.dart';
 import '../../domain/source/parsed_artifact_payload_codec.dart';
@@ -87,15 +89,18 @@ final class ParsedArtifactLifecycleService
     required ParsedArtifactRepositoryPort artifactRepository,
     required ManagedArtifactStorage artifactStorage,
     required ParsedArtifactGenerationPort generationPort,
+    RetrievalIndexPort? retrievalIndex,
   })  : _libraryFileRepository = libraryFileRepository,
         _artifactRepository = artifactRepository,
         _artifactStorage = artifactStorage,
-        _generationPort = generationPort;
+        _generationPort = generationPort,
+        _retrievalIndex = retrievalIndex;
 
   final LibraryFileRepositoryPort _libraryFileRepository;
   final ParsedArtifactRepositoryPort _artifactRepository;
   final ManagedArtifactStorage _artifactStorage;
   final ParsedArtifactGenerationPort _generationPort;
+  final RetrievalIndexPort? _retrievalIndex;
 
   static const ParsedArtifactPayloadCodec _payloadCodec =
       ParsedArtifactPayloadCodec();
@@ -281,6 +286,7 @@ final class ParsedArtifactLifecycleService
               ParsedArtifactLifecycleFailure.publishConflict,
             );
         }
+        await _bestEffortInvalidateRetrieval(fileId);
         await _bestEffortDeleteSidecar(storageKey);
       });
     } on ParsedArtifactLifecycleException {
@@ -482,6 +488,7 @@ final class ParsedArtifactLifecycleService
     switch (publishResult.status) {
       case ParsedArtifactPublishStatus.published:
         if (previousStorageKey != null) {
+          await _bestEffortInvalidateRetrieval(file.fileId);
           await _bestEffortDeleteSidecar(previousStorageKey);
         }
         return _snapshotFrom(metadata, sourceDocument);
@@ -590,6 +597,33 @@ final class ParsedArtifactLifecycleService
     } catch (_) {
       // Best-effort cleanup: a leftover sidecar is an orphan and never
       // changes the already-determined primary outcome.
+    }
+  }
+
+  /// RAG rows are derived from one artifact generation and are not covered by
+  /// the artifact metadata CAS transaction. Invalidation therefore happens
+  /// after the primary commit. A failure leaves an observable, retryable RAG
+  /// orphan and must never change the already-published lifecycle result.
+  Future<void> _bestEffortInvalidateRetrieval(String fileId) async {
+    final retrievalIndex = _retrievalIndex;
+    if (retrievalIndex == null) return;
+    try {
+      await retrievalIndex.removeIndex(fileId);
+    } catch (_) {
+      try {
+        LogWriter.error(
+          'Parsed artifact derived cleanup pending',
+          module: 'ParsedArtifact',
+          data: <String, Object?>{
+            'derived': 'rag_index',
+            'fileId': fileId,
+            'status': 'orphaned',
+            'retryable': true,
+          },
+        );
+      } catch (_) {
+        // Observability is best effort and cannot change the primary result.
+      }
     }
   }
 
