@@ -292,9 +292,12 @@ void main() {
       final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
       final parsedArtifactRepository =
           ParsedArtifactRepository(databaseHelper: databaseHelper);
+      final retrievalIndex =
+          SqliteRetrievalIndexRepository(databaseHelper: databaseHelper);
       final parsedArtifactLifecycle = ParsedArtifactLifecycleService(
         libraryFileRepository: libraryFileRepository,
         artifactRepository: parsedArtifactRepository,
+        retrievalIndex: retrievalIndex,
         artifactStorage: ManagedArtifactStorageAdapter(
           managedRoot:
               Directory(p.join(supportDirectory.path, 'library_files')),
@@ -333,7 +336,7 @@ void main() {
           lifecycle: parsedArtifactLifecycle,
           metadata: parsedArtifactRepository,
         ),
-        index: SqliteRetrievalIndexRepository(databaseHelper: databaseHelper),
+        index: retrievalIndex,
         chunker: const DeterministicSourceChunker(),
       );
       final agentRuntime = ShirohaAgentRuntime(

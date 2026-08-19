@@ -229,6 +229,11 @@ final class _Index implements RetrievalIndexPort {
       required List<RetrievalChunk> chunks}) async {}
   @override
   Future<void> removeIndex(String fileId) async {}
+
+  @override
+  Future<void> removeIndexGeneration(
+      RetrievalArtifactSnapshot snapshot) async {}
+
   @override
   Future<RetrievalIndexSearchResult> search(
           {required List<RetrievalArtifactSnapshot> snapshots,
