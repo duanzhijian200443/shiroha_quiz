@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../application/exam/exam_mutation_command.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../../data/repositories/exam_repository.dart';
 import '../../data/repositories/settings_repository.dart';
@@ -9,13 +10,24 @@ import 'mock_exam_screen.dart';
 import 'paper_review_screen.dart';
 
 class MockCenterScreen extends StatefulWidget {
-  const MockCenterScreen({super.key, this.embedded = false});
+  const MockCenterScreen({
+    super.key,
+    this.embedded = false,
+    this.loadPapers,
+    this.examMutationCommand,
+  });
 
   /// When true the Mock center is rendered inside a host surface (Today ->
   /// 考试) and must not show a duplicate/nested AppBar. All paper loading,
   /// grading polling, creation, navigation, and dispose behavior is
   /// unchanged; this is a Presentation-only adaptation.
   final bool embedded;
+
+  @visibleForTesting
+  final Future<List<Map<String, dynamic>>> Function()? loadPapers;
+
+  @visibleForTesting
+  final ExamMutationCommand? examMutationCommand;
 
   @override
   State<MockCenterScreen> createState() => _MockCenterScreenState();
@@ -41,7 +53,8 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
   Future<void> _loadPapers({bool isPolling = false}) async {
     if (!isPolling) setState(() => _isLoading = true);
     try {
-      final data = await ExamRepository.instance.getAllExamPapers();
+      final data = await (widget.loadPapers?.call() ??
+          ExamRepository.instance.getAllExamPapers());
       if (mounted) {
         setState(() {
           _papers = data;
@@ -62,10 +75,44 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
   }
 
   Future<void> _deletePaper(String id) async {
-    await AiDependenciesScope.of(context)
-        .examMutationCommand
-        .deleteExamPaper(id);
-    _loadPapers();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认删除试卷'),
+        content: const Text('删除后将无法恢复，确定要删除这份试卷吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              '确认删除',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return;
+
+    try {
+      final command = widget.examMutationCommand ??
+          AiDependenciesScope.of(context).examMutationCommand;
+      await command.deleteExamPaper(id);
+      await _loadPapers();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('试卷已删除')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('删除试卷失败，请稍后重试')),
+      );
+    }
   }
 
   void _showCreateOptions() {
@@ -250,10 +297,13 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                       fontWeight: FontWeight.bold,
                                       fontSize: 18,
                                       color: Colors.green))
-                              : IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: Colors.redAccent),
-                                  onPressed: () => _deletePaper(paper['id'])),
+                              : status == 1
+                                  ? const SizedBox.shrink()
+                                  : IconButton(
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.redAccent),
+                                      onPressed: () =>
+                                          _deletePaper(paper['id'])),
                           onLongPress: status == 1
                               ? () async {
                                   showDialog(

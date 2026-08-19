@@ -275,9 +275,13 @@ class ReviewEngineService with WidgetsBindingObserver {
   }
 
   Future<void> clearAllData() {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () => ReviewRepository.instance.clearAllData(),
-    );
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      // A review submission may already have acquired its lease while its
+      // debounced write is still only queued. Drain that accepted write before
+      // publishing the destructive clear-all transaction.
+      await flushPending();
+      await ReviewRepository.instance.clearAllData();
+    });
   }
 
   /// D1D targeted reset: restore one question's mutable ReviewState

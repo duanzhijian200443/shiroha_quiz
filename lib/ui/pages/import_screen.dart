@@ -6,7 +6,17 @@ import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 
 class ImportScreen extends StatefulWidget {
-  const ImportScreen({super.key});
+  const ImportScreen({
+    super.key,
+    this.loadBanks,
+    this.questionBankMutation,
+  });
+
+  @visibleForTesting
+  final Future<List<Map<String, dynamic>>> Function()? loadBanks;
+
+  @visibleForTesting
+  final QuestionBankMutationCommand? questionBankMutation;
 
   @override
   State<ImportScreen> createState() => _ImportScreenState();
@@ -14,7 +24,9 @@ class ImportScreen extends StatefulWidget {
 
 class _ImportScreenState extends State<ImportScreen> {
   late Future<List<Map<String, dynamic>>> _banksFuture;
-  final QuestionBankMutationCommand _questionBankMutation =
+
+  QuestionBankMutationCommand get _questionBankMutation =>
+      widget.questionBankMutation ??
       QuestionBankMutationCommand(QuestionRepository.instance);
 
   @override
@@ -32,7 +44,8 @@ class _ImportScreenState extends State<ImportScreen> {
 
   void _loadBanks() {
     setState(() {
-      _banksFuture = QuestionRepository.instance.getQuestionBanksSummary();
+      _banksFuture = widget.loadBanks?.call() ??
+          QuestionRepository.instance.getQuestionBanksSummary();
     });
   }
 
