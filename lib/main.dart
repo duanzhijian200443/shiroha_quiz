@@ -199,6 +199,9 @@ void main() {
       final libraryFileRepository = LibraryFileRepository(
         databaseHelper: databaseHelper,
       );
+      final managedArtifactStorage = ManagedArtifactStorageAdapter(
+        managedRoot: Directory(p.join(supportDirectory.path, 'library_files')),
+      );
       final fileIngestionService = FileIngestionService(
         storage: managedFileStorage,
         repository: libraryFileRepository,
@@ -207,6 +210,7 @@ void main() {
         metadataRepository: libraryFileRepository,
         deletionRepository: libraryFileRepository,
         managedFileStorage: managedFileStorage,
+        managedArtifactStorage: managedArtifactStorage,
       );
       final projectRepository =
           SqliteProjectRepository(databaseHelper: databaseHelper);
@@ -304,10 +308,7 @@ void main() {
         libraryFileRepository: libraryFileRepository,
         artifactRepository: parsedArtifactRepository,
         retrievalIndex: retrievalIndex,
-        artifactStorage: ManagedArtifactStorageAdapter(
-          managedRoot:
-              Directory(p.join(supportDirectory.path, 'library_files')),
-        ),
+        artifactStorage: managedArtifactStorage,
         generationPort: ParsedArtifactGenerationRouter(
           deterministicGeneration: DeterministicParsedArtifactGenerationAdapter(
             managedFileStorage: managedFileStorage,

@@ -9,17 +9,23 @@ import 'package:shiroha_quiz/core/observability/log_writer.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/services/file_library/library_file_deletion_service.dart';
+import 'package:shiroha_quiz/services/file_library/managed_artifact_storage.dart';
+import 'package:shiroha_quiz/services/file_library/managed_artifact_storage_adapter.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const _fileId = 'file-delete-0001';
+const _artifactId = 'artifact-delete-0001';
+const _sha256 =
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
 final class _StorageSpy implements ManagedFileStorage {
   _StorageSpy(this.delegate);
 
   final ManagedFileStorage delegate;
   int deleteCalls = 0;
+  bool deleteCompleted = false;
   Object? deleteError;
   Future<void> Function()? beforeDelete;
 
@@ -53,6 +59,50 @@ final class _StorageSpy implements ManagedFileStorage {
     final error = deleteError;
     if (error != null) throw error;
     await delegate.deleteManagedFile(storageKey);
+    deleteCompleted = true;
+  }
+}
+
+final class _ArtifactStorageSpy implements ManagedArtifactStorage {
+  _ArtifactStorageSpy(this.delegate);
+
+  final ManagedArtifactStorage delegate;
+  int deleteCalls = 0;
+  Object? deleteError;
+  Future<void> Function()? beforeDelete;
+
+  @override
+  String allocateArtifactStorageKey(String artifactId) =>
+      delegate.allocateArtifactStorageKey(artifactId);
+
+  @override
+  Future<ArtifactWriteResult> writeArtifact({
+    required String storageKey,
+    required List<int> bytes,
+  }) {
+    return delegate.writeArtifact(storageKey: storageKey, bytes: bytes);
+  }
+
+  @override
+  Future<ArtifactReadResult?> readArtifact({
+    required String storageKey,
+    String? expectedSha256,
+    int? expectedSizeBytes,
+  }) {
+    return delegate.readArtifact(
+      storageKey: storageKey,
+      expectedSha256: expectedSha256,
+      expectedSizeBytes: expectedSizeBytes,
+    );
+  }
+
+  @override
+  Future<void> deleteArtifact(String storageKey) async {
+    deleteCalls++;
+    await beforeDelete?.call();
+    final error = deleteError;
+    if (error != null) throw error;
+    await delegate.deleteArtifact(storageKey);
   }
 }
 
@@ -62,6 +112,8 @@ void main() {
   late Directory tempDir;
   late ManagedFileStorageAdapter delegateStorage;
   late _StorageSpy storage;
+  late ManagedArtifactStorageAdapter artifactDelegateStorage;
+  late _ArtifactStorageSpy artifactStorage;
   late LibraryFileRepository repository;
   late LibraryFileDeletionService service;
 
@@ -77,11 +129,16 @@ void main() {
       managedRoot: Directory(p.join(tempDir.path, 'managed')),
     );
     storage = _StorageSpy(delegateStorage);
+    artifactDelegateStorage = ManagedArtifactStorageAdapter(
+      managedRoot: Directory(p.join(tempDir.path, 'artifacts')),
+    );
+    artifactStorage = _ArtifactStorageSpy(artifactDelegateStorage);
     repository = LibraryFileRepository();
     service = LibraryFileDeletionService(
       metadataRepository: repository,
       deletionRepository: repository,
       managedFileStorage: storage,
+      managedArtifactStorage: artifactStorage,
     );
   });
 
@@ -113,16 +170,59 @@ void main() {
     return file;
   }
 
+  Future<LibraryFileParsedArtifactIdentity> seedCurrentArtifact(
+    String fileId, {
+    String? storageKey,
+  }) async {
+    final key =
+        storageKey ?? artifactStorage.allocateArtifactStorageKey(_artifactId);
+    final write = await artifactStorage.writeArtifact(
+      storageKey: key,
+      bytes: 'artifact-sidecar'.codeUnits,
+    );
+    final db = await DatabaseHelper.instance.database;
+    await db.insert('parsed_artifact_heads', <String, Object?>{
+      'file_id': fileId,
+      'last_revision': 1,
+    });
+    await db.insert('parsed_artifacts', <String, Object?>{
+      'file_id': fileId,
+      'artifact_id': _artifactId,
+      'revision': 1,
+      'source_sha256': _sha256,
+      'cache_key_version': 1,
+      'cache_fingerprint': _sha256,
+      'parser_route': 'txt',
+      'parser_version': 'test',
+      'options_schema_version': 1,
+      'payload_schema_version': 1,
+      'storage_key': write.storageKey,
+      'payload_sha256': write.sha256,
+      'size_bytes': write.sizeBytes,
+      'published_at': 1,
+    });
+    return LibraryFileParsedArtifactIdentity(
+      artifactId: _artifactId,
+      storageKey: write.storageKey,
+    );
+  }
+
   test('DB commit detaches project/session refs before managed-byte delete',
       () async {
     final file = await seedFile();
     final db = await DatabaseHelper.instance.database;
     await seedReferences(db, file.fileId);
+    final artifact = await seedCurrentArtifact(file.fileId);
     storage.beforeDelete = () async {
       expect(await db.query('library_files'), isEmpty);
       expect(await db.query('project_files'), isEmpty);
       expect(await db.query('conversation_files'), isEmpty);
       expect(await db.query('library_file_folders'), isEmpty);
+      expect(await db.query('parsed_artifacts'), isEmpty);
+    };
+    artifactStorage.beforeDelete = () async {
+      expect(storage.deleteCompleted, isTrue);
+      expect(await db.query('parsed_artifacts'), isEmpty);
     };
 
     final result = await service.deleteLibraryFile(file.fileId);
@@ -134,7 +234,12 @@ void main() {
       result.managedBytesCleanup,
       LibraryFileManagedBytesCleanup.deleted,
     );
+    expect(
+      result.parsedArtifactCleanup,
+      LibraryFileParsedArtifactCleanup.deleted,
+    );
     expect(storage.deleteCalls, 1);
+    expect(artifactStorage.deleteCalls, 1);
     expect(await db.query('library_files'), isEmpty);
     expect(await db.query('project_files'), isEmpty);
     expect(await db.query('conversation_files'), isEmpty);
@@ -143,6 +248,8 @@ void main() {
     expect(await db.query('conversations'), hasLength(1));
     expect(await db.query('library_folders'), hasLength(1));
     expect(await storage.managedFileExists(file.storageKey), isFalse);
+    expect(await artifactStorage.readArtifact(storageKey: artifact.storageKey),
+        isNull);
   });
 
   test('database failure preserves row and never deletes managed bytes',
@@ -150,6 +257,7 @@ void main() {
     final file = await seedFile();
     final db = await DatabaseHelper.instance.database;
     await seedReferences(db, file.fileId);
+    final artifact = await seedCurrentArtifact(file.fileId);
     await db.execute('''
       CREATE TRIGGER d2b_block_library_delete
       BEFORE DELETE ON library_files
@@ -170,11 +278,15 @@ void main() {
     );
 
     expect(storage.deleteCalls, 0);
+    expect(artifactStorage.deleteCalls, 0);
     expect(await db.query('library_files'), hasLength(1));
     expect(await db.query('project_files'), hasLength(1));
     expect(await db.query('conversation_files'), hasLength(1));
     expect(await db.query('library_file_folders'), hasLength(1));
+    expect(await db.query('parsed_artifacts'), hasLength(1));
     expect(await storage.managedFileExists(file.storageKey), isTrue);
+    expect(await artifactStorage.readArtifact(storageKey: artifact.storageKey),
+        isNotNull);
   });
 
   test('unknown managed-byte ownership fails closed before DB mutation',
@@ -202,6 +314,7 @@ void main() {
   test('post-commit managed cleanup failure returns an observable orphan',
       () async {
     final file = await seedFile();
+    final artifact = await seedCurrentArtifact(file.fileId);
     storage.deleteError = StateError('synthetic managed cleanup failure');
     final observed = <LogRecord>[];
     LogWriter.setRecordHandler(observed.add);
@@ -212,14 +325,85 @@ void main() {
       result.managedBytesCleanup,
       LibraryFileManagedBytesCleanup.orphaned,
     );
+    expect(
+      result.parsedArtifactCleanup,
+      LibraryFileParsedArtifactCleanup.deleted,
+    );
+    expect(artifactStorage.deleteCalls, 1);
     expect(await repository.findById(file.fileId), isNull);
     expect(await storage.managedFileExists(file.storageKey), isTrue);
+    expect(await artifactStorage.readArtifact(storageKey: artifact.storageKey),
+        isNull);
     expect(
       observed.any(
         (record) =>
             record.module == 'LibraryFile' &&
             record.data['fileId'] == file.fileId &&
             record.data['status'] == 'orphaned' &&
+            record.data['retryable'] == true,
+      ),
+      isTrue,
+    );
+  });
+
+  test('artifact cleanup failure preserves the sidecar as a retryable orphan',
+      () async {
+    final file = await seedFile();
+    final artifact = await seedCurrentArtifact(file.fileId);
+    artifactStorage.deleteError =
+        StateError('synthetic artifact cleanup failure');
+    final observed = <LogRecord>[];
+    LogWriter.setRecordHandler(observed.add);
+
+    final result = await service.deleteLibraryFile(file.fileId);
+
+    expect(
+      result.parsedArtifactCleanup,
+      LibraryFileParsedArtifactCleanup.orphaned,
+    );
+    expect(result.managedBytesCleanup, LibraryFileManagedBytesCleanup.deleted);
+    expect(artifactStorage.deleteCalls, 1);
+    expect(await repository.findById(file.fileId), isNull);
+    expect(await artifactStorage.readArtifact(storageKey: artifact.storageKey),
+        isNotNull);
+    expect(
+      observed.any(
+        (record) =>
+            record.module == 'LibraryFile' &&
+            record.data['artifactId'] == _artifactId &&
+            record.data['derived'] == 'parsed_artifact_sidecar' &&
+            record.data['status'] == 'orphaned' &&
+            record.data['retryable'] == true,
+      ),
+      isTrue,
+    );
+  });
+
+  test('unknown artifact ownership is not physically deleted', () async {
+    final file = await seedFile();
+    final artifact = await seedCurrentArtifact(
+      file.fileId,
+      storageKey: 'artifacts/foreign-owner.json',
+    );
+    final observed = <LogRecord>[];
+    LogWriter.setRecordHandler(observed.add);
+
+    final result = await service.deleteLibraryFile(file.fileId);
+
+    expect(
+      result.parsedArtifactCleanup,
+      LibraryFileParsedArtifactCleanup.orphaned,
+    );
+    expect(result.managedBytesCleanup, LibraryFileManagedBytesCleanup.deleted);
+    expect(artifactStorage.deleteCalls, 0);
+    expect(await repository.findById(file.fileId), isNull);
+    expect(await artifactStorage.readArtifact(storageKey: artifact.storageKey),
+        isNotNull);
+    expect(
+      observed.any(
+        (record) =>
+            record.data['artifactId'] == _artifactId &&
+            record.data['reason'] == 'ownership_unproven' &&
             record.data['retryable'] == true,
       ),
       isTrue,

@@ -79,6 +79,20 @@ class LibraryFileRepository
           );
         }
 
+        final artifactRows = await txn.query(
+          'parsed_artifacts',
+          columns: const <String>['artifact_id', 'storage_key'],
+          where: 'file_id = ?',
+          whereArgs: <Object?>[fileId],
+          limit: 1,
+        );
+        final currentParsedArtifact = artifactRows.isEmpty
+            ? null
+            : LibraryFileParsedArtifactIdentity(
+                artifactId: artifactRows.single['artifact_id']! as String,
+                storageKey: artifactRows.single['storage_key']! as String,
+              );
+
         final projectReferenceCount = await _countReferences(
           txn,
           table: 'project_files',
@@ -122,6 +136,7 @@ class LibraryFileRepository
           file: file,
           projectReferenceCount: projectReferenceCount,
           conversationReferenceCount: conversationReferenceCount,
+          currentParsedArtifact: currentParsedArtifact,
         );
       });
     } on LibraryFileDeletionException {

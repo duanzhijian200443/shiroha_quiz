@@ -501,6 +501,7 @@ void main() {
       projectReferenceCount: 1,
       conversationReferenceCount: 2,
       managedBytesCleanup: LibraryFileManagedBytesCleanup.deleted,
+      parsedArtifactCleanup: LibraryFileParsedArtifactCleanup.notPresent,
     );
     deletion.result = result;
 

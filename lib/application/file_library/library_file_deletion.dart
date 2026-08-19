@@ -22,6 +22,18 @@ abstract interface class LibraryFileDeletionPersistencePort {
   });
 }
 
+/// Identity evidence for the current ParsedArtifact sidecar observed before
+/// the LibraryFile row is deleted.
+final class LibraryFileParsedArtifactIdentity {
+  const LibraryFileParsedArtifactIdentity({
+    required this.artifactId,
+    required this.storageKey,
+  });
+
+  final String artifactId;
+  final String storageKey;
+}
+
 enum LibraryFileDeletionFailure {
   unavailable,
   fileNotFound,
@@ -45,16 +57,24 @@ final class LibraryFileDeletionCommit {
     required this.file,
     required this.projectReferenceCount,
     required this.conversationReferenceCount,
+    this.currentParsedArtifact,
   });
 
   final LibraryFile file;
   final int projectReferenceCount;
   final int conversationReferenceCount;
+  final LibraryFileParsedArtifactIdentity? currentParsedArtifact;
 }
 
 enum LibraryFileManagedBytesCleanup {
   deleted,
   alreadyAbsent,
+  orphaned,
+}
+
+enum LibraryFileParsedArtifactCleanup {
+  notPresent,
+  deleted,
   orphaned,
 }
 
@@ -65,10 +85,12 @@ final class LibraryFileDeletionResult {
     required this.projectReferenceCount,
     required this.conversationReferenceCount,
     required this.managedBytesCleanup,
+    required this.parsedArtifactCleanup,
   });
 
   final String fileId;
   final int projectReferenceCount;
   final int conversationReferenceCount;
   final LibraryFileManagedBytesCleanup managedBytesCleanup;
+  final LibraryFileParsedArtifactCleanup parsedArtifactCleanup;
 }
