@@ -4,6 +4,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
+import 'package:shiroha_quiz/data/models/import_task_cleanup.dart';
 import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
@@ -16,6 +18,18 @@ enum TaskStatus { processing, pendingReview, completed, error }
 extension TaskStatusX on TaskStatus {
   bool get isFinalState =>
       this == TaskStatus.completed || this == TaskStatus.error;
+}
+
+/// Durable outcome of an ImportTask-only cleanup operation.
+///
+/// Cleanup never implies deletion of a Question or any confirmed learning
+/// data. [failed] keeps the in-memory projection visible so the operation can
+/// be retried against the durable row.
+enum ImportTaskCleanupStatus {
+  deleted,
+  alreadyAbsent,
+  busy,
+  failed,
 }
 
 class ImportTask {
@@ -351,7 +365,10 @@ class TaskManager extends ChangeNotifier {
       : _persistTasks = true,
         _saveTaskOverride = null,
         _loadTasksOverride = null,
-        _deleteOldImportTasksOverride = null {
+        _deleteOldImportTasksOverride = null,
+        _deleteTaskPersistenceOverride = null,
+        _clearCompletedPersistenceOverride = null,
+        _hasCleanupPersistence = true {
     ready = _loadTasksFromDb();
   }
 
@@ -360,10 +377,20 @@ class TaskManager extends ChangeNotifier {
     Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
     Future<List<Map<String, dynamic>>> Function()? loadTasks,
     Future<void> Function(int olderThanUnix)? deleteOldImportTasks,
+    Future<ImportTaskCleanupStatus> Function(String id)? deleteTaskPersistence,
+    Future<List<String>> Function(
+      Set<String> excludedIds,
+      Set<String> candidateIds,
+    )? clearCompletedPersistence,
   })  : _persistTasks = saveTask != null,
         _saveTaskOverride = saveTask,
         _loadTasksOverride = loadTasks,
-        _deleteOldImportTasksOverride = deleteOldImportTasks {
+        _deleteOldImportTasksOverride = deleteOldImportTasks,
+        _deleteTaskPersistenceOverride = deleteTaskPersistence,
+        _clearCompletedPersistenceOverride = clearCompletedPersistence,
+        _hasCleanupPersistence = saveTask != null ||
+            deleteTaskPersistence != null ||
+            clearCompletedPersistence != null {
     ready = loadTasks == null && deleteOldImportTasks == null
         ? Future<void>.value()
         : _loadTasksFromDb();
@@ -374,10 +401,19 @@ class TaskManager extends ChangeNotifier {
   final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
   final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
   final Future<void> Function(int olderThanUnix)? _deleteOldImportTasksOverride;
+  final Future<ImportTaskCleanupStatus> Function(String id)?
+      _deleteTaskPersistenceOverride;
+  final Future<List<String>> Function(
+    Set<String> excludedIds,
+    Set<String> candidateIds,
+  )? _clearCompletedPersistenceOverride;
+  final bool _hasCleanupPersistence;
   Future<void> _reviewDraftWriteTail = Future<void>.value();
   final Map<String, Future<void>> _attemptWriteTails = <String, Future<void>>{};
+  final Map<String, Future<void>> _taskWriteTails = <String, Future<void>>{};
   final Map<String, TypedCommitAttemptLease> _typedCommitLeases =
       <String, TypedCommitAttemptLease>{};
+  final Set<String> _cleanupInProgress = <String>{};
   static final Random _leaseRandom = Random.secure();
 
   final List<ImportTask> tasks = [];
@@ -387,10 +423,12 @@ class TaskManager extends ChangeNotifier {
   /// typed commit state. The restored durable `import_tasks` table is already
   /// empty.
   Future<void> resetTransientStateForRestore() async {
-    await _reviewDraftWriteTail;
+    await _drainAllTaskWrites();
     tasks.clear();
     _attemptWriteTails.clear();
+    _taskWriteTails.clear();
     _typedCommitLeases.clear();
+    _cleanupInProgress.clear();
     _reviewDraftWriteTail = Future<void>.value();
     ready = Future<void>.value();
     notifyListeners();
@@ -402,22 +440,29 @@ class TaskManager extends ChangeNotifier {
       tasks.where((t) => t.status == TaskStatus.pendingReview).length;
 
   Future<void> _loadTasksFromDb() async {
+    final threeDaysAgo = DateTime.now()
+            .subtract(const Duration(days: 3))
+            .millisecondsSinceEpoch ~/
+        1000;
     try {
       final loader = _loadTasksOverride;
-      final threeDaysAgo = DateTime.now()
-              .subtract(const Duration(days: 3))
-              .millisecondsSinceEpoch ~/
-          1000;
-      final List<Map<String, dynamic>> maps;
       if (loader != null) {
         if (_deleteOldImportTasksOverride != null) {
           await _deleteOldImportTasks(threeDaysAgo);
         }
-        maps = await loader();
       } else {
         await _deleteOldImportTasks(threeDaysAgo);
-        maps = await ImportTaskRepository.instance.getAllImportTasks();
       }
+    } catch (_) {
+      _logTaskPersistenceFailure(stage: 'retention_cleanup');
+    }
+
+    try {
+      final loader = _loadTasksOverride;
+      final List<Map<String, dynamic>> maps;
+      maps = loader != null
+          ? await loader()
+          : await ImportTaskRepository.instance.getAllImportTasks();
       tasks.clear();
       for (var map in maps) {
         final task = ImportTask.fromMap(map);
@@ -464,22 +509,21 @@ class TaskManager extends ChangeNotifier {
   }
 
   Future<void> _saveTask(ImportTask task) {
-    if (!_persistTasks) return Future<void>.value();
-    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
-    return _saveTaskWithLease(task, lease);
-  }
-
-  Future<void> _saveTaskWithLease(
-    ImportTask task,
-    BackupRestoreMutationLease lease,
-  ) async {
-    try {
-      await _persistTask(task);
-    } catch (_) {
-      _logTaskPersistenceFailure();
-    } finally {
-      lease.release();
+    if (!_persistTasks || _cleanupInProgress.contains(task.id)) {
+      return Future<void>.value();
     }
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    final snapshot = ImportTask.fromMap(task.toMap());
+    return _enqueueTaskWrite(task.id, () async {
+      try {
+        if (_cleanupInProgress.contains(task.id)) return;
+        await _persistTask(snapshot);
+      } catch (_) {
+        _logTaskPersistenceFailure();
+      } finally {
+        lease.release();
+      }
+    });
   }
 
   Future<void> _persistTask(ImportTask task) async {
@@ -492,26 +536,279 @@ class TaskManager extends ChangeNotifier {
     await ImportTaskRepository.instance.saveImportTask(task.toMap());
   }
 
-  void _logTaskPersistenceFailure() {
+  void _logTaskPersistenceFailure({String stage = 'task_persistence'}) {
     AppLogger.warning(
       'Import task persistence failed',
       module: 'ImportTask',
-      data: const <String, Object?>{
-        'stage': 'task_persistence',
+      data: <String, Object?>{
+        'stage': stage,
         'status': 'failed',
         'errorType': 'ImportTaskPersistenceFailure',
       },
     );
   }
 
+  Future<void> _enqueueTaskWrite(
+    String taskId,
+    Future<void> Function() action,
+  ) {
+    late final Future<void> operation;
+    final previous = _taskWriteTails[taskId];
+    operation = previous == null
+        ? action()
+        : previous.then<void>(
+            (_) => action(),
+            onError: (_, __) => action(),
+          );
+    _taskWriteTails[taskId] = operation;
+    unawaited(
+      operation.then<void>(
+        (_) {
+          if (identical(_taskWriteTails[taskId], operation)) {
+            _taskWriteTails.remove(taskId);
+          }
+        },
+        onError: (Object _, StackTrace __) {
+          if (identical(_taskWriteTails[taskId], operation)) {
+            _taskWriteTails.remove(taskId);
+          }
+        },
+      ),
+    );
+    return operation;
+  }
+
+  Future<void> _ignoreWriteFailure(Future<void> future) async {
+    try {
+      await future;
+    } catch (_) {
+      // Cleanup must wait for the write to settle, but its safe outcome is
+      // reported by the write caller rather than leaked into the cleanup.
+    }
+  }
+
+  Future<void> _drainTaskWrites(String taskId) async {
+    while (true) {
+      final reviewTail = _reviewDraftWriteTail;
+      final attemptTail = _attemptWriteTails[taskId];
+      final taskTail = _taskWriteTails[taskId];
+      final tails = <Future<void>>[
+        reviewTail,
+        if (attemptTail != null) attemptTail,
+        if (taskTail != null) taskTail,
+      ];
+      await Future.wait<void>(tails.map(_ignoreWriteFailure));
+      if (identical(reviewTail, _reviewDraftWriteTail) &&
+          identical(attemptTail, _attemptWriteTails[taskId]) &&
+          identical(taskTail, _taskWriteTails[taskId])) {
+        return;
+      }
+    }
+  }
+
+  Future<void> _drainAllTaskWrites() async {
+    while (true) {
+      final reviewTail = _reviewDraftWriteTail;
+      final attemptTails = Map<String, Future<void>>.from(_attemptWriteTails);
+      final taskTails = Map<String, Future<void>>.from(_taskWriteTails);
+      final tails = <Future<void>>[
+        reviewTail,
+        ...attemptTails.values,
+        ...taskTails.values,
+      ];
+      await Future.wait<void>(tails.map(_ignoreWriteFailure));
+      final attemptsStable = attemptTails.entries.every(
+        (entry) => identical(_attemptWriteTails[entry.key], entry.value),
+      );
+      final tasksStable = taskTails.entries.every(
+        (entry) => identical(_taskWriteTails[entry.key], entry.value),
+      );
+      if (identical(reviewTail, _reviewDraftWriteTail) &&
+          attemptsStable &&
+          tasksStable) {
+        return;
+      }
+    }
+  }
+
+  bool _isTaskDurableBusy(ImportTask task) {
+    if (_typedCommitLeases.containsKey(task.id)) {
+      return true;
+    }
+    if (task.status == TaskStatus.processing) return true;
+    return switch (task.attemptState) {
+      ImportAttemptState.queued ||
+      ImportAttemptState.running ||
+      ImportAttemptState.cancelRequested =>
+        true,
+      ImportAttemptState.cancelled ||
+      ImportAttemptState.failed ||
+      ImportAttemptState.interrupted ||
+      ImportAttemptState.readyForReview =>
+        false,
+    };
+  }
+
+  bool _isTaskCleanupBusy(ImportTask task) {
+    return _cleanupInProgress.contains(task.id) || _isTaskDurableBusy(task);
+  }
+
+  bool _beginTaskCleanup(String taskId) {
+    return _cleanupInProgress.add(taskId);
+  }
+
+  void _finishTaskCleanup(String taskId) {
+    _cleanupInProgress.remove(taskId);
+  }
+
+  Future<ImportTaskCleanupStatus> _deleteDurableTask(String id) async {
+    final override = _deleteTaskPersistenceOverride;
+    if (override != null) return override(id);
+    if (!_persistTasks) return ImportTaskCleanupStatus.deleted;
+    final result = await ImportTaskRepository.instance.deleteImportTask(id);
+    return switch (result) {
+      ImportTaskDeletePersistenceStatus.deleted =>
+        ImportTaskCleanupStatus.deleted,
+      ImportTaskDeletePersistenceStatus.alreadyAbsent =>
+        ImportTaskCleanupStatus.alreadyAbsent,
+      ImportTaskDeletePersistenceStatus.busy => ImportTaskCleanupStatus.busy,
+    };
+  }
+
+  Future<List<String>> _clearDurableTasks({
+    required Set<String> excludedIds,
+    required Set<String> candidateIds,
+  }) async {
+    final override = _clearCompletedPersistenceOverride;
+    if (override != null) return override(excludedIds, candidateIds);
+    if (!_persistTasks) return candidateIds.toList(growable: false);
+    return ImportTaskRepository.instance.clearCompletedImportTasks(
+      excludedIds: excludedIds,
+      candidateIds: candidateIds,
+    );
+  }
+
+  void _removeTaskProjection(String id) {
+    final before = tasks.length;
+    tasks.removeWhere((task) => task.id == id);
+    if (tasks.length != before) notifyListeners();
+  }
+
+  Future<ImportTaskCleanupStatus> _cleanupOneTask(String id) async {
+    final index = tasks.indexWhere((task) => task.id == id);
+    final task = index < 0 ? null : tasks[index];
+    if (task != null && _isTaskCleanupBusy(task)) {
+      return ImportTaskCleanupStatus.busy;
+    }
+    if (!_beginTaskCleanup(id)) return ImportTaskCleanupStatus.busy;
+
+    BackupRestoreMutationLease? lease;
+    try {
+      if (_hasCleanupPersistence) {
+        lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+      }
+      final currentIndex = tasks.indexWhere((candidate) => candidate.id == id);
+      final currentTask = currentIndex < 0 ? null : tasks[currentIndex];
+      if (currentTask != null && _isTaskDurableBusy(currentTask)) {
+        return ImportTaskCleanupStatus.busy;
+      }
+
+      await _drainTaskWrites(id);
+
+      final drainedIndex = tasks.indexWhere((candidate) => candidate.id == id);
+      final drainedTask = drainedIndex < 0 ? null : tasks[drainedIndex];
+      if (drainedTask != null && _isTaskDurableBusy(drainedTask)) {
+        return ImportTaskCleanupStatus.busy;
+      }
+      if (_typedCommitLeases.containsKey(id)) {
+        return ImportTaskCleanupStatus.busy;
+      }
+
+      final status = await _deleteDurableTask(id);
+      if (status == ImportTaskCleanupStatus.deleted ||
+          status == ImportTaskCleanupStatus.alreadyAbsent) {
+        _removeTaskProjection(id);
+      }
+      return status;
+    } on BackupException {
+      rethrow;
+    } catch (_) {
+      _logTaskPersistenceFailure(stage: 'cleanup');
+      return ImportTaskCleanupStatus.failed;
+    } finally {
+      lease?.release();
+      _finishTaskCleanup(id);
+    }
+  }
+
+  Future<ImportTaskCleanupStatus> _cleanupCompletedTasks() async {
+    final candidateIds = <String>{};
+    final cleanupIds = <String>{};
+    final excludedIds = <String>{};
+    for (final task in tasks) {
+      if (!task.status.isFinalState) continue;
+      if (_isTaskCleanupBusy(task)) {
+        excludedIds.add(task.id);
+        continue;
+      }
+      if (_beginTaskCleanup(task.id)) cleanupIds.add(task.id);
+    }
+    candidateIds.addAll(cleanupIds);
+
+    if (!_hasCleanupPersistence && candidateIds.isEmpty) {
+      return ImportTaskCleanupStatus.alreadyAbsent;
+    }
+
+    BackupRestoreMutationLease? lease;
+    try {
+      if (_hasCleanupPersistence) {
+        lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+      }
+      for (final id in cleanupIds) {
+        await _drainTaskWrites(id);
+      }
+
+      for (final task in tasks) {
+        if (task.status.isFinalState &&
+            (_isTaskDurableBusy(task) && !cleanupIds.contains(task.id))) {
+          excludedIds.add(task.id);
+        }
+      }
+      final resolvedIds = await _clearDurableTasks(
+        excludedIds: excludedIds,
+        candidateIds: candidateIds,
+      );
+      for (final id in resolvedIds) {
+        _removeTaskProjection(id);
+      }
+      return resolvedIds.isEmpty
+          ? ImportTaskCleanupStatus.alreadyAbsent
+          : ImportTaskCleanupStatus.deleted;
+    } on BackupException {
+      rethrow;
+    } catch (_) {
+      _logTaskPersistenceFailure(stage: 'clear_completed');
+      return ImportTaskCleanupStatus.failed;
+    } finally {
+      lease?.release();
+      for (final id in cleanupIds) {
+        _finishTaskCleanup(id);
+      }
+    }
+  }
+
   void addTask(ImportTask task) {
+    if (_cleanupInProgress.contains(task.id)) return;
     addTasksInOrder(<ImportTask>[task]);
   }
 
   void addTasksInOrder(List<ImportTask> orderedTasks) {
-    if (orderedTasks.isEmpty) return;
-    tasks.insertAll(0, orderedTasks);
-    for (final task in orderedTasks) {
+    final acceptedTasks = orderedTasks
+        .where((task) => !_cleanupInProgress.contains(task.id))
+        .toList(growable: false);
+    if (acceptedTasks.isEmpty) return;
+    tasks.insertAll(0, acceptedTasks);
+    for (final task in acceptedTasks) {
       _saveTask(task);
     }
     notifyListeners();
@@ -530,10 +827,18 @@ class TaskManager extends ChangeNotifier {
         <ImportAttemptWriteStatus>[],
       );
     }
-    tasks.insertAll(0, orderedTasks);
+    final acceptedTasks = orderedTasks
+        .where((task) => !_cleanupInProgress.contains(task.id))
+        .toList(growable: false);
+    tasks.insertAll(0, acceptedTasks);
     notifyListeners();
     return Future.wait<ImportAttemptWriteStatus>(
       orderedTasks.map((task) {
+        if (_cleanupInProgress.contains(task.id)) {
+          return Future<ImportAttemptWriteStatus>.value(
+            ImportAttemptWriteStatus.taskMissing,
+          );
+        }
         final attempt = task.attemptRef;
         if (attempt == null) {
           return Future<ImportAttemptWriteStatus>.value(
@@ -559,6 +864,11 @@ class TaskManager extends ChangeNotifier {
   Future<ImportAttemptWriteStatus> markAttemptRunning(
     ImportAttemptRef attempt,
   ) {
+    if (_cleanupInProgress.contains(attempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final task = _taskForAttempt(attempt);
     if (task == null) return _missingAttemptStatus(attempt);
     if (task.attemptState == ImportAttemptState.running) {
@@ -585,6 +895,11 @@ class TaskManager extends ChangeNotifier {
     String text,
     double percent,
   ) {
+    if (_cleanupInProgress.contains(attempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final task = _taskForAttempt(attempt);
     if (task == null) return _missingAttemptStatus(attempt);
     if (!isAttemptRunnable(attempt)) {
@@ -601,6 +916,11 @@ class TaskManager extends ChangeNotifier {
   Future<ImportAttemptWriteStatus> requestAttemptCancellation(
     ImportAttemptRef attempt,
   ) {
+    if (_cleanupInProgress.contains(attempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final task = _taskForAttempt(attempt);
     if (task == null) return _missingAttemptStatus(attempt);
     switch (task.attemptState) {
@@ -633,6 +953,11 @@ class TaskManager extends ChangeNotifier {
   Future<ImportAttemptWriteStatus> finalizeAttemptCancelled(
     ImportAttemptRef attempt,
   ) {
+    if (_cleanupInProgress.contains(attempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final task = _taskForAttempt(attempt);
     if (task == null) return _missingAttemptStatus(attempt);
     if (task.attemptState == ImportAttemptState.cancelled) {
@@ -661,6 +986,11 @@ class TaskManager extends ChangeNotifier {
     List<String> warnings = const <String>[],
     Map<String, dynamic> diagnostics = const <String, dynamic>{},
   }) {
+    if (_cleanupInProgress.contains(attempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final task = _taskForAttempt(attempt);
     if (task == null) return _missingAttemptStatus(attempt);
     if (!isAttemptRunnable(attempt)) {
@@ -691,6 +1021,11 @@ class TaskManager extends ChangeNotifier {
     Map<String, dynamic>? diagnostics,
     bool clearSensitivePayload = false,
   }) {
+    if (_cleanupInProgress.contains(attempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final task = _taskForAttempt(attempt);
     if (task == null) return _missingAttemptStatus(attempt);
     if (!isAttemptRunnable(attempt)) {
@@ -728,6 +1063,11 @@ class TaskManager extends ChangeNotifier {
     required String parseMode,
     required ExplanationRetentionMode explanationRetentionMode,
   }) {
+    if (_cleanupInProgress.contains(nextAttempt.taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
     final index = tasks.indexWhere((task) => task.id == nextAttempt.taskId);
     if (index < 0) {
       return Future<ImportAttemptWriteStatus>.value(
@@ -837,17 +1177,30 @@ class TaskManager extends ChangeNotifier {
     final previous = _attemptWriteTails[attempt.taskId] ?? Future<void>.value();
     late final Future<void> operation;
     operation = previous.then<void>((_) async {
-      if (_taskForAttempt(attempt) == null) {
+      if (_cleanupInProgress.contains(attempt.taskId) ||
+          _taskForAttempt(attempt) == null) {
         completer.complete(
-          tasks.any((task) => task.id == attempt.taskId)
+          !_cleanupInProgress.contains(attempt.taskId) &&
+                  tasks.any((task) => task.id == attempt.taskId)
               ? ImportAttemptWriteStatus.stale
               : ImportAttemptWriteStatus.taskMissing,
         );
         return;
       }
+      var skippedByCleanup = false;
       try {
-        await _persistTask(snapshot);
-        completer.complete(ImportAttemptWriteStatus.applied);
+        await _enqueueTaskWrite(attempt.taskId, () async {
+          if (_cleanupInProgress.contains(attempt.taskId)) {
+            skippedByCleanup = true;
+            return;
+          }
+          await _persistTask(snapshot);
+        });
+        completer.complete(
+          skippedByCleanup
+              ? ImportAttemptWriteStatus.taskMissing
+              : ImportAttemptWriteStatus.applied,
+        );
       } catch (_) {
         _logTaskPersistenceFailure();
         completer.complete(ImportAttemptWriteStatus.persistenceFailed);
@@ -886,6 +1239,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   void updateProgress(String id, String text, double percent) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].progressText = text;
@@ -904,6 +1258,7 @@ class TaskManager extends ChangeNotifier {
     List<String> warnings = const [],
     Map<String, dynamic> diagnostics = const {},
   }) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].status = TaskStatus.pendingReview;
@@ -932,6 +1287,7 @@ class TaskManager extends ChangeNotifier {
     List<String> warnings = const [],
     Map<String, dynamic> diagnostics = const {},
   }) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].warnings = warnings;
@@ -989,6 +1345,14 @@ class TaskManager extends ChangeNotifier {
     required List<Map<String, dynamic>> questions,
     required ExplanationRetentionMode explanationRetentionMode,
   }) {
+    if (_cleanupInProgress.contains(id)) {
+      return Future<ReviewDraftSaveResult>.value(
+        const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        ),
+      );
+    }
     if (_typedCommitLeases.containsKey(id)) {
       return Future<ReviewDraftSaveResult>.value(
         ReviewDraftSaveResult(
@@ -1030,6 +1394,14 @@ class TaskManager extends ChangeNotifier {
     String? standardAnswer,
     String? reasonCode,
   }) {
+    if (_cleanupInProgress.contains(id)) {
+      return Future<ReviewDraftSaveResult>.value(
+        const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        ),
+      );
+    }
     if (_typedCommitLeases.containsKey(id)) {
       return Future<ReviewDraftSaveResult>.value(
         ReviewDraftSaveResult(
@@ -1056,6 +1428,12 @@ class TaskManager extends ChangeNotifier {
     );
 
     return _enqueueReviewDraftWrite(() async {
+      if (_cleanupInProgress.contains(id)) {
+        return const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        );
+      }
       final idx = tasks.indexWhere((task) => task.id == id);
       if (idx < 0) {
         return const ReviewDraftSaveResult(
@@ -1117,6 +1495,12 @@ class TaskManager extends ChangeNotifier {
     required ExplanationRetentionMode explanationRetentionMode,
     int? expectedRevision,
   }) async {
+    if (_cleanupInProgress.contains(id)) {
+      return const ReviewDraftSaveResult(
+        ReviewDraftSaveStatus.taskMissing,
+        revision: 0,
+      );
+    }
     if (_typedCommitLeases.containsKey(id)) {
       return ReviewDraftSaveResult(
         ReviewDraftSaveStatus.commitInProgress,
@@ -1149,8 +1533,21 @@ class TaskManager extends ChangeNotifier {
       keyExplanationRetentionMode: explanationRetentionMode.name,
       keyReviewDraftRevision: nextRevision,
     };
+    var skippedByCleanup = false;
     try {
-      await _persistTask(nextTask);
+      await _enqueueTaskWrite(id, () async {
+        if (_cleanupInProgress.contains(id)) {
+          skippedByCleanup = true;
+          return;
+        }
+        await _persistTask(nextTask);
+      });
+      if (skippedByCleanup || _cleanupInProgress.contains(id)) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: currentRevision,
+        );
+      }
     } catch (_) {
       _logTaskPersistenceFailure();
       return ReviewDraftSaveResult(
@@ -1258,6 +1655,11 @@ class TaskManager extends ChangeNotifier {
     required int attemptNumber,
     required int expectedReviewDraftRevision,
   }) {
+    if (_cleanupInProgress.contains(taskId)) {
+      return const TypedCommitLeaseResult(
+        TypedCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
     if (_typedCommitLeases.containsKey(taskId)) {
       return const TypedCommitLeaseResult(
         TypedCommitLeaseStatus.commitInProgress,
@@ -1423,6 +1825,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   void appendPendingChunks(String id, String sourceType, List<String> chunks) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].sourceType = sourceType;
@@ -1435,6 +1838,7 @@ class TaskManager extends ChangeNotifier {
 
   void markChunkSuccess(
       String id, String chunk, List<Map<String, dynamic>> results) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].pendingChunks?.remove(chunk);
@@ -1446,6 +1850,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   void markChunkFailed(String id, String chunk) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].pendingChunks?.remove(chunk);
@@ -1457,6 +1862,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   void completeTask(String id, String text) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       tasks[idx].status = TaskStatus.completed;
@@ -1475,6 +1881,7 @@ class TaskManager extends ChangeNotifier {
     Map<String, dynamic>? diagnostics,
     bool clearSensitivePayload = false,
   }) {
+    if (_cleanupInProgress.contains(id)) return;
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx != -1) {
       final task = tasks[idx];
@@ -1500,47 +1907,11 @@ class TaskManager extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteTask(String id) async {
-    final idx = tasks.indexWhere((t) => t.id == id);
-    if (idx == -1) return;
-    if (!_persistTasks) {
-      tasks.removeAt(idx);
-      notifyListeners();
-      return;
-    }
-
-    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
-    try {
-      tasks.removeAt(idx);
-      notifyListeners();
-      try {
-        await ImportTaskRepository.instance.deleteImportTask(id);
-      } catch (_) {
-        _logTaskPersistenceFailure();
-      }
-    } finally {
-      lease.release();
-    }
+  Future<ImportTaskCleanupStatus> deleteTask(String id) {
+    return _cleanupOneTask(id);
   }
 
-  Future<void> clearCompletedTasks() async {
-    if (!_persistTasks) {
-      tasks.removeWhere((t) => t.status.isFinalState);
-      notifyListeners();
-      return;
-    }
-
-    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
-    try {
-      tasks.removeWhere((t) => t.status.isFinalState);
-      notifyListeners();
-      try {
-        await ImportTaskRepository.instance.clearCompletedImportTasks();
-      } catch (_) {
-        _logTaskPersistenceFailure();
-      }
-    } finally {
-      lease.release();
-    }
+  Future<ImportTaskCleanupStatus> clearCompletedTasks() {
+    return _cleanupCompletedTasks();
   }
 }

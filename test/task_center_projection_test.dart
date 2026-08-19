@@ -254,9 +254,16 @@ void main() {
     final review = presentation(ImportAttemptState.readyForReview);
     expect(review.canCancel, isFalse);
     expect(review.canRetry, isFalse);
+    expect(review.canDelete, isTrue);
   });
 
   test('does not expose OCR actions for legacy or non-OCR tasks', () {
+    final coarseProcessing = TaskCenterProjection.presentationFor(
+      _task('coarse-processing', TaskStatus.processing, parseMode: 'text'),
+    );
+    final coarseReview = TaskCenterProjection.presentationFor(
+      _task('coarse-review', TaskStatus.pendingReview, parseMode: 'text'),
+    );
     final legacyOcr = TaskCenterProjection.presentationFor(
       _task('legacy-ocr', TaskStatus.error, parseMode: 'ocr'),
     );
@@ -269,6 +276,8 @@ void main() {
       ),
     );
 
+    expect(coarseProcessing.canDelete, isFalse);
+    expect(coarseReview.canDelete, isTrue);
     expect(legacyOcr.canRetry, isFalse);
     expect(legacyOcr.canCancel, isFalse);
     expect(legacyOcr.canDelete, isTrue);

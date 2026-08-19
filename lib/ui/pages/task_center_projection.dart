@@ -59,7 +59,7 @@ class TaskCenterProjection {
         canCancel: false,
         isCancellationPending: false,
         canRetry: false,
-        canDelete: true,
+        canDelete: task.status != TaskStatus.processing,
       );
     }
 
@@ -89,7 +89,8 @@ class TaskCenterProjection {
           (attemptState == ImportAttemptState.cancelled ||
               attemptState == ImportAttemptState.failed ||
               attemptState == ImportAttemptState.interrupted),
-      canDelete: attemptState != ImportAttemptState.queued &&
+      canDelete: task.status != TaskStatus.processing &&
+          attemptState != ImportAttemptState.queued &&
           attemptState != ImportAttemptState.running &&
           attemptState != ImportAttemptState.cancelRequested,
     );

@@ -781,9 +781,10 @@ void main() {
         TaskManager.keyParseMode: 'ocr',
       },
     );
-    TaskManager.instance.tasks.addAll(<ImportTask>[taskA, taskB]);
+    final taskManager = TaskManager.forTesting();
+    taskManager.tasks.addAll(<ImportTask>[taskA, taskB]);
 
-    await tester.pumpWidget(createWidgetUnderTest());
+    await tester.pumpWidget(createWidgetUnderTest(taskManager: taskManager));
     await tester.pump();
 
     final cardA = find.byKey(const ValueKey<String>('import-task-task-a'));
@@ -808,8 +809,8 @@ void main() {
       status: TaskStatus.completed,
       progressText: 'processing-c',
     );
-    TaskManager.instance.tasks.insert(0, taskC);
-    TaskManager.instance.notifyListeners();
+    taskManager.tasks.insert(0, taskC);
+    taskManager.notifyListeners();
     await tester.pump();
 
     expect(
@@ -819,7 +820,7 @@ void main() {
     taskA.status = TaskStatus.pendingReview;
     taskA.progressText = 'review-a';
     taskA.parsedData = const <Map<String, dynamic>>[];
-    TaskManager.instance.notifyListeners();
+    taskManager.notifyListeners();
     await tester.pump();
     expect(cardA, findsNothing);
     await selectCategory(tester, TaskCenterCategory.pendingReview);
@@ -833,7 +834,7 @@ void main() {
     taskA.status = TaskStatus.completed;
     taskA.progressText = 'completed-a';
     taskA.completedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    TaskManager.instance.notifyListeners();
+    taskManager.notifyListeners();
     await tester.pump();
     expect(cardA, findsNothing);
     await selectCategory(tester, TaskCenterCategory.completed);
@@ -879,6 +880,7 @@ void main() {
     await tester.pump();
     await tester.tap(deleteTaskB);
     await tester.pump();
+    await tester.pumpAndSettle();
     expect(cardB, findsNothing);
     expect(cardA, findsOneWidget);
     expect(

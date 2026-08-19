@@ -1,4 +1,5 @@
 import '../../core/database/database_helper.dart';
+import '../models/import_task_cleanup.dart';
 
 class ImportTaskRepository {
   ImportTaskRepository({DatabaseHelper? databaseHelper})
@@ -8,7 +9,7 @@ class ImportTaskRepository {
 
   final DatabaseHelper _databaseHelper;
 
-  Future<void> deleteOldImportTasks(int olderThanUnix) async {
+  Future<List<String>> deleteOldImportTasks(int olderThanUnix) async {
     return _databaseHelper.deleteOldImportTasks(olderThanUnix);
   }
 
@@ -20,11 +21,19 @@ class ImportTaskRepository {
     return _databaseHelper.saveImportTask(taskMap);
   }
 
-  Future<void> deleteImportTask(String id) async {
+  Future<ImportTaskDeletePersistenceStatus> deleteImportTask(
+    String id,
+  ) async {
     return _databaseHelper.deleteImportTask(id);
   }
 
-  Future<void> clearCompletedImportTasks() async {
-    return _databaseHelper.clearCompletedImportTasks();
+  Future<List<String>> clearCompletedImportTasks({
+    Set<String> excludedIds = const <String>{},
+    Set<String> candidateIds = const <String>{},
+  }) async {
+    return _databaseHelper.clearCompletedImportTasks(
+      excludedIds: excludedIds,
+      candidateIds: candidateIds,
+    );
   }
 }
