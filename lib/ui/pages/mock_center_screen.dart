@@ -297,10 +297,13 @@ class _MockCenterScreenState extends State<MockCenterScreen> {
                                       fontWeight: FontWeight.bold,
                                       fontSize: 18,
                                       color: Colors.green))
-                              : IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: Colors.redAccent),
-                                  onPressed: () => _deletePaper(paper['id'])),
+                              : status == 1
+                                  ? const SizedBox.shrink()
+                                  : IconButton(
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.redAccent),
+                                      onPressed: () =>
+                                          _deletePaper(paper['id'])),
                           onLongPress: status == 1
                               ? () async {
                                   showDialog(

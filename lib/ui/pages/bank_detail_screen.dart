@@ -3,7 +3,6 @@ import 'practice_page.dart';
 import 'question_list_screen.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
-import '../../data/repositories/settings_repository.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
@@ -115,14 +114,6 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                           await _questionBankMutation
                               .deleteQuestionBank(widget.bankName);
                           if (!context.mounted) return;
-                          final currentBank = await SettingsRepository.instance
-                              .getCurrentBank();
-                          if (!context.mounted) return;
-                          if (currentBank == widget.bankName) {
-                            await SettingsRepository.instance
-                                .setCurrentBank('点击修改选择题库');
-                            if (!context.mounted) return;
-                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('题库已删除')));
                           Navigator.pop(context);

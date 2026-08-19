@@ -262,8 +262,9 @@ Future<void> _pumpBankDetailScreen(
 
 Future<void> _pumpMockCenter(
   WidgetTester tester,
-  _ExamDeletePersistence persistence,
-) async {
+  _ExamDeletePersistence persistence, {
+  int status = 0,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       home: MockCenterScreen(
@@ -273,7 +274,7 @@ Future<void> _pumpMockCenter(
                   'id': _paperId,
                   'title': 'D1E paper',
                   'source_type': 0,
-                  'status': 0,
+                  'status': status,
                   'score': 0.0,
                   'total_score': 1.0,
                   'created_at': 1,
@@ -468,6 +469,16 @@ void main() {
   });
 
   group('ExamPaper confirmation entry', () {
+    testWidgets('active grading has no delete confirmation entry',
+        (tester) async {
+      final persistence = _ExamDeletePersistence();
+      await _pumpMockCenter(tester, persistence, status: 1);
+
+      expect(find.text('批改中'), findsOneWidget);
+      expect(find.byIcon(Icons.delete_outline), findsNothing);
+      expect(persistence.deleteCalls, 0);
+    });
+
     testWidgets('cancel leaves the paper untouched and never calls command',
         (tester) async {
       final persistence = _ExamDeletePersistence();

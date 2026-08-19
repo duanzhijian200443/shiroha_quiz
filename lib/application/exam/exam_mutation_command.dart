@@ -1,4 +1,19 @@
+import '../../domain/backup/backup_manifest.dart';
 import '../backup/backup_restore_gate.dart';
+
+enum ExamDeleteFailure {
+  activeGrading,
+  transactionFailed,
+}
+
+final class ExamDeleteException implements Exception {
+  const ExamDeleteException(this.failure);
+
+  final ExamDeleteFailure failure;
+
+  @override
+  String toString() => 'ExamDeleteException(${failure.name})';
+}
 
 /// Persistence seam for the durable Exam lifecycle.
 abstract interface class ExamMutationPersistencePort {
@@ -78,10 +93,18 @@ final class ExamMutationCommand {
     );
   }
 
-  Future<void> deleteExamPaper(String id) {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () => _persistence.deleteExamPaper(id),
-    );
+  Future<void> deleteExamPaper(String id) async {
+    try {
+      await BackupRestoreMutationGate.instance.runMutation(
+        () => _persistence.deleteExamPaper(id),
+      );
+    } on ExamDeleteException {
+      rethrow;
+    } on BackupException {
+      rethrow;
+    } catch (_) {
+      throw const ExamDeleteException(ExamDeleteFailure.transactionFailed);
+    }
   }
 
   Future<List<Map<String, dynamic>>> submitExamPaper(

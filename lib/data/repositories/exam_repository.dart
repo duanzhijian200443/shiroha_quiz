@@ -19,8 +19,19 @@ class ExamRepository implements ExamMutationPersistencePort {
   }
 
   @override
-  Future<void> deleteExamPaper(String id) {
-    return _databaseHelper.deleteExamPaper(id);
+  Future<void> deleteExamPaper(String id) async {
+    try {
+      await _databaseHelper.deleteExamPaper(id);
+    } on ExamDeletePersistenceException catch (error) {
+      throw switch (error.failure) {
+        ExamDeletePersistenceFailure.activeGrading =>
+          const ExamDeleteException(ExamDeleteFailure.activeGrading),
+        ExamDeletePersistenceFailure.transactionFailed =>
+          const ExamDeleteException(ExamDeleteFailure.transactionFailed),
+      };
+    } catch (_) {
+      throw const ExamDeleteException(ExamDeleteFailure.transactionFailed);
+    }
   }
 
   @override

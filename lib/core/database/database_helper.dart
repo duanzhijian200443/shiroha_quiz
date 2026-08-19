@@ -45,6 +45,20 @@ final class QuestionBankDeletePersistenceException implements Exception {
       'QuestionBankDeletePersistenceException(${failure.name})';
 }
 
+enum ExamDeletePersistenceFailure {
+  activeGrading,
+  transactionFailed,
+}
+
+final class ExamDeletePersistenceException implements Exception {
+  const ExamDeletePersistenceException(this.failure);
+
+  final ExamDeletePersistenceFailure failure;
+
+  @override
+  String toString() => 'ExamDeletePersistenceException(${failure.name})';
+}
+
 enum DatabaseRuntimeProfile {
   production,
   isolatedSmokeInMemory,
@@ -2933,11 +2947,32 @@ SELECT
   // 删除试卷
   Future<void> deleteExamPaper(String paperId) async {
     final db = await database;
-    await db.transaction((txn) async {
-      await txn.delete('paper_questions',
-          where: 'paper_id = ?', whereArgs: [paperId]);
-      await txn.delete('exam_papers', where: 'id = ?', whereArgs: [paperId]);
-    });
+    try {
+      await db.transaction((txn) async {
+        final papers = await txn.query(
+          'exam_papers',
+          columns: ['status'],
+          where: 'id = ?',
+          whereArgs: [paperId],
+          limit: 1,
+        );
+        if (papers.isNotEmpty && papers.first['status'] == 1) {
+          throw const ExamDeletePersistenceException(
+            ExamDeletePersistenceFailure.activeGrading,
+          );
+        }
+
+        await txn.delete('paper_questions',
+            where: 'paper_id = ?', whereArgs: [paperId]);
+        await txn.delete('exam_papers', where: 'id = ?', whereArgs: [paperId]);
+      });
+    } on ExamDeletePersistenceException {
+      rethrow;
+    } catch (_) {
+      throw const ExamDeletePersistenceException(
+        ExamDeletePersistenceFailure.transactionFailed,
+      );
+    }
   }
 
   // --- 阅卷引擎：提交试卷并批改客观题 ---
