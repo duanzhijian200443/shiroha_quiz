@@ -88,7 +88,7 @@ RAG-3 Hybrid Retrieval / Rerank — DEFERRED
   B0-U0 Minimal UI — COMPLETE
   B0-V0 Round-trip / corruption acceptance — COMPLETE
   B0-CL Closure — COMPLETE
-  Current runtime schema — v22
+  Current runtime schema — v23
   B0 .shiroha Backup / Restore — CLOSED / FROZEN
 ```
 
@@ -142,7 +142,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **J0-P0** | Bank identity decision | Decide `bank_name` compatibility vs additive stable `bankId` registry | decision only unless separately approved |
 | **J0** | Project v0 | Optional Project plus file/bank references; no file duplication | additive migration candidate |
 | **U1** | Information-architecture migration | Replace the primary Subject-library navigation role with Project-aware UI while retaining compatibility surfaces | normally unchanged beyond F0/J0 |
-| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 adds no schema migration; current runtime stays v22) |
+| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 itself adds no schema migration; current runtime is now v23 due to the later additive AnswerAttempt migration) |
 | **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
@@ -240,8 +240,8 @@ B0-P0 Contract Freeze -> B0-D0 Package / Manifest Core -> B0-E0 Export
   -> B0-V0 Round-trip / corruption acceptance -> B0-CL Closure
 ```
 
-B0 adds no second migration authority and no schema migration in v0; current
-runtime schema stays v22.
+B0 adds no second migration authority. B0 itself adds no schema migration;
+current runtime is now v23 due to the later additive AnswerAttempt migration.
 
 ### T0 — Application Tool Layer
 
@@ -448,8 +448,9 @@ materialization, replacement/stop CAS, advisory states, and frozen
 Agent/MCP/schema catalogs — on synthetic SQLite with zero production code
 changes) is COMPLETE. SPL-1-CL (canonical closure / freeze of the SPL-1 v0
 contract and capability, docs-only) is COMPLETE. SPL-1 StudyPlan Agent Tool
-v0 is CLOSED / FROZEN. Runtime schema is v22. SPL-1 follow-up roadmap items
-do not auto-start.
+v0 is CLOSED / FROZEN; its durable persistence stage used schema v22, while
+the current runtime schema is v23. SPL-1 follow-up roadmap items do not
+auto-start.
 
 The frozen capability chain is:
 

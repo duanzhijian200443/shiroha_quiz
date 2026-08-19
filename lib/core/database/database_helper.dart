@@ -646,6 +646,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await _validateParsedArtifactSchema(db);
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
+    await validateAnswerAttemptV23Schema(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.

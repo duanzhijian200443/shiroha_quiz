@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_contracts.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 import 'package:shiroha_quiz/ui/pages/backup/backup_restore_screen.dart';
 
 final class _ScreenOperations implements BackupRestoreOperations {
@@ -18,7 +19,7 @@ final class _ScreenOperations implements BackupRestoreOperations {
   Future<BackupExportSummary> exportTo(String destinationPath) async {
     return const BackupExportSummary(
       fileName: 'backup.shiroha',
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       fileCount: 0,
       databaseSizeBytes: 0,
       managedBytes: 0,
@@ -51,7 +52,10 @@ final class _ScreenOperations implements BackupRestoreOperations {
     commitCalls++;
     await beforeCommitted?.call();
     prepared = null;
-    return const BackupRestoreSuccess(schemaVersion: 22, fileCount: 0);
+    return const BackupRestoreSuccess(
+      schemaVersion: BackupValues.currentSchemaVersion,
+      fileCount: 0,
+    );
   }
 
   @override
@@ -65,7 +69,7 @@ final class _ScreenOperations implements BackupRestoreOperations {
 
 final _preview = BackupRestorePreview(
   packageVersion: 1,
-  schemaVersion: 22,
+  schemaVersion: BackupValues.currentSchemaVersion,
   createdAtUtc: DateTime.utc(2026, 8, 17),
   fileCount: 2,
   totalSizeBytes: 2048,
@@ -73,7 +77,7 @@ final _preview = BackupRestorePreview(
 
 final _preparedState = PreparedRestoreState(
   packageVersion: 1,
-  schemaVersion: 22,
+  schemaVersion: BackupValues.currentSchemaVersion,
   createdAtUtc: DateTime.utc(2026, 8, 17),
   fileCount: 2,
   totalSizeBytes: 2048,
@@ -98,7 +102,10 @@ void main() {
     await tester.pumpWidget(_screen(coordinator));
     expect(find.text('开始恢复'), findsOneWidget);
     expect(find.text('验证并准备恢复'), findsNothing);
-    expect(find.text('数据版本：22'), findsOneWidget);
+    expect(
+      find.text('数据版本：${BackupValues.currentSchemaVersion}'),
+      findsOneWidget,
+    );
     expect(operations.prepareCalls, 0);
     final picker = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, '恢复备份'),
