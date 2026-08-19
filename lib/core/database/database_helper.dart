@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart';
 
 import '../../data/models/ai_engine_profile.dart';
+import '../../data/models/import_task_cleanup.dart';
 import '../../data/persistence/ai_engine_store.dart';
 import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
@@ -3153,31 +3154,129 @@ SELECT
     );
   }
 
-  Future<void> deleteImportTask(String taskId) async {
+  Future<ImportTaskDeletePersistenceStatus> deleteImportTask(
+    String taskId,
+  ) async {
     final db = await database;
-    await db.delete(
-      'import_tasks',
-      where: 'id = ?',
-      whereArgs: [taskId],
-    );
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'import_tasks',
+        columns: <String>['status', 'diagnostics'],
+        where: 'id = ?',
+        whereArgs: <Object?>[taskId],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        return ImportTaskDeletePersistenceStatus.alreadyAbsent;
+      }
+
+      final status = (rows.single['status'] as num?)?.toInt();
+      if (_isImportTaskCleanupBusy(status, rows.single['diagnostics'])) {
+        return ImportTaskDeletePersistenceStatus.busy;
+      }
+
+      final deleted = await txn.delete(
+        'import_tasks',
+        where: 'id = ?',
+        whereArgs: <Object?>[taskId],
+      );
+      return deleted == 1
+          ? ImportTaskDeletePersistenceStatus.deleted
+          : ImportTaskDeletePersistenceStatus.alreadyAbsent;
+    });
   }
 
-  Future<void> clearCompletedImportTasks() async {
+  Future<List<String>> clearCompletedImportTasks({
+    Set<String> excludedIds = const <String>{},
+    Set<String> candidateIds = const <String>{},
+  }) async {
     final db = await database;
-    await db.delete(
-      'import_tasks',
-      where: 'status = ? OR status = ?',
-      whereArgs: [2, 3], // TaskStatus.completed=2, TaskStatus.error=3
-    );
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'import_tasks',
+        columns: <String>['id', 'status', 'diagnostics'],
+      );
+      final existingIds = <String>{};
+      final resolvedIds = <String>{};
+      for (final row in rows) {
+        final id = row['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        existingIds.add(id);
+        final status = (row['status'] as num?)?.toInt();
+        if (excludedIds.contains(id) ||
+            _isImportTaskCleanupBusy(status, row['diagnostics'])) {
+          continue;
+        }
+        final deleted = await txn.delete(
+          'import_tasks',
+          where: 'id = ? AND (status = ? OR status = ?)',
+          whereArgs: <Object?>[id, 2, 3],
+        );
+        if (deleted == 1) resolvedIds.add(id);
+      }
+
+      for (final id in candidateIds) {
+        if (!existingIds.contains(id) && !excludedIds.contains(id)) {
+          resolvedIds.add(id);
+        }
+      }
+      return resolvedIds.toList(growable: false);
+    });
   }
 
-  Future<void> deleteOldImportTasks(int olderThanTimestamp) async {
+  Future<List<String>> deleteOldImportTasks(int olderThanTimestamp) async {
     final db = await database;
-    await db.delete(
-      'import_tasks',
-      where: 'completed_at IS NOT NULL AND completed_at < ?',
-      whereArgs: [olderThanTimestamp],
-    );
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'import_tasks',
+        columns: <String>['id', 'status', 'diagnostics'],
+        where: '''
+          (status = ? OR status = ?)
+          AND completed_at IS NOT NULL
+          AND completed_at < ?
+        ''',
+        whereArgs: <Object?>[2, 3, olderThanTimestamp],
+      );
+      final deletedIds = <String>[];
+      for (final row in rows) {
+        final id = row['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        final status = (row['status'] as num?)?.toInt();
+        if (_isImportTaskCleanupBusy(status, row['diagnostics'])) continue;
+        final deleted = await txn.delete(
+          'import_tasks',
+          where: '''
+            id = ?
+            AND (status = ? OR status = ?)
+            AND completed_at IS NOT NULL
+            AND completed_at < ?
+          ''',
+          whereArgs: <Object?>[id, 2, 3, olderThanTimestamp],
+        );
+        if (deleted == 1) deletedIds.add(id);
+      }
+      return deletedIds;
+    });
+  }
+
+  bool _isImportTaskCleanupBusy(int? status, Object? diagnostics) {
+    if (status != 2 && status != 3) return true;
+    final attemptState = _importAttemptState(diagnostics);
+    return attemptState == 'queued' ||
+        attemptState == 'running' ||
+        attemptState == 'cancelRequested' ||
+        (status == 3 && attemptState == 'readyForReview');
+  }
+
+  String? _importAttemptState(Object? diagnostics) {
+    if (diagnostics is! String || diagnostics.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(diagnostics);
+      if (decoded is! Map) return null;
+      return decoded['_attemptState']?.toString();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getAllImportTasks() async {

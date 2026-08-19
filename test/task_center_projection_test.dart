@@ -254,9 +254,36 @@ void main() {
     final review = presentation(ImportAttemptState.readyForReview);
     expect(review.canCancel, isFalse);
     expect(review.canRetry, isFalse);
+    expect(review.canDelete, isFalse);
+
+    final completedReady = TaskCenterProjection.presentationFor(
+      _task(
+        'completed-ready',
+        TaskStatus.completed,
+        parseMode: 'ocr',
+        attemptState: ImportAttemptState.readyForReview,
+      ),
+    );
+    expect(completedReady.canDelete, isTrue);
+
+    final errorReady = TaskCenterProjection.presentationFor(
+      _task(
+        'error-ready',
+        TaskStatus.error,
+        parseMode: 'ocr',
+        attemptState: ImportAttemptState.readyForReview,
+      ),
+    );
+    expect(errorReady.canDelete, isFalse);
   });
 
   test('does not expose OCR actions for legacy or non-OCR tasks', () {
+    final coarseProcessing = TaskCenterProjection.presentationFor(
+      _task('coarse-processing', TaskStatus.processing, parseMode: 'text'),
+    );
+    final coarseReview = TaskCenterProjection.presentationFor(
+      _task('coarse-review', TaskStatus.pendingReview, parseMode: 'text'),
+    );
     final legacyOcr = TaskCenterProjection.presentationFor(
       _task('legacy-ocr', TaskStatus.error, parseMode: 'ocr'),
     );
@@ -268,7 +295,17 @@ void main() {
         attemptState: ImportAttemptState.failed,
       ),
     );
+    final coarseCompleted = TaskCenterProjection.presentationFor(
+      _task('coarse-completed', TaskStatus.completed, parseMode: 'text'),
+    );
+    final coarseError = TaskCenterProjection.presentationFor(
+      _task('coarse-error', TaskStatus.error, parseMode: 'text'),
+    );
 
+    expect(coarseProcessing.canDelete, isFalse);
+    expect(coarseReview.canDelete, isFalse);
+    expect(coarseCompleted.canDelete, isTrue);
+    expect(coarseError.canDelete, isTrue);
     expect(legacyOcr.canRetry, isFalse);
     expect(legacyOcr.canCancel, isFalse);
     expect(legacyOcr.canDelete, isTrue);
