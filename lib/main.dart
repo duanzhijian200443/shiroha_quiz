@@ -64,6 +64,7 @@ import 'services/agent/deepseek_responses_provider.dart';
 import 'services/backup/backup_restore_runtime.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
+import 'services/file_library/library_file_deletion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
 import 'services/file_library/managed_artifact_storage_adapter.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
@@ -198,9 +199,18 @@ void main() {
       final libraryFileRepository = LibraryFileRepository(
         databaseHelper: databaseHelper,
       );
+      final managedArtifactStorage = ManagedArtifactStorageAdapter(
+        managedRoot: Directory(p.join(supportDirectory.path, 'library_files')),
+      );
       final fileIngestionService = FileIngestionService(
         storage: managedFileStorage,
         repository: libraryFileRepository,
+      );
+      final libraryFileDeletion = LibraryFileDeletionService(
+        metadataRepository: libraryFileRepository,
+        deletionRepository: libraryFileRepository,
+        managedFileStorage: managedFileStorage,
+        managedArtifactStorage: managedArtifactStorage,
       );
       final projectRepository =
           SqliteProjectRepository(databaseHelper: databaseHelper);
@@ -298,10 +308,7 @@ void main() {
         libraryFileRepository: libraryFileRepository,
         artifactRepository: parsedArtifactRepository,
         retrievalIndex: retrievalIndex,
-        artifactStorage: ManagedArtifactStorageAdapter(
-          managedRoot:
-              Directory(p.join(supportDirectory.path, 'library_files')),
-        ),
+        artifactStorage: managedArtifactStorage,
         generationPort: ParsedArtifactGenerationRouter(
           deterministicGeneration: DeterministicParsedArtifactGenerationAdapter(
             managedFileStorage: managedFileStorage,
@@ -320,6 +327,7 @@ void main() {
         folderService: folderService,
         studyQueryService: studyQueryService,
         parsedArtifactLifecycle: parsedArtifactLifecycle,
+        libraryFileDeletion: libraryFileDeletion,
         mcpProjection: McpWorkspaceProjection(
           state: McpCapabilityState.configuredAvailable,
           transport: McpTransport.localStdio,

@@ -4,6 +4,7 @@ import '../../domain/assets/library_file.dart';
 import '../../domain/assets/library_folder.dart';
 import '../../domain/projects/project.dart';
 import '../file_library/file_library_ports.dart';
+import '../file_library/library_file_deletion.dart';
 import '../file_library/library_folder_service.dart';
 import '../parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../projects/project_service.dart';
@@ -20,13 +21,15 @@ final class U1WorkspaceFacade {
     required LibraryFolderService folderService,
     required StudyQueryService studyQueryService,
     ParsedArtifactLifecyclePort? parsedArtifactLifecycle,
+    LibraryFileDeletionPort? libraryFileDeletion,
     required this.mcpProjection,
   })  : _projectService = projectService,
         _fileRepository = fileRepository,
         _fileIngestion = fileIngestion,
         _folderService = folderService,
         _studyQueryService = studyQueryService,
-        _parsedArtifactLifecycle = parsedArtifactLifecycle;
+        _parsedArtifactLifecycle = parsedArtifactLifecycle,
+        _libraryFileDeletion = libraryFileDeletion;
 
   static const int recentFileLimit = 20;
 
@@ -36,6 +39,7 @@ final class U1WorkspaceFacade {
   final LibraryFolderService _folderService;
   final StudyQueryService _studyQueryService;
   final ParsedArtifactLifecyclePort? _parsedArtifactLifecycle;
+  final LibraryFileDeletionPort? _libraryFileDeletion;
   final McpWorkspaceProjection mcpProjection;
 
   Future<List<LearningSpaceSummary>> listLearningSpaces() async {
@@ -210,6 +214,18 @@ final class U1WorkspaceFacade {
       mimeType: mimeType ?? mimeTypeForDisplayName(displayName),
     );
     return _fileSummary(file);
+  }
+
+  /// Formal Application deletion entry. Presentation owns confirmation; this
+  /// boundary owns the DB-first mutation and managed-byte cleanup contract.
+  Future<LibraryFileDeletionResult> deleteLibraryFile(String fileId) {
+    final deletion = _libraryFileDeletion;
+    if (deletion == null) {
+      throw const LibraryFileDeletionException(
+        LibraryFileDeletionFailure.unavailable,
+      );
+    }
+    return deletion.deleteLibraryFile(fileId);
   }
 
   Future<List<QuestionBankSummary>> listQuestionBanks() async {
