@@ -635,16 +635,19 @@ class TaskManager extends ChangeNotifier {
     if (_typedCommitLeases.containsKey(task.id)) {
       return true;
     }
-    if (task.status == TaskStatus.processing) return true;
+    if (task.status == TaskStatus.processing ||
+        task.status == TaskStatus.pendingReview) {
+      return true;
+    }
     return switch (task.attemptState) {
       ImportAttemptState.queued ||
       ImportAttemptState.running ||
       ImportAttemptState.cancelRequested =>
         true,
+      ImportAttemptState.readyForReview => task.status == TaskStatus.error,
       ImportAttemptState.cancelled ||
       ImportAttemptState.failed ||
-      ImportAttemptState.interrupted ||
-      ImportAttemptState.readyForReview =>
+      ImportAttemptState.interrupted =>
         false,
     };
   }
@@ -695,18 +698,23 @@ class TaskManager extends ChangeNotifier {
   }
 
   Future<ImportTaskCleanupStatus> _cleanupOneTask(String id) async {
+    BackupRestoreMutationLease? lease;
+    if (_hasCleanupPersistence) {
+      lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    }
+
     final index = tasks.indexWhere((task) => task.id == id);
     final task = index < 0 ? null : tasks[index];
     if (task != null && _isTaskCleanupBusy(task)) {
+      lease?.release();
       return ImportTaskCleanupStatus.busy;
     }
-    if (!_beginTaskCleanup(id)) return ImportTaskCleanupStatus.busy;
+    if (!_beginTaskCleanup(id)) {
+      lease?.release();
+      return ImportTaskCleanupStatus.busy;
+    }
 
-    BackupRestoreMutationLease? lease;
     try {
-      if (_hasCleanupPersistence) {
-        lease = BackupRestoreMutationGate.instance.acquireMutationLease();
-      }
       final currentIndex = tasks.indexWhere((candidate) => candidate.id == id);
       final currentTask = currentIndex < 0 ? null : tasks[currentIndex];
       if (currentTask != null && _isTaskDurableBusy(currentTask)) {

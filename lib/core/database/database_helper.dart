@@ -3171,9 +3171,7 @@ SELECT
       }
 
       final status = (rows.single['status'] as num?)?.toInt();
-      if (status == null ||
-          status == 0 ||
-          _hasActiveImportAttempt(rows.single['diagnostics'])) {
+      if (_isImportTaskCleanupBusy(status, rows.single['diagnostics'])) {
         return ImportTaskDeletePersistenceStatus.busy;
       }
 
@@ -3205,9 +3203,8 @@ SELECT
         if (id == null || id.isEmpty) continue;
         existingIds.add(id);
         final status = (row['status'] as num?)?.toInt();
-        if (status != 2 && status != 3 ||
-            excludedIds.contains(id) ||
-            _hasActiveImportAttempt(row['diagnostics'])) {
+        if (excludedIds.contains(id) ||
+            _isImportTaskCleanupBusy(status, row['diagnostics'])) {
           continue;
         }
         final deleted = await txn.delete(
@@ -3232,7 +3229,7 @@ SELECT
     return db.transaction((txn) async {
       final rows = await txn.query(
         'import_tasks',
-        columns: <String>['id', 'diagnostics'],
+        columns: <String>['id', 'status', 'diagnostics'],
         where: '''
           (status = ? OR status = ?)
           AND completed_at IS NOT NULL
@@ -3244,7 +3241,8 @@ SELECT
       for (final row in rows) {
         final id = row['id']?.toString();
         if (id == null || id.isEmpty) continue;
-        if (_hasActiveImportAttempt(row['diagnostics'])) continue;
+        final status = (row['status'] as num?)?.toInt();
+        if (_isImportTaskCleanupBusy(status, row['diagnostics'])) continue;
         final deleted = await txn.delete(
           'import_tasks',
           where: '''
@@ -3261,17 +3259,23 @@ SELECT
     });
   }
 
-  bool _hasActiveImportAttempt(Object? diagnostics) {
-    if (diagnostics is! String || diagnostics.isEmpty) return false;
+  bool _isImportTaskCleanupBusy(int? status, Object? diagnostics) {
+    if (status != 2 && status != 3) return true;
+    final attemptState = _importAttemptState(diagnostics);
+    return attemptState == 'queued' ||
+        attemptState == 'running' ||
+        attemptState == 'cancelRequested' ||
+        (status == 3 && attemptState == 'readyForReview');
+  }
+
+  String? _importAttemptState(Object? diagnostics) {
+    if (diagnostics is! String || diagnostics.isEmpty) return null;
     try {
       final decoded = jsonDecode(diagnostics);
-      if (decoded is! Map) return false;
-      final state = decoded['_attemptState']?.toString();
-      return state == 'queued' ||
-          state == 'running' ||
-          state == 'cancelRequested';
+      if (decoded is! Map) return null;
+      return decoded['_attemptState']?.toString();
     } catch (_) {
-      return false;
+      return null;
     }
   }
 

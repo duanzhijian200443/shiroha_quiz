@@ -202,26 +202,234 @@ void main() {
     );
   });
 
-  test('pending ReviewDraft write drains before delete and cannot resurrect',
+  test('pendingReview cleanup is busy and preserves the durable draft',
       () async {
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    final db = await DatabaseHelper.instance.database;
+    final task = _finalTask(
+      'pending-review-cleanup',
+      status: TaskStatus.pendingReview,
+    );
+    await db.insert('import_tasks', task.toMap());
+    final before = await db.query(
+      'import_tasks',
+      where: 'id = ?',
+      whereArgs: <Object?>[task.id],
+    );
+    var deleteCalls = 0;
+    final manager = TaskManager.forTesting(
+      deleteTaskPersistence: (_) async {
+        deleteCalls++;
+        return ImportTaskCleanupStatus.deleted;
+      },
+    )..tasks.add(task);
+
+    expect(await manager.deleteTask(task.id), ImportTaskCleanupStatus.busy);
+    expect(deleteCalls, 0);
+    expect(manager.tasks, contains(same(task)));
+    expect(task.parsedData, isNotEmpty);
+    expect(
+      await db.query(
+        'import_tasks',
+        where: 'id = ?',
+        whereArgs: <Object?>[task.id],
+      ),
+      before,
+    );
+  });
+
+  test('pendingReview readyForReview cleanup is also busy', () async {
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    final db = await DatabaseHelper.instance.database;
+    final task = _finalTask(
+      'pending-review-ready-cleanup',
+      status: TaskStatus.pendingReview,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    );
+    await db.insert('import_tasks', task.toMap());
+    var deleteCalls = 0;
+    final manager = TaskManager.forTesting(
+      deleteTaskPersistence: (_) async {
+        deleteCalls++;
+        return ImportTaskCleanupStatus.deleted;
+      },
+    )..tasks.add(task);
+
+    expect(await manager.deleteTask(task.id), ImportTaskCleanupStatus.busy);
+    expect(deleteCalls, 0);
+    expect(manager.tasks, contains(same(task)));
+    expect(task.parsedData, isNotEmpty);
+    expect(
+      await db.query(
+        'import_tasks',
+        where: 'id = ?',
+        whereArgs: <Object?>[task.id],
+      ),
+      hasLength(1),
+    );
+    expect(
+      await ImportTaskRepository(
+        databaseHelper: DatabaseHelper.instance,
+      ).deleteImportTask(task.id),
+      ImportTaskDeletePersistenceStatus.busy,
+    );
+  });
+
+  test('completed historical readyForReview remains cleanup eligible',
+      () async {
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    final db = await DatabaseHelper.instance.database;
+    final task = _finalTask(
+      'completed-ready-cleanup',
+      status: TaskStatus.completed,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    );
+    await db.insert('import_tasks', task.toMap());
+    final manager = TaskManager.forTesting(saveTask: (_) async {})
+      ..tasks.add(task);
+
+    expect(await manager.deleteTask(task.id), ImportTaskCleanupStatus.deleted);
+    expect(manager.tasks, isEmpty);
+    expect(
+      await db.query(
+        'import_tasks',
+        where: 'id = ?',
+        whereArgs: <Object?>[task.id],
+      ),
+      isEmpty,
+    );
+  });
+
+  test('settled error attempts remain cleanup eligible', () async {
+    for (final state in <ImportAttemptState>[
+      ImportAttemptState.failed,
+      ImportAttemptState.cancelled,
+      ImportAttemptState.interrupted,
+    ]) {
+      var deleteCalls = 0;
+      final task = _finalTask(
+        'settled-error-${state.name}',
+        diagnostics: <String, dynamic>{
+          TaskManager.keyAttemptState: state.name,
+        },
+      );
+      final manager = TaskManager.forTesting(
+        deleteTaskPersistence: (_) async {
+          deleteCalls++;
+          return ImportTaskCleanupStatus.deleted;
+        },
+      )..tasks.add(task);
+
+      expect(
+        await manager.deleteTask(task.id),
+        ImportTaskCleanupStatus.deleted,
+        reason: state.name,
+      );
+      expect(deleteCalls, 1, reason: state.name);
+      expect(manager.tasks, isEmpty, reason: state.name);
+    }
+  });
+
+  test('error readyForReview is busy at application and database boundaries',
+      () async {
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    final db = await DatabaseHelper.instance.database;
+    final task = _finalTask(
+      'error-ready-cleanup',
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    );
+    await db.insert('import_tasks', task.toMap());
+    final manager = TaskManager.forTesting(saveTask: (_) async {})
+      ..tasks.add(task);
+
+    expect(await manager.deleteTask(task.id), ImportTaskCleanupStatus.busy);
+    expect(manager.tasks, contains(same(task)));
+    expect(
+      await ImportTaskRepository(
+        databaseHelper: DatabaseHelper.instance,
+      ).deleteImportTask(task.id),
+      ImportTaskDeletePersistenceStatus.busy,
+    );
+    expect(
+      await db.query(
+        'import_tasks',
+        where: 'id = ?',
+        whereArgs: <Object?>[task.id],
+      ),
+      hasLength(1),
+    );
+  });
+
+  test('clearCompleted keeps review-protected final rows', () async {
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    final db = await DatabaseHelper.instance.database;
+    final completedReady = _finalTask(
+      'clear-completed-ready',
+      status: TaskStatus.completed,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    );
+    final errorReady = _finalTask(
+      'clear-error-ready',
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    );
+    final review = _finalTask(
+      'clear-pending-review',
+      status: TaskStatus.pendingReview,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    );
+    for (final task in <ImportTask>[completedReady, errorReady, review]) {
+      await db.insert('import_tasks', task.toMap());
+    }
+    final manager = TaskManager.forTesting(saveTask: (_) async {})
+      ..tasks.add(completedReady)
+      ..tasks.add(errorReady)
+      ..tasks.add(review);
+
+    expect(
+      await manager.clearCompletedTasks(),
+      ImportTaskCleanupStatus.deleted,
+    );
+    expect(manager.tasks.map((task) => task.id), <String>[
+      'clear-error-ready',
+      'clear-pending-review',
+    ]);
+    expect(
+      (await db.query('import_tasks', orderBy: 'id')).map((row) => row['id']),
+      <Object?>['clear-error-ready', 'clear-pending-review'],
+    );
+  });
+
+  test('pending ReviewDraft write keeps ordinary cleanup busy', () async {
     final writeStarted = Completer<void>();
     final releaseWrite = Completer<void>();
-    final events = <String>[];
     var saveCalls = 0;
+    var deleteCalls = 0;
+    final task = _finalTask('review-delete', status: TaskStatus.pendingReview);
     final manager = TaskManager.forTesting(
       saveTask: (_) async {
         saveCalls++;
-        events.add('save-$saveCalls');
         if (saveCalls == 1) {
           writeStarted.complete();
           await releaseWrite.future;
         }
       },
       deleteTaskPersistence: (_) async {
-        events.add('delete');
+        deleteCalls++;
         return ImportTaskCleanupStatus.deleted;
       },
-    )..tasks.add(_finalTask('review-delete', status: TaskStatus.pendingReview));
+    )..tasks.add(task);
 
     final draftWrite = manager.saveReviewDraft(
       'review-delete',
@@ -232,14 +440,19 @@ void main() {
     );
     await writeStarted.future;
 
-    final delete = manager.deleteTask('review-delete');
-    expect(events, <String>['save-1']);
+    expect(
+      await manager.deleteTask(task.id),
+      ImportTaskCleanupStatus.busy,
+    );
+    expect(deleteCalls, 0);
+    expect(manager.tasks, hasLength(1));
+    expect(task.parsedData?.single['content'], 'Synthetic draft');
+
     releaseWrite.complete();
 
-    expect((await draftWrite).status, ReviewDraftSaveStatus.taskMissing);
-    expect(await delete, ImportTaskCleanupStatus.deleted);
-    expect(manager.tasks, isEmpty);
-    expect(events.last, 'delete');
+    expect((await draftWrite).status, ReviewDraftSaveStatus.saved);
+    expect(task.parsedData?.single['content'], 'Updated synthetic draft');
+    expect(manager.tasks, contains(same(task)));
   });
 
   test('pending attempt snapshot drains before delete and cannot resurrect',
@@ -312,6 +525,9 @@ void main() {
     );
     expect(leaseResult.status, TypedCommitLeaseStatus.acquired);
 
+    // Model the durable typed commit publishing `completed` before the
+    // lease-cleanup tail has released the task-scoped arbitration lease.
+    manager.tasks.single.status = TaskStatus.completed;
     expect(
       await manager.deleteTask('typed-lease-delete'),
       ImportTaskCleanupStatus.busy,
@@ -373,6 +589,19 @@ void main() {
     final db = await DatabaseHelper.instance.database;
     final oldFinal = _finalTask('retention-old-final').toMap();
     final oldError = _finalTask('retention-old-error').toMap();
+    final oldErrorReview = _finalTask(
+      'retention-old-error-review',
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    ).toMap();
+    final oldCompletedReady = _finalTask(
+      'retention-old-completed-ready',
+      status: TaskStatus.completed,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      },
+    ).toMap();
     final oldReview = _finalTask(
       'retention-old-review',
       status: TaskStatus.pendingReview,
@@ -388,6 +617,8 @@ void main() {
     ).toMap();
     await db.insert('import_tasks', oldFinal);
     await db.insert('import_tasks', oldError);
+    await db.insert('import_tasks', oldErrorReview);
+    await db.insert('import_tasks', oldCompletedReady);
     await db.insert('import_tasks', oldReview);
     await db.insert('import_tasks', oldActive);
 
@@ -397,11 +628,19 @@ void main() {
 
     expect(
       deleted,
-      containsAll(<String>['retention-old-final', 'retention-old-error']),
+      containsAll(<String>[
+        'retention-old-final',
+        'retention-old-error',
+        'retention-old-completed-ready',
+      ]),
     );
     expect(
       (await db.query('import_tasks', orderBy: 'id')).map((row) => row['id']),
-      <Object?>['retention-old-active', 'retention-old-review'],
+      <Object?>[
+        'retention-old-active',
+        'retention-old-error-review',
+        'retention-old-review',
+      ],
     );
   });
 
