@@ -64,6 +64,7 @@ import 'services/agent/deepseek_responses_provider.dart';
 import 'services/backup/backup_restore_runtime.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
+import 'services/file_library/managed_content_asset_store.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
 import 'services/file_library/managed_artifact_storage_adapter.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
@@ -144,6 +145,11 @@ void main() {
 
     final databaseHelper = DatabaseHelper.instance;
     final supportDirectory = await getApplicationSupportDirectory();
+    final managedFilesRoot =
+        Directory(p.join(supportDirectory.path, 'library_files'));
+    final contentAssetStore =
+        ManagedContentAssetStore(managedRoot: managedFilesRoot);
+    DefaultContentAssetResolver.instance.setStore(contentAssetStore);
     final managedFileStorage = await ManagedFileStorageAdapter.appManaged();
     final backupSnapshotRepository = BackupSnapshotRepository(
       databaseHelper: databaseHelper,
@@ -159,8 +165,7 @@ void main() {
         snapshotRepository: backupSnapshotRepository,
         managedFileStorage: managedFileStorage,
         restoreRoot: Directory(p.join(supportDirectory.path, 'restore')),
-        managedFilesRoot:
-            Directory(p.join(supportDirectory.path, 'library_files')),
+        managedFilesRoot: managedFilesRoot,
       ),
     );
     // Hard B0-I0 startup order: unfinished restore journal recovery MUST
@@ -368,6 +373,7 @@ void main() {
         aiService: aiService,
         engineRepository: engineRepository,
         taskManager: taskManager,
+        contentAssetStore: contentAssetStore,
         ocrRequestScheduler: ocrRequestScheduler,
       );
       final importTaskCoordinator = ImportTaskCoordinator(

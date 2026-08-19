@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
+import '../../domain/content/rich_content.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_pipeline/final_question_latex_audit.dart';
@@ -34,6 +35,7 @@ import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
+import '../widgets/structured_content_renderer.dart';
 
 class ImportStagingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> parsedQuestions;
@@ -1949,6 +1951,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                               _isDistillingAnswers
                                           ? null
                                           : () => _distillSingleAnswer(item),
+                                      typedStem:
+                                          _getTypedStem(item.originalIndex),
                                     ),
                                   ),
                                 ),
@@ -2366,6 +2370,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       ),
     );
   }
+
+  RichContent? _getTypedStem(int originalIndex) {
+    final provenance = _snapshotProvenance[originalIndex];
+    if (provenance == null) return null;
+    final envelope = provenance[TypedReviewSnapshotCodec.mapKey];
+    if (envelope == null) return null;
+    try {
+      final snapshot =
+          const TypedReviewSnapshotCodec().decodeRequired(envelope);
+      return snapshot.draft.stem;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 class _QuestionCard extends StatelessWidget {
@@ -2380,6 +2398,7 @@ class _QuestionCard extends StatelessWidget {
     required this.proofExplanationRecognized,
     required this.answerDistillationInProgress,
     required this.onAnswerDistillation,
+    this.typedStem,
   });
 
   final ImportReviewItem item;
@@ -2392,6 +2411,7 @@ class _QuestionCard extends StatelessWidget {
   final bool proofExplanationRecognized;
   final bool answerDistillationInProgress;
   final VoidCallback? onAnswerDistillation;
+  final RichContent? typedStem;
 
   @override
   Widget build(BuildContext context) {
@@ -2589,7 +2609,14 @@ class _QuestionCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _buildMarkdown(context, question.content),
+            if (typedStem != null)
+              RichContentRenderer(
+                content: typedStem!,
+                fontSize: 14.0,
+                textColor: Theme.of(context).textTheme.bodyLarge?.color,
+              )
+            else
+              _buildMarkdown(context, question.content),
             const Divider(height: 24),
             if (!question.hasAnswerOrExplanation)
               const _MissingAnswerNotice()

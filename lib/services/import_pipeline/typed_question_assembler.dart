@@ -5,6 +5,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
+import 'ocr_table_projection.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
 /// [QuestionDraftV2] without changing the frozen domain models or inventing an
@@ -60,20 +61,35 @@ final class TypedQuestionAssembler {
             target.add(const TextNode('\n'));
           }
           target.addAll(nodes);
-        case SourceAssetPart():
-          throw QuestionRegionUnsupportedException(
-            kindCode: 'source_asset',
-            field: fragment.field,
-            message: 'Asset identity and field position cannot be projected '
-                'losslessly by QuestionDraftV2.',
+        case SourceAssetPart(:final asset, :final alternativeText):
+          final target =
+              nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty) {
+            target.add(const TextNode('\n'));
+          }
+          final altText = alternativeText != null
+              ? _joinedText(alternativeText.nodes)
+              : null;
+          final assetRef = asset.assetId.startsWith('content_assets/')
+              ? asset.assetId
+              : 'content_assets/${asset.assetId}';
+          target.add(
+            ImageNode(
+              assetRef: assetRef,
+              altText: altText,
+            ),
           );
         case SourceTablePart():
-          throw QuestionRegionUnsupportedException(
-            kindCode: 'source_table',
-            field: fragment.field,
-            message: 'Table content cannot be expressed losslessly by '
-                'QuestionDraftV2.',
+          final text = OcrTableProjector.projectToPlainText(
+            fragment.part as SourceTablePart,
           );
+          if (text.trim().isEmpty) break;
+          final target =
+              nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty) {
+            target.add(const TextNode('\n'));
+          }
+          target.add(TextNode(text));
         case UnsupportedSourcePart(:final kindCode):
           throw QuestionRegionUnsupportedException(
             kindCode: kindCode,
@@ -143,7 +159,25 @@ final class TypedQuestionAssembler {
         nodes: <ContentNode>[TextNode(inlineExplanation.trim())],
       );
     } else if (explanationNodes.isNotEmpty && explanationText == null) {
-      explanationContent = RichContent(nodes: explanationNodes);
+      if (explanationNodes.first is TextNode) {
+        final first = explanationNodes.first as TextNode;
+        final stripped = _stripFieldLabels(first.text);
+        if (stripped.isEmpty) {
+          explanationContent =
+              RichContent(nodes: explanationNodes.skip(1).toList());
+        } else if (stripped != first.text) {
+          explanationContent = RichContent(
+            nodes: <ContentNode>[
+              TextNode(stripped),
+              ...explanationNodes.skip(1),
+            ],
+          );
+        } else {
+          explanationContent = RichContent(nodes: explanationNodes);
+        }
+      } else {
+        explanationContent = RichContent(nodes: explanationNodes);
+      }
     }
     final effectiveExplanation =
         explanationContent == null ? '' : _searchText(explanationContent.nodes);
@@ -212,6 +246,13 @@ final class TypedQuestionAssembler {
         'empty_content',
         ImportIssueSeverity.warning,
         ImportIssueField.stem,
+      );
+    }
+    if (region.fragments.any((f) => f.part is SourceTablePart)) {
+      addIssue(
+        'table_text_projection',
+        ImportIssueSeverity.info,
+        null,
       );
     }
     if (_isStructurallyEmpty(stemContent.nodes)) {
@@ -490,6 +531,12 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
+      case ImageNode(:final altText):
+        if (altText != null && altText.isNotEmpty) {
+          buffer.write(altText);
+        } else {
+          buffer.write('[图片]');
+        }
       case RawFallbackNode():
         break;
     }

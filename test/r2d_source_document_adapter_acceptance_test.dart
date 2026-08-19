@@ -878,6 +878,8 @@ Iterable<String> _contentStrings(RichContent content) sync* {
         yield latex;
       case BlockMathNode(:final latex):
         yield latex;
+      case ImageNode(:final altText):
+        if (altText != null) yield altText;
       case RawFallbackNode(:final rawJson):
         yield* _jsonStrings(rawJson);
     }

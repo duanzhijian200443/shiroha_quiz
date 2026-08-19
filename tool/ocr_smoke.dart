@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
@@ -654,6 +655,10 @@ Future<int> _runOcrSmokeCore(
   final ocrService = OcrImportService(
     engineRepository: repository,
     ocrClient: capturingClient,
+    assetStore: ManagedContentAssetStore(
+      managedRoot:
+          Directory.systemTemp.createTempSync('ocr_smoke_asset_store_'),
+    ),
     repairService: repairService,
   );
 

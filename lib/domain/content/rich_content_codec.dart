@@ -76,6 +76,11 @@ final class RichContentCodec {
           'type': 'block_math',
           'latex': latex,
         },
+      ImageNode(:final assetRef, :final altText) => <String, Object?>{
+          'type': 'image',
+          'assetRef': assetRef,
+          if (altText != null) 'altText': altText,
+        },
       RawFallbackNode(:final rawJson) => _copyJsonMap(rawJson),
     };
   }
@@ -98,9 +103,35 @@ final class RichContentCodec {
       'text' => _decodeTextNode(node),
       'inline_math' => _decodeInlineMathNode(node),
       'block_math' => _decodeBlockMathNode(node),
+      'image' => _decodeImageNode(node),
       'raw_fallback' => _decodeRawFallbackNode(node),
       _ => RawFallbackNode(node),
     };
+  }
+
+  ContentNode _decodeImageNode(Map<String, Object?> node) {
+    final assetRef = node['assetRef'];
+    if (assetRef is! String || assetRef.trim().isEmpty) {
+      throw const FormatException(
+        'Image nodes require a non-empty string assetRef field.',
+      );
+    }
+    final altText = node['altText'];
+    if (altText != null && altText is! String) {
+      throw const FormatException(
+        'Image node altText must be a string when present.',
+      );
+    }
+    final allowedKeys = altText != null
+        ? const <String>{'type', 'assetRef', 'altText'}
+        : const <String>{'type', 'assetRef'};
+    if (!_hasExactKeys(node, allowedKeys)) {
+      return RawFallbackNode(node);
+    }
+    return ImageNode(
+      assetRef: assetRef,
+      altText: altText as String?,
+    );
   }
 
   ContentNode _decodeTextNode(Map<String, Object?> node) {

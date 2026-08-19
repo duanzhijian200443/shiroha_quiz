@@ -1,6 +1,11 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/ui/widgets/markdown_extensions.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
@@ -560,5 +565,139 @@ $$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
     expect(find.byType(Math), findsNothing);
     expect(find.textContaining(r'\(x_i and after text', findRichText: true),
         findsOneWidget);
+  });
+
+  group('RichContentRenderer ImageNode rendering', () {
+    late Directory tempDir;
+    late ManagedContentAssetStore store;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('render_image_test_');
+      store = ManagedContentAssetStore(managedRoot: tempDir);
+      DefaultContentAssetResolver.instance.setStore(store);
+    });
+
+    tearDown(() async {
+      DefaultContentAssetResolver.instance.setStore(null);
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    testWidgets('renders missing image placeholder when file does not exist',
+        (tester) async {
+      final content = RichContent(nodes: const <ContentNode>[
+        TextNode('题干文字'),
+        ImageNode(assetRef: 'content_assets/missing.png', altText: '图 1'),
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RichContentRenderer(content: content),
+          ),
+        ),
+      );
+
+      expect(find.text('题干文字'), findsOneWidget);
+      expect(find.text('图 1'), findsOneWidget);
+      expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+    });
+
+    testWidgets('renders image when asset file exists and is valid',
+        (tester) async {
+      // 1x1 transparent PNG bytes
+      final validPng = Uint8List.fromList([
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+        0x00,
+        0x00,
+        0x00,
+        0x0D,
+        0x49,
+        0x48,
+        0x44,
+        0x52,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x08,
+        0x06,
+        0x00,
+        0x00,
+        0x00,
+        0x1F,
+        0x15,
+        0xC4,
+        0x89,
+        0x00,
+        0x00,
+        0x00,
+        0x0A,
+        0x49,
+        0x44,
+        0x41,
+        0x54,
+        0x78,
+        0x9C,
+        0x63,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x05,
+        0x00,
+        0x01,
+        0x0D,
+        0x0A,
+        0x2D,
+        0xB4,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x49,
+        0x45,
+        0x4E,
+        0x44,
+        0xAE,
+        0x42,
+        0x60,
+        0x82,
+      ]);
+      final storageKey = await store.storeBytes(
+        bytes: validPng,
+        mimeType: 'image/png',
+      );
+
+      final content = RichContent(nodes: <ContentNode>[
+        const TextNode('图前文字'),
+        ImageNode(assetRef: storageKey),
+        const TextNode('图后文字'),
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RichContentRenderer(content: content),
+          ),
+        ),
+      );
+
+      expect(find.text('图前文字'), findsOneWidget);
+      expect(find.text('图后文字'), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
+    });
   });
 }

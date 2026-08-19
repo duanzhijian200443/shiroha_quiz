@@ -1333,6 +1333,8 @@ bool _structuralValueEquals(Object? left, Object? right) {
       TextNode(:final text) => text == (right as TextNode).text,
       InlineMathNode(:final latex) => latex == (right as InlineMathNode).latex,
       BlockMathNode(:final latex) => latex == (right as BlockMathNode).latex,
+      ImageNode(:final assetRef, :final altText) =>
+        assetRef == (right as ImageNode).assetRef && altText == right.altText,
       RawFallbackNode(:final rawJson) =>
         _structuralValueEquals(rawJson, (right as RawFallbackNode).rawJson),
     };
@@ -1366,6 +1368,9 @@ int _structuralValueHash(Object? value) {
   }
   if (value is BlockMathNode) {
     return Object.hash('block_math', value.latex);
+  }
+  if (value is ImageNode) {
+    return Object.hash('image', value.assetRef, value.altText);
   }
   if (value is RawFallbackNode) {
     return Object.hash('raw_fallback', _structuralValueHash(value.rawJson));

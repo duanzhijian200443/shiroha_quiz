@@ -342,17 +342,20 @@ void main() {
           region.assetRefs.map((ref) => ref.sourceId).toSet(),
           <String>{'r3d1_source_a', 'r3d1_source_b'},
         );
-        expect(
-          () => _typedAssembler.assemble(region,
-              questionId: 'shadow_boundary_asset'),
-          throwsA(
-            isA<QuestionRegionUnsupportedException>().having(
-              (error) => error.kindCode,
-              'kindCode',
-              'source_asset',
-            ),
-          ),
+        final draft = _typedAssembler.assemble(
+          region,
+          questionId: 'shadow_boundary_asset',
         );
+        expect(draft.assetRefs, hasLength(2));
+        expect(
+          draft.assetRefs.map((ref) => ref.localAssetId).toSet(),
+          <String>{'img_001'},
+        );
+        expect(
+          draft.assetRefs.map((ref) => ref.sourceId).toSet(),
+          <String>{'r3d1_source_a', 'r3d1_source_b'},
+        );
+        expect(draft.stem.nodes.first, isA<ImageNode>());
         _expectZeroProviderCalls();
       },
     );
@@ -515,6 +518,7 @@ String _searchNodeText(ContentNode node) {
     TextNode(:final text) => text,
     InlineMathNode(:final latex) => latex,
     BlockMathNode(:final latex) => latex,
+    ImageNode(:final altText) => altText ?? '',
     RawFallbackNode() => '',
   };
 }

@@ -237,3 +237,22 @@ class _MarkupOutput {
   @override
   String toString() => _buffer.toString();
 }
+
+/// Checks whether [raw] and [explanation] are semantically equivalent after
+/// stripping benign HTML wrappers (div, span, p, br).
+///
+/// Returns `true` if and only if:
+/// 1. Stripping benign HTML wrappers from [raw] yields the same text as
+///    stripping benign HTML wrappers from [explanation];
+/// 2. Neither [raw] nor [explanation] contained dangerous HTML tags
+///    (e.g., script, style, iframe, object, embed) that were removed;
+/// 3. Neither [raw] nor [explanation] contained unsupported HTML tags
+///    (e.g., table, svg, custom tags) that were preserved as markup.
+bool isSafeHtmlNormalizedExplanationEqual(String raw, String explanation) {
+  if (raw == explanation) return true;
+  final cleanedRaw = stripSafeHtmlWrappers(raw);
+  if (cleanedRaw.diagnostics.isNotEmpty) return false;
+  final cleanedExpl = stripSafeHtmlWrappers(explanation);
+  if (cleanedExpl.diagnostics.isNotEmpty) return false;
+  return cleanedRaw.text == cleanedExpl.text;
+}

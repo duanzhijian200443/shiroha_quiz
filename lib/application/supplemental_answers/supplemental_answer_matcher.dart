@@ -652,6 +652,8 @@ String _nodeFingerprint(ContentNode node) {
     TextNode(:final text) => 'text:$text',
     InlineMathNode(:final latex) => 'inline:$latex',
     BlockMathNode(:final latex) => 'block:$latex',
+    ImageNode(:final assetRef, :final altText) =>
+      'image:$assetRef:${altText ?? ''}',
     RawFallbackNode(:final rawJson) => 'raw:${rawJson.keys.toList()..sort()}',
   };
 }

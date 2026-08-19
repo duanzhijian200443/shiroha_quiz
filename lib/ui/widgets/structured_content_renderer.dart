@@ -6,6 +6,7 @@ import 'package:flutter_math_fork/flutter_math.dart';
 
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../services/file_library/managed_content_asset_store.dart';
 import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
 import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
@@ -242,6 +243,13 @@ class RichContentRenderer extends StatelessWidget {
             color: color,
             fontSize: fontSize,
           ));
+        case ImageNode(:final assetRef, :final altText):
+          flushInline();
+          widgets.add(_ImageView(
+            assetRef: assetRef,
+            altText: altText,
+            style: style,
+          ));
         case RawFallbackNode(:final rawJson):
           flushInline();
           widgets.add(_RawFallbackPlaceholder(rawJson: rawJson, style: style));
@@ -362,6 +370,78 @@ class _RawFallbackPlaceholder extends StatelessWidget {
           color: Colors.brown.shade800,
           fontStyle: FontStyle.italic,
         ),
+      ),
+    );
+  }
+}
+
+class _ImageView extends StatelessWidget {
+  const _ImageView({
+    required this.assetRef,
+    required this.altText,
+    required this.style,
+  });
+
+  final String assetRef;
+  final String? altText;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final file = DefaultContentAssetResolver.instance.resolveAsset(assetRef);
+    if (file == null || !file.existsSync()) {
+      return _placeholder(context, '图片不可用');
+    }
+    if (file.lengthSync() == 0) {
+      return _placeholder(context, '图片格式错误');
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 600,
+          maxHeight: 400,
+        ),
+        child: Image.file(
+          file,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return _placeholder(context, '图片加载失败');
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder(BuildContext context, String fallbackText) {
+    final label = altText != null && altText!.trim().isNotEmpty
+        ? altText!.trim()
+        : fallbackText;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.broken_image_outlined, size: 20, color: Colors.grey),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              style: style.copyWith(
+                color: Colors.grey.shade700,
+                fontStyle: FontStyle.italic,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

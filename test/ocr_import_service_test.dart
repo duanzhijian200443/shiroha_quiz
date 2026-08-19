@@ -23,6 +23,7 @@ import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_projection.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 
+import 'support/memory_content_asset_store.dart';
 import 'support/unsupported_ai_engine_store.dart';
 
 class FakeAiEngineRepository extends AiEngineRepository {
@@ -321,6 +322,7 @@ void main() {
       );
 
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
@@ -347,6 +349,7 @@ void main() {
       final client = FakeOcrDocumentClient(unsupportedStructureDocument());
       final repairService = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: client,
         repairService: repairService,
@@ -355,6 +358,7 @@ void main() {
         unsupportedStructureDocument(includeUnsupported: false),
       );
       final baselineService = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: baselineClient,
         repairService: const FakeRepairService(),
@@ -405,6 +409,7 @@ void main() {
     test('omits unsupported structure summary when no image or table blocks',
         () async {
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(ocrTestProfile()),
         ocrClient: FakeOcrDocumentClient(
           unsupportedStructureDocument(includeUnsupported: false),
@@ -523,6 +528,7 @@ void main() {
       );
       final repair = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: repair,
@@ -599,6 +605,7 @@ void main() {
       );
       final repair = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           const OcrDocument(
@@ -690,6 +697,7 @@ void main() {
       );
       final repair = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           objectiveExplanationDocument(
@@ -736,6 +744,7 @@ void main() {
       );
       final repair = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           objectiveExplanationDocument(
@@ -783,6 +792,7 @@ void main() {
       );
       final repair = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           objectiveExplanationDocument(
@@ -830,6 +840,7 @@ void main() {
       );
       final repair = RecordingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           const OcrDocument(
@@ -978,6 +989,7 @@ void main() {
         ],
       );
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
@@ -1065,6 +1077,7 @@ void main() {
       );
 
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
@@ -1165,6 +1178,7 @@ void main() {
       }
 
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           OcrDocument(
@@ -1301,6 +1315,7 @@ void main() {
       }
 
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(
           OcrDocument(
@@ -1384,6 +1399,7 @@ void main() {
       );
 
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
@@ -1434,6 +1450,7 @@ void main() {
       );
 
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
@@ -1456,6 +1473,7 @@ void main() {
 
     test('fails explicitly when OCR is not configured', () async {
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(null),
         ocrClient: FakeOcrDocumentClient(
           const OcrDocument(
@@ -1488,6 +1506,7 @@ void main() {
       final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
       final repair = BlockingRepairService();
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: client,
         requestScheduler: scheduler,
@@ -1549,6 +1568,7 @@ void main() {
       final client = ControlledOcrDocumentClient();
       final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(_concurrencyProfile()),
         ocrClient: client,
         requestScheduler: scheduler,
@@ -1608,6 +1628,7 @@ void main() {
       final client = ControlledOcrDocumentClient();
       final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
       final ocrService = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(_concurrencyProfile()),
         ocrClient: client,
         requestScheduler: scheduler,
@@ -1760,6 +1781,7 @@ void main() {
         isActive: true,
       );
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(profile),
         ocrClient: ThrowingOcrDocumentClient(),
       );
@@ -1784,6 +1806,7 @@ void main() {
     test('a clean single-file parse produces an eligible candidate batch',
         () async {
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(ocrTestProfile()),
         ocrClient: FakeOcrDocumentClient(
           objectiveExplanationDocument(
@@ -1863,6 +1886,7 @@ void main() {
         ],
       );
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(ocrTestProfile()),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: const FakeRepairService(),
@@ -1935,6 +1959,7 @@ void main() {
         ],
       );
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(ocrTestProfile()),
         ocrClient: FakeOcrDocumentClient(document),
         repairService: RecordingRepairService(),
@@ -1961,6 +1986,7 @@ void main() {
         'an unexpected candidate error maps to internal_error without '
         'failing legacy import', () async {
       final service = OcrImportService(
+        assetStore: MemoryContentAssetStore(),
         engineRepository: FakeAiEngineRepository(ocrTestProfile()),
         ocrClient: FakeOcrDocumentClient(
           objectiveExplanationDocument(

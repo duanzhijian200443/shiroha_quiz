@@ -34,6 +34,7 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 
+import 'support/memory_content_asset_store.dart';
 import 'support/memory_engine_credential_store.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
@@ -335,6 +336,7 @@ Widget _buildTestApp() {
     aiService: aiService,
     engineRepository: engineRepository,
     taskManager: taskManager,
+    contentAssetStore: MemoryContentAssetStore(),
     ocrRequestScheduler: ocrRequestScheduler,
   );
   final importTaskCoordinator = ImportTaskCoordinator(

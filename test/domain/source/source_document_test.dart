@@ -498,6 +498,11 @@ Map<String, Object?> _contentGraph(RichContent content) {
             'type': 'block_math',
             'latex': latex,
           },
+        ImageNode(:final assetRef, :final altText) => <String, Object?>{
+            'type': 'image',
+            'assetRef': assetRef,
+            if (altText != null) 'altText': altText,
+          },
         RawFallbackNode(:final rawJson) => <String, Object?>{
             'type': 'raw_fallback',
             'formalContent': rawJson,

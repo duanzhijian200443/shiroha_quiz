@@ -23,6 +23,8 @@ import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_projection.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_screen.dart';
 
+import 'support/memory_content_asset_store.dart';
+
 import 'support/unsupported_ai_engine_store.dart';
 
 const String _syntheticPathRoot = r'C:\b1e_synthetic';
@@ -183,6 +185,7 @@ _RuntimeHarness _buildRuntimeHarness({
   final ocrService = OcrImportService(
     engineRepository: _FakeOcrEngineRepository(),
     ocrClient: client,
+    assetStore: MemoryContentAssetStore(),
     requestScheduler: scheduler,
     taskManager: manager,
     repairService: const _NoopRepairService(),

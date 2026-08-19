@@ -18,6 +18,7 @@ import 'package:shiroha_quiz/services/import_review/import_review_issue.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_item.dart';
 
 import '../../tool/import_acceptance.dart';
+import '../support/memory_content_asset_store.dart';
 import '../support/unsupported_ai_engine_store.dart';
 
 class _SyntheticAiEngineRepository extends AiEngineRepository {
@@ -133,6 +134,7 @@ void main() {
         final repairService = _RecordingRepairService();
         final service = OcrImportService(
           ocrClient: ocrClient,
+          assetStore: MemoryContentAssetStore(),
           engineRepository: _SyntheticAiEngineRepository(
             const AiEngineProfile(
               id: 'synthetic-ocr',

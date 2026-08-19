@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
@@ -340,7 +341,7 @@ void main() {
               (part) => (part as UnsupportedSourcePart).kindCode,
             ),
         <String>[
-          'ocr_table',
+          'ocr_table_invalid',
           'ocr_image',
           'ocr_image',
           'ocr_unknown',
@@ -666,6 +667,39 @@ void main() {
         throwsUnsupportedError,
       );
     });
+
+    test('converts image block with data URL to SourceAssetPart', () {
+      final imageBlock = OcrBlock(
+        blockId: 'p001_img',
+        pageIndex: 1,
+        type: 'image',
+        text:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        bbox: const <double>[],
+        readingOrder: 0,
+      );
+      final page = OcrPage(pageIndex: 1, blocks: <OcrBlock>[imageBlock]);
+      final document = OcrDocument(
+        sourceName: 'sample.pdf',
+        pages: <OcrPage>[page],
+        markdown: '',
+        rawResponses: const <Map<String, dynamic>>[],
+        usage: const <String, dynamic>{},
+      );
+
+      final converted = const OcrSourceDocumentAdapter().convert(
+        document,
+        sourceId: 'src_img',
+      );
+
+      expect(converted.parts, hasLength(1));
+      expect(converted.parts.single, isA<SourceAssetPart>());
+      final assetPart = converted.parts.single as SourceAssetPart;
+      expect(assetPart.asset.assetId, endsWith('.png'));
+      expect(assetPart.asset.assetId, isNot(contains('/')));
+      expect(assetPart.asset.kind, AssetKind.image);
+      expect(converted.issues, isEmpty);
+    });
   });
 }
 
@@ -755,6 +789,8 @@ Iterable<String> _contentStrings(RichContent content) sync* {
         yield latex;
       case BlockMathNode(:final latex):
         yield latex;
+      case ImageNode(:final altText):
+        if (altText != null) yield altText;
       case RawFallbackNode(:final rawJson):
         yield* _jsonStrings(rawJson);
     }

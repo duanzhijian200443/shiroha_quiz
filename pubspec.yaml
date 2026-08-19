@@ -36,6 +36,7 @@ dependencies:
   fl_chart: ^1.2.0
   mcp_dart: 2.4.0
   meta: ^1.17.0
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

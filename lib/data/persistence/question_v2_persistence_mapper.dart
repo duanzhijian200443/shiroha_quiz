@@ -415,6 +415,8 @@ String _projectContent(RichContent content) {
         buffer.write(r'\[');
         buffer.write(latex);
         buffer.write(r'\]');
+      case ImageNode(:final altText):
+        buffer.write(altText != null && altText.isNotEmpty ? altText : '[图片]');
       case RawFallbackNode():
         buffer.write(_unsupportedContentPlaceholder);
     }

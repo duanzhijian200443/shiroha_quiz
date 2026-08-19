@@ -1,15 +1,26 @@
+import 'dart:convert';
+
+import 'package:path/path.dart' as p;
+
+import '../../../domain/assets/asset_ref.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
 import '../../../domain/import/import_issue.dart';
 import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
+import '../../backup/sha256.dart';
+import '../../file_library/managed_content_asset_store.dart';
 import '../ocr_document.dart';
+import '../ocr_table_projection.dart';
 
 final _ocrTypeControlPattern = RegExp(r'[\u0000-\u001f\u007f]');
 
 final class OcrSourceDocumentAdapter {
-  const OcrSourceDocumentAdapter();
+  const OcrSourceDocumentAdapter({ContentAssetStore? assetStore})
+      : _assetStore = assetStore;
+
+  final ContentAssetStore? _assetStore;
 
   SourceDocument convert(
     OcrDocument document, {
@@ -63,6 +74,8 @@ final class OcrSourceDocumentAdapter {
     }
 
     indexedBlocks.sort(_compareIndexedBlocks);
+    final assetStore =
+        _assetStore ?? DefaultContentAssetResolver.instance.activeStore;
     final parts = <SourcePart>[];
     for (final indexed in indexedBlocks) {
       final block = indexed.block;
@@ -114,7 +127,7 @@ final class OcrSourceDocumentAdapter {
         );
       }
 
-      final mapped = _mapBlock(block, sourceRef);
+      final mapped = _mapBlock(block, sourceRef, assetStore);
       parts.add(mapped.part);
       if (mapped.structureUnsupported) {
         issues.add(
@@ -146,7 +159,9 @@ List<_IndexedOcrBlock> _usableBlocks(OcrDocument document) {
         blockEncounter < page.blocks.length;
         blockEncounter++) {
       final block = page.blocks[blockEncounter];
-      if (block.text.trim().isEmpty) continue;
+      if (block.text.trim().isEmpty) {
+        continue;
+      }
       indexedBlocks.add(
         _IndexedOcrBlock(
           block: block,
@@ -160,42 +175,56 @@ List<_IndexedOcrBlock> _usableBlocks(OcrDocument document) {
   return indexedBlocks;
 }
 
+int _compareIndexedBlocks(_IndexedOcrBlock left, _IndexedOcrBlock right) {
+  final pageComparison = left.pageIndex.compareTo(right.pageIndex);
+  if (pageComparison != 0) return pageComparison;
+
+  final readingOrderComparison =
+      left.block.readingOrder.compareTo(right.block.readingOrder);
+  if (readingOrderComparison != 0) return readingOrderComparison;
+
+  final pageEncounterComparison =
+      left.pageEncounter.compareTo(right.pageEncounter);
+  if (pageEncounterComparison != 0) return pageEncounterComparison;
+
+  return left.blockEncounter.compareTo(right.blockEncounter);
+}
+
 SourceDocument _convertWithoutBlocks({
   required OcrDocument document,
   required SourceRef documentRef,
   required List<ImportIssue> issues,
 }) {
-  final markdown = document.markdown;
-  if (markdown.trim().isNotEmpty) {
+  if (document.markdown.trim().isEmpty) {
     return SourceDocument(
       sourceId: documentRef.sourceId,
       displayLabel: documentRef.displayLabel,
-      parts: <SourcePart>[
-        UnsupportedSourcePart(
-          sourceRef: documentRef,
-          kindCode: 'ocr_markdown_fallback',
-          fallbackContent: _textContent(markdown),
-        ),
-      ],
+      parts: const <SourcePart>[],
       issues: <ImportIssue>[
         ...issues,
         _issue(
-          code: 'ocr_markdown_fallback',
-          severity: ImportIssueSeverity.warning,
+          code: 'ocr_content_empty',
+          severity: ImportIssueSeverity.error,
           sourceRef: documentRef,
         ),
       ],
     );
   }
-
   return SourceDocument(
     sourceId: documentRef.sourceId,
     displayLabel: documentRef.displayLabel,
+    parts: <SourcePart>[
+      UnsupportedSourcePart(
+        sourceRef: documentRef,
+        kindCode: 'ocr_markdown_fallback',
+        fallbackContent: _textContent(document.markdown),
+      ),
+    ],
     issues: <ImportIssue>[
       ...issues,
       _issue(
-        code: 'ocr_content_empty',
-        severity: ImportIssueSeverity.error,
+        code: 'ocr_markdown_fallback',
+        severity: ImportIssueSeverity.warning,
         sourceRef: documentRef,
       ),
     ],
@@ -205,10 +234,11 @@ SourceDocument _convertWithoutBlocks({
 ({SourcePart part, bool structureUnsupported}) _mapBlock(
   OcrBlock block,
   SourceRef sourceRef,
+  ContentAssetStore? assetStore,
 ) {
   final normalizedType = _normalizeType(block.type);
   return switch (normalizedType) {
-    'text' || 'paragraph' => (
+    'paragraph' || 'text' => (
         part: SourceContentPart(
           sourceRef: sourceRef,
           content: _textContent(block.text),
@@ -216,7 +246,7 @@ SourceDocument _convertWithoutBlocks({
         ),
         structureUnsupported: false,
       ),
-    'title' || 'heading' => (
+    'title' || 'heading' || 'header' => (
         part: SourceContentPart(
           sourceRef: sourceRef,
           content: _textContent(block.text),
@@ -232,22 +262,8 @@ SourceDocument _convertWithoutBlocks({
         ),
         structureUnsupported: false,
       ),
-    'table' => (
-        part: UnsupportedSourcePart(
-          sourceRef: sourceRef,
-          kindCode: 'ocr_table',
-          fallbackContent: _textContent(block.text),
-        ),
-        structureUnsupported: true,
-      ),
-    'image' || 'figure' => (
-        part: UnsupportedSourcePart(
-          sourceRef: sourceRef,
-          kindCode: 'ocr_image',
-          fallbackContent: _textContent(block.text),
-        ),
-        structureUnsupported: true,
-      ),
+    'table' => _mapTableBlock(block, sourceRef),
+    'image' || 'figure' => _mapImageBlock(block, sourceRef, assetStore),
     _ => (
         part: UnsupportedSourcePart(
           sourceRef: sourceRef,
@@ -257,6 +273,104 @@ SourceDocument _convertWithoutBlocks({
         structureUnsupported: true,
       ),
   };
+}
+
+({SourcePart part, bool structureUnsupported}) _mapTableBlock(
+  OcrBlock block,
+  SourceRef sourceRef,
+) {
+  final tablePart = OcrTableProjector.parseHtmlTable(
+    block.text,
+    sourceRef: sourceRef,
+  );
+  if (tablePart != null) {
+    return (
+      part: tablePart,
+      structureUnsupported: false,
+    );
+  }
+  return (
+    part: UnsupportedSourcePart(
+      sourceRef: sourceRef,
+      kindCode: 'ocr_table_invalid',
+      fallbackContent: _textContent(block.text),
+    ),
+    structureUnsupported: true,
+  );
+}
+
+({SourcePart part, bool structureUnsupported}) _mapImageBlock(
+  OcrBlock block,
+  SourceRef sourceRef,
+  ContentAssetStore? assetStore,
+) {
+  final text = block.text.trim();
+  if (text.isEmpty) {
+    return (
+      part: UnsupportedSourcePart(
+        sourceRef: sourceRef,
+        kindCode: 'ocr_image',
+        fallbackContent: _textContent(block.text),
+      ),
+      structureUnsupported: true,
+    );
+  }
+
+  final isDataUrl = text.startsWith('data:image/');
+  final isExistingAsset = text.startsWith('content_assets/');
+
+  if (!isDataUrl && !isExistingAsset) {
+    return (
+      part: UnsupportedSourcePart(
+        sourceRef: sourceRef,
+        kindCode: 'ocr_image',
+        fallbackContent: _textContent(block.text),
+      ),
+      structureUnsupported: true,
+    );
+  }
+
+  try {
+    String assetId;
+    if (isDataUrl) {
+      if (assetStore != null) {
+        final key = assetStore.storeDataUrlSync(text);
+        assetId = p.basename(key);
+      } else {
+        final commaIndex = text.indexOf(',');
+        if (commaIndex == -1) throw const FormatException('Invalid Data URL');
+        final bytes = base64Decode(
+          text.substring(commaIndex + 1).replaceAll(RegExp(r'\s+'), ''),
+        );
+        if (bytes.isEmpty) throw const FormatException('Empty image bytes');
+        final digest = sha256Hex(bytes);
+        assetId = '$digest.png';
+      }
+    } else {
+      assetId = p.basename(text);
+    }
+
+    return (
+      part: SourceAssetPart(
+        sourceRef: sourceRef,
+        asset: AssetRef(
+          assetId: assetId,
+          kind: AssetKind.image,
+        ),
+        alternativeText: null,
+      ),
+      structureUnsupported: false,
+    );
+  } catch (_) {
+    return (
+      part: UnsupportedSourcePart(
+        sourceRef: sourceRef,
+        kindCode: 'ocr_image_invalid',
+        fallbackContent: _textContent(block.text),
+      ),
+      structureUnsupported: true,
+    );
+  }
 }
 
 String? _normalizeType(String value) {
@@ -304,18 +418,6 @@ ImportIssue _issue({
     field: ImportIssueField.source,
     sourceRef: sourceRef,
   );
-}
-
-int _compareIndexedBlocks(_IndexedOcrBlock left, _IndexedOcrBlock right) {
-  final pageComparison = left.pageIndex.compareTo(right.pageIndex);
-  if (pageComparison != 0) return pageComparison;
-  final orderComparison =
-      left.block.readingOrder.compareTo(right.block.readingOrder);
-  if (orderComparison != 0) return orderComparison;
-  final pageEncounterComparison =
-      left.pageEncounter.compareTo(right.pageEncounter);
-  if (pageEncounterComparison != 0) return pageEncounterComparison;
-  return left.blockEncounter.compareTo(right.blockEncounter);
 }
 
 final class _IndexedOcrBlock {

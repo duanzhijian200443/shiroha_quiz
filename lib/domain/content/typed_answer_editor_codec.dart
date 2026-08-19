@@ -69,6 +69,8 @@ final class TypedAnswerEditorCodec {
           buffer.write(r'\[');
           buffer.write(latex);
           buffer.write(r'\]');
+        case ImageNode():
+          return const TypedAnswerEditorUnsupported();
         case RawFallbackNode():
           return const TypedAnswerEditorUnsupported();
       }

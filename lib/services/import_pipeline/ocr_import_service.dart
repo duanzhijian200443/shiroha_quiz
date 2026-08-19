@@ -1,5 +1,9 @@
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../core/observability/trace_context.dart';
+import '../../domain/content/content_node.dart';
+import '../../domain/content/rich_content.dart';
+import '../../domain/question/question_draft_v2.dart';
+import '../file_library/managed_content_asset_store.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../task_manager.dart';
 import 'package:uuid/uuid.dart';
@@ -43,6 +47,7 @@ class OcrImportService {
   OcrImportService({
     required OcrDocumentClient ocrClient,
     required AiEngineRepository engineRepository,
+    required ContentAssetStore assetStore,
     OcrQuestionRegionizer regionizer = const OcrQuestionRegionizer(),
     OcrQuestionAssembler assembler = const OcrQuestionAssembler(),
     ReferenceAnswerExtractor referenceAnswerExtractor =
@@ -54,6 +59,7 @@ class OcrImportService {
     String Function()? uuidV4Factory,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
+        _assetStore = assetStore,
         _regionizer = regionizer,
         _assembler = assembler,
         _referenceAnswerExtractor = referenceAnswerExtractor,
@@ -68,6 +74,7 @@ class OcrImportService {
 
   final OcrDocumentClient _ocrClient;
   final AiEngineRepository _engineRepository;
+  final ContentAssetStore _assetStore;
   final OcrQuestionRegionizer _regionizer;
   final OcrQuestionAssembler _assembler;
   final ReferenceAnswerExtractor _referenceAnswerExtractor;
@@ -303,9 +310,17 @@ class OcrImportService {
         }
       }
 
+      final repairRecommendationReasons = <String>{};
+      final repairRecommendationReasonCounts = <String, int>{};
+
       for (final candidate in assembled) {
         final region = candidate.region;
         var result = candidate.result;
+        for (final reason in result.repairRecommendationReasons) {
+          repairRecommendationReasons.add(reason);
+          repairRecommendationReasonCounts[reason] =
+              (repairRecommendationReasonCounts[reason] ?? 0) + 1;
+        }
         if (isStemOnly && _hasNonEmptyAnswer(result.question)) {
           clearedAssemblerAnswerCount++;
         }
@@ -386,6 +401,9 @@ class OcrImportService {
         'finalQuestionCount': questions.length,
         ...roleAssessment.toDiagnostics(),
         'repairRecommendedCount': repairRecommendedCount,
+        'repairRecommendationReasons': (repairRecommendationReasons.toList()
+          ..sort()),
+        'repairRecommendationReasonCounts': repairRecommendationReasonCounts,
         'repairAttemptCount': repairAttemptedCount,
         'repairAttemptedCount': repairAttemptedCount,
         'repairAppliedCount': repairAppliedCount,
@@ -407,6 +425,43 @@ class OcrImportService {
         ],
         questions,
       );
+
+      final tableBlockCount = document.flattenedBlocks
+          .where((b) => b.type.trim().toLowerCase() == 'table')
+          .length;
+      final imageBlockCount = document.flattenedBlocks.where((b) {
+        final t = b.type.trim().toLowerCase();
+        return t == 'image' ||
+            t == 'figure' ||
+            b.text.trim().startsWith('data:image/');
+      }).length;
+
+      var typedImageNodeCount = 0;
+      for (final candidate in typedCandidateBatch.candidates) {
+        typedImageNodeCount += _countImageNodes(candidate.draft);
+      }
+
+      final allReferencedBlockIds = <String>{
+        for (final candidate in assembled) ...candidate.region.sourceBlockIds,
+      };
+      final referencedImageBlockCount = document.flattenedBlocks.where((b) {
+        final t = b.type.trim().toLowerCase();
+        final isImg = t == 'image' ||
+            t == 'figure' ||
+            b.text.trim().startsWith('data:image/');
+        return isImg && allReferencedBlockIds.contains(b.blockId);
+      }).length;
+      final unreferencedImageBlockCount =
+          imageBlockCount - referencedImageBlockCount;
+
+      diagnostics.addAll({
+        'tableBlockCount': tableBlockCount,
+        'imageBlockCount': imageBlockCount,
+        'referencedImageBlockCount': referencedImageBlockCount,
+        'unreferencedImageBlockCount': unreferencedImageBlockCount,
+        'typedImageNodeCount': typedImageNodeCount,
+        'resolvedImageAssetCount': typedImageNodeCount,
+      });
 
       return OcrImportResult(
         usedOcr: true,
@@ -492,6 +547,7 @@ class OcrImportService {
       diagnostics: finalizedDiagnostics,
       repairRecommended: result.repairRecommended,
       rejected: result.rejected,
+      repairRecommendationReasons: result.repairRecommendationReasons,
     );
   }
 
@@ -524,6 +580,7 @@ class OcrImportService {
         regions: regions,
         legacyQuestions: legacyQuestions,
         uuidV4Factory: _uuidV4Factory,
+        assetStore: _assetStore,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(
@@ -717,4 +774,25 @@ class _OcrDocumentRoleAssessment {
         'documentSectionHeadingCount': sectionHeadingCount,
         'requiresReview': role == ImportDocumentRole.ambiguous,
       };
+}
+
+int _countImageNodes(QuestionDraftV2 draft) {
+  var count = 0;
+  void scan(RichContent content) {
+    for (final node in content.nodes) {
+      if (node is ImageNode) count++;
+    }
+  }
+
+  scan(draft.stem);
+  if (draft.answer case ContentAnswer(:final content)) {
+    scan(content);
+  }
+  if (draft.explanation != null) {
+    scan(draft.explanation!);
+  }
+  for (final option in draft.options) {
+    scan(option.content);
+  }
+  return count;
 }

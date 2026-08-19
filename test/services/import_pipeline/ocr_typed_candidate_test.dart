@@ -16,6 +16,8 @@ import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 
+import '../../support/memory_content_asset_store.dart';
+
 const _sourceUuid = '11111111-1111-4111-8111-111111111111';
 const _questionUuidA = '22222222-2222-4222-8222-222222222222';
 const _questionUuidB = '33333333-3333-4333-8333-333333333333';
@@ -238,7 +240,9 @@ void main() {
       expect(batch.candidates, hasLength(1));
     });
 
-    test('table structure makes the whole batch ineligible', () {
+    test(
+        'malformed table structure inside question region makes the whole batch ineligible',
+        () {
       final document = _tableDocument();
       final regionized = _regionizer.regionize(document);
       expect(regionized.regions, hasLength(1));
@@ -254,6 +258,128 @@ void main() {
         batch.failure,
         OcrTypedCandidateFailure.unsupportedStructure,
       );
+    });
+
+    test(
+        'valid HTML table inside question region admits candidate with table_text_projection',
+        () {
+      final document = _validTableInQuestionDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(
+          candidate.draft.issues.any((i) => i.code == 'table_text_projection'),
+          isTrue);
+      expect(candidate.draft.explanation, isNotNull);
+      final explText = candidate.draft.explanation!.nodes
+          .whereType<TextNode>()
+          .map((n) => n.text)
+          .join();
+      expect(explText, contains('分布 | 期望'));
+      expect(explText, contains('B(n,p) | np'));
+      expect(explText.contains('<table'), isFalse);
+    });
+
+    test(
+        'multiple table blocks inside a single question maintain provenance and succeed',
+        () {
+      final document = _multiTableInQuestionDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(candidate.draft.explanation, isNotNull);
+      final explText = candidate.draft.explanation!.nodes
+          .whereType<TextNode>()
+          .map((n) => n.text)
+          .join();
+      expect(explText, contains('分布 | 期望'));
+      expect(explText, contains('(续表) | 方差'));
+    });
+
+    test(
+        'mixed image and table in same explanation preserves ImageNode without squashing',
+        () {
+      final document = _imageAndTableInExplanationDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final assetStore = MemoryContentAssetStore();
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+        assetStore: assetStore,
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(candidate.draft.explanation, isNotNull);
+      final nodes = candidate.draft.explanation!.nodes;
+      expect(nodes.whereType<ImageNode>(), hasLength(1));
+      expect(nodes.whereType<TextNode>().any((n) => n.text.contains('条件 | 结论')),
+          isTrue);
+    });
+
+    test('table structure outside question regions does not disqualify batch',
+        () {
+      final document = _unreferencedTableDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+    });
+
+    test(
+        'image with ContentAssetStore materializes ImageNode with stored bytes in assetStore',
+        () {
+      final document = _imageInQuestionDocument();
+      final regionized = _regionizer.regionize(document);
+      expect(regionized.regions, hasLength(1));
+      final assetStore = MemoryContentAssetStore();
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+        assetStore: assetStore,
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      final imageNodes =
+          candidate.draft.stem.nodes.whereType<ImageNode>().toList();
+      expect(imageNodes, hasLength(1));
+      final imageNode = imageNodes.single;
+      expect(imageNode.assetRef, startsWith('content_assets/'));
+      expect(assetStore.storage.containsKey(imageNode.assetRef), isTrue);
+      expect(assetStore.storage[imageNode.assetRef], isNotEmpty);
     });
 
     test('image and unknown structures make the whole batch ineligible', () {
@@ -545,9 +671,40 @@ void main() {
       }
     });
 
+    test('raw_explanation with benign HTML wrapper differences is allowed', () {
+      for (final raw in <String>[
+        '<div align="center">Synthetic explanation 1</div>',
+        '<p><span>Synthetic explanation 1</span></p>',
+      ]) {
+        final question = _finalQuestion(number: 1)..['raw_explanation'] = raw;
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              _candidate(
+                questionNumber: 1,
+                questionId: _questionUuidA,
+                reviewItemId: _reviewUuidA,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+        expect(result.reason, 'typed_candidate_ready',
+            reason: 'benign wrapper in raw_explanation must be allowed');
+        // Verify provenance was not mutated:
+        expect(
+          result.questions.single['raw_explanation'],
+          raw,
+          reason:
+              'gate PASS must preserve exact original raw_explanation bytes',
+        );
+      }
+    });
+
     test('raw_explanation divergence fails the whole batch', () {
       final question = _finalQuestion(number: 1)
-        ..['raw_explanation'] = 'Extra information not in explanation';
+        ..['raw_explanation'] = '<div>Synthetic explanation 1 with diff</div>';
       final result = applyOcrTypedCandidateGate(
         batch: OcrTypedCandidateBatch(
           candidates: <OcrTypedCandidate>[
@@ -567,6 +724,35 @@ void main() {
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,
       );
+    });
+
+    test('raw_explanation with dangerous or unsupported HTML tags fails gate',
+        () {
+      for (final raw in <String>[
+        '<script>alert(1)</script>Synthetic explanation 1',
+        '<table><tr><td>表格</td></tr></table>',
+      ]) {
+        final question = _finalQuestion(number: 1)..['raw_explanation'] = raw;
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              _candidate(
+                questionNumber: 1,
+                questionId: _questionUuidA,
+                reviewItemId: _reviewUuidA,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+        expect(
+          result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+          isFalse,
+        );
+      }
     });
 
     test('projection mismatches are strict and remove every envelope', () {
@@ -1082,6 +1268,44 @@ OcrDocument _tableDocument() {
   );
 }
 
+OcrDocument _unreferencedTableDocument() {
+  return _document(
+    'r7b_synthetic_unreferenced_table.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('header_table', 1, 0, '表格：考试科目与分数分布表', type: 'table'),
+          _block('section', 1, 1, '三、解答题'),
+          _block('q_1', 1, 2, '1. Synthetic prompt marker 1.'),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _imageInQuestionDocument() {
+  const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  return _document(
+    'r7b_synthetic_image_in_question.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1_text', 1, 1, '1. 如图所示：'),
+          _block('q_1_img', 1, 2, tinyPngDataUrl, type: 'image'),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
 OcrDocument _unsupportedTypeDocument(String type) {
   return _document(
     'r7b_synthetic_unsupported_$type.pdf',
@@ -1090,15 +1314,75 @@ OcrDocument _unsupportedTypeDocument(String type) {
         pageIndex: 1,
         blocks: <OcrBlock>[
           _block('section', 1, 0, '三、解答题'),
-          _block(
-            'q_1',
-            1,
-            1,
-            '1. Synthetic prompt marker 1.',
-            type: type,
-          ),
-          _block('answer_1', 1, 2, '答案：synthetic-result-1'),
-          _block('explanation_1', 1, 3, '解析：Synthetic explanation 1'),
+          _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
+          _block('q_1_unsupported', 1, 2, 'Unsupported content', type: type),
+          _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+          _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _validTableInQuestionDocument() {
+  const tableHtml =
+      '<table border="1"><tr><td>分布</td><td>期望</td></tr><tr><td>B(n,p)</td><td>np</td></tr></table>';
+  return _document(
+    'r7b_synthetic_valid_table.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1', 1, 1, '1. 常见分布题：'),
+          _block('answer_1', 1, 2, '答案：np'),
+          _block('explanation_1', 1, 3, '解析：详细解析如下'),
+          _block('table_1', 1, 4, tableHtml, type: 'table'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _multiTableInQuestionDocument() {
+  const tableHtml1 =
+      '<table border="1"><tr><td>分布</td><td>期望</td></tr></table>';
+  const tableHtml2 =
+      '<table border="1"><tr><td>(续表)</td><td>方差</td></tr></table>';
+  return _document(
+    'r7b_synthetic_multi_table.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1', 1, 1, '1. 分布与方差：'),
+          _block('answer_1', 1, 2, '答案：见表格'),
+          _block('explanation_1', 1, 3, '解析：总结如下'),
+          _block('table_1', 1, 4, tableHtml1, type: 'table'),
+          _block('table_2', 1, 5, tableHtml2, type: 'table'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _imageAndTableInExplanationDocument() {
+  const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const tableHtml = '<table border="1"><tr><td>条件</td><td>结论</td></tr></table>';
+  return _document(
+    'r7b_synthetic_image_and_table.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1', 1, 1, '1. 综合题：'),
+          _block('answer_1', 1, 2, '答案：C'),
+          _block('explanation_1', 1, 3, '解析：如图所示：'),
+          _block('img_1', 1, 4, tinyPngDataUrl, type: 'image'),
+          _block('table_1', 1, 5, tableHtml, type: 'table'),
         ],
       ),
     ],

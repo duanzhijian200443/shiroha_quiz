@@ -2,10 +2,12 @@ import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dar
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_safe_html_cleanup.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -129,14 +131,12 @@ final class OcrTypedCandidateBatch {
   final OcrTypedCandidateFailure? failure;
 }
 
-/// Builds shadow typed candidates from the real production objects already
-/// present in [OcrImportService]: the [OcrDocument], the reference-answer
-/// merged [OcrQuestionRegion]s in question order, and the parallel final
-/// legacy question maps.
+/// Builds an immutable batch of shadow [OcrTypedCandidate] instances directly
+/// from the OCR domain models via the standard typed pipeline:
 ///
-/// Every candidate follows the frozen typed path:
 /// `OcrSourceDocumentAdapter -> OcrQuestionRegionBridge ->
-/// TypedQuestionAssembler -> QuestionDraftV2LegacyProjector(OCR profile)`.
+///  TypedQuestionAssembler -> QuestionDraftV2LegacyProjector`
+///
 /// Candidates are never reconstructed from legacy maps, strings or
 /// diagnostics. Any internal failure maps to a fixed failure classification
 /// and never carries the original exception.
@@ -145,6 +145,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   required List<OcrQuestionRegion> regions,
   required List<Map<String, dynamic>> legacyQuestions,
   required String Function() uuidV4Factory,
+  ContentAssetStore? assetStore,
 }) {
   if (regions.length != legacyQuestions.length) {
     return OcrTypedCandidateBatch(
@@ -167,7 +168,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   final SourceDocument sourceDocument;
   try {
     sourceId = uuidV4Factory();
-    sourceDocument = const OcrSourceDocumentAdapter().convert(
+    sourceDocument = OcrSourceDocumentAdapter(assetStore: assetStore).convert(
       document,
       sourceId: sourceId,
       displayLabel: null,
@@ -179,10 +180,17 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     );
   }
 
+  final referencedBlockIds = <String>{
+    for (final region in regions) ...region.sourceBlockIds,
+  };
+
   for (final part in sourceDocument.parts) {
-    if (part is SourceAssetPart ||
-        part is SourceTablePart ||
-        part is UnsupportedSourcePart) {
+    final startBlock = part.sourceRef.start?.blockId;
+    final endBlock = part.sourceRef.end?.blockId;
+    final isReferenced =
+        (startBlock != null && referencedBlockIds.contains(startBlock)) ||
+            (endBlock != null && referencedBlockIds.contains(endBlock));
+    if (isReferenced && part is UnsupportedSourcePart) {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
@@ -391,7 +399,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
-    if (baselines[number]! != candidate.projectedLegacy ||
+    if (!_baselineParity(baselines[number]!, candidate.projectedLegacy) ||
         !_provenanceParity(candidate, question)) {
       return _ineligible(
         finalQuestions,
@@ -511,7 +519,8 @@ bool _rawExplanationAllowed(
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
-  return raw.isEmpty || raw == explanation;
+  if (raw.isEmpty || raw == explanation) return true;
+  return isSafeHtmlNormalizedExplanationEqual(raw, explanation);
 }
 
 bool _provenanceParity(
@@ -530,6 +539,39 @@ bool _provenanceParity(
   }
   for (var index = 0; index < blocks.length; index++) {
     if (blocks[index] != candidate.sourceBlockIds[index]) return false;
+  }
+  return true;
+}
+
+bool _baselineParity(LegacyReviewBaseline left, LegacyReviewBaseline right) {
+  if (left == right) return true;
+  if (left.type != right.type ||
+      left.questionNumber != right.questionNumber ||
+      left.options.length != right.options.length) {
+    return false;
+  }
+  if (!isSafeHtmlNormalizedExplanationEqual(left.content, right.content)) {
+    return false;
+  }
+  for (var i = 0; i < left.options.length; i++) {
+    if (!isSafeHtmlNormalizedExplanationEqual(
+      left.options[i],
+      right.options[i],
+    )) {
+      return false;
+    }
+  }
+  if (!isSafeHtmlNormalizedExplanationEqual(
+    left.standardAnswer,
+    right.standardAnswer,
+  )) {
+    return false;
+  }
+  if (!isSafeHtmlNormalizedExplanationEqual(
+    left.explanation,
+    right.explanation,
+  )) {
+    return false;
   }
   return true;
 }

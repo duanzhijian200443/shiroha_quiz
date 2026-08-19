@@ -7,12 +7,14 @@ class LocalAssemblyResult {
     required this.diagnostics,
     required this.repairRecommended,
     required this.rejected,
+    this.repairRecommendationReasons = const [],
   });
 
   final Map<String, dynamic> question;
   final List<String> diagnostics;
   final bool repairRecommended;
   final bool rejected;
+  final List<String> repairRecommendationReasons;
 }
 
 class LocalQuestionAssembler {
@@ -71,7 +73,7 @@ class LocalQuestionAssembler {
       diagnostics.add('dangling_latex');
     }
 
-    final repairRecommended = _shouldRecommendRepair(
+    final reasons = _repairRecommendationReasons(
       type: type,
       content: content,
       options: optionExtract.options,
@@ -89,8 +91,9 @@ class LocalQuestionAssembler {
     return LocalAssemblyResult(
       question: question,
       diagnostics: diagnostics,
-      repairRecommended: repairRecommended,
+      repairRecommended: reasons.isNotEmpty,
       rejected: rejected,
+      repairRecommendationReasons: reasons,
     );
   }
 
@@ -259,7 +262,7 @@ class LocalQuestionAssembler {
         options.whereType<String>().any(_hasDanglingLatex);
   }
 
-  bool _shouldRecommendRepair({
+  List<String> _repairRecommendationReasons({
     required int type,
     required String content,
     required List<String> options,
@@ -267,16 +270,18 @@ class LocalQuestionAssembler {
     required List<String> diagnostics,
     required int rawTextLength,
   }) {
-    if (content.trim().length < 6 && rawTextLength > 20) return true;
-    if (diagnostics.contains('dangling_latex')) return true;
-
+    final reasons = <String>[];
+    if (content.trim().length < 6 && rawTextLength > 20) {
+      reasons.add('short_content');
+    }
+    if (diagnostics.contains('dangling_latex')) {
+      reasons.add('dangling_latex');
+    }
     // 只有选择题才因选项不足触发修复。
-    if (type == 0 && options.length < 2) return true;
-
-    // 简答题没有 A/B/C/D 是正常情况，禁止因此触发 AI。
-    if (type == 3 && !diagnostics.contains('dangling_latex')) return false;
-
-    return false;
+    if (type == 0 && options.length < 2) {
+      reasons.add('choice_options_less_than_2');
+    }
+    return reasons;
   }
 }
 

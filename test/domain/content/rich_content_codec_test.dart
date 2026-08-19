@@ -13,6 +13,8 @@ void main() {
         const InlineMathNode(r'\frac{1}{2}'),
         const TextNode(''),
         const BlockMathNode(r'\sum_{i=1}^{n}x_i'),
+        const ImageNode(assetRef: 'content_assets/img1.png', altText: '图 1'),
+        const ImageNode(assetRef: 'content_assets/img2.png'),
         const TextNode('duplicate'),
         const TextNode('duplicate'),
         RawFallbackNode(<Object?, Object?>{
@@ -31,12 +33,14 @@ void main() {
       final secondEncoding = codec.encode(decoded);
 
       expect(firstEncoding['schemaVersion'], 1);
-      expect(decoded.nodes, hasLength(7));
+      expect(decoded.nodes, hasLength(9));
       expect(decoded.nodes[0], isA<TextNode>());
       expect(decoded.nodes[1], isA<InlineMathNode>());
       expect(decoded.nodes[2], isA<TextNode>());
       expect(decoded.nodes[3], isA<BlockMathNode>());
-      expect(decoded.nodes[6], isA<RawFallbackNode>());
+      expect(decoded.nodes[4], isA<ImageNode>());
+      expect(decoded.nodes[5], isA<ImageNode>());
+      expect(decoded.nodes[8], isA<RawFallbackNode>());
       expect(
         (decoded.nodes[0] as TextNode).text,
         '  第一行\n**Markdown 字符保持**  ',
@@ -46,6 +50,22 @@ void main() {
       expect(
         (decoded.nodes[3] as BlockMathNode).latex,
         r'\sum_{i=1}^{n}x_i',
+      );
+      expect(
+        (decoded.nodes[4] as ImageNode).assetRef,
+        'content_assets/img1.png',
+      );
+      expect(
+        (decoded.nodes[4] as ImageNode).altText,
+        '图 1',
+      );
+      expect(
+        (decoded.nodes[5] as ImageNode).assetRef,
+        'content_assets/img2.png',
+      );
+      expect(
+        (decoded.nodes[5] as ImageNode).altText,
+        isNull,
       );
       expect(secondEncoding, equals(firstEncoding));
     });

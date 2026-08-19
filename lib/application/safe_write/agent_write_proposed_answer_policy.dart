@@ -65,6 +65,8 @@ final class AgentWriteProposedAnswerPolicy {
           if (latex.trim().isNotEmpty) hasVisibleNode = true;
         case BlockMathNode(:final latex):
           if (latex.trim().isNotEmpty) hasVisibleNode = true;
+        case ImageNode():
+          hasVisibleNode = true;
         case RawFallbackNode():
           return false;
       }

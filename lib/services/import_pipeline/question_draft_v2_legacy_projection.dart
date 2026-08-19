@@ -7,6 +7,7 @@ import '../../domain/source/source_ref.dart';
 import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
+import 'ocr_table_projection.dart';
 
 /// Explicit, stable projection profile selecting the legacy map shape,
 /// provenance fields, and source tag of one authoritative legacy assembler.
@@ -270,6 +271,16 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
+      case ImageNode(:final altText):
+        // Legacy text projection degrades images to a safe placeholder.
+        // Only plain altText is admitted; assetRef, paths, DataURLs and
+        // Base64 payloads belong exclusively to the typed RichContent
+        // authority and must never leak into the legacy map.
+        if (altText != null && altText.isNotEmpty) {
+          buffer.write(altText);
+        } else {
+          buffer.write('[图片]');
+        }
       case RawFallbackNode():
         break;
     }
@@ -285,6 +296,16 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
       final text = _searchText(
         _materializeContentNodes(part.content, fragment.slice),
       ).trim();
+      if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      // Legacy placeholder for image assets. Only safe altText or the
+      // fixed [图片] marker; never assetRef, paths or binary payloads.
+      final altText = part.alternativeText != null
+          ? _searchText(part.alternativeText!.nodes).trim()
+          : '';
+      parts.add(altText.isNotEmpty ? altText : '[图片]');
+    } else if (part is SourceTablePart) {
+      final text = OcrTableProjector.projectToPlainText(part).trim();
       if (text.isNotEmpty) parts.add(text);
     }
   }
@@ -304,6 +325,14 @@ int _untrimmedTextLength(
       final text = _searchText(
         _materializeContentNodes(part.content, fragment.slice),
       );
+      if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      final altText = part.alternativeText != null
+          ? _searchText(part.alternativeText!.nodes)
+          : '';
+      parts.add(altText.isNotEmpty ? altText : '[图片]');
+    } else if (part is SourceTablePart) {
+      final text = OcrTableProjector.projectToPlainText(part);
       if (text.isNotEmpty) parts.add(text);
     }
   }
@@ -342,17 +371,9 @@ void _guardNoRawFallback(
           _materializeContentNodes(content, fragment.slice),
         );
       case SourceAssetPart():
-        throw LegacyProjectionUnsupportedException(
-          kindCode: 'source_asset',
-          message: 'Asset fragments cannot be projected losslessly by the '
-              'legacy map.',
-        );
+        break;
       case SourceTablePart():
-        throw LegacyProjectionUnsupportedException(
-          kindCode: 'source_table',
-          message: 'Table fragments cannot be projected losslessly by the '
-              'legacy map.',
-        );
+        break;
       case UnsupportedSourcePart(:final kindCode):
         throw LegacyProjectionUnsupportedException(
           kindCode: kindCode,
@@ -367,13 +388,6 @@ void _guardProjectionBoundary(
   QuestionDraftV2 draft,
   QuestionRegion region,
 ) {
-  if (draft.assetRefs.isNotEmpty) {
-    throw LegacyProjectionUnsupportedException(
-      kindCode: 'source_asset',
-      message: 'Source-qualified asset identity cannot be projected '
-          'losslessly by the legacy map.',
-    );
-  }
   _guardNoRawFallback(draft, region);
   _guardDraftRegionConsistency(draft, region);
 }
@@ -572,9 +586,22 @@ int _rawTextLength(QuestionRegion region, {required bool isOcr}) {
       : _fragmentText(region, QuestionRegionField.stem).length;
 }
 
+Iterable<SourceRef> _legacySourceRefs(QuestionRegion region) sync* {
+  final seen = <SourceRef>{};
+  for (final fragment in region.fragments) {
+    if (fragment.part is! SourceContentPart &&
+        fragment.part is! SourceAssetPart &&
+        fragment.part is! SourceTablePart) {
+      continue;
+    }
+    final ref = fragment.sourceRef;
+    if (seen.add(ref)) yield ref;
+  }
+}
+
 List<int> _pageNumbers(QuestionRegion region) {
   final pages = <int>[];
-  for (final ref in region.sourceRefs) {
+  for (final ref in _legacySourceRefs(region)) {
     for (final point in <SourcePoint?>[ref.start, ref.end]) {
       final page = point?.pageNumber;
       if (page != null && !pages.contains(page)) pages.add(page);
@@ -586,7 +613,7 @@ List<int> _pageNumbers(QuestionRegion region) {
 
 List<String> _blockIds(QuestionRegion region) {
   final blocks = <String>[];
-  for (final ref in region.sourceRefs) {
+  for (final ref in _legacySourceRefs(region)) {
     for (final point in <SourcePoint?>[ref.start, ref.end]) {
       final block = point?.blockId;
       if (block != null && !blocks.contains(block)) blocks.add(block);

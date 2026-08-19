@@ -1584,6 +1584,7 @@ String _answerText(QuestionAnswer answer) {
               TextNode(:final text) => text,
               InlineMathNode(:final latex) => latex,
               BlockMathNode(:final latex) => latex,
+              ImageNode(:final altText) => altText ?? '',
               RawFallbackNode() => '',
             })
         .join(),

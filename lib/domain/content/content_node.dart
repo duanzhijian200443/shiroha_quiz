@@ -22,6 +22,16 @@ final class BlockMathNode extends ContentNode {
   final String latex;
 }
 
+final class ImageNode extends ContentNode {
+  const ImageNode({
+    required this.assetRef,
+    this.altText,
+  });
+
+  final String assetRef;
+  final String? altText;
+}
+
 final class RawFallbackNode extends ContentNode {
   RawFallbackNode(Map<Object?, Object?> rawJson)
       : rawJson = _freezeRawJson(rawJson);
@@ -54,6 +64,8 @@ void _validateFallbackShape(
     case 'inline_math':
     case 'block_math':
       _requireExtendedKnownFallback(rawJson, 'latex');
+    case 'image':
+      _requireExtendedKnownFallback(rawJson, 'assetRef');
     case 'raw_fallback':
       if (!rawJson.containsKey('payload')) {
         throw const FormatException(

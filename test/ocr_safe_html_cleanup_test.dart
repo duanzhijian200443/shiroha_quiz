@@ -117,4 +117,58 @@ void main() {
       expect(result.diagnostics, isEmpty);
     });
   });
+
+  group('isSafeHtmlNormalizedExplanationEqual', () {
+    test('returns true for exact equality or empty', () {
+      expect(isSafeHtmlNormalizedExplanationEqual('正文', '正文'), isTrue);
+      expect(isSafeHtmlNormalizedExplanationEqual('', ''), isTrue);
+    });
+
+    test('returns true for benign div and span wrappers', () {
+      expect(
+        isSafeHtmlNormalizedExplanationEqual(
+          '<div align="center">\n解析正文\n</div>',
+          '解析正文',
+        ),
+        isTrue,
+      );
+      expect(
+        isSafeHtmlNormalizedExplanationEqual(
+          '<p><span>解析正文</span></p>',
+          '解析正文',
+        ),
+        isTrue,
+      );
+    });
+
+    test('returns false when text content diverges', () {
+      expect(
+        isSafeHtmlNormalizedExplanationEqual(
+          '<div>解析正文 A</div>',
+          '解析正文 B',
+        ),
+        isFalse,
+      );
+    });
+
+    test('returns false when dangerous tags are stripped', () {
+      expect(
+        isSafeHtmlNormalizedExplanationEqual(
+          '<script>隐藏内容</script>解析正文',
+          '解析正文',
+        ),
+        isFalse,
+      );
+    });
+
+    test('returns false when unsupported tags are preserved', () {
+      expect(
+        isSafeHtmlNormalizedExplanationEqual(
+          '<table><tr><td>表格</td></tr></table>',
+          '表格',
+        ),
+        isFalse,
+      );
+    });
+  });
 }

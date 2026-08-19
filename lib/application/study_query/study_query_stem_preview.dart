@@ -34,6 +34,12 @@ final class StemPreviewNormalizer {
           buffer.write(latex);
         case BlockMathNode(:final latex):
           buffer.write(latex);
+        case ImageNode(:final altText):
+          if (altText != null && altText.isNotEmpty) {
+            buffer.write(altText);
+          } else {
+            buffer.write('[图片]');
+          }
         case RawFallbackNode():
           break;
       }
@@ -51,6 +57,8 @@ final class StemPreviewNormalizer {
           TextNode(:final text) => StudyTextNode(text),
           InlineMathNode(:final latex) => StudyInlineMathNode(latex),
           BlockMathNode(:final latex) => StudyBlockMathNode(latex),
+          ImageNode(:final assetRef, :final altText) =>
+            StudyImageNode(assetRef: assetRef, altText: altText),
           RawFallbackNode() => const StudyUnsupportedNode(),
         },
     ];

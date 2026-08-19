@@ -131,8 +131,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         final targetPath = p.join(
           workspace.path,
           'files',
-          'library',
-          file.fileId,
+          file.storageKey,
         );
         final measured = await BackupFilesystem.copyAndMeasure(
           sourcePath: source.path,
@@ -144,7 +143,13 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         }
         managedBytes += measured.sizeBytes;
         copiedFiles.add(
-          ArchiveSourceFile(fileId: file.fileId, path: targetPath),
+          ArchiveSourceFile(
+            fileId: file.fileId,
+            path: targetPath,
+            archivePath: BackupValues.managedArchivePathForStorageKey(
+              file.storageKey,
+            ),
+          ),
         );
       }
 
@@ -172,8 +177,8 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
             BackupManagedFileEntry(
               fileId: snapshot.files[index].fileId,
               storageKey: snapshot.files[index].storageKey,
-              archivePath: BackupValues.managedArchivePath(
-                snapshot.files[index].fileId,
+              archivePath: BackupValues.managedArchivePathForStorageKey(
+                snapshot.files[index].storageKey,
               ),
               sizeBytes: snapshot.files[index].sizeBytes,
               sha256: snapshot.files[index].sha256,
@@ -547,16 +552,21 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     final byId = <String, SnapshotLibraryFile>{
       for (final row in rows) row.fileId: row,
     };
-    if (byId.length != manifest.managedFileCount) {
+    final libraryEntries = manifest.managedFiles
+        .where((e) => e.storageKey.startsWith('library/'))
+        .toList();
+    if (byId.length != libraryEntries.length) {
       throw const BackupException(BackupFailure.integrityMismatch);
     }
     for (final entry in manifest.managedFiles) {
-      final row = byId[entry.fileId];
-      if (row == null ||
-          row.storageKey != entry.storageKey ||
-          row.sizeBytes != entry.sizeBytes ||
-          row.sha256 != entry.sha256) {
-        throw const BackupException(BackupFailure.integrityMismatch);
+      if (entry.storageKey.startsWith('library/')) {
+        final row = byId[entry.fileId];
+        if (row == null ||
+            row.storageKey != entry.storageKey ||
+            row.sizeBytes != entry.sizeBytes ||
+            row.sha256 != entry.sha256) {
+          throw const BackupException(BackupFailure.integrityMismatch);
+        }
       }
       final file = _managedFiles.resolveManagedFile(entry.storageKey);
       if (!await file.exists() ||
@@ -628,8 +638,15 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     await _faultInjector.afterLiveFilesDeleted();
     for (final entry in staged.manifest.managedFiles) {
       final target = _managedFiles.resolveManagedFile(entry.storageKey);
+      final filesRoot = p.dirname(staged.managedFilesPath);
+      final source = File(p.join(filesRoot, entry.storageKey)).existsSync()
+          ? p.join(filesRoot, entry.storageKey)
+          : (File(p.join(staged.managedFilesPath, entry.storageKey))
+                  .existsSync()
+              ? p.join(staged.managedFilesPath, entry.storageKey)
+              : p.join(staged.managedFilesPath, entry.fileId));
       await BackupFilesystem.copyAndMeasure(
-        sourcePath: p.join(staged.managedFilesPath, entry.fileId),
+        sourcePath: source,
         targetPath: target.path,
       );
     }
@@ -878,18 +895,29 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     final byId = <String, SnapshotLibraryFile>{
       for (final row in rows) row.fileId: row,
     };
-    if (byId.length != staged.manifest.managedFileCount) {
+    final libraryEntries = staged.manifest.managedFiles
+        .where((e) => e.storageKey.startsWith('library/'))
+        .toList();
+    if (byId.length != libraryEntries.length) {
       throw const BackupException(BackupFailure.integrityMismatch);
     }
     for (final entry in staged.manifest.managedFiles) {
-      final row = byId[entry.fileId];
-      if (row == null ||
-          row.storageKey != entry.storageKey ||
-          row.sizeBytes != entry.sizeBytes ||
-          row.sha256 != entry.sha256) {
-        throw const BackupException(BackupFailure.integrityMismatch);
+      if (entry.storageKey.startsWith('library/')) {
+        final row = byId[entry.fileId];
+        if (row == null ||
+            row.storageKey != entry.storageKey ||
+            row.sizeBytes != entry.sizeBytes ||
+            row.sha256 != entry.sha256) {
+          throw const BackupException(BackupFailure.integrityMismatch);
+        }
       }
-      final file = File(p.join(staged.managedFilesPath, entry.fileId));
+      final filesRoot = p.dirname(staged.managedFilesPath);
+      final file = File(p.join(filesRoot, entry.storageKey)).existsSync()
+          ? File(p.join(filesRoot, entry.storageKey))
+          : (File(p.join(staged.managedFilesPath, entry.storageKey))
+                  .existsSync()
+              ? File(p.join(staged.managedFilesPath, entry.storageKey))
+              : File(p.join(staged.managedFilesPath, entry.fileId)));
       if (!await file.exists() ||
           file.lengthSync() != entry.sizeBytes ||
           BackupFilesystem.sha256File(file.path) != entry.sha256) {

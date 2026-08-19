@@ -29,11 +29,41 @@ class OcrDocument {
     return blocks;
   }
 
+  Map<String, int> get providerRawBlockTypeCounts {
+    final counts = <String, int>{};
+    for (final response in rawResponses) {
+      final details = response['layout_details'];
+      final pageDetails = _normalizePageDetails(details);
+      for (final page in pageDetails) {
+        for (final entry in page) {
+          final rawLabel = _readString(entry['label'], fallback: 'text')
+              .trim()
+              .toLowerCase();
+          final label = rawLabel.isEmpty ? 'text' : rawLabel;
+          counts[label] = (counts[label] ?? 0) + 1;
+        }
+      }
+    }
+    return counts;
+  }
+
+  Map<String, int> get normalizedBlockTypeCounts {
+    final counts = <String, int>{};
+    for (final block in flattenedBlocks) {
+      final rawType = block.type.trim().toLowerCase();
+      final type = rawType.isEmpty ? 'text' : rawType;
+      counts[type] = (counts[type] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   Map<String, dynamic> toDiagnostics() {
     return {
       'sourceName': sourceName,
       'pageCount': pages.length,
       'blockCount': flattenedBlocks.length,
+      'providerRawBlockTypeCounts': providerRawBlockTypeCounts,
+      'normalizedBlockTypeCounts': normalizedBlockTypeCounts,
       'hasMarkdown': markdown.trim().isNotEmpty,
       'usage': usage,
       'pages': pages.map((page) => page.toDiagnostics()).toList(),

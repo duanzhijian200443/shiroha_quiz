@@ -215,6 +215,16 @@ final class StudyBlockMathNode extends StudyContentNode {
   final String latex;
 }
 
+final class StudyImageNode extends StudyContentNode {
+  const StudyImageNode({
+    required this.assetRef,
+    this.altText,
+  });
+
+  final String assetRef;
+  final String? altText;
+}
+
 /// Marker for a node whose payload must never leave the application layer.
 final class StudyUnsupportedNode extends StudyContentNode {
   const StudyUnsupportedNode();

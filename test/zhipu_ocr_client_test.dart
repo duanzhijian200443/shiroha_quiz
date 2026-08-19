@@ -379,5 +379,88 @@ void main() {
         throwsA(isA<ArgumentError>()),
       );
     });
+
+    test(
+        'layout parsing request contract: return_crop_images=true and need_layout_visualization=false',
+        () async {
+      final image = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'zhipu-ocr-contract-${DateTime.now().microsecondsSinceEpoch}.png',
+      )..writeAsBytesSync(const [1, 2, 3]);
+      addTearDown(() => image.deleteSync());
+
+      final requests = <http.Request>[];
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((req) async {
+          requests.add(req);
+          return http.Response(
+            jsonEncode({
+              'md_results': 'Content',
+              'layout_details': [],
+              'data_info': {'num_pages': 1, 'pages': []},
+            }),
+            200,
+          );
+        }),
+      );
+
+      await client.parseFile(
+        profile: profile,
+        filePath: image.path,
+        sourceName: 'contract.png',
+      );
+
+      expect(requests, hasLength(1));
+      final body = jsonDecode(requests.first.body) as Map<String, dynamic>;
+      expect(body['return_crop_images'], isTrue);
+      expect(body['need_layout_visualization'], isFalse);
+    });
+
+    test(
+        'OcrDocument exposes providerRawBlockTypeCounts and normalizedBlockTypeCounts',
+        () {
+      final doc = OcrDocument.fromLayoutParsingResponse(
+        {
+          'md_results': 'Content',
+          'layout_details': [
+            [
+              {'index': 1, 'label': 'text', 'content': 'Text block'},
+              {'index': 2, 'label': 'table', 'content': 'Table block'},
+              {'index': 3, 'label': 'image', 'content': 'Image block'},
+            ],
+          ],
+          'data_info': {
+            'num_pages': 1,
+            'pages': [
+              {'width': 600, 'height': 800}
+            ],
+          },
+          'usage': {'total_tokens': 10},
+        },
+        sourceName: 'sample.pdf',
+      );
+
+      expect(doc.providerRawBlockTypeCounts, {
+        'text': 1,
+        'table': 1,
+        'image': 1,
+      });
+      expect(doc.normalizedBlockTypeCounts, {
+        'text': 1,
+        'table': 1,
+        'image': 1,
+      });
+      final diag = doc.toDiagnostics();
+      expect(diag['providerRawBlockTypeCounts'], {
+        'text': 1,
+        'table': 1,
+        'image': 1,
+      });
+      expect(diag['normalizedBlockTypeCounts'], {
+        'text': 1,
+        'table': 1,
+        'image': 1,
+      });
+    });
   });
 }
