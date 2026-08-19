@@ -733,7 +733,7 @@ void main() {
   );
 
   test(
-    'cancelled old attempt returning late cannot overwrite the new attempt',
+    'stale cancelled attempt callback cannot overwrite the new attempt',
     () async {
       final manager = TaskManager.forTesting();
       addTearDown(manager.dispose);
@@ -763,6 +763,16 @@ void main() {
           runtime.coordinator.cancelOcrTask(oldHandle.taskId);
       await cancelRequested;
       expect(await cancellationWrite, ImportAttemptWriteStatus.applied);
+      final oldCancelled = _waitForTask(
+        manager,
+        oldHandle.taskId,
+        (task) => task.attemptState == ImportAttemptState.cancelled,
+      );
+      runtime.client.complete(oldPath, _successfulDocument(1));
+      await Future.wait<void>(<Future<void>>[
+        oldCancelled.then<void>((_) {}),
+        runtime.client.waitUntilReturned(oldPath),
+      ]);
 
       final newHandle = await runtime.coordinator.retryOcrRequest(
         taskId: oldHandle.taskId,
@@ -770,8 +780,8 @@ void main() {
         fileNames: const <String>['same.pdf'],
       );
       await runtime.client.waitUntilStarted(newPath);
-      expect(runtime.client.activeCount, 2);
-      expect(runtime.client.maxActiveCount, 2);
+      expect(runtime.client.activeCount, 1);
+      expect(runtime.client.maxActiveCount, 1);
 
       final newReady = _waitForTask(
         manager,
@@ -785,13 +795,21 @@ void main() {
       expect(newSnapshot.attemptToken, newHandle.attemptToken);
       expect(newSnapshot.parsedData?.single['q_num'], '2');
 
-      // The old Provider returns only after attempt 2 is already ready.
-      runtime.client.complete(oldPath, _successfulDocument(1));
-      await runtime.client.waitUntilReturned(oldPath);
+      expect(
+        await manager.requireAttemptReview(
+          oldHandle.attempt,
+          'stale old result',
+          const <Map<String, dynamic>>[
+            <String, dynamic>{'q_num': '1'},
+          ],
+          '',
+          '',
+        ),
+        ImportAttemptWriteStatus.stale,
+      );
 
-      // A third full-chain task is a deterministic barrier: once it reaches
-      // pendingReview, the earlier cancelled completion has propagated
-      // through Scheduler, OcrImportService, Pipeline, and Coordinator.
+      // A third full-chain task is a deterministic barrier after the stale
+      // callback attempt has been rejected.
       final barrierHandle = await runtime.coordinator.dispatchRequest(
         sourceDescription: 'barrier.pdf',
         filePaths: const <String>[barrierPath],
@@ -809,15 +827,15 @@ void main() {
       await barrierReady;
       await runtime.counters.waitForReviewCount(2);
 
-      final afterLateReturn = _taskById(manager, oldHandle.taskId)!;
-      expect(afterLateReturn.id, oldHandle.taskId);
-      expect(afterLateReturn.attemptNumber, 2);
-      expect(afterLateReturn.traceId, newHandle.traceId);
-      expect(afterLateReturn.attemptToken, newHandle.attemptToken);
-      expect(afterLateReturn.status, TaskStatus.pendingReview);
-      expect(afterLateReturn.parsedData?.single['q_num'], '2');
+      final afterStaleCallback = _taskById(manager, oldHandle.taskId)!;
+      expect(afterStaleCallback.id, oldHandle.taskId);
+      expect(afterStaleCallback.attemptNumber, 2);
+      expect(afterStaleCallback.traceId, newHandle.traceId);
+      expect(afterStaleCallback.attemptToken, newHandle.attemptToken);
+      expect(afterStaleCallback.status, TaskStatus.pendingReview);
+      expect(afterStaleCallback.parsedData?.single['q_num'], '2');
       expect(runtime.client.callCount, 3);
-      expect(runtime.client.maxActiveCount, 2);
+      expect(runtime.client.maxActiveCount, 1);
       expect(runtime.counters.reviewNotifications, hasLength(2));
     },
     timeout: const Timeout(Duration(seconds: 15)),

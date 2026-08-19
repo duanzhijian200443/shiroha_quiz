@@ -332,6 +332,11 @@ enum ImportAttemptWriteStatus {
   persistenceFailed,
 }
 
+typedef _AttemptTransition = ImportAttemptWriteStatus? Function(
+  ImportTask current,
+  ImportTask next,
+);
+
 class TaskManager extends ChangeNotifier {
   static const String keyTraceId = '_traceId';
   static const String keyCorrelationId = '_correlationId';
@@ -872,30 +877,24 @@ class TaskManager extends ChangeNotifier {
   Future<ImportAttemptWriteStatus> markAttemptRunning(
     ImportAttemptRef attempt,
   ) {
-    if (_cleanupInProgress.contains(attempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = _taskForAttempt(attempt);
-    if (task == null) return _missingAttemptStatus(attempt);
-    if (task.attemptState == ImportAttemptState.running) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.applied,
-      );
-    }
-    if (task.status != TaskStatus.processing ||
-        task.attemptState != ImportAttemptState.queued) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
-    task.diagnostics = <String, dynamic>{
-      ...?task.diagnostics,
-      keyAttemptState: ImportAttemptState.running.name,
-    };
-    notifyListeners();
-    return _persistAttemptSnapshot(attempt, task);
+    return _enqueueAttemptTransition(
+      attempt.taskId,
+      expectedAttempt: attempt,
+      transition: (task, next) {
+        if (task.attemptState == ImportAttemptState.running) {
+          return ImportAttemptWriteStatus.applied;
+        }
+        if (task.status != TaskStatus.processing ||
+            task.attemptState != ImportAttemptState.queued) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
+        next.diagnostics = <String, dynamic>{
+          ...?next.diagnostics,
+          keyAttemptState: ImportAttemptState.running.name,
+        };
+        return null;
+      },
+    );
   }
 
   Future<ImportAttemptWriteStatus> updateAttemptProgress(
@@ -903,86 +902,69 @@ class TaskManager extends ChangeNotifier {
     String text,
     double percent,
   ) {
-    if (_cleanupInProgress.contains(attempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = _taskForAttempt(attempt);
-    if (task == null) return _missingAttemptStatus(attempt);
-    if (!isAttemptRunnable(attempt)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
-    task.progressText = text;
-    task.percent = percent;
-    notifyListeners();
-    return _persistAttemptSnapshot(attempt, task);
+    return _enqueueAttemptTransition(
+      attempt.taskId,
+      expectedAttempt: attempt,
+      transition: (task, next) {
+        if (!isAttemptRunnable(attempt)) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
+        next.progressText = text;
+        next.percent = percent;
+        return null;
+      },
+    );
   }
 
   Future<ImportAttemptWriteStatus> requestAttemptCancellation(
     ImportAttemptRef attempt,
   ) {
-    if (_cleanupInProgress.contains(attempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = _taskForAttempt(attempt);
-    if (task == null) return _missingAttemptStatus(attempt);
-    switch (task.attemptState) {
-      case ImportAttemptState.queued:
-        _markAttemptCancelledInMemory(task);
-        break;
-      case ImportAttemptState.running:
-        task.diagnostics = <String, dynamic>{
-          ...?task.diagnostics,
-          keyAttemptState: ImportAttemptState.cancelRequested.name,
-        };
-        task.progressText = '正在等待当前 OCR 请求结束...';
-        break;
-      case ImportAttemptState.cancelRequested:
-      case ImportAttemptState.cancelled:
-        return Future<ImportAttemptWriteStatus>.value(
-          ImportAttemptWriteStatus.applied,
-        );
-      case ImportAttemptState.readyForReview:
-      case ImportAttemptState.failed:
-      case ImportAttemptState.interrupted:
-        return Future<ImportAttemptWriteStatus>.value(
-          ImportAttemptWriteStatus.invalidState,
-        );
-    }
-    notifyListeners();
-    return _persistAttemptSnapshot(attempt, task);
+    return _enqueueAttemptTransition(
+      attempt.taskId,
+      expectedAttempt: attempt,
+      transition: (task, next) {
+        switch (task.attemptState) {
+          case ImportAttemptState.queued:
+            _markAttemptCancelledInMemory(next);
+            return null;
+          case ImportAttemptState.running:
+            next.diagnostics = <String, dynamic>{
+              ...?next.diagnostics,
+              keyAttemptState: ImportAttemptState.cancelRequested.name,
+            };
+            next.progressText = '正在等待当前 OCR 请求结束...';
+            return null;
+          case ImportAttemptState.cancelRequested:
+          case ImportAttemptState.cancelled:
+            return ImportAttemptWriteStatus.applied;
+          case ImportAttemptState.readyForReview:
+          case ImportAttemptState.failed:
+          case ImportAttemptState.interrupted:
+            return ImportAttemptWriteStatus.invalidState;
+        }
+      },
+    );
   }
 
   Future<ImportAttemptWriteStatus> finalizeAttemptCancelled(
     ImportAttemptRef attempt,
   ) {
-    if (_cleanupInProgress.contains(attempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = _taskForAttempt(attempt);
-    if (task == null) return _missingAttemptStatus(attempt);
-    if (task.attemptState == ImportAttemptState.cancelled) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.applied,
-      );
-    }
-    if (task.attemptState != ImportAttemptState.queued &&
-        task.attemptState != ImportAttemptState.running &&
-        task.attemptState != ImportAttemptState.cancelRequested) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
-    _markAttemptCancelledInMemory(task);
-    notifyListeners();
-    return _persistAttemptSnapshot(attempt, task);
+    return _enqueueAttemptTransition(
+      attempt.taskId,
+      expectedAttempt: attempt,
+      transition: (task, next) {
+        if (task.attemptState == ImportAttemptState.cancelled) {
+          return ImportAttemptWriteStatus.applied;
+        }
+        if (task.attemptState != ImportAttemptState.queued &&
+            task.attemptState != ImportAttemptState.running &&
+            task.attemptState != ImportAttemptState.cancelRequested) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
+        _markAttemptCancelledInMemory(next);
+        return null;
+      },
+    );
   }
 
   Future<ImportAttemptWriteStatus> requireAttemptReview(
@@ -994,32 +976,28 @@ class TaskManager extends ChangeNotifier {
     List<String> warnings = const <String>[],
     Map<String, dynamic> diagnostics = const <String, dynamic>{},
   }) {
-    if (_cleanupInProgress.contains(attempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = _taskForAttempt(attempt);
-    if (task == null) return _missingAttemptStatus(attempt);
-    if (!isAttemptRunnable(attempt)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
-    task.status = TaskStatus.pendingReview;
-    task.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    task.progressText = text;
-    task.parsedData = _deduplicateQuestions(data);
-    task.bankName = bank;
-    task.folderName = folder;
-    task.percent = 1.0;
-    task.warnings = List<String>.from(warnings);
-    task.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
-      task,
-      diagnostics,
-    )..[keyAttemptState] = ImportAttemptState.readyForReview.name;
-    notifyListeners();
-    return _persistAttemptSnapshot(attempt, task);
+    return _enqueueAttemptTransition(
+      attempt.taskId,
+      expectedAttempt: attempt,
+      transition: (task, next) {
+        if (!isAttemptRunnable(attempt)) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
+        next.status = TaskStatus.pendingReview;
+        next.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        next.progressText = text;
+        next.parsedData = _deduplicateQuestions(data);
+        next.bankName = bank;
+        next.folderName = folder;
+        next.percent = 1.0;
+        next.warnings = List<String>.from(warnings);
+        next.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+          next,
+          diagnostics,
+        )..[keyAttemptState] = ImportAttemptState.readyForReview.name;
+        return null;
+      },
+    );
   }
 
   Future<ImportAttemptWriteStatus> failAttempt(
@@ -1029,41 +1007,37 @@ class TaskManager extends ChangeNotifier {
     Map<String, dynamic>? diagnostics,
     bool clearSensitivePayload = false,
   }) {
-    if (_cleanupInProgress.contains(attempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = _taskForAttempt(attempt);
-    if (task == null) return _missingAttemptStatus(attempt);
-    if (!isAttemptRunnable(attempt)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
-    if (clearSensitivePayload) {
-      task.parsedData = null;
-      task.pendingChunks = null;
-      task.failedChunks = null;
-      task.warnings = List<String>.from(warnings ?? const <String>[]);
-    } else if (warnings != null) {
-      task.warnings = List<String>.from(warnings);
-    }
-    if (clearSensitivePayload || diagnostics != null) {
-      task.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
-        task,
-        diagnostics ?? const <String, dynamic>{},
-      );
-    }
-    task.diagnostics = <String, dynamic>{
-      ...?task.diagnostics,
-      keyAttemptState: ImportAttemptState.failed.name,
-    };
-    task.status = TaskStatus.error;
-    task.errorMsg = error;
-    task.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    notifyListeners();
-    return _persistAttemptSnapshot(attempt, task);
+    return _enqueueAttemptTransition(
+      attempt.taskId,
+      expectedAttempt: attempt,
+      transition: (task, next) {
+        if (!isAttemptRunnable(attempt)) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
+        if (clearSensitivePayload) {
+          next.parsedData = null;
+          next.pendingChunks = null;
+          next.failedChunks = null;
+          next.warnings = List<String>.from(warnings ?? const <String>[]);
+        } else if (warnings != null) {
+          next.warnings = List<String>.from(warnings);
+        }
+        if (clearSensitivePayload || diagnostics != null) {
+          next.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
+            next,
+            diagnostics ?? const <String, dynamic>{},
+          );
+        }
+        next.diagnostics = <String, dynamic>{
+          ...?next.diagnostics,
+          keyAttemptState: ImportAttemptState.failed.name,
+        };
+        next.status = TaskStatus.error;
+        next.errorMsg = error;
+        next.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        return null;
+      },
+    );
   }
 
   Future<ImportAttemptWriteStatus> restartAttempt(
@@ -1071,71 +1045,58 @@ class TaskManager extends ChangeNotifier {
     required String parseMode,
     required ExplanationRetentionMode explanationRetentionMode,
   }) {
-    if (_cleanupInProgress.contains(nextAttempt.taskId)) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final index = tasks.indexWhere((task) => task.id == nextAttempt.taskId);
-    if (index < 0) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.taskMissing,
-      );
-    }
-    final task = tasks[index];
-    if (nextAttempt.attemptNumber != task.attemptNumber + 1 ||
-        nextAttempt.attemptToken.trim().isEmpty ||
-        nextAttempt.traceId.trim().isEmpty) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
-    if (task.attemptState != ImportAttemptState.failed &&
-        task.attemptState != ImportAttemptState.cancelled &&
-        task.attemptState != ImportAttemptState.interrupted &&
-        task.attemptState != ImportAttemptState.cancelRequested) {
-      return Future<ImportAttemptWriteStatus>.value(
-        ImportAttemptWriteStatus.invalidState,
-      );
-    }
+    return _enqueueAttemptTransition(
+      nextAttempt.taskId,
+      transition: (task, next) {
+        if (nextAttempt.attemptNumber != task.attemptNumber + 1 ||
+            nextAttempt.attemptToken.trim().isEmpty ||
+            nextAttempt.traceId.trim().isEmpty) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
+        if (task.attemptState != ImportAttemptState.failed &&
+            task.attemptState != ImportAttemptState.cancelled &&
+            task.attemptState != ImportAttemptState.interrupted) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
 
-    final stableMetadata = _taskMetadata(task);
-    // OBS-1 retry lineage: the new attempt inherits the same correlation and
-    // points its parent trace at the previous attempt's trace.
-    final previousTraceId = task.traceId;
-    task.status = TaskStatus.processing;
-    task.progressText = '已进入后台队列...';
-    task.percent = 0.1;
-    task.errorMsg = null;
-    task.parsedData = null;
-    task.bankName = null;
-    task.folderName = null;
-    task.sourceType = null;
-    task.pendingChunks = null;
-    task.failedChunks = null;
-    task.warnings = null;
-    task.completedAt = null;
-    task.diagnostics = <String, dynamic>{
-      if (stableMetadata[keyBatchId] != null)
-        keyBatchId: stableMetadata[keyBatchId],
-      if (stableMetadata[keySelectionIndex] != null)
-        keySelectionIndex: stableMetadata[keySelectionIndex],
-      if (stableMetadata[keyImportStorageRoute] != null)
-        keyImportStorageRoute: stableMetadata[keyImportStorageRoute],
-      if (stableMetadata[keyImportStorageReason] != null)
-        keyImportStorageReason: stableMetadata[keyImportStorageReason],
-      if (stableMetadata[keyCorrelationId] != null)
-        keyCorrelationId: stableMetadata[keyCorrelationId],
-      if (previousTraceId != null) keyParentTraceId: previousTraceId,
-      keyTraceId: nextAttempt.traceId,
-      keyParseMode: parseMode,
-      keyExplanationRetentionMode: explanationRetentionMode.name,
-      keyAttemptNumber: nextAttempt.attemptNumber,
-      keyAttemptToken: nextAttempt.attemptToken,
-      keyAttemptState: ImportAttemptState.queued.name,
-    };
-    notifyListeners();
-    return _persistAttemptSnapshot(nextAttempt, task);
+        final stableMetadata = _taskMetadata(task);
+        // OBS-1 retry lineage: the new attempt inherits the same correlation
+        // and points its parent trace at the previous attempt's trace.
+        final previousTraceId = task.traceId;
+        next.status = TaskStatus.processing;
+        next.progressText = '已进入后台队列...';
+        next.percent = 0.1;
+        next.errorMsg = null;
+        next.parsedData = null;
+        next.bankName = null;
+        next.folderName = null;
+        next.sourceType = null;
+        next.pendingChunks = null;
+        next.failedChunks = null;
+        next.warnings = null;
+        next.completedAt = null;
+        next.diagnostics = <String, dynamic>{
+          if (stableMetadata[keyBatchId] != null)
+            keyBatchId: stableMetadata[keyBatchId],
+          if (stableMetadata[keySelectionIndex] != null)
+            keySelectionIndex: stableMetadata[keySelectionIndex],
+          if (stableMetadata[keyImportStorageRoute] != null)
+            keyImportStorageRoute: stableMetadata[keyImportStorageRoute],
+          if (stableMetadata[keyImportStorageReason] != null)
+            keyImportStorageReason: stableMetadata[keyImportStorageReason],
+          if (stableMetadata[keyCorrelationId] != null)
+            keyCorrelationId: stableMetadata[keyCorrelationId],
+          if (previousTraceId != null) keyParentTraceId: previousTraceId,
+          keyTraceId: nextAttempt.traceId,
+          keyParseMode: parseMode,
+          keyExplanationRetentionMode: explanationRetentionMode.name,
+          keyAttemptNumber: nextAttempt.attemptNumber,
+          keyAttemptToken: nextAttempt.attemptToken,
+          keyAttemptState: ImportAttemptState.queued.name,
+        };
+        return null;
+      },
+    );
   }
 
   void _markAttemptCancelledInMemory(ImportTask task) {
@@ -1165,6 +1126,11 @@ class TaskManager extends ChangeNotifier {
     return task;
   }
 
+  ImportTask? _taskById(String taskId) {
+    final index = tasks.indexWhere((task) => task.id == taskId);
+    return index < 0 ? null : tasks[index];
+  }
+
   Future<ImportAttemptWriteStatus> _missingAttemptStatus(
     ImportAttemptRef attempt,
   ) {
@@ -1174,6 +1140,116 @@ class TaskManager extends ChangeNotifier {
           ? ImportAttemptWriteStatus.stale
           : ImportAttemptWriteStatus.taskMissing,
     );
+  }
+
+  Future<ImportAttemptWriteStatus> _enqueueAttemptTransition(
+    String taskId, {
+    ImportAttemptRef? expectedAttempt,
+    required _AttemptTransition transition,
+  }) {
+    if (_cleanupInProgress.contains(taskId)) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.taskMissing,
+      );
+    }
+
+    final completer = Completer<ImportAttemptWriteStatus>();
+    final previous = _attemptWriteTails[taskId] ?? Future<void>.value();
+    late final Future<void> operation;
+
+    Future<void> execute() async {
+      if (_cleanupInProgress.contains(taskId)) {
+        completer.complete(ImportAttemptWriteStatus.taskMissing);
+        return;
+      }
+
+      final current = expectedAttempt == null
+          ? _taskById(taskId)
+          : _taskForAttempt(expectedAttempt);
+      if (current == null) {
+        completer.complete(
+          expectedAttempt == null
+              ? ImportAttemptWriteStatus.taskMissing
+              : await _missingAttemptStatus(expectedAttempt),
+        );
+        return;
+      }
+
+      final next = ImportTask.fromMap(current.toMap());
+      ImportAttemptWriteStatus? shortCircuit;
+      try {
+        shortCircuit = transition(current, next);
+      } catch (_) {
+        _logTaskPersistenceFailure();
+        completer.complete(ImportAttemptWriteStatus.persistenceFailed);
+        return;
+      }
+      if (shortCircuit != null) {
+        completer.complete(shortCircuit);
+        return;
+      }
+
+      var skippedByCleanup = false;
+      try {
+        await _enqueueTaskWrite(taskId, () async {
+          if (_cleanupInProgress.contains(taskId)) {
+            skippedByCleanup = true;
+            return;
+          }
+          await _persistTask(next);
+        });
+        if (skippedByCleanup) {
+          completer.complete(ImportAttemptWriteStatus.taskMissing);
+          return;
+        }
+
+        final live = expectedAttempt == null
+            ? _taskById(taskId)
+            : _taskForAttempt(expectedAttempt);
+        if (live == null) {
+          completer.complete(
+            expectedAttempt == null
+                ? ImportAttemptWriteStatus.taskMissing
+                : await _missingAttemptStatus(expectedAttempt),
+          );
+          return;
+        }
+        _publishTaskSnapshot(live, next);
+        notifyListeners();
+        completer.complete(ImportAttemptWriteStatus.applied);
+      } catch (_) {
+        _logTaskPersistenceFailure();
+        completer.complete(ImportAttemptWriteStatus.persistenceFailed);
+      }
+    }
+
+    operation = previous.then<void>(
+      (_) => execute(),
+      onError: (_, __) => execute(),
+    );
+    _attemptWriteTails[taskId] = operation;
+    unawaited(operation.whenComplete(() {
+      if (identical(_attemptWriteTails[taskId], operation)) {
+        _attemptWriteTails.remove(taskId);
+      }
+    }));
+    return completer.future;
+  }
+
+  void _publishTaskSnapshot(ImportTask target, ImportTask source) {
+    target.status = source.status;
+    target.progressText = source.progressText;
+    target.percent = source.percent;
+    target.errorMsg = source.errorMsg;
+    target.parsedData = source.parsedData;
+    target.bankName = source.bankName;
+    target.folderName = source.folderName;
+    target.sourceType = source.sourceType;
+    target.pendingChunks = source.pendingChunks;
+    target.failedChunks = source.failedChunks;
+    target.warnings = source.warnings;
+    target.diagnostics = source.diagnostics;
+    target.completedAt = source.completedAt;
   }
 
   Future<ImportAttemptWriteStatus> _persistAttemptSnapshot(

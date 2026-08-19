@@ -378,7 +378,8 @@ void main() {
     );
   });
 
-  test('cancelled old attempt cannot overwrite a successful retry', () async {
+  test('stale cancelled attempt callback cannot overwrite a successful retry',
+      () async {
     var traceIndex = 0;
     var attemptIndex = 0;
     final firstStarted = Completer<void>();
@@ -413,6 +414,12 @@ void main() {
       await coordinator.cancelOcrTask(firstHandle.taskId),
       ImportAttemptWriteStatus.applied,
     );
+    releaseFirst.complete();
+    await _waitForTask(
+      manager,
+      firstHandle.taskId,
+      (task) => task.attemptState == ImportAttemptState.cancelled,
+    );
 
     final secondHandle = await coordinator.retryOcrTask(
       taskId: firstHandle.taskId,
@@ -440,8 +447,18 @@ void main() {
     expect(retried.attemptState, ImportAttemptState.readyForReview);
     expect(retried.parsedData?.single['q_num'], '2');
 
-    releaseFirst.complete();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      await manager.requireAttemptReview(
+        firstHandle.attempt,
+        'stale old result',
+        const <Map<String, dynamic>>[
+          <String, dynamic>{'q_num': '1'},
+        ],
+        '',
+        '',
+      ),
+      ImportAttemptWriteStatus.stale,
+    );
 
     final afterOldReturn = manager.tasks.single;
     expect(afterOldReturn.attemptNumber, 2);
@@ -621,6 +638,52 @@ void main() {
 
     expect(manager.tasks.single.attemptNumber, 1);
     expect(manager.tasks.single.attemptState, ImportAttemptState.failed);
+  });
+
+  test('retry persistence failure does not start the parser', () async {
+    final retryManager = TaskManager.forTesting(
+      saveTask: (_) async =>
+          throw StateError('synthetic retry persistence failure'),
+    );
+    retryManager.tasks.add(
+      ImportTask(
+        id: 'retry-persistence-failure',
+        title: 'Synthetic retry persistence failure',
+        status: TaskStatus.error,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-old-trace',
+          TaskManager.keyParseMode: ImportParseMode.ocr.name,
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-old-token',
+          TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+        },
+      ),
+    );
+    var parserCalls = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: retryManager,
+      readiness: Future<void>.value(),
+    );
+
+    await expectLater(
+      coordinator.retryOcrTask(
+        taskId: 'retry-persistence-failure',
+        sourceDescription: 'synthetic.pdf',
+        parse: (_) async {
+          parserCalls++;
+          return const ImportParseResult(questions: <Map<String, dynamic>>[]);
+        },
+      ),
+      throwsA(isA<ImportTaskRetryRejectedException>()),
+    );
+
+    expect(parserCalls, 0);
+    final current = retryManager.tasks.single;
+    expect(current.status, TaskStatus.error);
+    expect(current.attemptState, ImportAttemptState.failed);
+    expect(current.attemptNumber, 1);
+    expect(current.attemptToken, 'retry-old-token');
+    expect(current.traceId, 'retry-old-trace');
   });
 
   for (final mode in <ImportParseMode>[

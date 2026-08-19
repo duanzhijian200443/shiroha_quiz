@@ -117,7 +117,7 @@ void main() {
       expect(saved.single['failed_chunks'], isNull);
     });
 
-    test('new attempt persistence wins after an older write is already running',
+    test('serializes cancellation before a retry after an older write',
         () async {
       final firstWriteStarted = Completer<void>();
       final releaseFirstWrite = Completer<void>();
@@ -169,7 +169,7 @@ void main() {
 
       releaseFirstWrite.complete();
       expect(await initialWrite, ImportAttemptWriteStatus.applied);
-      expect(await cancelled, ImportAttemptWriteStatus.stale);
+      expect(await cancelled, ImportAttemptWriteStatus.applied);
       expect(await retried, ImportAttemptWriteStatus.applied);
 
       final current = taskManager.tasks.single;
@@ -181,6 +181,144 @@ void main() {
       final lastPersisted = ImportTask.fromMap(saved.last);
       expect(lastPersisted.attemptToken, secondAttempt.attemptToken);
       expect(lastPersisted.traceId, secondAttempt.traceId);
+    });
+
+    test('queued cancellation persistence failure keeps the queued attempt',
+        () async {
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async {
+          writeCount++;
+          if (writeCount > 1) {
+            throw StateError('synthetic cancellation persistence failure');
+          }
+        },
+      );
+      const attempt = ImportAttemptRef(
+        taskId: 'queued-cancel-failure',
+        attemptNumber: 1,
+        attemptToken: 'queued-cancel-attempt',
+        traceId: 'queued-cancel-trace',
+      );
+      await taskManager.addAttemptTask(
+        ImportTask(
+          id: attempt.taskId,
+          title: 'Synthetic queued cancellation',
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: attempt.traceId,
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: attempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.queued.name,
+          },
+        ),
+      );
+
+      expect(
+        await taskManager.requestAttemptCancellation(attempt),
+        ImportAttemptWriteStatus.persistenceFailed,
+      );
+      final current = taskManager.tasks.single;
+      expect(current.status, TaskStatus.processing);
+      expect(current.attemptState, ImportAttemptState.queued);
+      expect(current.attemptNumber, 1);
+      expect(current.attemptToken, attempt.attemptToken);
+    });
+
+    test('running cancellation persistence failure keeps the running attempt',
+        () async {
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async {
+          writeCount++;
+          if (writeCount > 2) {
+            throw StateError('synthetic cancellation persistence failure');
+          }
+        },
+      );
+      const attempt = ImportAttemptRef(
+        taskId: 'running-cancel-failure',
+        attemptNumber: 1,
+        attemptToken: 'running-cancel-attempt',
+        traceId: 'running-cancel-trace',
+      );
+      await taskManager.addAttemptTask(
+        ImportTask(
+          id: attempt.taskId,
+          title: 'Synthetic running cancellation',
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: attempt.traceId,
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: attempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.queued.name,
+          },
+        ),
+      );
+      expect(
+        await taskManager.markAttemptRunning(attempt),
+        ImportAttemptWriteStatus.applied,
+      );
+
+      expect(
+        await taskManager.requestAttemptCancellation(attempt),
+        ImportAttemptWriteStatus.persistenceFailed,
+      );
+      final current = taskManager.tasks.single;
+      expect(current.status, TaskStatus.processing);
+      expect(current.attemptState, ImportAttemptState.running);
+      expect(current.attemptNumber, 1);
+      expect(current.attemptToken, attempt.attemptToken);
+    });
+
+    test('retry persistence failure keeps the old settled attempt', () async {
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async {
+          writeCount++;
+          if (writeCount > 1) {
+            throw StateError('synthetic retry persistence failure');
+          }
+        },
+      );
+      const oldAttempt = ImportAttemptRef(
+        taskId: 'retry-persistence-failure',
+        attemptNumber: 1,
+        attemptToken: 'old-attempt-token',
+        traceId: 'old-trace-id',
+      );
+      await taskManager.addAttemptTask(
+        ImportTask(
+          id: oldAttempt.taskId,
+          title: 'Synthetic retry persistence failure',
+          status: TaskStatus.error,
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: oldAttempt.traceId,
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: oldAttempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+          },
+        ),
+      );
+
+      const nextAttempt = ImportAttemptRef(
+        taskId: 'retry-persistence-failure',
+        attemptNumber: 2,
+        attemptToken: 'new-attempt-token',
+        traceId: 'new-trace-id',
+      );
+      expect(
+        await taskManager.restartAttempt(
+          nextAttempt,
+          parseMode: 'ocr',
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        ImportAttemptWriteStatus.persistenceFailed,
+      );
+      final current = taskManager.tasks.single;
+      expect(current.status, TaskStatus.error);
+      expect(current.attemptState, ImportAttemptState.failed);
+      expect(current.attemptNumber, oldAttempt.attemptNumber);
+      expect(current.attemptToken, oldAttempt.attemptToken);
+      expect(current.traceId, oldAttempt.traceId);
     });
 
     test('batch insertion keeps selection order ahead of existing tasks', () {
