@@ -11,6 +11,7 @@ import '../../application/backup/backup_restore_gate.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../application/parsed_artifacts/parsed_artifact_ports.dart';
+import '../../application/retrieval/retrieval.dart';
 import '../../application/retrieval/retrieval_ports.dart';
 import '../../core/observability/log_writer.dart';
 import '../../domain/assets/library_file.dart';
@@ -167,7 +168,7 @@ final class ParsedArtifactLifecycleService
           plan: plan,
           cacheKey: cacheKey,
           expectedRevision: head,
-          previousStorageKey: current?.storageKey,
+          previousMetadata: current,
         );
         return ParsedArtifactEnsureResult(
           outcome: ParsedArtifactLifecycleOutcome.published,
@@ -221,7 +222,7 @@ final class ParsedArtifactLifecycleService
           plan: plan,
           cacheKey: cacheKey,
           expectedRevision: head,
-          previousStorageKey: current?.storageKey,
+          previousMetadata: current,
         );
         return ParsedArtifactEnsureResult(
           outcome: ParsedArtifactLifecycleOutcome.published,
@@ -286,7 +287,7 @@ final class ParsedArtifactLifecycleService
               ParsedArtifactLifecycleFailure.publishConflict,
             );
         }
-        await _bestEffortInvalidateRetrieval(fileId);
+        await _bestEffortInvalidateRetrievalFile(fileId);
         await _bestEffortDeleteSidecar(storageKey);
       });
     } on ParsedArtifactLifecycleException {
@@ -431,7 +432,7 @@ final class ParsedArtifactLifecycleService
     required ParsedArtifactGenerationPlan plan,
     required ParsedArtifactCacheKey cacheKey,
     required int expectedRevision,
-    required String? previousStorageKey,
+    required ParsedArtifactMetadata? previousMetadata,
   }) async {
     final artifactId = _uuid.v4();
     final candidateRevision = expectedRevision + 1;
@@ -487,9 +488,9 @@ final class ParsedArtifactLifecycleService
 
     switch (publishResult.status) {
       case ParsedArtifactPublishStatus.published:
-        if (previousStorageKey != null) {
-          await _bestEffortInvalidateRetrieval(file.fileId);
-          await _bestEffortDeleteSidecar(previousStorageKey);
+        if (previousMetadata != null) {
+          await _bestEffortInvalidateRetrievalGeneration(previousMetadata);
+          await _bestEffortDeleteSidecar(previousMetadata.storageKey);
         }
         return _snapshotFrom(metadata, sourceDocument);
       case ParsedArtifactPublishStatus.parentMissing:
@@ -600,11 +601,11 @@ final class ParsedArtifactLifecycleService
     }
   }
 
-  /// RAG rows are derived from one artifact generation and are not covered by
-  /// the artifact metadata CAS transaction. Invalidation therefore happens
-  /// after the primary commit. A failure leaves an observable, retryable RAG
-  /// orphan and must never change the already-published lifecycle result.
-  Future<void> _bestEffortInvalidateRetrieval(String fileId) async {
+  /// RAG rows are derived from the removed file and are not covered by the
+  /// artifact metadata transaction. Invalidation therefore happens after the
+  /// primary commit. A failure leaves an observable, retryable RAG orphan and
+  /// must never change the already-published lifecycle result.
+  Future<void> _bestEffortInvalidateRetrievalFile(String fileId) async {
     final retrievalIndex = _retrievalIndex;
     if (retrievalIndex == null) return;
     try {
@@ -617,6 +618,42 @@ final class ParsedArtifactLifecycleService
           data: <String, Object?>{
             'derived': 'rag_index',
             'fileId': fileId,
+            'status': 'orphaned',
+            'retryable': true,
+          },
+        );
+      } catch (_) {
+        // Observability is best effort and cannot change the primary result.
+      }
+    }
+  }
+
+  /// Invalidates only the replaced artifact generation. This must remain
+  /// generation-aware because a newer RAG build may be committed between the
+  /// primary artifact publication and this post-commit cleanup.
+  Future<void> _bestEffortInvalidateRetrievalGeneration(
+    ParsedArtifactMetadata metadata,
+  ) async {
+    final retrievalIndex = _retrievalIndex;
+    if (retrievalIndex == null) return;
+    final snapshot = RetrievalArtifactSnapshot(
+      fileId: metadata.artifact.fileId,
+      artifactId: metadata.artifact.artifactId,
+      revision: metadata.artifact.revision,
+      payloadDigest: metadata.payloadSha256,
+    );
+    try {
+      await retrievalIndex.removeIndexGeneration(snapshot);
+    } catch (_) {
+      try {
+        LogWriter.error(
+          'Parsed artifact derived cleanup pending',
+          module: 'ParsedArtifact',
+          data: <String, Object?>{
+            'derived': 'rag_index',
+            'fileId': snapshot.fileId,
+            'artifactId': snapshot.artifactId,
+            'revision': snapshot.revision,
             'status': 'orphaned',
             'retryable': true,
           },

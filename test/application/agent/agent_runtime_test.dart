@@ -4303,6 +4303,10 @@ final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
   Future<void> removeIndex(String fileId) async {}
 
   @override
+  Future<void> removeIndexGeneration(
+      RetrievalArtifactSnapshot snapshot) async {}
+
+  @override
   Future<RetrievalIndexSearchResult> search(
       {required List<RetrievalArtifactSnapshot> snapshots,
       required String matchExpression,

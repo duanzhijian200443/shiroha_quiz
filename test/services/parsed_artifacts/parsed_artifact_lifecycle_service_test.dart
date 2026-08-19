@@ -215,7 +215,9 @@ final class _RetrievalIndexSpy implements RetrievalIndexPort {
 
   final RetrievalIndexPort delegate;
   int removeCalls = 0;
+  int removeGenerationCalls = 0;
   Object? removeError;
+  Future<void> Function()? beforeGenerationRemoval;
 
   @override
   Future<void> ensureBuild({
@@ -255,6 +257,15 @@ final class _RetrievalIndexSpy implements RetrievalIndexPort {
     final error = removeError;
     if (error != null) throw error;
     await delegate.removeIndex(fileId);
+  }
+
+  @override
+  Future<void> removeIndexGeneration(RetrievalArtifactSnapshot snapshot) async {
+    removeGenerationCalls++;
+    final error = removeError;
+    if (error != null) throw error;
+    await beforeGenerationRemoval?.call();
+    await delegate.removeIndexGeneration(snapshot);
   }
 }
 
@@ -1060,13 +1071,14 @@ void main() {
       final first = await ensure();
       final metadata =
           (await artifactRepository.findCurrentByFileId('file-1'))!;
+      final firstIdentity = RetrievalArtifactSnapshot(
+        fileId: first.snapshot.artifact.fileId,
+        artifactId: first.snapshot.artifact.artifactId,
+        revision: first.snapshot.artifact.revision,
+        payloadDigest: metadata.payloadSha256,
+      );
       await retrievalIndex.ensureBuild(
-        snapshot: RetrievalArtifactSnapshot(
-          fileId: first.snapshot.artifact.fileId,
-          artifactId: first.snapshot.artifact.artifactId,
-          revision: first.snapshot.artifact.revision,
-          payloadDigest: metadata.payloadSha256,
-        ),
+        snapshot: firstIdentity,
         chunkerVersion: 'rag1.chunk.v1',
         lexicalProjectionVersion: 'rag1.lexical.v1',
         chunks: <RetrievalChunk>[_retrievalChunk(first.snapshot)],
@@ -1082,9 +1094,63 @@ void main() {
       );
 
       expect(reparsed.snapshot.artifact.revision, 2);
-      expect(retrievalIndex.removeCalls, 1);
+      expect(retrievalIndex.removeGenerationCalls, 1);
       expect(await db.query('retrieval_index_builds'), isEmpty);
       expect(await db.query('retrieval_chunks'), isEmpty);
+    });
+
+    test('replacement cleanup preserves a concurrently built new generation',
+        () async {
+      await seedLibraryFile();
+      final first = await ensure();
+      final metadata =
+          (await artifactRepository.findCurrentByFileId('file-1'))!;
+      final firstIdentity = RetrievalArtifactSnapshot(
+        fileId: first.snapshot.artifact.fileId,
+        artifactId: first.snapshot.artifact.artifactId,
+        revision: first.snapshot.artifact.revision,
+        payloadDigest: metadata.payloadSha256,
+      );
+      await retrievalIndex.ensureBuild(
+        snapshot: firstIdentity,
+        chunkerVersion: 'rag1.chunk.v1',
+        lexicalProjectionVersion: 'rag1.lexical.v1',
+        chunks: <RetrievalChunk>[_retrievalChunk(first.snapshot)],
+      );
+      retrievalIndex.beforeGenerationRemoval = () async {
+        final current =
+            (await artifactRepository.findCurrentByFileId('file-1'))!;
+        final currentIdentity = RetrievalArtifactSnapshot(
+          fileId: current.artifact.fileId,
+          artifactId: current.artifact.artifactId,
+          revision: current.artifact.revision,
+          payloadDigest: current.payloadSha256,
+        );
+        await retrievalIndex.ensureBuild(
+          snapshot: currentIdentity,
+          chunkerVersion: 'rag1.chunk.v1',
+          lexicalProjectionVersion: 'rag1.lexical.v1',
+          chunks: <RetrievalChunk>[
+            _retrievalChunkForIdentity(currentIdentity),
+          ],
+        );
+      };
+
+      final reparsed = await service.reparseArtifact(
+        fileId: 'file-1',
+        options: _options,
+        expectedRevision: 1,
+      );
+
+      final db = await DatabaseHelper.instance.database;
+      expect(reparsed.snapshot.artifact.revision, 2);
+      expect(retrievalIndex.removeGenerationCalls, 1);
+      final builds = await db.query('retrieval_index_builds');
+      expect(builds, hasLength(1));
+      expect(
+          builds.single['artifact_id'], reparsed.snapshot.artifact.artifactId);
+      expect(builds.single['revision'], 2);
+      expect(await db.query('retrieval_chunks'), hasLength(1));
     });
 
     test('remove invalidates the current RAG build after removal', () async {
@@ -1092,13 +1158,14 @@ void main() {
       final first = await ensure();
       final metadata =
           (await artifactRepository.findCurrentByFileId('file-1'))!;
+      final firstIdentity = RetrievalArtifactSnapshot(
+        fileId: first.snapshot.artifact.fileId,
+        artifactId: first.snapshot.artifact.artifactId,
+        revision: first.snapshot.artifact.revision,
+        payloadDigest: metadata.payloadSha256,
+      );
       await retrievalIndex.ensureBuild(
-        snapshot: RetrievalArtifactSnapshot(
-          fileId: first.snapshot.artifact.fileId,
-          artifactId: first.snapshot.artifact.artifactId,
-          revision: first.snapshot.artifact.revision,
-          payloadDigest: metadata.payloadSha256,
-        ),
+        snapshot: firstIdentity,
         chunkerVersion: 'rag1.chunk.v1',
         lexicalProjectionVersion: 'rag1.lexical.v1',
         chunks: <RetrievalChunk>[_retrievalChunk(first.snapshot)],
@@ -1122,13 +1189,14 @@ void main() {
       final first = await ensure();
       final metadata =
           (await artifactRepository.findCurrentByFileId('file-1'))!;
+      final firstIdentity = RetrievalArtifactSnapshot(
+        fileId: first.snapshot.artifact.fileId,
+        artifactId: first.snapshot.artifact.artifactId,
+        revision: first.snapshot.artifact.revision,
+        payloadDigest: metadata.payloadSha256,
+      );
       await retrievalIndex.ensureBuild(
-        snapshot: RetrievalArtifactSnapshot(
-          fileId: first.snapshot.artifact.fileId,
-          artifactId: first.snapshot.artifact.artifactId,
-          revision: first.snapshot.artifact.revision,
-          payloadDigest: metadata.payloadSha256,
-        ),
+        snapshot: firstIdentity,
         chunkerVersion: 'rag1.chunk.v1',
         lexicalProjectionVersion: 'rag1.lexical.v1',
         chunks: <RetrievalChunk>[_retrievalChunk(first.snapshot)],
@@ -1155,6 +1223,8 @@ void main() {
           (record) =>
               record.module == 'ParsedArtifact' &&
               record.data['derived'] == 'rag_index' &&
+              record.data['artifactId'] == firstIdentity.artifactId &&
+              record.data['revision'] == firstIdentity.revision &&
               record.data['status'] == 'orphaned' &&
               record.data['retryable'] == true,
         ),
@@ -1163,11 +1233,11 @@ void main() {
       expect(await db.query('parsed_artifacts'), hasLength(1));
       expect((await db.query('parsed_artifacts')).single['revision'], 2);
       expect(await db.query('retrieval_index_builds'), hasLength(1));
-      expect(retrievalIndex.removeCalls, 1);
+      expect(retrievalIndex.removeGenerationCalls, 1);
 
       retrievalIndex.removeError = null;
-      await retrievalIndex.removeIndex('file-1');
-      expect(retrievalIndex.removeCalls, 2);
+      await retrievalIndex.removeIndexGeneration(firstIdentity);
+      expect(retrievalIndex.removeGenerationCalls, 2);
       expect(await db.query('retrieval_index_builds'), isEmpty);
       expect(await db.query('retrieval_chunks'), isEmpty);
     });
@@ -1623,5 +1693,25 @@ RetrievalChunk _retrievalChunk(ParsedArtifactSnapshot snapshot) {
     content: 'd2a retrieval content',
     contentHash: 'd' * 64,
     sourceRef: SourceRef.document(sourceId: snapshot.artifact.artifactId),
+  );
+}
+
+RetrievalChunk _retrievalChunkForIdentity(
+  RetrievalArtifactSnapshot snapshot,
+) {
+  return RetrievalChunk(
+    chunkId: 'd2a-chunk-${snapshot.artifactId}',
+    fileId: snapshot.fileId,
+    artifactId: snapshot.artifactId,
+    revision: snapshot.revision,
+    sourceId: snapshot.artifactId,
+    ordinal: 0,
+    kind: RetrievalContentKind.paragraph,
+    locator: 'document/part:0/window:0',
+    partOrdinal: 0,
+    windowOrdinal: 0,
+    content: 'd2a retrieval content',
+    contentHash: 'd' * 64,
+    sourceRef: SourceRef.document(sourceId: snapshot.artifactId),
   );
 }

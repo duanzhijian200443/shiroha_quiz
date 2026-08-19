@@ -46,6 +46,11 @@ abstract interface class RetrievalIndexPort {
   /// Invalidates all derived retrieval rows for [fileId]. This operation is
   /// idempotent and safe to retry after a failed cleanup.
   Future<void> removeIndex(String fileId);
+
+  /// Invalidates only the derived retrieval rows for [snapshot]. This is the
+  /// generation-aware replacement cleanup; newer generations for the same
+  /// file remain untouched.
+  Future<void> removeIndexGeneration(RetrievalArtifactSnapshot snapshot);
 }
 
 final class RetrievalIndexSearchResult {

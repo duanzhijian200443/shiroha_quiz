@@ -320,4 +320,20 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
     await db.delete('retrieval_index_builds',
         where: 'file_id = ?', whereArgs: <Object?>[fileId]);
   }
+
+  @override
+  Future<void> removeIndexGeneration(RetrievalArtifactSnapshot snapshot) async {
+    final db = await _databaseHelper.database;
+    await db.delete(
+      'retrieval_index_builds',
+      where:
+          'file_id = ? AND artifact_id = ? AND revision = ? AND payload_digest = ?',
+      whereArgs: <Object?>[
+        snapshot.fileId,
+        snapshot.artifactId,
+        snapshot.revision,
+        snapshot.payloadDigest,
+      ],
+    );
+  }
 }
