@@ -64,6 +64,7 @@ import 'services/agent/deepseek_responses_provider.dart';
 import 'services/backup/backup_restore_runtime.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
+import 'services/file_library/library_file_deletion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
 import 'services/file_library/managed_artifact_storage_adapter.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
@@ -202,6 +203,11 @@ void main() {
         storage: managedFileStorage,
         repository: libraryFileRepository,
       );
+      final libraryFileDeletion = LibraryFileDeletionService(
+        metadataRepository: libraryFileRepository,
+        deletionRepository: libraryFileRepository,
+        managedFileStorage: managedFileStorage,
+      );
       final projectRepository =
           SqliteProjectRepository(databaseHelper: databaseHelper);
       final projectService = ProjectService(repository: projectRepository);
@@ -320,6 +326,7 @@ void main() {
         folderService: folderService,
         studyQueryService: studyQueryService,
         parsedArtifactLifecycle: parsedArtifactLifecycle,
+        libraryFileDeletion: libraryFileDeletion,
         mcpProjection: McpWorkspaceProjection(
           state: McpCapabilityState.configuredAvailable,
           transport: McpTransport.localStdio,

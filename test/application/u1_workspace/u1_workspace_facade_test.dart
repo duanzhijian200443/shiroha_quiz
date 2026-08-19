@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/file_library/library_file_deletion.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
@@ -40,6 +41,17 @@ final class _Files implements LibraryFileRepositoryPort {
 
   @override
   Future<void> save(LibraryFile file) async => values[file.fileId] = file;
+}
+
+final class _Deletion implements LibraryFileDeletionPort {
+  String? receivedFileId;
+  LibraryFileDeletionResult? result;
+
+  @override
+  Future<LibraryFileDeletionResult> deleteLibraryFile(String fileId) async {
+    receivedFileId = fileId;
+    return result!;
+  }
 }
 
 final class _Ingestion implements FileIngestionPort {
@@ -329,6 +341,7 @@ void main() {
   late _Projects projects;
   late _Folders folders;
   late _FakeParsedArtifactLifecycle lifecycle;
+  late _Deletion deletion;
   late U1WorkspaceFacade facade;
 
   setUp(() {
@@ -337,6 +350,7 @@ void main() {
     projects = _Projects();
     folders = _Folders(files);
     lifecycle = _FakeParsedArtifactLifecycle();
+    deletion = _Deletion();
     facade = U1WorkspaceFacade(
       projectService: ProjectService(
         repository: projects,
@@ -361,6 +375,7 @@ void main() {
         metricsQuery: _MetricsPort(),
       ),
       parsedArtifactLifecycle: lifecycle,
+      libraryFileDeletion: deletion,
       mcpProjection: McpWorkspaceProjection(
         state: McpCapabilityState.configuredAvailable,
         transport: McpTransport.localStdio,
@@ -477,6 +492,20 @@ void main() {
     expect(facade.mcpProjection.transport, McpTransport.localStdio);
     expect(facade.mcpProjection.permission, McpPermission.readOnly);
     expect(facade.mcpProjection.toolNames, <String>['list_question_banks']);
+  });
+
+  test('formal LibraryFile deletion entry delegates to the application port',
+      () async {
+    const result = LibraryFileDeletionResult(
+      fileId: 'file-a',
+      projectReferenceCount: 1,
+      conversationReferenceCount: 2,
+      managedBytesCleanup: LibraryFileManagedBytesCleanup.deleted,
+    );
+    deletion.result = result;
+
+    expect(await facade.deleteLibraryFile('file-a'), same(result));
+    expect(deletion.receivedFileId, 'file-a');
   });
 
   group('OCR-UX ParsedArtifact Application lifecycle seam', () {
