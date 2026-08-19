@@ -96,11 +96,15 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v22**: the frozen v15 typed sidecar remains
+9. Current database schema is **v23**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
-   additive RAG-1 derived lexical-retrieval cache and FTS5 objects, plus the
-   additive v22 `study_plans` table.
+   additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
+   additive v22 `study_plans` table, and the later additive v23
+   `answer_attempts` table. `answer_attempts` is append-only durable answer
+   history, separate from mutable Review/FSRS scheduling state in
+   `review_states`; changing or resetting scheduling state does not rewrite or
+   delete answer history.
 
 ## 4. Learning asset expansion boundary
 
@@ -396,8 +400,9 @@ the separate `propose_study_plan` capability; only explicit user adoption
 through an Application command with a durable transaction-level
   compare-and-set may persist the single global `ActiveStudyPlan`. MCP v0
   remains exactly six READ_ONLY tools and the A0 read catalog remains exactly
-  six tools. Runtime schema is v22 with the additive `study_plans` table;
-  ActiveStudyPlan durable singleton persistence exists; formal adoption
+  six tools. SPL-1-D1 introduced the v22 `study_plans` table; the current
+  runtime schema is v23. ActiveStudyPlan durable singleton persistence exists;
+  formal adoption
   remains Application-controlled; Agent planning and Assistant draft/adoption
   Presentation are implemented; Today/特训 consumes the adopted plan through
   the deterministic `StudyPlanSelectionService` (live candidate pools,
@@ -405,7 +410,7 @@ through an Application command with a durable transaction-level
   materializes the exact ordered selected storage IDs through the narrow
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
-  (P0–D0–D1–I0–U0–V0–CL COMPLETE; runtime schema v22).
+  (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, current runtime v23).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
