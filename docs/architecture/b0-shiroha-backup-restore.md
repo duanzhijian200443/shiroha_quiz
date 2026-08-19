@@ -10,8 +10,20 @@ Implementation status amendment: B0-P0 froze this contract as docs-only. The
 serial implementation stages B0-D0 (package/manifest core), B0-E0 (export),
 B0-I0 (whole restore + durable journal + crash recovery + rollback), B0-U0
 (minimal backup/restore UI), B0-V0 (focused acceptance), and B0-CL (canonical
-closure) are COMPLETE. Runtime schema remains v22; B0 adds no migration and no
-dependency changes.
+closure) are COMPLETE. B0 adds no migration or dependency changes. The
+current runtime schema is v23 because the additive AnswerAttempt migration was
+introduced after the original B0-P0 v22 freeze.
+
+### Current-state amendment: DM-D3A
+
+- The current runtime and current-runtime backup fixtures use schema **v23**.
+- `answer_attempts` is included in the portable snapshot as append-only
+  AnswerAttempt history.
+- The existing `backup_acceptance_test.dart` export/restore roundtrip is the
+  acceptance evidence for AnswerAttempt preservation; DM-D3A does not duplicate
+  that scenario.
+- v22 fixtures remain only where they exercise the v22-to-v23 migration or
+  older-schema compatibility path.
 
 The frozen implementation order was:
 
@@ -35,7 +47,7 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema at B0-P0 is **v22**.
+- Current runtime schema is **v23**.
 
 ## 2. Frozen package structure
 
@@ -90,7 +102,7 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. For current runtime schema v22, the frozen INCLUDE set is:
+state. For current runtime schema v23, the frozen INCLUDE set is:
 
 | Durable state | Current schema rows |
 |---|---|
@@ -99,6 +111,7 @@ state. For current runtime schema v22, the frozen INCLUDE set is:
 | Question-bank compatibility data | `questions.bank_name`, `bank_folders`, `custom_folders` |
 | Review / FSRS | `review_states` |
 | Review logs / learning history | `review_logs` |
+| AnswerAttempt / append-only answer history | `answer_attempts` |
 | Durable study statistics/history | `pomodoro_sessions`, `exam_papers`, `paper_questions` |
 | LibraryFile metadata | `library_files` |
 | Library Folder relations | `library_folders`, `library_file_folders` |
@@ -144,7 +157,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v22 this includes at least:
+empty/null safe state. For current schema v23 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -749,8 +762,8 @@ OBS must never log:
 - API key.
 
 Failures must be able to return the existing OBS `diagnosticId` and safe
-diagnostic summary. OBS-1 remains schema v22; B0-P0 adds no telemetry or log
-schema.
+diagnostic summary. OBS-1 remains governed by its own schema contract; B0-P0
+adds no telemetry or log schema.
 
 ## 17. Non-goals
 
@@ -769,7 +782,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- schema v23;
+- future database schema migrations beyond the current runtime v23;
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -828,8 +841,8 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated v22 round trip;
-3. Questions + typed sidecars preserved;
+2. realistic populated current-schema v23 round trip;
+3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;
 6. Folder/Project relations preserved;
@@ -882,8 +895,8 @@ The B0-V0 acceptance suite must cover:
 
 ## 20. Contract authorities
 
-- `ARCHITECTURE.md` — repository-wide architecture boundary and current v22
-  schema statement.
+- `ARCHITECTURE.md` — repository-wide architecture boundary; this document is
+  the focused B0 package and schema-version authority.
 - This document — focused B0 `.shiroha` contract authority.
 - `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current B0
   status.

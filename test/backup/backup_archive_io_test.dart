@@ -43,7 +43,7 @@ void main() {
 
     final hasManagedFile = includeManagedFile;
     final manifest = BackupManifest(
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       createdAtUtc: DateTime.utc(2026, 1, 1),
       database: BackupDatabaseEntry(
         archivePath: BackupValues.databaseArchivePath,
@@ -133,7 +133,7 @@ void main() {
 
   test('DB zip declared size must equal manifest sizeBytes', () async {
     final manifest = BackupManifest(
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       createdAtUtc: DateTime.utc(2026, 1, 1),
       database: BackupDatabaseEntry(
         archivePath: BackupValues.databaseArchivePath,
@@ -164,7 +164,7 @@ void main() {
       () async {
     final package = p.join(temp.path, 'unsupported.shiroha');
     final manifest = BackupManifest(
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       createdAtUtc: DateTime.utc(2026, 1, 1),
       database: BackupDatabaseEntry(
         archivePath: BackupValues.databaseArchivePath,
@@ -222,7 +222,7 @@ void main() {
     final package = p.join(temp.path, 'deflate_bomb.shiroha');
     final zero10 = List<int>.filled(10, 0);
     final manifest = BackupManifest(
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       createdAtUtc: DateTime.utc(2026, 1, 1),
       database: BackupDatabaseEntry(
         archivePath: BackupValues.databaseArchivePath,

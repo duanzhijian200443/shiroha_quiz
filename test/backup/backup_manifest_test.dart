@@ -8,7 +8,7 @@ void main() {
   Map<String, Object?> validJson({int? schemaVersion}) => <String, Object?>{
         'format': BackupValues.format,
         'packageVersion': BackupValues.packageVersion,
-        'schemaVersion': schemaVersion ?? 22,
+        'schemaVersion': schemaVersion ?? BackupValues.currentSchemaVersion,
         'createdAtUtc': DateTime.utc(2026, 1, 1).toIso8601String(),
         'database': <String, Object?>{
           'archivePath': BackupValues.databaseArchivePath,
@@ -30,7 +30,7 @@ void main() {
     final manifest = BackupManifest.fromJson(validJson());
     final decoded = BackupManifest.fromJsonString(manifest.encode());
     expect(decoded.packageVersion, 1);
-    expect(decoded.schemaVersion, 22);
+    expect(decoded.schemaVersion, BackupValues.currentSchemaVersion);
     expect(decoded.database.sizeBytes, 12);
     expect(decoded.managedFiles.single.fileId, 'file-1');
     expect(decoded.totalDeclaredBytes, 15);
@@ -61,7 +61,7 @@ void main() {
 
   test('wrong types are rejected', () {
     final json = validJson();
-    json['schemaVersion'] = '22';
+    json['schemaVersion'] = '23';
     expect(
       () => BackupManifest.fromJson(json),
       throwsA(isA<BackupException>().having(

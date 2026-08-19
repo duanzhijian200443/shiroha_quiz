@@ -366,4 +366,22 @@ void main() {
       await db.close();
     }
   });
+
+  test('S7: staged backup validation includes AnswerAttempt v23 schema',
+      () async {
+    final db =
+        await DatabaseHelper.instance.openPathForTesting(inMemoryDatabasePath);
+    try {
+      await expectLater(
+          DatabaseHelper.validateStagedBackupSchema(db), completes);
+
+      await db.execute('DROP INDEX idx_answer_attempts_question_answered');
+      await expectLater(
+        () => DatabaseHelper.validateStagedBackupSchema(db),
+        throwsA(isA<AnswerAttemptSchemaException>()),
+      );
+    } finally {
+      await db.close();
+    }
+  });
 }

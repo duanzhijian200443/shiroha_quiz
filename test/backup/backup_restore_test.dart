@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 import 'package:shiroha_quiz/domain/backup/restore_journal.dart';
 import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
 import 'package:shiroha_quiz/services/backup/backup_filesystem.dart';
@@ -604,7 +605,7 @@ void main() {
       operationId: 'op-1',
       format: 'shiroha-backup',
       packageVersion: 1,
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       packageDigest: 'a' * 64,
       state: RestoreJournalState.prepared,
       updatedAtUtc: DateTime.utc(2026),
@@ -638,7 +639,7 @@ void main() {
       operationId: 'op-stale',
       format: 'shiroha-backup',
       packageVersion: 1,
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       packageDigest: 'a' * 64,
       state: RestoreJournalState.swapping,
       updatedAtUtc: DateTime.utc(2026),

@@ -388,7 +388,7 @@ void main() {
     final rawDb = p.join(temp.path, 'raw.shiroha.db');
     await snapshots.createRawConsistentSnapshot(rawDb);
     final rawManifest = BackupManifest(
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       createdAtUtc: DateTime.utc(2026),
       database: BackupDatabaseEntry(
         archivePath: BackupValues.databaseArchivePath,

@@ -13,6 +13,7 @@ import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 
 final class _FakeOperations implements BackupRestoreOperations {
   bool maintenanceObservedDuringCommit = false;
@@ -25,7 +26,7 @@ final class _FakeOperations implements BackupRestoreOperations {
   Future<BackupExportSummary> exportTo(String destinationPath) async {
     return const BackupExportSummary(
       fileName: 'backup.shiroha',
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       fileCount: 0,
       databaseSizeBytes: 0,
       managedBytes: 0,
@@ -36,7 +37,7 @@ final class _FakeOperations implements BackupRestoreOperations {
   Future<BackupRestorePreview> inspectPackage(String packagePath) async {
     return BackupRestorePreview(
       packageVersion: 1,
-      schemaVersion: 22,
+      schemaVersion: BackupValues.currentSchemaVersion,
       createdAtUtc: DateTime.utc(2026),
       fileCount: 0,
       totalSizeBytes: 0,
@@ -59,7 +60,10 @@ final class _FakeOperations implements BackupRestoreOperations {
     await beforeCommitted?.call();
     maintenanceObservedDuringCommit =
         BackupRestoreMutationGate.instance.isMaintenance;
-    return const BackupRestoreSuccess(schemaVersion: 22, fileCount: 0);
+    return const BackupRestoreSuccess(
+      schemaVersion: BackupValues.currentSchemaVersion,
+      fileCount: 0,
+    );
   }
 
   @override
