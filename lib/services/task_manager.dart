@@ -6,6 +6,7 @@ import '../application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/data/models/import_task_cleanup.dart';
+import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
@@ -264,10 +265,16 @@ enum ReviewDraftSaveStatus {
 }
 
 class ReviewDraftSaveResult {
-  const ReviewDraftSaveResult(this.status, {required this.revision});
+  const ReviewDraftSaveResult(this.status, {int? revision})
+      : durableRevision = revision;
 
   final ReviewDraftSaveStatus status;
-  final int revision;
+  final int? durableRevision;
+
+  /// Compatibility projection for older callers. Only [durableRevision] is
+  /// authoritative; invalid metadata and persistence failures expose null
+  /// there instead of guessing a revision.
+  int get revision => durableRevision ?? 0;
 
   bool get saved => status == ReviewDraftSaveStatus.saved;
 }
@@ -369,6 +376,7 @@ class TaskManager extends ChangeNotifier {
   TaskManager._internal()
       : _persistTasks = true,
         _saveTaskOverride = null,
+        _saveReviewDraftCasOverride = null,
         _loadTasksOverride = null,
         _deleteOldImportTasksOverride = null,
         _deleteTaskPersistenceOverride = null,
@@ -380,6 +388,13 @@ class TaskManager extends ChangeNotifier {
   @visibleForTesting
   TaskManager.forTesting({
     Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
+    Future<ReviewDraftCasResult> Function({
+      required String taskId,
+      required ReviewDraftAttemptIdentity expectedAttempt,
+      required int expectedRevision,
+      required List<Map<String, dynamic>> questions,
+      required String explanationRetentionMode,
+    })? saveReviewDraftCas,
     Future<List<Map<String, dynamic>>> Function()? loadTasks,
     Future<void> Function(int olderThanUnix)? deleteOldImportTasks,
     Future<ImportTaskCleanupStatus> Function(String id)? deleteTaskPersistence,
@@ -387,8 +402,9 @@ class TaskManager extends ChangeNotifier {
       Set<String> excludedIds,
       Set<String> candidateIds,
     )? clearCompletedPersistence,
-  })  : _persistTasks = saveTask != null,
+  })  : _persistTasks = saveTask != null || saveReviewDraftCas != null,
         _saveTaskOverride = saveTask,
+        _saveReviewDraftCasOverride = saveReviewDraftCas,
         _loadTasksOverride = loadTasks,
         _deleteOldImportTasksOverride = deleteOldImportTasks,
         _deleteTaskPersistenceOverride = deleteTaskPersistence,
@@ -404,6 +420,13 @@ class TaskManager extends ChangeNotifier {
   late Future<void> ready;
   final bool _persistTasks;
   final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
+  final Future<ReviewDraftCasResult> Function({
+    required String taskId,
+    required ReviewDraftAttemptIdentity expectedAttempt,
+    required int expectedRevision,
+    required List<Map<String, dynamic>> questions,
+    required String explanationRetentionMode,
+  })? _saveReviewDraftCasOverride;
   final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
   final Future<void> Function(int olderThanUnix)? _deleteOldImportTasksOverride;
   final Future<ImportTaskCleanupStatus> Function(String id)?
@@ -1631,44 +1654,140 @@ class TaskManager extends ChangeNotifier {
         revision: currentRevision,
       );
     }
-    final nextRevision = currentRevision + 1;
-    final nextTask = ImportTask.fromMap(task.toMap());
-    nextTask.parsedData = questions
+    final sanitizedQuestions = questions
         .map(_sanitizeAnswerDistillationSnapshot)
         .toList(growable: false);
-    nextTask.diagnostics = <String, dynamic>{
-      ...?nextTask.diagnostics,
-      keyExplanationRetentionMode: explanationRetentionMode.name,
-      keyReviewDraftRevision: nextRevision,
-    };
-    var skippedByCleanup = false;
+    final expectedAttempt = _captureReviewDraftAttemptIdentity(task);
+    if (expectedAttempt == null) {
+      return const ReviewDraftSaveResult(ReviewDraftSaveStatus.failed);
+    }
+    late ReviewDraftCasResult casResult;
     try {
       await _enqueueTaskWrite(id, () async {
         if (_cleanupInProgress.contains(id)) {
-          skippedByCleanup = true;
+          casResult = const ReviewDraftCasResult(
+            ReviewDraftCasStatus.taskMissing,
+            durableRevision: 0,
+          );
           return;
         }
-        await _persistTask(nextTask);
-      });
-      if (skippedByCleanup || _cleanupInProgress.contains(id)) {
-        return ReviewDraftSaveResult(
-          ReviewDraftSaveStatus.taskMissing,
-          revision: currentRevision,
+        casResult = await _persistReviewDraftCas(
+          taskId: id,
+          expectedAttempt: expectedAttempt,
+          expectedRevision: currentRevision,
+          questions: sanitizedQuestions,
+          explanationRetentionMode: explanationRetentionMode.name,
         );
-      }
+      });
     } catch (_) {
       _logTaskPersistenceFailure();
-      return ReviewDraftSaveResult(
+      return const ReviewDraftSaveResult(
         ReviewDraftSaveStatus.failed,
-        revision: currentRevision,
       );
     }
-    task.parsedData = nextTask.parsedData;
-    task.diagnostics = nextTask.diagnostics;
+
+    final mapped = _mapReviewDraftCasResult(casResult);
+    if (casResult.status != ReviewDraftCasStatus.saved) return mapped;
+    final durableRevision = casResult.durableRevision!;
+    task.parsedData = sanitizedQuestions;
+    task.diagnostics = <String, dynamic>{
+      ...?task.diagnostics,
+      keyExplanationRetentionMode: explanationRetentionMode.name,
+      keyReviewDraftRevision: durableRevision,
+    };
     notifyListeners();
-    return ReviewDraftSaveResult(
-      ReviewDraftSaveStatus.saved,
-      revision: nextRevision,
+    return mapped;
+  }
+
+  Future<ReviewDraftCasResult> _persistReviewDraftCas({
+    required String taskId,
+    required ReviewDraftAttemptIdentity expectedAttempt,
+    required int expectedRevision,
+    required List<Map<String, dynamic>> questions,
+    required String explanationRetentionMode,
+  }) async {
+    if (!_persistTasks) {
+      return ReviewDraftCasResult(
+        ReviewDraftCasStatus.saved,
+        durableRevision: expectedRevision + 1,
+      );
+    }
+    final casOverride = _saveReviewDraftCasOverride;
+    if (casOverride != null) {
+      return casOverride(
+        taskId: taskId,
+        expectedAttempt: expectedAttempt,
+        expectedRevision: expectedRevision,
+        questions: questions,
+        explanationRetentionMode: explanationRetentionMode,
+      );
+    }
+    final saveOverride = _saveTaskOverride;
+    if (saveOverride != null) {
+      // Compatibility adapter for existing isolated TaskManager tests. The
+      // production path below always uses repository-level persisted CAS.
+      final task = tasks.singleWhere((candidate) => candidate.id == taskId);
+      final next = ImportTask.fromMap(task.toMap());
+      next.parsedData = questions;
+      next.diagnostics = <String, dynamic>{
+        ...?next.diagnostics,
+        keyExplanationRetentionMode: explanationRetentionMode,
+        keyReviewDraftRevision: expectedRevision + 1,
+      };
+      await saveOverride(next.toMap());
+      return ReviewDraftCasResult(
+        ReviewDraftCasStatus.saved,
+        durableRevision: expectedRevision + 1,
+      );
+    }
+    return ImportTaskRepository.instance.saveReviewDraftCas(
+      taskId: taskId,
+      expectedAttempt: expectedAttempt,
+      expectedRevision: expectedRevision,
+      questions: questions,
+      explanationRetentionMode: explanationRetentionMode,
+    );
+  }
+
+  ReviewDraftSaveResult _mapReviewDraftCasResult(
+    ReviewDraftCasResult result,
+  ) {
+    return switch (result.status) {
+      ReviewDraftCasStatus.saved => ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.saved,
+          revision: result.durableRevision,
+        ),
+      ReviewDraftCasStatus.staleRevision ||
+      ReviewDraftCasStatus.staleAttempt ||
+      ReviewDraftCasStatus.taskNotPendingReview =>
+        ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.stale,
+          revision: result.durableRevision,
+        ),
+      ReviewDraftCasStatus.taskMissing => ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: result.durableRevision,
+        ),
+      ReviewDraftCasStatus.invalidMetadata => const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.failed,
+        ),
+    };
+  }
+
+  ReviewDraftAttemptIdentity? _captureReviewDraftAttemptIdentity(
+    ImportTask task,
+  ) {
+    final diagnostics = task.diagnostics;
+    final token = diagnostics?[keyAttemptToken];
+    final number = diagnostics?[keyAttemptNumber];
+    final trace = diagnostics?[keyTraceId];
+    if (token != null && (token is! String || token.isEmpty)) return null;
+    if (number != null && (number is! int || number <= 0)) return null;
+    if (trace != null && (trace is! String || trace.isEmpty)) return null;
+    return ReviewDraftAttemptIdentity(
+      attemptToken: token as String?,
+      attemptNumber: number as int?,
+      traceId: trace as String?,
     );
   }
 
