@@ -230,6 +230,227 @@ class QuestionRepository
     }
   }
 
+  /// Atomic task-bound legacy compatibility commit.
+  ///
+  /// The historical task-less writer remains separate. This path binds the
+  /// exact persisted nullable attempt identity and ReviewDraft revision, then
+  /// writes legacy question rows, review states, folder mapping, and task
+  /// completion in one transaction.
+  Future<LegacyImportCommitPersistenceResult>
+      commitQuestionDraftsLegacyForImport({
+    required String bankName,
+    required String? folderName,
+    required List<QuestionDraft> questions,
+    required LegacyImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    final trimmedBankName = bankName.trim();
+    if (trimmedBankName.isEmpty) {
+      throw ArgumentError('Bank name is required.');
+    }
+    if (questions.isEmpty) {
+      throw ArgumentError('At least one question is required.');
+    }
+    _validateLegacyImportCommitGuard(guard);
+
+    final nowUtcSeconds = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final frozenRows = <Map<String, Object?>>[
+      for (final question in questions)
+        _questionToRow(
+          question,
+          bankName: trimmedBankName,
+          createdAt: nowUtcSeconds,
+        ),
+    ];
+    try {
+      final db = await _databaseHelper.database;
+      return await db.transaction((txn) async {
+        await _validatePersistedLegacyImportTask(txn, guard);
+        final resolvedFolderName =
+            await _resolveV2FolderAction(txn, trimmedBankName, folderName);
+        for (final row in frozenRows) {
+          await txn.insert('questions', row);
+          await txn.insert(
+            'review_states',
+            _initialReviewState(row['id']! as String),
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+        if (resolvedFolderName != null) {
+          await txn.insert(
+            'bank_folders',
+            <String, Object?>{
+              'bank_name': trimmedBankName,
+              'folder_name': resolvedFolderName,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        final updated = await txn.update(
+          'import_tasks',
+          <String, Object?>{
+            'status': TypedImportCommitPersistence.completedStatusCode,
+            'progress_text': completionText,
+            'percent': 1.0,
+            'error_msg': null,
+            'parsed_data': null,
+            'completed_at': nowUtcSeconds,
+          },
+          where: 'id = ? AND status = ?',
+          whereArgs: <Object?>[
+            guard.taskId,
+            TypedImportCommitPersistence.pendingReviewStatusCode,
+          ],
+        );
+        if (updated != 1) {
+          throw const LegacyImportCommitPersistenceException(
+            LegacyImportCommitPersistenceFailure.transactionFailed,
+          );
+        }
+        return LegacyImportCommitPersistenceResult(
+          questionCount: frozenRows.length,
+          completedAt: nowUtcSeconds,
+        );
+      });
+    } on LegacyImportCommitPersistenceException {
+      rethrow;
+    } on DatabaseException {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.transactionFailed,
+      );
+    }
+  }
+
+  void _validateLegacyImportCommitGuard(LegacyImportCommitGuard guard) {
+    final valid = guard.taskId.trim().isNotEmpty &&
+        (guard.attemptToken == null || guard.attemptToken!.isNotEmpty) &&
+        (guard.attemptNumber == null || guard.attemptNumber! > 0) &&
+        (guard.traceId == null || guard.traceId!.isNotEmpty) &&
+        guard.reviewDraftRevision >= 0 &&
+        guard.storageRoute == TypedImportCommitPersistence.legacyV1RouteValue &&
+        (guard.storageReason == null || guard.storageReason!.isNotEmpty);
+    if (!valid) {
+      throw ArgumentError('Legacy import commit guard is invalid.');
+    }
+  }
+
+  Future<void> _validatePersistedLegacyImportTask(
+    DatabaseExecutor txn,
+    LegacyImportCommitGuard guard,
+  ) async {
+    final rows = await txn.query(
+      'import_tasks',
+      where: 'id = ?',
+      whereArgs: <Object?>[guard.taskId],
+      limit: 2,
+    );
+    if (rows.isEmpty) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.taskMissing,
+      );
+    }
+    if (rows.length != 1) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    final row = rows.single;
+    final status = row['status'];
+    if (status is! int ||
+        status != TypedImportCommitPersistence.pendingReviewStatusCode) {
+      if (status is int &&
+          status == TypedImportCommitPersistence.completedStatusCode) {
+        throw const LegacyImportCommitPersistenceException(
+          LegacyImportCommitPersistenceFailure.alreadyCompleted,
+        );
+      }
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.taskNotPendingReview,
+      );
+    }
+    final parsedData = row['parsed_data'];
+    if (parsedData is! String || parsedData.isEmpty) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    final diagnostics = _decodeLegacyCommitDiagnostics(row['diagnostics']);
+    if (diagnostics == null) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
+    final token = diagnostics[TypedImportCommitPersistence.keyAttemptToken];
+    final number = diagnostics[TypedImportCommitPersistence.keyAttemptNumber];
+    final trace = diagnostics[TypedImportCommitPersistence.keyTraceId];
+    if ((token != null && (token is! String || token.isEmpty)) ||
+        (number != null && (number is! int || number <= 0)) ||
+        (trace != null && (trace is! String || trace.isEmpty))) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (token != guard.attemptToken ||
+        number != guard.attemptNumber ||
+        trace != guard.traceId) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.staleAttempt,
+      );
+    }
+
+    final rawRoute =
+        diagnostics[TypedImportCommitPersistence.keyImportStorageRoute];
+    final route = rawRoute ?? TypedImportCommitPersistence.legacyV1RouteValue;
+    final reason =
+        diagnostics[TypedImportCommitPersistence.keyImportStorageReason];
+    if (route is! String ||
+        route != TypedImportCommitPersistence.legacyV1RouteValue ||
+        (reason != null && (reason is! String || reason.isEmpty)) ||
+        route != guard.storageRoute ||
+        reason != guard.storageReason) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
+    final rawRevision =
+        diagnostics[TypedImportCommitPersistence.keyReviewDraftRevision];
+    final int revision;
+    if (rawRevision == null) {
+      revision = 0;
+    } else if (rawRevision is int && rawRevision >= 0) {
+      revision = rawRevision;
+    } else {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (revision != guard.reviewDraftRevision) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.staleReviewDraft,
+      );
+    }
+  }
+
+  Map<String, Object?>? _decodeLegacyCommitDiagnostics(Object? raw) {
+    if (raw == null) return <String, Object?>{};
+    if (raw is! String || raw.isEmpty) return null;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final result = <String, Object?>{};
+    for (final entry in decoded.entries) {
+      if (entry.key is! String) return null;
+      result[entry.key as String] = entry.value;
+    }
+    return result;
+  }
+
   void _validateImportCommitGuard(TypedImportCommitGuard guard) {
     final guardValid = guard.taskId.trim().isNotEmpty &&
         guard.attemptToken.trim().isNotEmpty &&

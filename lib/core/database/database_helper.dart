@@ -6,6 +6,7 @@ import 'package:path/path.dart';
 
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/models/import_task_cleanup.dart';
+import '../../data/models/review_draft_cas.dart';
 import '../../data/persistence/ai_engine_store.dart';
 import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
@@ -3152,6 +3153,176 @@ SELECT
       taskData,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Persisted ReviewDraft compare-and-set.
+  ///
+  /// The transaction reads the durable authority, validates the exact nullable
+  /// attempt identity and revision, then updates only the review payload and
+  /// diagnostics. Unrelated task columns and durable diagnostic metadata are
+  /// preserved; no stale whole-row snapshot is written back.
+  Future<ReviewDraftCasResult> saveReviewDraftCas({
+    required String taskId,
+    required ReviewDraftAttemptIdentity expectedAttempt,
+    required int expectedRevision,
+    required List<Map<String, dynamic>> questions,
+    required String explanationRetentionMode,
+  }) async {
+    if (taskId.trim().isEmpty || expectedRevision < 0) {
+      return const ReviewDraftCasResult(
+        ReviewDraftCasStatus.invalidMetadata,
+        durableRevision: null,
+      );
+    }
+
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'import_tasks',
+        columns: <String>['status', 'diagnostics'],
+        where: 'id = ?',
+        whereArgs: <Object?>[taskId],
+        limit: 2,
+      );
+      if (rows.isEmpty) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.taskMissing,
+          durableRevision: 0,
+        );
+      }
+      if (rows.length != 1) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
+
+      final row = rows.single;
+      final diagnostics = _decodeStrictImportTaskDiagnostics(
+        row['diagnostics'],
+      );
+      if (diagnostics == null) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
+      final durableRevision = _strictReviewDraftRevision(diagnostics);
+      if (durableRevision == null) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
+
+      if (!_hasValidNullableAttemptMetadata(diagnostics)) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
+      if (!_matchesExactNullableAttempt(diagnostics, expectedAttempt)) {
+        return ReviewDraftCasResult(
+          ReviewDraftCasStatus.staleAttempt,
+          durableRevision: durableRevision,
+        );
+      }
+      if (durableRevision != expectedRevision) {
+        return ReviewDraftCasResult(
+          ReviewDraftCasStatus.staleRevision,
+          durableRevision: durableRevision,
+        );
+      }
+
+      final status = row['status'];
+      if (status is! int) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
+      if (status != ReviewDraftCasPersistence.pendingReviewStatusCode) {
+        return ReviewDraftCasResult(
+          ReviewDraftCasStatus.taskNotPendingReview,
+          durableRevision: durableRevision,
+        );
+      }
+
+      final nextRevision = durableRevision + 1;
+      final nextDiagnostics = <String, Object?>{
+        ...diagnostics,
+        ReviewDraftCasPersistence.keyExplanationRetentionMode:
+            explanationRetentionMode,
+        ReviewDraftCasPersistence.keyReviewDraftRevision: nextRevision,
+      };
+      final updated = await txn.update(
+        'import_tasks',
+        <String, Object?>{
+          'parsed_data': jsonEncode(questions),
+          'diagnostics': jsonEncode(nextDiagnostics),
+        },
+        where: 'id = ? AND status = ?',
+        whereArgs: <Object?>[
+          taskId,
+          ReviewDraftCasPersistence.pendingReviewStatusCode,
+        ],
+      );
+      if (updated != 1) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
+      return ReviewDraftCasResult(
+        ReviewDraftCasStatus.saved,
+        durableRevision: nextRevision,
+      );
+    });
+  }
+
+  Map<String, Object?>? _decodeStrictImportTaskDiagnostics(Object? raw) {
+    if (raw == null) return <String, Object?>{};
+    if (raw is! String || raw.isEmpty) return null;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final result = <String, Object?>{};
+    for (final entry in decoded.entries) {
+      if (entry.key is! String) return null;
+      result[entry.key as String] = entry.value;
+    }
+    return result;
+  }
+
+  int? _strictReviewDraftRevision(Map<String, Object?> diagnostics) {
+    final value = diagnostics[ReviewDraftCasPersistence.keyReviewDraftRevision];
+    if (value == null) return 0;
+    return value is int && value >= 0 ? value : null;
+  }
+
+  bool _matchesExactNullableAttempt(
+    Map<String, Object?> diagnostics,
+    ReviewDraftAttemptIdentity expected,
+  ) {
+    final token = diagnostics[ReviewDraftCasPersistence.keyAttemptToken];
+    final number = diagnostics[ReviewDraftCasPersistence.keyAttemptNumber];
+    final trace = diagnostics[ReviewDraftCasPersistence.keyTraceId];
+    return token == expected.attemptToken &&
+        number == expected.attemptNumber &&
+        trace == expected.traceId;
+  }
+
+  bool _hasValidNullableAttemptMetadata(Map<String, Object?> diagnostics) {
+    final token = diagnostics[ReviewDraftCasPersistence.keyAttemptToken];
+    final number = diagnostics[ReviewDraftCasPersistence.keyAttemptNumber];
+    final trace = diagnostics[ReviewDraftCasPersistence.keyTraceId];
+    return (token == null || (token is String && token.isNotEmpty)) &&
+        (number == null || (number is int && number > 0)) &&
+        (trace == null || (trace is String && trace.isNotEmpty));
   }
 
   Future<ImportTaskDeletePersistenceStatus> deleteImportTask(

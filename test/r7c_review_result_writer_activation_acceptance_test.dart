@@ -139,16 +139,21 @@ class _CountingRepository extends QuestionRepository {
   }
 
   @override
-  Future<void> saveQuestionDraftsToBank({
+  Future<LegacyImportCommitPersistenceResult>
+      commitQuestionDraftsLegacyForImport({
     required String bankName,
     required String? folderName,
     required List<QuestionDraft> questions,
+    required LegacyImportCommitGuard guard,
+    required String completionText,
   }) async {
     legacyCalls++;
-    await super.saveQuestionDraftsToBank(
+    return super.commitQuestionDraftsLegacyForImport(
       bankName: bankName,
       folderName: folderName,
       questions: questions,
+      guard: guard,
+      completionText: completionText,
     );
   }
 }
@@ -678,14 +683,34 @@ void main() {
         TaskManager.keyImportStorageReason: 'typed_candidate_shadow_ready',
         TaskManager.keyAttemptToken: 'r7c-shadow-attempt',
         TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptState: 'readyForReview',
+        TaskManager.keyTraceId: null,
+        TaskManager.keyReviewDraftRevision: 0,
       },
     ));
     final path = p.join(tempDir.path, 'r7c_historical_legacy.db');
     final helper = _FileDatabaseHelper(path);
+    final taskRepository = ImportTaskRepository(databaseHelper: helper);
+    await taskRepository.saveImportTask(manager.tasks.single.toMap());
+    final reloadedManager = TaskManager.forTesting(
+      saveTask: taskRepository.saveImportTask,
+      loadTasks: taskRepository.getAllImportTasks,
+    );
+    await reloadedManager.ready;
+    expect(reloadedManager.tasks.single.id, manager.tasks.single.id);
+    expect(reloadedManager.tasks.single.status, manager.tasks.single.status);
+    expect(
+      reloadedManager.tasks.single.parsedData,
+      manager.tasks.single.parsedData,
+    );
+    expect(
+      reloadedManager.tasks.single.diagnostics,
+      manager.tasks.single.diagnostics,
+    );
     final repo = _CountingRepository(databaseHelper: helper);
     final service = ImportCommitService(
       questionRepository: repo,
-      taskManager: manager,
+      taskManager: reloadedManager,
     );
 
     final result = await service.commitLegacy(
@@ -700,7 +725,7 @@ void main() {
     expect(repo.legacyCalls, 1);
     expect(repo.v2Calls, 0,
         reason: 'historical shadow tasks must never be auto-upgraded');
-    expect(manager.tasks.single.status, TaskStatus.completed);
+    expect(reloadedManager.tasks.single.status, TaskStatus.completed);
     await helper.close();
 
     final reopened = _FileDatabaseHelper(path);
@@ -708,6 +733,10 @@ void main() {
     expect(await reopenedDb.query('questions'), hasLength(1));
     expect(await reopenedDb.query('question_v2_payloads'), isEmpty);
     expect(await reopenedDb.query('review_states'), hasLength(1));
+    final taskRows = await reopenedDb.query('import_tasks');
+    expect(taskRows, hasLength(1));
+    expect(taskRows.single['status'], TaskStatus.completed.index);
+    expect(taskRows.single['parsed_data'], isNull);
     await reopened.close();
   });
 }

@@ -74,6 +74,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _answerDistillationInProgressText = '答案仍在生成中，请等待完成后再入库';
   static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
+  static const _legacyCommitFailedText = '题库入库失败，题目保持待审状态，请检查后重试';
+  static const _legacyTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _safeSnapshotProvenanceKeys = {
     'q_num',
     'question_number',
@@ -638,28 +640,91 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   ) async {
     setState(() => _isSaving = true);
     try {
-      await _commitService.commit(
-        bankName: bankName,
-        folderName: folderName,
-        questions: _allItems.map((item) => item.draft).toList(),
-        taskId: widget.taskId,
-        diagnostics: widget.diagnostics ?? const <String, dynamic>{},
-        explanationRetentionMode: _explanationRetentionMode,
-        explanationOverrides: _allItems
-            .map(
-              (item) =>
-                  _explanationOverrides[item.originalIndex] ??
-                  QuestionExplanationOverride.inherit,
-            )
-            .toList(growable: false),
-      );
+      final taskId = widget.taskId?.trim();
+      final questions = _allItems.map((item) => item.draft).toList();
+      final overrides = _allItems
+          .map(
+            (item) =>
+                _explanationOverrides[item.originalIndex] ??
+                QuestionExplanationOverride.inherit,
+          )
+          .toList(growable: false);
+      if (taskId == null || taskId.isEmpty) {
+        await _commitService.commitLegacy(
+          bankName: bankName,
+          folderName: folderName,
+          questions: questions,
+          taskId: null,
+          diagnostics: widget.diagnostics ?? const <String, dynamic>{},
+          explanationRetentionMode: _explanationRetentionMode,
+          explanationOverrides: overrides,
+        );
+      } else {
+        final flushResult = await _persistReviewDraft(showFailurePrompt: false);
+        if (flushResult == null || !flushResult.saved) {
+          _showFixedError(_reviewDraftUnsafeText);
+          return;
+        }
+        final matches = _taskManager.tasks.where((task) => task.id == taskId);
+        if (matches.isEmpty) {
+          _showFixedError(_legacyTaskExpiredText);
+          return;
+        }
+        final diagnostics = matches.single.diagnostics;
+        final token = diagnostics?[TaskManager.keyAttemptToken];
+        final number = diagnostics?[TaskManager.keyAttemptNumber];
+        final trace = diagnostics?[TaskManager.keyTraceId];
+        final reason = diagnostics?[TaskManager.keyImportStorageReason];
+        if ((token != null && (token is! String || token.isEmpty)) ||
+            (number != null && (number is! int || number <= 0)) ||
+            (trace != null && (trace is! String || trace.isEmpty)) ||
+            (reason != null && reason is! String)) {
+          _showFixedError(_legacyTaskExpiredText);
+          return;
+        }
+        final ImportStorageRoute route;
+        try {
+          route = decodeImportStorageRoute(
+            diagnostics?[TaskManager.keyImportStorageRoute],
+          );
+        } on TypedReviewSnapshotException {
+          _showFixedError(_invalidStorageRouteText);
+          return;
+        }
+        await _commitService.commitLegacyForTask(
+          bankName: bankName,
+          folderName: folderName,
+          questions: questions,
+          taskId: taskId,
+          attemptToken: token as String?,
+          attemptNumber: number as int?,
+          traceId: trace as String?,
+          expectedReviewDraftRevision: flushResult.revision,
+          storageRoute: route,
+          storageReason: reason as String?,
+          diagnostics: diagnostics ?? const <String, dynamic>{},
+          explanationRetentionMode: _explanationRetentionMode,
+          explanationOverrides: overrides,
+        );
+      }
 
       _showSuccessAfterCommit(report, bankName, folderName);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('入库失败: $e'), backgroundColor: Colors.redAccent));
-      }
+    } on LegacyReviewCommitAttemptException catch (error) {
+      _showFixedError(
+        switch (error.failure) {
+          LegacyReviewCommitAttemptFailure.taskMissing ||
+          LegacyReviewCommitAttemptFailure.taskNotPendingReview ||
+          LegacyReviewCommitAttemptFailure.staleAttempt ||
+          LegacyReviewCommitAttemptFailure.staleReviewDraft =>
+            _legacyTaskExpiredText,
+          LegacyReviewCommitAttemptFailure.commitInProgress =>
+            _typedCommitInProgressText,
+          LegacyReviewCommitAttemptFailure.persistenceFailed =>
+            _legacyCommitFailedText,
+        },
+      );
+    } catch (_) {
+      _showFixedError(_legacyCommitFailedText);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

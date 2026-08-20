@@ -1,5 +1,6 @@
 import '../../core/database/database_helper.dart';
 import '../models/import_task_cleanup.dart';
+import '../models/review_draft_cas.dart';
 
 class ImportTaskRepository {
   ImportTaskRepository({DatabaseHelper? databaseHelper})
@@ -19,6 +20,22 @@ class ImportTaskRepository {
 
   Future<void> saveImportTask(Map<String, dynamic> taskMap) async {
     return _databaseHelper.saveImportTask(taskMap);
+  }
+
+  Future<ReviewDraftCasResult> saveReviewDraftCas({
+    required String taskId,
+    required ReviewDraftAttemptIdentity expectedAttempt,
+    required int expectedRevision,
+    required List<Map<String, dynamic>> questions,
+    required String explanationRetentionMode,
+  }) {
+    return _databaseHelper.saveReviewDraftCas(
+      taskId: taskId,
+      expectedAttempt: expectedAttempt,
+      expectedRevision: expectedRevision,
+      questions: questions,
+      explanationRetentionMode: explanationRetentionMode,
+    );
   }
 
   Future<ImportTaskDeletePersistenceStatus> deleteImportTask(

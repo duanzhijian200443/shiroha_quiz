@@ -1,5 +1,6 @@
 import '../../domain/backup/backup_manifest.dart';
 import '../backup/backup_restore_gate.dart';
+import '../observability/destructive_mutation_trace.dart';
 
 enum QuestionBankDeleteFailure {
   examReferenced,
@@ -29,8 +30,11 @@ final class QuestionBankMutationCommand {
 
   Future<void> deleteQuestionBank(String bankName) async {
     try {
-      await BackupRestoreMutationGate.instance.runMutation(
-        () => _persistence.deleteQuestionBank(bankName),
+      await DestructiveMutationTrace.run<void>(
+        kind: DestructiveMutationKind.questionBankDelete,
+        action: () => BackupRestoreMutationGate.instance.runMutation(
+          () => _persistence.deleteQuestionBank(bankName),
+        ),
       );
     } on QuestionBankDeleteException {
       rethrow;

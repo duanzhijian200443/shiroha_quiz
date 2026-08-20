@@ -361,7 +361,7 @@ void main() {
     expect(find.text('Processing Task 1'), findsOneWidget);
     expect(find.text('待解析: 2 批次'), findsOneWidget);
     expect(find.text('失败: 1 批次'), findsOneWidget);
-    expect(find.text('断点重试'), findsOneWidget);
+    expect(find.text('断点重试'), findsNothing);
   });
 
   testWidgets(

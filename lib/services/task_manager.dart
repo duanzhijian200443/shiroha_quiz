@@ -6,6 +6,7 @@ import '../application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/data/models/import_task_cleanup.dart';
+import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
@@ -264,10 +265,16 @@ enum ReviewDraftSaveStatus {
 }
 
 class ReviewDraftSaveResult {
-  const ReviewDraftSaveResult(this.status, {required this.revision});
+  const ReviewDraftSaveResult(this.status, {int? revision})
+      : durableRevision = revision;
 
   final ReviewDraftSaveStatus status;
-  final int revision;
+  final int? durableRevision;
+
+  /// Compatibility projection for older callers. Only [durableRevision] is
+  /// authoritative; invalid metadata and persistence failures expose null
+  /// there instead of guessing a revision.
+  int get revision => durableRevision ?? 0;
 
   bool get saved => status == ReviewDraftSaveStatus.saved;
 }
@@ -314,6 +321,47 @@ final class TypedCommitAttemptLease {
   final int reviewDraftRevision;
   final String storageRoute;
   final String storageReason;
+}
+
+enum LegacyCommitLeaseStatus {
+  acquired,
+  taskMissing,
+  taskNotPendingReview,
+  staleAttempt,
+  staleReviewDraft,
+  commitInProgress,
+}
+
+final class LegacyCommitLeaseResult {
+  const LegacyCommitLeaseResult(this.status, [this.lease]);
+
+  const LegacyCommitLeaseResult.acquired(LegacyCommitAttemptLease lease)
+      : this(LegacyCommitLeaseStatus.acquired, lease);
+
+  final LegacyCommitLeaseStatus status;
+  final LegacyCommitAttemptLease? lease;
+}
+
+final class LegacyCommitAttemptLease {
+  const LegacyCommitAttemptLease({
+    required this.leaseId,
+    required this.taskId,
+    required this.attemptToken,
+    required this.attemptNumber,
+    required this.traceId,
+    required this.reviewDraftRevision,
+    required this.storageRoute,
+    required this.storageReason,
+  });
+
+  final String leaseId;
+  final String taskId;
+  final String? attemptToken;
+  final int? attemptNumber;
+  final String? traceId;
+  final int reviewDraftRevision;
+  final String storageRoute;
+  final String? storageReason;
 }
 
 /// Result of applying an already-durable typed completion to memory.
@@ -369,6 +417,7 @@ class TaskManager extends ChangeNotifier {
   TaskManager._internal()
       : _persistTasks = true,
         _saveTaskOverride = null,
+        _saveReviewDraftCasOverride = null,
         _loadTasksOverride = null,
         _deleteOldImportTasksOverride = null,
         _deleteTaskPersistenceOverride = null,
@@ -380,6 +429,13 @@ class TaskManager extends ChangeNotifier {
   @visibleForTesting
   TaskManager.forTesting({
     Future<void> Function(Map<String, dynamic> taskMap)? saveTask,
+    Future<ReviewDraftCasResult> Function({
+      required String taskId,
+      required ReviewDraftAttemptIdentity expectedAttempt,
+      required int expectedRevision,
+      required List<Map<String, dynamic>> questions,
+      required String explanationRetentionMode,
+    })? saveReviewDraftCas,
     Future<List<Map<String, dynamic>>> Function()? loadTasks,
     Future<void> Function(int olderThanUnix)? deleteOldImportTasks,
     Future<ImportTaskCleanupStatus> Function(String id)? deleteTaskPersistence,
@@ -387,8 +443,9 @@ class TaskManager extends ChangeNotifier {
       Set<String> excludedIds,
       Set<String> candidateIds,
     )? clearCompletedPersistence,
-  })  : _persistTasks = saveTask != null,
+  })  : _persistTasks = saveTask != null || saveReviewDraftCas != null,
         _saveTaskOverride = saveTask,
+        _saveReviewDraftCasOverride = saveReviewDraftCas,
         _loadTasksOverride = loadTasks,
         _deleteOldImportTasksOverride = deleteOldImportTasks,
         _deleteTaskPersistenceOverride = deleteTaskPersistence,
@@ -404,6 +461,13 @@ class TaskManager extends ChangeNotifier {
   late Future<void> ready;
   final bool _persistTasks;
   final Future<void> Function(Map<String, dynamic> taskMap)? _saveTaskOverride;
+  final Future<ReviewDraftCasResult> Function({
+    required String taskId,
+    required ReviewDraftAttemptIdentity expectedAttempt,
+    required int expectedRevision,
+    required List<Map<String, dynamic>> questions,
+    required String explanationRetentionMode,
+  })? _saveReviewDraftCasOverride;
   final Future<List<Map<String, dynamic>>> Function()? _loadTasksOverride;
   final Future<void> Function(int olderThanUnix)? _deleteOldImportTasksOverride;
   final Future<ImportTaskCleanupStatus> Function(String id)?
@@ -418,6 +482,8 @@ class TaskManager extends ChangeNotifier {
   final Map<String, Future<void>> _taskWriteTails = <String, Future<void>>{};
   final Map<String, TypedCommitAttemptLease> _typedCommitLeases =
       <String, TypedCommitAttemptLease>{};
+  final Map<String, LegacyCommitAttemptLease> _legacyCommitLeases =
+      <String, LegacyCommitAttemptLease>{};
   final Set<String> _cleanupInProgress = <String>{};
   static final Random _leaseRandom = Random.secure();
 
@@ -433,6 +499,7 @@ class TaskManager extends ChangeNotifier {
     _attemptWriteTails.clear();
     _taskWriteTails.clear();
     _typedCommitLeases.clear();
+    _legacyCommitLeases.clear();
     _cleanupInProgress.clear();
     _reviewDraftWriteTail = Future<void>.value();
     ready = Future<void>.value();
@@ -661,7 +728,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   bool _isTaskDurableBusy(ImportTask task) {
-    if (_typedCommitLeases.containsKey(task.id)) {
+    if (_hasCommitLease(task.id)) {
       return true;
     }
     if (task.status == TaskStatus.processing ||
@@ -757,7 +824,7 @@ class TaskManager extends ChangeNotifier {
       if (drainedTask != null && _isTaskDurableBusy(drainedTask)) {
         return ImportTaskCleanupStatus.busy;
       }
-      if (_typedCommitLeases.containsKey(id)) {
+      if (_hasCommitLease(id)) {
         return ImportTaskCleanupStatus.busy;
       }
 
@@ -1461,7 +1528,7 @@ class TaskManager extends ChangeNotifier {
         ),
       );
     }
-    if (_typedCommitLeases.containsKey(id)) {
+    if (_hasCommitLease(id)) {
       return Future<ReviewDraftSaveResult>.value(
         ReviewDraftSaveResult(
           ReviewDraftSaveStatus.commitInProgress,
@@ -1510,7 +1577,7 @@ class TaskManager extends ChangeNotifier {
         ),
       );
     }
-    if (_typedCommitLeases.containsKey(id)) {
+    if (_hasCommitLease(id)) {
       return Future<ReviewDraftSaveResult>.value(
         ReviewDraftSaveResult(
           ReviewDraftSaveStatus.commitInProgress,
@@ -1609,7 +1676,7 @@ class TaskManager extends ChangeNotifier {
         revision: 0,
       );
     }
-    if (_typedCommitLeases.containsKey(id)) {
+    if (_hasCommitLease(id)) {
       return ReviewDraftSaveResult(
         ReviewDraftSaveStatus.commitInProgress,
         revision: reviewDraftRevision(id),
@@ -1631,44 +1698,140 @@ class TaskManager extends ChangeNotifier {
         revision: currentRevision,
       );
     }
-    final nextRevision = currentRevision + 1;
-    final nextTask = ImportTask.fromMap(task.toMap());
-    nextTask.parsedData = questions
+    final sanitizedQuestions = questions
         .map(_sanitizeAnswerDistillationSnapshot)
         .toList(growable: false);
-    nextTask.diagnostics = <String, dynamic>{
-      ...?nextTask.diagnostics,
-      keyExplanationRetentionMode: explanationRetentionMode.name,
-      keyReviewDraftRevision: nextRevision,
-    };
-    var skippedByCleanup = false;
+    final expectedAttempt = _captureReviewDraftAttemptIdentity(task);
+    if (expectedAttempt == null) {
+      return const ReviewDraftSaveResult(ReviewDraftSaveStatus.failed);
+    }
+    late ReviewDraftCasResult casResult;
     try {
       await _enqueueTaskWrite(id, () async {
         if (_cleanupInProgress.contains(id)) {
-          skippedByCleanup = true;
+          casResult = const ReviewDraftCasResult(
+            ReviewDraftCasStatus.taskMissing,
+            durableRevision: 0,
+          );
           return;
         }
-        await _persistTask(nextTask);
-      });
-      if (skippedByCleanup || _cleanupInProgress.contains(id)) {
-        return ReviewDraftSaveResult(
-          ReviewDraftSaveStatus.taskMissing,
-          revision: currentRevision,
+        casResult = await _persistReviewDraftCas(
+          taskId: id,
+          expectedAttempt: expectedAttempt,
+          expectedRevision: currentRevision,
+          questions: sanitizedQuestions,
+          explanationRetentionMode: explanationRetentionMode.name,
         );
-      }
+      });
     } catch (_) {
       _logTaskPersistenceFailure();
-      return ReviewDraftSaveResult(
+      return const ReviewDraftSaveResult(
         ReviewDraftSaveStatus.failed,
-        revision: currentRevision,
       );
     }
-    task.parsedData = nextTask.parsedData;
-    task.diagnostics = nextTask.diagnostics;
+
+    final mapped = _mapReviewDraftCasResult(casResult);
+    if (casResult.status != ReviewDraftCasStatus.saved) return mapped;
+    final durableRevision = casResult.durableRevision!;
+    task.parsedData = sanitizedQuestions;
+    task.diagnostics = <String, dynamic>{
+      ...?task.diagnostics,
+      keyExplanationRetentionMode: explanationRetentionMode.name,
+      keyReviewDraftRevision: durableRevision,
+    };
     notifyListeners();
-    return ReviewDraftSaveResult(
-      ReviewDraftSaveStatus.saved,
-      revision: nextRevision,
+    return mapped;
+  }
+
+  Future<ReviewDraftCasResult> _persistReviewDraftCas({
+    required String taskId,
+    required ReviewDraftAttemptIdentity expectedAttempt,
+    required int expectedRevision,
+    required List<Map<String, dynamic>> questions,
+    required String explanationRetentionMode,
+  }) async {
+    if (!_persistTasks) {
+      return ReviewDraftCasResult(
+        ReviewDraftCasStatus.saved,
+        durableRevision: expectedRevision + 1,
+      );
+    }
+    final casOverride = _saveReviewDraftCasOverride;
+    if (casOverride != null) {
+      return casOverride(
+        taskId: taskId,
+        expectedAttempt: expectedAttempt,
+        expectedRevision: expectedRevision,
+        questions: questions,
+        explanationRetentionMode: explanationRetentionMode,
+      );
+    }
+    final saveOverride = _saveTaskOverride;
+    if (saveOverride != null) {
+      // Compatibility adapter for existing isolated TaskManager tests. The
+      // production path below always uses repository-level persisted CAS.
+      final task = tasks.singleWhere((candidate) => candidate.id == taskId);
+      final next = ImportTask.fromMap(task.toMap());
+      next.parsedData = questions;
+      next.diagnostics = <String, dynamic>{
+        ...?next.diagnostics,
+        keyExplanationRetentionMode: explanationRetentionMode,
+        keyReviewDraftRevision: expectedRevision + 1,
+      };
+      await saveOverride(next.toMap());
+      return ReviewDraftCasResult(
+        ReviewDraftCasStatus.saved,
+        durableRevision: expectedRevision + 1,
+      );
+    }
+    return ImportTaskRepository.instance.saveReviewDraftCas(
+      taskId: taskId,
+      expectedAttempt: expectedAttempt,
+      expectedRevision: expectedRevision,
+      questions: questions,
+      explanationRetentionMode: explanationRetentionMode,
+    );
+  }
+
+  ReviewDraftSaveResult _mapReviewDraftCasResult(
+    ReviewDraftCasResult result,
+  ) {
+    return switch (result.status) {
+      ReviewDraftCasStatus.saved => ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.saved,
+          revision: result.durableRevision,
+        ),
+      ReviewDraftCasStatus.staleRevision ||
+      ReviewDraftCasStatus.staleAttempt ||
+      ReviewDraftCasStatus.taskNotPendingReview =>
+        ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.stale,
+          revision: result.durableRevision,
+        ),
+      ReviewDraftCasStatus.taskMissing => ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: result.durableRevision,
+        ),
+      ReviewDraftCasStatus.invalidMetadata => const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.failed,
+        ),
+    };
+  }
+
+  ReviewDraftAttemptIdentity? _captureReviewDraftAttemptIdentity(
+    ImportTask task,
+  ) {
+    final diagnostics = task.diagnostics;
+    final token = diagnostics?[keyAttemptToken];
+    final number = diagnostics?[keyAttemptNumber];
+    final trace = diagnostics?[keyTraceId];
+    if (token != null && (token is! String || token.isEmpty)) return null;
+    if (number != null && (number is! int || number <= 0)) return null;
+    if (trace != null && (trace is! String || trace.isEmpty)) return null;
+    return ReviewDraftAttemptIdentity(
+      attemptToken: token as String?,
+      attemptNumber: number as int?,
+      traceId: trace as String?,
     );
   }
 
@@ -1726,6 +1889,156 @@ class TaskManager extends ChangeNotifier {
     return completer.future;
   }
 
+  Future<LegacyCommitLeaseResult> beginLegacyCommitAttempt({
+    required String taskId,
+    required String? attemptToken,
+    required int? attemptNumber,
+    required String? traceId,
+    required int expectedReviewDraftRevision,
+    required String storageRoute,
+    required String? storageReason,
+  }) {
+    final completer = Completer<LegacyCommitLeaseResult>();
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) async {
+      try {
+        completer.complete(
+          _beginLegacyCommitAttemptNow(
+            taskId: taskId,
+            attemptToken: attemptToken,
+            attemptNumber: attemptNumber,
+            traceId: traceId,
+            expectedReviewDraftRevision: expectedReviewDraftRevision,
+            storageRoute: storageRoute,
+            storageReason: storageReason,
+          ),
+        );
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  LegacyCommitLeaseResult _beginLegacyCommitAttemptNow({
+    required String taskId,
+    required String? attemptToken,
+    required int? attemptNumber,
+    required String? traceId,
+    required int expectedReviewDraftRevision,
+    required String storageRoute,
+    required String? storageReason,
+  }) {
+    if (_cleanupInProgress.contains(taskId)) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    if (_hasCommitLease(taskId)) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.commitInProgress,
+      );
+    }
+    final index = tasks.indexWhere((task) => task.id == taskId);
+    if (index < 0) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskMissing,
+      );
+    }
+    final task = tasks[index];
+    if (task.status != TaskStatus.pendingReview || task.parsedData == null) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    final captured = _captureReviewDraftAttemptIdentity(task);
+    if (captured == null ||
+        captured.attemptToken != attemptToken ||
+        captured.attemptNumber != attemptNumber ||
+        captured.traceId != traceId) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.staleAttempt,
+      );
+    }
+    final route = task.diagnostics?[keyImportStorageRoute];
+    final durableMemoryRoute =
+        route ?? TypedImportCommitPersistence.legacyV1RouteValue;
+    final reason = task.diagnostics?[keyImportStorageReason];
+    if (storageRoute != TypedImportCommitPersistence.legacyV1RouteValue ||
+        durableMemoryRoute != storageRoute ||
+        (reason != null && reason is! String) ||
+        reason != storageReason) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    final revision = _readReviewDraftRevision(task);
+    if (expectedReviewDraftRevision < 0 ||
+        revision != expectedReviewDraftRevision) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.staleReviewDraft,
+      );
+    }
+
+    final lease = LegacyCommitAttemptLease(
+      leaseId: _newImportCommitLeaseId('legacy'),
+      taskId: taskId,
+      attemptToken: attemptToken,
+      attemptNumber: attemptNumber,
+      traceId: traceId,
+      reviewDraftRevision: expectedReviewDraftRevision,
+      storageRoute: storageRoute,
+      storageReason: storageReason,
+    );
+    _legacyCommitLeases[taskId] = lease;
+    return LegacyCommitLeaseResult.acquired(lease);
+  }
+
+  void releaseLegacyCommitLease(LegacyCommitAttemptLease lease) {
+    final active = _legacyCommitLeases[lease.taskId];
+    if (active != null && active.leaseId == lease.leaseId) {
+      _legacyCommitLeases.remove(lease.taskId);
+    }
+  }
+
+  TypedDurableCompletionStatus applyDurableLegacyCommitCompletion({
+    required LegacyCommitAttemptLease lease,
+    required String completionText,
+    required int completedAt,
+  }) {
+    final active = _legacyCommitLeases[lease.taskId];
+    if (active == null || active.leaseId != lease.leaseId) {
+      return TypedDurableCompletionStatus.staleLease;
+    }
+    final index = tasks.indexWhere((task) => task.id == lease.taskId);
+    if (index < 0) {
+      _legacyCommitLeases.remove(lease.taskId);
+      _logTypedCommitTaskRemovedWarning();
+      return TypedDurableCompletionStatus.taskRemovedDurable;
+    }
+    final task = tasks[index];
+    final identity = _captureReviewDraftAttemptIdentity(task);
+    if (identity == null ||
+        identity.attemptToken != lease.attemptToken ||
+        identity.attemptNumber != lease.attemptNumber ||
+        identity.traceId != lease.traceId) {
+      _legacyCommitLeases.remove(lease.taskId);
+      return TypedDurableCompletionStatus.staleLease;
+    }
+    if (task.status == TaskStatus.completed) {
+      _legacyCommitLeases.remove(lease.taskId);
+      return TypedDurableCompletionStatus.alreadyCompleted;
+    }
+    task.status = TaskStatus.completed;
+    task.progressText = completionText;
+    task.completedAt = completedAt;
+    task.parsedData = null;
+    notifyListeners();
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) {
+      _legacyCommitLeases.remove(lease.taskId);
+    });
+    return TypedDurableCompletionStatus.applied;
+  }
+
   /// Begins a typed commit attempt for one task.
   ///
   /// The lease registration is serialized with the review-draft queue: every
@@ -1768,7 +2081,7 @@ class TaskManager extends ChangeNotifier {
         TypedCommitLeaseStatus.taskNotPendingReview,
       );
     }
-    if (_typedCommitLeases.containsKey(taskId)) {
+    if (_hasCommitLease(taskId)) {
       return const TypedCommitLeaseResult(
         TypedCommitLeaseStatus.commitInProgress,
       );
@@ -1818,7 +2131,7 @@ class TaskManager extends ChangeNotifier {
     }
 
     final lease = TypedCommitAttemptLease(
-      leaseId: _newTypedCommitLeaseId(),
+      leaseId: _newImportCommitLeaseId('typed'),
       taskId: taskId,
       attemptToken: attemptToken,
       attemptNumber: attemptNumber,
@@ -1896,10 +2209,15 @@ class TaskManager extends ChangeNotifier {
     );
   }
 
-  static String _newTypedCommitLeaseId() {
+  bool _hasCommitLease(String taskId) {
+    return _typedCommitLeases.containsKey(taskId) ||
+        _legacyCommitLeases.containsKey(taskId);
+  }
+
+  static String _newImportCommitLeaseId(String route) {
     final timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
     final entropy = _leaseRandom.nextInt(0x7fffffff).toRadixString(16);
-    return 'typed-commit-$timestamp-$entropy';
+    return '$route-commit-$timestamp-$entropy';
   }
 
   int _readReviewDraftRevision(ImportTask task) {

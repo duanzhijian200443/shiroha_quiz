@@ -384,4 +384,37 @@ void main() {
       expect(saved, isNotEmpty);
     },
   );
+
+  testWidgets(
+    'running tasks never expose same-attempt legacy breakpoint resume',
+    (WidgetTester tester) async {
+      final taskManager = TaskManager.forTesting()
+        ..tasks.add(
+          ImportTask(
+            id: 'running-current-attempt',
+            title: 'synthetic_running.pdf',
+            status: TaskStatus.processing,
+            pendingChunks: const <String>['SYNTHETIC_PENDING_CHUNK'],
+            diagnostics: const <String, dynamic>{
+              TaskManager.keyTraceId: 'trace-running-1',
+              TaskManager.keyAttemptToken: 'attempt-running-1',
+              TaskManager.keyAttemptNumber: 1,
+              TaskManager.keyAttemptState: 'running',
+              TaskManager.keyParseMode: 'ocr',
+            },
+          ),
+        );
+
+      await tester.pumpWidget(createWidgetUnderTest(taskManager: taskManager));
+      await tester.pump();
+
+      expect(find.text('断点重试'), findsNothing);
+      expect(
+        find.byKey(
+          const ValueKey<String>('task-retry-running-current-attempt'),
+        ),
+        findsNothing,
+      );
+    },
+  );
 }

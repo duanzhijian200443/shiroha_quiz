@@ -11,6 +11,10 @@ enum TraceOperationKind {
   ragRetrieval,
   backupExport,
   backupRestore,
+
+  /// Post-OBS-1 successor extension owned by DM-D5. This value was not part
+  /// of the original closed OBS-1 v0 taxonomy.
+  destructiveMutation,
 }
 
 /// Correlation data that follows an asynchronous operation through Dart zones.
@@ -104,6 +108,7 @@ abstract final class TraceContext {
     required TraceOperationKind operationKind,
     required Future<T> Function() action,
     String? taskId,
+    bool inheritTaskId = true,
     String? traceId,
     String? correlationId,
     String? parentTraceId,
@@ -112,8 +117,9 @@ abstract final class TraceContext {
     return run(
       action: action,
       traceId: traceId ?? createTraceId(),
-      // A child operation inherits the enclosing taskId (current behavior).
-      taskId: taskId ?? current[_taskIdKey] as String?,
+      // A child operation inherits the enclosing taskId by default. Narrow
+      // child seams may opt out when the operation must not carry task data.
+      taskId: inheritTaskId ? taskId ?? current[_taskIdKey] as String? : taskId,
       correlationId: correlationId ?? current[_correlationIdKey] as String?,
       parentTraceId: parentTraceId ?? current[_traceIdKey] as String?,
       operationKind: operationKind,

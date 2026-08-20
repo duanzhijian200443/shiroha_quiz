@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../application/file_library/library_file_deletion.dart';
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import 'workspace_controller.dart';
 
@@ -355,6 +356,28 @@ class _FileDetailScreen extends StatelessWidget {
                         attached: attached,
                       ),
                     ),
+                const SizedBox(height: 12),
+                ListTile(
+                  key: const ValueKey<String>('dm-d5-delete-library-file'),
+                  leading: Icon(
+                    Icons.delete_outline,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: Text(
+                    '删除文件',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                  subtitle: const Text('永久删除文件记录和受管原文件'),
+                  onTap: controller.isFileDeletionPending(fileId)
+                      ? null
+                      : () => _deleteLibraryFile(
+                            context,
+                            controller,
+                            fileId,
+                          ),
+                ),
                 const SizedBox(height: 12),
                 const Text('打开原文件将在安全的 managed-file 用例完成后提供。'),
               ],
@@ -1037,6 +1060,55 @@ Future<void> _deleteFolder(
   final success = await controller.deleteFolder(folder.folderId);
   if (!context.mounted) return;
   _feedback(context, success ? '文件夹已删除' : controller.errorMessage!);
+}
+
+Future<void> _deleteLibraryFile(
+  BuildContext context,
+  FileLibraryController controller,
+  String fileId,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('永久删除文件？'),
+      content: const Text(
+        '将删除文件库记录和受管原文件，并解除学习空间、对话及文件夹关联；'
+        '当前解析产物也会清理。不会删除用户电脑或外部位置的原始来源文件，'
+        '也不会删除已经确认入库的 Questions。此操作不可撤销。\n\n'
+        '建议先在数据中心导出备份。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('永久删除'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final success = await controller.deleteFile(fileId);
+  if (!context.mounted) return;
+  if (!success) {
+    _feedback(context, controller.errorMessage!);
+    return;
+  }
+
+  final result = controller.lastDeletionResult;
+  final hasOrphan =
+      result?.managedBytesCleanup == LibraryFileManagedBytesCleanup.orphaned ||
+          result?.parsedArtifactCleanup ==
+              LibraryFileParsedArtifactCleanup.orphaned;
+  Navigator.of(context).pop();
+  _feedback(
+    context,
+    hasOrphan ? '文件记录已删除，部分本地清理待处理' : '文件已永久删除',
+  );
 }
 
 Future<void> _moveFile(

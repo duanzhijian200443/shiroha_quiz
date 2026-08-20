@@ -1,5 +1,6 @@
 import '../../domain/backup/backup_manifest.dart';
 import '../backup/backup_restore_gate.dart';
+import '../observability/destructive_mutation_trace.dart';
 
 enum ExamDeleteFailure {
   activeGrading,
@@ -95,8 +96,11 @@ final class ExamMutationCommand {
 
   Future<void> deleteExamPaper(String id) async {
     try {
-      await BackupRestoreMutationGate.instance.runMutation(
-        () => _persistence.deleteExamPaper(id),
+      await DestructiveMutationTrace.run<void>(
+        kind: DestructiveMutationKind.examPaperDelete,
+        action: () => BackupRestoreMutationGate.instance.runMutation(
+          () => _persistence.deleteExamPaper(id),
+        ),
       );
     } on ExamDeleteException {
       rethrow;

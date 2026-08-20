@@ -152,6 +152,54 @@ TypedImportCommitGuard _importGuard({
   );
 }
 
+LegacyImportCommitGuard _legacyImportGuard({
+  String taskId = 'legacy-import-task',
+  String? token,
+  int? number,
+  String? trace = 'legacy-trace-A',
+  int revision = 1,
+  String? reason,
+}) {
+  return LegacyImportCommitGuard(
+    taskId: taskId,
+    attemptToken: token,
+    attemptNumber: number,
+    traceId: trace,
+    reviewDraftRevision: revision,
+    storageRoute: TypedImportCommitPersistence.legacyV1RouteValue,
+    storageReason: reason,
+  );
+}
+
+Map<String, Object?> _legacyImportDiagnostics({
+  String? token,
+  int? number,
+  String? trace = 'legacy-trace-A',
+  int revision = 1,
+  bool explicitRoute = false,
+  String? reason,
+}) {
+  return <String, Object?>{
+    if (token != null) TypedImportCommitPersistence.keyAttemptToken: token,
+    if (number != null) TypedImportCommitPersistence.keyAttemptNumber: number,
+    if (trace != null) TypedImportCommitPersistence.keyTraceId: trace,
+    if (explicitRoute)
+      TypedImportCommitPersistence.keyImportStorageRoute:
+          TypedImportCommitPersistence.legacyV1RouteValue,
+    if (reason != null)
+      TypedImportCommitPersistence.keyImportStorageReason: reason,
+    TypedImportCommitPersistence.keyReviewDraftRevision: revision,
+  };
+}
+
+const _legacyImportDraft = QuestionDraft(
+  type: QuestionType.shortAnswer,
+  content: 'Synthetic legacy import stem',
+  options: <String>[],
+  standardAnswer: 'Synthetic answer',
+  explanation: '',
+);
+
 Map<String, Object?> _importDiagnostics({
   String token = 'attempt-A',
   int number = 1,
@@ -1442,6 +1490,111 @@ void main() {
       expect(await db.query('question_v2_payloads'), hasLength(2));
       expect(await db.query('review_states'), hasLength(2));
       expect((await _importTaskRows(db)).single['status'], 2);
+    });
+  });
+
+  group('task-bound legacy import atomic commit', () {
+    test('missing legacy route and exact nullable identity commit atomically',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        id: 'legacy-import-task',
+        diagnostics: _legacyImportDiagnostics(),
+      );
+      final repository = QuestionRepository();
+
+      final result = await repository.commitQuestionDraftsLegacyForImport(
+        bankName: _bankName,
+        folderName: 'Math',
+        questions: const <QuestionDraft>[_legacyImportDraft],
+        guard: _legacyImportGuard(),
+        completionText: 'legacy done',
+      );
+
+      expect(result.questionCount, 1);
+      expect(await db.query('questions'), hasLength(1));
+      expect(await db.query('question_v2_payloads'), isEmpty);
+      expect(await db.query('review_states'), hasLength(1));
+      expect(await db.query('bank_folders'), hasLength(1));
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], TypedImportCommitPersistence.completedStatusCode);
+      expect(task['parsed_data'], isNull);
+      expect(task['progress_text'], 'legacy done');
+    });
+
+    test('null attempt identity is not a wildcard for a newer durable attempt',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        id: 'legacy-import-task',
+        diagnostics: _legacyImportDiagnostics(
+          token: 'new-attempt',
+          number: 2,
+          trace: 'new-trace',
+        ),
+      );
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsLegacyForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: const <QuestionDraft>[_legacyImportDraft],
+          guard: _legacyImportGuard(trace: null),
+          completionText: 'must not commit',
+        ),
+        throwsA(
+          isA<LegacyImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            LegacyImportCommitPersistenceFailure.staleAttempt,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect((await _importTaskRows(db)).single['status'], 1);
+    });
+
+    test('task completion failure rolls back legacy rows and folder mapping',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        id: 'legacy-import-task',
+        diagnostics: _legacyImportDiagnostics(explicitRoute: true),
+      );
+      await db.execute('''
+        CREATE TRIGGER dm_d4_block_legacy_completion
+        BEFORE UPDATE ON import_tasks
+        WHEN NEW.status = 2
+        BEGIN SELECT RAISE(ABORT, 'synthetic_legacy_completion_failure'); END;
+      ''');
+      final repository = QuestionRepository();
+
+      await expectLater(
+        repository.commitQuestionDraftsLegacyForImport(
+          bankName: _bankName,
+          folderName: 'Math',
+          questions: const <QuestionDraft>[_legacyImportDraft],
+          guard: _legacyImportGuard(),
+          completionText: 'must roll back',
+        ),
+        throwsA(
+          isA<LegacyImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            LegacyImportCommitPersistenceFailure.transactionFailed,
+          ),
+        ),
+      );
+      expect(await db.query('questions'), isEmpty);
+      expect(await db.query('review_states'), isEmpty);
+      expect(await db.query('bank_folders'), isEmpty);
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 1);
+      expect(task['parsed_data'], isNotNull);
     });
   });
 

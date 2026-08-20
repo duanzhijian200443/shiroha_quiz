@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../application/study_query/study_query_dtos.dart';
+import '../../application/file_library/library_file_deletion.dart';
 import '../../application/file_library/library_folder_repository.dart';
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
@@ -160,11 +163,18 @@ class FileLibraryController extends ChangeNotifier {
   List<LearningSpaceSummary> spaces = const <LearningSpaceSummary>[];
   String? selectedFolderId;
   LibraryFileDetail? selectedDetail;
+  LibraryFileDeletionResult? lastDeletionResult;
   LibraryFileArtifactState? artifactState;
   bool isArtifactBusy = false;
   bool isLoading = false;
   String query = '';
   String? errorMessage;
+  bool _disposed = false;
+  final Map<String, Future<bool>> _pendingFileDeletions =
+      <String, Future<bool>>{};
+
+  bool isFileDeletionPending(String fileId) =>
+      _pendingFileDeletions.containsKey(fileId);
 
   List<LibraryFileSummary> get visibleFiles {
     final normalized = query.trim().toLowerCase();
@@ -263,6 +273,50 @@ class FileLibraryController extends ChangeNotifier {
       return true;
     } catch (error) {
       errorMessage = _folderError(error, action: '移动');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Presentation-facing destructive entry. The facade remains the only
+  /// authority exposed to this controller.
+  Future<bool> deleteFile(String fileId) {
+    final pending = _pendingFileDeletions[fileId];
+    if (pending != null) return pending;
+
+    final operation = _deleteFileOnce(fileId);
+    _pendingFileDeletions[fileId] = operation;
+    if (!_disposed) notifyListeners();
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_pendingFileDeletions[fileId], operation)) {
+          _pendingFileDeletions.remove(fileId);
+          if (!_disposed) notifyListeners();
+        }
+      }),
+    );
+    return operation;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  Future<bool> _deleteFileOnce(String fileId) async {
+    errorMessage = null;
+    lastDeletionResult = null;
+    try {
+      lastDeletionResult = await facade.deleteLibraryFile(fileId);
+      if (selectedDetail?.file.fileId == fileId) {
+        selectedDetail = null;
+        artifactState = null;
+      }
+      await load();
+      return true;
+    } catch (_) {
+      errorMessage = '删除失败，请稍后重试；文件状态未改变';
       notifyListeners();
       return false;
     }

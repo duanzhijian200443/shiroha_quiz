@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_service.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/file_library/library_file_deletion.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_repository.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
@@ -218,6 +219,34 @@ final class _Ingestion implements FileIngestionPort {
   }
 }
 
+final class _Deletion implements LibraryFileDeletionPort {
+  _Deletion(this.files);
+
+  final _Files files;
+  int calls = 0;
+  bool fail = false;
+  bool orphan = false;
+  Completer<void>? release;
+
+  @override
+  Future<LibraryFileDeletionResult> deleteLibraryFile(String fileId) async {
+    calls++;
+    final pendingRelease = release;
+    if (pendingRelease != null) await pendingRelease.future;
+    if (fail) throw StateError('synthetic delete failure');
+    files.values.remove(fileId);
+    return LibraryFileDeletionResult(
+      fileId: fileId,
+      projectReferenceCount: 1,
+      conversationReferenceCount: 1,
+      managedBytesCleanup: orphan
+          ? LibraryFileManagedBytesCleanup.orphaned
+          : LibraryFileManagedBytesCleanup.deleted,
+      parsedArtifactCleanup: LibraryFileParsedArtifactCleanup.notPresent,
+    );
+  }
+}
+
 final class _Folders extends Fake implements LibraryFolderRepositoryPort {
   _Folders(this.files);
 
@@ -409,6 +438,7 @@ U1WorkspaceFacade _facade({
   _Files? files,
   _Projects? projects,
   _Folders? folders,
+  LibraryFileDeletionPort? deletion,
 }) {
   final resolvedFiles = files ?? _Files();
   resolvedFiles.values['file-notes'] = LibraryFile(
@@ -446,6 +476,7 @@ U1WorkspaceFacade _facade({
       repository: resolvedFolders,
       folderIdFactory: () => 'folder-created',
     ),
+    libraryFileDeletion: deletion,
     studyQueryService: StudyQueryService(
       questionQuery: _QuestionPort(),
       metricsQuery: _Metrics(),
@@ -941,6 +972,169 @@ void main() {
     expect(find.text('Local stdio'), findsOneWidget);
     expect(find.textContaining('不代表'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'DM-D5 LibraryFile confirmation calls Controller to Facade authority',
+      (tester) async {
+    final files = _Files();
+    final deletion = _Deletion(files);
+    final facade = _facade(files: files, deletion: deletion);
+    final controller = FileLibraryController(facade);
+    addTearDown(controller.dispose);
+    await controller.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: FileLibraryWorkspace(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-file-file-notes')),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('dm-d5-delete-library-file')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('永久删除文件？'), findsOneWidget);
+    expect(find.textContaining('建议先在数据中心导出备份'), findsOneWidget);
+    expect(find.textContaining('外部位置'), findsOneWidget);
+    expect(find.textContaining('Questions'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(deletion.calls, 0);
+    expect(files.values, contains('file-notes'));
+
+    deletion.fail = true;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('dm-d5-delete-library-file')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletion.calls, 1);
+    expect(files.values, contains('file-notes'));
+    expect(controller.isFileDeletionPending('file-notes'), isFalse);
+    expect(find.textContaining('删除失败，请稍后重试'), findsOneWidget);
+    expect(find.textContaining('synthetic delete failure'), findsNothing);
+
+    deletion.fail = false;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('dm-d5-delete-library-file')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletion.calls, 2);
+    expect(files.values, isNot(contains('file-notes')));
+    expect(find.text('文件已永久删除'), findsOneWidget);
+    expect(controller.errorMessage, isNull);
+  });
+
+  test('DM-D5 LibraryFile deletion is single-flight per file id', () async {
+    final files = _Files();
+    final deletion = _Deletion(files)..release = Completer<void>();
+    final controller = FileLibraryController(
+      _facade(files: files, deletion: deletion),
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+
+    final first = controller.deleteFile('file-notes');
+    await Future<void>.delayed(Duration.zero);
+    expect(deletion.calls, 1);
+    expect(controller.isFileDeletionPending('file-notes'), isTrue);
+
+    final second = controller.deleteFile('file-notes');
+    expect(deletion.calls, 1);
+
+    deletion.release!.complete();
+    expect(await first, isTrue);
+    expect(await second, isTrue);
+    expect(controller.isFileDeletionPending('file-notes'), isFalse);
+  });
+
+  testWidgets('DM-D5 LibraryFile pending deletion disables the widget entry',
+      (tester) async {
+    final files = _Files();
+    final deletion = _Deletion(files)..release = Completer<void>();
+    final controller = FileLibraryController(
+      _facade(files: files, deletion: deletion),
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: FileLibraryWorkspace(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-file-file-notes')),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    final deleteEntry = find.byKey(
+      const ValueKey<String>('dm-d5-delete-library-file'),
+    );
+    await tester.tap(deleteEntry);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletion.calls, 1);
+    expect(controller.isFileDeletionPending('file-notes'), isTrue);
+    expect(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.widget<ListTile>(deleteEntry).onTap,
+      isNull,
+    );
+
+    await tester.tap(deleteEntry);
+    await tester.pump();
+    expect(deletion.calls, 1);
+    expect(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+      findsNothing,
+    );
+
+    deletion.release!.complete();
+    await tester.pumpAndSettle();
+
+    expect(controller.isFileDeletionPending('file-notes'), isFalse);
+    expect(deletion.calls, 1);
+    expect(find.text('文件已永久删除'), findsOneWidget);
   });
 
   testWidgets('Folder local navigation supports CRUD, move, and safe delete',

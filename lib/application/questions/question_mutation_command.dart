@@ -1,5 +1,6 @@
 import '../../domain/backup/backup_manifest.dart';
 import '../backup/backup_restore_gate.dart';
+import '../observability/destructive_mutation_trace.dart';
 
 enum QuestionDeleteFailure {
   examReferenced,
@@ -35,8 +36,11 @@ final class QuestionMutationCommand {
 
   Future<void> deleteQuestion(String id) async {
     try {
-      await BackupRestoreMutationGate.instance.runMutation(
-        () => _persistence.deleteQuestion(id),
+      await DestructiveMutationTrace.run<void>(
+        kind: DestructiveMutationKind.questionDelete,
+        action: () => BackupRestoreMutationGate.instance.runMutation(
+          () => _persistence.deleteQuestion(id),
+        ),
       );
     } on QuestionDeleteException {
       rethrow;

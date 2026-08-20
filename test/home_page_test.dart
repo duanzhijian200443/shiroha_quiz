@@ -754,7 +754,9 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('today-focused-stop')));
       await tester.pump();
-      expect(find.text('确定停止当前学习计划？'), findsOneWidget);
+      expect(find.textContaining('只停止当前学习计划'), findsOneWidget);
+      expect(find.textContaining('不会删除题目、作答记录或学习历史'), findsOneWidget);
+      expect(find.textContaining('保留备份'), findsOneWidget);
 
       await tester.tap(find.text('取消'));
       await tester.pump();

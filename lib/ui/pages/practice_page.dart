@@ -1217,7 +1217,11 @@ class _PracticePageState extends State<PracticePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('确认删除'),
-        content: const Text('确定要彻底删除此题及所有复习记录吗？此操作不可恢复。'),
+        content: const Text(
+          '将删除此题以及相关的复习状态和复习日志；历史作答记录会保留，'
+          '来源文件不会被删除。如果题目仍被试卷引用，删除会被阻止。'
+          '此操作不可恢复。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -1243,10 +1247,10 @@ class _PracticePageState extends State<PracticePage> {
       );
 
       _loadNextQuestion(); // Move to next
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('删除失败: ${e.toString()}')),
+        const SnackBar(content: Text('删除题目失败，请稍后重试')),
       );
     }
   }

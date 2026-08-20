@@ -603,6 +603,45 @@ void main() {
     });
 
     testWidgets(
+        'Question delete confirmation preserves history and source file',
+        (tester) async {
+      await tester.runAsync(() async {
+        final db = await _db();
+        await _insertLegacy(db, id: 'practice_delete_question');
+        await db.insert(
+          'review_states',
+          _newReviewState('practice_delete_question'),
+        );
+      });
+
+      await pumpUntilLoaded(tester);
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('历史作答记录会保留'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('来源文件不会被删除'), findsOneWidget);
+
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+
+      final questions = await tester.runAsync(
+        () => _db().then(
+          (db) => db.query(
+            'questions',
+            where: 'id = ?',
+            whereArgs: <Object?>['practice_delete_question'],
+          ),
+        ),
+      );
+      expect(questions, hasLength(1));
+      expect(find.text('确认删除'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
         'typed explicit empty stem/answer/explanation never falls back to '
         'V1 placeholders', (tester) async {
       await tester.runAsync(() async {

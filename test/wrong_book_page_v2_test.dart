@@ -344,6 +344,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.textContaining('AnswerAttempt'), findsOneWidget);
+      expect(find.textContaining('来源文件'), findsOneWidget);
       await tester.tap(find.widgetWithText(ElevatedButton, '删除'));
       await tester.pumpAndSettle();
 
