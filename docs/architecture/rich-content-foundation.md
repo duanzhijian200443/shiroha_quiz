@@ -226,8 +226,17 @@ image can progress into typed question assembly.
 its ordered fragments. That closure includes:
 
 - every direct `SourceAssetPart` in the region;
-- every `ImageNode` reachable through region-owned source content;
+- every `ImageNode` reachable through the materialized content of a
+  region-owned `SourceContentPart`;
 - every `ImageNode` reachable through region-owned table cells.
+
+When a `QuestionRegionFragment` carries a `SourceSlice`, asset closure MUST be
+computed from the fragment content after that slice is applied, using the same
+half-open materialized node interval that defines typed question content.
+Assets that exist only outside the selected slice are not part of that
+QuestionRegion and MUST NOT enter its asset closure. Scanning the entire
+underlying `SourceContentPart.content` is non-conforming when a slice is
+present.
 
 For each nested identity, Region derivation resolves the canonical metadata
 from the source-level authority and emits one `SourcedAssetRef`. It must not
@@ -556,6 +565,12 @@ block identity/provenance, the actual `SourcePart` occurrence, and canonical
 reading/encounter order. An optional `SourceSlice` may select a text interval
 inside a `SourceContentPart`; it does not recover non-text ownership.
 
+When present, `SourceSlice` is authoritative for the fragment's materialized
+content boundary and therefore for that fragment's transitive asset closure.
+Only assets reachable from the selected half-open materialized node interval
+belong to the fragment; assets outside the slice MUST NOT be retained merely
+because they occur in the same underlying `SourceContentPart`.
+
 The concrete OCR/DOCX claim type is deferred, but it must be able to carry at
 least the target `QuestionRegionField`, source/block identity or equivalent
 `SourcePart` identity, canonical reading order, and an optional text-only
@@ -617,6 +632,7 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | `RichContentPrivacyAdmission` directly validates draft asset inventory | REJECTED | Source-stage RichContent has no owning `QuestionDraftV2` context. |
 | Source-level canonical asset metadata authority | FINAL | Nested source images need safe metadata before Region/Draft formation. |
 | `QuestionRegion` transitive asset closure | FINAL | Direct and nested images must produce the exact `SourcedAssetRef` closure carried into the draft. |
+| `SourceSlice` constrains fragment asset closure | FINAL | Only assets reachable from the slice-materialized fragment belong to that QuestionRegion. |
 | Concrete source asset inventory representation | DEFERRED | Phase 0 freezes closure semantics, not the SourceDocument field/type. |
 | `alternativeText: RichContent?` | FINAL | It preserves the existing typed Source asset contract. |
 | Alternative-text text/math-only subset | FINAL | It prevents recursive images/tables and bounds semantics. |
