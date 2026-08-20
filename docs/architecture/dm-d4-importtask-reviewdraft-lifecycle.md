@@ -453,3 +453,53 @@ schema, migration, UI, Agent/MCP, OBS, Rich Image, GC/ref-count, or B0
 runtime. Any later proposal that changes authority, state vocabulary, retry
 identity, commit ordering, cleanup classification, or retention policy must
 amend this canonical contract before implementation.
+
+## 14. D4-V0 / CL Closure Addendum
+
+This addendum records implementation provenance after the historical,
+read-only P0 comparison in Section 11. It does not rewrite that comparison or
+imply that the later implementation was already present at the P0 freeze.
+
+### 14.1 Implementation provenance
+
+- D4-D1 durable cleanup / retention:
+  `758cb33` and `00406d1` (merged by PR #129).
+- D4-D2 cancel / retry durability:
+  `45765de`, `ce1a69c`, `fd17904`, and `0a4a8dc` (merged by PR #130).
+- D4-D3 ReviewDraft / commit authority:
+  `687802d` (persisted ReviewDraft compare-and-set) and `c5131db`
+  (task-bound legacy atomic commit, shared lease arbitration, and legacy
+  same-attempt resume entry closure).
+- D4 final implementation / acceptance head: `c5131db`.
+
+No schema or migration change was required; runtime schema remains v23.
+
+### 14.2 Final fault-matrix authority
+
+The final D4 acceptance matrix is owned by the following focused regressions:
+
+| Fault class | Regression authority |
+| --- | --- |
+| restart / explicit retry identity | `test/task_center_restart_recovery_test.dart`, `test/import_task_coordinator_test.dart` |
+| cancellation settlement / persistence failure | `test/task_manager_import_diagnostics_test.dart`, `test/import_task_coordinator_test.dart` |
+| persisted ReviewDraft revision / stale attempt / stale resurrection | `test/data/repositories/import_task_review_draft_cas_test.dart`, `test/task_manager_typed_review_snapshot_test.dart` |
+| typed commit lease / atomic commit / rollback | `test/task_manager_typed_commit_lease_test.dart`, `test/import_commit_service_test.dart`, `test/question_repository_v2_test.dart` |
+| legacy exact nullable identity / lease / atomic rollback | `test/task_manager_typed_commit_lease_test.dart`, `test/import_commit_service_test.dart`, `test/question_repository_v2_test.dart`, `test/import_staging_typed_commit_widget_test.dart` |
+| cleanup / retention / housekeeping failure | `test/task_manager_cleanup_test.dart` |
+| staging draft / commit / batch-action races | `test/import_staging_typed_commit_widget_test.dart`, `test/import_staging_batch_actions_widget_test.dart` |
+
+The persisted ReviewDraft authority returns the actual durable revision to a
+stale caller. Ordinary saves capture the current projection revision and use
+it as the persisted expected revision; there is no production unconditional
+ReviewDraft save. Task-bound legacy commits bind exact nullable attempt
+identity (null is not a wildcard), use the same task-scoped lease arbitration
+as typed commits, and commit Question rows plus ImportTask completion in one
+SQLite transaction. Task-less compatibility writes retain their historical
+behavior.
+
+### 14.3 Closure status
+
+At the D4 final implementation / acceptance head, the Executor closure target
+has no known open P0, P1, or P2 defect. Independent verification and review of
+the Draft FINAL PR remain required before any merge; this addendum is not a
+self-approval or merge authorization.
