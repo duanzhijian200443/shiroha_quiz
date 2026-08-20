@@ -64,6 +64,47 @@ Future<TypedCommitLeaseResult> _begin(
   );
 }
 
+ImportTask _legacyTask({
+  String? token,
+  int? number,
+  String? trace = 'legacy-trace-1',
+  int revision = 1,
+}) {
+  return ImportTask(
+    id: 'legacy-lease-task',
+    title: 'Synthetic legacy import',
+    status: TaskStatus.pendingReview,
+    parsedData: <Map<String, dynamic>>[
+      <String, dynamic>{'content': 'Synthetic legacy stem'},
+    ],
+    diagnostics: <String, dynamic>{
+      if (token != null) TaskManager.keyAttemptToken: token,
+      if (number != null) TaskManager.keyAttemptNumber: number,
+      if (trace != null) TaskManager.keyTraceId: trace,
+      TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+      TaskManager.keyReviewDraftRevision: revision,
+    },
+  );
+}
+
+Future<LegacyCommitLeaseResult> _beginLegacy(
+  TaskManager manager, {
+  String? token,
+  int? number,
+  String? trace = 'legacy-trace-1',
+  int revision = 1,
+}) {
+  return manager.beginLegacyCommitAttempt(
+    taskId: 'legacy-lease-task',
+    attemptToken: token,
+    attemptNumber: number,
+    traceId: trace,
+    expectedReviewDraftRevision: revision,
+    storageRoute: 'legacyV1',
+    storageReason: null,
+  );
+}
+
 void main() {
   test('matching pendingReview attempt acquires a lease', () async {
     final manager = TaskManager.forTesting();
@@ -443,5 +484,85 @@ void main() {
 
     expect(manager.tasks.single.status, TaskStatus.completed);
     expect(manager.tasks.single.parsedData, isNull);
+  });
+
+  test('legacy compatibility lease captures exact nullable identity', () async {
+    final manager = TaskManager.forTesting()..tasks.add(_legacyTask());
+
+    final result = await _beginLegacy(manager);
+
+    expect(result.status, LegacyCommitLeaseStatus.acquired);
+    expect(result.lease!.attemptToken, isNull);
+    expect(result.lease!.attemptNumber, isNull);
+    expect(result.lease!.traceId, 'legacy-trace-1');
+    expect(result.lease!.reviewDraftRevision, 1);
+    expect(result.lease!.storageRoute, 'legacyV1');
+  });
+
+  test('legacy null identity is not a wildcard for a newer attempt', () async {
+    final manager = TaskManager.forTesting()
+      ..tasks.add(
+        _legacyTask(
+          token: 'new-attempt',
+          number: 2,
+          trace: 'new-trace',
+        ),
+      );
+
+    final result = await _beginLegacy(manager, trace: null);
+
+    expect(result.status, LegacyCommitLeaseStatus.staleAttempt);
+  });
+
+  test('legacy lease blocks draft writes and a competing typed commit',
+      () async {
+    final manager = TaskManager.forTesting()..tasks.add(_legacyTask());
+    final lease = (await _beginLegacy(manager)).lease!;
+
+    final save = await manager.saveReviewDraft(
+      'legacy-lease-task',
+      questions: const <Map<String, dynamic>>[
+        <String, dynamic>{'content': 'must not race'},
+      ],
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+    final typed = await manager.beginTypedCommitAttempt(
+      taskId: 'legacy-lease-task',
+      attemptToken: 'irrelevant',
+      attemptNumber: 1,
+      expectedReviewDraftRevision: 1,
+    );
+
+    expect(save.status, ReviewDraftSaveStatus.commitInProgress);
+    expect(typed.status, TypedCommitLeaseStatus.commitInProgress);
+    manager.releaseLegacyCommitLease(lease);
+  });
+
+  test('legacy durable completion is memory-only and prevents resurrection',
+      () async {
+    var persistenceCalls = 0;
+    final manager = TaskManager.forTesting(
+      saveTask: (_) async => persistenceCalls++,
+    )..tasks.add(_legacyTask());
+    final lease = (await _beginLegacy(manager)).lease!;
+
+    final status = manager.applyDurableLegacyCommitCompletion(
+      lease: lease,
+      completionText: 'legacy done',
+      completedAt: 1700000000,
+    );
+    final blocked = await manager.saveReviewDraft(
+      'legacy-lease-task',
+      questions: const <Map<String, dynamic>>[
+        <String, dynamic>{'content': 'stale resurrection'},
+      ],
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+
+    expect(status, TypedDurableCompletionStatus.applied);
+    expect(persistenceCalls, 0);
+    expect(manager.tasks.single.status, TaskStatus.completed);
+    expect(manager.tasks.single.parsedData, isNull);
+    expect(blocked.status, ReviewDraftSaveStatus.commitInProgress);
   });
 }

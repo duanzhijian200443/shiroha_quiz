@@ -30,6 +30,24 @@ enum TypedReviewCommitAttemptFailure {
   persistenceFailed,
 }
 
+enum LegacyReviewCommitAttemptFailure {
+  taskMissing,
+  taskNotPendingReview,
+  staleAttempt,
+  staleReviewDraft,
+  commitInProgress,
+  persistenceFailed,
+}
+
+final class LegacyReviewCommitAttemptException implements Exception {
+  const LegacyReviewCommitAttemptException(this.failure);
+
+  final LegacyReviewCommitAttemptFailure failure;
+
+  @override
+  String toString() => 'LegacyReviewCommitAttemptException(${failure.name})';
+}
+
 final class TypedReviewCommitAttemptException implements Exception {
   const TypedReviewCommitAttemptException(this.failure);
 
@@ -97,13 +115,61 @@ class ImportCommitService {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     List<QuestionExplanationOverride>? explanationOverrides,
-  }) {
+  }) async {
+    final boundTaskId = taskId?.trim();
+    if (boundTaskId != null && boundTaskId.isNotEmpty) {
+      final matches =
+          _taskManager.tasks.where((task) => task.id == boundTaskId);
+      if (matches.isEmpty) {
+        throw const LegacyReviewCommitAttemptException(
+          LegacyReviewCommitAttemptFailure.taskMissing,
+        );
+      }
+      final task = matches.single;
+      final taskDiagnostics = task.diagnostics;
+      final token = taskDiagnostics?[TaskManager.keyAttemptToken];
+      final number = taskDiagnostics?[TaskManager.keyAttemptNumber];
+      final trace = taskDiagnostics?[TaskManager.keyTraceId];
+      final reason = taskDiagnostics?[TaskManager.keyImportStorageReason];
+      if ((token != null && (token is! String || token.isEmpty)) ||
+          (number != null && (number is! int || number <= 0)) ||
+          (trace != null && (trace is! String || trace.isEmpty)) ||
+          (reason != null && reason is! String)) {
+        throw const LegacyReviewCommitAttemptException(
+          LegacyReviewCommitAttemptFailure.taskNotPendingReview,
+        );
+      }
+      final rawRoute = taskDiagnostics?[TaskManager.keyImportStorageRoute];
+      final ImportStorageRoute route;
+      try {
+        route = decodeImportStorageRoute(rawRoute);
+      } on TypedReviewSnapshotException {
+        throw const LegacyReviewCommitAttemptException(
+          LegacyReviewCommitAttemptFailure.taskNotPendingReview,
+        );
+      }
+      return commitLegacyForTask(
+        bankName: bankName,
+        folderName: folderName,
+        questions: questions,
+        taskId: boundTaskId,
+        attemptToken: token as String?,
+        attemptNumber: number as int?,
+        traceId: trace as String?,
+        expectedReviewDraftRevision:
+            _taskManager.reviewDraftRevision(boundTaskId),
+        storageRoute: route,
+        storageReason: reason as String?,
+        diagnostics: diagnostics,
+        explanationRetentionMode: explanationRetentionMode,
+        explanationOverrides: explanationOverrides,
+      );
+    }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _commitLegacyUnchecked(
         bankName: bankName,
         folderName: folderName,
         questions: questions,
-        taskId: taskId,
         diagnostics: diagnostics,
         explanationRetentionMode: explanationRetentionMode,
         explanationOverrides: explanationOverrides,
@@ -115,7 +181,6 @@ class ImportCommitService {
     required String bankName,
     required String folderName,
     required List<QuestionDraft> questions,
-    String? taskId,
     required Map<String, dynamic> diagnostics,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
@@ -147,11 +212,153 @@ class ImportCommitService {
       questions: finalizedQuestions,
     );
 
-    if (taskId != null) {
-      _taskManager.completeTask(taskId, '已成功导入题库: $bankName');
+    return ImportCommitResult(questionCount: finalizedQuestions.length);
+  }
+
+  Future<ImportCommitResult> commitLegacyForTask({
+    required String bankName,
+    required String folderName,
+    required List<QuestionDraft> questions,
+    required String taskId,
+    required String? attemptToken,
+    required int? attemptNumber,
+    required String? traceId,
+    required int expectedReviewDraftRevision,
+    required ImportStorageRoute storageRoute,
+    required String? storageReason,
+    required Map<String, dynamic> diagnostics,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
+    List<QuestionExplanationOverride>? explanationOverrides,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(
+      () => _commitLegacyForTaskUnchecked(
+        bankName: bankName,
+        folderName: folderName,
+        questions: questions,
+        taskId: taskId,
+        attemptToken: attemptToken,
+        attemptNumber: attemptNumber,
+        traceId: traceId,
+        expectedReviewDraftRevision: expectedReviewDraftRevision,
+        storageRoute: storageRoute,
+        storageReason: storageReason,
+        explanationRetentionMode: explanationRetentionMode,
+        explanationOverrides: explanationOverrides,
+      ),
+    );
+  }
+
+  Future<ImportCommitResult> _commitLegacyForTaskUnchecked({
+    required String bankName,
+    required String folderName,
+    required List<QuestionDraft> questions,
+    required String taskId,
+    required String? attemptToken,
+    required int? attemptNumber,
+    required String? traceId,
+    required int expectedReviewDraftRevision,
+    required ImportStorageRoute storageRoute,
+    required String? storageReason,
+    required ExplanationRetentionMode explanationRetentionMode,
+    List<QuestionExplanationOverride>? explanationOverrides,
+  }) async {
+    final ValidatedImportStorageMetadata validated;
+    try {
+      validated = validateImportStorageMetadata(
+        route: storageRoute,
+        reason: storageReason,
+      );
+    } on TypedReviewSnapshotException {
+      throw const LegacyReviewCommitAttemptException(
+        LegacyReviewCommitAttemptFailure.taskNotPendingReview,
+      );
+    }
+    if (validated.route != ImportStorageRoute.legacyV1 ||
+        taskId.trim().isEmpty ||
+        expectedReviewDraftRevision < 0) {
+      throw const LegacyReviewCommitAttemptException(
+        LegacyReviewCommitAttemptFailure.taskNotPendingReview,
+      );
     }
 
-    return ImportCommitResult(questionCount: finalizedQuestions.length);
+    final leaseResult = await _taskManager.beginLegacyCommitAttempt(
+      taskId: taskId,
+      attemptToken: attemptToken,
+      attemptNumber: attemptNumber,
+      traceId: traceId,
+      expectedReviewDraftRevision: expectedReviewDraftRevision,
+      storageRoute: importStorageRouteSerialization(validated.route),
+      storageReason: validated.reason,
+    );
+    if (leaseResult.status != LegacyCommitLeaseStatus.acquired) {
+      throw LegacyReviewCommitAttemptException(
+        _legacyLeaseStatusToFailure(leaseResult.status),
+      );
+    }
+    final lease = leaseResult.lease!;
+    var durableApplied = false;
+    try {
+      final finalizedMaps = finalizeAndAuditImportQuestions(
+        questions.map((question) => question.toMap()),
+        mode: explanationRetentionMode,
+        overrides: explanationOverrides,
+        preserveRawExplanation: false,
+      );
+      final finalizedItems = finalizedMaps
+          .asMap()
+          .entries
+          .map((entry) => ImportReviewItem.fromMap(entry.value, entry.key))
+          .toList(growable: false);
+      final review = ImportReviewAnalyzer.analyzeItems(finalizedItems);
+      if (ImportReviewBlockingPolicy.isBlocked(review)) {
+        throw const ImportCommitBlockedException(
+          ImportReviewBlockingPolicy.reasonCode,
+        );
+      }
+      final finalizedQuestions =
+          finalizedItems.map((item) => item.draft).toList(growable: false);
+      final completionText = '已成功导入题库: $bankName';
+      final persistenceResult =
+          await _questionRepository.commitQuestionDraftsLegacyForImport(
+        bankName: bankName,
+        folderName: folderName,
+        questions: finalizedQuestions,
+        guard: LegacyImportCommitGuard(
+          taskId: lease.taskId,
+          attemptToken: lease.attemptToken,
+          attemptNumber: lease.attemptNumber,
+          traceId: lease.traceId,
+          reviewDraftRevision: lease.reviewDraftRevision,
+          storageRoute: lease.storageRoute,
+          storageReason: lease.storageReason,
+        ),
+        completionText: completionText,
+      );
+      _taskManager.applyDurableLegacyCommitCompletion(
+        lease: lease,
+        completionText: completionText,
+        completedAt: persistenceResult.completedAt,
+      );
+      durableApplied = true;
+      return ImportCommitResult(questionCount: persistenceResult.questionCount);
+    } on ImportCommitBlockedException {
+      rethrow;
+    } on LegacyImportCommitPersistenceException catch (error) {
+      throw LegacyReviewCommitAttemptException(
+        _legacyPersistenceFailureToAttemptFailure(error.failure),
+      );
+    } on LegacyReviewCommitAttemptException {
+      rethrow;
+    } catch (_) {
+      throw const LegacyReviewCommitAttemptException(
+        LegacyReviewCommitAttemptFailure.persistenceFailed,
+      );
+    } finally {
+      if (!durableApplied) {
+        _taskManager.releaseLegacyCommitLease(lease);
+      }
+    }
   }
 
   /// Compatibility alias that only delegates to [commitLegacy].
@@ -354,6 +561,45 @@ class ImportCommitService {
         _taskManager.releaseTypedCommitLease(lease);
       }
     }
+  }
+
+  LegacyReviewCommitAttemptFailure _legacyLeaseStatusToFailure(
+    LegacyCommitLeaseStatus status,
+  ) {
+    return switch (status) {
+      LegacyCommitLeaseStatus.taskMissing =>
+        LegacyReviewCommitAttemptFailure.taskMissing,
+      LegacyCommitLeaseStatus.taskNotPendingReview =>
+        LegacyReviewCommitAttemptFailure.taskNotPendingReview,
+      LegacyCommitLeaseStatus.staleAttempt =>
+        LegacyReviewCommitAttemptFailure.staleAttempt,
+      LegacyCommitLeaseStatus.staleReviewDraft =>
+        LegacyReviewCommitAttemptFailure.staleReviewDraft,
+      LegacyCommitLeaseStatus.commitInProgress =>
+        LegacyReviewCommitAttemptFailure.commitInProgress,
+      LegacyCommitLeaseStatus.acquired => throw StateError(
+          'An acquired legacy lease must never be mapped as a failure.',
+        ),
+    };
+  }
+
+  LegacyReviewCommitAttemptFailure _legacyPersistenceFailureToAttemptFailure(
+    LegacyImportCommitPersistenceFailure failure,
+  ) {
+    return switch (failure) {
+      LegacyImportCommitPersistenceFailure.taskMissing =>
+        LegacyReviewCommitAttemptFailure.taskMissing,
+      LegacyImportCommitPersistenceFailure.taskNotPendingReview ||
+      LegacyImportCommitPersistenceFailure.invalidTaskMetadata ||
+      LegacyImportCommitPersistenceFailure.alreadyCompleted =>
+        LegacyReviewCommitAttemptFailure.taskNotPendingReview,
+      LegacyImportCommitPersistenceFailure.staleAttempt =>
+        LegacyReviewCommitAttemptFailure.staleAttempt,
+      LegacyImportCommitPersistenceFailure.staleReviewDraft =>
+        LegacyReviewCommitAttemptFailure.staleReviewDraft,
+      LegacyImportCommitPersistenceFailure.transactionFailed =>
+        LegacyReviewCommitAttemptFailure.persistenceFailed,
+    };
   }
 
   TypedReviewCommitAttemptFailure _leaseStatusToFailure(

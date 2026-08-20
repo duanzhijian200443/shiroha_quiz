@@ -59,6 +59,24 @@ class _CommitRepository extends Fake implements QuestionRepository {
       completedAt: 1700000000,
     );
   }
+
+  @override
+  Future<LegacyImportCommitPersistenceResult>
+      commitQuestionDraftsLegacyForImport({
+    required String bankName,
+    String? folderName,
+    required List<QuestionDraft> questions,
+    required LegacyImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    saveCalls++;
+    savedQuestions = List<QuestionDraft>.unmodifiable(questions);
+    if (failure != null) throw failure!;
+    return LegacyImportCommitPersistenceResult(
+      questionCount: questions.length,
+      completedAt: 1700000000,
+    );
+  }
 }
 
 const _typedQuestionId = '66666666-6666-4666-8666-666666666666';
@@ -546,6 +564,7 @@ void main() {
       id: 'task-commit',
       title: 'Synthetic import',
       status: TaskStatus.pendingReview,
+      parsedData: <Map<String, dynamic>>[_draft.toMap()],
       diagnostics: const {TaskManager.keyTraceId: 'trace-commit'},
     ));
     final service = ImportCommitService(
@@ -573,6 +592,7 @@ void main() {
       id: 'task-failed-commit',
       title: 'Synthetic import',
       status: TaskStatus.pendingReview,
+      parsedData: <Map<String, dynamic>>[_draft.toMap()],
     ));
     final service = ImportCommitService(
       questionRepository: repository,
@@ -587,7 +607,13 @@ void main() {
         taskId: 'task-failed-commit',
         diagnostics: const {},
       ),
-      throwsStateError,
+      throwsA(
+        isA<LegacyReviewCommitAttemptException>().having(
+          (error) => error.failure,
+          'failure',
+          LegacyReviewCommitAttemptFailure.persistenceFailed,
+        ),
+      ),
     );
 
     expect(manager.tasks.single.status, TaskStatus.pendingReview);

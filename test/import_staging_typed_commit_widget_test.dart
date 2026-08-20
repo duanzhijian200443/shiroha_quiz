@@ -33,6 +33,7 @@ class _FakeRepo extends Fake implements QuestionRepository {
   Object? typedFailure;
   List<QuestionDraft>? savedLegacy;
   List<QuestionDraftV2>? savedTyped;
+  LegacyImportCommitGuard? legacyGuard;
 
   @override
   Future<List<String>> getAvailableFolders() async => const <String>['Math'];
@@ -70,6 +71,24 @@ class _FakeRepo extends Fake implements QuestionRepository {
     savedTyped = List<QuestionDraftV2>.unmodifiable(questions);
     if (typedFailure != null) throw typedFailure!;
     return TypedImportCommitPersistenceResult(
+      questionCount: questions.length,
+      completedAt: 1700000000,
+    );
+  }
+
+  @override
+  Future<LegacyImportCommitPersistenceResult>
+      commitQuestionDraftsLegacyForImport({
+    required String bankName,
+    String? folderName,
+    required List<QuestionDraft> questions,
+    required LegacyImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    legacySaveCalls++;
+    savedLegacy = List<QuestionDraft>.unmodifiable(questions);
+    legacyGuard = guard;
+    return LegacyImportCommitPersistenceResult(
       questionCount: questions.length,
       completedAt: 1700000000,
     );
@@ -267,6 +286,34 @@ void main() {
 
     expect(repo.legacySaveCalls, 1);
     expect(repo.typedSaveCalls, 0);
+  });
+
+  testWidgets('task-bound legacy route flushes and commits exact identity',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    const diagnostics = <String, dynamic>{
+      TaskManager.keyImportStorageRoute: 'legacyV1',
+      TaskManager.keyTraceId: 'legacy-widget-trace',
+      TaskManager.keyReviewDraftRevision: 0,
+    };
+    await tester.pumpWidget(buildScreen(
+      questions: <Map<String, dynamic>>[_typedQuestion(number: 1)],
+      diagnostics: diagnostics,
+      taskId: 'legacy-widget-task',
+    ));
+    await tester.pumpAndSettle();
+
+    await commitThroughDialog(tester);
+
+    expect(repo.legacySaveCalls, 1);
+    expect(repo.typedSaveCalls, 0);
+    expect(repo.legacyGuard!.taskId, 'legacy-widget-task');
+    expect(repo.legacyGuard!.attemptToken, isNull);
+    expect(repo.legacyGuard!.attemptNumber, isNull);
+    expect(repo.legacyGuard!.traceId, 'legacy-widget-trace');
+    expect(repo.legacyGuard!.reviewDraftRevision, 1);
+    expect(manager.tasks.single.status, TaskStatus.completed);
+    expect(manager.tasks.single.parsedData, isNull);
   });
 
   testWidgets('historical legacyV1 + shadow_ready uses the legacy commit',

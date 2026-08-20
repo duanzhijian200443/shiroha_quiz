@@ -23,6 +23,31 @@ final class TypedImportCommitGuard {
   final String storageReason;
 }
 
+/// Persisted authority captured for a task-bound legacy compatibility commit.
+///
+/// Nullable attempt fields are exact values, never wildcards. Historical
+/// tasks without an attempt identity remain supported only while the durable
+/// row has the same explicit nullable shape.
+final class LegacyImportCommitGuard {
+  const LegacyImportCommitGuard({
+    required this.taskId,
+    required this.attemptToken,
+    required this.attemptNumber,
+    required this.traceId,
+    required this.reviewDraftRevision,
+    required this.storageRoute,
+    required this.storageReason,
+  });
+
+  final String taskId;
+  final String? attemptToken;
+  final int? attemptNumber;
+  final String? traceId;
+  final int reviewDraftRevision;
+  final String storageRoute;
+  final String? storageReason;
+}
+
 /// Immutable result of one atomic typed import commit transaction.
 final class TypedImportCommitPersistenceResult {
   const TypedImportCommitPersistenceResult({
@@ -32,6 +57,29 @@ final class TypedImportCommitPersistenceResult {
 
   final int questionCount;
   final int completedAt;
+}
+
+typedef LegacyImportCommitPersistenceResult
+    = TypedImportCommitPersistenceResult;
+
+enum LegacyImportCommitPersistenceFailure {
+  taskMissing,
+  taskNotPendingReview,
+  staleAttempt,
+  staleReviewDraft,
+  invalidTaskMetadata,
+  alreadyCompleted,
+  transactionFailed,
+}
+
+final class LegacyImportCommitPersistenceException implements Exception {
+  const LegacyImportCommitPersistenceException(this.failure);
+
+  final LegacyImportCommitPersistenceFailure failure;
+
+  @override
+  String toString() =>
+      'LegacyImportCommitPersistenceException(${failure.name})';
 }
 
 /// Fixed failure classification of the repository-level atomic typed import
@@ -88,9 +136,11 @@ abstract final class TypedImportCommitPersistence {
   static const String keyAttemptNumber = '_attemptNumber';
   static const String keyAttemptToken = '_attemptToken';
   static const String keyAttemptState = '_attemptState';
+  static const String keyTraceId = '_traceId';
   static const String keyReviewDraftRevision = '_reviewDraftRevision';
 
   static const String typedV2RouteValue = 'typedV2';
+  static const String legacyV1RouteValue = 'legacyV1';
   static const String typedCandidateReadyReasonValue = 'typed_candidate_ready';
   static const String readyForReviewAttemptStateValue = 'readyForReview';
 

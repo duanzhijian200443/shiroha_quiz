@@ -394,23 +394,6 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                             actionPending ? '选择文件中' : '重新选择文件重试',
                           ),
                         ),
-                      if ((task.status == TaskStatus.error ||
-                              task.status == TaskStatus.processing) &&
-                          (task.pendingChunks?.isNotEmpty ?? false) &&
-                          !presentation.canRetry)
-                        OutlinedButton(
-                          onPressed: () {
-                            AiDependenciesScope.of(context)
-                                .aiService
-                                .resumeTask(task.id);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('正在从断点恢复解析...'),
-                              ),
-                            );
-                          },
-                          child: const Text('断点重试'),
-                        ),
                     ],
                   ),
                 ],

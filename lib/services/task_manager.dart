@@ -323,6 +323,47 @@ final class TypedCommitAttemptLease {
   final String storageReason;
 }
 
+enum LegacyCommitLeaseStatus {
+  acquired,
+  taskMissing,
+  taskNotPendingReview,
+  staleAttempt,
+  staleReviewDraft,
+  commitInProgress,
+}
+
+final class LegacyCommitLeaseResult {
+  const LegacyCommitLeaseResult(this.status, [this.lease]);
+
+  const LegacyCommitLeaseResult.acquired(LegacyCommitAttemptLease lease)
+      : this(LegacyCommitLeaseStatus.acquired, lease);
+
+  final LegacyCommitLeaseStatus status;
+  final LegacyCommitAttemptLease? lease;
+}
+
+final class LegacyCommitAttemptLease {
+  const LegacyCommitAttemptLease({
+    required this.leaseId,
+    required this.taskId,
+    required this.attemptToken,
+    required this.attemptNumber,
+    required this.traceId,
+    required this.reviewDraftRevision,
+    required this.storageRoute,
+    required this.storageReason,
+  });
+
+  final String leaseId;
+  final String taskId;
+  final String? attemptToken;
+  final int? attemptNumber;
+  final String? traceId;
+  final int reviewDraftRevision;
+  final String storageRoute;
+  final String? storageReason;
+}
+
 /// Result of applying an already-durable typed completion to memory.
 enum TypedDurableCompletionStatus {
   applied,
@@ -441,6 +482,8 @@ class TaskManager extends ChangeNotifier {
   final Map<String, Future<void>> _taskWriteTails = <String, Future<void>>{};
   final Map<String, TypedCommitAttemptLease> _typedCommitLeases =
       <String, TypedCommitAttemptLease>{};
+  final Map<String, LegacyCommitAttemptLease> _legacyCommitLeases =
+      <String, LegacyCommitAttemptLease>{};
   final Set<String> _cleanupInProgress = <String>{};
   static final Random _leaseRandom = Random.secure();
 
@@ -456,6 +499,7 @@ class TaskManager extends ChangeNotifier {
     _attemptWriteTails.clear();
     _taskWriteTails.clear();
     _typedCommitLeases.clear();
+    _legacyCommitLeases.clear();
     _cleanupInProgress.clear();
     _reviewDraftWriteTail = Future<void>.value();
     ready = Future<void>.value();
@@ -684,7 +728,7 @@ class TaskManager extends ChangeNotifier {
   }
 
   bool _isTaskDurableBusy(ImportTask task) {
-    if (_typedCommitLeases.containsKey(task.id)) {
+    if (_hasCommitLease(task.id)) {
       return true;
     }
     if (task.status == TaskStatus.processing ||
@@ -780,7 +824,7 @@ class TaskManager extends ChangeNotifier {
       if (drainedTask != null && _isTaskDurableBusy(drainedTask)) {
         return ImportTaskCleanupStatus.busy;
       }
-      if (_typedCommitLeases.containsKey(id)) {
+      if (_hasCommitLease(id)) {
         return ImportTaskCleanupStatus.busy;
       }
 
@@ -1484,7 +1528,7 @@ class TaskManager extends ChangeNotifier {
         ),
       );
     }
-    if (_typedCommitLeases.containsKey(id)) {
+    if (_hasCommitLease(id)) {
       return Future<ReviewDraftSaveResult>.value(
         ReviewDraftSaveResult(
           ReviewDraftSaveStatus.commitInProgress,
@@ -1533,7 +1577,7 @@ class TaskManager extends ChangeNotifier {
         ),
       );
     }
-    if (_typedCommitLeases.containsKey(id)) {
+    if (_hasCommitLease(id)) {
       return Future<ReviewDraftSaveResult>.value(
         ReviewDraftSaveResult(
           ReviewDraftSaveStatus.commitInProgress,
@@ -1632,7 +1676,7 @@ class TaskManager extends ChangeNotifier {
         revision: 0,
       );
     }
-    if (_typedCommitLeases.containsKey(id)) {
+    if (_hasCommitLease(id)) {
       return ReviewDraftSaveResult(
         ReviewDraftSaveStatus.commitInProgress,
         revision: reviewDraftRevision(id),
@@ -1845,6 +1889,156 @@ class TaskManager extends ChangeNotifier {
     return completer.future;
   }
 
+  Future<LegacyCommitLeaseResult> beginLegacyCommitAttempt({
+    required String taskId,
+    required String? attemptToken,
+    required int? attemptNumber,
+    required String? traceId,
+    required int expectedReviewDraftRevision,
+    required String storageRoute,
+    required String? storageReason,
+  }) {
+    final completer = Completer<LegacyCommitLeaseResult>();
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) async {
+      try {
+        completer.complete(
+          _beginLegacyCommitAttemptNow(
+            taskId: taskId,
+            attemptToken: attemptToken,
+            attemptNumber: attemptNumber,
+            traceId: traceId,
+            expectedReviewDraftRevision: expectedReviewDraftRevision,
+            storageRoute: storageRoute,
+            storageReason: storageReason,
+          ),
+        );
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  LegacyCommitLeaseResult _beginLegacyCommitAttemptNow({
+    required String taskId,
+    required String? attemptToken,
+    required int? attemptNumber,
+    required String? traceId,
+    required int expectedReviewDraftRevision,
+    required String storageRoute,
+    required String? storageReason,
+  }) {
+    if (_cleanupInProgress.contains(taskId)) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    if (_hasCommitLease(taskId)) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.commitInProgress,
+      );
+    }
+    final index = tasks.indexWhere((task) => task.id == taskId);
+    if (index < 0) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskMissing,
+      );
+    }
+    final task = tasks[index];
+    if (task.status != TaskStatus.pendingReview || task.parsedData == null) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    final captured = _captureReviewDraftAttemptIdentity(task);
+    if (captured == null ||
+        captured.attemptToken != attemptToken ||
+        captured.attemptNumber != attemptNumber ||
+        captured.traceId != traceId) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.staleAttempt,
+      );
+    }
+    final route = task.diagnostics?[keyImportStorageRoute];
+    final durableMemoryRoute =
+        route ?? TypedImportCommitPersistence.legacyV1RouteValue;
+    final reason = task.diagnostics?[keyImportStorageReason];
+    if (storageRoute != TypedImportCommitPersistence.legacyV1RouteValue ||
+        durableMemoryRoute != storageRoute ||
+        (reason != null && reason is! String) ||
+        reason != storageReason) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.taskNotPendingReview,
+      );
+    }
+    final revision = _readReviewDraftRevision(task);
+    if (expectedReviewDraftRevision < 0 ||
+        revision != expectedReviewDraftRevision) {
+      return const LegacyCommitLeaseResult(
+        LegacyCommitLeaseStatus.staleReviewDraft,
+      );
+    }
+
+    final lease = LegacyCommitAttemptLease(
+      leaseId: _newImportCommitLeaseId('legacy'),
+      taskId: taskId,
+      attemptToken: attemptToken,
+      attemptNumber: attemptNumber,
+      traceId: traceId,
+      reviewDraftRevision: expectedReviewDraftRevision,
+      storageRoute: storageRoute,
+      storageReason: storageReason,
+    );
+    _legacyCommitLeases[taskId] = lease;
+    return LegacyCommitLeaseResult.acquired(lease);
+  }
+
+  void releaseLegacyCommitLease(LegacyCommitAttemptLease lease) {
+    final active = _legacyCommitLeases[lease.taskId];
+    if (active != null && active.leaseId == lease.leaseId) {
+      _legacyCommitLeases.remove(lease.taskId);
+    }
+  }
+
+  TypedDurableCompletionStatus applyDurableLegacyCommitCompletion({
+    required LegacyCommitAttemptLease lease,
+    required String completionText,
+    required int completedAt,
+  }) {
+    final active = _legacyCommitLeases[lease.taskId];
+    if (active == null || active.leaseId != lease.leaseId) {
+      return TypedDurableCompletionStatus.staleLease;
+    }
+    final index = tasks.indexWhere((task) => task.id == lease.taskId);
+    if (index < 0) {
+      _legacyCommitLeases.remove(lease.taskId);
+      _logTypedCommitTaskRemovedWarning();
+      return TypedDurableCompletionStatus.taskRemovedDurable;
+    }
+    final task = tasks[index];
+    final identity = _captureReviewDraftAttemptIdentity(task);
+    if (identity == null ||
+        identity.attemptToken != lease.attemptToken ||
+        identity.attemptNumber != lease.attemptNumber ||
+        identity.traceId != lease.traceId) {
+      _legacyCommitLeases.remove(lease.taskId);
+      return TypedDurableCompletionStatus.staleLease;
+    }
+    if (task.status == TaskStatus.completed) {
+      _legacyCommitLeases.remove(lease.taskId);
+      return TypedDurableCompletionStatus.alreadyCompleted;
+    }
+    task.status = TaskStatus.completed;
+    task.progressText = completionText;
+    task.completedAt = completedAt;
+    task.parsedData = null;
+    notifyListeners();
+    _reviewDraftWriteTail = _reviewDraftWriteTail.then((_) {
+      _legacyCommitLeases.remove(lease.taskId);
+    });
+    return TypedDurableCompletionStatus.applied;
+  }
+
   /// Begins a typed commit attempt for one task.
   ///
   /// The lease registration is serialized with the review-draft queue: every
@@ -1887,7 +2081,7 @@ class TaskManager extends ChangeNotifier {
         TypedCommitLeaseStatus.taskNotPendingReview,
       );
     }
-    if (_typedCommitLeases.containsKey(taskId)) {
+    if (_hasCommitLease(taskId)) {
       return const TypedCommitLeaseResult(
         TypedCommitLeaseStatus.commitInProgress,
       );
@@ -1937,7 +2131,7 @@ class TaskManager extends ChangeNotifier {
     }
 
     final lease = TypedCommitAttemptLease(
-      leaseId: _newTypedCommitLeaseId(),
+      leaseId: _newImportCommitLeaseId('typed'),
       taskId: taskId,
       attemptToken: attemptToken,
       attemptNumber: attemptNumber,
@@ -2015,10 +2209,15 @@ class TaskManager extends ChangeNotifier {
     );
   }
 
-  static String _newTypedCommitLeaseId() {
+  bool _hasCommitLease(String taskId) {
+    return _typedCommitLeases.containsKey(taskId) ||
+        _legacyCommitLeases.containsKey(taskId);
+  }
+
+  static String _newImportCommitLeaseId(String route) {
     final timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
     final entropy = _leaseRandom.nextInt(0x7fffffff).toRadixString(16);
-    return 'typed-commit-$timestamp-$entropy';
+    return '$route-commit-$timestamp-$entropy';
   }
 
   int _readReviewDraftRevision(ImportTask task) {
