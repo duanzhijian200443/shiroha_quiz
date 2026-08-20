@@ -425,3 +425,15 @@ new Agent import tool, no F1/Question-Import pipeline merge, no
 user-content/Tool-output/RAG-passage logging requirement, no OCR provider
 refactor, no cross-boundary (Isolate/Process) propagation, no change to
 Agent Safe Write authority, no change to RetrievalEgressGrant authority.
+
+## 29. Post-OBS-1 extension note — DM-D5
+
+OBS-1 v0 above remains historically CLOSED/FROZEN. DM-D5 later adds
+`TraceOperationKind.destructiveMutation` as a successor extension for
+user-authorized destructive Application commands. This value was not part of
+the original OBS-1 v0 taxonomy and does not retroactively change its scope.
+
+The successor keeps OBS-1 identity, propagation, privacy and best-effort
+logging invariants. Its fixed lifecycle and safe field whitelist are frozen in
+`dm-d5-destructive-presentation-and-tool-boundary.md`. It adds no telemetry,
+schema, user-content logging, autonomous Agent authority or MCP tool.

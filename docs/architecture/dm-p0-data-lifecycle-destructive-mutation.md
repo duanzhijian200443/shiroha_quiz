@@ -213,3 +213,15 @@ AnswerAttempt purge, asset GC, or Agent/MCP destructive tool.
 
 Any such expansion must first use the applicable DM-D1 through DM-D5 contract
 and review path. DM-P0 closure does not close P2-B1T2 / issue #116.
+
+## 12. DM-D5 successor authority
+
+The original follow-up graph above is preserved as provenance. The frozen
+successor contract for its DM-D5 node is
+`dm-d5-destructive-presentation-and-tool-boundary.md`.
+
+DM-D5 closes only the remaining destructive Presentation, operation-trace and
+Agent/MCP boundary differences. It reuses DM-D1E confirmations, preserves W0,
+and keeps MCP v0 exactly six READ_ONLY tools. It adds no autonomous destructive
+Agent/MCP runtime. OBS-1 remains historically CLOSED/FROZEN; the destructive
+operation kind is a post-OBS-1 extension, not retroactive OBS-1 v0 scope.

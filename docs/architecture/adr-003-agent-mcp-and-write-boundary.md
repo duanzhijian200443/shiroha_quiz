@@ -66,3 +66,15 @@ Rejected because it duplicates business validation and leaks persistence semanti
 ### AI writes formal data immediately
 
 Rejected because it bypasses approval and creates an unsafe second write authority.
+
+## DM-D5 successor clarification
+
+DM-D5 does not extend either adapter with destructive runtime authority. MCP
+v0 remains exactly six READ_ONLY tools with no destructive tool. The built-in
+Agent may use the already-frozen DRAFT/STAGE proposal capabilities but cannot
+approve or execute destructive work, and natural-language agreement is not
+approval. User-authorized destructive Presentation continues to call the same
+Application command/service authorities used by non-Agent UI.
+
+`TraceOperationKind.destructiveMutation` is observability only. It cannot be
+used as permission, approval, command dispatch, retry or mutation authority.
