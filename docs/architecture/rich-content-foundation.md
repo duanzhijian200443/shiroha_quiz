@@ -505,6 +505,10 @@ edges as Content Admission, but they receive the source/draft inventory
 context explicitly. Neither layer may be skipped, and neither may absorb the
 other through ambient/global state.
 
+Concrete validator class names, APIs, and placement are deferred. Phase 0
+freezes the two mandatory responsibilities and their required context, not a
+`DraftAssetValidator`, `ImageClosureValidator`, or other implementation type.
+
 ## G. Compatibility Contract
 
 Legacy-only Questions continue to use their String representation. This
@@ -573,8 +577,9 @@ HTML to recover Domain content.
 The following are explicitly not frozen by Phase 0:
 
 - concrete asset registry or asset-resolution implementation;
-- concrete source-level asset inventory field/type and Region closure
-  implementation;
+- concrete source-level asset inventory type, whether `SourceDocument` gains
+  an `assetRefs`/inventory field, and the exact Region closure implementation;
+- concrete source/draft contextual validator class names and APIs;
 - SQLite tables, migration, or database version;
 - managed-storage directory/key layout, reference counting, or garbage
   collection;
@@ -588,8 +593,8 @@ The following are explicitly not frozen by Phase 0:
 - table caption and header-scope semantics;
 - AI Repair provider schema and prompt;
 - provider-specific OCR/DOCX payload schemas;
-- concrete SourceDocument/table schema version number, legacy compatibility
-  carrier type, and upgrade/rebuild mechanics;
+- concrete `SourceDocumentCodec` next schema version, legacy compatibility
+  carrier type, and exact irregular-table upgrade/rebuild mechanics;
 - Rich Image production activation.
 
 These deferred implementation choices may not weaken the FINAL identity,
@@ -609,8 +614,9 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | Image `(sourceId, localAssetId)` placement reference | FINAL | It references inventory identity without duplicating metadata. |
 | Context-free Content Admission | FINAL | Source content must be privacy/resource validated before a draft inventory exists. |
 | Draft asset referential-integrity validation | FINAL | Inventory membership requires explicit owning-draft context and is not a privacy-admission concern. |
+| `RichContentPrivacyAdmission` directly validates draft asset inventory | REJECTED | Source-stage RichContent has no owning `QuestionDraftV2` context. |
 | Source-level canonical asset metadata authority | FINAL | Nested source images need safe metadata before Region/Draft formation. |
-| Region transitive nested-image asset closure | FINAL | Direct and nested images must produce the exact `SourcedAssetRef` closure carried into the draft. |
+| `QuestionRegion` transitive asset closure | FINAL | Direct and nested images must produce the exact `SourcedAssetRef` closure carried into the draft. |
 | Concrete source asset inventory representation | DEFERRED | Phase 0 freezes closure semantics, not the SourceDocument field/type. |
 | `alternativeText: RichContent?` | FINAL | It preserves the existing typed Source asset contract. |
 | Alternative-text text/math-only subset | FINAL | It prevents recursive images/tables and bounds semantics. |
@@ -628,9 +634,9 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | Recursive context-free privacy/resource admission | FINAL | Every nested RichContent edge must preserve side-channel defenses without requiring draft context. |
 | Asset identity distinct from locator | FINAL | Domain identity never authorizes path/URL interpretation. |
 | RichContent schema version 1 | FINAL | New self-contained node discriminators fit current unknown-node preservation. |
-| SourceDocument v1 backward-read and deterministic transition | FINAL | Existing ragged/empty/fallback table payloads cannot become silently invalid or lossy. |
+| SourceDocument v1 table backward-read/upgrade/rebuild policy | FINAL | Existing ragged/empty/fallback table payloads cannot become silently invalid or lossy. |
 | New spanned table payload under unchanged SourceDocument v1 shape | REJECTED | The current exact-key v1 table codec cannot safely interpret that schema change. |
-| Concrete SourceDocument/table version number and carrier | DEFERRED | A later implementation may choose mechanics while preserving the frozen compatibility policy. |
+| Concrete `SourceDocumentCodec` next schemaVersion and carrier | DEFERRED | A later implementation may choose mechanics while preserving the frozen compatibility policy. |
 | Unknown future node -> lossless fallback | FINAL | Old readers preserve data without semantic mutation. |
 | Malformed known node -> fallback | REJECTED | Claimed known schemas fail closed on invalid canonical payloads. |
 | Legacy Question rewrite/deletion | REJECTED | Existing banks and String compatibility remain supported. |
