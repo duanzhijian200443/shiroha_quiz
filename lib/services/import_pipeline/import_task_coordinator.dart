@@ -463,10 +463,13 @@ class ImportTaskCoordinator {
       if (persistence != ImportAttemptWriteStatus.applied) {
         return persistence;
       }
-      _requestScheduler.cancel(
+      final schedulerResult = _requestScheduler.cancel(
         taskId: attempt.taskId,
         attemptToken: attempt.attemptToken,
       );
+      if (schedulerResult == OcrRequestCancellation.notFound) {
+        return _taskManager.finalizeAttemptCancelled(attempt);
+      }
       return ImportAttemptWriteStatus.applied;
     });
   }

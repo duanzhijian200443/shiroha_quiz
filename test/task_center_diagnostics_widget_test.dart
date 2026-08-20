@@ -442,7 +442,9 @@ void main() {
     persistenceRelease.complete();
     await tester.pump();
     await tester.pump();
-    expect(first.attemptState, ImportAttemptState.cancelRequested);
+    // The test scheduler has no matching runtime request, so the coordinator
+    // durably settles the already-persisted cancellation as cancelled.
+    expect(first.attemptState, ImportAttemptState.cancelled);
   });
 
   testWidgets('retry picker cancellation does not mutate the OCR attempt',
