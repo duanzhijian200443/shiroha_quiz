@@ -38,6 +38,17 @@ void main() {
     );
   });
 
+  test('D5 trace contract freezes bounded metadata and failure codes', () {
+    final contract = File(
+      'docs/architecture/dm-d5-destructive-presentation-and-tool-boundary.md',
+    ).readAsStringSync();
+
+    expect(contract, contains('non-negative `durationMs`'));
+    expect(contract, contains('`stale_target`'));
+    expect(contract, contains('`operation_failed`'));
+    expect(contract, contains('no user content or entity identity'));
+  });
+
   test('MCP v0 remains exactly six read-only study tools', () {
     expect(StudyMcpAdapter.toolNames, hasLength(6));
     expect(AgentStudyToolCatalog.definitions, hasLength(6));

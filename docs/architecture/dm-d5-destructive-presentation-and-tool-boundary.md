@@ -1,6 +1,6 @@
 # DM-D5 Destructive Presentation and Tool Boundary
 
-Status: **IMPLEMENTED — EXECUTOR FINAL GATE PASSED; independent review pending**
+Status: **FINAL CLOSURE REPAIR APPLIED — independent review pending**
 
 Authority: successor stage of
 `dm-p0-data-lifecycle-destructive-mutation.md`. This document does not reopen
@@ -59,9 +59,13 @@ destructive_started
 ```
 
 Allowed structured fields are `event`, fixed `mutationKind`, fixed `status`,
-fixed `failureCode`, and fixed `cleanupOutcome`. The trace contains no entity
-id, title, file name, path, storage key, content, tool argument/output or raw
-exception. Observability failure never changes the business result.
+non-negative `durationMs`, fixed `failureCode`, and fixed `cleanupOutcome`.
+`durationMs` is monotonic elapsed metadata for the same operation; it contains
+no user content or entity identity. `failureCode` is optional where the event
+does not need one and is a closed taxonomy with only `stale_target` and
+`operation_failed` wire values. The trace contains no entity id, title, file
+name, path, storage key, content, tool argument/output or raw exception.
+Observability failure never changes the business result.
 
 The bounded mutation kinds are Question delete, QuestionBank delete,
 LibraryFile delete, Project delete, Conversation delete, ReviewState reset,
@@ -125,9 +129,9 @@ The historical audits and contracts above remain provenance. DM-D5-FINAL used:
 
 - frozen successor contract commit: `ca43823`;
 - destructive Presentation/trace implementation commit: `0637dbc`;
-- final implementation head under acceptance: `0637dbc` (the following
-  evidence-only commit adds tests and this closure record without changing
-  production behavior).
+- historical acceptance snapshot head: `0637dbc` (the following evidence
+  commit recorded the original acceptance state without changing that
+  implementation snapshot).
 
 The executor FINAL GATE passed 594 serial focused/architecture tests across
 the complete D4 HARD GATE, persisted ReviewDraft CAS, typed and legacy commit
@@ -147,3 +151,23 @@ Executor self-check found no open task P0/P1/P2. This is evidence, not semantic
 approval: because destructive mutation and authorization are high risk, the
 fixed Draft PR head still requires an independent Verifier and then an
 Independent Reviewer before any user-authorized merge.
+
+### 8.1 FINAL closure repair amendment
+
+The historical provenance above is preserved. The later verifier repair and
+this final bounded increment are separate facts:
+
+- verifier repair: `e1f26632e9cbe368bf614dd5c2dcd85f390fe5be`;
+- final closure repair: this PR increment, covering the closed destructive
+  trace metadata taxonomy, LibraryFile pending Presentation notification and
+  PracticePage confirmation semantics;
+- exact final closure head: the PR exact HEAD produced by this closure
+  increment. This self-describing addendum intentionally does not duplicate
+  its own commit SHA; Git and PR metadata are authoritative;
+- final exact-head PR contract checks: the workflow attached to that exact
+  head, with its run number recorded in the PR body after completion;
+- final review matrix: `P0: 0`, `P1: 0`, `P2: 0`.
+
+The final closure increment changes no D4 authority, schema, migration,
+runtime trace privacy boundary, MCP catalog, Agent destructive boundary or
+other non-goal listed above.

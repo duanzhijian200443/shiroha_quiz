@@ -24,6 +24,19 @@ enum DestructiveMutationOutcome {
   failed,
 }
 
+/// Closed wire-level failure taxonomy for destructive traces.
+///
+/// Keep this deliberately small: callers may select a known category, but
+/// must not put arbitrary rejection details into a destructive log.
+enum DestructiveMutationFailureCode {
+  staleTarget('stale_target'),
+  operationFailed('operation_failed');
+
+  const DestructiveMutationFailureCode(this.wireValue);
+
+  final String wireValue;
+}
+
 typedef DestructiveMutationOutcomeResolver<T> = DestructiveMutationOutcome
     Function(T result);
 
@@ -36,7 +49,7 @@ abstract final class DestructiveMutationTrace {
     required DestructiveMutationKind kind,
     required Future<T> Function() action,
     DestructiveMutationOutcomeResolver<T>? outcome,
-    String? rejectionFailureCode,
+    DestructiveMutationFailureCode? rejectionFailureCode,
   }) {
     return TraceContext.runOperation(
       operationKind: TraceOperationKind.destructiveMutation,
@@ -60,7 +73,8 @@ abstract final class DestructiveMutationTrace {
             'destructive_failed',
             kind,
             status: 'failed',
-            failureCode: 'operation_failed',
+            failureCode:
+                DestructiveMutationFailureCode.operationFailed.wireValue,
             durationMs: stopwatch.elapsedMilliseconds,
           );
           rethrow;
@@ -70,7 +84,10 @@ abstract final class DestructiveMutationTrace {
   }
 
   /// Records a denied/stale destructive request without invoking authority.
-  static Future<void> rejected(DestructiveMutationKind kind) {
+  static Future<void> rejected(
+    DestructiveMutationKind kind, {
+    DestructiveMutationFailureCode? failureCode,
+  }) {
     return TraceContext.runOperation(
       operationKind: TraceOperationKind.destructiveMutation,
       inheritTaskId: false,
@@ -81,6 +98,7 @@ abstract final class DestructiveMutationTrace {
           kind,
           status: 'rejected',
           durationMs: stopwatch.elapsedMilliseconds,
+          failureCode: failureCode?.wireValue,
         );
       },
     );
@@ -90,7 +108,7 @@ abstract final class DestructiveMutationTrace {
     DestructiveMutationKind kind,
     DestructiveMutationOutcome outcome, {
     required int durationMs,
-    String? rejectionFailureCode,
+    DestructiveMutationFailureCode? rejectionFailureCode,
   }) {
     switch (outcome) {
       case DestructiveMutationOutcome.completed:
@@ -113,7 +131,7 @@ abstract final class DestructiveMutationTrace {
           'destructive_rejected',
           kind,
           status: 'rejected',
-          failureCode: rejectionFailureCode,
+          failureCode: rejectionFailureCode?.wireValue,
           durationMs: durationMs,
         );
       case DestructiveMutationOutcome.failed:
@@ -121,7 +139,7 @@ abstract final class DestructiveMutationTrace {
           'destructive_failed',
           kind,
           status: 'failed',
-          failureCode: 'operation_failed',
+          failureCode: DestructiveMutationFailureCode.operationFailed.wireValue,
           durationMs: durationMs,
         );
     }

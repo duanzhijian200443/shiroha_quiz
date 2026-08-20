@@ -1025,6 +1025,7 @@ void main() {
 
     expect(deletion.calls, 1);
     expect(files.values, contains('file-notes'));
+    expect(controller.isFileDeletionPending('file-notes'), isFalse);
     expect(find.textContaining('删除失败，请稍后重试'), findsOneWidget);
     expect(find.textContaining('synthetic delete failure'), findsNothing);
 
@@ -1067,6 +1068,73 @@ void main() {
     expect(await first, isTrue);
     expect(await second, isTrue);
     expect(controller.isFileDeletionPending('file-notes'), isFalse);
+  });
+
+  testWidgets('DM-D5 LibraryFile pending deletion disables the widget entry',
+      (tester) async {
+    final files = _Files();
+    final deletion = _Deletion(files)..release = Completer<void>();
+    final controller = FileLibraryController(
+      _facade(files: files, deletion: deletion),
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: FileLibraryWorkspace(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-file-file-notes')),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    final deleteEntry = find.byKey(
+      const ValueKey<String>('dm-d5-delete-library-file'),
+    );
+    await tester.tap(deleteEntry);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletion.calls, 1);
+    expect(controller.isFileDeletionPending('file-notes'), isTrue);
+    expect(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.widget<ListTile>(deleteEntry).onTap,
+      isNull,
+    );
+
+    await tester.tap(deleteEntry);
+    await tester.pump();
+    expect(deletion.calls, 1);
+    expect(
+      find.byKey(
+        const ValueKey<String>('dm-d5-confirm-delete-library-file'),
+      ),
+      findsNothing,
+    );
+
+    deletion.release!.complete();
+    await tester.pumpAndSettle();
+
+    expect(controller.isFileDeletionPending('file-notes'), isFalse);
+    expect(deletion.calls, 1);
+    expect(find.text('文件已永久删除'), findsOneWidget);
   });
 
   testWidgets('Folder local navigation supports CRUD, move, and safe delete',

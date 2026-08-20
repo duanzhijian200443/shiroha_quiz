@@ -89,6 +89,15 @@ void main() {
     expect(records.single.data['durationMs'], greaterThanOrEqualTo(0));
   });
 
+  test('failure codes use the closed destructive taxonomy', () {
+    expect(
+      DestructiveMutationFailureCode.values
+          .map((code) => code.wireValue)
+          .toList(),
+      <String>['stale_target', 'operation_failed'],
+    );
+  });
+
   test('destructive child drops task identity but preserves trace ancestry',
       () async {
     const correlationId = 'OBS-AAAA-BBBB';

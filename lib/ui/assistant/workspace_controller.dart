@@ -169,6 +169,7 @@ class FileLibraryController extends ChangeNotifier {
   bool isLoading = false;
   String query = '';
   String? errorMessage;
+  bool _disposed = false;
   final Map<String, Future<bool>> _pendingFileDeletions =
       <String, Future<bool>>{};
 
@@ -285,14 +286,22 @@ class FileLibraryController extends ChangeNotifier {
 
     final operation = _deleteFileOnce(fileId);
     _pendingFileDeletions[fileId] = operation;
+    if (!_disposed) notifyListeners();
     unawaited(
       operation.whenComplete(() {
         if (identical(_pendingFileDeletions[fileId], operation)) {
           _pendingFileDeletions.remove(fileId);
+          if (!_disposed) notifyListeners();
         }
       }),
     );
     return operation;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   Future<bool> _deleteFileOnce(String fileId) async {
