@@ -3,6 +3,7 @@ library;
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../application/file_library/library_file_deletion.dart';
+import '../../application/observability/destructive_mutation_trace.dart';
 import '../../core/observability/log_writer.dart';
 import '../../domain/assets/library_file.dart';
 import '../../domain/backup/backup_manifest.dart';
@@ -33,8 +34,17 @@ final class LibraryFileDeletionService implements LibraryFileDeletionPort {
 
   @override
   Future<LibraryFileDeletionResult> deleteLibraryFile(String fileId) {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () => _deleteUnchecked(fileId),
+    return DestructiveMutationTrace.run<LibraryFileDeletionResult>(
+      kind: DestructiveMutationKind.libraryFileDelete,
+      action: () => BackupRestoreMutationGate.instance.runMutation(
+        () => _deleteUnchecked(fileId),
+      ),
+      outcome: (result) => result.managedBytesCleanup ==
+                  LibraryFileManagedBytesCleanup.orphaned ||
+              result.parsedArtifactCleanup ==
+                  LibraryFileParsedArtifactCleanup.orphaned
+          ? DestructiveMutationOutcome.completedWithOrphan
+          : DestructiveMutationOutcome.completed,
     );
   }
 
@@ -111,7 +121,7 @@ final class LibraryFileDeletionService implements LibraryFileDeletionPort {
           'Library file managed bytes cleanup pending',
           module: 'LibraryFile',
           data: <String, Object?>{
-            'fileId': file.fileId,
+            'cleanupTarget': 'managed_bytes',
             'status': 'orphaned',
             'retryable': true,
           },
@@ -173,8 +183,7 @@ final class LibraryFileDeletionService implements LibraryFileDeletionPort {
         'Library file ParsedArtifact sidecar cleanup pending',
         module: 'LibraryFile',
         data: <String, Object?>{
-          'artifactId': identity.artifactId,
-          'derived': 'parsed_artifact_sidecar',
+          'cleanupTarget': 'parsed_artifact_sidecar',
           'reason': reason,
           'status': 'orphaned',
           'retryable': true,

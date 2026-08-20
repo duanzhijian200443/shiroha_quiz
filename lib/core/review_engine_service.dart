@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../application/backup/backup_restore_gate.dart';
+import '../application/observability/destructive_mutation_trace.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/review_dashboard_data.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
@@ -275,23 +276,29 @@ class ReviewEngineService with WidgetsBindingObserver {
   }
 
   Future<void> clearAllData() {
-    return BackupRestoreMutationGate.instance.runMutation(() async {
-      // A review submission may already have acquired its lease while its
-      // debounced write is still only queued. Drain that accepted write before
-      // publishing the destructive clear-all transaction.
-      await flushPending();
-      await ReviewRepository.instance.clearAllData();
-    });
+    return DestructiveMutationTrace.run<void>(
+      kind: DestructiveMutationKind.questionDataClearAll,
+      action: () => BackupRestoreMutationGate.instance.runMutation(() async {
+        // A review submission may already have acquired its lease while its
+        // debounced write is still only queued. Drain that accepted write
+        // before publishing the destructive clear-all transaction.
+        await flushPending();
+        await ReviewRepository.instance.clearAllData();
+      }),
+    );
   }
 
   /// D1D targeted reset: restore one question's mutable ReviewState
   /// scheduling values without clearing either review or answer history.
   Future<void> resetReviewState(String questionId) {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () async {
-        await flushPending();
-        await ReviewRepository.instance.resetReviewState(questionId);
-      },
+    return DestructiveMutationTrace.run<void>(
+      kind: DestructiveMutationKind.reviewStateReset,
+      action: () => BackupRestoreMutationGate.instance.runMutation(
+        () async {
+          await flushPending();
+          await ReviewRepository.instance.resetReviewState(questionId);
+        },
+      ),
     );
   }
 

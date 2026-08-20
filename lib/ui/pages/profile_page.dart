@@ -201,7 +201,10 @@ class ProfilePage extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('确认重置'),
-        content: const Text('将清空所有题库、题目和答题记录，此操作不可撤销。'),
+        content: const Text(
+          '这是批量永久清除：Questions、ReviewState、ReviewLog 和 '
+          'AnswerAttempt 都会删除。此操作不可撤销。\n\n建议先在数据中心导出备份。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -229,10 +232,10 @@ class ProfilePage extends StatelessWidget {
                       ),
                     );
                 }
-              } catch (e) {
+              } catch (_) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('清除失败: $e')),
+                    const SnackBar(content: Text('清除失败，请稍后重试；现有数据状态未确认改变')),
                   );
                 }
               }

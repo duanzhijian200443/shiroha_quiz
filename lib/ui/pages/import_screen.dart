@@ -76,10 +76,10 @@ class _ImportScreenState extends State<ImportScreen> {
           SnackBar(content: Text('题库 "$bankName" 已删除')),
         );
         _loadBanks(); // Refresh the list
-      } catch (e) {
+      } catch (_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败: $e')),
+          const SnackBar(content: Text('删除题库失败，请稍后重试')),
         );
       }
     }

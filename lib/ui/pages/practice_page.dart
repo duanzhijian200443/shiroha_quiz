@@ -1243,10 +1243,10 @@ class _PracticePageState extends State<PracticePage> {
       );
 
       _loadNextQuestion(); // Move to next
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('删除失败: ${e.toString()}')),
+        const SnackBar(content: Text('删除题目失败，请稍后重试')),
       );
     }
   }

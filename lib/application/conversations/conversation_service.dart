@@ -2,6 +2,7 @@ library;
 
 import '../../domain/conversations/conversation.dart';
 import '../backup/backup_restore_gate.dart';
+import '../observability/destructive_mutation_trace.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'conversation_repository.dart';
 
@@ -229,12 +230,15 @@ final class ConversationService {
   }
 
   Future<void> deleteConversation(String conversationId) {
-    return BackupRestoreMutationGate.instance.runMutation(() async {
-      _validateInputId(conversationId, label: 'Conversation');
-      return _repositoryCall(
-        () => _repository.deleteConversation(conversationId),
-      );
-    });
+    return DestructiveMutationTrace.run<void>(
+      kind: DestructiveMutationKind.conversationDelete,
+      action: () => BackupRestoreMutationGate.instance.runMutation(() async {
+        _validateInputId(conversationId, label: 'Conversation');
+        return _repositoryCall(
+          () => _repository.deleteConversation(conversationId),
+        );
+      }),
+    );
   }
 
   String _newId(String Function() factory, {required String label}) {

@@ -17,6 +17,7 @@ library;
 
 import '../../domain/projects/project.dart';
 import '../backup/backup_restore_gate.dart';
+import '../observability/destructive_mutation_trace.dart';
 import 'project_repository.dart';
 
 final class ProjectService {
@@ -71,8 +72,11 @@ final class ProjectService {
   }
 
   Future<void> deleteProject(String projectId) =>
-      BackupRestoreMutationGate.instance.runMutation(
-        () => _repository.deleteProject(projectId),
+      DestructiveMutationTrace.run<void>(
+        kind: DestructiveMutationKind.projectDelete,
+        action: () => BackupRestoreMutationGate.instance.runMutation(
+          () => _repository.deleteProject(projectId),
+        ),
       );
 
   Future<void> attachFile({

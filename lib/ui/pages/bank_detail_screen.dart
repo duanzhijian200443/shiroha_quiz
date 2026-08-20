@@ -117,10 +117,12 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('题库已删除')));
                           Navigator.pop(context);
-                        } catch (error) {
+                        } catch (_) {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('删除失败: $error')),
+                            const SnackBar(
+                              content: Text('删除题库失败，请稍后重试'),
+                            ),
                           );
                         }
                       },

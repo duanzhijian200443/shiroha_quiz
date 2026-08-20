@@ -11,6 +11,10 @@ enum TraceOperationKind {
   ragRetrieval,
   backupExport,
   backupRestore,
+
+  /// Post-OBS-1 successor extension owned by DM-D5. This value was not part
+  /// of the original closed OBS-1 v0 taxonomy.
+  destructiveMutation,
 }
 
 /// Correlation data that follows an asynchronous operation through Dart zones.

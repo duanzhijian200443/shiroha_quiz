@@ -19,6 +19,7 @@ import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_draft.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../backup/backup_restore_gate.dart';
+import '../observability/destructive_mutation_trace.dart';
 import 'study_plan_draft_service.dart';
 import 'study_plan_ports.dart';
 
@@ -265,8 +266,17 @@ final class StudyPlanCommandService {
   Future<StudyPlanStopResult> stopActivePlan({
     required String expectedPlanId,
   }) {
-    return BackupRestoreMutationGate.instance.runMutation(
-      () => _stopActivePlanUnchecked(expectedPlanId: expectedPlanId),
+    return DestructiveMutationTrace.run<StudyPlanStopResult>(
+      kind: DestructiveMutationKind.studyPlanStop,
+      action: () => BackupRestoreMutationGate.instance.runMutation(
+        () => _stopActivePlanUnchecked(expectedPlanId: expectedPlanId),
+      ),
+      outcome: (result) => switch (result) {
+        StudyPlanStopResultSuccess() => DestructiveMutationOutcome.completed,
+        StudyPlanStopResultStaleActivePlan() =>
+          DestructiveMutationOutcome.rejected,
+        StudyPlanStopResultFailed() => DestructiveMutationOutcome.failed,
+      },
     );
   }
 
