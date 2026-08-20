@@ -370,11 +370,13 @@ class _FileDetailScreen extends StatelessWidget {
                     ),
                   ),
                   subtitle: const Text('永久删除文件记录和受管原文件'),
-                  onTap: () => _deleteLibraryFile(
-                    context,
-                    controller,
-                    fileId,
-                  ),
+                  onTap: controller.isFileDeletionPending(fileId)
+                      ? null
+                      : () => _deleteLibraryFile(
+                            context,
+                            controller,
+                            fileId,
+                          ),
                 ),
                 const SizedBox(height: 12),
                 const Text('打开原文件将在安全的 managed-file 用例完成后提供。'),
@@ -1071,7 +1073,9 @@ Future<void> _deleteLibraryFile(
       title: const Text('永久删除文件？'),
       content: const Text(
         '将删除文件库记录和受管原文件，并解除学习空间、对话及文件夹关联；'
-        '当前解析产物也会清理。此操作不可撤销。\n\n建议先在数据中心导出备份。',
+        '当前解析产物也会清理。不会删除用户电脑或外部位置的原始来源文件，'
+        '也不会删除已经确认入库的 Questions。此操作不可撤销。\n\n'
+        '建议先在数据中心导出备份。',
       ),
       actions: [
         TextButton(

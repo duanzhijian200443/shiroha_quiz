@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../application/study_query/study_query_dtos.dart';
@@ -167,6 +169,11 @@ class FileLibraryController extends ChangeNotifier {
   bool isLoading = false;
   String query = '';
   String? errorMessage;
+  final Map<String, Future<bool>> _pendingFileDeletions =
+      <String, Future<bool>>{};
+
+  bool isFileDeletionPending(String fileId) =>
+      _pendingFileDeletions.containsKey(fileId);
 
   List<LibraryFileSummary> get visibleFiles {
     final normalized = query.trim().toLowerCase();
@@ -272,7 +279,23 @@ class FileLibraryController extends ChangeNotifier {
 
   /// Presentation-facing destructive entry. The facade remains the only
   /// authority exposed to this controller.
-  Future<bool> deleteFile(String fileId) async {
+  Future<bool> deleteFile(String fileId) {
+    final pending = _pendingFileDeletions[fileId];
+    if (pending != null) return pending;
+
+    final operation = _deleteFileOnce(fileId);
+    _pendingFileDeletions[fileId] = operation;
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_pendingFileDeletions[fileId], operation)) {
+          _pendingFileDeletions.remove(fileId);
+        }
+      }),
+    );
+    return operation;
+  }
+
+  Future<bool> _deleteFileOnce(String fileId) async {
     errorMessage = null;
     lastDeletionResult = null;
     try {

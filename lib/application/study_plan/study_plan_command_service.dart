@@ -277,6 +277,7 @@ final class StudyPlanCommandService {
           DestructiveMutationOutcome.rejected,
         StudyPlanStopResultFailed() => DestructiveMutationOutcome.failed,
       },
+      rejectionFailureCode: 'stale_target',
     );
   }
 

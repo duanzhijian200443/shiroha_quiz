@@ -837,7 +837,10 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('停止学习计划'),
-        content: const Text('确定停止当前学习计划？'),
+        content: const Text(
+          '只停止当前学习计划；不会删除题目、作答记录或学习历史。'
+          '重要数据操作前建议先保留备份。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

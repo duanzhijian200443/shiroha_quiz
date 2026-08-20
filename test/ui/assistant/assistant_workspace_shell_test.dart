@@ -226,10 +226,13 @@ final class _Deletion implements LibraryFileDeletionPort {
   int calls = 0;
   bool fail = false;
   bool orphan = false;
+  Completer<void>? release;
 
   @override
   Future<LibraryFileDeletionResult> deleteLibraryFile(String fileId) async {
     calls++;
+    final pendingRelease = release;
+    if (pendingRelease != null) await pendingRelease.future;
     if (fail) throw StateError('synthetic delete failure');
     files.values.remove(fileId);
     return LibraryFileDeletionResult(
@@ -1001,6 +1004,8 @@ void main() {
 
     expect(find.text('永久删除文件？'), findsOneWidget);
     expect(find.textContaining('建议先在数据中心导出备份'), findsOneWidget);
+    expect(find.textContaining('外部位置'), findsOneWidget);
+    expect(find.textContaining('Questions'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(deletion.calls, 0);
@@ -1039,6 +1044,29 @@ void main() {
     expect(files.values, isNot(contains('file-notes')));
     expect(find.text('文件已永久删除'), findsOneWidget);
     expect(controller.errorMessage, isNull);
+  });
+
+  test('DM-D5 LibraryFile deletion is single-flight per file id', () async {
+    final files = _Files();
+    final deletion = _Deletion(files)..release = Completer<void>();
+    final controller = FileLibraryController(
+      _facade(files: files, deletion: deletion),
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+
+    final first = controller.deleteFile('file-notes');
+    await Future<void>.delayed(Duration.zero);
+    expect(deletion.calls, 1);
+    expect(controller.isFileDeletionPending('file-notes'), isTrue);
+
+    final second = controller.deleteFile('file-notes');
+    expect(deletion.calls, 1);
+
+    deletion.release!.complete();
+    expect(await first, isTrue);
+    expect(await second, isTrue);
+    expect(controller.isFileDeletionPending('file-notes'), isFalse);
   });
 
   testWidgets('Folder local navigation supports CRUD, move, and safe delete',

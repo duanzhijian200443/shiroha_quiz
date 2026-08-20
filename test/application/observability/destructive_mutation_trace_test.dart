@@ -33,6 +33,7 @@ void main() {
       ),
       isTrue,
     );
+    expect(records.last.data['durationMs'], greaterThanOrEqualTo(0));
   });
 
   test('post-commit orphan is completed_with_orphan, never failed', () async {
@@ -48,6 +49,7 @@ void main() {
     expect(records.last.message, 'destructive_completed');
     expect(records.last.data['status'], 'completed_with_orphan');
     expect(records.last.data['cleanupOutcome'], 'orphaned');
+    expect(records.last.data['durationMs'], greaterThanOrEqualTo(0));
     expect(
       records.where((record) => record.message == 'destructive_failed'),
       isEmpty,
@@ -68,6 +70,7 @@ void main() {
 
     expect(records.last.message, 'destructive_failed');
     expect(records.last.data['failureCode'], 'operation_failed');
+    expect(records.last.data['durationMs'], greaterThanOrEqualTo(0));
     expect(records.join(), isNot(contains('private failure body')));
     expect(records.last.data.keys, isNot(contains('error')));
   });
@@ -83,6 +86,49 @@ void main() {
     expect(records, hasLength(1));
     expect(records.single.message, 'destructive_rejected');
     expect(records.single.data['status'], 'rejected');
+    expect(records.single.data['durationMs'], greaterThanOrEqualTo(0));
+  });
+
+  test('destructive child drops task identity but preserves trace ancestry',
+      () async {
+    const correlationId = 'OBS-AAAA-BBBB';
+    const parentTraceId = 'trace-parent-destructive';
+    const taskId = 'PRIVATE_TASK_SENTINEL';
+    final records = <LogRecord>[];
+    LogWriter.setRecordHandler(records.add);
+
+    await TraceContext.runRoot(
+      operationKind: TraceOperationKind.importAttempt,
+      correlationId: correlationId,
+      traceId: parentTraceId,
+      taskId: taskId,
+      action: () => DestructiveMutationTrace.run<void>(
+        kind: DestructiveMutationKind.questionDataClearAll,
+        action: () async {},
+      ),
+    );
+
+    expect(records, hasLength(2));
+    expect(records.every((record) => record.taskId == null), isTrue);
+    expect(
+      records.every((record) => record.correlationId == correlationId),
+      isTrue,
+    );
+    expect(
+      records.every((record) => record.parentTraceId == parentTraceId),
+      isTrue,
+    );
+    expect(
+      records.every(
+        (record) =>
+            record.operationKind == TraceOperationKind.destructiveMutation,
+      ),
+      isTrue,
+    );
+    expect(
+      records.map((record) => record.toJson().toString()).join(),
+      isNot(contains(taskId)),
+    );
   });
 
   test('observer failure cannot change the business result', () async {

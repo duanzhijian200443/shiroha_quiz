@@ -74,7 +74,11 @@ class _WrongBookPageState extends State<WrongBookPage> {
           '确认删除',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        content: const Text('删除后无法恢复，确定要删除此题目吗？'),
+        content: const Text(
+          '删除 Question 及允许级联的 ReviewState、ReviewLog 等题目子状态；'
+          '保留 AnswerAttempt 历史作答事实，不删除来源文件；如有 ExamPaper 引用，'
+          '删除会被阻止。此操作不可恢复。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

@@ -376,6 +376,8 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.delete_outline));
       await tester.pumpAndSettle();
+      expect(find.textContaining('AnswerAttempt'), findsOneWidget);
+      expect(find.textContaining('来源文件'), findsOneWidget);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
 
@@ -425,6 +427,9 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();
+      expect(find.textContaining('AnswerAttempt'), findsOneWidget);
+      expect(find.textContaining('导出 B0 备份'), findsOneWidget);
+      expect(find.textContaining('所有记录'), findsNothing);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
 
@@ -541,6 +546,9 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.delete_outline));
       await tester.pumpAndSettle();
+      expect(find.textContaining('AnswerAttempt'), findsOneWidget);
+      expect(find.textContaining('导出 B0 备份'), findsOneWidget);
+      expect(find.textContaining('所有记录'), findsNothing);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
 

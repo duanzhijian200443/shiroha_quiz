@@ -102,7 +102,10 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                 builder: (ctx) => AlertDialog(
                   title: const Text('删除题库'),
                   content: Text(
-                      '确定要永久删除题库「${widget.bankName}」及其中所有题目和复习记录吗？此操作不可逆！'),
+                      '将永久删除题库「${widget.bankName}」中的 Questions 及允许级联的题目状态和复习数据；'
+                      'AnswerAttempt 历史作答记录保留。LibraryFile、ParsedArtifact、Project、'
+                      'ExamPaper 不会被级联删除；如有 ExamPaper 引用，删除会被阻止。'
+                      '此操作不可撤销。\n\n建议先导出 B0 备份。'),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.pop(ctx),

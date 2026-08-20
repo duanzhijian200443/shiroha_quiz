@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_command_service.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_draft_service.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_ports.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/log_writer.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/study_plan/active_study_plan.dart';
 import 'package:shiroha_quiz/domain/study_plan/study_plan_values.dart';
@@ -127,6 +129,10 @@ final class _Harness {
 }
 
 void main() {
+  tearDown(() {
+    LogWriter.setRecordHandler(null);
+  });
+
   test(
       '1. parameter validation: invalid replacement pairs fail with invalidPlan',
       () async {
@@ -364,6 +370,26 @@ void main() {
     final res2 =
         await h.commandService.stopActivePlan(expectedPlanId: 'plan_1');
     expect(res2, isA<StudyPlanStopResultStaleActivePlan>());
+  });
+
+  test('stale stop emits a bounded destructive stale_target rejection',
+      () async {
+    final records = <LogRecord>[];
+    LogWriter.setRecordHandler(records.add);
+    final h = _Harness();
+    h.persistencePort.nextStopResult =
+        const StudyPlanPersistenceStopStaleActivePlan();
+
+    final result = await h.commandService.stopActivePlan(
+      expectedPlanId: 'plan_1',
+    );
+
+    expect(result, isA<StudyPlanStopResultStaleActivePlan>());
+    final terminal = records.singleWhere(
+      (record) => record.message == 'destructive_rejected',
+    );
+    expect(terminal.data['failureCode'], 'stale_target');
+    expect(terminal.data['durationMs'], greaterThanOrEqualTo(0));
   });
 
   test(

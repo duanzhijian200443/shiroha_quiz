@@ -36,16 +36,24 @@ abstract final class DestructiveMutationTrace {
     required DestructiveMutationKind kind,
     required Future<T> Function() action,
     DestructiveMutationOutcomeResolver<T>? outcome,
+    String? rejectionFailureCode,
   }) {
     return TraceContext.runOperation(
       operationKind: TraceOperationKind.destructiveMutation,
+      inheritTaskId: false,
       action: () async {
+        final stopwatch = Stopwatch()..start();
         _record('destructive_started', kind, status: 'started');
         try {
           final result = await action();
           final resolved =
               outcome?.call(result) ?? DestructiveMutationOutcome.completed;
-          _recordOutcome(kind, resolved);
+          _recordOutcome(
+            kind,
+            resolved,
+            durationMs: stopwatch.elapsedMilliseconds,
+            rejectionFailureCode: rejectionFailureCode,
+          );
           return result;
         } catch (_) {
           _record(
@@ -53,6 +61,7 @@ abstract final class DestructiveMutationTrace {
             kind,
             status: 'failed',
             failureCode: 'operation_failed',
+            durationMs: stopwatch.elapsedMilliseconds,
           );
           rethrow;
         }
@@ -64,34 +73,56 @@ abstract final class DestructiveMutationTrace {
   static Future<void> rejected(DestructiveMutationKind kind) {
     return TraceContext.runOperation(
       operationKind: TraceOperationKind.destructiveMutation,
+      inheritTaskId: false,
       action: () async {
-        _record('destructive_rejected', kind, status: 'rejected');
+        final stopwatch = Stopwatch()..start();
+        _record(
+          'destructive_rejected',
+          kind,
+          status: 'rejected',
+          durationMs: stopwatch.elapsedMilliseconds,
+        );
       },
     );
   }
 
   static void _recordOutcome(
     DestructiveMutationKind kind,
-    DestructiveMutationOutcome outcome,
-  ) {
+    DestructiveMutationOutcome outcome, {
+    required int durationMs,
+    String? rejectionFailureCode,
+  }) {
     switch (outcome) {
       case DestructiveMutationOutcome.completed:
-        _record('destructive_completed', kind, status: 'completed');
+        _record(
+          'destructive_completed',
+          kind,
+          status: 'completed',
+          durationMs: durationMs,
+        );
       case DestructiveMutationOutcome.completedWithOrphan:
         _record(
           'destructive_completed',
           kind,
           status: 'completed_with_orphan',
           cleanupOutcome: 'orphaned',
+          durationMs: durationMs,
         );
       case DestructiveMutationOutcome.rejected:
-        _record('destructive_rejected', kind, status: 'rejected');
+        _record(
+          'destructive_rejected',
+          kind,
+          status: 'rejected',
+          failureCode: rejectionFailureCode,
+          durationMs: durationMs,
+        );
       case DestructiveMutationOutcome.failed:
         _record(
           'destructive_failed',
           kind,
           status: 'failed',
           failureCode: 'operation_failed',
+          durationMs: durationMs,
         );
     }
   }
@@ -102,6 +133,7 @@ abstract final class DestructiveMutationTrace {
     required String status,
     String? failureCode,
     String? cleanupOutcome,
+    int? durationMs,
   }) {
     try {
       LogWriter.info(
@@ -111,6 +143,7 @@ abstract final class DestructiveMutationTrace {
           'event': event,
           'mutationKind': kind.name,
           'status': status,
+          if (durationMs != null) 'durationMs': durationMs,
           if (failureCode != null) 'failureCode': failureCode,
           if (cleanupOutcome != null) 'cleanupOutcome': cleanupOutcome,
         },
