@@ -458,12 +458,19 @@ class ImportTaskCoordinator {
       final attempt = task.attemptRef;
       if (attempt == null) return ImportAttemptWriteStatus.invalidState;
 
-      final persistence = _taskManager.requestAttemptCancellation(attempt);
-      _requestScheduler.cancel(
+      final persistence =
+          await _taskManager.requestAttemptCancellation(attempt);
+      if (persistence != ImportAttemptWriteStatus.applied) {
+        return persistence;
+      }
+      final schedulerResult = _requestScheduler.cancel(
         taskId: attempt.taskId,
         attemptToken: attempt.attemptToken,
       );
-      return persistence;
+      if (schedulerResult == OcrRequestCancellation.notFound) {
+        return _taskManager.finalizeAttemptCancelled(attempt);
+      }
+      return ImportAttemptWriteStatus.applied;
     });
   }
 

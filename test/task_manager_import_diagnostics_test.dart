@@ -2,9 +2,23 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+
+class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+}
 
 void main() {
   setUpAll(() {
@@ -117,7 +131,94 @@ void main() {
       expect(saved.single['failed_chunks'], isNull);
     });
 
-    test('new attempt persistence wins after an older write is already running',
+    test(
+        'startup normalization failure keeps the durable projection and loads other tasks',
+        () async {
+      final logSink = _MemoryLogSink();
+      AppLogger.setSink(logSink);
+      addTearDown(() async {
+        await AppLogger.flush();
+        AppLogger.setSink(null);
+      });
+      final attempted = <Map<String, dynamic>>[];
+      final processing = ImportTask(
+        id: 'normalization-failure-task',
+        title: 'Synthetic processing task',
+        status: TaskStatus.processing,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'normalization-failure-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'normalization-failure-attempt',
+          TaskManager.keyAttemptState: 'running',
+        },
+      ).toMap();
+      final completed = ImportTask(
+        id: 'normalization-survivor-task',
+        title: 'Synthetic completed task',
+        status: TaskStatus.completed,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'normalization-survivor-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'normalization-survivor-attempt',
+          TaskManager.keyAttemptState: 'readyForReview',
+        },
+      ).toMap();
+      final taskManager = TaskManager.forTesting(
+        loadTasks: () async => <Map<String, dynamic>>[
+          processing,
+          completed,
+        ],
+        saveTask: (taskMap) async {
+          attempted.add(Map<String, dynamic>.from(taskMap));
+          throw StateError('synthetic restart normalization failure');
+        },
+      );
+
+      await taskManager.ready;
+
+      final retained = taskManager.tasks
+          .singleWhere((task) => task.id == 'normalization-failure-task');
+      expect(retained.status, TaskStatus.processing);
+      expect(retained.attemptState, ImportAttemptState.running);
+      expect(retained.attemptNumber, 1);
+      expect(retained.attemptToken, 'normalization-failure-attempt');
+      expect(retained.traceId, 'normalization-failure-trace');
+      expect(
+        await taskManager.restartAttempt(
+          const ImportAttemptRef(
+            taskId: 'normalization-failure-task',
+            attemptNumber: 2,
+            attemptToken: 'next-attempt',
+            traceId: 'next-trace',
+          ),
+          parseMode: 'ocr',
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        ImportAttemptWriteStatus.invalidState,
+      );
+
+      final survivor = taskManager.tasks
+          .singleWhere((task) => task.id == 'normalization-survivor-task');
+      expect(survivor.status, TaskStatus.completed);
+      expect(attempted, hasLength(1));
+      final attemptedInterrupted = ImportTask.fromMap(attempted.single);
+      expect(attemptedInterrupted.status, TaskStatus.error);
+      expect(attemptedInterrupted.attemptState, ImportAttemptState.interrupted);
+      expect(attemptedInterrupted.attemptToken, isNull);
+      await AppLogger.flush();
+      expect(
+        logSink.records.where(
+          (record) =>
+              record.module == 'ImportTask' &&
+              record.data['stage'] == 'restart_normalization',
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('serializes cancellation before a retry after an older write',
         () async {
       final firstWriteStarted = Completer<void>();
       final releaseFirstWrite = Completer<void>();
@@ -169,7 +270,7 @@ void main() {
 
       releaseFirstWrite.complete();
       expect(await initialWrite, ImportAttemptWriteStatus.applied);
-      expect(await cancelled, ImportAttemptWriteStatus.stale);
+      expect(await cancelled, ImportAttemptWriteStatus.applied);
       expect(await retried, ImportAttemptWriteStatus.applied);
 
       final current = taskManager.tasks.single;
@@ -181,6 +282,144 @@ void main() {
       final lastPersisted = ImportTask.fromMap(saved.last);
       expect(lastPersisted.attemptToken, secondAttempt.attemptToken);
       expect(lastPersisted.traceId, secondAttempt.traceId);
+    });
+
+    test('queued cancellation persistence failure keeps the queued attempt',
+        () async {
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async {
+          writeCount++;
+          if (writeCount > 1) {
+            throw StateError('synthetic cancellation persistence failure');
+          }
+        },
+      );
+      const attempt = ImportAttemptRef(
+        taskId: 'queued-cancel-failure',
+        attemptNumber: 1,
+        attemptToken: 'queued-cancel-attempt',
+        traceId: 'queued-cancel-trace',
+      );
+      await taskManager.addAttemptTask(
+        ImportTask(
+          id: attempt.taskId,
+          title: 'Synthetic queued cancellation',
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: attempt.traceId,
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: attempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.queued.name,
+          },
+        ),
+      );
+
+      expect(
+        await taskManager.requestAttemptCancellation(attempt),
+        ImportAttemptWriteStatus.persistenceFailed,
+      );
+      final current = taskManager.tasks.single;
+      expect(current.status, TaskStatus.processing);
+      expect(current.attemptState, ImportAttemptState.queued);
+      expect(current.attemptNumber, 1);
+      expect(current.attemptToken, attempt.attemptToken);
+    });
+
+    test('running cancellation persistence failure keeps the running attempt',
+        () async {
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async {
+          writeCount++;
+          if (writeCount > 2) {
+            throw StateError('synthetic cancellation persistence failure');
+          }
+        },
+      );
+      const attempt = ImportAttemptRef(
+        taskId: 'running-cancel-failure',
+        attemptNumber: 1,
+        attemptToken: 'running-cancel-attempt',
+        traceId: 'running-cancel-trace',
+      );
+      await taskManager.addAttemptTask(
+        ImportTask(
+          id: attempt.taskId,
+          title: 'Synthetic running cancellation',
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: attempt.traceId,
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: attempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.queued.name,
+          },
+        ),
+      );
+      expect(
+        await taskManager.markAttemptRunning(attempt),
+        ImportAttemptWriteStatus.applied,
+      );
+
+      expect(
+        await taskManager.requestAttemptCancellation(attempt),
+        ImportAttemptWriteStatus.persistenceFailed,
+      );
+      final current = taskManager.tasks.single;
+      expect(current.status, TaskStatus.processing);
+      expect(current.attemptState, ImportAttemptState.running);
+      expect(current.attemptNumber, 1);
+      expect(current.attemptToken, attempt.attemptToken);
+    });
+
+    test('retry persistence failure keeps the old settled attempt', () async {
+      var writeCount = 0;
+      final taskManager = TaskManager.forTesting(
+        saveTask: (_) async {
+          writeCount++;
+          if (writeCount > 1) {
+            throw StateError('synthetic retry persistence failure');
+          }
+        },
+      );
+      const oldAttempt = ImportAttemptRef(
+        taskId: 'retry-persistence-failure',
+        attemptNumber: 1,
+        attemptToken: 'old-attempt-token',
+        traceId: 'old-trace-id',
+      );
+      await taskManager.addAttemptTask(
+        ImportTask(
+          id: oldAttempt.taskId,
+          title: 'Synthetic retry persistence failure',
+          status: TaskStatus.error,
+          diagnostics: <String, dynamic>{
+            TaskManager.keyTraceId: oldAttempt.traceId,
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyAttemptToken: oldAttempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+          },
+        ),
+      );
+
+      const nextAttempt = ImportAttemptRef(
+        taskId: 'retry-persistence-failure',
+        attemptNumber: 2,
+        attemptToken: 'new-attempt-token',
+        traceId: 'new-trace-id',
+      );
+      expect(
+        await taskManager.restartAttempt(
+          nextAttempt,
+          parseMode: 'ocr',
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        ImportAttemptWriteStatus.persistenceFailed,
+      );
+      final current = taskManager.tasks.single;
+      expect(current.status, TaskStatus.error);
+      expect(current.attemptState, ImportAttemptState.failed);
+      expect(current.attemptNumber, oldAttempt.attemptNumber);
+      expect(current.attemptToken, oldAttempt.attemptToken);
+      expect(current.traceId, oldAttempt.traceId);
     });
 
     test('batch insertion keeps selection order ahead of existing tasks', () {

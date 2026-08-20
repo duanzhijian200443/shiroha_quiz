@@ -455,7 +455,7 @@ void main() {
     expect(manager.tasks, contains(same(task)));
   });
 
-  test('pending attempt snapshot drains before delete and cannot resurrect',
+  test('active attempt cleanup waits for a settled state before delete',
       () async {
     final firstWriteStarted = Completer<void>();
     final releaseFirstWrite = Completer<void>();
@@ -497,12 +497,19 @@ void main() {
     await firstWriteStarted.future;
 
     final failedSnapshot = manager.failAttempt(attempt, 'synthetic failure');
-    final delete = manager.deleteTask(attempt.taskId);
+    final deleteWhileActive = manager.deleteTask(attempt.taskId);
     releaseFirstWrite.complete();
 
     expect(await initialWrite, ImportAttemptWriteStatus.applied);
-    expect(await failedSnapshot, ImportAttemptWriteStatus.taskMissing);
-    expect(await delete, ImportTaskCleanupStatus.deleted);
+    expect(await deleteWhileActive, ImportTaskCleanupStatus.busy);
+    expect(await failedSnapshot, ImportAttemptWriteStatus.applied);
+    expect(manager.tasks, hasLength(1));
+    expect(events, isNot(contains('delete')));
+
+    expect(
+      await manager.deleteTask(attempt.taskId),
+      ImportTaskCleanupStatus.deleted,
+    );
     expect(manager.tasks, isEmpty);
     expect(events.last, 'delete');
   });

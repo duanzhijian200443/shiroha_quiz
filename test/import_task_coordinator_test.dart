@@ -16,7 +16,9 @@ import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.da
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/pages/task_center_projection.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -74,6 +76,25 @@ class _EmptyOcrFailureCase {
   final String? ocrErrorType;
   final String expectedType;
   final String expectedMessage;
+}
+
+class _RecordingOcrRequestScheduler extends OcrRequestScheduler {
+  _RecordingOcrRequestScheduler({
+    this.result = OcrRequestCancellation.notFound,
+  }) : super(maxConcurrentRequests: 1);
+
+  final List<(String taskId, String attemptToken)> cancellations =
+      <(String, String)>[];
+  final OcrRequestCancellation result;
+
+  @override
+  OcrRequestCancellation cancel({
+    required String taskId,
+    required String attemptToken,
+  }) {
+    cancellations.add((taskId, attemptToken));
+    return result;
+  }
 }
 
 const _sensitiveFragments = <String>[
@@ -378,7 +399,8 @@ void main() {
     );
   });
 
-  test('cancelled old attempt cannot overwrite a successful retry', () async {
+  test('stale cancelled attempt callback cannot overwrite a successful retry',
+      () async {
     var traceIndex = 0;
     var attemptIndex = 0;
     final firstStarted = Completer<void>();
@@ -413,6 +435,12 @@ void main() {
       await coordinator.cancelOcrTask(firstHandle.taskId),
       ImportAttemptWriteStatus.applied,
     );
+    releaseFirst.complete();
+    await _waitForTask(
+      manager,
+      firstHandle.taskId,
+      (task) => task.attemptState == ImportAttemptState.cancelled,
+    );
 
     final secondHandle = await coordinator.retryOcrTask(
       taskId: firstHandle.taskId,
@@ -440,8 +468,18 @@ void main() {
     expect(retried.attemptState, ImportAttemptState.readyForReview);
     expect(retried.parsedData?.single['q_num'], '2');
 
-    releaseFirst.complete();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      await manager.requireAttemptReview(
+        firstHandle.attempt,
+        'stale old result',
+        const <Map<String, dynamic>>[
+          <String, dynamic>{'q_num': '1'},
+        ],
+        '',
+        '',
+      ),
+      ImportAttemptWriteStatus.stale,
+    );
 
     final afterOldReturn = manager.tasks.single;
     expect(afterOldReturn.attemptNumber, 2);
@@ -449,6 +487,288 @@ void main() {
     expect(afterOldReturn.attemptToken, secondHandle.attemptToken);
     expect(afterOldReturn.status, TaskStatus.pendingReview);
     expect(afterOldReturn.parsedData?.single['q_num'], '2');
+  });
+
+  test('queued cancellation persistence failure has no scheduler side effect',
+      () async {
+    const attempt = ImportAttemptRef(
+      taskId: 'coordinator-queued-cancel-failure',
+      attemptNumber: 1,
+      attemptToken: 'coordinator-queued-token',
+      traceId: 'coordinator-queued-trace',
+    );
+    final taskManager = TaskManager.forTesting(
+      saveTask: (_) async {
+        throw StateError('synthetic cancellation persistence failure');
+      },
+    );
+    addTearDown(taskManager.dispose);
+    taskManager.tasks.add(
+      ImportTask(
+        id: attempt.taskId,
+        title: 'Synthetic queued cancellation',
+        status: TaskStatus.processing,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyParseMode: ImportParseMode.ocr.name,
+          TaskManager.keyTraceId: attempt.traceId,
+          TaskManager.keyAttemptNumber: attempt.attemptNumber,
+          TaskManager.keyAttemptToken: attempt.attemptToken,
+          TaskManager.keyAttemptState: ImportAttemptState.queued.name,
+        },
+      ),
+    );
+    final scheduler = _RecordingOcrRequestScheduler();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      readiness: taskManager.ready,
+      requestScheduler: scheduler,
+    );
+
+    expect(
+      await coordinator.cancelOcrTask(attempt.taskId),
+      ImportAttemptWriteStatus.persistenceFailed,
+    );
+    final current = taskManager.tasks.single;
+    expect(scheduler.cancellations, isEmpty);
+    expect(current.attemptState, ImportAttemptState.queued);
+    expect(current.attemptNumber, attempt.attemptNumber);
+    expect(current.attemptToken, attempt.attemptToken);
+    expect(current.traceId, attempt.traceId);
+  });
+
+  test('running cancellation persistence failure has no scheduler side effect',
+      () async {
+    const attempt = ImportAttemptRef(
+      taskId: 'coordinator-running-cancel-failure',
+      attemptNumber: 1,
+      attemptToken: 'coordinator-running-token',
+      traceId: 'coordinator-running-trace',
+    );
+    final taskManager = TaskManager.forTesting(
+      saveTask: (_) async {
+        throw StateError('synthetic cancellation persistence failure');
+      },
+    );
+    addTearDown(taskManager.dispose);
+    taskManager.tasks.add(
+      ImportTask(
+        id: attempt.taskId,
+        title: 'Synthetic running cancellation',
+        status: TaskStatus.processing,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyParseMode: ImportParseMode.ocr.name,
+          TaskManager.keyTraceId: attempt.traceId,
+          TaskManager.keyAttemptNumber: attempt.attemptNumber,
+          TaskManager.keyAttemptToken: attempt.attemptToken,
+          TaskManager.keyAttemptState: ImportAttemptState.running.name,
+        },
+      ),
+    );
+    final scheduler = _RecordingOcrRequestScheduler();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      readiness: taskManager.ready,
+      requestScheduler: scheduler,
+    );
+
+    expect(
+      await coordinator.cancelOcrTask(attempt.taskId),
+      ImportAttemptWriteStatus.persistenceFailed,
+    );
+    final current = taskManager.tasks.single;
+    expect(scheduler.cancellations, isEmpty);
+    expect(current.attemptState, ImportAttemptState.running);
+    expect(current.attemptNumber, attempt.attemptNumber);
+    expect(current.attemptToken, attempt.attemptToken);
+    expect(current.traceId, attempt.traceId);
+  });
+
+  test('successful durable cancellation invokes the scheduler exactly once',
+      () async {
+    const attempt = ImportAttemptRef(
+      taskId: 'coordinator-cancel-success',
+      attemptNumber: 1,
+      attemptToken: 'coordinator-success-token',
+      traceId: 'coordinator-success-trace',
+    );
+    final taskManager = TaskManager.forTesting(
+      saveTask: (_) async {},
+    );
+    addTearDown(taskManager.dispose);
+    taskManager.tasks.add(
+      ImportTask(
+        id: attempt.taskId,
+        title: 'Synthetic cancellation success',
+        status: TaskStatus.processing,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyParseMode: ImportParseMode.ocr.name,
+          TaskManager.keyTraceId: attempt.traceId,
+          TaskManager.keyAttemptNumber: attempt.attemptNumber,
+          TaskManager.keyAttemptToken: attempt.attemptToken,
+          TaskManager.keyAttemptState: ImportAttemptState.running.name,
+        },
+      ),
+    );
+    final scheduler = _RecordingOcrRequestScheduler(
+      result: OcrRequestCancellation.running,
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      readiness: taskManager.ready,
+      requestScheduler: scheduler,
+    );
+
+    expect(
+      await coordinator.cancelOcrTask(attempt.taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+    expect(scheduler.cancellations, <(String, String)>[
+      (attempt.taskId, attempt.attemptToken),
+    ]);
+    expect(
+      taskManager.tasks.single.attemptState,
+      ImportAttemptState.cancelRequested,
+    );
+  });
+
+  test(
+      'restart normalization failure can settle a missing scheduler request durably',
+      () async {
+    const attempt = ImportAttemptRef(
+      taskId: 'coordinator-restart-cancel',
+      attemptNumber: 1,
+      attemptToken: 'coordinator-restart-token',
+      traceId: 'coordinator-restart-trace',
+    );
+    var saveCalls = 0;
+    final persisted = <Map<String, dynamic>>[];
+    final taskManager = TaskManager.forTesting(
+      loadTasks: () async => <Map<String, dynamic>>[
+        ImportTask(
+          id: attempt.taskId,
+          title: 'Synthetic restart cancellation',
+          status: TaskStatus.processing,
+          diagnostics: <String, dynamic>{
+            TaskManager.keyParseMode: ImportParseMode.ocr.name,
+            TaskManager.keyTraceId: attempt.traceId,
+            TaskManager.keyAttemptNumber: attempt.attemptNumber,
+            TaskManager.keyAttemptToken: attempt.attemptToken,
+            TaskManager.keyAttemptState: ImportAttemptState.running.name,
+          },
+        ).toMap(),
+      ],
+      saveTask: (taskMap) async {
+        saveCalls++;
+        if (saveCalls == 1) {
+          throw StateError('synthetic restart normalization failure');
+        }
+        persisted.add(Map<String, dynamic>.from(taskMap));
+      },
+    );
+    addTearDown(taskManager.dispose);
+    await taskManager.ready;
+
+    final retained = taskManager.tasks.single;
+    expect(retained.status, TaskStatus.processing);
+    expect(retained.attemptState, ImportAttemptState.running);
+    expect(
+      await taskManager.restartAttempt(
+        ImportAttemptRef(
+          taskId: attempt.taskId,
+          attemptNumber: 2,
+          attemptToken: 'coordinator-restart-next-token',
+          traceId: 'coordinator-restart-next-trace',
+        ),
+        parseMode: ImportParseMode.ocr.name,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      ),
+      ImportAttemptWriteStatus.invalidState,
+    );
+
+    final scheduler = _RecordingOcrRequestScheduler();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      readiness: taskManager.ready,
+      requestScheduler: scheduler,
+    );
+
+    expect(
+      await coordinator.cancelOcrTask(attempt.taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+    expect(scheduler.cancellations, <(String, String)>[
+      (attempt.taskId, attempt.attemptToken),
+    ]);
+    final cancelled = taskManager.tasks.single;
+    expect(cancelled.status, TaskStatus.error);
+    expect(cancelled.attemptState, ImportAttemptState.cancelled);
+    expect(
+      TaskCenterProjection.presentationFor(cancelled).canRetry,
+      isTrue,
+    );
+    expect(ImportTask.fromMap(persisted.last).attemptState,
+        ImportAttemptState.cancelled);
+  });
+
+  test(
+      'scheduler notFound settlement failure remains cancelRequested and can retry settlement',
+      () async {
+    const attempt = ImportAttemptRef(
+      taskId: 'coordinator-settlement-failure',
+      attemptNumber: 1,
+      attemptToken: 'coordinator-settlement-token',
+      traceId: 'coordinator-settlement-trace',
+    );
+    var saveCalls = 0;
+    final taskManager = TaskManager.forTesting(
+      saveTask: (_) async {
+        saveCalls++;
+        if (saveCalls == 2) {
+          throw StateError('synthetic cancellation settlement failure');
+        }
+      },
+    );
+    addTearDown(taskManager.dispose);
+    taskManager.tasks.add(
+      ImportTask(
+        id: attempt.taskId,
+        title: 'Synthetic settlement failure',
+        status: TaskStatus.processing,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyParseMode: ImportParseMode.ocr.name,
+          TaskManager.keyTraceId: attempt.traceId,
+          TaskManager.keyAttemptNumber: attempt.attemptNumber,
+          TaskManager.keyAttemptToken: attempt.attemptToken,
+          TaskManager.keyAttemptState: ImportAttemptState.running.name,
+        },
+      ),
+    );
+    final scheduler = _RecordingOcrRequestScheduler();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: taskManager,
+      readiness: taskManager.ready,
+      requestScheduler: scheduler,
+    );
+
+    expect(
+      await coordinator.cancelOcrTask(attempt.taskId),
+      ImportAttemptWriteStatus.persistenceFailed,
+    );
+    final pending = taskManager.tasks.single;
+    expect(pending.status, TaskStatus.processing);
+    expect(pending.attemptState, ImportAttemptState.cancelRequested);
+    expect(TaskCenterProjection.presentationFor(pending).canRetry, isFalse);
+    expect(await taskManager.deleteTask(attempt.taskId),
+        ImportTaskCleanupStatus.busy);
+
+    expect(
+      await coordinator.cancelOcrTask(attempt.taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+    expect(scheduler.cancellations, hasLength(2));
+    final cancelled = taskManager.tasks.single;
+    expect(cancelled.attemptState, ImportAttemptState.cancelled);
+    expect(TaskCenterProjection.presentationFor(cancelled).canRetry, isTrue);
   });
 
   test('maintenance blocks OCR cancellation before durable task mutation',
@@ -621,6 +941,52 @@ void main() {
 
     expect(manager.tasks.single.attemptNumber, 1);
     expect(manager.tasks.single.attemptState, ImportAttemptState.failed);
+  });
+
+  test('retry persistence failure does not start the parser', () async {
+    final retryManager = TaskManager.forTesting(
+      saveTask: (_) async =>
+          throw StateError('synthetic retry persistence failure'),
+    );
+    retryManager.tasks.add(
+      ImportTask(
+        id: 'retry-persistence-failure',
+        title: 'Synthetic retry persistence failure',
+        status: TaskStatus.error,
+        diagnostics: <String, dynamic>{
+          TaskManager.keyTraceId: 'retry-old-trace',
+          TaskManager.keyParseMode: ImportParseMode.ocr.name,
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'retry-old-token',
+          TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+        },
+      ),
+    );
+    var parserCalls = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: retryManager,
+      readiness: Future<void>.value(),
+    );
+
+    await expectLater(
+      coordinator.retryOcrTask(
+        taskId: 'retry-persistence-failure',
+        sourceDescription: 'synthetic.pdf',
+        parse: (_) async {
+          parserCalls++;
+          return const ImportParseResult(questions: <Map<String, dynamic>>[]);
+        },
+      ),
+      throwsA(isA<ImportTaskRetryRejectedException>()),
+    );
+
+    expect(parserCalls, 0);
+    final current = retryManager.tasks.single;
+    expect(current.status, TaskStatus.error);
+    expect(current.attemptState, ImportAttemptState.failed);
+    expect(current.attemptNumber, 1);
+    expect(current.attemptToken, 'retry-old-token');
+    expect(current.traceId, 'retry-old-trace');
   });
 
   for (final mode in <ImportParseMode>[
