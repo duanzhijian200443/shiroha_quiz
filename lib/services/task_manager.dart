@@ -471,13 +471,21 @@ class TaskManager extends ChangeNotifier {
       tasks.clear();
       for (var map in maps) {
         final task = ImportTask.fromMap(map);
-        final wasInterrupted = task.status == TaskStatus.processing;
-        if (wasInterrupted) {
-          _markLoadedTaskInterrupted(task);
+        if (task.status != TaskStatus.processing) {
+          tasks.add(task);
+          continue;
         }
-        tasks.add(task);
-        if (wasInterrupted) {
-          await _saveTask(task);
+
+        final interrupted = ImportTask.fromMap(task.toMap());
+        _markLoadedTaskInterrupted(interrupted);
+        try {
+          await _persistTaskStrict(interrupted);
+          tasks.add(interrupted);
+        } catch (_) {
+          _logTaskPersistenceFailure(stage: 'restart_normalization');
+          // Keep the durable processing projection visible. It is not
+          // retry-eligible and never claims that interruption was persisted.
+          tasks.add(task);
         }
       }
       notifyListeners();
@@ -539,6 +547,22 @@ class TaskManager extends ChangeNotifier {
       return;
     }
     await ImportTaskRepository.instance.saveImportTask(task.toMap());
+  }
+
+  Future<void> _persistTaskStrict(ImportTask task) {
+    if (!_persistTasks) return Future<void>.value();
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
+    final snapshot = ImportTask.fromMap(task.toMap());
+    return _enqueueTaskWrite(task.id, () async {
+      try {
+        if (_cleanupInProgress.contains(task.id)) {
+          throw StateError('Import task cleanup is in progress');
+        }
+        await _persistTask(snapshot);
+      } finally {
+        lease.release();
+      }
+    });
   }
 
   void _logTaskPersistenceFailure({String stage = 'task_persistence'}) {

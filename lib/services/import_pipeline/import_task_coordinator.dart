@@ -458,12 +458,16 @@ class ImportTaskCoordinator {
       final attempt = task.attemptRef;
       if (attempt == null) return ImportAttemptWriteStatus.invalidState;
 
-      final persistence = _taskManager.requestAttemptCancellation(attempt);
+      final persistence =
+          await _taskManager.requestAttemptCancellation(attempt);
+      if (persistence != ImportAttemptWriteStatus.applied) {
+        return persistence;
+      }
       _requestScheduler.cancel(
         taskId: attempt.taskId,
         attemptToken: attempt.attemptToken,
       );
-      return persistence;
+      return ImportAttemptWriteStatus.applied;
     });
   }
 

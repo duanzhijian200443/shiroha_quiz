@@ -2,9 +2,23 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+
+class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+}
 
 void main() {
   setUpAll(() {
@@ -115,6 +129,93 @@ void main() {
       expect(saved.single['parsed_data'], isNull);
       expect(saved.single['pending_chunks'], isNull);
       expect(saved.single['failed_chunks'], isNull);
+    });
+
+    test(
+        'startup normalization failure keeps the durable projection and loads other tasks',
+        () async {
+      final logSink = _MemoryLogSink();
+      AppLogger.setSink(logSink);
+      addTearDown(() async {
+        await AppLogger.flush();
+        AppLogger.setSink(null);
+      });
+      final attempted = <Map<String, dynamic>>[];
+      final processing = ImportTask(
+        id: 'normalization-failure-task',
+        title: 'Synthetic processing task',
+        status: TaskStatus.processing,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'normalization-failure-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'normalization-failure-attempt',
+          TaskManager.keyAttemptState: 'running',
+        },
+      ).toMap();
+      final completed = ImportTask(
+        id: 'normalization-survivor-task',
+        title: 'Synthetic completed task',
+        status: TaskStatus.completed,
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyTraceId: 'normalization-survivor-trace',
+          TaskManager.keyParseMode: 'ocr',
+          TaskManager.keyAttemptNumber: 1,
+          TaskManager.keyAttemptToken: 'normalization-survivor-attempt',
+          TaskManager.keyAttemptState: 'readyForReview',
+        },
+      ).toMap();
+      final taskManager = TaskManager.forTesting(
+        loadTasks: () async => <Map<String, dynamic>>[
+          processing,
+          completed,
+        ],
+        saveTask: (taskMap) async {
+          attempted.add(Map<String, dynamic>.from(taskMap));
+          throw StateError('synthetic restart normalization failure');
+        },
+      );
+
+      await taskManager.ready;
+
+      final retained = taskManager.tasks
+          .singleWhere((task) => task.id == 'normalization-failure-task');
+      expect(retained.status, TaskStatus.processing);
+      expect(retained.attemptState, ImportAttemptState.running);
+      expect(retained.attemptNumber, 1);
+      expect(retained.attemptToken, 'normalization-failure-attempt');
+      expect(retained.traceId, 'normalization-failure-trace');
+      expect(
+        await taskManager.restartAttempt(
+          const ImportAttemptRef(
+            taskId: 'normalization-failure-task',
+            attemptNumber: 2,
+            attemptToken: 'next-attempt',
+            traceId: 'next-trace',
+          ),
+          parseMode: 'ocr',
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        ImportAttemptWriteStatus.invalidState,
+      );
+
+      final survivor = taskManager.tasks
+          .singleWhere((task) => task.id == 'normalization-survivor-task');
+      expect(survivor.status, TaskStatus.completed);
+      expect(attempted, hasLength(1));
+      final attemptedInterrupted = ImportTask.fromMap(attempted.single);
+      expect(attemptedInterrupted.status, TaskStatus.error);
+      expect(attemptedInterrupted.attemptState, ImportAttemptState.interrupted);
+      expect(attemptedInterrupted.attemptToken, isNull);
+      await AppLogger.flush();
+      expect(
+        logSink.records.where(
+          (record) =>
+              record.module == 'ImportTask' &&
+              record.data['stage'] == 'restart_normalization',
+        ),
+        isNotEmpty,
+      );
     });
 
     test('serializes cancellation before a retry after an older write',
