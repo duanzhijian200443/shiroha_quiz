@@ -6,6 +6,7 @@ import 'package:shiroha_quiz/application/file_library/library_file_deletion.dart
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/log_writer.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/services/file_library/library_file_deletion_service.dart';
@@ -265,6 +266,8 @@ void main() {
         SELECT RAISE(ABORT, 'blocked');
       END;
     ''');
+    final observed = <LogRecord>[];
+    LogWriter.setRecordHandler(observed.add);
 
     await expectLater(
       service.deleteLibraryFile(file.fileId),
@@ -287,6 +290,16 @@ void main() {
     expect(await storage.managedFileExists(file.storageKey), isTrue);
     expect(await artifactStorage.readArtifact(storageKey: artifact.storageKey),
         isNotNull);
+    expect(
+      observed.any(
+        (record) =>
+            record.operationKind == TraceOperationKind.destructiveMutation &&
+            record.message == 'destructive_failed' &&
+            record.data['mutationKind'] == 'libraryFileDelete' &&
+            record.data['status'] == 'failed',
+      ),
+      isTrue,
+    );
   });
 
   test('unknown managed-byte ownership fails closed before DB mutation',
@@ -338,12 +351,25 @@ void main() {
       observed.any(
         (record) =>
             record.module == 'LibraryFile' &&
-            record.data['fileId'] == file.fileId &&
+            record.data['cleanupTarget'] == 'managed_bytes' &&
             record.data['status'] == 'orphaned' &&
             record.data['retryable'] == true,
       ),
       isTrue,
     );
+    expect(
+      observed.any(
+        (record) =>
+            record.message == 'destructive_completed' &&
+            record.data['status'] == 'completed_with_orphan',
+      ),
+      isTrue,
+    );
+    expect(
+      observed.where((record) => record.message == 'destructive_failed'),
+      isEmpty,
+    );
+    expect(observed.join(), isNot(contains(file.storageKey)));
   });
 
   test('artifact cleanup failure preserves the sidecar as a retryable orphan',
@@ -370,8 +396,7 @@ void main() {
       observed.any(
         (record) =>
             record.module == 'LibraryFile' &&
-            record.data['artifactId'] == _artifactId &&
-            record.data['derived'] == 'parsed_artifact_sidecar' &&
+            record.data['cleanupTarget'] == 'parsed_artifact_sidecar' &&
             record.data['status'] == 'orphaned' &&
             record.data['retryable'] == true,
       ),
@@ -402,7 +427,7 @@ void main() {
     expect(
       observed.any(
         (record) =>
-            record.data['artifactId'] == _artifactId &&
+            record.data['cleanupTarget'] == 'parsed_artifact_sidecar' &&
             record.data['reason'] == 'ownership_unproven' &&
             record.data['retryable'] == true,
       ),

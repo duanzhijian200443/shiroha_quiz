@@ -509,6 +509,38 @@ void main() {
     expect(deletion.receivedFileId, 'file-a');
   });
 
+  test('formal LibraryFile deletion fails closed when authority is absent',
+      () async {
+    final facadeWithoutDeletion = U1WorkspaceFacade(
+      projectService: ProjectService(
+        repository: projects,
+        projectIdFactory: () => 'project-new',
+      ),
+      fileRepository: files,
+      fileIngestion: ingestion,
+      folderService: LibraryFolderService(
+        repository: folders,
+        folderIdFactory: () => 'folder-new',
+      ),
+      studyQueryService: StudyQueryService(
+        questionQuery: _QuestionPort(const <QuestionBankSummary>[]),
+        metricsQuery: _MetricsPort(),
+      ),
+      mcpProjection: facade.mcpProjection,
+    );
+
+    expect(
+      () => facadeWithoutDeletion.deleteLibraryFile('file-a'),
+      throwsA(
+        isA<LibraryFileDeletionException>().having(
+          (error) => error.failure,
+          'failure',
+          LibraryFileDeletionFailure.unavailable,
+        ),
+      ),
+    );
+  });
+
   group('OCR-UX ParsedArtifact Application lifecycle seam', () {
     test('no current artifact -> state none', () async {
       lifecycle.artifacts.clear();

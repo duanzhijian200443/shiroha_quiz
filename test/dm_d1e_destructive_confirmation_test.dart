@@ -463,7 +463,8 @@ void main() {
 
       expect(persistence.deleteCalls, 1);
       expect(persistence.banks, hasLength(1));
-      expect(find.textContaining('删除失败'), findsOneWidget);
+      expect(find.textContaining('删除题库失败'), findsOneWidget);
+      expect(find.textContaining('d1e synthetic'), findsNothing);
       expect(find.textContaining('已删除'), findsNothing);
     });
   });
@@ -576,7 +577,8 @@ void main() {
 
       expect(persistence.deleteCalls, 1);
       expect(persistence.banks, hasLength(1));
-      expect(find.textContaining('删除失败'), findsOneWidget);
+      expect(find.textContaining('删除题库失败'), findsOneWidget);
+      expect(find.textContaining('d1e synthetic'), findsNothing);
       expect(find.textContaining('题库已删除'), findsNothing);
     });
   });
@@ -588,6 +590,12 @@ void main() {
 
       await tester.tap(find.text('清除缓存 / 重置数据库'));
       await _pumpProfileTransition(tester);
+      expect(find.textContaining('Questions'), findsOneWidget);
+      expect(find.textContaining('ReviewState'), findsOneWidget);
+      expect(find.textContaining('ReviewLog'), findsOneWidget);
+      expect(find.textContaining('AnswerAttempt'), findsOneWidget);
+      expect(find.textContaining('不可撤销'), findsOneWidget);
+      expect(find.textContaining('导出备份'), findsOneWidget);
       await tester.tap(find.text('取消'));
       await _pumpProfileTransition(tester);
 
@@ -624,6 +632,7 @@ void main() {
       expect(state.clearCalls, 1);
       expect(state.hasData, isTrue);
       expect(find.textContaining('清除失败'), findsOneWidget);
+      expect(find.textContaining('d1e synthetic'), findsNothing);
       expect(find.text('数据已清空'), findsNothing);
     });
 

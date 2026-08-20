@@ -1,6 +1,6 @@
 # DM-D5 Destructive Presentation and Tool Boundary
 
-Status: **FROZEN — FINAL implementation acceptance pending**
+Status: **IMPLEMENTED — EXECUTOR FINAL GATE PASSED; independent review pending**
 
 Authority: successor stage of
 `dm-p0-data-lifecycle-destructive-mutation.md`. This document does not reopen
@@ -118,3 +118,32 @@ Rich Image / #115 / #116, RAG-2/3, schema/migration, GC/refcount/tombstone,
 OCR/provider redesign, broad UI redesign, autonomous destructive Agent/MCP
 execution, MCP tool expansion, B0 implementation changes, unrelated refactor
 and incidental cleanup are out of scope.
+
+## 8. DM-D5-FINAL closure addendum
+
+The historical audits and contracts above remain provenance. DM-D5-FINAL used:
+
+- frozen successor contract commit: `ca43823`;
+- destructive Presentation/trace implementation commit: `0637dbc`;
+- final implementation head under acceptance: `0637dbc` (the following
+  evidence-only commit adds tests and this closure record without changing
+  production behavior).
+
+The executor FINAL GATE passed 594 serial focused/architecture tests across
+the complete D4 HARD GATE, persisted ReviewDraft CAS, typed and legacy commit
+leases, retry/restart/cleanup/retention, destructive trace lifecycle,
+LibraryFile DB-first/orphan semantics, Facade and Presentation call chain,
+DM-D1E confirmations, clear-all, StudyPlan stop, OBS compatibility, MCP
+exactly-six READ_ONLY transport/contract/architecture, Agent destructive
+policy, W0 proposal/approval authority, B0 mutation gate and repository-wide
+architecture boundaries.
+
+Focused analyze, changed-Dart analyze, changed-Dart format gate and
+`git diff --check` are required again on the final evidence commit. Runtime
+schema remains v23; no migration, MCP tool, autonomous destructive runtime or
+new dependency was added.
+
+Executor self-check found no open task P0/P1/P2. This is evidence, not semantic
+approval: because destructive mutation and authorization are high risk, the
+fixed Draft PR head still requires an independent Verifier and then an
+Independent Reviewer before any user-authorized merge.
