@@ -69,7 +69,9 @@ production activation:
 - complete structural equality and hash participation wherever
   `RichContent` participates in `QuestionDraftV2` equality, stale detection,
   revision/CAS checks, or collection keys;
-- recursive privacy/resource admission;
+- context-free recursive content-level privacy/resource admission;
+- separate draft-level asset referential-integrity validation wherever an
+  owning `QuestionDraftV2` exists;
 - deterministic rendering with explicit unsupported and missing-resource
   states;
 - a bounded, safe, deterministic legacy projection that is never promoted
@@ -168,9 +170,9 @@ inventory. Each inventory member is a `SourcedAssetRef` whose identity is the
 pair `(sourceId, localAssetId)` and whose `AssetRef` carries the canonical safe
 metadata.
 
-`ImageNode` is content placement and reference only. Every image identity in
-the stem, option content, content answer, explanation, image alternative text,
-or table cell must resolve to exactly one member of the owning
+`ImageNode` is content placement and reference only. Every `ImageNode`
+reachable from the stem, option content, content answer, explanation, or table
+cell must resolve to exactly one member of the owning
 `QuestionDraftV2.assetRefs` inventory.
 
 Formally:
@@ -191,8 +193,8 @@ For one `(sourceId, localAssetId)` identity there is exactly one canonical
 deduplicated deterministically; conflicting kind, MIME type, pixel width, or
 pixel height must fail closed.
 
-Draft construction, decode, admission, and any mutation/review boundary must
-reject:
+Draft-level referential-integrity validation at construction, decode,
+review/commit, and any mutation boundary must reject:
 
 - an image identity absent from the draft inventory;
 - an inventory asset absent from the declared source set;
@@ -204,7 +206,43 @@ Rendering failure or a physically missing/corrupt asset is an explicit
 resource state. It does not authorize legacy-string fallback, metadata repair
 inside the node, silent node deletion, or semantic mutation.
 
-### C.3 Durable lifetime and backup invariants
+### C.3 Source-to-Region-to-Draft asset closure
+
+An `ImageNode` may exist in Source structure before an owning
+`QuestionDraftV2` exists. Therefore every source-side structural image
+identity must resolve to one source-level canonical `AssetRef` metadata
+authority for its `SourceDocument`. The source-level authority may be an
+explicit document inventory or another single canonical representation, but
+its concrete type/location is deferred. It must not be reconstructed from a
+path, URL, bytes, provider payload, or opaque identity alone.
+
+The Source authority must cover both direct `SourceAssetPart` values and every
+image reference nested in source `RichContent`, including `SourceTablePart`
+cells. For one local asset identity within a SourceDocument, metadata must be
+unique; missing or conflicting source metadata fails closed before a nested
+image can progress into typed question assembly.
+
+`QuestionRegion` then derives the exact transitive asset-reference closure of
+its ordered fragments. That closure includes:
+
+- every direct `SourceAssetPart` in the region;
+- every `ImageNode` reachable through region-owned source content;
+- every `ImageNode` reachable through region-owned table cells.
+
+For each nested identity, Region derivation resolves the canonical metadata
+from the source-level authority and emits one `SourcedAssetRef`. It must not
+copy the entire SourceDocument inventory into an unrelated Question, omit a
+nested reference, or infer metadata from an identity token. Equal duplicates
+may be deduplicated in first encounter order; missing/conflicting metadata
+fails closed.
+
+`TypedQuestionAssembler` carries that exact Region closure into
+`QuestionDraftV2.assetRefs`. Draft-level referential-integrity validation then
+proves that every assembled `ImageNode` belongs to the resulting draft
+inventory. This two-stage closure is FINAL even though the concrete
+SourceDocument inventory field and Region implementation are deferred.
+
+### C.4 Durable lifetime and backup invariants
 
 The durable lifetime of an image referenced by a confirmed Question must be
 independent of provider responses, temporary files, OCR caches, and
@@ -233,12 +271,13 @@ TableNode
             └── columnSpan: int
 ```
 
-`SourceTablePart` and `TableNode` must converge on this same
-`TableStructure`; they must not become independent, field-for-field duplicate
-table authorities. The current `SourceTablePart.rows:
-List<List<RichContent>>` is the pre-span source representation and can be
-adapted into the shared value during implementation. That transitional shape
-does not authorize a third `ParsedTable`/`TableNode` Domain authority.
+New normalized `SourceTablePart` structure and `TableNode` must converge on
+this same `TableStructure`; they must not become independent,
+field-for-field duplicate table authorities. The current
+`SourceTablePart.rows: List<List<RichContent>>` is the persisted v1 pre-span
+source representation. It is a compatibility input governed by section E.4,
+not permission to create a third new `ParsedTable`/`TableNode` Domain
+authority.
 
 The canonical v0 node payload is logically:
 
@@ -289,7 +328,9 @@ Validation must fail closed unless all of the following hold:
 - expansion creates no unknown or implicit content cell;
 - row, column, logical-cell, expanded-cell, nested-node, text/scalar, and asset
   budgets are satisfied;
-- every cell image belongs to the owning draft asset inventory;
+- every source-side cell image resolves through the source-level canonical
+  asset metadata authority, and every assembled draft cell image belongs to
+  the owning draft asset inventory;
 - no cell recursively contains a table.
 
 Concrete maximum numbers are implementation defaults, not durable schema
@@ -331,9 +372,11 @@ forward-compatibility behavior.
 
 Once the active reader claims the exact v0 `image` or `table` schema, a payload
 with a missing/wrong required field, invalid identity, invalid alternative-text
-subset, invalid span/geometry, forbidden nesting, conflicting inventory
-metadata, or exceeded bound is malformed known data and must fail closed. It
-must not be hidden inside `RawFallbackNode`.
+subset, invalid span/geometry, forbidden nesting, or exceeded content bound is
+malformed known data and must fail closed. It must not be hidden inside
+`RawFallbackNode`. Asset-inventory membership and metadata conflicts are
+separate draft-level referential-integrity failures; the context-free node
+codec does not pretend to resolve them.
 
 Encoding is deterministic, decoding is strict, and no known-node path may
 silently discard fields. Any compatible future extension of an established
@@ -354,10 +397,60 @@ preserved and re-encoded by the existing v1 envelope, including:
 A new, self-contained discriminator that satisfies the existing unknown-node
 contract does not mechanically require a bump.
 
+### E.4 SourceDocument v1 table compatibility
+
+RichContent v1 extension compatibility does not automatically make a new
+Source table payload compatible. The current `SourceDocumentCodec` v1 table
+shape is strictly:
+
+```text
+table {
+  type,
+  sourceRef,
+  rows: [[RichContent, ...], ...]
+}
+```
+
+Current Source Domain accepts v1 tables that are ragged, empty, or contain a
+privacy-admitted `RawFallbackNode`. Those persisted payloads are existing legal
+inputs. Introducing shared `TableStructure`, spans, rectangular geometry, and
+the stricter TableNode cell subset must not silently make them unreadable,
+pad/drop cells, discard fallback content, or reinterpret them as valid v0
+tables.
+
+Implementation must provide an explicit versioned backward-read and
+deterministic transition policy:
+
+- existing SourceDocument v1 payloads remain decodable as their legacy source
+  meaning;
+- a non-empty rectangular v1 table whose cells satisfy the v0 allowed subset
+  may deterministically upgrade to `TableStructure` with `rowSpan = 1` and
+  `columnSpan = 1` without semantic loss;
+- ragged, empty, or otherwise non-representable v1 tables remain losslessly
+  preserved by an explicit compatibility carrier; an attempted v0 conversion
+  produces an explicit unsupported/review outcome rather than silently
+  normalizing them into different content;
+- lossless legacy re-encode remains available until the compatibility
+  carrier's separately authorized retirement condition is met;
+- a ParsedArtifact rebuild may replace derived SourceDocument data only
+  through the existing generation/lifecycle contract and never as a silent
+  in-place rewrite or as authority to mutate confirmed Questions.
+
+If a writer emits the new spanned `TableStructure` payload rather than the
+legacy rows array, it must use an explicitly versioned SourceDocument or table
+sub-payload contract. It must not emit the new exact-key shape while continuing
+to claim the old SourceDocument v1 table schema. The concrete version number,
+carrier type, and rebuild/upgrade mechanics are deferred; backward readability
+and no-silent-loss behavior are FINAL.
+
 ## F. Privacy / Admission Contract
 
-`RichContentPrivacyAdmission` becomes recursive across every formal nesting
-edge:
+### F.1 Context-free Content Admission
+
+`RichContentPrivacyAdmission` remains context-free so it can run while
+constructing `SourceContentPart`, `SourceTablePart`, and
+`SourceAssetPart.alternativeText`, before any `QuestionDraftV2` exists. It
+becomes recursive across every formal nesting edge:
 
 ```text
 RichContent
@@ -366,18 +459,23 @@ RichContent
 ```
 
 Construction/codec validation prohibits `TableNode -> TableCell -> TableNode`
-before recursion can continue. Admission must use explicit depth and resource
-budgets even where v0 nesting rules already make recursion finite.
+before recursion can continue. Content Admission must use explicit depth and
+resource budgets even where v0 nesting rules already make recursion finite.
 
-Admission must validate:
+Content Admission validates only properties available from the content tree
+itself:
 
 - total/node-local node counts and text/scalar sizes;
 - image alternative-text subset and bounds;
 - table row, column, logical-cell, expanded-cell, nested-node, and text/scalar
   bounds;
-- every image identity against the current draft inventory;
+- bounded canonical identity shape without treating identity as a locator;
 - all `RawFallbackNode` maps/lists/strings recursively under the existing
   side-channel and locator defenses.
+
+Content Admission does not validate membership in
+`QuestionDraftV2.assetRefs`, because no draft inventory exists at Source
+construction time.
 
 Opaque, bounded `sourceId` and `localAssetId` values plus safe `AssetRef`
 metadata are identities/metadata and are allowed. Identity is never a storage
@@ -388,6 +486,24 @@ side channels: `file://` locators, Windows or POSIX paths, UNC paths, provider
 or HTTP URLs, DataURLs, Base64, raw bytes, provider requests/responses, raw OCR
 bodies, cache/temp/managed-storage locations, diagnostics that disclose source
 content, credentials, tokens, and secrets.
+
+### F.2 Contextual asset referential integrity
+
+Asset existence and metadata consistency are contextual validations, not
+responsibilities of `RichContentPrivacyAdmission`:
+
+- Source-level validation resolves structural image identities against the
+  source-level canonical `AssetRef` authority under section C.3;
+- Region derivation computes the exact transitive image asset closure of its
+  fragments;
+- draft construction/decode/review/commit validates every reachable
+  `ImageNode` identity against `QuestionDraftV2.assetRefs` and enforces one
+  canonical metadata value per source-qualified identity.
+
+These contextual validators must recurse through the same structural content
+edges as Content Admission, but they receive the source/draft inventory
+context explicitly. Neither layer may be skipped, and neither may absorb the
+other through ambient/global state.
 
 ## G. Compatibility Contract
 
@@ -457,6 +573,8 @@ HTML to recover Domain content.
 The following are explicitly not frozen by Phase 0:
 
 - concrete asset registry or asset-resolution implementation;
+- concrete source-level asset inventory field/type and Region closure
+  implementation;
 - SQLite tables, migration, or database version;
 - managed-storage directory/key layout, reference counting, or garbage
   collection;
@@ -470,6 +588,8 @@ The following are explicitly not frozen by Phase 0:
 - table caption and header-scope semantics;
 - AI Repair provider schema and prompt;
 - provider-specific OCR/DOCX payload schemas;
+- concrete SourceDocument/table schema version number, legacy compatibility
+  carrier type, and upgrade/rebuild mechanics;
 - Rich Image production activation.
 
 These deferred implementation choices may not weaken the FINAL identity,
@@ -487,6 +607,11 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | String asset reference or storage locator | REJECTED | Identity is the existing source-qualified asset identity; locators are infrastructure details. |
 | `QuestionDraftV2.assetRefs` inventory authority | FINAL | It is the single draft-level source of canonical safe asset metadata. |
 | Image `(sourceId, localAssetId)` placement reference | FINAL | It references inventory identity without duplicating metadata. |
+| Context-free Content Admission | FINAL | Source content must be privacy/resource validated before a draft inventory exists. |
+| Draft asset referential-integrity validation | FINAL | Inventory membership requires explicit owning-draft context and is not a privacy-admission concern. |
+| Source-level canonical asset metadata authority | FINAL | Nested source images need safe metadata before Region/Draft formation. |
+| Region transitive nested-image asset closure | FINAL | Direct and nested images must produce the exact `SourcedAssetRef` closure carried into the draft. |
+| Concrete source asset inventory representation | DEFERRED | Phase 0 freezes closure semantics, not the SourceDocument field/type. |
 | `alternativeText: RichContent?` | FINAL | It preserves the existing typed Source asset contract. |
 | Alternative-text text/math-only subset | FINAL | It prevents recursive images/tables and bounds semantics. |
 | Image caption | DEFERRED | No stable source caption authority exists. |
@@ -500,9 +625,12 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | `RawFallbackNode` in cells/alternative text | REJECTED | These constrained subtrees require known, bounded semantics. |
 | Table caption / `headerScope` / style | DEFERRED | No reliable source semantics justify v0 fields; style is Presentation-owned. |
 | Bounded table and nested content admission | FINAL | Unbounded OCR/provider payloads may not enter Domain/persistence. |
-| Recursive privacy admission | FINAL | Every nested RichContent edge must preserve side-channel defenses. |
+| Recursive context-free privacy/resource admission | FINAL | Every nested RichContent edge must preserve side-channel defenses without requiring draft context. |
 | Asset identity distinct from locator | FINAL | Domain identity never authorizes path/URL interpretation. |
 | RichContent schema version 1 | FINAL | New self-contained node discriminators fit current unknown-node preservation. |
+| SourceDocument v1 backward-read and deterministic transition | FINAL | Existing ragged/empty/fallback table payloads cannot become silently invalid or lossy. |
+| New spanned table payload under unchanged SourceDocument v1 shape | REJECTED | The current exact-key v1 table codec cannot safely interpret that schema change. |
+| Concrete SourceDocument/table version number and carrier | DEFERRED | A later implementation may choose mechanics while preserving the frozen compatibility policy. |
 | Unknown future node -> lossless fallback | FINAL | Old readers preserve data without semantic mutation. |
 | Malformed known node -> fallback | REJECTED | Claimed known schemas fail closed on invalid canonical payloads. |
 | Legacy Question rewrite/deletion | REJECTED | Existing banks and String compatibility remain supported. |
