@@ -106,6 +106,17 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    `review_states`; changing or resetting scheduling state does not rewrite or
    delete answer history.
 
+### RichContent Foundation Phase 0
+
+The FINAL/FROZEN additive architecture target for first-class `ImageNode` and
+`TableNode`, draft-level asset inventory authority, codec evolution, recursive
+privacy admission, compatibility projection, durable asset lifetime, and
+block-native structural ownership is
+`docs/architecture/rich-content-foundation.md`. Implementation and production
+activation remain deferred; current text/math/fallback behavior remains the
+runtime truth until separately authorized implementation conforms to that
+focused contract.
+
 ## 4. Learning asset expansion boundary
 
 Post-P5 asset work introduces new objects around the typed core rather than replacing it.
