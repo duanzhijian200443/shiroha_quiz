@@ -412,7 +412,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(first.attemptState, ImportAttemptState.cancelRequested);
+    // D2 publishes the lifecycle transition only after its durable snapshot
+    // has been accepted. While that write is intentionally held open, the
+    // action is pending but the task still projects its last persisted state.
+    expect(first.attemptState, ImportAttemptState.running);
     expect(second.attemptState, ImportAttemptState.running);
     expect(persistenceWrites, 1);
     expect(
@@ -422,7 +425,7 @@ void main() {
         ),
         matching: find.text('取消中'),
       ),
-      findsNWidgets(2),
+      findsOneWidget,
     );
     expect(tester.widget<OutlinedButton>(firstCancel).onPressed, isNull);
     expect(
@@ -439,6 +442,7 @@ void main() {
     persistenceRelease.complete();
     await tester.pump();
     await tester.pump();
+    expect(first.attemptState, ImportAttemptState.cancelRequested);
   });
 
   testWidgets('retry picker cancellation does not mutate the OCR attempt',
