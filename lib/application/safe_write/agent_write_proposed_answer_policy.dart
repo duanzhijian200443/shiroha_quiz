@@ -11,7 +11,8 @@ import '../../domain/question/question_draft_v2.dart';
 ///   identities are unique and exist in the admitted/current options;
 /// - `QuestionKind.fillBlank` / `QuestionKind.shortAnswer` accept only a
 ///   `ContentAnswer` that is structurally non-empty: whitespace-only text or
-///   math does not count as visible, and raw fallback payloads are refused.
+///   math does not count as visible, raw fallback payloads are refused, and
+///   Phase 1 image/table nodes remain outside the W0 text/math input boundary.
 final class AgentWriteProposedAnswerPolicy {
   const AgentWriteProposedAnswerPolicy();
 
@@ -65,6 +66,8 @@ final class AgentWriteProposedAnswerPolicy {
           if (latex.trim().isNotEmpty) hasVisibleNode = true;
         case BlockMathNode(:final latex):
           if (latex.trim().isNotEmpty) hasVisibleNode = true;
+        case ImageNode() || TableNode():
+          return false;
         case RawFallbackNode():
           return false;
       }

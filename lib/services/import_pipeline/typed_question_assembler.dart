@@ -490,6 +490,9 @@ String _searchText(List<ContentNode> nodes) {
         buffer.write(latex);
       case BlockMathNode(:final latex):
         buffer.write(latex);
+      case ImageNode():
+      case TableNode():
+        break;
       case RawFallbackNode():
         break;
     }

@@ -44,6 +44,165 @@ void main() {
 
       expect(content.nodes, isEmpty);
     });
+
+    test('ImageNode uses structural equality and hash semantics', () {
+      final first = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+        alternativeText: RichContent(nodes: const <ContentNode>[
+          TextNode('synthetic alt'),
+          InlineMathNode(r'x+1'),
+        ]),
+      );
+      final equal = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+        alternativeText: RichContent(nodes: const <ContentNode>[
+          TextNode('synthetic alt'),
+          InlineMathNode(r'x+1'),
+        ]),
+      );
+      final different = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_002',
+      );
+
+      expect(equal, first);
+      expect(equal.hashCode, first.hashCode);
+      expect(different, isNot(first));
+    });
+
+    test('TableStructure validates rectangular geometry and preserves spans',
+        () {
+      final structure = TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(
+            content: RichContent(nodes: const <ContentNode>[TextNode('a')]),
+            rowSpan: 2,
+          ),
+          TableCell(
+            content: RichContent(
+              nodes: const <ContentNode>[InlineMathNode(r'b')],
+            ),
+            columnSpan: 2,
+          ),
+        ]),
+        TableRow(cells: <TableCell>[
+          TableCell(content: RichContent(nodes: const <ContentNode>[])),
+          TableCell(
+            content: RichContent(
+              nodes: const <ContentNode>[BlockMathNode(r'c')],
+            ),
+          ),
+        ]),
+      ]);
+
+      expect(structure.columnCount, 3);
+      expect(structure.expandedCellCount, 6);
+      expect(
+          structure.expandedCells[0][0]!.content,
+          RichContent(nodes: const [
+            TextNode('a'),
+          ]));
+      expect(
+          structure.expandedCells[0][1]!.content,
+          RichContent(nodes: const [
+            InlineMathNode(r'b'),
+          ]));
+      expect(structure.expandedCells[0][2], isNull);
+      expect(structure.expandedCells[1][0], isNull);
+      expect(structure.expandedCells[1][1]!.content.nodes, isEmpty);
+      expect(
+          structure.expandedCells[1][2]!.content,
+          RichContent(nodes: const [
+            BlockMathNode(r'c'),
+          ]));
+
+      final equal = TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(
+            content: RichContent(nodes: const <ContentNode>[TextNode('a')]),
+            rowSpan: 2,
+          ),
+          TableCell(
+            content: RichContent(
+              nodes: const <ContentNode>[InlineMathNode(r'b')],
+            ),
+            columnSpan: 2,
+          ),
+        ]),
+        TableRow(cells: <TableCell>[
+          TableCell(content: RichContent(nodes: const <ContentNode>[])),
+          TableCell(
+            content: RichContent(
+              nodes: const <ContentNode>[BlockMathNode(r'c')],
+            ),
+          ),
+        ]),
+      ]);
+      expect(equal, structure);
+      expect(equal.hashCode, structure.hashCode);
+    });
+
+    test('rejects invalid, overlapping, and non-rectangular tables', () {
+      final empty = RichContent(nodes: const <ContentNode>[]);
+      expect(
+        () => TableCell(content: empty, rowSpan: 0),
+        throwsFormatException,
+      );
+      expect(
+        () => TableCell(content: empty, columnSpan: -1),
+        throwsFormatException,
+      );
+
+      final nestedTable = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[TableCell(content: empty)]),
+        ]),
+      );
+      expect(
+        () => TableCell(
+          content: RichContent(nodes: <ContentNode>[nestedTable]),
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => TableCell(
+          content: RichContent(nodes: <ContentNode>[
+            RawFallbackNode(<Object?, Object?>{
+              'type': 'future_diagram',
+              'payload': <Object?, Object?>{'value': 1},
+            }),
+          ]),
+        ),
+        throwsFormatException,
+      );
+
+      expect(
+        () => TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: empty),
+            TableCell(content: empty),
+          ]),
+          TableRow(cells: <TableCell>[TableCell(content: empty)]),
+        ]),
+        throwsFormatException,
+      );
+
+      expect(
+        () => TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: empty, rowSpan: 2),
+            TableCell(content: empty),
+            TableCell(content: empty, rowSpan: 2),
+          ]),
+          TableRow(cells: <TableCell>[
+            TableCell(content: empty, columnSpan: 2),
+          ]),
+        ]),
+        throwsFormatException,
+      );
+    });
   });
 
   group('RawFallbackNode', () {

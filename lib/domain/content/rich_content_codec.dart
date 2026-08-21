@@ -76,6 +76,22 @@ final class RichContentCodec {
           'type': 'block_math',
           'latex': latex,
         },
+      ImageNode(
+        :final sourceId,
+        :final localAssetId,
+        :final alternativeText,
+      ) =>
+        <String, Object?>{
+          'type': 'image',
+          'sourceId': sourceId,
+          'assetId': localAssetId,
+          'alternativeText':
+              alternativeText == null ? null : encode(alternativeText),
+        },
+      TableNode(:final structure) => <String, Object?>{
+          'type': 'table',
+          'rows': structure.rows.map(_encodeTableRow).toList(),
+        },
       RawFallbackNode(:final rawJson) => _copyJsonMap(rawJson),
     };
   }
@@ -98,6 +114,8 @@ final class RichContentCodec {
       'text' => _decodeTextNode(node),
       'inline_math' => _decodeInlineMathNode(node),
       'block_math' => _decodeBlockMathNode(node),
+      'image' => _decodeImageNode(node),
+      'table' => _decodeTableNode(node),
       'raw_fallback' => _decodeRawFallbackNode(node),
       _ => RawFallbackNode(node),
     };
@@ -142,6 +160,100 @@ final class RichContentCodec {
     return BlockMathNode(latex);
   }
 
+  ContentNode _decodeImageNode(Map<String, Object?> node) {
+    final sourceId = node['sourceId'];
+    if (sourceId is! String) {
+      throw const FormatException(
+        'Image nodes require a string sourceId field.',
+      );
+    }
+    final assetId = node['assetId'];
+    if (assetId is! String) {
+      throw const FormatException(
+        'Image nodes require a string assetId field.',
+      );
+    }
+    if (!node.containsKey('alternativeText')) {
+      throw const FormatException(
+        'Image nodes require an alternativeText field.',
+      );
+    }
+    final rawAlternativeText = node['alternativeText'];
+    final alternativeText =
+        rawAlternativeText == null ? null : decode(rawAlternativeText);
+    final image = ImageNode(
+      sourceId: sourceId,
+      localAssetId: assetId,
+      alternativeText: alternativeText,
+    );
+    if (!_hasExactKeys(
+      node,
+      const <String>{'type', 'sourceId', 'assetId', 'alternativeText'},
+    )) {
+      return RawFallbackNode(node);
+    }
+    return image;
+  }
+
+  ContentNode _decodeTableNode(Map<String, Object?> node) {
+    final rawRows = node['rows'];
+    if (rawRows is! List) {
+      throw const FormatException('Table nodes require a rows array.');
+    }
+    final rows = <TableRow>[];
+    for (final rawRow in rawRows) {
+      final row = _expectUntypedObject(rawRow, 'Table row');
+      _requireExactKeys(row, const <String>{'cells'}, 'Table row');
+      final rawCells = row['cells'];
+      if (rawCells is! List) {
+        throw const FormatException('Table row cells must be an array.');
+      }
+      final cells = <TableCell>[];
+      for (final rawCell in rawCells) {
+        final cell = _expectUntypedObject(rawCell, 'Table cell');
+        _requireExactKeys(
+          cell,
+          const <String>{'content', 'rowSpan', 'columnSpan'},
+          'Table cell',
+        );
+        final rowSpan = cell['rowSpan'];
+        final columnSpan = cell['columnSpan'];
+        if (rowSpan is! int || columnSpan is! int) {
+          throw const FormatException(
+            'Table cell spans must be integers.',
+          );
+        }
+        cells.add(
+          TableCell(
+            content: decode(cell['content']),
+            rowSpan: rowSpan,
+            columnSpan: columnSpan,
+          ),
+        );
+      }
+      rows.add(TableRow(cells: cells));
+    }
+    final table = TableNode(structure: TableStructure(rows: rows));
+    if (!_hasExactKeys(node, const <String>{'type', 'rows'})) {
+      return RawFallbackNode(node);
+    }
+    return table;
+  }
+
+  Map<String, Object?> _encodeTableRow(TableRow row) {
+    return <String, Object?>{
+      'cells': row.cells.map(_encodeTableCell).toList(),
+    };
+  }
+
+  Map<String, Object?> _encodeTableCell(TableCell cell) {
+    return <String, Object?>{
+      'content': encode(cell.content),
+      'rowSpan': cell.rowSpan,
+      'columnSpan': cell.columnSpan,
+    };
+  }
+
   ContentNode _decodeRawFallbackNode(Map<String, Object?> node) {
     if (!node.containsKey('payload')) {
       throw const FormatException(
@@ -166,12 +278,29 @@ Map<String, Object?> _stringKeyedMap(Map<Object?, Object?> source) {
   return copy;
 }
 
+Map<String, Object?> _expectUntypedObject(Object? value, String label) {
+  if (value is! Map) {
+    throw FormatException('$label must be a JSON object.');
+  }
+  return _stringKeyedMap(value);
+}
+
 bool _hasExactKeys(
   Map<String, Object?> source,
   Set<String> expected,
 ) {
   if (source.length != expected.length) return false;
   return expected.every(source.containsKey);
+}
+
+void _requireExactKeys(
+  Map<String, Object?> source,
+  Set<String> expected,
+  String label,
+) {
+  if (!_hasExactKeys(source, expected)) {
+    throw FormatException('$label contains unsupported fields.');
+  }
 }
 
 Map<String, Object?> _copyJsonMap(Map<String, Object?> source) {

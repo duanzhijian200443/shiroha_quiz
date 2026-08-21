@@ -8,6 +8,7 @@ library;
 
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import 'study_query_dtos.dart';
 
 final class StemPreviewNormalizer {
@@ -34,6 +35,12 @@ final class StemPreviewNormalizer {
           buffer.write(latex);
         case BlockMathNode(:final latex):
           buffer.write(latex);
+        case ImageNode() || TableNode():
+          buffer.write(
+            const RichContentTextProjection().project(
+              RichContent(nodes: <ContentNode>[node]),
+            ),
+          );
         case RawFallbackNode():
           break;
       }
@@ -51,6 +58,7 @@ final class StemPreviewNormalizer {
           TextNode(:final text) => StudyTextNode(text),
           InlineMathNode(:final latex) => StudyInlineMathNode(latex),
           BlockMathNode(:final latex) => StudyBlockMathNode(latex),
+          ImageNode() || TableNode() => const StudyUnsupportedNode(),
           RawFallbackNode() => const StudyUnsupportedNode(),
         },
     ];

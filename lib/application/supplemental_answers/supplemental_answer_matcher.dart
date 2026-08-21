@@ -652,6 +652,16 @@ String _nodeFingerprint(ContentNode node) {
     TextNode(:final text) => 'text:$text',
     InlineMathNode(:final latex) => 'inline:$latex',
     BlockMathNode(:final latex) => 'block:$latex',
+    ImageNode(:final sourceId, :final localAssetId, :final alternativeText) =>
+      'image:$sourceId:$localAssetId:${alternativeText == null ? '' : _stemFingerprint(alternativeText)}',
+    TableNode(:final structure) => 'table:${structure.rows.map(
+          (row) => row.cells
+              .map(
+                (cell) =>
+                    '${cell.rowSpan}x${cell.columnSpan}:${_stemFingerprint(cell.content)}',
+              )
+              .join(';'),
+        ).join('/')}',
     RawFallbackNode(:final rawJson) => 'raw:${rawJson.keys.toList()..sort()}',
   };
 }

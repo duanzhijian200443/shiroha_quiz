@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_limits.dart';
 import '../../domain/content/rich_content_privacy_admission.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_draft_v2_codec.dart';
@@ -403,22 +404,52 @@ int _legacyTypeCode(QuestionKind kind) {
 
 String _projectContent(RichContent content) {
   final buffer = StringBuffer();
-  for (final node in content.nodes) {
-    switch (node) {
-      case TextNode(:final text):
-        buffer.write(text);
-      case InlineMathNode(:final latex):
-        buffer.write(r'\(');
-        buffer.write(latex);
-        buffer.write(r'\)');
-      case BlockMathNode(:final latex):
-        buffer.write(r'\[');
-        buffer.write(latex);
-        buffer.write(r'\]');
-      case RawFallbackNode():
-        buffer.write(_unsupportedContentPlaceholder);
+  void append(String value) {
+    buffer.write(value);
+    if (buffer.toString().runes.length >
+        RichContentLimits.maxProjectionScalars) {
+      throw const QuestionV2PayloadException(
+        QuestionV2PayloadFailure.invalidPayload,
+      );
     }
   }
+
+  void appendContent(RichContent value) {
+    for (final node in value.nodes) {
+      switch (node) {
+        case TextNode(:final text):
+          append(text);
+        case InlineMathNode(:final latex):
+          append(r'\(');
+          append(latex);
+          append(r'\)');
+        case BlockMathNode(:final latex):
+          append(r'\[');
+          append(latex);
+          append(r'\]');
+        case ImageNode(:final alternativeText):
+          final projected =
+              alternativeText == null ? '' : _projectContent(alternativeText);
+          append(projected.trim().isEmpty ? '[图片]' : projected);
+        case TableNode(:final structure):
+          for (var rowIndex = 0;
+              rowIndex < structure.expandedCells.length;
+              rowIndex++) {
+            if (rowIndex != 0) append('\n');
+            final row = structure.expandedCells[rowIndex];
+            for (var columnIndex = 0; columnIndex < row.length; columnIndex++) {
+              if (columnIndex != 0) append(' | ');
+              final cell = row[columnIndex];
+              if (cell != null) appendContent(cell.content);
+            }
+          }
+        case RawFallbackNode():
+          append(_unsupportedContentPlaceholder);
+      }
+    }
+  }
+
+  appendContent(content);
   return buffer.toString();
 }
 

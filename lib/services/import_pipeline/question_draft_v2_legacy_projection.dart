@@ -1,5 +1,6 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
@@ -257,24 +258,11 @@ bool _hasDanglingLatexInFinalFields(Map<String, dynamic> question) {
 }
 
 String _contentText(RichContent content) {
-  return _searchText(content.nodes);
+  return const RichContentTextProjection().project(content);
 }
 
 String _searchText(List<ContentNode> nodes) {
-  final buffer = StringBuffer();
-  for (final node in nodes) {
-    switch (node) {
-      case TextNode(:final text):
-        buffer.write(text);
-      case InlineMathNode(:final latex):
-        buffer.write(latex);
-      case BlockMathNode(:final latex):
-        buffer.write(latex);
-      case RawFallbackNode():
-        break;
-    }
-  }
-  return buffer.toString();
+  return _contentText(RichContent(nodes: nodes));
 }
 
 String _fragmentText(QuestionRegion region, QuestionRegionField field) {
@@ -367,13 +355,6 @@ void _guardProjectionBoundary(
   QuestionDraftV2 draft,
   QuestionRegion region,
 ) {
-  if (draft.assetRefs.isNotEmpty) {
-    throw LegacyProjectionUnsupportedException(
-      kindCode: 'source_asset',
-      message: 'Source-qualified asset identity cannot be projected '
-          'losslessly by the legacy map.',
-    );
-  }
   _guardNoRawFallback(draft, region);
   _guardDraftRegionConsistency(draft, region);
 }

@@ -65,6 +65,67 @@ void main() {
         },
       );
     });
+
+    test('round-trips images, alternative text, tables, and spans', () {
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: const <ContentNode>[TextNode('a')]),
+              columnSpan: 2,
+            ),
+          ]),
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: const <ContentNode>[])),
+            TableCell(
+              content: RichContent(
+                nodes: const <ContentNode>[BlockMathNode(r'b')],
+              ),
+            ),
+          ]),
+        ]),
+      );
+      final content = RichContent(nodes: <ContentNode>[
+        ImageNode(sourceId: 'source_001', localAssetId: 'asset_null'),
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_text',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            TextNode('alt'),
+          ]),
+        ),
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_inline',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            InlineMathNode(r'x+1'),
+          ]),
+        ),
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_block',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            BlockMathNode(r'\sum x'),
+          ]),
+        ),
+        table,
+      ]);
+
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+      final encodedNodes = firstEncoding['nodes']! as List<Object?>;
+      expect(
+        (encodedNodes.first as Map<String, Object?>)['alternativeText'],
+        isNull,
+      );
+      expect(
+        (encodedNodes.last as Map<String, Object?>)['rows'],
+        isA<List<Object?>>(),
+      );
+    });
   });
 
   group('RichContentCodec fallback preservation', () {
@@ -165,6 +226,26 @@ void main() {
             'type': 'text',
             'text': 'synthetic',
             'futureStyle': <String, Object?>{'weight': 600},
+          },
+        ],
+      };
+
+      final decoded = codec.decode(input);
+
+      expect(decoded.nodes.single, isA<RawFallbackNode>());
+      expect(codec.encode(decoded), equals(input));
+    });
+
+    test('keeps an extended image as lossless raw fallback', () {
+      final input = <String, Object?>{
+        'schemaVersion': 1,
+        'nodes': <Object?>[
+          <String, Object?>{
+            'type': 'image',
+            'sourceId': 'source_001',
+            'assetId': 'asset_001',
+            'alternativeText': null,
+            'futureCrop': <String, Object?>{'left': 1},
           },
         ],
       };
@@ -285,6 +366,48 @@ void main() {
           'schemaVersion': 1,
           'nodes': <Object?>[
             <String, Object?>{'type': 'block_math', 'latex': false},
+          ],
+        },
+        'image is missing alternativeText': <String, Object?>{
+          'schemaVersion': 1,
+          'nodes': <Object?>[
+            <String, Object?>{
+              'type': 'image',
+              'sourceId': 'source_001',
+              'assetId': 'asset_001',
+            },
+          ],
+        },
+        'image has malformed source identity': <String, Object?>{
+          'schemaVersion': 1,
+          'nodes': <Object?>[
+            <String, Object?>{
+              'type': 'image',
+              'sourceId': 'https://example.invalid/source',
+              'assetId': 'asset_001',
+              'alternativeText': null,
+            },
+          ],
+        },
+        'image has malformed alternativeText': <String, Object?>{
+          'schemaVersion': 1,
+          'nodes': <Object?>[
+            <String, Object?>{
+              'type': 'image',
+              'sourceId': 'source_001',
+              'assetId': 'asset_001',
+              'alternativeText': <String, Object?>{
+                'schemaVersion': 1,
+                'nodes': <Object?>[
+                  <String, Object?>{
+                    'type': 'image',
+                    'sourceId': 'source_002',
+                    'assetId': 'asset_002',
+                    'alternativeText': null,
+                  },
+                ],
+              },
+            },
           ],
         },
         'raw fallback is missing payload': <String, Object?>{

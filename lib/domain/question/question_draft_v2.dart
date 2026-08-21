@@ -152,6 +152,28 @@ final class QuestionDraftV2 {
       }
     }
 
+    void validateContentAssets(RichContent content) {
+      for (final image in reachableImageNodes(content)) {
+        if (!assetsByIdentity
+            .containsKey((image.sourceId, image.localAssetId))) {
+          throw const FormatException(
+            'Question image identities must belong to the draft asset inventory.',
+          );
+        }
+      }
+    }
+
+    validateContentAssets(stem);
+    for (final option in copiedOptions) {
+      validateContentAssets(option.content);
+    }
+    if (answer case ContentAnswer(:final content)) {
+      validateContentAssets(content);
+    }
+    if (explanation != null) {
+      validateContentAssets(explanation);
+    }
+
     return QuestionDraftV2._(
       questionId: validatedQuestionId,
       kind: kind,
@@ -268,6 +290,8 @@ bool _contentNodeEquals(ContentNode left, ContentNode right) {
     TextNode(:final text) => text == (right as TextNode).text,
     InlineMathNode(:final latex) => latex == (right as InlineMathNode).latex,
     BlockMathNode(:final latex) => latex == (right as BlockMathNode).latex,
+    ImageNode() => left == right,
+    TableNode() => left == right,
     RawFallbackNode(:final rawJson) =>
       _jsonValueEquals(rawJson, (right as RawFallbackNode).rawJson),
   };
@@ -278,6 +302,8 @@ int _contentNodeHash(ContentNode node) {
     TextNode(:final text) => Object.hash('text', text),
     InlineMathNode(:final latex) => Object.hash('inline_math', latex),
     BlockMathNode(:final latex) => Object.hash('block_math', latex),
+    ImageNode() => node.hashCode,
+    TableNode() => node.hashCode,
     RawFallbackNode(:final rawJson) =>
       Object.hash('raw_fallback', _jsonValueHash(rawJson)),
   };

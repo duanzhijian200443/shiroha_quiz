@@ -441,7 +441,7 @@ final class AiAnswerGenerationService {
           );
         }
         for (final option in draft.options) {
-          if (_containsRawFallback(option.content)) {
+          if (_containsUnsupportedContent(option.content)) {
             throw const AiAnswerGenerationException(
               AiAnswerGenerationFailure.unsupportedQuestionContent,
             );
@@ -459,7 +459,7 @@ final class AiAnswerGenerationService {
           );
         }
     }
-    if (_containsRawFallback(draft.stem)) {
+    if (_containsUnsupportedContent(draft.stem)) {
       throw const AiAnswerGenerationException(
         AiAnswerGenerationFailure.unsupportedQuestionContent,
       );
@@ -557,7 +557,7 @@ final class AiAnswerGenerationService {
         }
         if (answer.content.nodes.isEmpty ||
             !_hasVisiblePayload(answer.content) ||
-            _containsRawFallback(answer.content)) {
+            _containsUnsupportedContent(answer.content)) {
           throw const AiAnswerGenerationException(
             AiAnswerGenerationFailure.validationFailed,
           );
@@ -588,6 +588,8 @@ final class AiAnswerGenerationService {
           total += text.runes.length;
         case InlineMathNode(:final latex) || BlockMathNode(:final latex):
           total += latex.runes.length;
+        case ImageNode() || TableNode():
+          break; // Rejected by _containsUnsupportedContent before counting.
         case RawFallbackNode():
           break; // Already rejected before counting; never contributes.
       }
@@ -595,8 +597,11 @@ final class AiAnswerGenerationService {
     return total;
   }
 
-  bool _containsRawFallback(RichContent content) {
-    return content.nodes.any((node) => node is RawFallbackNode);
+  bool _containsUnsupportedContent(RichContent content) {
+    return content.nodes.any(
+      (node) =>
+          node is RawFallbackNode || node is ImageNode || node is TableNode,
+    );
   }
 
   bool _hasVisiblePayload(RichContent content) {
@@ -606,6 +611,8 @@ final class AiAnswerGenerationService {
           if (text.trim().isNotEmpty) return true;
         case InlineMathNode(:final latex) || BlockMathNode(:final latex):
           if (latex.trim().isNotEmpty) return true;
+        case ImageNode() || TableNode():
+          return false;
         case RawFallbackNode():
           return false;
       }
