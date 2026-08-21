@@ -295,6 +295,9 @@ final class RichContentCodec {
     if (rawRows.isEmpty) {
       throw const FormatException('Tables require at least one row.');
     }
+    if (rawRows.length > RichContentLimits.maxTableRows) {
+      throw const FormatException('Table row limit exceeded.');
+    }
     final exact = _hasExactKeys(node, const <String>{'type', 'rows'});
     if (!exact) {
       budget.preflightRawValue(
@@ -308,12 +311,12 @@ final class RichContentCodec {
         countScalars: false,
       );
     }
-    budget.claimTableRows(rawRows.length);
     if (rawRows.length * RichContentLimits.maxTableColumns >
         RichContentLimits.maxTableExpandedCells) {
       throw const FormatException('Table expanded cell limit exceeded.');
     }
     final rows = <TableRow>[];
+    var tableLogicalCellCount = 0;
     for (var rowIndex = 0; rowIndex < rawRows.length; rowIndex++) {
       final rawRow = rawRows[rowIndex];
       if (rawRow is Map && rawRow.length != 1) {
@@ -325,7 +328,10 @@ final class RichContentCodec {
       if (rawCells is! List) {
         throw const FormatException('Table row cells must be an array.');
       }
-      budget.claimTableLogicalCells(rawCells.length);
+      tableLogicalCellCount += rawCells.length;
+      if (tableLogicalCellCount > RichContentLimits.maxTableLogicalCells) {
+        throw const FormatException('Table logical cell limit exceeded.');
+      }
       final cells = <TableCell>[];
       var rowColumnSpan = 0;
       for (final rawCell in rawCells) {
@@ -382,7 +388,10 @@ final class RichContentCodec {
       rows.add(TableRow(cells: cells));
     }
     final table = TableNode(structure: TableStructure(rows: rows));
-    budget.claimTableExpandedCells(table.structure.expandedCellCount);
+    if (table.structure.expandedCellCount >
+        RichContentLimits.maxTableExpandedCells) {
+      throw const FormatException('Table expanded cell limit exceeded.');
+    }
     return exact ? table : RawFallbackNode(node);
   }
 
@@ -454,9 +463,6 @@ final class _RichContentDecodeBudget {
   int nodeCount = 0;
   int scalarCount = 0;
   int imageCount = 0;
-  int tableRowCount = 0;
-  int tableLogicalCellCount = 0;
-  int tableExpandedCellCount = 0;
   int rawCollectionEntries = 0;
 
   void checkDepth(int depth) {
@@ -487,36 +493,6 @@ final class _RichContentDecodeBudget {
     imageCount++;
     if (imageCount > RichContentLimits.maxImages) {
       throw const FormatException('RichContent image limit exceeded.');
-    }
-  }
-
-  void claimTableRows(int count) {
-    if (count > RichContentLimits.maxTableRows) {
-      throw const FormatException('Table row limit exceeded.');
-    }
-    tableRowCount += count;
-    if (tableRowCount > RichContentLimits.maxTableRows) {
-      throw const FormatException('Table row limit exceeded.');
-    }
-  }
-
-  void claimTableLogicalCells(int count) {
-    if (count > RichContentLimits.maxTableLogicalCells) {
-      throw const FormatException('Table logical cell limit exceeded.');
-    }
-    tableLogicalCellCount += count;
-    if (tableLogicalCellCount > RichContentLimits.maxTableLogicalCells) {
-      throw const FormatException('Table logical cell limit exceeded.');
-    }
-  }
-
-  void claimTableExpandedCells(int count) {
-    if (count > RichContentLimits.maxTableExpandedCells) {
-      throw const FormatException('Table expanded cell limit exceeded.');
-    }
-    tableExpandedCellCount += count;
-    if (tableExpandedCellCount > RichContentLimits.maxTableExpandedCells) {
-      throw const FormatException('Table expanded cell limit exceeded.');
     }
   }
 

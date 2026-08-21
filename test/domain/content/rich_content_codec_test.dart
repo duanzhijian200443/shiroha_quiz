@@ -127,6 +127,77 @@ void main() {
         isA<List<Object?>>(),
       );
     });
+
+    test('scopes table row budget per TableNode', () {
+      final rowsPerTable = RichContentLimits.maxTableRows ~/ 2 + 1;
+      final tableA = _emptyTable(rowCount: rowsPerTable, columnCount: 1);
+      final tableB = _emptyTable(rowCount: rowsPerTable, columnCount: 1);
+      final content = RichContent(nodes: <ContentNode>[tableA, tableB]);
+
+      expect(rowsPerTable, lessThanOrEqualTo(RichContentLimits.maxTableRows));
+      expect(
+        rowsPerTable * 2,
+        greaterThan(RichContentLimits.maxTableRows),
+      );
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+    });
+
+    test('scopes table logical-cell budget per TableNode', () {
+      final rowsPerTable = RichContentLimits.maxTableLogicalCells ~/
+          RichContentLimits.maxTableColumns;
+      final columnsPerTable = RichContentLimits.maxTableColumns;
+      final logicalCellsPerTable = rowsPerTable * columnsPerTable;
+      final tableA = _emptyTable(
+        rowCount: rowsPerTable,
+        columnCount: columnsPerTable,
+      );
+      final tableB = _emptyTable(
+        rowCount: rowsPerTable,
+        columnCount: columnsPerTable,
+      );
+      final content = RichContent(nodes: <ContentNode>[tableA, tableB]);
+
+      expect(
+        logicalCellsPerTable,
+        lessThanOrEqualTo(RichContentLimits.maxTableLogicalCells),
+      );
+      expect(
+        logicalCellsPerTable * 2,
+        greaterThan(RichContentLimits.maxTableLogicalCells),
+      );
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+    });
+
+    test('scopes expanded-cell budget per TableNode at each table maximum', () {
+      final tableA = _maxExpandedTable();
+      final tableB = _maxExpandedTable();
+      final content = RichContent(nodes: <ContentNode>[tableA, tableB]);
+
+      expect(
+        tableA.structure.expandedCellCount,
+        RichContentLimits.maxTableExpandedCells,
+      );
+      expect(
+        tableA.structure.expandedCellCount * 2,
+        greaterThan(RichContentLimits.maxTableExpandedCells),
+      );
+      // A single valid table cannot exceed the expanded limit while honoring
+      // the frozen maximum row and column bounds, so two individually maxed
+      // tables are the minimum legal scope-isolation case.
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+    });
   });
 
   group('RichContentCodec fallback preservation', () {
@@ -646,6 +717,50 @@ void main() {
       );
     });
   });
+}
+
+TableNode _emptyTable({required int rowCount, required int columnCount}) {
+  return TableNode(
+    structure: TableStructure(
+      rows: <TableRow>[
+        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
+          TableRow(
+            cells: <TableCell>[
+              for (var columnIndex = 0;
+                  columnIndex < columnCount;
+                  columnIndex++)
+                TableCell(
+                  content: RichContent(
+                    nodes: const <ContentNode>[],
+                  ),
+                ),
+            ],
+          ),
+      ],
+    ),
+  );
+}
+
+TableNode _maxExpandedTable() {
+  return TableNode(
+    structure: TableStructure(
+      rows: <TableRow>[
+        for (var rowIndex = 0;
+            rowIndex < RichContentLimits.maxTableRows;
+            rowIndex++)
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[],
+                ),
+                columnSpan: RichContentLimits.maxTableColumns,
+              ),
+            ],
+          ),
+      ],
+    ),
+  );
 }
 
 Map<String, Object?> _contentJson(List<Object?> nodes) {

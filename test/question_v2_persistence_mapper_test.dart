@@ -158,6 +158,29 @@ RichContent _textTableContent() {
   ]);
 }
 
+RichContent _multiTableTextMathContent() {
+  return RichContent(nodes: <ContentNode>[
+    TableNode(
+      structure: TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(content: _textContent('table A')),
+        ]),
+      ]),
+    ),
+    TableNode(
+      structure: TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(
+            content: RichContent(nodes: const <ContentNode>[
+              InlineMathNode(r'x+1'),
+            ]),
+          ),
+        ]),
+      ]),
+    ),
+  ]);
+}
+
 RichContent _imageTableContent() {
   return RichContent(nodes: <ContentNode>[
     TableNode(
@@ -783,6 +806,31 @@ void main() {
         ),
         returnsNormally,
       );
+    });
+
+    test('round-trips multiple text and math TableNodes through persistence',
+        () {
+      final stem = _multiTableTextMathContent();
+      final draft = QuestionDraftV2(
+        questionId: 'multi_table_question',
+        kind: QuestionKind.shortAnswer,
+        stem: stem,
+        answer: ContentAnswer(
+          content: _textContent('answer'),
+        ),
+      );
+
+      expect(reachableImageNodes(stem), isEmpty);
+      final frozen = mapper.freezeForWrite(
+        storageId: storageIdA,
+        bankName: bankName,
+        createdAt: 1,
+        draft: draft,
+      );
+      final decoded = mapper.decodeJoinedRow(_joinedRow(frozen));
+
+      expect(decoded, isA<TypedPersistedQuestion>());
+      expect((decoded as TypedPersistedQuestion).draft, draft);
     });
   });
 
