@@ -111,6 +111,65 @@ RichContent _unsafeContent() {
   ]);
 }
 
+RichContent _imageContent() {
+  return RichContent(nodes: <ContentNode>[
+    ImageNode(sourceId: 'source_001', localAssetId: 'asset_000001'),
+  ]);
+}
+
+QuestionDraftV2 _imageDraft({
+  RichContent? stem,
+  Iterable<QuestionOption> options = const <QuestionOption>[],
+  QuestionAnswer? answer,
+  RichContent? explanation,
+}) {
+  return QuestionDraftV2(
+    questionId: 'image_question',
+    kind:
+        options.isEmpty ? QuestionKind.shortAnswer : QuestionKind.singleChoice,
+    stem: stem ?? _textContent('Stem.'),
+    options: options,
+    answer: answer,
+    explanation: explanation,
+    sourceRefs: <SourceRef>[
+      SourceRef.document(
+        sourceId: 'source_001',
+        displayLabel: 'synthetic.pdf',
+      ),
+    ],
+    assetRefs: <SourcedAssetRef>[
+      SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(assetId: 'asset_000001', kind: AssetKind.image),
+      ),
+    ],
+  );
+}
+
+RichContent _textTableContent() {
+  return RichContent(nodes: <ContentNode>[
+    TableNode(
+      structure: TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(content: _textContent('cell')),
+        ]),
+      ]),
+    ),
+  ]);
+}
+
+RichContent _imageTableContent() {
+  return RichContent(nodes: <ContentNode>[
+    TableNode(
+      structure: TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(content: _imageContent()),
+        ]),
+      ]),
+    ),
+  ]);
+}
+
 void main() {
   group('freezeForWrite V1 compatibility row', () {
     test('projects the typed draft with structural equality round trip', () {
@@ -662,6 +721,69 @@ void main() {
         }
       }
     });
+
+    test('blocks reachable ImageNode writes at both shared write entry points',
+        () {
+      final image = _imageContent();
+      final imageDrafts = <String, QuestionDraftV2>{
+        'stem': _imageDraft(stem: image),
+        'option': _imageDraft(
+          options: <QuestionOption>[
+            QuestionOption(optionId: 'A', label: '甲', content: image),
+          ],
+          answer: ChoiceAnswer(optionIds: const <String>['A']),
+        ),
+        'answer': _imageDraft(answer: ContentAnswer(content: image)),
+        'explanation': _imageDraft(explanation: image),
+        'table cell': _imageDraft(stem: _imageTableContent()),
+      };
+
+      for (final entry in imageDrafts.entries) {
+        final operations = <void Function()>[
+          () => mapper.freezeForWrite(
+                storageId: storageIdA,
+                bankName: bankName,
+                createdAt: 1,
+                draft: entry.value,
+              ),
+          () => mapper.freezeAnswerUpdate(
+                storageId: storageIdA,
+                replacementDraft: entry.value,
+              ),
+        ];
+        for (final operation in operations) {
+          try {
+            operation();
+            fail('expected ImageNode write rejection for ${entry.key}');
+          } on QuestionV2PayloadException catch (error) {
+            expect(error.failure, QuestionV2PayloadFailure.unsafePayload);
+            expect(error.toString(), isNot(contains('source_001')));
+            expect(error.toString(), isNot(contains('asset_000001')));
+          }
+        }
+      }
+    });
+
+    test('allows text and math-only TableNode writes', () {
+      final draft = _imageDraft(stem: _textTableContent());
+
+      expect(
+        () => mapper.freezeForWrite(
+          storageId: storageIdA,
+          bankName: bankName,
+          createdAt: 1,
+          draft: draft,
+        ),
+        returnsNormally,
+      );
+      expect(
+        () => mapper.freezeAnswerUpdate(
+          storageId: storageIdA,
+          replacementDraft: draft,
+        ),
+        returnsNormally,
+      );
+    });
   });
 
   group('decodeJoinedRow typed decode order', () {
@@ -688,6 +810,27 @@ void main() {
       expect(legacy.question.answer, 'fallback');
       expect(legacy.question.explanation, 'independent explanation');
       expect(legacy.question.rawExplanation, 'raw');
+    });
+
+    test('keeps legal ImageNode sidecars readable without the write gate', () {
+      final imageDraft = _imageDraft(stem: _imageContent());
+      final base = mapper.freezeForWrite(
+        storageId: storageIdA,
+        bankName: bankName,
+        createdAt: 1,
+        draft: _fullChoiceDraft(),
+      );
+      final row = <String, Object?>{
+        ...base.questionRow,
+        QuestionV2PersistenceMapper.payloadSchemaVersionAlias:
+            QuestionDraftV2Codec.schemaVersion,
+        QuestionV2PersistenceMapper.payloadJsonAlias:
+            jsonEncode(codec.encode(imageDraft)),
+      };
+
+      final decoded = mapper.decodeJoinedRow(row);
+      expect(decoded, isA<TypedPersistedQuestion>());
+      expect((decoded as TypedPersistedQuestion).draft, imageDraft);
     });
 
     test('fails with invalidPayload for partial aliases', () {

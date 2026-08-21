@@ -143,6 +143,7 @@ final class QuestionV2PersistenceMapper {
     }
     try {
       _validatePrivacy(draft);
+      _validateProductionActivation(draft);
     } on FormatException {
       throw const QuestionV2PayloadException(
         QuestionV2PayloadFailure.unsafePayload,
@@ -208,6 +209,7 @@ final class QuestionV2PersistenceMapper {
   }) {
     try {
       _validatePrivacy(replacementDraft);
+      _validateProductionActivation(replacementDraft);
     } on FormatException {
       throw const QuestionV2PayloadException(
         QuestionV2PayloadFailure.unsafePayload,
@@ -374,6 +376,34 @@ final class QuestionV2PersistenceMapper {
       root[key] = entry.value;
     }
     return root;
+  }
+}
+
+/// Temporary production activation gate. ImageNode Domain/codec support is
+/// available, but confirmed ImageNode writes remain blocked until the durable
+/// asset-lifetime and Backup/Restore activation contract is implemented; see
+/// `docs/architecture/rich-content-foundation.md`.
+void _validateProductionActivation(QuestionDraftV2 draft) {
+  if (reachableImageNodes(draft.stem).isNotEmpty) {
+    throw const FormatException('ImageNode production activation is deferred.');
+  }
+  for (final option in draft.options) {
+    if (reachableImageNodes(option.content).isNotEmpty) {
+      throw const FormatException(
+        'ImageNode production activation is deferred.',
+      );
+    }
+  }
+  if (draft.answer case ContentAnswer(:final content)) {
+    if (reachableImageNodes(content).isNotEmpty) {
+      throw const FormatException(
+        'ImageNode production activation is deferred.',
+      );
+    }
+  }
+  final explanation = draft.explanation;
+  if (explanation != null && reachableImageNodes(explanation).isNotEmpty) {
+    throw const FormatException('ImageNode production activation is deferred.');
   }
 }
 

@@ -39,8 +39,10 @@ final class OcrLegacyProjectionProfile extends LegacyProjectionProfile {
 }
 
 /// Raised when a [QuestionRegion] or its assembled [QuestionDraftV2] cannot be
-/// projected losslessly: raw fallback content, unsupported source parts,
-/// source-qualified asset identity, or a draft/region identity mismatch.
+/// represented by the bounded legacy compatibility projection, such as raw
+/// fallback content, unsupported source parts, or a draft/region identity
+/// mismatch. The projection is intentionally not a lossless typed round trip:
+/// source-qualified image identity is never emitted.
 final class LegacyProjectionUnsupportedException implements Exception {
   const LegacyProjectionUnsupportedException({
     required this.kindCode,
@@ -55,11 +57,13 @@ final class LegacyProjectionUnsupportedException implements Exception {
       'LegacyProjectionUnsupportedException($kindCode): $message';
 }
 
-/// Rebuilds the legacy [LocalAssemblyResult] shape from a typed draft without
-/// delegating to the legacy assemblers. The projection keeps map fields,
-/// source tag, provenance, diagnostics, and repair/rejected parity with the
-/// authoritative legacy implementation; reusable pure policies are shared
-/// through [ImportQuestionFieldPolicy] and [LatexSanityChecker].
+/// Produces a safe deterministic legacy compatibility map from a typed draft
+/// without delegating to the legacy assemblers. The result is not typed
+/// authority and is not a round-trip representation: image identity is never
+/// leaked, images use admitted alternative text or `[图片]`, and tables use a
+/// bounded text-only projection. This class never reconstructs or overwrites
+/// the typed draft; reusable pure policies are shared through
+/// [ImportQuestionFieldPolicy] and [LatexSanityChecker].
 final class QuestionDraftV2LegacyProjector {
   const QuestionDraftV2LegacyProjector();
 
