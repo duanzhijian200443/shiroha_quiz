@@ -1,17 +1,20 @@
 # P2-B1T2 Phase 2B Typed / Legacy Parity Contract
 
-Status: **FINAL / FROZEN CONTRACT TARGET; NOT YET IMPLEMENTED.**
+Status: **FINAL / FROZEN V0 CONTRACT TARGET; NOT YET IMPLEMENTED.**
 
 Durable architecture truth changed by this contract: **YES**.
 
-This document is the focused canonical authority for the P2-B1T2 Phase 2B
-typed/legacy eligibility comparison. It freezes which representation-only
-differences may be admitted to `typedV2` and which differences must continue
-to fail closed to `legacyV1`.
+This document is the focused canonical authority for the conservative P2-B1T2
+Phase 2B v0 typed/legacy eligibility comparison. It freezes the minimum safe
+representation-only differences that may be admitted to `typedV2` and the
+differences that must continue to fail closed to `legacyV1`.
 
-P2B-C0 freezes the contract only. The current exact gate remains runtime truth
-until a separately reviewed and merged P2B-I1 implementation conforms to this
-document. This contract does not activate image/table OCR sources, change a
+P2B-C0 freezes this v0 contract only. The current exact gate remains runtime
+truth until a separately reviewed and merged P2B-I1 implementation conforms to
+this document. P2B-I1 is an implementation slice, not Phase 2B closure. The
+broader Issue #116 parity acceptance, including formatting-only OCR line-wrap
+handling, remains open until a separately frozen producer-backed amendment is
+implemented. This contract does not activate image/table OCR sources, change a
 persisted schema, or begin Phase 3.
 
 ## 1. Authority and safety invariant
@@ -42,9 +45,15 @@ final legacy map remains the user-visible compatibility baseline.
 
 `TypedReviewSnapshot.baselineLegacy` MUST continue to contain the actual final
 user-visible legacy values exactly as decoded by the strict baseline decoder.
-It MUST NOT contain normalized values. `LegacyReviewBaseline`
-equality and its persisted codec remain exact; Phase 2B uses a dedicated
-admission comparison and does not redefine value-object equality.
+It MUST NOT contain normalized values. `LegacyReviewBaseline` equality and its
+persisted codec remain exact; Phase 2B uses a dedicated admission comparison
+and does not redefine value-object equality.
+
+Issue #116 remains the umbrella acceptance for P2-B1T2. In particular, its
+requirement that formatting-only OCR differences, including line wrapping, do
+not force an otherwise valid typed batch to `legacyV1` is not deleted or
+rewritten by this v0 contract. V0 deliberately freezes only the subset that is
+currently provable without semantic guessing.
 
 ## 2. Current strict runtime contract
 
@@ -66,26 +75,27 @@ Consequently, a representation-only difference currently fails as
 `typed_candidate_projection_mismatch` when it is first observed between the
 strict final baseline and the candidate compatibility projection.
 
-## 3. Frozen field-level contract
+## 3. Frozen field-level v0 contract
 
-| Field | Phase 2B comparison | Permitted normalization |
+| Field | Phase 2B v0 comparison | Permitted normalization |
 |---|---|---|
 | `type` | exact | none |
 | `questionNumber` | exact | none |
 | `content` | exact | none |
 | `options` | exact ordered list and exact elements | none |
 | `standardAnswer` | exact and case-sensitive | none |
-| `explanation` | exact, or bounded normalized equality only for the plain-text path defined below | section 4 only |
+| `explanation` | exact, or bounded normalized equality only for the TextNode-only path defined below | section 4 only |
 | `source_page_indices` | exact ordered equality | none |
 | `source_block_ids` | exact ordered equality | none |
 
 The comparator MUST NOT lowercase answers, sort answers or options, remove
 punctuation, normalize digits numerically, rewrite LaTeX, normalize
 mathematical symbols, remove math delimiters, strip HTML, apply Unicode NFKC,
-perform semantic sentence rewriting, collapse structural nodes to arbitrary
-text, or reconstruct typed authority from a legacy string.
+perform semantic sentence rewriting, collapse internal whitespace, collapse
+structural nodes to arbitrary text, or reconstruct typed authority from a
+legacy string.
 
-## 4. Bounded plain-text normalization
+## 4. Bounded TextNode-only v0 normalization
 
 Relaxed comparison is eligible only when the corresponding typed explanation
 contains no node other than `TextNode`. Node eligibility comes from the typed
@@ -93,23 +103,34 @@ draft, never from guessing whether a legacy string "looks structural". If an
 explanation contains `InlineMathNode`, `BlockMathNode`, `ImageNode`,
 `TableNode`, or `RawFallbackNode`, section 6 applies instead.
 
-For an eligible operand `x`, `N(x)` is defined in this exact order:
+`TextNode` does NOT prove that the source was ordinary prose. Current OCR
+production maps `formula` / `equation` blocks to
+`SourceContentPart(role: formula, content: [TextNode(...)])`, and the parity
+candidate does not retain `SourceContentRole` as an eligibility signal. Code,
+aligned text, formula source, or other preformatted material may therefore
+also arrive through TextNode-only content. For that reason, v0 MUST NOT mutate
+internal spacing or internal LF structure.
+
+For an eligible operand `x`, `N0(x)` is defined in this exact order:
 
 1. replace every CRLF pair with LF and every remaining CR with LF;
 2. remove only `U+0020 SPACE`, TAB, LF, and `U+3000 IDEOGRAPHIC SPACE` from
    the two boundaries of the whole string;
-3. within each line, replace each maximal run of `U+0020 SPACE`, TAB, and
-   `U+3000 IDEOGRAPHIC SPACE` with one `U+0020 SPACE`.
+3. perform no other transformation.
 
-Step 3 never consumes or crosses an LF. It therefore does not join lines,
-change internal LF count, or remove a single horizontal space adjacent to an
-internal LF. No other Unicode whitespace is changed.
+In particular, v0 does NOT:
+
+- collapse repeated internal ASCII spaces, TABs, or `U+3000`;
+- join or delete internal LFs;
+- change blank-line count;
+- rewrite text merely because it contains `\\`, `$`, LaTeX-like syntax,
+  source code, alignment spacing, or preformatted content.
 
 The normalizer MUST be deterministic, pure, locale-independent, and
 idempotent:
 
 ```text
-N(N(x)) == N(x)
+N0(N0(x)) == N0(x)
 ```
 
 It MUST use a bounded left-to-right Unicode-scalar scan with no I/O, DB,
@@ -123,11 +144,17 @@ existing compatibility-projection bound already enforced by
 limit. Normalization is `O(n)` time, uses at most `O(n)` comparison storage,
 and never increases scalar count.
 
+Although `RichContentLimits.maxProjectionScalars` is a runtime safety limit
+rather than a persisted schema value, changing it changes the set of pairs
+eligible for normalized parity. Any future change that widens or narrows this
+admission surface MUST be reviewed as a Phase 2B parity-contract change; it is
+not an unrelated tuning-only change.
+
 Exact equality remains the first comparison path. The resource bound above
 governs the additional normalized representation, not persisted payload
 shape.
 
-## 5. `raw_explanation` admission
+## 5. `raw_explanation` v0 admission
 
 The following order is frozen:
 
@@ -144,7 +171,7 @@ raw == final explanation
 raw != '' AND final explanation == ''
     -> reject typed_candidate_raw_explanation_diverged
 
-both strings non-empty, typed explanation plain-text, and N(raw) == N(final)
+both strings non-empty, typed explanation TextNode-only, and N0(raw) == N0(final)
     -> allowed
 
 otherwise
@@ -156,52 +183,81 @@ whitespace-only non-empty raw text is not allowed to normalize into a literal
 empty final explanation. This preserves fail-closed retention/quality-policy
 semantics.
 
-## 6. Internal line wrapping, math, and structural content
+V0 does not treat deterministic safe-HTML cleanup, deterministic LaTeX repair,
+or general OCR line reflow as equivalent merely because they may be produced
+by finalization. Those transformations require their own evidence-backed
+contract if they remain a real first-loss boundary.
+
+## 6. Internal line wrapping, formula-role TextNodes, math, and structural content
 
 ### Internal OCR line wrapping
 
-Internal line-wrap normalization is **DEFERRED** for Phase 2B v0. Internal LF
+Internal line-wrap normalization is **NOT IMPLEMENTED BY V0**. Internal LF
 count and position remain semantically significant after section 4's
 line-ending encoding conversion and whole-string boundary trim. Blank-line
-count differences therefore also remain unequal.
+count differences therefore also remain unequal in P2B-I1.
 
-The repository evidence does not justify a broader join rule:
+This is a conservative implementation boundary, not a deletion of the parent
+requirement. Issue #116 explicitly requires formatting-only line wrapping not
+to force an otherwise valid batch to `legacyV1`. Therefore:
+
+- P2B-I1 MUST NOT be described as Phase 2B complete;
+- Issue #116 MUST remain open after P2B-I1;
+- before Phase 2B / Issue #116 parity closure, a separately reviewed canonical
+  amendment MUST either freeze a narrow producer-backed line-wrap
+  normalization with sanitized regression evidence, or explicitly amend the
+  parent acceptance;
+- P2B-I1 MUST NOT invent a Unicode-script, natural-language, regex, or
+  punctuation heuristic to satisfy that future requirement.
+
+The repository evidence currently does not justify a broader join rule:
 
 - `OcrQuestionRegion` trims individual owned text parts and joins them with a
   single LF as an explicit producer boundary;
-- `OcrQuestionAssembler` and `QuestionDraftV2LegacyProjector` consume the same
-  region/source ownership and do not establish a second general plain-text
-  line-reflow rule;
+- `OcrQuestionAssembler` and `QuestionDraftV2LegacyProjector` do not establish
+  a second general plain-text line-reflow authority;
 - `finalizeAndAuditImportQuestions` applies retention, safe HTML cleanup, and
   deterministic LaTeX audit/repair, but no general OCR line-wrap removal;
-- the permanent typed-candidate unit and R7B acceptance fixtures contain no
-  isolated internal-LF parity false negative declared representation-only.
+- the permanent typed-candidate unit and R7B acceptance fixtures do not isolate
+  a producer-backed internal-LF transformation that can safely be generalized.
 
 Therefore no Han/Hiragana/Katakana/Hangul or other Unicode-script heuristic is
-authorized. A future relaxation requires a new sanitized producer/finalizer
-fixture that freezes the exact narrow transformation.
+authorized by v0.
+
+### Formula-role TextNodes
+
+Current OCR `formula` / `equation` blocks are represented as
+`SourceContentPart(role: formula)` whose `RichContent` contains `TextNode`.
+Because that source role is not retained as a parity-gate eligibility signal,
+TextNode-only MUST NOT be interpreted as "ordinary prose". V0's no-internal-
+mutation rule is the safety guard. A future relaxed comparator that wants to
+collapse internal spacing or line structure MUST first add a durable way to
+prove producer/role eligibility and regression-test formula-role content as
+ineligible for that relaxation.
 
 ### Math and structural content
 
 An explanation containing `InlineMathNode`, `BlockMathNode`, `ImageNode`,
-`TableNode`, or `RawFallbackNode` is ineligible for relaxed plain-text
+`TableNode`, or `RawFallbackNode` is ineligible for relaxed TextNode-only
 comparison. Its supported bounded compatibility representation must compare
 exactly. Current projection-unsupported content, including raw fallback at the
 question projection boundary, continues to fail closed before parity.
 
 At minimum, all of these remain unequal:
 
-- `\(x\)` versus `\( x \)`;
+- `\\(x\\)` versus `\\( x \\)`;
 - `x+1` versus `x-1`;
 - a line-layout change around block math;
-- an image or table structural/projection mutation.
+- an image or table structural/projection mutation;
+- TextNode formula-like/preformatted content whose only difference is internal
+  horizontal spacing.
 
-Phase 2B introduces no LaTeX, MathML, Markdown, or HTML parser; no symbolic
+Phase 2B v0 introduces no LaTeX, MathML, Markdown, or HTML parser; no symbolic
 algebra, CAS, equation equivalence, or regex equation rewriting.
 
 ## 7. Failure taxonomy and batch behavior
 
-Phase 2B adds no failure reason:
+Phase 2B v0 adds no failure reason:
 
 - raw semantic/non-admitted representation mismatch remains
   `typed_candidate_raw_explanation_diverged`;
@@ -217,7 +273,7 @@ Batch behavior remains all-or-nothing. Any mismatch in any question routes
 the whole batch to `legacyV1` and removes every typed review envelope. Mixed
 per-question typed/legacy routing is not authorized.
 
-## 8. Frozen decision matrix
+## 8. Frozen v0 decision matrix
 
 Every ACCEPT below assumes all other gate checks pass and yields `typedV2` +
 `typed_candidate_ready`. Explanation mutation rows refer to candidate
@@ -225,13 +281,13 @@ projection versus final baseline unless explicitly marked raw; the same
 substantive mutation confined to `raw_explanation` fails earlier as
 `typed_candidate_raw_explanation_diverged`.
 
-| ID | Difference | Frozen result |
+| ID | Difference | Frozen v0 result |
 |---|---|---|
-| A | plain-text explanation CRLF versus LF | ACCEPT |
-| B | plain-text explanation whole-string outer whitespace only | ACCEPT |
-| C | plain-text explanation horizontal-space run only | ACCEPT |
-| D | non-empty raw and final explanation equal under section 4 | ACCEPT |
-| E | internal OCR line-wrap-only or blank-line-count difference | REJECT at the active seam: raw mismatch -> `typed_candidate_raw_explanation_diverged`; baseline mismatch -> `typed_candidate_projection_mismatch` |
+| A | TextNode-only explanation CRLF versus LF | ACCEPT |
+| B | TextNode-only explanation whole-string outer whitespace only | ACCEPT |
+| C | internal horizontal-space run difference, e.g. `a  b` versus `a b` | REJECT at the active seam |
+| D | non-empty raw and final explanation equal under section 4 `N0` | ACCEPT |
+| E | internal OCR line-wrap-only or blank-line-count difference | REJECT in v0 at the active seam; parent Issue #116 requirement remains OPEN |
 | F | explanation `x=1` -> `x=2` | REJECT `typed_candidate_projection_mismatch` |
 | G | explanation `+` -> `-` | REJECT `typed_candidate_projection_mismatch` |
 | H | sentence added | REJECT `typed_candidate_projection_mismatch` |
@@ -249,8 +305,13 @@ substantive mutation confined to `raw_explanation` fails earlier as
 | T | candidate/final count mismatch | REJECT `typed_candidate_count_mismatch` |
 | U | question-number set/uniqueness or UUID identity mismatch | REJECT `typed_candidate_identity_mismatch` |
 | V | non-empty `raw_explanation` with literal empty final explanation | REJECT `typed_candidate_raw_explanation_diverged` |
-| W | `\(x\)` versus `\( x \)` or block-math layout mutation | REJECT `typed_candidate_projection_mismatch` |
+| W | `\\(x\\)` versus `\\( x \\)` or block-math layout mutation | REJECT `typed_candidate_projection_mismatch` |
 | X | substantive text added to, removed from, or changed only in `raw_explanation` | REJECT `typed_candidate_raw_explanation_diverged` |
+| Y | formula-like/preformatted TextNode internal spacing only, e.g. `\\text{a  b}` versus `\\text{a b}` | REJECT at the active seam |
+
+For rows C, E, and Y, "active seam" means a raw/final mismatch fails as
+`typed_candidate_raw_explanation_diverged`, while a strict final-baseline /
+candidate-projection mismatch fails as `typed_candidate_projection_mismatch`.
 
 ## 9. Compatibility projection boundary
 
@@ -269,15 +330,32 @@ This string is not typed authority and is not a round-trip format. Neither the
 parity comparator nor any later consumer may normalize, parse, or reconstruct
 it into `ImageNode`, `TableNode`, math nodes, or other typed content.
 
-The Phase 2B comparison policy is a permanent admission contract with no
-planned deletion. Any future widening or removal requires a separately frozen
-durable contract.
+The v0 comparison policy frozen here is a permanent minimum safety floor. It
+has no planned deletion, but it is intentionally not the complete Issue #116
+parity acceptance. Any future widening, including internal line-wrap handling,
+requires a separately reviewed durable contract amendment and focused
+regression evidence.
 
 ## 10. Checkpoint and deferred boundaries
 
 P2B-I1 MUST wait for P2B-C0 independent architecture review, merge, and a new
-frozen master SHA. P2B-I1 may implement only the comparator/gate behavior
-frozen here; it may not redesign this contract on its implementation branch.
+frozen master SHA. P2B-I1 may implement only the v0 comparator/gate behavior
+frozen here; it may not redesign or silently widen this contract on its
+implementation branch.
+
+P2B-I1 completion MUST be reported as:
+
+```text
+Phase 2B v0 comparator/gate implemented.
+Issue #116 parity closure remains open.
+Internal producer-backed line-wrap equivalence remains unresolved/deferred.
+```
+
+Before Phase 2B is declared closed, the remaining parent acceptance must be
+resolved by a separate canonical amendment and implementation, followed by the
+required final live acceptance. This preserves #116 as the umbrella target
+rather than rewriting its historical acceptance to match an implementation
+shortcut.
 
 This contract changes no `RichContent`, `QuestionDraftV2`, or
 `TypedReviewSnapshot` schema/version; no database or payload migration is
@@ -285,6 +363,10 @@ required.
 
 The following remain deferred and are not activated by this contract:
 
+- producer-backed internal OCR line-wrap equivalence required for final Phase
+  2B / Issue #116 parity closure;
+- evidence-backed handling, if required, for finalizer safe-HTML cleanup or
+  deterministic LaTeX repair differences;
 - Phase 3 durable asset lifecycle and B0 asset integration;
 - real image/table `OcrSourceDocumentAdapter` source activation;
 - provider materialization, durable image bytes, renderer/resolver work, and
