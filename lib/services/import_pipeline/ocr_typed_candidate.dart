@@ -1,4 +1,6 @@
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
@@ -366,7 +368,12 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
 
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
-    if (!_rawExplanationAllowed(question, baselines[number]!.explanation)) {
+    final candidate = byNumber[number]!;
+    if (!_rawExplanationAllowed(
+      question,
+      baselines[number]!.explanation,
+      candidate,
+    )) {
       return _ineligible(
         finalQuestions,
         ocrTypedCandidateFailureReason(
@@ -379,7 +386,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
-    if (baselines[number]! != candidate.projectedLegacy ||
+    if (!_baselineParity(baselines[number]!, candidate) ||
         !_provenanceParity(candidate, question)) {
       return _ineligible(
         finalQuestions,
@@ -494,12 +501,98 @@ LegacyReviewBaseline? _strictDecodeBaseline(
 
 bool _rawExplanationAllowed(
   Map<String, dynamic> question,
-  String explanation,
+  String finalExplanation,
+  OcrTypedCandidate candidate,
 ) {
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
-  return raw.isEmpty || raw == explanation;
+  if (raw.isEmpty || raw == finalExplanation) return true;
+  if (finalExplanation.isEmpty) return false;
+  return _textNodeOnlyExplanation(candidate) &&
+      _n0Equals(raw, finalExplanation);
+}
+
+bool _baselineParity(
+  LegacyReviewBaseline baseline,
+  OcrTypedCandidate candidate,
+) {
+  final projected = candidate.projectedLegacy;
+  if (baseline == projected) return true;
+  if (baseline.type != projected.type ||
+      baseline.questionNumber != projected.questionNumber ||
+      baseline.content != projected.content ||
+      !_sameOrderedStrings(baseline.options, projected.options) ||
+      baseline.standardAnswer != projected.standardAnswer) {
+    return false;
+  }
+  return _textNodeOnlyExplanation(candidate) &&
+      _n0Equals(baseline.explanation, projected.explanation);
+}
+
+bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {
+  final explanation = candidate.draft.explanation;
+  return explanation != null &&
+      explanation.nodes.every((node) => node is TextNode);
+}
+
+bool _n0Equals(String left, String right) {
+  if (left == right) return true;
+  final leftNormalized = _n0Scalars(left);
+  final rightNormalized = _n0Scalars(right);
+  if (leftNormalized == null || rightNormalized == null) return false;
+  if (leftNormalized.length != rightNormalized.length) return false;
+  for (var index = 0; index < leftNormalized.length; index++) {
+    if (leftNormalized[index] != rightNormalized[index]) return false;
+  }
+  return true;
+}
+
+List<int>? _n0Scalars(String value) {
+  final original = <int>[];
+  for (final scalar in value.runes) {
+    original.add(scalar);
+    if (original.length > RichContentLimits.maxProjectionScalars) {
+      return null;
+    }
+  }
+
+  final normalized = <int>[];
+  var skipLfAfterCr = false;
+  for (final scalar in original) {
+    if (skipLfAfterCr) {
+      skipLfAfterCr = false;
+      if (scalar == 0x0a) continue;
+    }
+    if (scalar == 0x0d) {
+      normalized.add(0x0a);
+      skipLfAfterCr = true;
+    } else {
+      normalized.add(scalar);
+    }
+  }
+
+  var start = 0;
+  while (start < normalized.length && _isN0BoundaryScalar(normalized[start])) {
+    start++;
+  }
+  var end = normalized.length;
+  while (end > start && _isN0BoundaryScalar(normalized[end - 1])) {
+    end--;
+  }
+  return normalized.sublist(start, end);
+}
+
+bool _isN0BoundaryScalar(int scalar) {
+  return scalar == 0x20 || scalar == 0x09 || scalar == 0x0a || scalar == 0x3000;
+}
+
+bool _sameOrderedStrings(List<String> left, List<String> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
 
 bool _provenanceParity(
