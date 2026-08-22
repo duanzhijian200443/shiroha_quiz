@@ -22,6 +22,8 @@ const _ocrKnownDiagnostics = <String>{
   'reference_answer_duplicate_conflict',
 };
 
+const _structuralOwnershipUnsupportedKind = 'ocr_structural_ownership';
+
 final class OcrQuestionRegionBridge {
   const OcrQuestionRegionBridge();
 
@@ -140,6 +142,30 @@ final class OcrQuestionRegionBridge {
   addEntries(QuestionRegionField.answer, region.answerParts);
   addEntries(QuestionRegionField.explanation, region.explanationParts);
 
+  final hasStructuralPart = provenance.declaredParts.any(_hasTypedStructure);
+  if (hasStructuralPart &&
+      !_hasCompleteStructuralOwnership(region, provenance)) {
+    return (
+      typedDegraded: true,
+      fragments: [
+        QuestionRegionFragment(
+          field: QuestionRegionField.stem,
+          part: UnsupportedSourcePart(
+            sourceRef: provenance.ref,
+            kindCode: _structuralOwnershipUnsupportedKind,
+            // The placeholder is never projected: TypedQuestionAssembler
+            // rejects this explicit unsupported seam before any content is
+            // materialized. It keeps the structural loss visible without
+            // inventing a field placement for an owned source part.
+            fallbackContent: RichContent(
+              nodes: const <ContentNode>[TextNode('')],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   if (region.ownedSources.isNotEmpty) {
     final fragments = <QuestionRegionFragment>[];
     final ownedCounts = <QuestionRegionField, int>{};
@@ -183,56 +209,76 @@ final class OcrQuestionRegionBridge {
     return (typedDegraded: typedDegraded, fragments: fragments);
   }
 
-  final hasStructuralPart = provenance.matchedParts.any(_hasTypedStructure);
-  if (hasStructuralPart) {
+  final canPairByEncounter = provenance.canBindLegacyParts &&
+      provenance.matchedParts.length == entries.length;
+  if (canPairByEncounter) {
+    // This compatibility branch is reachable only for pure-text regions;
+    // structural parts were rejected above unless block-native ownership was
+    // complete.
     final fragments = <QuestionRegionFragment>[];
-    for (var index = 0; index < provenance.matchedParts.length; index++) {
-      final field = entries.isEmpty
-          ? QuestionRegionField.stem
-          : entries[index < entries.length ? index : entries.length - 1].field;
+    for (var index = 0; index < entries.length; index++) {
+      final entry = entries.elementAt(index);
       fragments.add(
-        QuestionRegionFragment(
-          field: field,
-          part: provenance.matchedParts[index],
+        _ownedTextFragment(
+          entry: entry,
+          part: provenance.matchedParts.elementAt(index),
         ),
       );
     }
-    for (var index = provenance.matchedParts.length;
-        index < entries.length;
-        index++) {
-      fragments.add(
-          _fragment(entries[index].field, entries[index].text, provenance.ref));
-    }
     return (
-      typedDegraded: !provenance.canBindLegacyParts ||
-          provenance.ambiguousBlockIds.isNotEmpty,
+      typedDegraded: false,
       fragments: fragments,
     );
   }
 
-  final canPairByEncounter = provenance.canBindLegacyParts &&
-      provenance.matchedParts.length == entries.length;
-  if (canPairByEncounter) {
-    return (
-      typedDegraded: false,
-      fragments: [
-        for (var index = 0; index < entries.length; index++)
-          QuestionRegionFragment(
-            field: entries[index].field,
-            part: provenance.matchedParts[index],
-          ),
-      ],
-    );
-  }
-
   return (
-    typedDegraded: provenance.matchedParts.any(_hasTypedStructure) ||
-        provenance.ambiguousBlockIds.isNotEmpty,
+    typedDegraded: provenance.ambiguousBlockIds.isNotEmpty,
     fragments: [
       for (final entry in entries)
         _fragment(entry.field, entry.text, provenance.ref),
     ],
   );
+}
+
+QuestionRegionFragment _ownedTextFragment({
+  required ({QuestionRegionField field, String text}) entry,
+  required SourcePart part,
+}) {
+  return QuestionRegionFragment(field: entry.field, part: part);
+}
+
+bool _hasCompleteStructuralOwnership(
+  OcrQuestionRegion region,
+  _Provenance provenance,
+) {
+  final structuralParts = provenance.declaredParts
+      .where(_hasTypedStructure)
+      .toList(growable: false);
+  if (structuralParts.isEmpty) return true;
+  if (region.ownedSources.isEmpty) return false;
+
+  final declaredStructuralIds = <String>{};
+  for (final part in structuralParts) {
+    final blockId = part.sourceRef.start?.blockId;
+    if (blockId == null || !declaredStructuralIds.add(blockId)) {
+      return false;
+    }
+  }
+
+  final ownedStructuralIds = <String>{};
+  final fieldByStructuralId = <String, QuestionRegionField>{};
+  for (final owned in region.ownedSources) {
+    final part = provenance.uniquePartByBlockId[owned.blockId];
+    if (part == null || !_hasTypedStructure(part)) continue;
+    final field = _mapField(owned.field);
+    final previousField = fieldByStructuralId[owned.blockId];
+    if (previousField != null && previousField != field) return false;
+    fieldByStructuralId[owned.blockId] = field;
+    ownedStructuralIds.add(owned.blockId);
+  }
+
+  return ownedStructuralIds.length == declaredStructuralIds.length &&
+      ownedStructuralIds.containsAll(declaredStructuralIds);
 }
 
 bool _hasTypedStructure(SourcePart part) {
@@ -307,6 +353,7 @@ final class _Provenance {
     required this.ref,
     required this.isCoarse,
     required this.matchedParts,
+    required this.declaredParts,
     required this.uniquePartByBlockId,
     required this.ambiguousBlockIds,
     required this.canBindLegacyParts,
@@ -315,6 +362,7 @@ final class _Provenance {
   final SourceRef ref;
   final bool isCoarse;
   final List<SourcePart> matchedParts;
+  final List<SourcePart> declaredParts;
   final Map<String, SourcePart> uniquePartByBlockId;
   final Set<String> ambiguousBlockIds;
   final bool canBindLegacyParts;
@@ -333,12 +381,20 @@ _Provenance _resolveProvenance(
       ? ownedBlockIds
       : List<String>.unmodifiable(region.sourceBlockIds);
   final requested = regionBlockIds.toSet();
+  final declaredBlockIds = <String>{
+    ...region.sourceBlockIds,
+    ...ownedBlockIds,
+  };
   final partsByBlockId = <String, List<SourcePart>>{};
+  final declaredParts = <SourcePart>[];
 
   for (final part in document.parts) {
     final blockId = part.sourceRef.start?.blockId;
-    if (blockId == null || !requested.contains(blockId)) continue;
-    partsByBlockId.putIfAbsent(blockId, () => <SourcePart>[]).add(part);
+    if (blockId == null) continue;
+    if (requested.contains(blockId)) {
+      partsByBlockId.putIfAbsent(blockId, () => <SourcePart>[]).add(part);
+    }
+    if (declaredBlockIds.contains(blockId)) declaredParts.add(part);
   }
 
   final uniquePartByBlockId = <String, SourcePart>{};
@@ -401,6 +457,7 @@ _Provenance _resolveProvenance(
       ref: documentRef,
       isCoarse: true,
       matchedParts: matchedParts,
+      declaredParts: declaredParts,
       uniquePartByBlockId: uniquePartByBlockId,
       ambiguousBlockIds: ambiguousBlockIds,
       canBindLegacyParts: false,
@@ -417,6 +474,7 @@ _Provenance _resolveProvenance(
       ref: isCoarse ? documentRef : encounterOrder.single,
       isCoarse: isCoarse,
       matchedParts: matchedParts,
+      declaredParts: declaredParts,
       uniquePartByBlockId: uniquePartByBlockId,
       ambiguousBlockIds: ambiguousBlockIds,
       canBindLegacyParts: !isCoarse,
@@ -434,6 +492,7 @@ _Provenance _resolveProvenance(
       ref: documentRef,
       isCoarse: true,
       matchedParts: matchedParts,
+      declaredParts: declaredParts,
       uniquePartByBlockId: uniquePartByBlockId,
       ambiguousBlockIds: ambiguousBlockIds,
       canBindLegacyParts: false,
@@ -451,6 +510,7 @@ _Provenance _resolveProvenance(
       ref: range,
       isCoarse: true,
       matchedParts: matchedParts,
+      declaredParts: declaredParts,
       uniquePartByBlockId: uniquePartByBlockId,
       ambiguousBlockIds: ambiguousBlockIds,
       canBindLegacyParts: true,
@@ -460,6 +520,7 @@ _Provenance _resolveProvenance(
       ref: documentRef,
       isCoarse: true,
       matchedParts: matchedParts,
+      declaredParts: declaredParts,
       uniquePartByBlockId: uniquePartByBlockId,
       ambiguousBlockIds: ambiguousBlockIds,
       canBindLegacyParts: false,

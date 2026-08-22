@@ -14,6 +14,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.da
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_entry.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
+import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
 void main() {
   const bridge = OcrQuestionRegionBridge();
@@ -361,7 +362,7 @@ void main() {
       expect(result.assetRefs, isEmpty);
     });
 
-    test('preserves one-to-one table and asset parts without text projection',
+    test('fails closed for structural parts without block-native ownership',
         () {
       final tablePart = SourceTablePart(
         sourceRef: _blockRef(blockId: 'table', page: 1, readingOrder: 0),
@@ -378,7 +379,16 @@ void main() {
         ),
         sourceDocument: _document(<SourcePart>[tablePart]),
       );
-      expect(tableRegion.fragments.single.part, same(tablePart));
+      expect(tableRegion.fragments, hasLength(1));
+      expect(
+        tableRegion.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(tableRegion.assetRefs, isEmpty);
 
       final assetPart = SourceAssetPart(
         sourceRef: _blockRef(blockId: 'asset', page: 1, readingOrder: 0),
@@ -395,11 +405,19 @@ void main() {
         ),
         sourceDocument: _document(<SourcePart>[assetPart]),
       );
-      expect(assetRegion.fragments.single.part, same(assetPart));
-      expect(assetRegion.assetRefs.single.localAssetId, 'asset_1');
+      expect(assetRegion.fragments, hasLength(1));
+      expect(
+        assetRegion.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(assetRegion.assetRefs, isEmpty);
     });
 
-    test('preserves all typed parts when legacy text entries are incomplete',
+    test('fails closed when legacy text entries cannot own table and asset',
         () {
       final tablePart = SourceTablePart(
         sourceRef: _blockRef(blockId: 'table', page: 1, readingOrder: 0),
@@ -426,18 +444,37 @@ void main() {
         sourceDocument: _document(<SourcePart>[tablePart, assetPart]),
       );
 
-      expect(result.fragments, hasLength(2));
-      expect(result.fragments[0].field, QuestionRegionField.stem);
-      expect(result.fragments[0].part, same(tablePart));
-      expect(result.fragments[1].field, QuestionRegionField.stem);
-      expect(result.fragments[1].part, same(assetPart));
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(result.assetRefs, isEmpty);
       expect(
         result.issues.map((issue) => issue.code),
         contains('legacy_provenance_coarse'),
       );
+      expect(
+        () => const TypedQuestionAssembler().assemble(
+          result,
+          questionId: 'bridge_structural_ownership',
+        ),
+        throwsA(
+          isA<QuestionRegionUnsupportedException>().having(
+            (error) => error.kindCode,
+            'kindCode',
+            'ocr_structural_ownership',
+          ),
+        ),
+      );
     });
 
-    test('does not use duplicate typed text to choose a structural part', () {
+    test('duplicate typed text cannot choose a structural part', () {
       final formulaPart = SourceContentPart(
         sourceRef: _blockRef(blockId: 'formula', page: 1, readingOrder: 0),
         content: RichContent(nodes: <ContentNode>[const TextNode('dup')]),
@@ -461,16 +498,23 @@ void main() {
         sourceDocument: _document(<SourcePart>[formulaPart, assetPart]),
       );
 
-      expect(result.fragments, hasLength(2));
-      expect(result.fragments[0].part, same(formulaPart));
-      expect(result.fragments[1].part, same(assetPart));
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(result.assetRefs, isEmpty);
       expect(
         result.issues.map((issue) => issue.code),
         contains('legacy_provenance_coarse'),
       );
     });
 
-    test('pairs one typed part and degrades leftover entries', () {
+    test('does not pair a structural part with a legacy entry by position', () {
       final tablePart = SourceTablePart(
         sourceRef: _blockRef(blockId: 'table', page: 1, readingOrder: 0),
         rows: <List<RichContent>>[
@@ -492,9 +536,56 @@ void main() {
         sourceDocument: _document(<SourcePart>[tablePart, paragraphPart]),
       );
 
-      expect(result.fragments, hasLength(2));
-      expect(result.fragments[0].part, same(tablePart));
-      expect(_singleText(result.fragments[1]), 'plain');
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(result.assetRefs, isEmpty);
+    });
+
+    test('partial ownership cannot guess the remaining structural field', () {
+      final tablePart = SourceTablePart(
+        sourceRef: _blockRef(blockId: 'table', page: 1, readingOrder: 0),
+        rows: <List<RichContent>>[
+          <RichContent>[
+            RichContent(nodes: <ContentNode>[const TextNode('table cell')]),
+          ],
+        ],
+      );
+      final assetPart = SourceAssetPart(
+        sourceRef: _blockRef(blockId: 'asset', page: 1, readingOrder: 1),
+        asset: AssetRef(assetId: 'asset_1', kind: AssetKind.image),
+      );
+
+      final result = bridge.convert(
+        _region(
+          stemParts: const <String>['legacy stem'],
+          sourceBlockIds: const <String>['table', 'asset'],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'table',
+              field: OcrRegionField.stem,
+            ),
+          ],
+        ),
+        sourceDocument: _document(<SourcePart>[tablePart, assetPart]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(result.assetRefs, isEmpty);
     });
 
     test('keeps per-list order and a fixed stem/answer/explanation order', () {

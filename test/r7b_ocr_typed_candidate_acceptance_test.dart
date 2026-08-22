@@ -17,6 +17,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
@@ -27,6 +29,9 @@ import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.d
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
@@ -340,9 +345,27 @@ void main() {
   });
 
   test(
-      'reference-answer merged regions still generate candidates but strict '
-      'provenance parity keeps the batch legacy', () async {
-    final client = _FakeOcrDocumentClient(_referenceAnswerDocument());
+      'reference-answer block ownership preserves existing strict parity and '
+      'reaches typedV2', () async {
+    final document = _referenceAnswerDocument();
+    final client = _FakeOcrDocumentClient(document);
+    final regionized = const OcrQuestionRegionizer().regionize(document);
+    final referenceAnswers = const ReferenceAnswerExtractor().extract(
+      document,
+      regionized.regions,
+    );
+    final mergedRegions = const ReferenceAnswerMerger().merge(
+      regionized.regions,
+      referenceAnswers,
+    );
+    for (final number in const <int>[1, 2]) {
+      final region = mergedRegions.singleWhere((item) => item.number == number);
+      final ownership = region.ownedSources.singleWhere(
+        (source) => source.blockId == 'reference_$number',
+      );
+      expect(ownership.field, OcrRegionField.answer);
+    }
+
     final ocrService = OcrImportService(
       engineRepository: _FakeAiEngineRepository(_ocrProfile()),
       ocrClient: client,
@@ -366,6 +389,29 @@ void main() {
           .toList(),
       <String>['Final answer one', 'Final answer two'],
     );
+    expect(
+      batch.candidates.map((candidate) {
+        final answer = candidate.draft.answer;
+        if (answer is! ContentAnswer || answer.content.nodes.length != 1) {
+          return '';
+        }
+        final node = answer.content.nodes.single;
+        return node is TextNode ? node.text : '';
+      }).toList(),
+      <String>['Final answer one', 'Final answer two'],
+    );
+    final candidateSourceBlockIds = batch.candidates
+        .expand((candidate) => candidate.draft.sourceRefs)
+        .expand((sourceRef) => <String?>[
+              sourceRef.start?.blockId,
+              sourceRef.end?.blockId,
+            ])
+        .whereType<String>()
+        .toSet();
+    expect(
+      candidateSourceBlockIds,
+      containsAll(const <String>['reference_1', 'reference_2']),
+    );
 
     final pipeline = ImportPipelineService.forTesting(
       textParser: (rawText, {required taskId, required isMarkdown}) async =>
@@ -383,18 +429,35 @@ void main() {
       ),
     );
 
-    expect(parseResult.storageRoute, ImportStorageRoute.legacyV1);
-    expect(parseResult.storageReason, 'typed_candidate_projection_mismatch',
-        reason: 'tail reference answers reorder legacy source_block_ids '
-            'relative to the typed fragment order, so strict parity rejects '
-            'the batch without changing legacy import');
+    expect(parseResult.storageRoute, ImportStorageRoute.typedV2);
+    expect(parseResult.storageReason, 'typed_candidate_ready');
     expect(parseResult.questions, hasLength(2));
     expect(
       parseResult.questions.every(
-        (question) => !question.containsKey(TypedReviewSnapshotCodec.mapKey),
+        (question) => question.containsKey(TypedReviewSnapshotCodec.mapKey),
       ),
       isTrue,
     );
+    const codec = TypedReviewSnapshotCodec();
+    for (final question in parseResult.questions) {
+      final envelope = question[TypedReviewSnapshotCodec.mapKey];
+      expect(envelope, isA<Map<String, Object?>>());
+      final decoded = codec.decodeRequired(envelope);
+      expect(
+        decoded.baselineLegacy,
+        LegacyReviewBaseline(
+          type: question['type'] as int,
+          questionNumber: question['question_number'] as int,
+          content: question['content'] as String,
+          options: List<String>.from(
+            question['options'] as List<Object?>,
+          ),
+          standardAnswer: question['standard_answer'] as String,
+          explanation: question['explanation'] as String,
+        ),
+      );
+      expect(decoded.draft.sourceRefs, isNotEmpty);
+    }
     expect(client.callCount, 2,
         reason: 'one direct service probe and one pipeline parse; Provider '
             'calls are 0 by construction');
