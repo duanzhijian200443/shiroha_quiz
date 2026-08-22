@@ -1,5 +1,6 @@
 import '../assets/sourced_asset_ref.dart';
 import '../content/content_node.dart';
+import '../content/rich_content.dart';
 import '../import/import_issue.dart';
 import '../source/source_part.dart';
 import '../source/source_ref.dart';
@@ -271,11 +272,48 @@ int _compareSlicePositions(
   return leftCodeUnitOffset.compareTo(rightCodeUnitOffset);
 }
 
+/// Materializes the UTF-16 half-open node interval selected by [slice].
+///
+/// Text nodes may be trimmed at the interval edges. Non-text nodes are kept
+/// whole because [SourceSlice] only permits non-zero offsets inside text
+/// nodes. Keeping this operation in the question-region domain makes the
+/// content used by assembly and the content used by asset closure identical.
+List<ContentNode> materializeQuestionRegionContent(
+  RichContent content,
+  SourceSlice? slice,
+) {
+  final nodes = content.nodes;
+  if (slice == null) return nodes;
+
+  final endExcluded = slice.endCodeUnitOffset == 0;
+  final lastIncluded =
+      endExcluded ? slice.endNodeIndex - 1 : slice.endNodeIndex;
+  final materialized = <ContentNode>[];
+  for (var index = slice.startNodeIndex; index <= lastIncluded; index++) {
+    final node = nodes[index];
+    final startOffset =
+        index == slice.startNodeIndex ? slice.startCodeUnitOffset : 0;
+    final endOffset =
+        index == slice.endNodeIndex ? slice.endCodeUnitOffset : null;
+    if (node is TextNode) {
+      materialized.add(
+        TextNode(
+          endOffset == null
+              ? node.text.substring(startOffset)
+              : node.text.substring(startOffset, endOffset),
+        ),
+      );
+    } else {
+      materialized.add(node);
+    }
+  }
+  return materialized;
+}
+
 List<SourcedAssetRef> _deriveAssetRefs(
   Iterable<QuestionRegionFragment> fragments,
 ) {
-  final byIdentity = <(String, String), SourcedAssetRef>{};
-  final derived = <SourcedAssetRef>[];
+  final metadataByIdentity = <(String, String), SourcedAssetRef>{};
   for (final fragment in fragments) {
     final part = fragment.part;
     if (part is! SourceAssetPart) continue;
@@ -285,6 +323,27 @@ List<SourcedAssetRef> _deriveAssetRefs(
       asset: part.asset,
     );
     final identity = (sourced.sourceId, sourced.localAssetId);
+    final existing = metadataByIdentity[identity];
+    if (existing == null) {
+      metadataByIdentity[identity] = sourced;
+    } else if (existing.asset != sourced.asset) {
+      throw const FormatException(
+        'A source-qualified asset identity has conflicting metadata.',
+      );
+    }
+  }
+
+  final byIdentity = <(String, String), SourcedAssetRef>{};
+  final derived = <SourcedAssetRef>[];
+
+  void addAsset(String sourceId, String localAssetId) {
+    final identity = (sourceId, localAssetId);
+    final sourced = metadataByIdentity[identity];
+    if (sourced == null) {
+      throw const FormatException(
+        'Nested source images require a matching source asset authority.',
+      );
+    }
     final existing = byIdentity[identity];
     if (existing == null) {
       byIdentity[identity] = sourced;
@@ -293,6 +352,52 @@ List<SourcedAssetRef> _deriveAssetRefs(
       throw const FormatException(
         'A source-qualified asset identity has conflicting metadata.',
       );
+    }
+  }
+
+  void visitNodes(Iterable<ContentNode> nodes) {
+    for (final node in nodes) {
+      switch (node) {
+        case ImageNode(
+            :final sourceId,
+            :final localAssetId,
+            :final alternativeText
+          ):
+          addAsset(sourceId, localAssetId);
+          if (alternativeText != null) visitNodes(alternativeText.nodes);
+        case TableNode(:final structure):
+          for (final row in structure.rows) {
+            for (final cell in row.cells) {
+              visitNodes(cell.content.nodes);
+            }
+          }
+        case TextNode():
+        case InlineMathNode():
+        case BlockMathNode():
+        case RawFallbackNode():
+          break;
+      }
+    }
+  }
+
+  for (final fragment in fragments) {
+    final part = fragment.part;
+    switch (part) {
+      case SourceAssetPart(:final asset, :final alternativeText):
+        addAsset(part.sourceRef.sourceId, asset.assetId);
+        if (alternativeText != null) visitNodes(alternativeText.nodes);
+      case SourceContentPart(:final content):
+        visitNodes(
+          materializeQuestionRegionContent(content, fragment.slice),
+        );
+      case SourceTablePart(:final rows):
+        for (final row in rows) {
+          for (final cell in row) {
+            visitNodes(cell.nodes);
+          }
+        }
+      case UnsupportedSourcePart():
+        break;
     }
   }
   return List<SourcedAssetRef>.unmodifiable(derived);

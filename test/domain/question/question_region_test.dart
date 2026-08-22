@@ -372,6 +372,63 @@ void main() {
       );
     });
 
+    test('deduplicates repeated placements while retaining first asset order',
+        () {
+      final first = SourceAssetPart(
+        sourceRef: _sourceRef('source_a', pageNumber: 1),
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+      final second = SourceAssetPart(
+        sourceRef: _sourceRef('source_a', pageNumber: 2),
+        asset: AssetRef(assetId: 'asset_b', kind: AssetKind.image),
+      );
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: first,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: first,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: second,
+          ),
+        ],
+      );
+
+      expect(
+        region.assetRefs.map((asset) => asset.localAssetId),
+        <String>['asset_a', 'asset_b'],
+      );
+    });
+
+    test('shares slice materialization semantics with the public helper', () {
+      final content = RichContent(nodes: <ContentNode>[
+        const TextNode('前段'),
+        const InlineMathNode('x'),
+        const TextNode('后段'),
+      ]);
+      final slice = SourceSlice(
+        startNodeIndex: 0,
+        startCodeUnitOffset: 1,
+        endNodeIndex: 2,
+        endCodeUnitOffset: 1,
+      );
+
+      expect(
+        materializeQuestionRegionContent(content, slice),
+        <ContentNode>[
+          const TextNode('段'),
+          const InlineMathNode('x'),
+          const TextNode('后'),
+        ],
+      );
+    });
+
     test('requires issue source IDs to belong to a fragment source', () {
       final fragments = <QuestionRegionFragment>[
         _fragment(_contentPart(_sourceRef('source_a'), 'stem')),

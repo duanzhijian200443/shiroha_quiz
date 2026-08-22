@@ -4,6 +4,27 @@ import 'text_question_region.dart';
 
 enum OcrRegionField { stem, answer, explanation }
 
+/// Structural OCR ownership for one source block occurrence.
+///
+/// The legacy text arrays remain available to the existing text assembler, but
+/// typed bridging uses this identity-bearing sequence instead of recovering a
+/// source part from rendered text.
+final class OcrQuestionRegionSource {
+  const OcrQuestionRegionSource({
+    required this.blockId,
+    required this.field,
+    this.text,
+    this.startCodeUnitOffset,
+    this.endCodeUnitOffset,
+  });
+
+  final String blockId;
+  final OcrRegionField field;
+  final String? text;
+  final int? startCodeUnitOffset;
+  final int? endCodeUnitOffset;
+}
+
 class OcrQuestionNumberKindRange {
   const OcrQuestionNumberKindRange({
     required this.start,
@@ -40,6 +61,7 @@ class OcrQuestionRegion {
     required this.sourceBlockIds,
     required this.diagnostics,
     this.declaredKind = TextQuestionKind.unknown,
+    this.ownedSources = const <OcrQuestionRegionSource>[],
   });
 
   final int number;
@@ -50,6 +72,7 @@ class OcrQuestionRegion {
   final List<String> sourceBlockIds;
   final List<String> diagnostics;
   final TextQuestionKind declaredKind;
+  final List<OcrQuestionRegionSource> ownedSources;
 
   String get stemText => _joinParts(stemParts);
   String get answerText => _joinParts(answerParts);
@@ -368,7 +391,14 @@ class OcrQuestionRegionizer {
       currentField = OcrRegionField.stem;
       current!.addSource(unit.block);
       if (remainingText.isNotEmpty && remainingText != number.toString()) {
-        current!.addPart(currentField, remainingText);
+        current!.addPart(
+          currentField,
+          remainingText,
+          sourceBlockId: unit.sourceBlockId,
+          sourceText: unit.text,
+          sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+          sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+        );
       }
       addTrace(
         number: number,
@@ -405,7 +435,14 @@ class OcrQuestionRegionizer {
         ignoredBlocks.add(unit.block.blockId);
       } else {
         current!.addSource(unit.block);
-        current!.addPart(currentField, text);
+        current!.addPart(
+          currentField,
+          text,
+          sourceBlockId: unit.sourceBlockId,
+          sourceText: unit.text,
+          sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+          sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+        );
       }
     }
 
@@ -456,7 +493,14 @@ class OcrQuestionRegionizer {
       if (numberedField != null) {
         if (current != null && current!.number == numberedField.number) {
           current!.addSource(unit.block);
-          current!.addPart(numberedField.field, numberedField.remainingText);
+          current!.addPart(
+            numberedField.field,
+            numberedField.remainingText,
+            sourceBlockId: unit.sourceBlockId,
+            sourceText: unit.text,
+            sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+            sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+          );
           current!.diagnostics.add('attached_numbered_field_in_current_region');
         } else {
           numberedFieldCandidates.add(
@@ -715,10 +759,24 @@ class OcrQuestionRegionizer {
       if (transition != null) {
         currentField = transition.field;
         if (transition.remainingText.isNotEmpty) {
-          current!.addPart(currentField, transition.remainingText);
+          current!.addPart(
+            currentField,
+            transition.remainingText,
+            sourceBlockId: unit.sourceBlockId,
+            sourceText: unit.text,
+            sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+            sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+          );
         }
       } else {
-        current!.addPart(currentField, text);
+        current!.addPart(
+          currentField,
+          text,
+          sourceBlockId: unit.sourceBlockId,
+          sourceText: unit.text,
+          sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+          sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+        );
       }
     }
 
@@ -816,9 +874,12 @@ class OcrQuestionRegionizer {
       return [
         _OcrTextUnit(
           block: block,
+          sourceBlockId: block.blockId,
           text: text,
           wasSplit: false,
           startsAtBlockStart: true,
+          sourceStartCodeUnitOffset: block.text == text ? 0 : null,
+          sourceEndCodeUnitOffset: block.text == text ? text.length : null,
         ),
       ];
     }
@@ -828,15 +889,23 @@ class OcrQuestionRegionizer {
       final start = sortedBoundaries[i];
       final end = sortedBoundaries[i + 1];
       if (end <= start) continue;
-      final part = text.substring(start, end).trim();
+      final rawPart = text.substring(start, end);
+      final part = rawPart.trim();
       if (part.isNotEmpty) {
+        final leadingTrim = rawPart.length - rawPart.trimLeft().length;
+        final trailingTrim = rawPart.length - rawPart.trimRight().length;
+        final sourceStart = start + leadingTrim;
+        final sourceEnd = end - trailingTrim;
         units.add(
           _OcrTextUnit(
             block: block.copyWith(
                 blockId: '${block.blockId}#s${units.length + 1}'),
+            sourceBlockId: block.blockId,
             text: part,
             wasSplit: true,
             startsAtBlockStart: start == 0,
+            sourceStartCodeUnitOffset: block.text == text ? sourceStart : null,
+            sourceEndCodeUnitOffset: block.text == text ? sourceEnd : null,
           ),
         );
       }
@@ -1404,6 +1473,7 @@ class OcrQuestionRegionizer {
       final explanationParts = [...region.explanationParts];
       final pageIndices = {...region.sourcePageIndices};
       final blockIds = {...region.sourceBlockIds};
+      final ownedSources = [...region.ownedSources];
       final diagnostics = [...region.diagnostics];
 
       for (final candidate in matches) {
@@ -1414,6 +1484,13 @@ class OcrQuestionRegionizer {
         }
         pageIndices.add(candidate.block.pageIndex);
         blockIds.add(candidate.block.blockId);
+        ownedSources.add(
+          OcrQuestionRegionSource(
+            blockId: candidate.block.blockId,
+            field: candidate.field,
+            text: candidate.text.trim(),
+          ),
+        );
       }
       diagnostics.add('attached_numbered_field_candidate');
 
@@ -1427,6 +1504,7 @@ class OcrQuestionRegionizer {
         sourceBlockIds: List.unmodifiable(blockIds),
         diagnostics: List.unmodifiable(diagnostics.toSet()),
         declaredKind: region.declaredKind,
+        ownedSources: List.unmodifiable(ownedSources),
       );
     }).toList(growable: false);
   }
@@ -1448,6 +1526,7 @@ class _MutableRegion {
   final explanationParts = <String>[];
   final sourcePageIndices = <int>{};
   final sourceBlockIds = <String>{};
+  final ownedSources = <OcrQuestionRegionSource>[];
   final diagnostics = <String>[];
 
   void addSource(OcrBlock block) {
@@ -1461,9 +1540,28 @@ class _MutableRegion {
     }
   }
 
-  void addPart(OcrRegionField field, String text) {
+  void addPart(
+    OcrRegionField field,
+    String text, {
+    required String sourceBlockId,
+    required String sourceText,
+    int? sourceStartCodeUnitOffset,
+    int? sourceEndCodeUnitOffset,
+  }) {
     final normalized = text.trim();
     if (normalized.isEmpty) return;
+    final hasExactSourceBoundary = normalized == sourceText;
+    ownedSources.add(
+      OcrQuestionRegionSource(
+        blockId: sourceBlockId,
+        field: field,
+        text: normalized,
+        startCodeUnitOffset:
+            hasExactSourceBoundary ? sourceStartCodeUnitOffset : null,
+        endCodeUnitOffset:
+            hasExactSourceBoundary ? sourceEndCodeUnitOffset : null,
+      ),
+    );
     switch (field) {
       case OcrRegionField.stem:
         stemParts.add(normalized);
@@ -1489,6 +1587,7 @@ class _MutableRegion {
       sourceBlockIds: List.unmodifiable(sourceBlockIds),
       diagnostics: List.unmodifiable(diagnostics.toSet()),
       declaredKind: declaredKind,
+      ownedSources: List.unmodifiable(ownedSources),
     );
   }
 }
@@ -1496,15 +1595,21 @@ class _MutableRegion {
 class _OcrTextUnit {
   const _OcrTextUnit({
     required this.block,
+    required this.sourceBlockId,
     required this.text,
     required this.wasSplit,
     required this.startsAtBlockStart,
+    required this.sourceStartCodeUnitOffset,
+    required this.sourceEndCodeUnitOffset,
   });
 
   final OcrBlock block;
+  final String sourceBlockId;
   final String text;
   final bool wasSplit;
   final bool startsAtBlockStart;
+  final int? sourceStartCodeUnitOffset;
+  final int? sourceEndCodeUnitOffset;
 }
 
 class _FieldTransition {

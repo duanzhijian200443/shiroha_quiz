@@ -169,6 +169,198 @@ void main() {
       );
     });
 
+    test('block provenance wins over duplicate text and preserves mixed order',
+        () {
+      final parts = <SourcePart>[
+        _blockPart(blockId: 'text_a', page: 1, readingOrder: 0, text: 'same'),
+        SourceAssetPart(
+          sourceRef: _blockRef(blockId: 'asset_a', page: 1, readingOrder: 1),
+          asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+        ),
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'formula', page: 1, readingOrder: 2),
+          content: RichContent(nodes: <ContentNode>[const BlockMathNode('x')]),
+          role: SourceContentRole.formula,
+        ),
+        SourceAssetPart(
+          sourceRef: _blockRef(blockId: 'asset_b', page: 1, readingOrder: 3),
+          asset: AssetRef(assetId: 'asset_b', kind: AssetKind.image),
+        ),
+        _blockPart(blockId: 'text_b', page: 1, readingOrder: 4, text: 'same'),
+      ];
+      final result = bridge.convert(
+        OcrQuestionRegion(
+          number: 1,
+          stemParts: const <String>['same', 'same'],
+          answerParts: const <String>[],
+          explanationParts: const <String>[],
+          sourcePageIndices: const <int>[1],
+          sourceBlockIds: const <String>[
+            'text_a',
+            'asset_a',
+            'formula',
+            'asset_b',
+            'text_b',
+          ],
+          diagnostics: const <String>[],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'text_a',
+              field: OcrRegionField.stem,
+            ),
+            OcrQuestionRegionSource(
+              blockId: 'asset_a',
+              field: OcrRegionField.stem,
+            ),
+            OcrQuestionRegionSource(
+              blockId: 'formula',
+              field: OcrRegionField.stem,
+            ),
+            OcrQuestionRegionSource(
+              blockId: 'asset_b',
+              field: OcrRegionField.stem,
+            ),
+            OcrQuestionRegionSource(
+              blockId: 'text_b',
+              field: OcrRegionField.stem,
+            ),
+          ],
+        ),
+        sourceDocument: _document(parts),
+      );
+
+      expect(
+        result.fragments.map((fragment) => fragment.part),
+        <SourcePart>[
+          parts[0],
+          parts[1],
+          parts[2],
+          parts[3],
+          parts[4],
+        ],
+      );
+      expect(
+        result.assetRefs.map((asset) => asset.localAssetId),
+        <String>['asset_a', 'asset_b'],
+      );
+    });
+
+    test('uses ownership slices without matching source text', () {
+      final part = _blockPart(
+        blockId: 'slice',
+        page: 1,
+        readingOrder: 0,
+        text: 'abcdef',
+      );
+      final result = bridge.convert(
+        OcrQuestionRegion(
+          number: 1,
+          stemParts: const <String>['bc'],
+          answerParts: const <String>[],
+          explanationParts: const <String>[],
+          sourcePageIndices: const <int>[1],
+          sourceBlockIds: const <String>['slice'],
+          diagnostics: const <String>[],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'slice',
+              field: OcrRegionField.stem,
+              startCodeUnitOffset: 1,
+              endCodeUnitOffset: 3,
+            ),
+          ],
+        ),
+        sourceDocument: _document(<SourcePart>[part]),
+      );
+
+      expect(
+        result.fragments.single.slice,
+        SourceSlice(
+          startNodeIndex: 0,
+          startCodeUnitOffset: 1,
+          endNodeIndex: 0,
+          endCodeUnitOffset: 3,
+        ),
+      );
+    });
+
+    test('uses owned text only for a unique SourceSlice boundary', () {
+      final part = _blockPart(
+        blockId: 'slice_text',
+        page: 1,
+        readingOrder: 0,
+        text: 'prefix body suffix',
+      );
+      final result = bridge.convert(
+        _region(
+          stemParts: const <String>['body'],
+          sourceBlockIds: const <String>['slice_text'],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'slice_text',
+              field: OcrRegionField.stem,
+              text: 'body',
+            ),
+          ],
+        ),
+        sourceDocument: _document(<SourcePart>[part]),
+      );
+
+      expect(
+        result.fragments.single.slice,
+        SourceSlice(
+          startNodeIndex: 0,
+          startCodeUnitOffset: 7,
+          endNodeIndex: 0,
+          endCodeUnitOffset: 11,
+        ),
+      );
+    });
+
+    test('excludes unrelated structural blocks from the region', () {
+      final owned = _blockPart(
+        blockId: 'owned',
+        page: 1,
+        readingOrder: 0,
+        text: 'owned',
+      );
+      final unrelatedAsset = SourceAssetPart(
+        sourceRef:
+            _blockRef(blockId: 'unrelated_asset', page: 1, readingOrder: 1),
+        asset: AssetRef(assetId: 'unrelated', kind: AssetKind.image),
+      );
+      final unrelatedTable = SourceTablePart(
+        sourceRef:
+            _blockRef(blockId: 'unrelated_table', page: 1, readingOrder: 2),
+        rows: <List<RichContent>>[
+          <RichContent>[
+            RichContent(nodes: <ContentNode>[const TextNode('x')])
+          ],
+        ],
+      );
+      final result = bridge.convert(
+        _region(
+          stemParts: const <String>['owned'],
+          sourceBlockIds: const <String>['owned'],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'owned',
+              field: OcrRegionField.stem,
+            ),
+          ],
+        ),
+        sourceDocument: _document(<SourcePart>[
+          owned,
+          unrelatedAsset,
+          unrelatedTable,
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.part, same(owned));
+      expect(result.assetRefs, isEmpty);
+    });
+
     test('preserves one-to-one table and asset parts without text projection',
         () {
       final tablePart = SourceTablePart(
@@ -207,7 +399,7 @@ void main() {
       expect(assetRegion.assetRefs.single.localAssetId, 'asset_1');
     });
 
-    test('degrades instead of throwing when typed parts cannot be preserved',
+    test('preserves all typed parts when legacy text entries are incomplete',
         () {
       final tablePart = SourceTablePart(
         sourceRef: _blockRef(blockId: 'table', page: 1, readingOrder: 0),
@@ -234,26 +426,18 @@ void main() {
         sourceDocument: _document(<SourcePart>[tablePart, assetPart]),
       );
 
-      expect(result.fragments, hasLength(1));
-      final fragment = result.fragments.single;
-      expect(fragment.field, QuestionRegionField.stem);
-      expect(fragment.part, isA<SourceContentPart>());
-      expect(fragment.part, isNot(same(tablePart)));
-      expect(_singleText(fragment), 'unmatched formal stem');
+      expect(result.fragments, hasLength(2));
+      expect(result.fragments[0].field, QuestionRegionField.stem);
+      expect(result.fragments[0].part, same(tablePart));
+      expect(result.fragments[1].field, QuestionRegionField.stem);
+      expect(result.fragments[1].part, same(assetPart));
       expect(
-        result.issues,
-        contains(
-          ImportIssue(
-            code: 'legacy_provenance_coarse',
-            severity: ImportIssueSeverity.warning,
-            field: ImportIssueField.source,
-            sourceRef: fragment.sourceRef,
-          ),
-        ),
+        result.issues.map((issue) => issue.code),
+        contains('legacy_provenance_coarse'),
       );
     });
 
-    test('degrades instead of throwing on ambiguous typed text', () {
+    test('does not use duplicate typed text to choose a structural part', () {
       final formulaPart = SourceContentPart(
         sourceRef: _blockRef(blockId: 'formula', page: 1, readingOrder: 0),
         content: RichContent(nodes: <ContentNode>[const TextNode('dup')]),
@@ -277,18 +461,12 @@ void main() {
         sourceDocument: _document(<SourcePart>[formulaPart, assetPart]),
       );
 
-      expect(result.fragments, hasLength(1));
-      expect(_singleText(result.fragments.single), 'dup');
+      expect(result.fragments, hasLength(2));
+      expect(result.fragments[0].part, same(formulaPart));
+      expect(result.fragments[1].part, same(assetPart));
       expect(
-        result.issues,
-        contains(
-          ImportIssue(
-            code: 'legacy_provenance_coarse',
-            severity: ImportIssueSeverity.warning,
-            field: ImportIssueField.source,
-            sourceRef: result.fragments.single.sourceRef,
-          ),
-        ),
+        result.issues.map((issue) => issue.code),
+        contains('legacy_provenance_coarse'),
       );
     });
 
@@ -849,6 +1027,8 @@ OcrQuestionRegion _region({
   List<int> sourcePageIndices = const <int>[1],
   List<String> diagnostics = const <String>[],
   TextQuestionKind declaredKind = TextQuestionKind.unknown,
+  List<OcrQuestionRegionSource> ownedSources =
+      const <OcrQuestionRegionSource>[],
 }) {
   return OcrQuestionRegion(
     number: 1,
@@ -859,6 +1039,7 @@ OcrQuestionRegion _region({
     sourceBlockIds: sourceBlockIds,
     diagnostics: diagnostics,
     declaredKind: declaredKind,
+    ownedSources: ownedSources,
   );
 }
 

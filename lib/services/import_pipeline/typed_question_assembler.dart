@@ -44,10 +44,14 @@ final class TypedQuestionAssembler {
     required String questionId,
   }) {
     final nodesByField = <QuestionRegionField, List<ContentNode>>{};
+    final lastFragmentWasPlainText = <QuestionRegionField, bool>{};
     for (final fragment in region.fragments) {
       switch (fragment.part) {
         case SourceContentPart(:final content):
-          final nodes = _materializeContentNodes(content, fragment.slice);
+          final nodes = materializeQuestionRegionContent(
+            content,
+            fragment.slice,
+          );
           if (_isStructurallyEmpty(nodes)) {
             // Mirrors the legacy OCR join: fragments that contain only blank
             // text nodes are dropped; any non-text node is preserved.
@@ -55,25 +59,36 @@ final class TypedQuestionAssembler {
           }
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
-          if (target.isNotEmpty) {
+          final plainText = _isPlainTextFragment(nodes);
+          if (target.isNotEmpty &&
+              lastFragmentWasPlainText[fragment.field] == true &&
+              plainText) {
             // Preserve the stable legacy fragment boundary.
             target.add(const TextNode('\n'));
           }
           target.addAll(nodes);
-        case SourceAssetPart():
-          throw QuestionRegionUnsupportedException(
-            kindCode: 'source_asset',
-            field: fragment.field,
-            message: 'Asset identity and field position cannot be projected '
-                'losslessly by QuestionDraftV2.',
+          lastFragmentWasPlainText[fragment.field] = plainText;
+        case SourceAssetPart(
+            :final asset,
+            :final alternativeText,
+          ):
+          final target =
+              nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          target.add(
+            ImageNode(
+              sourceId: fragment.part.sourceRef.sourceId,
+              localAssetId: asset.assetId,
+              alternativeText: alternativeText,
+            ),
           );
+          lastFragmentWasPlainText[fragment.field] = false;
         case SourceTablePart():
-          throw QuestionRegionUnsupportedException(
-            kindCode: 'source_table',
-            field: fragment.field,
-            message: 'Table content cannot be expressed losslessly by '
-                'QuestionDraftV2.',
+          final target =
+              nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          target.add(
+            _tableNode(fragment.part as SourceTablePart, fragment.field),
           );
+          lastFragmentWasPlainText[fragment.field] = false;
         case UnsupportedSourcePart(:final kindCode):
           throw QuestionRegionUnsupportedException(
             kindCode: kindCode,
@@ -260,6 +275,46 @@ final class TypedQuestionAssembler {
   }
 }
 
+TableNode _tableNode(SourceTablePart part, QuestionRegionField field) {
+  if (part.rows.isEmpty || part.rows.any((row) => row.isEmpty)) {
+    throw QuestionRegionUnsupportedException(
+      kindCode: 'source_table',
+      field: field,
+      message: 'The source table is empty and cannot be represented '
+          'losslessly.',
+    );
+  }
+
+  final columnCount = part.rows.first.length;
+  if (part.rows.any((row) => row.length != columnCount)) {
+    throw QuestionRegionUnsupportedException(
+      kindCode: 'source_table',
+      field: field,
+      message: 'The source table is ragged and cannot be represented '
+          'losslessly.',
+    );
+  }
+
+  try {
+    return TableNode(
+      structure: TableStructure(
+        rows: part.rows.map(
+          (row) => TableRow(
+            cells: row.map((cell) => TableCell(content: cell)),
+          ),
+        ),
+      ),
+    );
+  } on FormatException {
+    throw QuestionRegionUnsupportedException(
+      kindCode: 'source_table',
+      field: field,
+      message: 'The source table contains content or geometry that cannot '
+          'be represented losslessly.',
+    );
+  }
+}
+
 QuestionKind _mapKind(
   QuestionRegionKindHint hint, {
   required int optionCount,
@@ -431,41 +486,8 @@ String _cleanStem(String raw) {
       .trim();
 }
 
-/// Materializes the UTF-16 half-open node interval selected by [slice].
-///
-/// Text nodes may be trimmed at the interval edges; math and raw fallback
-/// nodes are preserved whole because the slice constructor guarantees that
-/// non-zero offsets fall strictly inside text nodes. Without a slice the
-/// whole part is used.
-List<ContentNode> _materializeContentNodes(
-  RichContent content,
-  SourceSlice? slice,
-) {
-  final nodes = content.nodes;
-  if (slice == null) return nodes;
-  final endExcluded = slice.endCodeUnitOffset == 0;
-  final lastIncluded =
-      endExcluded ? slice.endNodeIndex - 1 : slice.endNodeIndex;
-  final materialized = <ContentNode>[];
-  for (var index = slice.startNodeIndex; index <= lastIncluded; index++) {
-    final node = nodes[index];
-    final startOffset =
-        index == slice.startNodeIndex ? slice.startCodeUnitOffset : 0;
-    final endOffset =
-        index == slice.endNodeIndex ? slice.endCodeUnitOffset : null;
-    if (node is TextNode) {
-      materialized.add(
-        TextNode(
-          endOffset == null
-              ? node.text.substring(startOffset)
-              : node.text.substring(startOffset, endOffset),
-        ),
-      );
-    } else {
-      materialized.add(node);
-    }
-  }
-  return materialized;
+bool _isPlainTextFragment(List<ContentNode> nodes) {
+  return nodes.isNotEmpty && nodes.every((node) => node is TextNode);
 }
 
 /// Returns the joined text when every node is a [TextNode], otherwise null.

@@ -31,7 +31,7 @@ final class OcrQuestionRegionBridge {
   }) {
     final provenance = _resolveProvenance(
       sourceDocument,
-      region.sourceBlockIds,
+      region,
       region.sourcePageIndices,
     );
     final ref = provenance.ref;
@@ -125,11 +125,7 @@ final class OcrQuestionRegionBridge {
 
 ({List<QuestionRegionFragment> fragments, bool typedDegraded}) _buildFragments(
   OcrQuestionRegion region,
-  ({
-    SourceRef ref,
-    bool isCoarse,
-    List<SourcePart> matchedParts,
-  }) provenance,
+  _Provenance provenance,
 ) {
   final entries = <({QuestionRegionField field, String text})>[];
 
@@ -144,120 +140,152 @@ final class OcrQuestionRegionBridge {
   addEntries(QuestionRegionField.answer, region.answerParts);
   addEntries(QuestionRegionField.explanation, region.explanationParts);
 
-  final bindings = List<_PartBinding?>.filled(entries.length, null);
-  final usedPartIndexes = <int>{};
-  for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-    final candidates = <_PartBinding>[];
-    for (var partIndex = 0;
-        partIndex < provenance.matchedParts.length;
-        partIndex++) {
-      if (usedPartIndexes.contains(partIndex)) continue;
-      final binding = _textBinding(
-        provenance.matchedParts[partIndex],
-        partIndex,
-        entries[entryIndex].text,
+  if (region.ownedSources.isNotEmpty) {
+    final fragments = <QuestionRegionFragment>[];
+    final ownedCounts = <QuestionRegionField, int>{};
+    var typedDegraded = provenance.ambiguousBlockIds.isNotEmpty;
+
+    for (final owned in region.ownedSources) {
+      final part = provenance.uniquePartByBlockId[owned.blockId];
+      if (part == null) {
+        typedDegraded = true;
+        continue;
+      }
+      final field = _mapField(owned.field);
+      ownedCounts[field] = (ownedCounts[field] ?? 0) + 1;
+      fragments.add(
+        QuestionRegionFragment(
+          field: field,
+          part: part,
+          slice: _sliceForOwnership(part, owned),
+        ),
       );
-      if (binding != null) candidates.add(binding);
     }
 
-    if (candidates.length == 1) {
-      final binding = candidates.single;
-      bindings[entryIndex] = binding;
-      usedPartIndexes.add(binding.partIndex);
+    final expectedCounts = <QuestionRegionField, int>{};
+    for (final entry in entries) {
+      expectedCounts[entry.field] = (expectedCounts[entry.field] ?? 0) + 1;
     }
+    final syntheticCounts = <QuestionRegionField, int>{};
+    for (final field in QuestionRegionField.values) {
+      final expected = expectedCounts[field] ?? 0;
+      final ownedCount = ownedCounts[field] ?? 0;
+      syntheticCounts[field] =
+          expected > ownedCount ? expected - ownedCount : 0;
+    }
+    for (final entry in entries) {
+      final remaining = syntheticCounts[entry.field] ?? 0;
+      if (remaining == 0) continue;
+      syntheticCounts[entry.field] = remaining - 1;
+      fragments.add(_fragment(entry.field, entry.text, provenance.ref));
+    }
+
+    return (typedDegraded: typedDegraded, fragments: fragments);
   }
 
-  final unmatchedTypedParts = <int>[
-    for (var index = 0; index < provenance.matchedParts.length; index++)
-      if (!usedPartIndexes.contains(index) &&
-          _requiresTypedPreservation(provenance.matchedParts[index]))
-        index,
-  ];
-  final unresolvedEntries = <int>[
-    for (var index = 0; index < bindings.length; index++)
-      if (bindings[index] == null) index,
-  ];
-  final pairsSingleTypedPart =
-      unmatchedTypedParts.length == 1 && unresolvedEntries.length == 1;
-  if (pairsSingleTypedPart) {
-    final partIndex = unmatchedTypedParts.single;
-    bindings[unresolvedEntries.single] = _PartBinding(
-      partIndex: partIndex,
-      part: provenance.matchedParts[partIndex],
+  final hasStructuralPart = provenance.matchedParts.any(_hasTypedStructure);
+  if (hasStructuralPart) {
+    final fragments = <QuestionRegionFragment>[];
+    for (var index = 0; index < provenance.matchedParts.length; index++) {
+      final field = entries.isEmpty
+          ? QuestionRegionField.stem
+          : entries[index < entries.length ? index : entries.length - 1].field;
+      fragments.add(
+        QuestionRegionFragment(
+          field: field,
+          part: provenance.matchedParts[index],
+        ),
+      );
+    }
+    for (var index = provenance.matchedParts.length;
+        index < entries.length;
+        index++) {
+      fragments.add(
+          _fragment(entries[index].field, entries[index].text, provenance.ref));
+    }
+    return (
+      typedDegraded: !provenance.canBindLegacyParts ||
+          provenance.ambiguousBlockIds.isNotEmpty,
+      fragments: fragments,
     );
   }
-  final typedDegraded = !pairsSingleTypedPart && unmatchedTypedParts.isNotEmpty;
 
-  return (
-    typedDegraded: typedDegraded,
-    fragments: <QuestionRegionFragment>[
-      for (var index = 0; index < entries.length; index++)
-        if (bindings[index] case final binding?)
+  final canPairByEncounter = provenance.canBindLegacyParts &&
+      provenance.matchedParts.length == entries.length;
+  if (canPairByEncounter) {
+    return (
+      typedDegraded: false,
+      fragments: [
+        for (var index = 0; index < entries.length; index++)
           QuestionRegionFragment(
             field: entries[index].field,
-            part: binding.part,
-            slice: binding.slice,
-          )
-        else
-          _fragment(entries[index].field, entries[index].text, provenance.ref),
+            part: provenance.matchedParts[index],
+          ),
+      ],
+    );
+  }
+
+  return (
+    typedDegraded: provenance.matchedParts.any(_hasTypedStructure) ||
+        provenance.ambiguousBlockIds.isNotEmpty,
+    fragments: [
+      for (final entry in entries)
+        _fragment(entry.field, entry.text, provenance.ref),
     ],
   );
 }
 
-_PartBinding? _textBinding(
-  SourcePart part,
-  int partIndex,
-  String text,
-) {
-  final sourceText = _singleTextForPart(part);
-  if (sourceText == null) return null;
-  final start = sourceText.indexOf(text);
-  if (start < 0 || sourceText.indexOf(text, start + 1) >= 0) return null;
-
-  if (part is SourceContentPart) {
-    final end = start + text.length;
-    final slice = start == 0 && end == sourceText.length
-        ? null
-        : SourceSlice(
-            startNodeIndex: 0,
-            startCodeUnitOffset: start,
-            endNodeIndex: end == sourceText.length ? 1 : 0,
-            endCodeUnitOffset: end == sourceText.length ? 0 : end,
-          );
-    return _PartBinding(partIndex: partIndex, part: part, slice: slice);
-  }
-  return _PartBinding(partIndex: partIndex, part: part);
-}
-
-String? _singleTextForPart(SourcePart part) {
-  final content = switch (part) {
-    SourceContentPart(:final content) => content,
-    SourceAssetPart(:final alternativeText) => alternativeText,
-    UnsupportedSourcePart(:final fallbackContent) => fallbackContent,
-    SourceTablePart() => null,
+bool _hasTypedStructure(SourcePart part) {
+  return switch (part) {
+    SourceAssetPart() || SourceTablePart() || UnsupportedSourcePart() => true,
+    SourceContentPart(:final content, :final role) =>
+      role == SourceContentRole.formula ||
+          content.nodes.any((node) => node is! TextNode),
   };
-  if (content == null || content.nodes.length != 1) return null;
-  final node = content.nodes.single;
-  return node is TextNode ? node.text : null;
 }
 
-bool _requiresTypedPreservation(SourcePart part) {
-  return part is SourceTablePart ||
-      part is SourceAssetPart ||
-      part is UnsupportedSourcePart ||
-      (part is SourceContentPart && part.role == SourceContentRole.formula);
+QuestionRegionField _mapField(OcrRegionField field) {
+  return switch (field) {
+    OcrRegionField.stem => QuestionRegionField.stem,
+    OcrRegionField.answer => QuestionRegionField.answer,
+    OcrRegionField.explanation => QuestionRegionField.explanation,
+  };
 }
 
-final class _PartBinding {
-  const _PartBinding({
-    required this.partIndex,
-    required this.part,
-    this.slice,
-  });
-
-  final int partIndex;
-  final SourcePart part;
-  final SourceSlice? slice;
+SourceSlice? _sliceForOwnership(
+  SourcePart part,
+  OcrQuestionRegionSource owned,
+) {
+  if (part is! SourceContentPart) {
+    return null;
+  }
+  if (part.content.nodes.length != 1 ||
+      part.content.nodes.single is! TextNode) {
+    return null;
+  }
+  final text = (part.content.nodes.single as TextNode).text;
+  var start = owned.startCodeUnitOffset;
+  var end = owned.endCodeUnitOffset;
+  if (start == null || end == null) {
+    final boundaryText = owned.text?.trim();
+    if (boundaryText == null || boundaryText.isEmpty) return null;
+    final matches = RegExp(RegExp.escape(boundaryText)).allMatches(text);
+    final match = matches.length == 1 ? matches.single : null;
+    if (match == null) return null;
+    start = match.start;
+    end = match.end;
+  }
+  if (start == 0 && end == text.length) return null;
+  try {
+    return SourceSlice(
+      startNodeIndex: 0,
+      startCodeUnitOffset: start,
+      endNodeIndex: end == text.length ? 1 : 0,
+      endCodeUnitOffset: end == text.length ? 0 : end,
+    );
+  } on FormatException {
+    return null;
+  }
 }
 
 QuestionRegionFragment _fragment(
@@ -274,66 +302,142 @@ QuestionRegionFragment _fragment(
   );
 }
 
-({SourceRef ref, bool isCoarse, List<SourcePart> matchedParts})
-    _resolveProvenance(
+final class _Provenance {
+  const _Provenance({
+    required this.ref,
+    required this.isCoarse,
+    required this.matchedParts,
+    required this.uniquePartByBlockId,
+    required this.ambiguousBlockIds,
+    required this.canBindLegacyParts,
+  });
+
+  final SourceRef ref;
+  final bool isCoarse;
+  final List<SourcePart> matchedParts;
+  final Map<String, SourcePart> uniquePartByBlockId;
+  final Set<String> ambiguousBlockIds;
+  final bool canBindLegacyParts;
+}
+
+_Provenance _resolveProvenance(
   SourceDocument document,
-  List<String> regionBlockIds,
+  OcrQuestionRegion region,
   List<int> regionPageIndices,
 ) {
   final documentRef = document.documentRef;
-  final matchesByBlockId = <String, List<SourceRef>>{};
-  final encounterOrder = <SourceRef>[];
-  final matchedParts = <SourcePart>[];
+  final ownedBlockIds = region.ownedSources
+      .map((source) => source.blockId)
+      .toList(growable: false);
+  final regionBlockIds = ownedBlockIds.isNotEmpty
+      ? ownedBlockIds
+      : List<String>.unmodifiable(region.sourceBlockIds);
+  final requested = regionBlockIds.toSet();
+  final partsByBlockId = <String, List<SourcePart>>{};
 
   for (final part in document.parts) {
-    final point = part.sourceRef.start;
-    final blockId = point?.blockId;
-    if (blockId == null) continue;
-    if (!regionBlockIds.contains(blockId)) continue;
-    matchedParts.add(part);
-    encounterOrder.add(part.sourceRef);
-    matchesByBlockId
-        .putIfAbsent(blockId, () => <SourceRef>[])
-        .add(part.sourceRef);
+    final blockId = part.sourceRef.start?.blockId;
+    if (blockId == null || !requested.contains(blockId)) continue;
+    partsByBlockId.putIfAbsent(blockId, () => <SourcePart>[]).add(part);
   }
 
+  final uniquePartByBlockId = <String, SourcePart>{};
+  final ambiguousBlockIds = <String>{};
+  for (final blockId in requested) {
+    final matches = partsByBlockId[blockId] ?? const <SourcePart>[];
+    if (matches.length == 1) {
+      uniquePartByBlockId[blockId] = matches.single;
+    } else {
+      ambiguousBlockIds.add(blockId);
+    }
+  }
+
+  final matchedParts = <SourcePart>[];
+  if (region.ownedSources.isNotEmpty) {
+    for (final owned in region.ownedSources) {
+      final part = uniquePartByBlockId[owned.blockId];
+      if (part != null) matchedParts.add(part);
+    }
+  } else {
+    final orderedIds = [...regionBlockIds];
+    orderedIds.sort((left, right) {
+      final leftPart = uniquePartByBlockId[left];
+      final rightPart = uniquePartByBlockId[right];
+      if (leftPart == null && rightPart == null) return 0;
+      if (leftPart == null) return 1;
+      if (rightPart == null) return -1;
+      return _compareBlockRefs(leftPart.sourceRef, rightPart.sourceRef);
+    });
+    for (final blockId in orderedIds) {
+      final part = uniquePartByBlockId[blockId];
+      if (part != null) matchedParts.add(part);
+    }
+  }
+
+  var isCoarse = ambiguousBlockIds.isNotEmpty;
+  if (region.ownedSources.isEmpty &&
+      regionBlockIds.toSet().length != regionBlockIds.length) {
+    isCoarse = true;
+  }
+
+  final refsByBlockId = <String, SourceRef>{};
   for (final blockId in regionBlockIds) {
-    if (!matchesByBlockId.containsKey(blockId)) {
-      return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
+    final part = uniquePartByBlockId[blockId];
+    if (part == null) {
+      isCoarse = true;
+      continue;
     }
-  }
-  for (final matches in matchesByBlockId.values) {
-    if (matches.length != 1) {
-      return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
-    }
+    refsByBlockId[blockId] = part.sourceRef;
   }
 
-  if (regionBlockIds.toSet().length != regionBlockIds.length) {
-    return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
+  final encounterOrder = <SourceRef>[];
+  final seenRefs = <SourceRef>{};
+  for (final blockId in regionBlockIds) {
+    final ref = refsByBlockId[blockId];
+    if (ref != null && seenRefs.add(ref)) encounterOrder.add(ref);
   }
-
   if (encounterOrder.isEmpty) {
-    return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
+    return _Provenance(
+      ref: documentRef,
+      isCoarse: true,
+      matchedParts: matchedParts,
+      uniquePartByBlockId: uniquePartByBlockId,
+      ambiguousBlockIds: ambiguousBlockIds,
+      canBindLegacyParts: false,
+    );
   }
+
   final declaredPages = regionPageIndices.toSet();
   final matchedPages =
       encounterOrder.map((sourceRef) => sourceRef.start!.pageNumber).toSet();
-  if (!_setEquals(declaredPages, matchedPages)) {
-    return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
-  }
+  if (!_setEquals(declaredPages, matchedPages)) isCoarse = true;
+
   if (encounterOrder.length == 1) {
-    return (
-      ref: encounterOrder.single,
-      isCoarse: false,
+    return _Provenance(
+      ref: isCoarse ? documentRef : encounterOrder.single,
+      isCoarse: isCoarse,
       matchedParts: matchedParts,
+      uniquePartByBlockId: uniquePartByBlockId,
+      ambiguousBlockIds: ambiguousBlockIds,
+      canBindLegacyParts: !isCoarse,
     );
   }
 
   final ordered = [...encounterOrder]..sort(_compareBlockRefs);
   for (var index = 1; index < ordered.length; index++) {
     if (_compareBlockRefs(ordered[index - 1], ordered[index]) == 0) {
-      return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
+      isCoarse = true;
     }
+  }
+  if (isCoarse) {
+    return _Provenance(
+      ref: documentRef,
+      isCoarse: true,
+      matchedParts: matchedParts,
+      uniquePartByBlockId: uniquePartByBlockId,
+      ambiguousBlockIds: ambiguousBlockIds,
+      canBindLegacyParts: false,
+    );
   }
 
   try {
@@ -343,9 +447,23 @@ QuestionRegionFragment _fragment(
       start: ordered.first.start!,
       end: ordered.last.start!,
     );
-    return (ref: range, isCoarse: true, matchedParts: matchedParts);
+    return _Provenance(
+      ref: range,
+      isCoarse: true,
+      matchedParts: matchedParts,
+      uniquePartByBlockId: uniquePartByBlockId,
+      ambiguousBlockIds: ambiguousBlockIds,
+      canBindLegacyParts: true,
+    );
   } on FormatException {
-    return (ref: documentRef, isCoarse: true, matchedParts: matchedParts);
+    return _Provenance(
+      ref: documentRef,
+      isCoarse: true,
+      matchedParts: matchedParts,
+      uniquePartByBlockId: uniquePartByBlockId,
+      ambiguousBlockIds: ambiguousBlockIds,
+      canBindLegacyParts: false,
+    );
   }
 }
 

@@ -1,7 +1,6 @@
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
-import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
@@ -177,17 +176,6 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
       candidates: <OcrTypedCandidate>[],
       failure: OcrTypedCandidateFailure.internalError,
     );
-  }
-
-  for (final part in sourceDocument.parts) {
-    if (part is SourceAssetPart ||
-        part is SourceTablePart ||
-        part is UnsupportedSourcePart) {
-      return OcrTypedCandidateBatch(
-        candidates: <OcrTypedCandidate>[],
-        failure: OcrTypedCandidateFailure.unsupportedStructure,
-      );
-    }
   }
 
   final candidates = <OcrTypedCandidate>[];
