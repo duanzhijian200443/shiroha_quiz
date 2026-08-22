@@ -1,5 +1,14 @@
 # R7B OCR Typed Candidate
 
+> **Historical stage contract.** This file preserves the original R7B
+> evidence and stage constraints. The focused authority for the P2-B1T2
+> Phase 2B typed/legacy parity target is
+> [`p2-b1t2-phase2b-typed-legacy-parity.md`](p2-b1t2-phase2b-typed-legacy-parity.md).
+> Until that target is implemented, the exact parity checks recorded below
+> remain current runtime comparison behavior. The original R7B statement that
+> all routes remain `legacyV1` is historical; current production activation is
+> governed by R7E.
+
 ## Status
 
 R7B 在受支持的单文件 OCR 生产解析链上并行生成 shadow typed candidate，
