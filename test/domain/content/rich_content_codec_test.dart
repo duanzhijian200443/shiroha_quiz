@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_codec.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 
 void main() {
   const codec = RichContentCodec();
@@ -64,6 +65,138 @@ void main() {
           'nodes': <Object?>[],
         },
       );
+    });
+
+    test('round-trips images, alternative text, tables, and spans', () {
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: const <ContentNode>[TextNode('a')]),
+              columnSpan: 2,
+            ),
+          ]),
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: const <ContentNode>[])),
+            TableCell(
+              content: RichContent(
+                nodes: const <ContentNode>[BlockMathNode(r'b')],
+              ),
+            ),
+          ]),
+        ]),
+      );
+      final content = RichContent(nodes: <ContentNode>[
+        ImageNode(sourceId: 'source_001', localAssetId: 'asset_null'),
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_text',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            TextNode('alt'),
+          ]),
+        ),
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_inline',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            InlineMathNode(r'x+1'),
+          ]),
+        ),
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_block',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            BlockMathNode(r'\sum x'),
+          ]),
+        ),
+        table,
+      ]);
+
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+      final encodedNodes = firstEncoding['nodes']! as List<Object?>;
+      expect(
+        (encodedNodes.first as Map<String, Object?>)['alternativeText'],
+        isNull,
+      );
+      expect(
+        (encodedNodes.last as Map<String, Object?>)['rows'],
+        isA<List<Object?>>(),
+      );
+    });
+
+    test('scopes table row budget per TableNode', () {
+      final rowsPerTable = RichContentLimits.maxTableRows ~/ 2 + 1;
+      final tableA = _emptyTable(rowCount: rowsPerTable, columnCount: 1);
+      final tableB = _emptyTable(rowCount: rowsPerTable, columnCount: 1);
+      final content = RichContent(nodes: <ContentNode>[tableA, tableB]);
+
+      expect(rowsPerTable, lessThanOrEqualTo(RichContentLimits.maxTableRows));
+      expect(
+        rowsPerTable * 2,
+        greaterThan(RichContentLimits.maxTableRows),
+      );
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+    });
+
+    test('scopes table logical-cell budget per TableNode', () {
+      final rowsPerTable = RichContentLimits.maxTableLogicalCells ~/
+          RichContentLimits.maxTableColumns;
+      final columnsPerTable = RichContentLimits.maxTableColumns;
+      final logicalCellsPerTable = rowsPerTable * columnsPerTable;
+      final tableA = _emptyTable(
+        rowCount: rowsPerTable,
+        columnCount: columnsPerTable,
+      );
+      final tableB = _emptyTable(
+        rowCount: rowsPerTable,
+        columnCount: columnsPerTable,
+      );
+      final content = RichContent(nodes: <ContentNode>[tableA, tableB]);
+
+      expect(
+        logicalCellsPerTable,
+        lessThanOrEqualTo(RichContentLimits.maxTableLogicalCells),
+      );
+      expect(
+        logicalCellsPerTable * 2,
+        greaterThan(RichContentLimits.maxTableLogicalCells),
+      );
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
+    });
+
+    test('scopes expanded-cell budget per TableNode at each table maximum', () {
+      final tableA = _maxExpandedTable();
+      final tableB = _maxExpandedTable();
+      final content = RichContent(nodes: <ContentNode>[tableA, tableB]);
+
+      expect(
+        tableA.structure.expandedCellCount,
+        RichContentLimits.maxTableExpandedCells,
+      );
+      expect(
+        tableA.structure.expandedCellCount * 2,
+        greaterThan(RichContentLimits.maxTableExpandedCells),
+      );
+      // A single valid table cannot exceed the expanded limit while honoring
+      // the frozen maximum row and column bounds, so two individually maxed
+      // tables are the minimum legal scope-isolation case.
+      final firstEncoding = codec.encode(content);
+      final decoded = codec.decode(firstEncoding);
+
+      expect(decoded, content);
+      expect(codec.encode(decoded), equals(firstEncoding));
     });
   });
 
@@ -175,6 +308,26 @@ void main() {
       expect(codec.encode(decoded), equals(input));
     });
 
+    test('keeps an extended image as lossless raw fallback', () {
+      final input = <String, Object?>{
+        'schemaVersion': 1,
+        'nodes': <Object?>[
+          <String, Object?>{
+            'type': 'image',
+            'sourceId': 'source_001',
+            'assetId': 'asset_001',
+            'alternativeText': null,
+            'futureCrop': <String, Object?>{'left': 1},
+          },
+        ],
+      };
+
+      final decoded = codec.decode(input);
+
+      expect(decoded.nodes.single, isA<RawFallbackNode>());
+      expect(codec.encode(decoded), equals(input));
+    });
+
     test('returns a fresh mutable deep copy from encode', () {
       final content = RichContent(nodes: <ContentNode>[
         RawFallbackNode(<Object?, Object?>{
@@ -208,6 +361,173 @@ void main() {
           ],
         },
       );
+    });
+  });
+
+  group('RichContentCodec decode budgets', () {
+    test('checks the shared node budget before constructing nodes', () {
+      final exactlyAtLimit = _contentJson(
+        List<Object?>.generate(
+          RichContentLimits.maxNodes,
+          (_) => <String, Object?>{'type': 'text', 'text': ''},
+        ),
+      );
+      expect(
+          codec.decode(exactlyAtLimit).nodes,
+          hasLength(
+            RichContentLimits.maxNodes,
+          ));
+
+      final overLimit = _contentJson(
+        List<Object?>.generate(
+          RichContentLimits.maxNodes + 1,
+          (_) => <String, Object?>{'type': 'text', 'text': ''},
+        ),
+      );
+      expect(() => codec.decode(overLimit), throwsFormatException);
+    });
+
+    test('checks scalar bounds during canonical decode', () {
+      final atNodeLimit = _repeat('x', RichContentLimits.maxNodeScalars);
+      final exactlyAtLimit = _contentJson(<Object?>[
+        <String, Object?>{'type': 'text', 'text': atNodeLimit},
+        <String, Object?>{'type': 'text', 'text': atNodeLimit},
+      ]);
+      expect(codec.decode(exactlyAtLimit).nodes, hasLength(2));
+
+      final overLimit = _contentJson(<Object?>[
+        <String, Object?>{'type': 'text', 'text': atNodeLimit},
+        <String, Object?>{'type': 'text', 'text': atNodeLimit},
+        <String, Object?>{'type': 'text', 'text': 'x'},
+      ]);
+      expect(() => codec.decode(overLimit), throwsFormatException);
+    });
+
+    test('checks the shared image budget during canonical decode', () {
+      Map<String, Object?> imageNode() => <String, Object?>{
+            'type': 'image',
+            'sourceId': 'source_001',
+            'assetId': 'asset_000001',
+            'alternativeText': null,
+          };
+
+      final exactlyAtLimit = _contentJson(
+        List<Object?>.generate(RichContentLimits.maxImages, (_) => imageNode()),
+      );
+      expect(
+          codec.decode(exactlyAtLimit).nodes,
+          hasLength(
+            RichContentLimits.maxImages,
+          ));
+
+      final overLimit = _contentJson(
+        List<Object?>.generate(
+          RichContentLimits.maxImages + 1,
+          (_) => imageNode(),
+        ),
+      );
+      expect(() => codec.decode(overLimit), throwsFormatException);
+    });
+
+    test('checks table rows before decoding row contents', () {
+      final exactlyAtLimit = _tableJson(
+        List<Object?>.generate(
+          RichContentLimits.maxTableRows,
+          (_) => _tableRow(<Object?>[_emptyTableCell()]),
+        ),
+      );
+      expect(codec.decode(_contentJson(<Object?>[exactlyAtLimit])).nodes,
+          hasLength(1));
+
+      final overLimit = _tableJson(
+        List<Object?>.generate(
+          RichContentLimits.maxTableRows + 1,
+          (_) => _tableRow(<Object?>[_emptyTableCell()]),
+        ),
+      );
+      expect(
+        () => codec.decode(_contentJson(<Object?>[overLimit])),
+        throwsFormatException,
+      );
+    });
+
+    test('checks logical table cells before decoding cell contents', () {
+      final exactlyAtLimit = _tableJson(
+        _tableRowsForLogicalCells(RichContentLimits.maxTableLogicalCells),
+      );
+      expect(codec.decode(_contentJson(<Object?>[exactlyAtLimit])).nodes,
+          hasLength(1));
+
+      final overLimit = _tableJson(
+        _tableRowsForLogicalCells(RichContentLimits.maxTableLogicalCells + 1),
+      );
+      expect(
+        () => codec.decode(_contentJson(<Object?>[overLimit])),
+        throwsFormatException,
+      );
+    });
+
+    test('bounded-fails a deep malformed image alternative chain', () {
+      var nested = _contentJson(<Object?>[
+        <String, Object?>{
+          'type': 'image',
+          'sourceId': 'source_001',
+          'assetId': 'asset_000001',
+          'alternativeText': null,
+        },
+      ]);
+      for (var index = 0; index < RichContentLimits.maxDepth + 2; index++) {
+        nested = _contentJson(<Object?>[
+          <String, Object?>{
+            'type': 'image',
+            'sourceId': 'source_001',
+            'assetId': 'asset_000001',
+            'alternativeText': nested,
+          },
+        ]);
+      }
+
+      expect(() => codec.decode(nested), throwsFormatException);
+    });
+
+    test('bounded-fails a deep table and image composition', () {
+      var alternative = _contentJson(<Object?>[
+        <String, Object?>{'type': 'text', 'text': 'alt'},
+      ]);
+      for (var index = 0; index < RichContentLimits.maxDepth + 2; index++) {
+        alternative = _contentJson(<Object?>[
+          <String, Object?>{
+            'type': 'image',
+            'sourceId': 'source_001',
+            'assetId': 'asset_000001',
+            'alternativeText': alternative,
+          },
+        ]);
+      }
+      final table = _tableJson(<Object?>[
+        _tableRow(<Object?>[
+          _tableCell(alternative),
+        ]),
+      ]);
+
+      expect(
+        () => codec.decode(_contentJson(<Object?>[table])),
+        throwsFormatException,
+      );
+    });
+
+    test('bounds unknown future fallback payloads before freezing them', () {
+      final oversized = _contentJson(<Object?>[
+        <String, Object?>{
+          'type': 'future_diagram',
+          'payload': List<Object?>.generate(
+            RichContentLimits.maxRawCollectionEntries + 1,
+            (_) => 'x',
+          ),
+        },
+      ]);
+
+      expect(() => codec.decode(oversized), throwsFormatException);
     });
   });
 
@@ -287,6 +607,48 @@ void main() {
             <String, Object?>{'type': 'block_math', 'latex': false},
           ],
         },
+        'image is missing alternativeText': <String, Object?>{
+          'schemaVersion': 1,
+          'nodes': <Object?>[
+            <String, Object?>{
+              'type': 'image',
+              'sourceId': 'source_001',
+              'assetId': 'asset_001',
+            },
+          ],
+        },
+        'image has malformed source identity': <String, Object?>{
+          'schemaVersion': 1,
+          'nodes': <Object?>[
+            <String, Object?>{
+              'type': 'image',
+              'sourceId': 'https://example.invalid/source',
+              'assetId': 'asset_001',
+              'alternativeText': null,
+            },
+          ],
+        },
+        'image has malformed alternativeText': <String, Object?>{
+          'schemaVersion': 1,
+          'nodes': <Object?>[
+            <String, Object?>{
+              'type': 'image',
+              'sourceId': 'source_001',
+              'assetId': 'asset_001',
+              'alternativeText': <String, Object?>{
+                'schemaVersion': 1,
+                'nodes': <Object?>[
+                  <String, Object?>{
+                    'type': 'image',
+                    'sourceId': 'source_002',
+                    'assetId': 'asset_002',
+                    'alternativeText': null,
+                  },
+                ],
+              },
+            },
+          ],
+        },
         'raw fallback is missing payload': <String, Object?>{
           'schemaVersion': 1,
           'nodes': <Object?>[
@@ -356,3 +718,96 @@ void main() {
     });
   });
 }
+
+TableNode _emptyTable({required int rowCount, required int columnCount}) {
+  return TableNode(
+    structure: TableStructure(
+      rows: <TableRow>[
+        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
+          TableRow(
+            cells: <TableCell>[
+              for (var columnIndex = 0;
+                  columnIndex < columnCount;
+                  columnIndex++)
+                TableCell(
+                  content: RichContent(
+                    nodes: const <ContentNode>[],
+                  ),
+                ),
+            ],
+          ),
+      ],
+    ),
+  );
+}
+
+TableNode _maxExpandedTable() {
+  return TableNode(
+    structure: TableStructure(
+      rows: <TableRow>[
+        for (var rowIndex = 0;
+            rowIndex < RichContentLimits.maxTableRows;
+            rowIndex++)
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[],
+                ),
+                columnSpan: RichContentLimits.maxTableColumns,
+              ),
+            ],
+          ),
+      ],
+    ),
+  );
+}
+
+Map<String, Object?> _contentJson(List<Object?> nodes) {
+  return <String, Object?>{
+    'schemaVersion': 1,
+    'nodes': nodes,
+  };
+}
+
+Map<String, Object?> _tableJson(List<Object?> rows) {
+  return <String, Object?>{
+    'type': 'table',
+    'rows': rows,
+  };
+}
+
+Map<String, Object?> _tableRow(List<Object?> cells) {
+  return <String, Object?>{'cells': cells};
+}
+
+Map<String, Object?> _emptyTableCell() {
+  return _tableCell(_contentJson(<Object?>[]));
+}
+
+Map<String, Object?> _tableCell(Object? content) {
+  return <String, Object?>{
+    'content': content,
+    'rowSpan': 1,
+    'columnSpan': 1,
+  };
+}
+
+List<Object?> _tableRowsForLogicalCells(int count) {
+  final rows = <Object?>[];
+  var remaining = count;
+  while (remaining > 0) {
+    final cellsInRow = remaining < RichContentLimits.maxTableColumns
+        ? remaining
+        : RichContentLimits.maxTableColumns;
+    rows.add(
+      _tableRow(
+        List<Object?>.generate(cellsInRow, (_) => _emptyTableCell()),
+      ),
+    );
+    remaining -= cellsInRow;
+  }
+  return rows;
+}
+
+String _repeat(String value, int count) => List.filled(count, value).join();

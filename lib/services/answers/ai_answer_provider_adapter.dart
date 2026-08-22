@@ -598,6 +598,7 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
       TextNode(:final text) => text.runes.length,
       InlineMathNode(:final latex) => latex.runes.length,
       BlockMathNode(:final latex) => latex.runes.length,
+      ImageNode() || TableNode() => 0,
       RawFallbackNode() => 0, // Unreachable: raw fallback is never created.
     };
   }

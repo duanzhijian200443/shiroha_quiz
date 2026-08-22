@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_limits.dart';
 import '../../domain/content/rich_content_privacy_admission.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_draft_v2_codec.dart';
@@ -142,6 +143,7 @@ final class QuestionV2PersistenceMapper {
     }
     try {
       _validatePrivacy(draft);
+      _validateProductionActivation(draft);
     } on FormatException {
       throw const QuestionV2PayloadException(
         QuestionV2PayloadFailure.unsafePayload,
@@ -207,6 +209,7 @@ final class QuestionV2PersistenceMapper {
   }) {
     try {
       _validatePrivacy(replacementDraft);
+      _validateProductionActivation(replacementDraft);
     } on FormatException {
       throw const QuestionV2PayloadException(
         QuestionV2PayloadFailure.unsafePayload,
@@ -376,6 +379,34 @@ final class QuestionV2PersistenceMapper {
   }
 }
 
+/// Temporary production activation gate. ImageNode Domain/codec support is
+/// available, but confirmed ImageNode writes remain blocked until the durable
+/// asset-lifetime and Backup/Restore activation contract is implemented; see
+/// `docs/architecture/rich-content-foundation.md`.
+void _validateProductionActivation(QuestionDraftV2 draft) {
+  if (reachableImageNodes(draft.stem).isNotEmpty) {
+    throw const FormatException('ImageNode production activation is deferred.');
+  }
+  for (final option in draft.options) {
+    if (reachableImageNodes(option.content).isNotEmpty) {
+      throw const FormatException(
+        'ImageNode production activation is deferred.',
+      );
+    }
+  }
+  if (draft.answer case ContentAnswer(:final content)) {
+    if (reachableImageNodes(content).isNotEmpty) {
+      throw const FormatException(
+        'ImageNode production activation is deferred.',
+      );
+    }
+  }
+  final explanation = draft.explanation;
+  if (explanation != null && reachableImageNodes(explanation).isNotEmpty) {
+    throw const FormatException('ImageNode production activation is deferred.');
+  }
+}
+
 void _validatePrivacy(QuestionDraftV2 draft) {
   const admission = RichContentPrivacyAdmission();
   admission.validate(draft.stem);
@@ -403,22 +434,52 @@ int _legacyTypeCode(QuestionKind kind) {
 
 String _projectContent(RichContent content) {
   final buffer = StringBuffer();
-  for (final node in content.nodes) {
-    switch (node) {
-      case TextNode(:final text):
-        buffer.write(text);
-      case InlineMathNode(:final latex):
-        buffer.write(r'\(');
-        buffer.write(latex);
-        buffer.write(r'\)');
-      case BlockMathNode(:final latex):
-        buffer.write(r'\[');
-        buffer.write(latex);
-        buffer.write(r'\]');
-      case RawFallbackNode():
-        buffer.write(_unsupportedContentPlaceholder);
+  void append(String value) {
+    buffer.write(value);
+    if (buffer.toString().runes.length >
+        RichContentLimits.maxProjectionScalars) {
+      throw const QuestionV2PayloadException(
+        QuestionV2PayloadFailure.invalidPayload,
+      );
     }
   }
+
+  void appendContent(RichContent value) {
+    for (final node in value.nodes) {
+      switch (node) {
+        case TextNode(:final text):
+          append(text);
+        case InlineMathNode(:final latex):
+          append(r'\(');
+          append(latex);
+          append(r'\)');
+        case BlockMathNode(:final latex):
+          append(r'\[');
+          append(latex);
+          append(r'\]');
+        case ImageNode(:final alternativeText):
+          final projected =
+              alternativeText == null ? '' : _projectContent(alternativeText);
+          append(projected.trim().isEmpty ? '[图片]' : projected);
+        case TableNode(:final structure):
+          for (var rowIndex = 0;
+              rowIndex < structure.expandedCells.length;
+              rowIndex++) {
+            if (rowIndex != 0) append('\n');
+            final row = structure.expandedCells[rowIndex];
+            for (var columnIndex = 0; columnIndex < row.length; columnIndex++) {
+              if (columnIndex != 0) append(' | ');
+              final cell = row[columnIndex];
+              if (cell != null) appendContent(cell.content);
+            }
+          }
+        case RawFallbackNode():
+          append(_unsupportedContentPlaceholder);
+      }
+    }
+  }
+
+  appendContent(content);
   return buffer.toString();
 }
 

@@ -576,7 +576,8 @@ void main() {
       );
     }
 
-    test('rejects a draft carrying source-qualified assets', () {
+    test('does not reject an extra declared source-qualified asset by itself',
+        () {
       final region = simpleRegion();
       final base = assembler.assemble(region, questionId: 'task_q1');
       final draft = QuestionDraftV2(
@@ -596,7 +597,113 @@ void main() {
         ],
         issues: base.issues,
       );
-      expectUnsupported(draft, region, 'source_asset');
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+
+      expect(projected.question['content'], 'stem text');
+      expect(projected.question['standard_answer'], '');
+    });
+
+    test('projects image alternative text and placeholder without identities',
+        () {
+      final region = simpleRegion();
+      final base = assembler.assemble(region, questionId: 'task_q1');
+      final sourceQualifiedAsset = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_1', kind: AssetKind.image),
+      );
+      final draft = QuestionDraftV2(
+        questionId: base.questionId,
+        kind: base.kind,
+        questionNumber: base.questionNumber,
+        stem: RichContent(nodes: <ContentNode>[
+          const TextNode('before '),
+          ImageNode(
+            sourceId: 'source_a',
+            localAssetId: 'asset_1',
+            alternativeText: RichContent(nodes: const <ContentNode>[
+              TextNode('safe alt'),
+            ]),
+          ),
+          ImageNode(sourceId: 'source_a', localAssetId: 'asset_1'),
+          const TextNode(' after'),
+        ]),
+        options: base.options,
+        answer: base.answer,
+        explanation: base.explanation,
+        sourceRefs: base.sourceRefs,
+        assetRefs: <SourcedAssetRef>[sourceQualifiedAsset],
+        issues: base.issues,
+      );
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+      final content = projected.question['content']! as String;
+
+      expect(content, 'before safe alt[图片] after');
+      expect(content, isNot(contains('source_a')));
+      expect(content, isNot(contains('asset_1')));
+    });
+
+    test('projects table geometry, spans, and image cells safely', () {
+      final region = simpleRegion();
+      final base = assembler.assemble(region, questionId: 'task_q1');
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: const <ContentNode>[TextNode('A')]),
+              rowSpan: 2,
+            ),
+            TableCell(
+              content: RichContent(nodes: const <ContentNode>[TextNode('B')]),
+              columnSpan: 2,
+            ),
+          ]),
+          TableRow(cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: <ContentNode>[
+                ImageNode(sourceId: 'source_a', localAssetId: 'asset_1'),
+              ]),
+            ),
+            TableCell(content: RichContent(nodes: const <ContentNode>[])),
+          ]),
+        ]),
+      );
+      final draft = QuestionDraftV2(
+        questionId: base.questionId,
+        kind: base.kind,
+        questionNumber: base.questionNumber,
+        stem: RichContent(nodes: <ContentNode>[table]),
+        options: base.options,
+        answer: base.answer,
+        explanation: base.explanation,
+        sourceRefs: base.sourceRefs,
+        assetRefs: <SourcedAssetRef>[
+          SourcedAssetRef(
+            sourceId: 'source_a',
+            asset: AssetRef(assetId: 'asset_1', kind: AssetKind.image),
+          ),
+        ],
+        issues: base.issues,
+      );
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+      final content = projected.question['content']! as String;
+
+      expect(content, 'A | B | \n | [图片] |');
+      expect(content, isNot(contains('source_a')));
+      expect(content, isNot(contains('asset_1')));
+      expect(content, isNot(contains('{')));
+      expect(content, isNot(contains('<table')));
     });
 
     test('rejects SourceAssetPart fragments instead of ignoring them', () {

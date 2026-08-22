@@ -498,6 +498,36 @@ Map<String, Object?> _contentGraph(RichContent content) {
             'type': 'block_math',
             'latex': latex,
           },
+        ImageNode(
+          :final sourceId,
+          :final localAssetId,
+          :final alternativeText,
+        ) =>
+          <String, Object?>{
+            'type': 'image',
+            'sourceId': sourceId,
+            'assetId': localAssetId,
+            'alternativeText':
+                alternativeText == null ? null : _contentGraph(alternativeText),
+          },
+        TableNode(:final structure) => <String, Object?>{
+            'type': 'table',
+            'rows': structure.rows
+                .map(
+                  (row) => <String, Object?>{
+                    'cells': row.cells
+                        .map(
+                          (cell) => <String, Object?>{
+                            'content': _contentGraph(cell.content),
+                            'rowSpan': cell.rowSpan,
+                            'columnSpan': cell.columnSpan,
+                          },
+                        )
+                        .toList(growable: false),
+                  },
+                )
+                .toList(growable: false),
+          },
         RawFallbackNode(:final rawJson) => <String, Object?>{
             'type': 'raw_fallback',
             'formalContent': rawJson,

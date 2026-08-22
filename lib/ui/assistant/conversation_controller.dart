@@ -1576,6 +1576,7 @@ Map<String, Object?> _previewNodeOf(ContentNode node) {
         'type': 'block_math',
         'latex': latex,
       },
+    ImageNode() || TableNode() => <String, Object?>{'type': 'unsupported'},
     RawFallbackNode() => <String, Object?>{'type': 'unsupported'},
   };
 }

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_privacy_admission.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
@@ -86,6 +87,173 @@ void main() {
       ]);
 
       expect(() => admission.validate(content), returnsNormally);
+    });
+
+    test('admits a table cell image but rejects constrained image alt trees',
+        () {
+      final image = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+        alternativeText: RichContent(nodes: const <ContentNode>[
+          TextNode('safe alt'),
+          BlockMathNode(r'x^2'),
+        ]),
+      );
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: <ContentNode>[image])),
+          ]),
+        ]),
+      );
+
+      expect(
+        () => admission.validate(RichContent(nodes: <ContentNode>[table])),
+        returnsNormally,
+      );
+
+      final nestedImage = ImageNode(
+        sourceId: 'source_002',
+        localAssetId: 'asset_002',
+      );
+      final tableAlt = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: const <ContentNode>[])),
+          ]),
+        ]),
+      );
+      final rawAlt = RawFallbackNode(<Object?, Object?>{
+        'type': 'future_diagram',
+        'payload': <Object?, Object?>{'kind': 'synthetic'},
+      });
+
+      expect(
+        () => ImageNode(
+          sourceId: 'source_003',
+          localAssetId: 'asset_003',
+          alternativeText: RichContent(nodes: <ContentNode>[nestedImage]),
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => ImageNode(
+          sourceId: 'source_003',
+          localAssetId: 'asset_003',
+          alternativeText: RichContent(nodes: <ContentNode>[tableAlt]),
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => ImageNode(
+          sourceId: 'source_003',
+          localAssetId: 'asset_003',
+          alternativeText: RichContent(nodes: <ContentNode>[rawAlt]),
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('keeps image identities opaque and bounded', () {
+      for (final invalid in <String>[
+        '',
+        'source id',
+        'https://example.invalid/image',
+        r'C:\fixtures\image.png',
+        'a' * 129,
+      ]) {
+        expect(
+          () => ImageNode(sourceId: invalid, localAssetId: 'asset_001'),
+          throwsFormatException,
+          reason: invalid,
+        );
+        expect(
+          () => ImageNode(sourceId: 'source_001', localAssetId: invalid),
+          throwsFormatException,
+          reason: invalid,
+        );
+      }
+    });
+
+    test('enforces content, image, and table resource boundaries', () {
+      final atNodeLimit = RichContent(
+        nodes: List<ContentNode>.generate(
+          RichContentLimits.maxNodes,
+          (_) => const TextNode('x'),
+        ),
+      );
+      expect(() => admission.validate(atNodeLimit), returnsNormally);
+      final overNodeLimit = RichContent(
+        nodes: List<ContentNode>.generate(
+          RichContentLimits.maxNodes + 1,
+          (_) => const TextNode('x'),
+        ),
+      );
+      expect(() => admission.validate(overNodeLimit), throwsFormatException);
+
+      final atScalarLimit = RichContent(nodes: <ContentNode>[
+        TextNode('x' * RichContentLimits.maxNodeScalars),
+        TextNode('x' * RichContentLimits.maxNodeScalars),
+      ]);
+      expect(() => admission.validate(atScalarLimit), returnsNormally);
+      final overScalarLimit = RichContent(nodes: <ContentNode>[
+        TextNode('x' * RichContentLimits.maxNodeScalars),
+        TextNode('x' * RichContentLimits.maxNodeScalars),
+        const TextNode('x'),
+      ]);
+      expect(
+        () => admission.validate(overScalarLimit),
+        throwsFormatException,
+      );
+
+      final atImageLimit = RichContent(
+        nodes: List<ContentNode>.generate(
+          RichContentLimits.maxImages,
+          (index) => ImageNode(
+            sourceId: 'source_$index',
+            localAssetId: 'asset_$index',
+          ),
+        ),
+      );
+      expect(() => admission.validate(atImageLimit), returnsNormally);
+      final overImageLimit = RichContent(
+        nodes: List<ContentNode>.generate(
+          RichContentLimits.maxImages + 1,
+          (index) => ImageNode(
+            sourceId: 'source_$index',
+            localAssetId: 'asset_$index',
+          ),
+        ),
+      );
+      expect(() => admission.validate(overImageLimit), throwsFormatException);
+
+      final atTableRowLimit = TableNode(
+        structure: TableStructure(
+          rows: List<TableRow>.generate(
+            RichContentLimits.maxTableRows,
+            (_) => TableRow(cells: <TableCell>[
+              TableCell(content: RichContent(nodes: const <ContentNode>[])),
+            ]),
+          ),
+        ),
+      );
+      expect(
+        () => admission.validate(
+          RichContent(nodes: <ContentNode>[atTableRowLimit]),
+        ),
+        returnsNormally,
+      );
+      expect(
+        () => TableStructure(
+          rows: List<TableRow>.generate(
+            RichContentLimits.maxTableRows + 1,
+            (_) => TableRow(cells: <TableCell>[
+              TableCell(content: RichContent(nodes: const <ContentNode>[])),
+            ]),
+          ),
+        ),
+        throwsFormatException,
+      );
     });
 
     test('matches SourcePart rejection across every rich-content slot', () {

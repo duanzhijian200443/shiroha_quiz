@@ -4,6 +4,7 @@ import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../utils/ai_data_sanitizer.dart';
 
@@ -240,6 +241,12 @@ abstract final class PersistedQuestionViewAdapter {
           parts.add(latex);
         case BlockMathNode(:final latex):
           parts.add(latex);
+        case ImageNode() || TableNode():
+          parts.add(
+            const RichContentTextProjection().project(
+              RichContent(nodes: <ContentNode>[node]),
+            ),
+          );
         case RawFallbackNode():
           break;
       }

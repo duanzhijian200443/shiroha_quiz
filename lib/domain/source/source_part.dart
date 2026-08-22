@@ -200,6 +200,25 @@ final class UnsupportedSourcePart extends SourcePart {
 
 void _validateSourceContent(RichContent content) {
   const RichContentPrivacyAdmission().validate(content);
+  for (final node in content.nodes) {
+    switch (node) {
+      case ImageNode():
+        throw const FormatException(
+          'Source v1 content cannot contain ImageNode without a source asset '
+          'inventory authority.',
+        );
+      case TableNode():
+        throw const FormatException(
+          'Source v1 content cannot contain TableNode without a versioned '
+          'source table transition.',
+        );
+      case TextNode():
+      case InlineMathNode():
+      case BlockMathNode():
+      case RawFallbackNode():
+        break;
+    }
+  }
 }
 
 bool _tableRowsEqual(
@@ -248,6 +267,8 @@ bool _contentNodeEquals(ContentNode left, ContentNode right) {
     TextNode(:final text) => text == (right as TextNode).text,
     InlineMathNode(:final latex) => latex == (right as InlineMathNode).latex,
     BlockMathNode(:final latex) => latex == (right as BlockMathNode).latex,
+    ImageNode() => left == right,
+    TableNode() => left == right,
     RawFallbackNode(:final rawJson) =>
       _jsonValueEquals(rawJson, (right as RawFallbackNode).rawJson),
   };
@@ -258,6 +279,8 @@ int _contentNodeHash(ContentNode node) {
     TextNode(:final text) => Object.hash('text', text),
     InlineMathNode(:final latex) => Object.hash('inline_math', latex),
     BlockMathNode(:final latex) => Object.hash('block_math', latex),
+    ImageNode() => node.hashCode,
+    TableNode() => node.hashCode,
     RawFallbackNode(:final rawJson) =>
       Object.hash('raw_fallback', _jsonValueHash(rawJson)),
   };

@@ -16,6 +16,7 @@ bool _sameNode(ContentNode left, ContentNode right) {
     TextNode(:final text) => text == (right as TextNode).text,
     InlineMathNode(:final latex) => latex == (right as InlineMathNode).latex,
     BlockMathNode(:final latex) => latex == (right as BlockMathNode).latex,
+    ImageNode() || TableNode() => false,
     RawFallbackNode() => false, // never part of a lossless round-trip
   };
 }

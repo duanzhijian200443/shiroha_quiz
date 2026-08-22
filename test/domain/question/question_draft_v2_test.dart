@@ -215,6 +215,128 @@ void main() {
     });
   });
 
+  group('QuestionDraftV2 rich image referential integrity', () {
+    final source = SourceRef.document(sourceId: 'source_001');
+    final asset = SourcedAssetRef(
+      sourceId: 'source_001',
+      asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+    );
+
+    ImageNode image() {
+      return ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+        alternativeText: RichContent(nodes: const <ContentNode>[
+          TextNode('synthetic alt'),
+        ]),
+      );
+    }
+
+    TableNode tableWithImage() {
+      return TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: <ContentNode>[image()]),
+            ),
+          ]),
+        ]),
+      );
+    }
+
+    test(
+        'accepts reachable images in stem, options, answer, explanation, and table cells',
+        () {
+      final draft = QuestionDraftV2(
+        questionId: 'question_image_001',
+        kind: QuestionKind.shortAnswer,
+        stem: RichContent(nodes: <ContentNode>[image()]),
+        options: <QuestionOption>[
+          QuestionOption(
+            optionId: 'option_a',
+            label: 'A',
+            content: RichContent(nodes: <ContentNode>[image()]),
+          ),
+        ],
+        answer: ContentAnswer(
+          content: RichContent(nodes: <ContentNode>[image()]),
+        ),
+        explanation: RichContent(nodes: <ContentNode>[image()]),
+        sourceRefs: <SourceRef>[source],
+        assetRefs: <SourcedAssetRef>[asset],
+      );
+
+      expect(draft.assetRefs, <SourcedAssetRef>[asset]);
+      expect(
+        draft.stem.nodes.single,
+        image(),
+      );
+      expect(
+        (draft.options.single.content.nodes.single as ImageNode).localAssetId,
+        'asset_001',
+      );
+      expect(
+        (draft.answer! as ContentAnswer).content.nodes.single,
+        image(),
+      );
+      expect(draft.explanation!.nodes.single, image());
+    });
+
+    test('rejects a missing inventory entry in every reachable location', () {
+      final invalidDrafts = <String, QuestionDraftV2 Function()>{
+        'stem': () => QuestionDraftV2(
+              questionId: 'question_missing_stem',
+              kind: QuestionKind.shortAnswer,
+              stem: RichContent(nodes: <ContentNode>[image()]),
+              sourceRefs: <SourceRef>[source],
+            ),
+        'option': () => QuestionDraftV2(
+              questionId: 'question_missing_option',
+              kind: QuestionKind.singleChoice,
+              stem: _text('stem'),
+              options: <QuestionOption>[
+                QuestionOption(
+                  optionId: 'option_a',
+                  label: 'A',
+                  content: RichContent(nodes: <ContentNode>[image()]),
+                ),
+              ],
+              sourceRefs: <SourceRef>[source],
+            ),
+        'answer': () => QuestionDraftV2(
+              questionId: 'question_missing_answer',
+              kind: QuestionKind.shortAnswer,
+              stem: _text('stem'),
+              answer: ContentAnswer(
+                content: RichContent(nodes: <ContentNode>[image()]),
+              ),
+              sourceRefs: <SourceRef>[source],
+            ),
+        'explanation': () => QuestionDraftV2(
+              questionId: 'question_missing_explanation',
+              kind: QuestionKind.shortAnswer,
+              stem: _text('stem'),
+              explanation: RichContent(nodes: <ContentNode>[image()]),
+              sourceRefs: <SourceRef>[source],
+            ),
+        'table cell': () => QuestionDraftV2(
+              questionId: 'question_missing_table_cell',
+              kind: QuestionKind.shortAnswer,
+              stem: RichContent(nodes: <ContentNode>[tableWithImage()]),
+              sourceRefs: <SourceRef>[source],
+            ),
+      };
+
+      for (final entry in invalidDrafts.entries) {
+        expect(
+          entry.value,
+          throwsFormatException,
+          reason: entry.key,
+        );
+      }
+    });
+  });
+
   group('QuestionOption identity and labels', () {
     test('allows Unicode, duplicate, and explicitly empty labels', () {
       final draft = QuestionDraftV2(

@@ -515,6 +515,7 @@ String _searchNodeText(ContentNode node) {
     TextNode(:final text) => text,
     InlineMathNode(:final latex) => latex,
     BlockMathNode(:final latex) => latex,
+    ImageNode() || TableNode() => '',
     RawFallbackNode() => '',
   };
 }

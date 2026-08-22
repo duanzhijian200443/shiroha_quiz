@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide TableCell, TableRow;
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -45,6 +45,41 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('B: image and table nodes use bounded text placeholders',
+        (tester) async {
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: const <ContentNode>[
+                TextNode('cell'),
+              ]),
+            ),
+          ]),
+        ]),
+      );
+      final content = RichContent(nodes: <ContentNode>[
+        ImageNode(
+          sourceId: 'source_001',
+          localAssetId: 'asset_001',
+          alternativeText: RichContent(nodes: const <ContentNode>[
+            TextNode('alt text'),
+          ]),
+        ),
+        ImageNode(sourceId: 'source_001', localAssetId: 'asset_002'),
+        table,
+      ]);
+
+      await tester.pumpWidget(host(RichContentRenderer(content: content)));
+
+      expect(find.text('alt text'), findsOneWidget);
+      expect(find.text('[图片]'), findsOneWidget);
+      expect(find.textContaining('cell', findRichText: true), findsOneWidget);
+      expect(find.textContaining('source_001'), findsNothing);
+      expect(find.textContaining('asset_001'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 

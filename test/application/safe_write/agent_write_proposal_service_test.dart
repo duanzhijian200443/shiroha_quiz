@@ -380,6 +380,40 @@ void main() {
       );
     });
 
+    test('image and table content stay outside the W0 input vocabulary',
+        () async {
+      final service = AgentWriteProposalService(
+        _FakePersistence(
+          admissionResult: AgentWriteAdmissionGranted(
+            _grantedTarget(_contentDraft()),
+          ),
+        ),
+      );
+      final image = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+      );
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: const <ContentNode>[])),
+          ]),
+        ]),
+      );
+
+      for (final node in <ContentNode>[image, table]) {
+        expect(
+          await service.stageProposal(
+            admissionRequest: _request(_messageId),
+            proposedAnswer: ContentAnswer(
+              content: RichContent(nodes: <ContentNode>[node]),
+            ),
+          ),
+          isA<AgentWriteStageResultIneligible>(),
+        );
+      }
+    });
+
     test(
         'manual typed repair capabilities are untouched by the fill-only '
         'policy', () async {

@@ -56,6 +56,46 @@ void main() {
       expect(reencoded, encoded);
     });
 
+    test('round-trips image and table content without a schema bump', () {
+      final source = SourceRef.document(sourceId: 'source_001');
+      final asset = SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+      );
+      final image = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+        alternativeText: RichContent(nodes: const <ContentNode>[
+          TextNode('alt'),
+        ]),
+      );
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: <ContentNode>[image])),
+          ]),
+        ]),
+      );
+      final draft = QuestionDraftV2(
+        questionId: 'question_rich_nodes_001',
+        kind: QuestionKind.shortAnswer,
+        stem: RichContent(nodes: <ContentNode>[image, table]),
+        sourceRefs: <SourceRef>[source],
+        assetRefs: <SourcedAssetRef>[asset],
+      );
+
+      final encoded = codec.encode(draft);
+      final decoded = codec.decode(encoded);
+
+      expect(encoded['schemaVersion'], 2);
+      expect(
+        ((encoded['stem']! as Map)['schemaVersion']),
+        1,
+      );
+      expect(decoded, draft);
+      expect(codec.encode(decoded), encoded);
+    });
+
     test('preserves missing values, empty content, and unknown content nodes',
         () {
       final draft = QuestionDraftV2(

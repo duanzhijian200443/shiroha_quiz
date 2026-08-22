@@ -6,6 +6,7 @@ import 'package:flutter_math_fork/flutter_math.dart';
 
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
 import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
@@ -242,6 +243,22 @@ class RichContentRenderer extends StatelessWidget {
             color: color,
             fontSize: fontSize,
           ));
+        case ImageNode():
+          flushInline();
+          widgets.add(
+            _RichContentTextPlaceholder(
+              text: _safeTypedNodePreview(node),
+              style: style,
+            ),
+          );
+        case TableNode():
+          flushInline();
+          widgets.add(
+            _RichContentTextPlaceholder(
+              text: _safeTypedNodePreview(node),
+              style: style,
+            ),
+          );
         case RawFallbackNode(:final rawJson):
           flushInline();
           widgets.add(_RawFallbackPlaceholder(rawJson: rawJson, style: style));
@@ -287,6 +304,30 @@ class RichContentRenderer extends StatelessWidget {
         inlineTokens.add(token);
       }
     }
+  }
+}
+
+String _safeTypedNodePreview(ContentNode node) {
+  try {
+    final projected = const RichContentTextProjection().project(
+      RichContent(nodes: <ContentNode>[node]),
+    );
+    if (projected.trim().isNotEmpty) return projected;
+  } on FormatException {
+    // The bounded placeholder below is the renderer's fail-closed state.
+  }
+  return node is ImageNode ? '[图片]' : '[表格]';
+}
+
+class _RichContentTextPlaceholder extends StatelessWidget {
+  const _RichContentTextPlaceholder({required this.text, required this.style});
+
+  final String text;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(text, style: style);
   }
 }
 

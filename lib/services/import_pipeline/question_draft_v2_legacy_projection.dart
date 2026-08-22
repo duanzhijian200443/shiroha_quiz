@@ -1,5 +1,6 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
@@ -38,8 +39,10 @@ final class OcrLegacyProjectionProfile extends LegacyProjectionProfile {
 }
 
 /// Raised when a [QuestionRegion] or its assembled [QuestionDraftV2] cannot be
-/// projected losslessly: raw fallback content, unsupported source parts,
-/// source-qualified asset identity, or a draft/region identity mismatch.
+/// represented by the bounded legacy compatibility projection, such as raw
+/// fallback content, unsupported source parts, or a draft/region identity
+/// mismatch. The projection is intentionally not a lossless typed round trip:
+/// source-qualified image identity is never emitted.
 final class LegacyProjectionUnsupportedException implements Exception {
   const LegacyProjectionUnsupportedException({
     required this.kindCode,
@@ -54,11 +57,13 @@ final class LegacyProjectionUnsupportedException implements Exception {
       'LegacyProjectionUnsupportedException($kindCode): $message';
 }
 
-/// Rebuilds the legacy [LocalAssemblyResult] shape from a typed draft without
-/// delegating to the legacy assemblers. The projection keeps map fields,
-/// source tag, provenance, diagnostics, and repair/rejected parity with the
-/// authoritative legacy implementation; reusable pure policies are shared
-/// through [ImportQuestionFieldPolicy] and [LatexSanityChecker].
+/// Produces a safe deterministic legacy compatibility map from a typed draft
+/// without delegating to the legacy assemblers. The result is not typed
+/// authority and is not a round-trip representation: image identity is never
+/// leaked, images use admitted alternative text or `[图片]`, and tables use a
+/// bounded text-only projection. This class never reconstructs or overwrites
+/// the typed draft; reusable pure policies are shared through
+/// [ImportQuestionFieldPolicy] and [LatexSanityChecker].
 final class QuestionDraftV2LegacyProjector {
   const QuestionDraftV2LegacyProjector();
 
@@ -257,24 +262,11 @@ bool _hasDanglingLatexInFinalFields(Map<String, dynamic> question) {
 }
 
 String _contentText(RichContent content) {
-  return _searchText(content.nodes);
+  return const RichContentTextProjection().project(content);
 }
 
 String _searchText(List<ContentNode> nodes) {
-  final buffer = StringBuffer();
-  for (final node in nodes) {
-    switch (node) {
-      case TextNode(:final text):
-        buffer.write(text);
-      case InlineMathNode(:final latex):
-        buffer.write(latex);
-      case BlockMathNode(:final latex):
-        buffer.write(latex);
-      case RawFallbackNode():
-        break;
-    }
-  }
-  return buffer.toString();
+  return _contentText(RichContent(nodes: nodes));
 }
 
 String _fragmentText(QuestionRegion region, QuestionRegionField field) {
@@ -367,13 +359,6 @@ void _guardProjectionBoundary(
   QuestionDraftV2 draft,
   QuestionRegion region,
 ) {
-  if (draft.assetRefs.isNotEmpty) {
-    throw LegacyProjectionUnsupportedException(
-      kindCode: 'source_asset',
-      message: 'Source-qualified asset identity cannot be projected '
-          'losslessly by the legacy map.',
-    );
-  }
   _guardNoRawFallback(draft, region);
   _guardDraftRegionConsistency(draft, region);
 }

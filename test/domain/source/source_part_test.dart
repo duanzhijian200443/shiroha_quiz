@@ -93,6 +93,51 @@ void main() {
       expect(part.role, SourceContentRole.unknown);
     });
 
+    test('keeps unresolved image and table nodes out of Source v1 parts', () {
+      final sourceRef = SourceRef.document(sourceId: 'source_001');
+      final asset = AssetRef(assetId: 'asset_001', kind: AssetKind.image);
+      final image = ImageNode(
+        sourceId: 'source_001',
+        localAssetId: 'asset_001',
+      );
+      final table = TableNode(
+        structure: TableStructure(rows: <TableRow>[
+          TableRow(cells: <TableCell>[
+            TableCell(content: RichContent(nodes: const <ContentNode>[])),
+          ]),
+        ]),
+      );
+      final builders = <SourcePart Function(RichContent)>[
+        (content) => SourceContentPart(
+              sourceRef: sourceRef,
+              content: content,
+            ),
+        (content) => SourceTablePart(
+              sourceRef: sourceRef,
+              rows: <List<RichContent>>[
+                <RichContent>[content]
+              ],
+            ),
+        (content) => SourceAssetPart(
+              sourceRef: sourceRef,
+              asset: asset,
+              alternativeText: content,
+            ),
+        (content) => UnsupportedSourcePart(
+              sourceRef: sourceRef,
+              kindCode: 'future_layout',
+              fallbackContent: content,
+            ),
+      ];
+
+      for (final node in <ContentNode>[image, table]) {
+        final content = RichContent(nodes: <ContentNode>[node]);
+        for (final build in builders) {
+          expect(() => build(content), throwsFormatException);
+        }
+      }
+    });
+
     test('uses deep RichContent value equality and stable hashes', () {
       final sourceRef = SourceRef.document(sourceId: 'source_001');
       final first = SourceContentPart(

@@ -68,6 +68,12 @@ final class AiAnswerSafeContent {
           TextNode(:final text) => AiAnswerSafeText(text),
           InlineMathNode(:final latex) => AiAnswerSafeInlineMath(latex),
           BlockMathNode(:final latex) => AiAnswerSafeBlockMath(latex),
+          ImageNode() => throw const FormatException(
+              'AI provider requests cannot carry image content.',
+            ),
+          TableNode() => throw const FormatException(
+              'AI provider requests cannot carry table content.',
+            ),
           RawFallbackNode() => throw const FormatException(
               'AI provider requests cannot carry raw fallback content.',
             ),

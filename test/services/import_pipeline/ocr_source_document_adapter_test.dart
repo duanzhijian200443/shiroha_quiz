@@ -755,6 +755,15 @@ Iterable<String> _contentStrings(RichContent content) sync* {
         yield latex;
       case BlockMathNode(:final latex):
         yield latex;
+      case ImageNode(:final sourceId, :final localAssetId):
+        yield sourceId;
+        yield localAssetId;
+      case TableNode(:final structure):
+        for (final row in structure.rows) {
+          for (final cell in row.cells) {
+            yield* _contentStrings(cell.content);
+          }
+        }
       case RawFallbackNode(:final rawJson):
         yield* _jsonStrings(rawJson);
     }

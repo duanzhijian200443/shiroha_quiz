@@ -135,6 +135,8 @@ final class DeterministicSourceChunker implements RetrievalChunkerPort {
             TextNode(:final text) => text,
             InlineMathNode(:final latex) => '\\($latex\\)',
             BlockMathNode(:final latex) => '\\[$latex\\]',
+            ImageNode() => '',
+            TableNode() => '',
             RawFallbackNode() => '',
           })
       .where((value) => value.isNotEmpty)
