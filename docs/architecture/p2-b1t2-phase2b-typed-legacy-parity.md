@@ -1,6 +1,6 @@
 # P2-B1T2 Phase 2B Typed / Legacy Parity Contract
 
-Status: **FINAL / FROZEN V0 CONTRACT TARGET; NOT YET IMPLEMENTED.**
+Status: **FINAL / FROZEN V0 CONTRACT; IMPLEMENTED BY P2B-I1.**
 
 Durable architecture truth changed by this contract: **YES**.
 
@@ -9,13 +9,12 @@ Phase 2B v0 typed/legacy eligibility comparison. It freezes the minimum safe
 representation-only differences that may be admitted to `typedV2` and the
 differences that must continue to fail closed to `legacyV1`.
 
-P2B-C0 freezes this v0 contract only. The current exact gate remains runtime
-truth until a separately reviewed and merged P2B-I1 implementation conforms to
-this document. P2B-I1 is an implementation slice, not Phase 2B closure. The
-broader Issue #116 parity acceptance, including formatting-only OCR line-wrap
-handling, remains open until a separately frozen producer-backed amendment is
-implemented. This contract does not activate image/table OCR sources, change a
-persisted schema, or begin Phase 3.
+P2B-C0 froze the conservative v0 comparison surface and P2B-I1 implements it.
+This amendment closes the remaining Phase 2B boundary by making the umbrella
+acceptance evidence-backed: generic internal OCR line-wrap differences are not
+presumed equivalent, while a concrete producer/finalizer transformation may
+be admitted only by a separately reviewed amendment. This contract does not
+activate image/table OCR sources, change a persisted schema, or begin Phase 3.
 
 ## 1. Authority and safety invariant
 
@@ -49,21 +48,26 @@ It MUST NOT contain normalized values. `LegacyReviewBaseline` equality and its
 persisted codec remain exact; Phase 2B uses a dedicated admission comparison
 and does not redefine value-object equality.
 
-Issue #116 remains the umbrella acceptance for P2-B1T2. In particular, its
-requirement that formatting-only OCR differences, including line wrapping, do
-not force an otherwise valid typed batch to `legacyV1` is not deleted or
-rewritten by this v0 contract. V0 deliberately freezes only the subset that is
-currently provable without semantic guessing.
+Issue #116 remains the umbrella acceptance for P2-B1T2, with its parity
+boundary amended to the following: producer-backed formatting-only OCR
+differences, structural typed representations, and explicitly frozen safe
+normalization MUST NOT force an otherwise valid typed batch to `legacyV1`.
+Generic internal line wrapping is not presumed equivalent without concrete
+producer/finalizer evidence. This preserves fail-closed semantics without
+inventing a language, punctuation, Unicode-script, or generic whitespace
+heuristic.
 
-## 2. Current strict runtime contract
+## 2. P2B-I1 runtime contract
 
-Before P2B-I1, `applyOcrTypedCandidateGate()` performs these checks directly:
+`applyOcrTypedCandidateGate()` performs these checks directly:
 
 - `_strictDecodeBaseline()` strictly decodes the six legacy fields;
-- `_rawExplanationAllowed()` admits only `null`, the empty string, or exact
-  equality with final `explanation`;
-- `LegacyReviewBaseline == candidate.projectedLegacy` requires exact equality
-  for all six fields, including ordered option elements and answer case;
+- `_rawExplanationAllowed()` admits `null`, the empty string, exact equality,
+  or bounded N0 equality only when the typed explanation is TextNode-only and
+  both operands are non-empty;
+- `LegacyReviewBaseline == candidate.projectedLegacy` remains exact for all
+  fields except the bounded TextNode-only explanation comparison defined in
+  section 4, including exact ordered option elements and answer case;
 - `_provenanceParity()` requires exact ordered equality for
   `source_page_indices` and `source_block_ids`;
 - any failed question removes every typed envelope and routes the whole batch
@@ -192,23 +196,16 @@ contract if they remain a real first-loss boundary.
 
 ### Internal OCR line wrapping
 
-Internal line-wrap normalization is **NOT IMPLEMENTED BY V0**. Internal LF
-count and position remain semantically significant after section 4's
-line-ending encoding conversion and whole-string boundary trim. Blank-line
-count differences therefore also remain unequal in P2B-I1.
+Generic internal line-wrap normalization is **not presumed equivalent by
+P2B-I1**. Internal LF count and position remain semantically significant
+after section 4's line-ending encoding conversion and whole-string boundary
+trim. Blank-line count differences therefore remain unequal and fail closed.
 
-This is a conservative implementation boundary, not a deletion of the parent
-requirement. Issue #116 explicitly requires formatting-only line wrapping not
-to force an otherwise valid batch to `legacyV1`. Therefore:
-
-- P2B-I1 MUST NOT be described as Phase 2B complete;
-- Issue #116 MUST remain open after P2B-I1;
-- before Phase 2B / Issue #116 parity closure, a separately reviewed canonical
-  amendment MUST either freeze a narrow producer-backed line-wrap
-  normalization with sanitized regression evidence, or explicitly amend the
-  parent acceptance;
-- P2B-I1 MUST NOT invent a Unicode-script, natural-language, regex, or
-  punctuation heuristic to satisfy that future requirement.
+This is the amended Issue #116 boundary: a concrete producer/finalizer
+transformation may be admitted only when sanitized evidence proves that the
+specific difference is representation-only. Until then, arbitrary internal LF
+differences remain rejected. P2B-I1 MUST NOT invent a Unicode-script,
+natural-language, regex, punctuation, or generic whitespace heuristic.
 
 The repository evidence currently does not justify a broader join rule:
 
@@ -222,7 +219,9 @@ The repository evidence currently does not justify a broader join rule:
   a producer-backed internal-LF transformation that can safely be generalized.
 
 Therefore no Han/Hiragana/Katakana/Hangul or other Unicode-script heuristic is
-authorized by v0.
+authorized by this contract. If a later live acceptance isolates a concrete
+producer-backed line-wrap first-loss, it is a bounded closure-repair candidate,
+not a reopening of generic line-wrap heuristic design.
 
 ### Formula-role TextNodes
 
@@ -287,7 +286,7 @@ substantive mutation confined to `raw_explanation` fails earlier as
 | B | TextNode-only explanation whole-string outer whitespace only | ACCEPT |
 | C | internal horizontal-space run difference, e.g. `a  b` versus `a b` | REJECT at the active seam |
 | D | non-empty raw and final explanation equal under section 4 `N0` | ACCEPT |
-| E | internal OCR line-wrap-only or blank-line-count difference | REJECT in v0 at the active seam; parent Issue #116 requirement remains OPEN |
+| E | internal OCR line-wrap-only or blank-line-count difference without concrete producer evidence | REJECT at the active seam; generic equivalence is not presumed |
 | F | explanation `x=1` -> `x=2` | REJECT `typed_candidate_projection_mismatch` |
 | G | explanation `+` -> `-` | REJECT `typed_candidate_projection_mismatch` |
 | H | sentence added | REJECT `typed_candidate_projection_mismatch` |
@@ -330,32 +329,26 @@ This string is not typed authority and is not a round-trip format. Neither the
 parity comparator nor any later consumer may normalize, parse, or reconstruct
 it into `ImageNode`, `TableNode`, math nodes, or other typed content.
 
-The v0 comparison policy frozen here is a permanent minimum safety floor. It
-has no planned deletion, but it is intentionally not the complete Issue #116
-parity acceptance. Any future widening, including internal line-wrap handling,
+The v0 comparison policy frozen here is the permanent minimum safety floor for
+the amended Issue #116 parity acceptance. It has no planned deletion. Any
+future widening, including a concrete internal line-wrap transformation,
 requires a separately reviewed durable contract amendment and focused
-regression evidence.
+regression evidence; generic line-wrap equivalence is never inferred.
 
 ## 10. Checkpoint and deferred boundaries
 
-P2B-I1 MUST wait for P2B-C0 independent architecture review, merge, and a new
-frozen master SHA. P2B-I1 may implement only the v0 comparator/gate behavior
-frozen here; it may not redesign or silently widen this contract on its
-implementation branch.
+P2B-I1 may implement only the v0 comparator/gate behavior frozen here; it may
+not redesign or silently widen this contract on its implementation branch.
+After this amendment is reviewed and merged with the v0 implementation,
+Phase 2B is closed under the amended Issue #116 acceptance.
 
 P2B-I1 completion MUST be reported as:
 
 ```text
 Phase 2B v0 comparator/gate implemented.
-Issue #116 parity closure remains open.
-Internal producer-backed line-wrap equivalence remains unresolved/deferred.
+Phase 2B parity closure complete under the amended Issue #116 acceptance.
+Generic internal line-wrap equivalence remains fail-closed absent producer evidence.
 ```
-
-Before Phase 2B is declared closed, the remaining parent acceptance must be
-resolved by a separate canonical amendment and implementation, followed by the
-required final live acceptance. This preserves #116 as the umbrella target
-rather than rewriting its historical acceptance to match an implementation
-shortcut.
 
 This contract changes no `RichContent`, `QuestionDraftV2`, or
 `TypedReviewSnapshot` schema/version; no database or payload migration is
@@ -363,8 +356,9 @@ required.
 
 The following remain deferred and are not activated by this contract:
 
-- producer-backed internal OCR line-wrap equivalence required for final Phase
-  2B / Issue #116 parity closure;
+- a future concrete producer-backed internal OCR line-wrap equivalence, if a
+  live first-loss is isolated; such work is a bounded closure repair, not a
+  generic normalization design;
 - evidence-backed handling, if required, for finalizer safe-HTML cleanup or
   deterministic LaTeX repair differences;
 - Phase 3 durable asset lifecycle and B0 asset integration;
