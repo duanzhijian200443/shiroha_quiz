@@ -49,6 +49,14 @@ require review、review draft 保存等转换中无损失保留；`parsed_data` 
 
 ## 3. Typed eligibility contract
 
+The focused authority for the P2-B1T2 Phase 2B typed/legacy eligibility
+comparison target is
+[`p2-b1t2-phase2b-typed-legacy-parity.md`](p2-b1t2-phase2b-typed-legacy-parity.md).
+Until P2B-I1 implements that target, the current exact gate remains runtime
+truth. In every version, `TypedReviewSnapshot.baselineLegacy` stores the
+actual final user-visible legacy baseline; comparison-only normalized text is
+never stored there.
+
 - 新单文件 OCR 且全部门禁通过 -> `typedV2` + `typed_candidate_ready`，
   每道题携带 `_typed_review_v1` envelope；
 - envelope 为 strict exact-key schema（schemaVersion 1、route
