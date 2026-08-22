@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
@@ -608,6 +609,149 @@ void main() {
       );
     });
 
+    test('TextNode-only N0 parity preserves the exact final baseline', () {
+      const finalExplanation =
+          '\u3000 \t\r\nSynthetic explanation 1\r \t\u3000';
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = '\t Synthetic explanation 1 \n';
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[
+            _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+            ),
+          ],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+      expect(result.questions.single['explanation'], finalExplanation);
+      final envelope = result.questions.single[TypedReviewSnapshotCodec.mapKey];
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(envelope);
+      expect(snapshot.baselineLegacy.explanation, finalExplanation);
+    });
+
+    test('non-empty raw and empty final explanation fail before N0', () {
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = ''
+        ..['raw_explanation'] = '\t';
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[
+            _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+            ),
+          ],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test('formula-like TextNode internal spacing remains strict', () {
+      final finalExplanation = r'\text{a b}';
+      final projectedExplanation = r'\text{a  b}';
+      final candidate = _candidate(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: <ContentNode>[TextNode(projectedExplanation)],
+          ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = null;
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_projection_mismatch');
+    });
+
+    test('non-TextNode explanation cannot use N0 for a boundary difference',
+        () {
+      final finalExplanation = '\tSynthetic explanation 1\n';
+      final candidate = _candidate(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: <ContentNode>[InlineMathNode('x')],
+          ),
+        ),
+      );
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = null;
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_projection_mismatch');
+    });
+
+    test('over-limit explanation pairs do not enter N0 comparison', () {
+      final overLimit = List<String>.filled(
+        RichContentLimits.maxProjectionScalars + 1,
+        'x',
+      ).join();
+      final candidate = _candidate(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: overLimit,
+        ),
+      );
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = '$overLimit\n'
+        ..['raw_explanation'] = null;
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_projection_mismatch');
+    });
+
     test('projection mismatches are strict and remove every envelope', () {
       OcrTypedCandidateGateResult runWith(Map<String, dynamic> question) {
         return applyOcrTypedCandidateGate(
@@ -651,6 +795,17 @@ void main() {
       expect(
         runWith(
           _finalQuestion(number: 1)..['source_page_indices'] = <int>[2],
+        ).reason,
+        'typed_candidate_projection_mismatch',
+      );
+      expect(
+        runWith(
+          _finalQuestion(number: 1)
+            ..['source_block_ids'] = <String>[
+              'answer_1',
+              'q_1',
+              'explanation_1',
+            ],
         ).reason,
         'typed_candidate_projection_mismatch',
       );
@@ -955,6 +1110,7 @@ OcrTypedCandidate _candidate({
   required String questionId,
   required String reviewItemId,
   QuestionDraftV2? draft,
+  LegacyReviewBaseline? projectedLegacy,
 }) {
   return OcrTypedCandidate(
     questionNumber: questionNumber,
@@ -979,20 +1135,45 @@ OcrTypedCandidate _candidate({
             nodes: <ContentNode>[TextNode('Synthetic explanation 1')],
           ),
         ),
-    projectedLegacy: _finalBaseline(number: questionNumber),
+    projectedLegacy:
+        projectedLegacy ?? _finalBaseline(number: questionNumber),
     sourcePageIndices: const <int>[1],
     sourceBlockIds: const <String>['q_1', 'answer_1', 'explanation_1'],
   );
 }
 
-LegacyReviewBaseline _finalBaseline({required int number}) {
+QuestionDraftV2 _draftWithExplanation({
+  required int questionNumber,
+  required String questionId,
+  required RichContent explanation,
+}) {
+  return QuestionDraftV2(
+    questionId: questionId,
+    kind: QuestionKind.shortAnswer,
+    questionNumber: questionNumber,
+    stem: RichContent(
+      nodes: <ContentNode>[TextNode('Synthetic prompt marker $questionNumber.')],
+    ),
+    answer: ContentAnswer(
+      content: RichContent(
+        nodes: <ContentNode>[TextNode('synthetic-result-1')],
+      ),
+    ),
+    explanation: explanation,
+  );
+}
+
+LegacyReviewBaseline _finalBaseline({
+  required int number,
+  String explanation = 'Synthetic explanation 1',
+}) {
   return LegacyReviewBaseline(
     type: 3,
     questionNumber: number,
     content: 'Synthetic prompt marker $number.',
     options: const <String>[],
     standardAnswer: 'synthetic-result-1',
-    explanation: 'Synthetic explanation 1',
+    explanation: explanation,
   );
 }
 
