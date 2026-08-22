@@ -638,6 +638,103 @@ void main() {
       expect(snapshot.baselineLegacy.explanation, finalExplanation);
     });
 
+    test('internal CRLF and LF are equivalent under the bounded N0 rule', () {
+      const finalExplanation = 'line one\r\nline two';
+      const projectedExplanation = 'line one\nline two';
+      final candidate = _candidate(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: <ContentNode>[TextNode(projectedExplanation)],
+          ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = projectedExplanation;
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+      expect(result.questions.single['explanation'], finalExplanation);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        result.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      expect(snapshot.baselineLegacy.explanation, finalExplanation);
+    });
+
+    test('internal LF and blank-line-count changes fail the whole batch', () {
+      const cases = <List<String>>[
+        <String>['line one\nline two', 'line oneline two'],
+        <String>['line oneline two', 'line one\nline two'],
+        <String>['line one\n\nline two', 'line one\nline two'],
+      ];
+
+      for (final pair in cases) {
+        final mismatchCandidate = _candidate(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          reviewItemId: _reviewUuidA,
+          draft: _draftWithExplanation(
+            questionNumber: 1,
+            questionId: _questionUuidA,
+            explanation: RichContent(
+              nodes: <ContentNode>[TextNode(pair[1])],
+            ),
+          ),
+          projectedLegacy: _finalBaseline(
+            number: 1,
+            explanation: pair[1],
+          ),
+        );
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              mismatchCandidate,
+              _candidate(
+                questionNumber: 2,
+                questionId: _questionUuidB,
+                reviewItemId: _reviewUuidB,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[
+            _finalQuestion(number: 1)
+              ..['explanation'] = pair[0]
+              ..['raw_explanation'] = null,
+            _finalQuestion(number: 2),
+          ],
+          singleFile: true,
+        );
+
+        expect(result.route, ImportStorageRoute.legacyV1);
+        expect(result.reason, 'typed_candidate_projection_mismatch');
+        expect(result.questions, hasLength(2));
+        expect(
+          result.questions.every(
+            (question) =>
+                !question.containsKey(TypedReviewSnapshotCodec.mapKey),
+          ),
+          isTrue,
+          reason: 'one explanation mismatch must clear every batch envelope',
+        );
+      }
+    });
+
     test('non-empty raw and empty final explanation fail before N0', () {
       final question = _finalQuestion(number: 1)
         ..['explanation'] = ''
