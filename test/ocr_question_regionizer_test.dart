@@ -59,6 +59,18 @@ void main() {
       expect(region.answerText, contains('B'));
       expect(region.explanationText, contains('由极限'));
       expect(region.sourcePageIndices, [1, 2]);
+      expect(
+        region.ownedSources.map((source) => source.blockId),
+        ['p001_b0001', 'p002_b0001', 'p002_b0002'],
+      );
+      expect(
+        region.ownedSources.map((source) => source.field),
+        [
+          OcrRegionField.stem,
+          OcrRegionField.answer,
+          OcrRegionField.explanation,
+        ],
+      );
       expect(result.diagnostics['regionCount'], 1);
     });
 

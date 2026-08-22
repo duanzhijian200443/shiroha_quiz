@@ -292,8 +292,8 @@ void main() {
     );
 
     test(
-      'same localAssetId across sourceIds stays source-qualified and stops '
-      'typed assembly explicitly',
+      'same localAssetId across sourceIds remains source-qualified through '
+      'typed assembly',
       () {
         final asset = AssetRef(assetId: 'img_001', kind: AssetKind.image);
         final region = QuestionRegion(
@@ -331,8 +331,24 @@ void main() {
           kindHint: QuestionRegionKindHint.unknown,
         );
 
-        // Explicit-stop evidence, not parity: the legacy string model cannot
-        // represent two source-qualified identities with one local id.
+        final draft = _typedAssembler.assemble(
+          region,
+          questionId: 'shadow_boundary_asset',
+        );
+        expect(
+          draft.stem.nodes,
+          <ContentNode>[
+            ImageNode(sourceId: 'r3d1_source_a', localAssetId: 'img_001'),
+          ],
+        );
+        final answer = draft.answer;
+        expect(answer, isA<ContentAnswer>());
+        expect(
+          (answer! as ContentAnswer).content.nodes,
+          <ContentNode>[
+            ImageNode(sourceId: 'r3d1_source_b', localAssetId: 'img_001'),
+          ],
+        );
         expect(region.assetRefs, hasLength(2));
         expect(
           region.assetRefs.map((ref) => ref.localAssetId).toSet(),
@@ -342,16 +358,18 @@ void main() {
           region.assetRefs.map((ref) => ref.sourceId).toSet(),
           <String>{'r3d1_source_a', 'r3d1_source_b'},
         );
+        expect(draft.assetRefs, hasLength(2));
         expect(
-          () => _typedAssembler.assemble(region,
-              questionId: 'shadow_boundary_asset'),
-          throwsA(
-            isA<QuestionRegionUnsupportedException>().having(
-              (error) => error.kindCode,
-              'kindCode',
-              'source_asset',
-            ),
-          ),
+          draft.assetRefs.map((ref) => ref.localAssetId).toSet(),
+          <String>{'img_001'},
+        );
+        expect(
+          draft.assetRefs.map((ref) => ref.sourceId).toSet(),
+          <String>{'r3d1_source_a', 'r3d1_source_b'},
+        );
+        expect(
+          draft.assetRefs.every((ref) => ref.asset.kind == AssetKind.image),
+          isTrue,
         );
         _expectZeroProviderCalls();
       },

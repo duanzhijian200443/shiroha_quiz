@@ -57,6 +57,15 @@ class ReferenceAnswerMerger {
         answerParts: answerParts,
         sourcePageIndices: pages,
         sourceBlockIds: blockIds,
+        ownedSources: [
+          ...region.ownedSources,
+          for (final blockId in entry.sourceBlockIds)
+            OcrQuestionRegionSource(
+              blockId: blockId,
+              field: OcrRegionField.answer,
+              text: entry.answerText,
+            ),
+        ],
         diagnostics: diagnostics,
       );
     }).toList(growable: false);
@@ -67,6 +76,7 @@ class ReferenceAnswerMerger {
     List<String>? answerParts,
     List<int>? sourcePageIndices,
     List<String>? sourceBlockIds,
+    List<OcrQuestionRegionSource>? ownedSources,
     Set<String>? diagnostics,
   }) {
     return OcrQuestionRegion(
@@ -78,6 +88,7 @@ class ReferenceAnswerMerger {
           List.unmodifiable(sourcePageIndices ?? region.sourcePageIndices),
       sourceBlockIds:
           List.unmodifiable(sourceBlockIds ?? region.sourceBlockIds),
+      ownedSources: List.unmodifiable(ownedSources ?? region.ownedSources),
       diagnostics: List.unmodifiable(diagnostics ?? region.diagnostics.toSet()),
       declaredKind: region.declaredKind,
     );

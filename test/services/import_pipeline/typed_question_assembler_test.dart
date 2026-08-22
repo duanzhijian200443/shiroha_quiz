@@ -166,18 +166,23 @@ void main() {
   });
 
   group('TypedQuestionAssembler lossless and explicit failure paths', () {
-    test(
-        'fails for asset parts without alternative text because position '
-        'cannot be projected losslessly', () {
+    test('maps asset parts to ordered ImageNodes and keeps the inventory', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
           QuestionRegionFragment(
             field: QuestionRegionField.stem,
             part: SourceAssetPart(
-              sourceRef: _docRef(),
+              sourceRef: SourceRef.at(
+                sourceId: 'source_a',
+                point: SourcePoint.block(
+                  pageNumber: 1,
+                  blockId: 'asset_a',
+                  readingOrder: 0,
+                ),
+              ),
               asset: AssetRef(
-                assetId: 'asset_1',
+                assetId: 'asset_a',
                 kind: AssetKind.image,
                 mimeType: 'image/png',
               ),
@@ -187,29 +192,46 @@ void main() {
             field: QuestionRegionField.stem,
             part: _textPart('题干'),
           ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceAssetPart(
+              sourceRef: SourceRef.at(
+                sourceId: 'source_a',
+                point: SourcePoint.block(
+                  pageNumber: 1,
+                  blockId: 'asset_b',
+                  readingOrder: 2,
+                ),
+              ),
+              asset: AssetRef(
+                assetId: 'asset_b',
+                kind: AssetKind.image,
+              ),
+            ),
+          ),
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
-      expect(
-        () => assembler.assemble(region, questionId: 'q_1'),
-        throwsA(
-          isA<QuestionRegionUnsupportedException>()
-              .having((error) => error.kindCode, 'kindCode', 'source_asset')
-              .having(
-                (error) => error.field,
-                'field',
-                QuestionRegionField.stem,
-              )
-              .having(
-                (error) => error.message,
-                'message',
-                allOf(contains('identity'), contains('position')),
-              ),
+      final draft = assembler.assemble(region, questionId: 'q_1');
+
+      expect(draft.stem.nodes, <ContentNode>[
+        ImageNode(
+          sourceId: 'source_a',
+          localAssetId: 'asset_a',
         ),
+        const TextNode('题干'),
+        ImageNode(
+          sourceId: 'source_a',
+          localAssetId: 'asset_b',
+        ),
+      ]);
+      expect(
+        draft.assetRefs.map((asset) => asset.localAssetId),
+        <String>['asset_a', 'asset_b'],
       );
     });
 
-    test('fails explicitly for asset alternative text', () {
+    test('preserves asset alternative text on the ImageNode', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -226,17 +248,211 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
-      expect(
-        () => assembler.assemble(region, questionId: 'q_1'),
-        throwsA(
-          isA<QuestionRegionUnsupportedException>()
-              .having((error) => error.kindCode, 'kindCode', 'source_asset'),
+      final draft = assembler.assemble(region, questionId: 'q_1');
+      final image = draft.stem.nodes.single as ImageNode;
+      expect(image.localAssetId, 'asset_1');
+      expect(image.alternativeText!.nodes, <ContentNode>[const TextNode('图示')]);
+    });
+
+    test('preserves repeated asset placements while deduplicating inventory',
+        () {
+      final assetPart = SourceAssetPart(
+        sourceRef: SourceRef.at(
+          sourceId: 'source_a',
+          point: SourcePoint.block(
+            pageNumber: 1,
+            blockId: 'asset_repeat',
+            readingOrder: 1,
+          ),
         ),
+        asset: AssetRef(assetId: 'asset_repeat', kind: AssetKind.image),
+      );
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: _textPart('before'),
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: assetPart,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: assetPart,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: _textPart('after'),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_repeat');
+
+      expect(draft.stem.nodes, <ContentNode>[
+        const TextNode('before'),
+        ImageNode(sourceId: 'source_a', localAssetId: 'asset_repeat'),
+        ImageNode(sourceId: 'source_a', localAssetId: 'asset_repeat'),
+        const TextNode('after'),
+      ]);
+      expect(draft.assetRefs, hasLength(1));
+    });
+
+    test('preserves text, image, formula, image, text order without joins', () {
+      final imageA = SourceAssetPart(
+        sourceRef: SourceRef.at(
+          sourceId: 'source_a',
+          point: SourcePoint.block(
+            pageNumber: 1,
+            blockId: 'image_a',
+            readingOrder: 1,
+          ),
+        ),
+        asset: AssetRef(assetId: 'image_a', kind: AssetKind.image),
+      );
+      final imageB = SourceAssetPart(
+        sourceRef: SourceRef.at(
+          sourceId: 'source_a',
+          point: SourcePoint.block(
+            pageNumber: 1,
+            blockId: 'image_b',
+            readingOrder: 3,
+          ),
+        ),
+        asset: AssetRef(assetId: 'image_b', kind: AssetKind.image),
+      );
+      final formula = SourceContentPart(
+        sourceRef: SourceRef.at(
+          sourceId: 'source_a',
+          point: SourcePoint.block(
+            pageNumber: 1,
+            blockId: 'formula_order',
+            readingOrder: 2,
+          ),
+        ),
+        content: RichContent(nodes: <ContentNode>[const BlockMathNode('x')]),
+        role: SourceContentRole.formula,
+      );
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: _textPart('before'),
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: imageA,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: formula,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: imageB,
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: _textPart('after'),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_order');
+
+      expect(draft.stem.nodes, <ContentNode>[
+        const TextNode('before'),
+        ImageNode(sourceId: 'source_a', localAssetId: 'image_a'),
+        const BlockMathNode('x'),
+        ImageNode(sourceId: 'source_a', localAssetId: 'image_b'),
+        const TextNode('after'),
+      ]);
+      expect(
+        draft.assetRefs.map((asset) => asset.localAssetId),
+        <String>['image_a', 'image_b'],
       );
     });
 
-    test('fails explicitly for table and unsupported parts', () {
+    test('maps a rectangular source table to a TableNode', () {
       final tableRegion = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceTablePart(
+              sourceRef: _docRef(),
+              rows: <List<RichContent>>[
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[const TextNode('cell 1')]),
+                  RichContent(nodes: <ContentNode>[const InlineMathNode('x')]),
+                ],
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[const TextNode('cell 2')]),
+                  RichContent(nodes: <ContentNode>[]),
+                ],
+              ],
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.unknown,
+      );
+      final draft = assembler.assemble(tableRegion, questionId: 'q_table');
+
+      final table = draft.stem.nodes.single as TableNode;
+      expect(table.structure.rows, hasLength(2));
+      expect(table.structure.columnCount, 2);
+      expect(table.structure.rows.first.cells, hasLength(2));
+      expect(
+        table.structure.rows.first.cells[1].content.nodes.single,
+        const InlineMathNode('x'),
+      );
+    });
+
+    test('preserves table and image encounter order in one field', () {
+      final tablePart = SourceTablePart(
+        sourceRef: _docRef(),
+        rows: <List<RichContent>>[
+          <RichContent>[
+            RichContent(nodes: <ContentNode>[const TextNode('cell')]),
+          ],
+        ],
+      );
+      final imagePart = SourceAssetPart(
+        sourceRef: _docRef(),
+        asset: AssetRef(assetId: 'table_image', kind: AssetKind.image),
+      );
+      final draft = assembler.assemble(
+        QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[
+            QuestionRegionFragment(
+              field: QuestionRegionField.stem,
+              part: tablePart,
+            ),
+            QuestionRegionFragment(
+              field: QuestionRegionField.stem,
+              part: imagePart,
+            ),
+          ],
+          kindHint: QuestionRegionKindHint.shortAnswer,
+        ),
+        questionId: 'q_table_image',
+      );
+
+      expect(draft.stem.nodes, hasLength(2));
+      expect(draft.stem.nodes.first, isA<TableNode>());
+      expect(
+        draft.stem.nodes[1],
+        ImageNode(sourceId: 'source_a', localAssetId: 'table_image'),
+      );
+    });
+
+    test('fails explicitly for nonrepresentable tables and unsupported parts',
+        () {
+      final raggedRegion = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
           QuestionRegionFragment(
@@ -247,6 +463,10 @@ void main() {
                 <RichContent>[
                   RichContent(nodes: <ContentNode>[const TextNode('cell')]),
                 ],
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[const TextNode('a')]),
+                  RichContent(nodes: <ContentNode>[const TextNode('b')]),
+                ],
               ],
             ),
           ),
@@ -254,11 +474,59 @@ void main() {
         kindHint: QuestionRegionKindHint.unknown,
       );
       expect(
-        () => assembler.assemble(tableRegion, questionId: 'q_1'),
+        () => assembler.assemble(raggedRegion, questionId: 'q_1'),
         throwsA(
           isA<QuestionRegionUnsupportedException>()
               .having((error) => error.kindCode, 'kindCode', 'source_table'),
         ),
+      );
+
+      final emptyRegion = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceTablePart(
+              sourceRef: _docRef(),
+              rows: const <List<RichContent>>[],
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.unknown,
+      );
+      expect(
+        () => assembler.assemble(emptyRegion, questionId: 'q_empty_table'),
+        throwsA(
+          isA<QuestionRegionUnsupportedException>()
+              .having((error) => error.kindCode, 'kindCode', 'source_table'),
+        ),
+      );
+
+      final rawCellRegion = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceTablePart(
+              sourceRef: _docRef(),
+              rows: <List<RichContent>>[
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[
+                    RawFallbackNode(<String, Object?>{
+                      'type': 'raw_fallback',
+                      'payload': <String, Object?>{'kind': 'cell'},
+                    }),
+                  ]),
+                ],
+              ],
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.unknown,
+      );
+      expect(
+        () => assembler.assemble(rawCellRegion, questionId: 'q_raw_table'),
+        throwsA(isA<QuestionRegionUnsupportedException>()),
       );
 
       final unsupportedRegion = QuestionRegion(

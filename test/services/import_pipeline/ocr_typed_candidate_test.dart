@@ -275,6 +275,45 @@ void main() {
       }
     });
 
+    test('unrelated unsupported blocks do not poison an owned typed region',
+        () {
+      final document = _document(
+        'r7b_synthetic_unrelated_structure.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block(
+                'unrelated_image',
+                1,
+                0,
+                'decorative figure outside the questions',
+                type: 'image',
+              ),
+              _block('section', 1, 1, '三、解答题'),
+              _block('q_1', 1, 2, '1. Synthetic prompt marker 1.'),
+              _block('answer_1', 1, 3, '答案：synthetic-result-1'),
+              _block('explanation_1', 1, 4, '解析：Synthetic explanation 1'),
+            ],
+          ),
+        ],
+      );
+      final regionized = _regionizer.regionize(document);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        isNot(contains('unrelated_image')),
+      );
+    });
+
     test('candidate generation failure maps to a fixed failure only', () {
       final document = _shortAnswerDocument();
       final regionized = _regionizer.regionize(document);
