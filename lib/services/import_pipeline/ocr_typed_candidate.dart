@@ -573,8 +573,7 @@ List<int>? _n0Scalars(String value) {
   }
 
   var start = 0;
-  while (start < normalized.length &&
-      _isN0BoundaryScalar(normalized[start])) {
+  while (start < normalized.length && _isN0BoundaryScalar(normalized[start])) {
     start++;
   }
   var end = normalized.length;
@@ -585,10 +584,7 @@ List<int>? _n0Scalars(String value) {
 }
 
 bool _isN0BoundaryScalar(int scalar) {
-  return scalar == 0x20 ||
-      scalar == 0x09 ||
-      scalar == 0x0a ||
-      scalar == 0x3000;
+  return scalar == 0x20 || scalar == 0x09 || scalar == 0x0a || scalar == 0x3000;
 }
 
 bool _sameOrderedStrings(List<String> left, List<String> right) {

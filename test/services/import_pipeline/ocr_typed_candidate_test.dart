@@ -633,7 +633,8 @@ void main() {
       expect(result.reason, 'typed_candidate_ready');
       expect(result.questions.single['explanation'], finalExplanation);
       final envelope = result.questions.single[TypedReviewSnapshotCodec.mapKey];
-      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(envelope);
+      final snapshot =
+          const TypedReviewSnapshotCodec().decodeRequired(envelope);
       expect(snapshot.baselineLegacy.explanation, finalExplanation);
     });
 
@@ -1135,8 +1136,7 @@ OcrTypedCandidate _candidate({
             nodes: <ContentNode>[TextNode('Synthetic explanation 1')],
           ),
         ),
-    projectedLegacy:
-        projectedLegacy ?? _finalBaseline(number: questionNumber),
+    projectedLegacy: projectedLegacy ?? _finalBaseline(number: questionNumber),
     sourcePageIndices: const <int>[1],
     sourceBlockIds: const <String>['q_1', 'answer_1', 'explanation_1'],
   );
@@ -1152,7 +1152,9 @@ QuestionDraftV2 _draftWithExplanation({
     kind: QuestionKind.shortAnswer,
     questionNumber: questionNumber,
     stem: RichContent(
-      nodes: <ContentNode>[TextNode('Synthetic prompt marker $questionNumber.')],
+      nodes: <ContentNode>[
+        TextNode('Synthetic prompt marker $questionNumber.')
+      ],
     ),
     answer: ContentAnswer(
       content: RichContent(
