@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 
-class FakeQuestionRepository extends Fake implements QuestionRepository {
+class FakeQuestionRepository extends Fake implements FolderQueryPort {
   @override
-  Future<List<String>> getAvailableFolders() async => ['Folder A'];
+  Future<List<String>> listAvailableFolders() async => ['Folder A'];
 }
 
 void main() {
@@ -75,7 +75,7 @@ void main() {
           parsedQuestions: parsedQuestions,
           taskId: 'batch-review-task',
           taskManager: taskManager,
-          questionRepository: FakeQuestionRepository(),
+          folderQuery: FakeQuestionRepository(),
         )),
       );
     }

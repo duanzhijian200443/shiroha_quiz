@@ -337,6 +337,112 @@ void main() {
       expect(privateTarget.flattenedBlocks.single.text, '[图片]');
     });
 
+    test(
+        'remote crop address policy rejects private IPv6 and accepts public IPv6',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-ipv6-policy');
+      addTearDown(() => file.deleteSync());
+      const cases = <String, bool>{
+        '::': false,
+        '::1': false,
+        'fc00::1': false,
+        'fd12::1': false,
+        'fe80::1': false,
+        'ff02::1': false,
+        '2001:db8::1': false,
+        '::ffff:127.0.0.1': false,
+        '::ffff:10.0.0.1': false,
+        '::ffff:172.16.0.1': false,
+        '::ffff:192.168.0.1': false,
+        '2001:4860:4860::8888': true,
+      };
+
+      for (final entry in cases.entries) {
+        var cropGetCalls = 0;
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'GET') {
+              cropGetCalls++;
+              return http.Response.bytes(
+                _validCropPng,
+                200,
+                headers: const <String, String>{
+                  'content-type': 'image/png',
+                },
+              );
+            }
+            return http.Response(
+              jsonEncode(_cropResponse(count: 1)),
+              200,
+            );
+          }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress(entry.key),
+          ],
+          remoteCropCountLimit: 1,
+          remoteCropTotalBytesLimit: _validCropPng.length,
+        );
+
+        final document = await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+        expect(
+          document.flattenedBlocks.single.imagePayload != null,
+          entry.value,
+          reason: 'unexpected remote crop policy for ${entry.key}',
+        );
+        expect(cropGetCalls, entry.value ? 1 : 0);
+      }
+    });
+
+    test('remote crop binds the approved DNS address to its transport',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-dns-binding');
+      addTearDown(() => file.deleteSync());
+      final approved = InternetAddress('93.184.216.34');
+      var dnsCalls = 0;
+      final boundAddresses = <InternetAddress>[];
+      final remoteTransport = MockClient((request) async {
+        return http.Response.bytes(
+          _validCropPng,
+          200,
+          headers: const <String, String>{'content-type': 'image/png'},
+        );
+      });
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          return http.Response(jsonEncode(_cropResponse(count: 1)), 200);
+        }),
+        remoteCropClientFactory: (uri, address) {
+          boundAddresses.add(address);
+          return remoteTransport;
+        },
+        dnsResolver: (_) async {
+          dnsCalls++;
+          // A second lookup would hypothetically rebind to loopback. The
+          // client must perform one lookup and pass that approved address to
+          // the transport instead of resolving the hostname again.
+          return <InternetAddress>[
+            dnsCalls == 1 ? approved : InternetAddress('127.0.0.1'),
+          ];
+        },
+        remoteCropCountLimit: 1,
+        remoteCropTotalBytesLimit: _validCropPng.length,
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+
+      expect(document.flattenedBlocks.single.imagePayload, isNotNull);
+      expect(dnsCalls, 1);
+      expect(boundAddresses, <InternetAddress>[approved]);
+    });
+
     test('uses a typed authentication failure without response-body leakage',
         () async {
       final image = File(
@@ -486,6 +592,66 @@ void main() {
         final req2Body = jsonDecode(requests[1].body) as Map<String, dynamic>;
         expect(req2Body['start_page_id'], 31);
         expect(req2Body['end_page_id'], 31);
+      });
+
+      test('remote crop budgets remain shared across PDF chunks', () async {
+        final pdfFile = createSyntheticPdf(2);
+        addTearDown(() => pdfFile.deleteSync());
+
+        Future<OcrDocument> parse({
+          required int countLimit,
+          required int byteLimit,
+        }) {
+          var cropGetCalls = 0;
+          final client = ZhipuOcrClient(
+            pdfPageChunkSize: 1,
+            httpClient: MockClient((request) async {
+              if (request.method == 'GET') {
+                cropGetCalls++;
+                return http.Response.bytes(
+                  _validCropPng,
+                  200,
+                  headers: const <String, String>{
+                    'content-type': 'image/png',
+                  },
+                );
+              }
+              return http.Response(
+                jsonEncode(_cropResponse(count: 1)),
+                200,
+              );
+            }),
+            dnsResolver: (_) async => <InternetAddress>[
+              InternetAddress('93.184.216.34'),
+            ],
+            remoteCropCountLimit: countLimit,
+            remoteCropTotalBytesLimit: byteLimit,
+          );
+          return client
+              .parseFile(
+            profile: profile,
+            filePath: pdfFile.path,
+            sourceName: 'two-page.pdf',
+          )
+              .whenComplete(() {
+            expect(cropGetCalls, greaterThanOrEqualTo(1));
+          });
+        }
+
+        await expectLater(
+          parse(
+            countLimit: 1,
+            byteLimit: _validCropPng.length * 2,
+          ),
+          throwsA(isA<ZhipuOcrResponseFormatException>()),
+        );
+        await expectLater(
+          parse(
+            countLimit: 2,
+            byteLimit: _validCropPng.length,
+          ),
+          throwsA(isA<ZhipuOcrResponseFormatException>()),
+        );
       });
 
       test(

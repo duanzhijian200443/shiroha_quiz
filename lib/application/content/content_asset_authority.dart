@@ -34,6 +34,25 @@ final class ContentAssetCandidateLease {
   final List<String> localAssetIds;
 }
 
+/// Safe, count-only outcome for one transient candidate rollback attempt.
+///
+/// The outcome intentionally carries no paths, exceptions, or provider data.
+/// Missing identities are idempotent and distinct from identities whose
+/// deletion could not be completed.
+final class ContentAssetRollbackResult {
+  const ContentAssetRollbackResult({
+    this.deletedCount = 0,
+    this.missingCount = 0,
+    this.failedCount = 0,
+  });
+
+  final int deletedCount;
+  final int missingCount;
+  final int failedCount;
+
+  bool get isComplete => failedCount == 0;
+}
+
 /// Redacted inventory row used by bounded backup export and restore checks.
 final class ContentAssetRecord {
   const ContentAssetRecord({
@@ -74,7 +93,9 @@ abstract interface class ContentAssetStore {
   /// Deletes only the identities owned by one candidate lease. Implementations
   /// must make this operation idempotent and must not perform namespace-wide
   /// or unrelated asset cleanup.
-  Future<void> deleteCandidateAssets(ContentAssetCandidateLease lease);
+  Future<ContentAssetRollbackResult> deleteCandidateAssets(
+    ContentAssetCandidateLease lease,
+  );
 
   List<int>? readAssetBytes({
     required String sourceId,

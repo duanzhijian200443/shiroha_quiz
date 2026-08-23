@@ -346,14 +346,18 @@ void main() {
       final app = tester.widget<ShirohaQuizApp>(
         find.byType(ShirohaQuizApp),
       );
-      expect(app.questionRepository, same(configured));
+      expect(app.questionListQuery, same(configured));
+      expect(app.questionMutationPersistence, same(configured));
+      expect(app.typedAnswerPersistence, same(configured));
+      expect(app.questionBankMutationPersistence, same(configured));
+      expect(app.folderQuery, same(configured));
       expect(app.contentAssetResolver, same(contentAssetStore));
       expect(
-        tester.widget<MainScreen>(find.byType(MainScreen)).questionRepository,
+        tester.widget<MainScreen>(find.byType(MainScreen)).questionListQuery,
         same(configured),
       );
       expect(
-        tester.widget<HomePage>(find.byType(HomePage)).questionRepository,
+        tester.widget<HomePage>(find.byType(HomePage)).questionListQuery,
         same(configured),
       );
       expect(tester.takeException(), isNull);
@@ -418,7 +422,11 @@ Widget _buildTestApp({
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
     examMutationCommand: examMutationCommand,
-    questionRepository: configuredQuestionRepository,
+    questionListQuery: configuredQuestionRepository,
+    questionMutationPersistence: configuredQuestionRepository,
+    typedAnswerPersistence: configuredQuestionRepository,
+    questionBankMutationPersistence: configuredQuestionRepository,
+    folderQuery: configuredQuestionRepository,
     contentAssetResolver: contentAssetResolver,
     u1WorkspaceFacade: _emptyWorkspaceFacade(),
     conversationService: _emptyConversationService(),

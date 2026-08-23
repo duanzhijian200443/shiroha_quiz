@@ -117,7 +117,12 @@ final class ManagedContentAssetStore
   }
 
   @override
-  Future<void> deleteCandidateAssets(ContentAssetCandidateLease lease) async {
+  Future<ContentAssetRollbackResult> deleteCandidateAssets(
+    ContentAssetCandidateLease lease,
+  ) async {
+    var deletedCount = 0;
+    var missingCount = 0;
+    var failedCount = 0;
     for (final localAssetId in lease.localAssetIds) {
       try {
         final file = _resolveKey(
@@ -126,15 +131,23 @@ final class ManagedContentAssetStore
             localAssetId: localAssetId,
           ),
         );
-        if (await file.exists()) await file.delete();
+        if (await file.exists()) {
+          await file.delete();
+          deletedCount++;
+        } else {
+          missingCount++;
+        }
       } on FileSystemException {
-        // Candidate rollback is best-effort and idempotent. A later retry or
-        // explicit failure path can safely attempt the same lease again.
+        failedCount++;
       } on FormatException {
-        // Invalid identities are ignored rather than allowing diagnostics to
-        // carry an implementation detail or unsafe path.
+        failedCount++;
       }
     }
+    return ContentAssetRollbackResult(
+      deletedCount: deletedCount,
+      missingCount: missingCount,
+      failedCount: failedCount,
+    );
   }
 
   @override

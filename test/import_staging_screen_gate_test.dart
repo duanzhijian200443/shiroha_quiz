@@ -4,24 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class MockQuestionRepository implements QuestionRepository {
+class MockQuestionRepository implements FolderQueryPort {
   @override
-  Future<void> saveQuestionDraftsToBank({
-    required String bankName,
-    String? folderName,
-    required List<dynamic> questions,
-  }) async {}
-
-  @override
-  Future<List<String>> getAvailableFolders() async {
+  Future<List<String>> listAvailableFolders() async {
     return [];
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -64,7 +54,7 @@ void main() {
             ],
         diagnostics: diagnostics,
         initialExplanationRetentionMode: initialExplanationRetentionMode,
-        questionRepository: MockQuestionRepository(),
+        folderQuery: MockQuestionRepository(),
       ),
     );
   }

@@ -83,7 +83,7 @@ class _RecordingRepo extends Fake implements QuestionRepository {
   String? lastScreenPayloadAnswer;
 
   @override
-  Future<List<String>> getAvailableFolders() async => const <String>['Math'];
+  Future<List<String>> listAvailableFolders() async => const <String>['Math'];
 
   @override
   Future<void> saveQuestionDraftsToBank({
@@ -349,7 +349,7 @@ void main() {
           parsedQuestions: questions,
           taskId: taskId,
           diagnostics: diagnostics,
-          questionRepository: repo,
+          folderQuery: repo,
           taskManager: manager,
           commitService: service,
           answerDistiller: answerDistiller,

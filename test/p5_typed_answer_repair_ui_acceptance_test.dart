@@ -359,7 +359,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -475,7 +477,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -539,7 +543,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -600,7 +606,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -653,7 +661,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -708,7 +718,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -777,7 +789,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -852,7 +866,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -906,7 +922,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -949,7 +967,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -998,7 +1018,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -1051,7 +1073,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -1091,7 +1115,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -1140,7 +1166,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -1192,7 +1220,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );
@@ -1251,7 +1281,9 @@ void main() {
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
         ),
       ),
     );

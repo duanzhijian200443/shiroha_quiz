@@ -555,7 +555,7 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
       warnings: task.warnings,
       diagnostics: task.diagnostics,
       initialExplanationRetentionMode: task.explanationRetentionMode,
-      questionRepository: widget.questionRepository,
+      folderQuery: widget.questionRepository,
       commitService: widget.commitService,
     );
     if (!mounted) return;
@@ -650,7 +650,9 @@ class _OcrUiSmokeAppState extends State<OcrUiSmokeApp> {
     setState(() {
       _screen = QuestionListScreen(
         bankName: _smokeBankName,
-        questionRepository: widget.questionRepository,
+        questionListQuery: widget.questionRepository,
+        questionMutationPersistence: widget.questionRepository,
+        typedAnswerPersistence: widget.questionRepository,
         onLoadFinished: (count) {
           if (count == null) {
             _showFailure('question_list_load_failed', 'RepositoryReadFailure');

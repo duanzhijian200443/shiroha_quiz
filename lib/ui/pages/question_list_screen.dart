@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import '../../application/answers/ai_answer_commit_command.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/answers/answer_candidate_review_session.dart';
+import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
-import '../../application/questions/question_presentation_port.dart';
 import '../../domain/answers/answer_candidate.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -19,13 +19,17 @@ import 'typed_answer_repair_screen.dart';
 
 class QuestionListScreen extends StatefulWidget {
   final String bankName;
-  final QuestionPresentationPort? questionRepository;
+  final QuestionListQueryPort? questionListQuery;
+  final QuestionMutationPersistencePort? questionMutationPersistence;
+  final TypedAnswerPersistencePort? typedAnswerPersistence;
   final ValueChanged<int?>? onLoadFinished;
 
   const QuestionListScreen({
     super.key,
     required this.bankName,
-    this.questionRepository,
+    this.questionListQuery,
+    this.questionMutationPersistence,
+    this.typedAnswerPersistence,
     this.onLoadFinished,
   });
 
@@ -49,16 +53,32 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
   /// generations without touching a BuildContext.
   AiAnswerGenerationService? _generationService;
 
-  QuestionPresentationPort get _questionRepository {
-    final port = widget.questionRepository;
+  QuestionListQueryPort get _questionListQuery {
+    final port = widget.questionListQuery;
     if (port == null) {
-      throw StateError('Question presentation dependency is not configured.');
+      throw StateError('Question list query is not configured.');
     }
     return port;
   }
 
   QuestionMutationCommand get _questionMutation =>
-      QuestionMutationCommand(_questionRepository);
+      QuestionMutationCommand(_requireQuestionMutationPersistence);
+
+  QuestionMutationPersistencePort get _requireQuestionMutationPersistence {
+    final port = widget.questionMutationPersistence;
+    if (port == null) {
+      throw StateError('Question mutation dependency is not configured.');
+    }
+    return port;
+  }
+
+  TypedAnswerPersistencePort get _requireTypedAnswerPersistence {
+    final port = widget.typedAnswerPersistence;
+    if (port == null) {
+      throw StateError('Typed answer dependency is not configured.');
+    }
+    return port;
+  }
 
   @override
   void initState() {
@@ -87,7 +107,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
       _hasLoadError = false;
     });
     try {
-      final persisted = await _questionRepository.listQuestionsForBank(
+      final persisted = await _questionListQuery.listQuestionsForBank(
         widget.bankName,
       );
       if (!mounted) return;
@@ -199,7 +219,7 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
         builder: (_) => TypedAnswerRepairScreen(
           question: question,
           draft: draft,
-          command: TypedAnswerCommand(_questionRepository),
+          command: TypedAnswerCommand(_requireTypedAnswerPersistence),
         ),
       ),
     ).then((modified) {

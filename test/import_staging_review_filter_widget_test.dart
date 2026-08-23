@@ -1,23 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
-import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class MockQuestionRepository implements QuestionRepository {
+class MockQuestionRepository implements FolderQueryPort {
   @override
-  Future<List<String>> getAvailableFolders() async => [];
-
-  @override
-  Future<void> saveQuestionDraftsToBank({
-    required String bankName,
-    required String? folderName,
-    required List<QuestionDraft> questions,
-  }) async {}
-
-  @override
-  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  Future<List<String>> listAvailableFolders() async => [];
 }
 
 void main() {
@@ -31,7 +20,7 @@ void main() {
       home: ImportStagingScreen(
         parsedQuestions: questions,
         warnings: const [],
-        questionRepository: MockQuestionRepository(),
+        folderQuery: MockQuestionRepository(),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
@@ -19,9 +20,9 @@ const _uuidA = '0d8b7a3e-7f1c-4b2a-9d3e-5a6b7c8d9e0f';
 const _uuidB = '1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d';
 const _secretMarker = 'SYNTHETIC_R7A_SECRET_MARKER_9f3a';
 
-class _QuestionRepository extends Fake implements QuestionRepository {
+class _QuestionRepository extends Fake implements FolderQueryPort {
   @override
-  Future<List<String>> getAvailableFolders() async => const <String>[];
+  Future<List<String>> listAvailableFolders() async => const <String>[];
 }
 
 class _FakeDistiller implements SubjectiveAnswerDistiller {
@@ -111,7 +112,7 @@ Widget _screen({
     home: ImportStagingScreen(
       parsedQuestions: questions,
       taskId: 'synthetic-task',
-      questionRepository: _QuestionRepository(),
+      folderQuery: _QuestionRepository(),
       answerDistiller: distiller,
       taskManager: taskManager,
     ),

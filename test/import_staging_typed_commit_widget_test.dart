@@ -39,6 +39,9 @@ class _FakeRepo extends Fake implements QuestionRepository {
   Future<List<String>> getAvailableFolders() async => const <String>['Math'];
 
   @override
+  Future<List<String>> listAvailableFolders() => getAvailableFolders();
+
+  @override
   Future<void> saveQuestionDraftsToBank({
     required String bankName,
     required String? folderName,
@@ -229,7 +232,7 @@ void main() {
           parsedQuestions: questions,
           taskId: taskId,
           diagnostics: diagnostics,
-          questionRepository: repo,
+          folderQuery: repo,
           taskManager: manager,
           commitService: ImportCommitService(
             questionRepository: repo,

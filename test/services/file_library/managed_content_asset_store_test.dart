@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
@@ -88,6 +89,37 @@ void main() {
     expect(
       store.readAssetBytes(sourceId: 'source_b', localAssetId: 'img_001'),
       <int>[..._validPng, 2],
+    );
+  });
+
+  test('candidate rollback reports deleted, missing, and failed identities',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    store.storeBytesSync(
+      sourceId: 'source_a',
+      localAssetId: 'img_001',
+      bytes: _validPng,
+      mimeType: 'image/png',
+    );
+
+    final outcome = await store.deleteCandidateAssets(
+      ContentAssetCandidateLease(
+        sourceId: 'source_a',
+        localAssetIds: const <String>[
+          'img_001',
+          'img_missing',
+          '../unsafe',
+        ],
+      ),
+    );
+
+    expect(outcome.deletedCount, 1);
+    expect(outcome.missingCount, 1);
+    expect(outcome.failedCount, 1);
+    expect(outcome.isComplete, isFalse);
+    expect(
+      store.readAssetBytes(sourceId: 'source_a', localAssetId: 'img_001'),
+      isNull,
     );
   });
 

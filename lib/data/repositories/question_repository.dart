@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../../application/safe_write/typed_answer_command.dart';
-import '../../application/questions/question_presentation_port.dart';
+import '../../application/questions/folder_query_port.dart';
+import '../../application/questions/question_list_query_port.dart';
+import '../../application/questions/question_presentation_read.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_bank_folder_mutation_command.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
@@ -45,7 +47,8 @@ class QuestionRepository
         QuestionBankFolderMutationPersistencePort,
         QuestionWriteMutationPersistencePort,
         PracticeSessionMutationPersistencePort,
-        QuestionPresentationPort {
+        QuestionListQueryPort,
+        FolderQueryPort {
   QuestionRepository({
     DatabaseHelper? databaseHelper,
     Uuid? uuid,

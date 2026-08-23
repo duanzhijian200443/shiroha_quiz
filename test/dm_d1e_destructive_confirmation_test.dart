@@ -2,6 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/questions/question_list_query_port.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_presentation_read.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/questions/question_bank_mutation_command.dart';
@@ -10,7 +13,7 @@ import 'package:shiroha_quiz/core/review_engine_service.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'support/question_presentation_read_fixtures.dart';
 import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
 import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'package:shiroha_quiz/ui/pages/import_screen.dart';
@@ -100,7 +103,7 @@ const _transparentPng = <int>[
 ];
 
 final class _QuestionConfirmationRepository extends Fake
-    implements QuestionRepository {
+    implements QuestionListQueryPort, QuestionMutationPersistencePort {
   _QuestionConfirmationRepository({required this.failDelete})
       : persisted = <PersistedQuestion>[_question()];
 
@@ -109,10 +112,10 @@ final class _QuestionConfirmationRepository extends Fake
   int deleteCalls = 0;
 
   @override
-  Future<List<PersistedQuestion>> getPersistedQuestionsByBank(
+  Future<List<QuestionPresentationRead>> listQuestionsForBank(
     String bankName,
   ) async {
-    return List<PersistedQuestion>.from(persisted);
+    return questionPresentationReadsFrom(persisted);
   }
 
   @override
@@ -174,7 +177,8 @@ Future<void> _pumpQuestionList(
     MaterialApp(
       home: QuestionListScreen(
         bankName: _bankName,
-        questionRepository: repository,
+        questionListQuery: repository,
+        questionMutationPersistence: repository,
       ),
     ),
   );

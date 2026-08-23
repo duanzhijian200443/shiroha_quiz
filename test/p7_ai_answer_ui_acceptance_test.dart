@@ -12,12 +12,13 @@ import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_list_query_port.dart';
+import 'package:shiroha_quiz/application/questions/question_presentation_read.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -28,6 +29,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.da
 import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
 import 'package:shiroha_quiz/ui/pages/question_list_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/persisted_question_card.dart';
+import 'support/question_presentation_read_fixtures.dart';
 
 const _bankName = 'synthetic_bank';
 const _storageId = 'q_typed_1';
@@ -36,7 +38,7 @@ RichContent _text(String text) {
   return RichContent(nodes: [TextNode(text)]);
 }
 
-class _FakeQuestionRepository extends Fake implements QuestionRepository {
+class _FakeQuestionRepository extends Fake implements QuestionListQueryPort {
   _FakeQuestionRepository({List<PersistedQuestion> persisted = const []})
       : persisted = List<PersistedQuestion>.from(persisted);
 
@@ -44,11 +46,11 @@ class _FakeQuestionRepository extends Fake implements QuestionRepository {
   int persistedCalls = 0;
 
   @override
-  Future<List<PersistedQuestion>> getPersistedQuestionsByBank(
+  Future<List<QuestionPresentationRead>> listQuestionsForBank(
     String bankName,
   ) async {
     persistedCalls++;
-    return List<PersistedQuestion>.from(persisted);
+    return questionPresentationReadsFrom(persisted);
   }
 }
 
@@ -261,7 +263,7 @@ class _Harness {
           ),
           child: QuestionListScreen(
             bankName: _bankName,
-            questionRepository: repository,
+            questionListQuery: repository,
           ),
         ),
       ),

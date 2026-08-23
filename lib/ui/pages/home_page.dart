@@ -7,7 +7,11 @@ import 'practice_page.dart';
 import 'task_center_screen.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
-import '../../application/questions/question_presentation_port.dart';
+import '../../application/questions/folder_query_port.dart';
+import '../../application/questions/question_bank_mutation_command.dart';
+import '../../application/questions/question_list_query_port.dart';
+import '../../application/questions/question_mutation_command.dart';
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../domain/study_plan/active_study_plan.dart';
@@ -31,7 +35,11 @@ class HomePage extends StatefulWidget {
     this.onSwitchBank,
     this.onPracticeRequested,
     this.onImportRequested,
-    this.questionRepository,
+    this.questionListQuery,
+    this.questionMutationPersistence,
+    this.typedAnswerPersistence,
+    this.questionBankMutationPersistence,
+    this.folderQuery,
     this.importCommitService,
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
@@ -43,7 +51,11 @@ class HomePage extends StatefulWidget {
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
-  final QuestionPresentationPort? questionRepository;
+  final QuestionListQueryPort? questionListQuery;
+  final QuestionMutationPersistencePort? questionMutationPersistence;
+  final TypedAnswerPersistencePort? typedAnswerPersistence;
+  final QuestionBankMutationPersistencePort? questionBankMutationPersistence;
+  final FolderQueryPort? folderQuery;
   final ImportCommitService? importCommitService;
 
   /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
@@ -245,7 +257,7 @@ class _HomePageState extends State<HomePage> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => TaskCenterScreen(
-                      questionRepository: widget.questionRepository,
+                      folderQuery: widget.folderQuery,
                       commitService: widget.importCommitService,
                     ),
                   ),
@@ -1386,7 +1398,11 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(
           builder: (_) => BankDetailScreen(
                 bankName: _currentBank,
-                questionRepository: widget.questionRepository,
+                questionListQuery: widget.questionListQuery,
+                questionMutationPersistence: widget.questionMutationPersistence,
+                typedAnswerPersistence: widget.typedAnswerPersistence,
+                questionBankMutationPersistence:
+                    widget.questionBankMutationPersistence,
               )),
     ).then((_) => _loadContext());
   }

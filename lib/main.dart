@@ -19,7 +19,11 @@ import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'application/agent/agent_retrieval_tool.dart';
 import 'application/answers/ai_answer_commit_command.dart';
 import 'application/answers/ai_answer_generation.dart';
-import 'application/questions/question_presentation_port.dart';
+import 'application/questions/folder_query_port.dart';
+import 'application/questions/question_bank_mutation_command.dart';
+import 'application/questions/question_list_query_port.dart';
+import 'application/questions/question_mutation_command.dart';
+import 'application/safe_write/typed_answer_command.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
@@ -457,7 +461,11 @@ void main() {
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
             examMutationCommand: examMutationCommand,
-            questionRepository: questionRepository,
+            questionListQuery: questionRepository,
+            questionMutationPersistence: questionRepository,
+            typedAnswerPersistence: questionRepository,
+            questionBankMutationPersistence: questionRepository,
+            folderQuery: questionRepository,
             u1WorkspaceFacade: u1WorkspaceFacade,
             conversationService: conversationService,
             agentSettingsService: agentSettingsService,
@@ -501,7 +509,11 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
-    required this.questionRepository,
+    required this.questionListQuery,
+    required this.questionMutationPersistence,
+    required this.typedAnswerPersistence,
+    required this.questionBankMutationPersistence,
+    required this.folderQuery,
     required this.u1WorkspaceFacade,
     required this.conversationService,
     required this.agentSettingsService,
@@ -527,7 +539,11 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
   final ExamMutationCommand examMutationCommand;
-  final QuestionPresentationPort questionRepository;
+  final QuestionListQueryPort questionListQuery;
+  final QuestionMutationPersistencePort questionMutationPersistence;
+  final TypedAnswerPersistencePort typedAnswerPersistence;
+  final QuestionBankMutationPersistencePort questionBankMutationPersistence;
+  final FolderQueryPort folderQuery;
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
@@ -560,7 +576,11 @@ class ShirohaQuizApp extends StatelessWidget {
             conversationService: conversationService,
             agentSettingsService: agentSettingsService,
             startAgentTurn: startAgentTurn,
-            questionRepository: questionRepository,
+            questionListQuery: questionListQuery,
+            questionMutationPersistence: questionMutationPersistence,
+            typedAnswerPersistence: typedAnswerPersistence,
+            questionBankMutationPersistence: questionBankMutationPersistence,
+            folderQuery: folderQuery,
             importCommitService: importCommitService,
             startRetrievalTurn: startRetrievalTurn,
             proposalService: proposalService,

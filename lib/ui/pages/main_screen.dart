@@ -8,7 +8,11 @@ import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
-import '../../application/questions/question_presentation_port.dart';
+import '../../application/questions/folder_query_port.dart';
+import '../../application/questions/question_bank_mutation_command.dart';
+import '../../application/questions/question_list_query_port.dart';
+import '../../application/questions/question_mutation_command.dart';
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
@@ -23,7 +27,11 @@ class MainScreen extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
-    this.questionRepository,
+    this.questionListQuery,
+    this.questionMutationPersistence,
+    this.typedAnswerPersistence,
+    this.questionBankMutationPersistence,
+    this.folderQuery,
     this.importCommitService,
     this.startRetrievalTurn,
     this.proposalService,
@@ -39,7 +47,11 @@ class MainScreen extends StatefulWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
-  final QuestionPresentationPort? questionRepository;
+  final QuestionListQueryPort? questionListQuery;
+  final QuestionMutationPersistencePort? questionMutationPersistence;
+  final TypedAnswerPersistencePort? typedAnswerPersistence;
+  final QuestionBankMutationPersistencePort? questionBankMutationPersistence;
+  final FolderQueryPort? folderQuery;
   final ImportCommitService? importCommitService;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
@@ -76,7 +88,11 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       HomePage(
-        questionRepository: widget.questionRepository,
+        questionListQuery: widget.questionListQuery,
+        questionMutationPersistence: widget.questionMutationPersistence,
+        typedAnswerPersistence: widget.typedAnswerPersistence,
+        questionBankMutationPersistence: widget.questionBankMutationPersistence,
+        folderQuery: widget.folderQuery,
         importCommitService: widget.importCommitService,
         studyPlanSelectionService: widget.studyPlanSelectionService,
         studyPlanCommandService: widget.studyPlanCommandService,

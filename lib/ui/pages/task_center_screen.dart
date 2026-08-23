@@ -8,7 +8,7 @@ import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_diagnostic_summary.dart';
 import '../../services/import_pipeline/import_task_coordinator.dart';
 import '../../services/task_manager.dart';
-import '../../application/questions/question_presentation_port.dart';
+import '../../application/questions/folder_query_port.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../../services/import_review/import_commit_service.dart';
 import 'import_staging_screen.dart';
@@ -29,7 +29,7 @@ class TaskCenterScreen extends StatefulWidget {
     this.taskManager,
     this.taskCoordinator,
     this.retryFilePicker,
-    this.questionRepository,
+    this.folderQuery,
     this.commitService,
   });
 
@@ -38,7 +38,7 @@ class TaskCenterScreen extends StatefulWidget {
   final TaskManager? taskManager;
   final ImportTaskCoordinator? taskCoordinator;
   final TaskCenterRetryFilePicker? retryFilePicker;
-  final QuestionPresentationPort? questionRepository;
+  final FolderQueryPort? folderQuery;
   final ImportCommitService? commitService;
 
   @override
@@ -521,7 +521,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
           return ImportStagingScreen(
             taskId: task.id,
             parsedQuestions: task.parsedData!,
-            questionRepository: widget.questionRepository,
+            folderQuery: widget.folderQuery,
             commitService: widget.commitService,
             warnings: task.warnings,
             diagnostics: task.diagnostics,

@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
+import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 
-class FakeQuestionRepository extends Fake implements QuestionRepository {
-  List<QuestionDraft> savedQuestions = [];
-  String? savedBankName;
-  String? savedFolderName;
+class FakeQuestionRepository extends Fake
+    implements QuestionRepository, FolderQueryPort {
+  List<QuestionDraft> savedQuestions = <QuestionDraft>[];
 
   @override
-  Future<List<String>> getAvailableFolders() async => ['Folder A'];
+  Future<List<String>> listAvailableFolders() async => ['Folder A'];
+
+  @override
+  Future<List<String>> getAvailableFolders() => listAvailableFolders();
 
   @override
   Future<void> saveQuestionDraftsToBank({
@@ -18,8 +22,6 @@ class FakeQuestionRepository extends Fake implements QuestionRepository {
     required String? folderName,
     required List<QuestionDraft> questions,
   }) async {
-    savedBankName = bankName;
-    savedFolderName = folderName;
     savedQuestions = questions;
   }
 }
@@ -37,7 +39,10 @@ void main() {
         home: Scaffold(
           body: ImportStagingScreen(
             parsedQuestions: parsedQuestions,
-            questionRepository: fakeRepo,
+            folderQuery: fakeRepo,
+            commitService: ImportCommitService(
+              questionRepository: fakeRepo,
+            ),
           ),
         ),
       );

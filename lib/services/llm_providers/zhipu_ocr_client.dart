@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../data/models/ai_engine_profile.dart';
@@ -12,6 +13,10 @@ import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
 
 typedef OcrDnsResolver = Future<List<InternetAddress>> Function(String host);
+typedef OcrRemoteCropClientFactory = http.Client Function(
+  Uri uri,
+  InternetAddress approvedAddress,
+);
 
 class ZhipuOcrAuthenticationException implements Exception {
   const ZhipuOcrAuthenticationException();
@@ -34,10 +39,12 @@ class ZhipuOcrClient implements OcrDocumentClient {
     http.Client? httpClient,
     this.pdfPageChunkSize = 30,
     OcrDnsResolver? dnsResolver,
+    OcrRemoteCropClientFactory? remoteCropClientFactory,
     this.remoteCropCountLimit = maxRemoteCropCount,
     this.remoteCropTotalBytesLimit = maxRemoteCropTotalBytes,
   })  : _httpClient = httpClient,
-        _dnsResolver = dnsResolver;
+        _dnsResolver = dnsResolver,
+        _remoteCropClientFactory = remoteCropClientFactory;
 
   final http.Client? _httpClient;
   final int pdfPageChunkSize;
@@ -54,6 +61,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
   static const Duration remoteImageTimeout = Duration(seconds: 30);
 
   final OcrDnsResolver? _dnsResolver;
+  final OcrRemoteCropClientFactory? _remoteCropClientFactory;
   final int remoteCropCountLimit;
   final int remoteCropTotalBytesLimit;
 
@@ -99,6 +107,10 @@ class ZhipuOcrClient implements OcrDocumentClient {
     final dataUrl = 'data:$mimeType;base64,${base64Encode(bytes)}';
     final pageCount = isPdf ? _readPdfPageCount(bytes) : 1;
     final chunks = <OcrDocument>[];
+    final remoteCropBudget = _RemoteCropBudget(
+      maxCount: remoteCropCountLimit,
+      maxTotalBytes: remoteCropTotalBytesLimit,
+    );
 
     if (!isPdf || pageCount <= pdfPageChunkSize) {
       chunks.add(
@@ -108,6 +120,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
           sourceName: sourceName,
           timeout: timeout,
           pageOffset: 0,
+          remoteCropBudget: remoteCropBudget,
         ),
       );
     } else {
@@ -122,6 +135,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
             startPage: start,
             endPage: end,
             pageOffset: start - 1,
+            remoteCropBudget: remoteCropBudget,
           ),
         );
       }
@@ -138,6 +152,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
     int? startPage,
     int? endPage,
     required int pageOffset,
+    required _RemoteCropBudget remoteCropBudget,
   }) async {
     final client = _httpClient ?? http.Client();
     try {
@@ -178,8 +193,8 @@ class ZhipuOcrClient implements OcrDocumentClient {
         final normalized = Map<String, dynamic>.from(decoded);
         await _materializeRemoteCropImages(
           normalized,
-          client: client,
           requestTimeout: timeout,
+          budget: remoteCropBudget,
         );
         return OcrDocument.fromLayoutParsingResponse(
           normalized,
@@ -200,14 +215,9 @@ class ZhipuOcrClient implements OcrDocumentClient {
 
   Future<void> _materializeRemoteCropImages(
     Map<String, dynamic> response, {
-    required http.Client client,
     required Duration requestTimeout,
+    required _RemoteCropBudget budget,
   }) async {
-    final budget = _RemoteCropBudget(
-      maxCount: remoteCropCountLimit,
-      maxTotalBytes: remoteCropTotalBytesLimit,
-    );
-
     Future<void> visit(dynamic value) async {
       if (value is List) {
         for (final item in value) {
@@ -230,7 +240,6 @@ class ZhipuOcrClient implements OcrDocumentClient {
           String? materialized;
           try {
             materialized = await _downloadRemoteImageAsDataUrl(
-              client,
               uri,
               timeout: _effectiveRemoteImageTimeout(requestTimeout),
               budget: budget,
@@ -256,50 +265,56 @@ class ZhipuOcrClient implements OcrDocumentClient {
   }
 
   Future<String?> _downloadRemoteImageAsDataUrl(
-    http.Client client,
     Uri initialUri, {
     required Duration timeout,
     required _RemoteCropBudget budget,
   }) async {
     var uri = initialUri;
     for (var redirect = 0; redirect <= maxRemoteImageRedirects; redirect++) {
-      if (!await _isSafeRemoteImageUri(uri)) return null;
-      final request = http.Request('GET', uri)..followRedirects = false;
-      final response = await client.send(request).timeout(timeout);
-      if (response.statusCode >= 300 && response.statusCode < 400) {
-        await response.stream.drain<void>();
-        if (redirect == maxRemoteImageRedirects) return null;
-        final location = response.headers['location'];
-        if (location == null || location.trim().isEmpty) return null;
-        uri = uri.resolve(location.trim());
-        continue;
-      }
-      if (response.statusCode != 200) {
-        await response.stream.drain<void>();
-        return null;
-      }
-      final contentLength = response.contentLength;
-      if (contentLength != null && contentLength > maxImageBytes) return null;
-      if (contentLength != null && !budget.canReserveBytes(contentLength)) {
-        throw const _RemoteCropBudgetExceeded();
-      }
+      final approvedAddress = await _resolveSafeRemoteImageAddress(uri);
+      if (approvedAddress == null) return null;
+      final client = _remoteCropClient(uri, approvedAddress);
+      final ownsClient = !identical(client, _httpClient);
+      try {
+        final request = http.Request('GET', uri)..followRedirects = false;
+        final response = await client.send(request).timeout(timeout);
+        if (response.statusCode >= 300 && response.statusCode < 400) {
+          await response.stream.drain<void>();
+          if (redirect == maxRemoteImageRedirects) return null;
+          final location = response.headers['location'];
+          if (location == null || location.trim().isEmpty) return null;
+          uri = uri.resolve(location.trim());
+          continue;
+        }
+        if (response.statusCode != 200) {
+          await response.stream.drain<void>();
+          return null;
+        }
+        final contentLength = response.contentLength;
+        if (contentLength != null && contentLength > maxImageBytes) return null;
+        if (contentLength != null && !budget.canReserveBytes(contentLength)) {
+          throw const _RemoteCropBudgetExceeded();
+        }
 
-      final builder = BytesBuilder(copy: false);
-      var totalBytes = 0;
-      await for (final chunk in response.stream.timeout(timeout)) {
-        totalBytes += chunk.length;
-        if (totalBytes > maxImageBytes) return null;
-        budget.reserveBytes(chunk.length);
-        builder.add(chunk);
+        final builder = BytesBuilder(copy: false);
+        var totalBytes = 0;
+        await for (final chunk in response.stream.timeout(timeout)) {
+          totalBytes += chunk.length;
+          if (totalBytes > maxImageBytes) return null;
+          budget.reserveBytes(chunk.length);
+          builder.add(chunk);
+        }
+        final bytes = builder.takeBytes();
+        if (bytes.isEmpty) return null;
+        final mimeType = _resolveDownloadedImageMime(
+          response.headers['content-type'],
+          bytes,
+        );
+        if (mimeType == null) return null;
+        return 'data:$mimeType;base64,${base64Encode(bytes)}';
+      } finally {
+        if (ownsClient) client.close();
       }
-      final bytes = builder.takeBytes();
-      if (bytes.isEmpty) return null;
-      final mimeType = _resolveDownloadedImageMime(
-        response.headers['content-type'],
-        bytes,
-      );
-      if (mimeType == null) return null;
-      return 'data:$mimeType;base64,${base64Encode(bytes)}';
     }
     return null;
   }
@@ -310,13 +325,13 @@ class ZhipuOcrClient implements OcrDocumentClient {
         : remoteImageTimeout;
   }
 
-  Future<bool> _isSafeRemoteImageUri(Uri uri) async {
+  Future<InternetAddress?> _resolveSafeRemoteImageAddress(Uri uri) async {
     if (uri.scheme.toLowerCase() != 'https' ||
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         uri.fragment.isNotEmpty ||
         (uri.hasPort && uri.port != 443)) {
-      return false;
+      return null;
     }
     final host = uri.host.toLowerCase();
     if (InternetAddress.tryParse(host) != null ||
@@ -330,18 +345,58 @@ class ZhipuOcrClient implements OcrDocumentClient {
         host.endsWith('.test') ||
         host.endsWith('.invalid') ||
         host.endsWith('.example')) {
-      return false;
+      return null;
     }
     try {
       final addresses = await (_dnsResolver ?? InternetAddress.lookup)(host);
-      return addresses.isNotEmpty && addresses.every(_isPublicAddress);
+      if (addresses.isEmpty || !addresses.every(_isPublicAddress)) {
+        return null;
+      }
+      // The approved address is returned to the transport below. The
+      // production transport connects to this exact address while retaining
+      // the original hostname for TLS SNI and certificate verification.
+      return addresses.first;
     } on SocketException {
-      return false;
+      return null;
     } on OSError {
-      return false;
+      return null;
     } on FormatException {
-      return false;
+      return null;
     }
+  }
+
+  http.Client _remoteCropClient(Uri uri, InternetAddress approvedAddress) {
+    final factory = _remoteCropClientFactory;
+    if (factory != null) return factory(uri, approvedAddress);
+
+    // Injected clients are deterministic test transports. The production
+    // composition uses the const client with no injected transport and takes
+    // the bound-socket path below.
+    final injected = _httpClient;
+    if (injected != null) return injected;
+
+    final secureClient = HttpClient();
+    secureClient.findProxy = (_) => 'DIRECT';
+    secureClient.connectionFactory = (url, proxyHost, proxyPort) async {
+      if (proxyHost != null ||
+          proxyPort != null ||
+          url.host != uri.host ||
+          url.port != uri.port) {
+        return Future<ConnectionTask<Socket>>.error(
+          const SocketException('remote crop connection target rejected'),
+        );
+      }
+
+      final rawTask = await Socket.startConnect(approvedAddress, uri.port);
+      final secureFuture = rawTask.socket.then<Socket>(
+        (socket) => SecureSocket.secure(socket, host: uri.host),
+      );
+      return ConnectionTask.fromSocket<Socket>(
+        secureFuture,
+        rawTask.cancel,
+      );
+    };
+    return IOClient(secureClient);
   }
 
   bool _isPublicAddress(InternetAddress address) {
@@ -372,7 +427,8 @@ class ZhipuOcrClient implements OcrDocumentClient {
       return false;
     }
     final allZero = bytes.every((byte) => byte == 0);
-    final loopback = allZero && bytes[15] == 1;
+    final loopback =
+        bytes.take(15).every((byte) => byte == 0) && bytes[15] == 1;
     final uniqueLocal = (bytes[0] & 0xfe) == 0xfc;
     final linkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80;
     final multicast = bytes[0] == 0xff;

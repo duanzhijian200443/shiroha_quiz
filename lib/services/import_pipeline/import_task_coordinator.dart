@@ -830,14 +830,32 @@ class ImportTaskCoordinator {
     final store = _contentAssetStore;
     if (store == null || lease == null || lease.localAssetIds.isEmpty) return;
     try {
-      await store.deleteCandidateAssets(lease);
+      final outcome = await store.deleteCandidateAssets(lease);
+      if (outcome.failedCount > 0) {
+        AppLogger.warning(
+          'Candidate asset rollback did not complete',
+          module: 'Import',
+          data: <String, Object?>{
+            'stage': 'candidate_asset_rollback',
+            'code': 'candidate_asset_rollback_incomplete',
+            'status': 'incomplete',
+            'deletedCount': outcome.deletedCount,
+            'missingCount': outcome.missingCount,
+            'failedCount': outcome.failedCount,
+          },
+        );
+      }
     } catch (_) {
       AppLogger.warning(
         'Candidate asset rollback did not complete',
         module: 'Import',
-        data: const <String, Object?>{
+        data: <String, Object?>{
           'stage': 'candidate_asset_rollback',
-          'status': 'failed',
+          'code': 'candidate_asset_rollback_incomplete',
+          'status': 'incomplete',
+          'deletedCount': 0,
+          'missingCount': 0,
+          'failedCount': lease.localAssetIds.length,
         },
       );
     }

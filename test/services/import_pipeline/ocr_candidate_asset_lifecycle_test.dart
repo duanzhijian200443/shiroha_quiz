@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
@@ -103,6 +105,73 @@ void main() {
     );
   });
 
+  test('incomplete rollback emits a fixed count-only diagnostic', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture();
+    final region = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(region.single).question;
+    final batch = buildOcrTypedCandidateBatch(
+      document: fixture,
+      regions: region,
+      legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
+      uuidV4Factory: _uuidSequence(),
+      assetStore: store,
+    );
+    final finalQuestion = Map<String, dynamic>.from(legacyQuestion)
+      ..['explanation'] = 'different final explanation';
+    final sink = _MemoryLogSink();
+    AppLogger.setSink(sink);
+    addTearDown(() => AppLogger.setSink(null));
+    final pipeline = ImportPipelineService.forTesting(
+      taskManager: TaskManager.forTesting(),
+      contentAssetStore: _IncompleteRollbackStore(store),
+      textParser: (_, {required taskId, required isMarkdown}) async => const [],
+      visionParser: (_) async => const [],
+      ocrParser: ({
+        required filePath,
+        required sourceName,
+        required format,
+        required explanationRetentionMode,
+      }) async {
+        return OcrImportResult(
+          usedOcr: true,
+          questions: <Map<String, dynamic>>[finalQuestion],
+          warnings: const <String>[],
+          diagnostics: const <String, dynamic>{},
+          typedCandidateBatch: batch,
+        );
+      },
+    );
+
+    await pipeline.parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['fixture.png'],
+        fileNames: <String>['fixture.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-incomplete-rollback',
+      ),
+    );
+    await AppLogger.flush();
+
+    final records = sink.records
+        .where(
+          (record) =>
+              record.data['code'] == 'candidate_asset_rollback_incomplete',
+        )
+        .toList();
+    expect(records, hasLength(1));
+    expect(records.single.data['status'], 'incomplete');
+    expect(records.single.data['deletedCount'], 0);
+    expect(records.single.data['missingCount'], 0);
+    expect(records.single.data['failedCount'], 1);
+    expect(
+      records.single.toJson().toString(),
+      isNot(contains('fixture.png')),
+    );
+  });
+
   test(
       'candidate lease excludes pre-existing identity and rollback is idempotent',
       () async {
@@ -128,8 +197,15 @@ void main() {
 
     expect(batch.candidateAssetLease, isNotNull);
     expect(batch.candidateAssetLease!.localAssetIds, isEmpty);
-    await store.deleteCandidateAssets(batch.candidateAssetLease!);
-    await store.deleteCandidateAssets(batch.candidateAssetLease!);
+    final firstRollback =
+        await store.deleteCandidateAssets(batch.candidateAssetLease!);
+    final secondRollback =
+        await store.deleteCandidateAssets(batch.candidateAssetLease!);
+    expect(firstRollback.isComplete, isTrue);
+    expect(secondRollback.isComplete, isTrue);
+    expect(firstRollback.deletedCount, 0);
+    expect(firstRollback.missingCount, 0);
+    expect(firstRollback.failedCount, 0);
     expect(
       store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
       bytes,
@@ -358,4 +434,80 @@ String Function() _uuidSequence() {
   final values = <String>[_sourceId, _questionId, _reviewId];
   var index = 0;
   return () => values[index++];
+}
+
+final class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
+}
+
+final class _IncompleteRollbackStore implements ContentAssetStore {
+  _IncompleteRollbackStore(this._delegate);
+
+  final ManagedContentAssetStore _delegate;
+
+  @override
+  String storageKey({required String sourceId, required String localAssetId}) =>
+      _delegate.storageKey(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<ContentAssetWriteResult> storeBytes({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) =>
+      _delegate.storeBytes(
+        sourceId: sourceId,
+        localAssetId: localAssetId,
+        bytes: bytes,
+        mimeType: mimeType,
+      );
+
+  @override
+  ContentAssetWriteResult storeBytesSync({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) =>
+      _delegate.storeBytesSync(
+        sourceId: sourceId,
+        localAssetId: localAssetId,
+        bytes: bytes,
+        mimeType: mimeType,
+      );
+
+  @override
+  Future<ContentAssetRollbackResult> deleteCandidateAssets(
+    ContentAssetCandidateLease lease,
+  ) async =>
+      const ContentAssetRollbackResult(failedCount: 1);
+
+  @override
+  List<int>? readAssetBytes({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      _delegate.readAssetBytes(
+        sourceId: sourceId,
+        localAssetId: localAssetId,
+      );
+
+  @override
+  Future<bool> assetExists({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      _delegate.assetExists(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<List<ContentAssetRecord>> listAssets() => _delegate.listAssets();
 }
