@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -335,6 +336,121 @@ void main() {
       );
       expect(privateTarget.flattenedBlocks.single.imagePayload, isNull);
       expect(privateTarget.flattenedBlocks.single.text, '[图片]');
+    });
+
+    test('redirect response bodies are cancelled at a bounded discard limit',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-hostile-redirect');
+      addTearDown(() => file.deleteSync());
+      final hostileBodies = <StreamController<List<int>>>[];
+      addTearDown(() async {
+        for (final body in hostileBodies) {
+          await body.close();
+        }
+      });
+      var cropCalls = 0;
+      var hostileBodyCancelled = false;
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          return http.Response(
+            jsonEncode(
+              _cropResponse(
+                count: 1,
+                url: 'https://cdn.example.com/hostile-redirect.png',
+              ),
+            ),
+            200,
+          );
+        }),
+        remoteCropClientFactory: (_, __) => _StreamedCropClient(() {
+          cropCalls++;
+          if (cropCalls == 1) {
+            final body = StreamController<List<int>>();
+            body.onCancel = () => hostileBodyCancelled = true;
+            hostileBodies.add(body);
+            body.add(
+              List<int>.filled(
+                ZhipuOcrClient.maxRemoteResponseDiscardBytes + 1,
+                0,
+              ),
+            );
+            return http.StreamedResponse(
+              body.stream,
+              302,
+              headers: const <String, String>{
+                'location': 'https://final.example.com/final.png',
+              },
+            );
+          }
+          return http.StreamedResponse(
+            Stream<List<int>>.fromIterable(<List<int>>[_validCropPng]),
+            200,
+            headers: const <String, String>{'content-type': 'image/png'},
+          );
+        }),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+        remoteCropCountLimit: 1,
+        remoteCropTotalBytesLimit: _validCropPng.length,
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+
+      expect(document.flattenedBlocks.single.imagePayload, isNotNull);
+      expect(cropCalls, 2);
+      expect(hostileBodyCancelled, isTrue);
+    });
+
+    test('error response bodies are cancelled at a bounded discard limit',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-hostile-error');
+      addTearDown(() => file.deleteSync());
+      final hostileBody = StreamController<List<int>>();
+      addTearDown(hostileBody.close);
+      var bodyCancelled = false;
+      hostileBody.onCancel = () => bodyCancelled = true;
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          return http.Response(
+            jsonEncode(
+              _cropResponse(
+                count: 1,
+                url: 'https://cdn.example.com/hostile-error.png',
+              ),
+            ),
+            200,
+          );
+        }),
+        remoteCropClientFactory: (_, __) => _StreamedCropClient(() {
+          hostileBody.add(
+            List<int>.filled(
+              ZhipuOcrClient.maxRemoteResponseDiscardBytes + 1,
+              0,
+            ),
+          );
+          return http.StreamedResponse(hostileBody.stream, 500);
+        }),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+        remoteCropCountLimit: 1,
+        remoteCropTotalBytesLimit: _validCropPng.length,
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+
+      expect(document.flattenedBlocks.single.imagePayload, isNull);
+      expect(document.flattenedBlocks.single.text, '[图片]');
+      expect(bodyCancelled, isTrue);
     });
 
     test(
@@ -801,4 +917,18 @@ void main() {
       );
     });
   });
+}
+
+final class _StreamedCropClient extends http.BaseClient {
+  _StreamedCropClient(this._responseFactory);
+
+  final http.StreamedResponse Function() _responseFactory;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    return _responseFactory();
+  }
+
+  @override
+  void close() {}
 }

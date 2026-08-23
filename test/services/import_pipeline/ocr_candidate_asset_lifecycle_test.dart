@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
+import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
@@ -20,6 +21,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 
 const _sourceId = '11111111-1111-4111-8111-111111111111';
+const _secondSourceId = '44444444-4444-4444-8444-444444444444';
 const _questionId = '22222222-2222-4222-8222-222222222222';
 const _reviewId = '33333333-3333-4333-8333-333333333333';
 const _pngDataUrl = 'data:image/png;base64,'
@@ -101,6 +103,348 @@ void main() {
     expect(result.storageReason, 'typed_candidate_raw_explanation_diverged');
     expect(
       store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+  });
+
+  test('multi-file OCR rolls back every candidate lease on legacy fallback',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixtureA = _fixture();
+    final regionA = const OcrQuestionRegionizer().regionize(fixtureA).regions;
+    final legacyA =
+        const OcrQuestionAssembler().assemble(regionA.single).question;
+    final batchA = buildOcrTypedCandidateBatch(
+      document: fixtureA,
+      regions: regionA,
+      legacyQuestions: <Map<String, dynamic>>[legacyA],
+      uuidV4Factory: _uuidSequence(),
+      assetStore: store,
+    );
+    final fixtureB = _fixture(number: 2);
+    final regionB = const OcrQuestionRegionizer().regionize(fixtureB).regions;
+    final legacyB =
+        const OcrQuestionAssembler().assemble(regionB.single).question;
+    final batchB = buildOcrTypedCandidateBatch(
+      document: fixtureB,
+      regions: regionB,
+      legacyQuestions: <Map<String, dynamic>>[legacyB],
+      uuidV4Factory: _uuidSequence(
+        sourceId: _secondSourceId,
+        questionId: '55555555-5555-4555-8555-555555555555',
+        reviewId: '66666666-6666-4666-8666-666666666666',
+      ),
+      assetStore: store,
+    );
+
+    var parserCalls = 0;
+    final pipeline = ImportPipelineService.forTesting(
+      taskManager: TaskManager.forTesting(),
+      contentAssetStore: store,
+      textParser: (_, {required taskId, required isMarkdown}) async => const [],
+      visionParser: (_) async => const [],
+      ocrParser: ({
+        required filePath,
+        required sourceName,
+        required format,
+        required explanationRetentionMode,
+      }) async {
+        final isFirst = parserCalls++ == 0;
+        return OcrImportResult(
+          usedOcr: true,
+          questions: <Map<String, dynamic>>[isFirst ? legacyA : legacyB],
+          warnings: const <String>[],
+          diagnostics: const <String, dynamic>{},
+          typedCandidateBatch: isFirst ? batchA : batchB,
+        );
+      },
+    );
+
+    final result = await pipeline.parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['first.png', 'second.png'],
+        fileNames: <String>['first.png', 'second.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-multi-file-fallback',
+      ),
+    );
+
+    expect(result.storageRoute, ImportStorageRoute.legacyV1);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+    expect(
+      store.readAssetBytes(
+        sourceId: _secondSourceId,
+        localAssetId: 'img_001',
+      ),
+      isNull,
+    );
+  });
+
+  test('quality-gate empty result rolls back the acquired candidate lease',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture();
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final batch = _buildBatch(
+      fixture,
+      legacyQuestion,
+      store,
+    );
+
+    final pipeline = ImportPipelineService.forTesting(
+      taskManager: TaskManager.forTesting(),
+      contentAssetStore: store,
+      textParser: (_, {required taskId, required isMarkdown}) async => const [],
+      visionParser: (_) async => const [],
+      ocrParser: ({
+        required filePath,
+        required sourceName,
+        required format,
+        required explanationRetentionMode,
+      }) async {
+        return OcrImportResult(
+          usedOcr: true,
+          questions: const <Map<String, dynamic>>[],
+          warnings: const <String>[],
+          diagnostics: const <String, dynamic>{},
+          typedCandidateBatch: batch,
+        );
+      },
+    );
+
+    final result = await pipeline.parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['empty.png'],
+        fileNames: <String>['empty.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-quality-empty',
+      ),
+    );
+
+    expect(result.questions, isEmpty);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+  });
+
+  test('post-acquisition merger exception rolls back every candidate lease',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixtureA = _fixture();
+    final regionsA = const OcrQuestionRegionizer().regionize(fixtureA).regions;
+    final legacyA =
+        const OcrQuestionAssembler().assemble(regionsA.single).question;
+    final batchA = _buildBatch(fixtureA, legacyA, store);
+    final fixtureB = _fixture(number: 2);
+    final regionsB = const OcrQuestionRegionizer().regionize(fixtureB).regions;
+    final legacyB =
+        const OcrQuestionAssembler().assemble(regionsB.single).question;
+    final batchB = buildOcrTypedCandidateBatch(
+      document: fixtureB,
+      regions: regionsB,
+      legacyQuestions: <Map<String, dynamic>>[legacyB],
+      uuidV4Factory: _uuidSequence(
+        sourceId: _secondSourceId,
+        questionId: '55555555-5555-4555-8555-555555555555',
+        reviewId: '66666666-6666-4666-8666-666666666666',
+      ),
+      assetStore: store,
+    );
+    var parserCalls = 0;
+    final pipeline = ImportPipelineService.forTesting(
+      taskManager: TaskManager.forTesting(),
+      contentAssetStore: store,
+      questionMerger: (_) async => throw const FormatException(
+        'synthetic merger failure',
+      ),
+      textParser: (_, {required taskId, required isMarkdown}) async => const [],
+      visionParser: (_) async => const [],
+      ocrParser: ({
+        required filePath,
+        required sourceName,
+        required format,
+        required explanationRetentionMode,
+      }) async {
+        final isFirst = parserCalls++ == 0;
+        return OcrImportResult(
+          usedOcr: true,
+          questions: <Map<String, dynamic>>[isFirst ? legacyA : legacyB],
+          warnings: const <String>[],
+          diagnostics: const <String, dynamic>{},
+          typedCandidateBatch: isFirst ? batchA : batchB,
+        );
+      },
+    );
+
+    await expectLater(
+      pipeline.parseFiles(
+        const ImportParseRequest(
+          filePaths: <String>['first.png', 'second.png'],
+          fileNames: <String>['first.png', 'second.png'],
+          mode: ImportParseMode.ocr,
+          maxConcurrency: 1,
+          taskId: 'lifecycle-merger-exception',
+        ),
+      ),
+      throwsA(isA<FormatException>()),
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+    expect(
+      store.readAssetBytes(
+        sourceId: _secondSourceId,
+        localAssetId: 'img_001',
+      ),
+      isNull,
+    );
+  });
+
+  test('typed success prunes decorative candidate assets', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture(includeDecorativeImages: true);
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final batch = _buildBatch(fixture, legacyQuestion, store);
+    expect(batch.candidateAssetLease?.localAssetIds,
+        containsAll(<String>['logo', 'img_001', 'footer']));
+
+    final pipeline = _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[legacyQuestion],
+    );
+    final result = await pipeline.parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['decorative.png'],
+        fileNames: <String>['decorative.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-prune-decorative',
+      ),
+    );
+
+    expect(
+      result.storageRoute,
+      ImportStorageRoute.typedV2,
+      reason: 'storageReason=${result.storageReason}',
+    );
+    expect(result.candidateAssetLease?.localAssetIds, <String>['img_001']);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNotNull,
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'logo'),
+      isNull,
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'footer'),
+      isNull,
+    );
+  });
+
+  test('typed success retains multiple reachable candidate images', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture(includeSecondImage: true);
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final batch = _buildBatch(fixture, legacyQuestion, store);
+    final pipeline = _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[legacyQuestion],
+    );
+
+    final result = await pipeline.parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['two-images.png'],
+        fileNames: <String>['two-images.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-prune-multiple-used',
+      ),
+    );
+
+    expect(
+      result.storageRoute,
+      ImportStorageRoute.typedV2,
+      reason: 'storageReason=${result.storageReason}',
+    );
+    expect(
+      result.candidateAssetLease?.localAssetIds,
+      containsAll(<String>['img_001', 'img_002']),
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNotNull,
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_002'),
+      isNotNull,
+    );
+  });
+
+  test('typed pruning never removes a pre-existing asset', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final bytes = OcrImagePayload.fromDataUrl(_pngDataUrl)!.bytes;
+    store.storeBytesSync(
+      sourceId: _sourceId,
+      localAssetId: 'img_001',
+      bytes: bytes,
+      mimeType: 'image/png',
+    );
+    final fixture = _fixture(includeDecorativeImages: true);
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final batch = _buildBatch(fixture, legacyQuestion, store);
+    expect(batch.candidateAssetLease?.localAssetIds,
+        containsAll(<String>['logo', 'footer']));
+    expect(
+        batch.candidateAssetLease?.localAssetIds, isNot(contains('img_001')));
+
+    final result = await _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[legacyQuestion],
+    ).parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['pre-existing.png'],
+        fileNames: <String>['pre-existing.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-prune-pre-existing',
+      ),
+    );
+
+    expect(
+      result.storageRoute,
+      ImportStorageRoute.typedV2,
+      reason: 'storageReason=${result.storageReason}',
+    );
+    expect(result.candidateAssetLease, isNull);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      bytes,
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'logo'),
+      isNull,
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'footer'),
       isNull,
     );
   });
@@ -281,6 +625,103 @@ void main() {
     );
   });
 
+  test('retry invalidState preserves the previous candidate lease', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final bytes = OcrImagePayload.fromDataUrl(_pngDataUrl)!.bytes;
+    store.storeBytesSync(
+      sourceId: _sourceId,
+      localAssetId: 'img_001',
+      bytes: bytes,
+      mimeType: 'image/png',
+    );
+    final manager = TaskManager.forTesting();
+    final task = ImportTask(
+      id: 'retry-invalid-state',
+      title: 'Synthetic invalid state retry',
+      status: TaskStatus.pendingReview,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyParseMode: ImportParseMode.ocr.name,
+        TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptToken: 'retry-invalid-token',
+        TaskManager.keyTraceId: 'retry-invalid-trace',
+        TaskManager.keyAttemptState: ImportAttemptState.readyForReview.name,
+        ImportTaskCoordinator.keyCandidateAssetSourceId: _sourceId,
+        ImportTaskCoordinator.keyCandidateAssetLocalIds: const <String>[
+          'img_001',
+        ],
+      },
+    );
+    manager.tasks.add(task);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: manager.ready,
+      contentAssetStore: store,
+    );
+
+    await expectLater(
+      coordinator.retryOcrTask(
+        taskId: task.id,
+        sourceDescription: 'synthetic.png',
+        parse: (_) async => fail('retry parser must not run'),
+      ),
+      throwsA(isA<ImportTaskRetryRejectedException>()),
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      bytes,
+    );
+  });
+
+  test('retry persistenceFailed preserves the previous candidate lease',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final bytes = OcrImagePayload.fromDataUrl(_pngDataUrl)!.bytes;
+    store.storeBytesSync(
+      sourceId: _sourceId,
+      localAssetId: 'img_001',
+      bytes: bytes,
+      mimeType: 'image/png',
+    );
+    final manager = TaskManager.forTesting(
+      saveTask: (_) async => throw StateError('synthetic retry persistence'),
+    );
+    final task = ImportTask(
+      id: 'retry-persistence-state',
+      title: 'Synthetic persistence failure retry',
+      status: TaskStatus.error,
+      diagnostics: <String, dynamic>{
+        TaskManager.keyParseMode: ImportParseMode.ocr.name,
+        TaskManager.keyAttemptNumber: 1,
+        TaskManager.keyAttemptToken: 'retry-persistence-token',
+        TaskManager.keyTraceId: 'retry-persistence-trace',
+        TaskManager.keyAttemptState: ImportAttemptState.failed.name,
+        ImportTaskCoordinator.keyCandidateAssetSourceId: _sourceId,
+        ImportTaskCoordinator.keyCandidateAssetLocalIds: const <String>[
+          'img_001',
+        ],
+      },
+    );
+    manager.tasks.add(task);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: manager.ready,
+      contentAssetStore: store,
+    );
+
+    await expectLater(
+      coordinator.retryOcrTask(
+        taskId: task.id,
+        sourceDescription: 'synthetic.png',
+        parse: (_) async => fail('retry parser must not run'),
+      ),
+      throwsA(isA<ImportTaskRetryRejectedException>()),
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      bytes,
+    );
+  });
+
   test('retry rolls back the previous attempt namespace before restart',
       () async {
     final store = ManagedContentAssetStore(managedRoot: temp);
@@ -398,20 +839,68 @@ Future<void> _waitForAsset(
       'Synthetic candidate asset did not reach the expected state.');
 }
 
-OcrDocument _fixture() {
+OcrDocument _fixture({
+  int number = 1,
+  bool includeDecorativeImages = false,
+  bool includeSecondImage = false,
+}) {
+  final blocks = <OcrBlock>[];
+  if (includeDecorativeImages) {
+    blocks.add(_block('logo', 'image', _pngDataUrl, 0));
+  }
+  final sectionOrder = includeDecorativeImages ? 1 : 0;
+  final questionOrder = sectionOrder + 1;
+  blocks.add(_block('section', 'text', '三、解答题', sectionOrder));
+  blocks.add(
+    _block(
+      'q_$number',
+      'text',
+      '$number. Prompt before image',
+      questionOrder,
+    ),
+  );
+  blocks.add(_block('img_001', 'image', _pngDataUrl, questionOrder + 1));
+  if (includeSecondImage) {
+    blocks.add(_block('img_002', 'image', _pngDataUrl, questionOrder + 2));
+  }
+  blocks.add(
+    _block(
+      'answer_$number',
+      'text',
+      '答案：synthetic-result-$number',
+      questionOrder + (includeSecondImage ? 3 : 2),
+    ),
+  );
+  blocks.add(
+    _block(
+      'explanation_$number',
+      'text',
+      '解析：Synthetic explanation $number',
+      questionOrder + (includeSecondImage ? 4 : 3),
+    ),
+  );
+  if (includeDecorativeImages) {
+    blocks.add(
+      _block(
+        'section_end',
+        'text',
+        '四、解答题',
+        questionOrder + (includeSecondImage ? 5 : 4),
+      ),
+    );
+    blocks.add(
+      _block(
+        'footer',
+        'image',
+        _pngDataUrl,
+        questionOrder + (includeSecondImage ? 6 : 5),
+      ),
+    );
+  }
   return OcrDocument(
     sourceName: 'synthetic.pdf',
     pages: <OcrPage>[
-      OcrPage(
-        pageIndex: 1,
-        blocks: <OcrBlock>[
-          _block('section', 'text', '三、解答题', 0),
-          _block('q_1', 'text', '1. Prompt before image', 1),
-          _block('img_001', 'image', _pngDataUrl, 2),
-          _block('answer_1', 'text', '答案：synthetic-result-1', 3),
-          _block('explanation_1', 'text', '解析：Synthetic explanation 1', 4),
-        ],
-      ),
+      OcrPage(pageIndex: 1, blocks: blocks),
     ],
     markdown: '',
     rawResponses: const <Map<String, dynamic>>[],
@@ -430,10 +919,56 @@ OcrBlock _block(String id, String type, String text, int order) {
   );
 }
 
-String Function() _uuidSequence() {
-  final values = <String>[_sourceId, _questionId, _reviewId];
+String Function() _uuidSequence({
+  String sourceId = _sourceId,
+  String questionId = _questionId,
+  String reviewId = _reviewId,
+}) {
+  final values = <String>[sourceId, questionId, reviewId];
   var index = 0;
   return () => values[index++];
+}
+
+OcrTypedCandidateBatch _buildBatch(
+  OcrDocument document,
+  Map<String, dynamic> legacyQuestion,
+  ManagedContentAssetStore store,
+) {
+  final regions = const OcrQuestionRegionizer().regionize(document).regions;
+  return buildOcrTypedCandidateBatch(
+    document: document,
+    regions: regions,
+    legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
+    uuidV4Factory: _uuidSequence(),
+    assetStore: store,
+  );
+}
+
+ImportPipelineService _pipelineForSingleBatch({
+  required ManagedContentAssetStore store,
+  required OcrTypedCandidateBatch batch,
+  required List<Map<String, dynamic>> questions,
+}) {
+  return ImportPipelineService.forTesting(
+    taskManager: TaskManager.forTesting(),
+    contentAssetStore: store,
+    textParser: (_, {required taskId, required isMarkdown}) async => const [],
+    visionParser: (_) async => const [],
+    ocrParser: ({
+      required filePath,
+      required sourceName,
+      required format,
+      required explanationRetentionMode,
+    }) async {
+      return OcrImportResult(
+        usedOcr: true,
+        questions: questions,
+        warnings: const <String>[],
+        diagnostics: const <String, dynamic>{},
+        typedCandidateBatch: batch,
+      );
+    },
+  );
 }
 
 final class _MemoryLogSink implements LogSink {

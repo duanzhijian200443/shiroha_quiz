@@ -576,9 +576,9 @@ class ImportTaskCoordinator {
       throw const ImportTaskRetryRejectedException();
     }
     final task = matches.first;
-    if (task.status != TaskStatus.completed) {
-      await _rollbackLeaseFromDiagnostics(task.diagnostics);
-    }
+    final previousLease = task.status != TaskStatus.completed
+        ? _readLeaseFromDiagnostics(task.diagnostics)
+        : null;
     final reservedTraceIds = _taskManager.tasks
         .where((candidate) => candidate.id != taskId)
         .map((candidate) => candidate.traceId)
@@ -613,6 +613,7 @@ class ImportTaskCoordinator {
     if (writeStatus != ImportAttemptWriteStatus.applied) {
       throw const ImportTaskRetryRejectedException();
     }
+    await _rollbackLease(previousLease);
 
     unawaited(Future<void>.microtask(() => _runScheduledTask(
           _ScheduledImportTask(
@@ -864,18 +865,26 @@ class ImportTaskCoordinator {
   Future<void> _rollbackLeaseFromDiagnostics(
     Map<String, dynamic>? diagnostics,
   ) async {
+    await _rollbackLease(_readLeaseFromDiagnostics(diagnostics));
+  }
+
+  ContentAssetCandidateLease? _readLeaseFromDiagnostics(
+    Map<String, dynamic>? diagnostics,
+  ) {
     final sourceId = diagnostics?[keyCandidateAssetSourceId];
     final rawIds = diagnostics?[keyCandidateAssetLocalIds];
     if (sourceId is! String || sourceId.trim().isEmpty || rawIds is! List) {
-      return;
+      return null;
     }
     final localIds = <String>[];
     for (final value in rawIds) {
-      if (value is! String || value.trim().isEmpty) return;
+      if (value is! String || value.trim().isEmpty) return null;
       localIds.add(value);
     }
-    await _rollbackLease(
-      ContentAssetCandidateLease(sourceId: sourceId, localAssetIds: localIds),
+    if (localIds.isEmpty) return null;
+    return ContentAssetCandidateLease(
+      sourceId: sourceId,
+      localAssetIds: localIds,
     );
   }
 

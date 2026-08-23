@@ -6,6 +6,9 @@ import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/repositories/ai_engine_repository.dart';
+import '../../domain/content/content_node.dart';
+import '../../domain/content/rich_content.dart';
+import '../../domain/question/question_draft_v2.dart';
 import '../ai_service.dart';
 import '../task_manager.dart';
 import 'final_question_latex_audit.dart';
@@ -162,338 +165,376 @@ class ImportPipelineService {
     Map<String, dynamic> allDiagnostics = {};
     final taskId = request.taskId;
     OcrTypedCandidateBatch? ocrTypedCandidateBatch;
+    final ownedCandidateLeases = <ContentAssetCandidateLease>[];
 
     bool hasStrictDocxRoute = false;
     bool hasBlockedParse = false;
 
-    for (int fileIdx = 0; fileIdx < request.filePaths.length; fileIdx++) {
-      final filePath = request.filePaths[fileIdx];
-      final format = ImportFileDetector.detect(filePath);
-      List<Map<String, dynamic>> singleFileQuestions = [];
+    try {
+      for (int fileIdx = 0; fileIdx < request.filePaths.length; fileIdx++) {
+        final filePath = request.filePaths[fileIdx];
+        final format = ImportFileDetector.detect(filePath);
+        List<Map<String, dynamic>> singleFileQuestions = [];
 
-      await _updateTaskProgress(
-        taskId,
-        '正在解析第 ${fileIdx + 1}/${request.filePaths.length} 个文件...',
-        0.1 + (fileIdx / request.filePaths.length) * 0.7,
-      );
+        await _updateTaskProgress(
+          taskId,
+          '正在解析第 ${fileIdx + 1}/${request.filePaths.length} 个文件...',
+          0.1 + (fileIdx / request.filePaths.length) * 0.7,
+        );
 
-      final sourceName = request.fileNames.length > fileIdx
-          ? request.fileNames[fileIdx]
-          : filePath.split(Platform.pathSeparator).last;
+        final sourceName = request.fileNames.length > fileIdx
+            ? request.fileNames[fileIdx]
+            : filePath.split(Platform.pathSeparator).last;
 
-      AppLogger.info(
-        'Import file processing started',
-        module: 'ImportPipeline',
-        data: <String, Object?>{'fileIndex': fileIdx, 'format': format.name},
-      );
+        AppLogger.info(
+          'Import file processing started',
+          module: 'ImportPipeline',
+          data: <String, Object?>{'fileIndex': fileIdx, 'format': format.name},
+        );
 
-      switch (request.mode) {
-        case ImportParseMode.text:
-          if (format == ImportFormat.docx) {
-            hasStrictDocxRoute = true;
-            final parsedDoc = await DocxDocumentAdapter.parse(
-              filePath: filePath,
-              sourceName: sourceName,
-            );
-            final rawText = parsedDoc.toPlainTextForParsing(
-              includeImages: false,
-            );
-
-            allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
-            if (!parsedDoc.fallbackUsed &&
-                (parsedDoc.signals.imageCount > 0 ||
-                    parsedDoc.signals.tableCount > 0)) {
-              allDiagnostics['${sourceName}_info'] =
-                  '检测到 ${parsedDoc.signals.tableCount} 个表格、${parsedDoc.signals.imageCount} 张图片。图片仅记录，不再触发题干补充融合。';
-            }
-
-            final docxParseRes = await _docxTextFirstParseService.parseDocxText(
-              rawText: rawText,
-              sourceName: sourceName,
-              taskId: taskId,
-              documentSignals: parsedDoc.signals,
-            );
-
-            allWarnings.addAll(docxParseRes.warnings);
-            allDiagnostics.addAll(docxParseRes.diagnostics);
-            if (docxParseRes.blocked) {
-              hasBlockedParse = true;
-            }
-            if (docxParseRes.diagnostics.containsKey('qualityGate')) {
-              allDiagnostics['qualityGate'] =
-                  docxParseRes.diagnostics['qualityGate'];
-            } else if (docxParseRes.blocked) {
-              allDiagnostics['qualityGate'] = {
-                'blocked': true,
-                'reason': docxParseRes.warnings.isNotEmpty
-                    ? docxParseRes.warnings.first
-                    : 'unknown',
-              };
-            }
-            singleFileQuestions = docxParseRes.questions;
-            break;
-          }
-
-          if (format == ImportFormat.image) {
-            allWarnings.add('文本模式不支持图片文件，请改用视觉或 OCR 模式。');
-            break;
-          }
-
-          final file = File(filePath);
-          String rawText = '';
-          bool isMarkdownFile = false;
-          ParsedDocument? parsedDoc;
-
-          if (format == ImportFormat.pdf) {
-            rawText = await PdfTextExtractorAdapter.extractText(
-              filePath: filePath,
-            );
-            if (rawText.trim().isEmpty) {
-              allWarnings.add('未检测到可提取文字，请改用视觉或 OCR 模式。');
-            }
-          } else {
-            if (format == ImportFormat.zip) {
-              parsedDoc = await ZipDocumentAdapter.parse(
+        switch (request.mode) {
+          case ImportParseMode.text:
+            if (format == ImportFormat.docx) {
+              hasStrictDocxRoute = true;
+              final parsedDoc = await DocxDocumentAdapter.parse(
                 filePath: filePath,
                 sourceName: sourceName,
               );
-              isMarkdownFile = true;
-            } else if (format == ImportFormat.md) {
-              parsedDoc = await MarkdownDocumentAdapter.parse(
-                filePath: filePath,
-                sourceName: sourceName,
+              final rawText = parsedDoc.toPlainTextForParsing(
+                includeImages: false,
               );
-              isMarkdownFile = true;
-            } else if (format == ImportFormat.txt) {
-              parsedDoc = await TxtDocumentAdapter.parse(
-                filePath: filePath,
-                sourceName: sourceName,
-              );
-            } else {
-              rawText = await file.readAsString();
-            }
 
-            if (parsedDoc != null) {
-              rawText = parsedDoc.toPlainTextForParsing();
               allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
-              if (parsedDoc.diagnostics.containsKey('warning')) {
-                allWarnings.add(parsedDoc.diagnostics['warning'].toString());
+              if (!parsedDoc.fallbackUsed &&
+                  (parsedDoc.signals.imageCount > 0 ||
+                      parsedDoc.signals.tableCount > 0)) {
+                allDiagnostics['${sourceName}_info'] =
+                    '检测到 ${parsedDoc.signals.tableCount} 个表格、${parsedDoc.signals.imageCount} 张图片。图片仅记录，不再触发题干补充融合。';
               }
-              if (parsedDoc.diagnostics.containsKey('warnings')) {
-                final warnings = parsedDoc.diagnostics['warnings'];
-                if (warnings is List) {
-                  allWarnings.addAll(warnings.map((e) => e.toString()));
+
+              final docxParseRes =
+                  await _docxTextFirstParseService.parseDocxText(
+                rawText: rawText,
+                sourceName: sourceName,
+                taskId: taskId,
+                documentSignals: parsedDoc.signals,
+              );
+
+              allWarnings.addAll(docxParseRes.warnings);
+              allDiagnostics.addAll(docxParseRes.diagnostics);
+              if (docxParseRes.blocked) {
+                hasBlockedParse = true;
+              }
+              if (docxParseRes.diagnostics.containsKey('qualityGate')) {
+                allDiagnostics['qualityGate'] =
+                    docxParseRes.diagnostics['qualityGate'];
+              } else if (docxParseRes.blocked) {
+                allDiagnostics['qualityGate'] = {
+                  'blocked': true,
+                  'reason': docxParseRes.warnings.isNotEmpty
+                      ? docxParseRes.warnings.first
+                      : 'unknown',
+                };
+              }
+              singleFileQuestions = docxParseRes.questions;
+              break;
+            }
+
+            if (format == ImportFormat.image) {
+              allWarnings.add('文本模式不支持图片文件，请改用视觉或 OCR 模式。');
+              break;
+            }
+
+            final file = File(filePath);
+            String rawText = '';
+            bool isMarkdownFile = false;
+            ParsedDocument? parsedDoc;
+
+            if (format == ImportFormat.pdf) {
+              rawText = await PdfTextExtractorAdapter.extractText(
+                filePath: filePath,
+              );
+              if (rawText.trim().isEmpty) {
+                allWarnings.add('未检测到可提取文字，请改用视觉或 OCR 模式。');
+              }
+            } else {
+              if (format == ImportFormat.zip) {
+                parsedDoc = await ZipDocumentAdapter.parse(
+                  filePath: filePath,
+                  sourceName: sourceName,
+                );
+                isMarkdownFile = true;
+              } else if (format == ImportFormat.md) {
+                parsedDoc = await MarkdownDocumentAdapter.parse(
+                  filePath: filePath,
+                  sourceName: sourceName,
+                );
+                isMarkdownFile = true;
+              } else if (format == ImportFormat.txt) {
+                parsedDoc = await TxtDocumentAdapter.parse(
+                  filePath: filePath,
+                  sourceName: sourceName,
+                );
+              } else {
+                rawText = await file.readAsString();
+              }
+
+              if (parsedDoc != null) {
+                rawText = parsedDoc.toPlainTextForParsing();
+                allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
+                if (parsedDoc.diagnostics.containsKey('warning')) {
+                  allWarnings.add(parsedDoc.diagnostics['warning'].toString());
+                }
+                if (parsedDoc.diagnostics.containsKey('warnings')) {
+                  final warnings = parsedDoc.diagnostics['warnings'];
+                  if (warnings is List) {
+                    allWarnings.addAll(warnings.map((e) => e.toString()));
+                  }
                 }
               }
             }
-          }
 
-          if (rawText.trim().length > 10) {
-            singleFileQuestions = await _textParser(
-              rawText,
-              taskId: taskId,
-              isMarkdown: isMarkdownFile,
-            );
-          }
-          break;
-
-        case ImportParseMode.vision:
-          if (format != ImportFormat.pdf && format != ImportFormat.image) {
-            allWarnings.add('视觉模式仅支持 PDF 或图片文件。');
-            break;
-          }
-
-          final imagePaths = <String>[];
-          if (format == ImportFormat.pdf) {
-            final renderer = const PdfPageImageRenderer();
-            final renderRes = await renderer.renderToImages(
-              filePath: filePath,
-              fileIndex: fileIdx,
-            );
-            imagePaths.addAll(renderRes.imagePaths);
-            allWarnings.addAll(renderRes.warnings);
-            allDiagnostics['pdf_render_file_$fileIdx'] = renderRes.diagnostics;
-          } else {
-            imagePaths.add(filePath);
-          }
-
-          final pagesPerBatch = format == ImportFormat.pdf ? 1 : 4;
-          final batchCount =
-              (imagePaths.length + pagesPerBatch - 1) ~/ pagesPerBatch;
-          TaskManager.instance.appendPendingChunks(
-            taskId,
-            'vision',
-            List.generate(batchCount, (i) => 'batch_${fileIdx}_$i'),
-          );
-
-          final visionRes = await const VisionBatchParseCoordinator().parse(
-            imagePaths: imagePaths,
-            pagesPerBatch: pagesPerBatch,
-            maxConcurrency: request.maxConcurrency,
-            parseBatch: _visionParser,
-            onProgress: (progress, status) {
-              TaskManager.instance.updateProgress(
-                taskId,
-                '文件 ${fileIdx + 1}/${request.filePaths.length} — $status',
-                0.1 +
-                    (fileIdx / request.filePaths.length) * 0.7 +
-                    progress * (0.7 / request.filePaths.length),
+            if (rawText.trim().length > 10) {
+              singleFileQuestions = await _textParser(
+                rawText,
+                taskId: taskId,
+                isMarkdown: isMarkdownFile,
               );
-            },
-            onBatchSuccess: (batchIdx, questions) {
-              final chunkKey = 'batch_${fileIdx}_$batchIdx';
-              TaskManager.instance.markChunkSuccess(
-                taskId,
-                chunkKey,
-                questions,
-              );
-            },
-            onBatchFailed: (batchIdx, error) {
-              final chunkKey = 'batch_${fileIdx}_$batchIdx';
-              TaskManager.instance.markChunkFailed(taskId, chunkKey);
-            },
-            onBatchRetry: (batchIdx, error) {
-              debugPrint(
-                'Vision batch $batchIdx encountered transient error, will retry: $error',
-              );
-            },
-          );
-
-          singleFileQuestions.addAll(visionRes.questions);
-          allWarnings.addAll(visionRes.warnings);
-          allDiagnostics['vision_batch_file_$fileIdx'] = visionRes.diagnostics;
-
-          final pureVisionSourceName = format == ImportFormat.pdf
-              ? 'vision_pdf_page'
-              : 'vision_image_file';
-          final fusion =
-              const ImportQuestionFusionCoordinator().fuseTextAndVision(
-            textQuestions: const [],
-            visionQuestions: singleFileQuestions,
-            sourceName: pureVisionSourceName,
-            repairLatexAfterFusion: false,
-          );
-          final qualityGate = const VisionQuestionQualityGate().evaluate(
-            fusion.questions,
-            sourceName: pureVisionSourceName,
-          );
-          singleFileQuestions = qualityGate.questions;
-          allWarnings.addAll(fusion.warnings);
-          allWarnings.addAll(qualityGate.warnings);
-          allDiagnostics.addAll(fusion.diagnostics);
-          allDiagnostics['vision_quality_gate_file_$fileIdx'] =
-              qualityGate.diagnostics;
-          break;
-
-        case ImportParseMode.ocr:
-          if (format != ImportFormat.pdf && format != ImportFormat.image) {
-            allWarnings.add('OCR 模式仅支持 PDF 或图片文件。');
-            break;
-          }
-
-          final ocrResult = await _ocrParser(
-            filePath: filePath,
-            sourceName: sourceName,
-            format: format,
-            explanationRetentionMode: request.explanationRetentionMode,
-          );
-          if (ocrResult == null) {
-            allWarnings.add('OCR 未能处理当前文件。');
-            break;
-          }
-          ocrTypedCandidateBatch = ocrResult.typedCandidateBatch;
-
-          allWarnings.addAll(ocrResult.warnings);
-          allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
-          if (!ocrResult.usedOcr || ocrResult.questions.isEmpty) {
-            if (ocrResult.warnings.isEmpty) {
-              allWarnings.add('OCR 未能提取到有效题目。');
             }
             break;
-          }
 
-          final ocrQualityGate = const VisionQuestionQualityGate().evaluate(
-            ocrResult.questions,
-            sourceName: 'glm_ocr_intermediate',
-            documentRole: tryParseImportDocumentRole(
-              ocrResult.diagnostics['documentRole'],
-            ),
-          );
-          singleFileQuestions = ocrQualityGate.questions;
-          allWarnings.addAll(ocrQualityGate.warnings);
-          allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
-              ocrQualityGate.diagnostics;
-          allDiagnostics['vision_quality_gate_file_$fileIdx'] =
-              ocrQualityGate.diagnostics;
-          break;
+          case ImportParseMode.vision:
+            if (format != ImportFormat.pdf && format != ImportFormat.image) {
+              allWarnings.add('视觉模式仅支持 PDF 或图片文件。');
+              break;
+            }
+
+            final imagePaths = <String>[];
+            if (format == ImportFormat.pdf) {
+              final renderer = const PdfPageImageRenderer();
+              final renderRes = await renderer.renderToImages(
+                filePath: filePath,
+                fileIndex: fileIdx,
+              );
+              imagePaths.addAll(renderRes.imagePaths);
+              allWarnings.addAll(renderRes.warnings);
+              allDiagnostics['pdf_render_file_$fileIdx'] =
+                  renderRes.diagnostics;
+            } else {
+              imagePaths.add(filePath);
+            }
+
+            final pagesPerBatch = format == ImportFormat.pdf ? 1 : 4;
+            final batchCount =
+                (imagePaths.length + pagesPerBatch - 1) ~/ pagesPerBatch;
+            TaskManager.instance.appendPendingChunks(
+              taskId,
+              'vision',
+              List.generate(batchCount, (i) => 'batch_${fileIdx}_$i'),
+            );
+
+            final visionRes = await const VisionBatchParseCoordinator().parse(
+              imagePaths: imagePaths,
+              pagesPerBatch: pagesPerBatch,
+              maxConcurrency: request.maxConcurrency,
+              parseBatch: _visionParser,
+              onProgress: (progress, status) {
+                TaskManager.instance.updateProgress(
+                  taskId,
+                  '文件 ${fileIdx + 1}/${request.filePaths.length} — $status',
+                  0.1 +
+                      (fileIdx / request.filePaths.length) * 0.7 +
+                      progress * (0.7 / request.filePaths.length),
+                );
+              },
+              onBatchSuccess: (batchIdx, questions) {
+                final chunkKey = 'batch_${fileIdx}_$batchIdx';
+                TaskManager.instance.markChunkSuccess(
+                  taskId,
+                  chunkKey,
+                  questions,
+                );
+              },
+              onBatchFailed: (batchIdx, error) {
+                final chunkKey = 'batch_${fileIdx}_$batchIdx';
+                TaskManager.instance.markChunkFailed(taskId, chunkKey);
+              },
+              onBatchRetry: (batchIdx, error) {
+                debugPrint(
+                  'Vision batch $batchIdx encountered transient error, will retry: $error',
+                );
+              },
+            );
+
+            singleFileQuestions.addAll(visionRes.questions);
+            allWarnings.addAll(visionRes.warnings);
+            allDiagnostics['vision_batch_file_$fileIdx'] =
+                visionRes.diagnostics;
+
+            final pureVisionSourceName = format == ImportFormat.pdf
+                ? 'vision_pdf_page'
+                : 'vision_image_file';
+            final fusion =
+                const ImportQuestionFusionCoordinator().fuseTextAndVision(
+              textQuestions: const [],
+              visionQuestions: singleFileQuestions,
+              sourceName: pureVisionSourceName,
+              repairLatexAfterFusion: false,
+            );
+            final qualityGate = const VisionQuestionQualityGate().evaluate(
+              fusion.questions,
+              sourceName: pureVisionSourceName,
+            );
+            singleFileQuestions = qualityGate.questions;
+            allWarnings.addAll(fusion.warnings);
+            allWarnings.addAll(qualityGate.warnings);
+            allDiagnostics.addAll(fusion.diagnostics);
+            allDiagnostics['vision_quality_gate_file_$fileIdx'] =
+                qualityGate.diagnostics;
+            break;
+
+          case ImportParseMode.ocr:
+            if (format != ImportFormat.pdf && format != ImportFormat.image) {
+              allWarnings.add('OCR 模式仅支持 PDF 或图片文件。');
+              break;
+            }
+
+            final ocrResult = await _ocrParser(
+              filePath: filePath,
+              sourceName: sourceName,
+              format: format,
+              explanationRetentionMode: request.explanationRetentionMode,
+            );
+            if (ocrResult == null) {
+              allWarnings.add('OCR 未能处理当前文件。');
+              break;
+            }
+            ocrTypedCandidateBatch = ocrResult.typedCandidateBatch;
+            final candidateLease = ocrTypedCandidateBatch?.candidateAssetLease;
+            if (candidateLease != null &&
+                candidateLease.localAssetIds.isNotEmpty) {
+              ownedCandidateLeases.add(candidateLease);
+            }
+
+            allWarnings.addAll(ocrResult.warnings);
+            allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
+            if (!ocrResult.usedOcr || ocrResult.questions.isEmpty) {
+              if (ocrResult.warnings.isEmpty) {
+                allWarnings.add('OCR 未能提取到有效题目。');
+              }
+              break;
+            }
+
+            final ocrQualityGate = const VisionQuestionQualityGate().evaluate(
+              ocrResult.questions,
+              sourceName: 'glm_ocr_intermediate',
+              documentRole: tryParseImportDocumentRole(
+                ocrResult.diagnostics['documentRole'],
+              ),
+            );
+            singleFileQuestions = ocrQualityGate.questions;
+            allWarnings.addAll(ocrQualityGate.warnings);
+            allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
+                ocrQualityGate.diagnostics;
+            allDiagnostics['vision_quality_gate_file_$fileIdx'] =
+                ocrQualityGate.diagnostics;
+            break;
+        }
+
+        if (singleFileQuestions.isNotEmpty) {
+          fileResults.add(singleFileQuestions);
+        }
       }
 
-      if (singleFileQuestions.isNotEmpty) {
-        fileResults.add(singleFileQuestions);
+      if (fileResults.length > 1 && !hasStrictDocxRoute && !hasBlockedParse) {
+        await _updateTaskProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
+        final merged = await _questionMerger(fileResults);
+        final sorted = const ImportQuestionFinalSorter().sort(merged);
+        allDiagnostics['final_sort'] = sorted.diagnostics;
+        _attachVisionQualitySummary(allDiagnostics);
+        final finalized = finalizeAndAuditImportQuestions(
+          sorted.questions,
+          mode: request.explanationRetentionMode,
+        );
+        final storage = await _resolveOcrCandidateStorage(
+          request,
+          ocrTypedCandidateBatch,
+          finalized,
+        );
+        final ownershipPlan = _planCandidateAssetRetention(
+          route: storage.route,
+          batch: ocrTypedCandidateBatch,
+        );
+        final transferredLease = ownershipPlan?.retained;
+        final result = ImportParseResult.withStorageMetadata(
+          questions: storage.questions,
+          warnings: allWarnings,
+          diagnostics: allDiagnostics,
+          explanationRetentionMode: request.explanationRetentionMode,
+          storageRoute: storage.route,
+          storageReason: storage.reason,
+          candidateAssetLease: transferredLease,
+        );
+        _commitCandidateAssetOwnership(
+          ownershipPlan,
+          ownedCandidateLeases,
+        );
+        return result;
+      } else if (fileResults.isNotEmpty) {
+        final flattenedQuestions = fileResults.expand((e) => e).toList();
+        final sorted =
+            const ImportQuestionFinalSorter().sort(flattenedQuestions);
+        allDiagnostics['final_sort'] = sorted.diagnostics;
+        _attachVisionQualitySummary(allDiagnostics);
+        final finalized = finalizeAndAuditImportQuestions(
+          sorted.questions,
+          mode: request.explanationRetentionMode,
+        );
+        final storage = await _resolveOcrCandidateStorage(
+          request,
+          ocrTypedCandidateBatch,
+          finalized,
+        );
+        final ownershipPlan = _planCandidateAssetRetention(
+          route: storage.route,
+          batch: ocrTypedCandidateBatch,
+        );
+        final transferredLease = ownershipPlan?.retained;
+        final result = ImportParseResult.withStorageMetadata(
+          questions: storage.questions,
+          warnings: allWarnings,
+          diagnostics: allDiagnostics,
+          blocked: hasBlockedParse,
+          blockReason: _readBlockReason(allDiagnostics),
+          explanationRetentionMode: request.explanationRetentionMode,
+          storageRoute: storage.route,
+          storageReason: storage.reason,
+          candidateAssetLease: transferredLease,
+        );
+        _commitCandidateAssetOwnership(
+          ownershipPlan,
+          ownedCandidateLeases,
+        );
+        return result;
+      } else {
+        if (allWarnings.isEmpty && allDiagnostics.isNotEmpty) {
+          allWarnings.add('解析完成，但未能提取到任何题目。请检查诊断信息。');
+        }
+        return ImportParseResult(
+          questions: [],
+          warnings: allWarnings,
+          diagnostics: allDiagnostics,
+          blocked: hasBlockedParse,
+          blockReason: _readBlockReason(allDiagnostics),
+          explanationRetentionMode: request.explanationRetentionMode,
+        );
       }
-    }
-
-    if (fileResults.length > 1 && !hasStrictDocxRoute && !hasBlockedParse) {
-      await _updateTaskProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
-      final merged = await _questionMerger(fileResults);
-      final sorted = const ImportQuestionFinalSorter().sort(merged);
-      allDiagnostics['final_sort'] = sorted.diagnostics;
-      _attachVisionQualitySummary(allDiagnostics);
-      final finalized = finalizeAndAuditImportQuestions(
-        sorted.questions,
-        mode: request.explanationRetentionMode,
-      );
-      final storage = await _resolveOcrCandidateStorage(
-        request,
-        ocrTypedCandidateBatch,
-        finalized,
-      );
-      return ImportParseResult.withStorageMetadata(
-        questions: storage.questions,
-        warnings: allWarnings,
-        diagnostics: allDiagnostics,
-        explanationRetentionMode: request.explanationRetentionMode,
-        storageRoute: storage.route,
-        storageReason: storage.reason,
-        candidateAssetLease: storage.candidateAssetLease,
-      );
-    } else if (fileResults.isNotEmpty) {
-      final flattenedQuestions = fileResults.expand((e) => e).toList();
-      final sorted = const ImportQuestionFinalSorter().sort(flattenedQuestions);
-      allDiagnostics['final_sort'] = sorted.diagnostics;
-      _attachVisionQualitySummary(allDiagnostics);
-      final finalized = finalizeAndAuditImportQuestions(
-        sorted.questions,
-        mode: request.explanationRetentionMode,
-      );
-      final storage = await _resolveOcrCandidateStorage(
-        request,
-        ocrTypedCandidateBatch,
-        finalized,
-      );
-      return ImportParseResult.withStorageMetadata(
-        questions: storage.questions,
-        warnings: allWarnings,
-        diagnostics: allDiagnostics,
-        blocked: hasBlockedParse,
-        blockReason: _readBlockReason(allDiagnostics),
-        explanationRetentionMode: request.explanationRetentionMode,
-        storageRoute: storage.route,
-        storageReason: storage.reason,
-        candidateAssetLease: storage.candidateAssetLease,
-      );
-    } else {
-      if (allWarnings.isEmpty && allDiagnostics.isNotEmpty) {
-        allWarnings.add('解析完成，但未能提取到任何题目。请检查诊断信息。');
+    } finally {
+      for (final lease in List<ContentAssetCandidateLease>.from(
+        ownedCandidateLeases,
+      )) {
+        await _rollbackCandidateAssets(lease);
       }
-      return ImportParseResult(
-        questions: [],
-        warnings: allWarnings,
-        diagnostics: allDiagnostics,
-        blocked: hasBlockedParse,
-        blockReason: _readBlockReason(allDiagnostics),
-        explanationRetentionMode: request.explanationRetentionMode,
-      );
     }
   }
 
@@ -532,28 +573,95 @@ class ImportPipelineService {
       finalQuestions: finalized,
       singleFile: request.filePaths.length == 1,
     );
-    if (gate.candidateAssetLease != null || batch.candidateAssetLease == null) {
-      return (
-        questions: gate.questions,
-        route: gate.route,
-        reason: gate.reason,
-        candidateAssetLease: gate.candidateAssetLease,
-      );
-    }
-    await _rollbackCandidateAssets(batch.candidateAssetLease);
     return (
       questions: gate.questions,
       route: gate.route,
       reason: gate.reason,
-      candidateAssetLease: null,
+      candidateAssetLease: gate.candidateAssetLease,
     );
   }
 
-  Future<void> _rollbackCandidateAssets(
+  ({
+    ContentAssetCandidateLease original,
+    ContentAssetCandidateLease? retained,
+    ContentAssetCandidateLease? unused,
+  })? _planCandidateAssetRetention({
+    required ImportStorageRoute route,
+    required OcrTypedCandidateBatch? batch,
+  }) {
+    if (route != ImportStorageRoute.typedV2 || batch == null) return null;
+    final original = batch.candidateAssetLease;
+    if (original == null || original.localAssetIds.isEmpty) return null;
+
+    final reachable = <(String sourceId, String localAssetId)>{};
+    void collect(RichContent content) {
+      for (final image in reachableImageNodes(content)) {
+        reachable.add((image.sourceId, image.localAssetId));
+      }
+    }
+
+    for (final candidate in batch.candidates) {
+      final draft = candidate.draft;
+      collect(draft.stem);
+      for (final option in draft.options) {
+        collect(option.content);
+      }
+      final answer = draft.answer;
+      if (answer is ContentAnswer) collect(answer.content);
+      final explanation = draft.explanation;
+      if (explanation != null) collect(explanation);
+    }
+
+    final retainedIds = <String>[];
+    final unusedIds = <String>[];
+    for (final localAssetId in original.localAssetIds) {
+      if (reachable.contains((original.sourceId, localAssetId))) {
+        retainedIds.add(localAssetId);
+      } else {
+        unusedIds.add(localAssetId);
+      }
+    }
+
+    return (
+      original: original,
+      retained: retainedIds.isEmpty
+          ? null
+          : ContentAssetCandidateLease(
+              sourceId: original.sourceId,
+              localAssetIds: retainedIds,
+            ),
+      unused: unusedIds.isEmpty
+          ? null
+          : ContentAssetCandidateLease(
+              sourceId: original.sourceId,
+              localAssetIds: unusedIds,
+            ),
+    );
+  }
+
+  void _commitCandidateAssetOwnership(
+    ({
+      ContentAssetCandidateLease original,
+      ContentAssetCandidateLease? retained,
+      ContentAssetCandidateLease? unused,
+    })? plan,
+    List<ContentAssetCandidateLease> ownedCandidateLeases,
+  ) {
+    if (plan == null) return;
+    ownedCandidateLeases
+        .removeWhere((lease) => identical(lease, plan.original));
+    if (plan.unused != null && plan.unused!.localAssetIds.isNotEmpty) {
+      ownedCandidateLeases.add(plan.unused!);
+    }
+  }
+
+  Future<ContentAssetRollbackResult?> _rollbackCandidateAssets(
     ContentAssetCandidateLease? lease,
   ) async {
     final store = _contentAssetStore;
-    if (store == null || lease == null || lease.localAssetIds.isEmpty) return;
+    if (store == null || lease == null || lease.localAssetIds.isEmpty) {
+      return null;
+    }
     try {
       final outcome = await store.deleteCandidateAssets(lease);
       if (outcome.failedCount > 0) {
@@ -570,6 +678,7 @@ class ImportPipelineService {
           },
         );
       }
+      return outcome;
     } catch (_) {
       AppLogger.warning(
         'Candidate asset rollback did not complete',
@@ -582,6 +691,9 @@ class ImportPipelineService {
           'missingCount': 0,
           'failedCount': lease.localAssetIds.length,
         },
+      );
+      return ContentAssetRollbackResult(
+        failedCount: lease.localAssetIds.length,
       );
     }
   }

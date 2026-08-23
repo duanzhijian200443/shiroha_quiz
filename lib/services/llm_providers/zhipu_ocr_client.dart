@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -58,6 +59,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
   static const int maxRemoteCropCount = RichContentLimits.maxImages;
   static const int maxRemoteCropTotalBytes = 32 * 1024 * 1024;
   static const int maxRemoteImageRedirects = 3;
+  static const int maxRemoteResponseDiscardBytes = 64 * 1024;
   static const Duration remoteImageTimeout = Duration(seconds: 30);
 
   final OcrDnsResolver? _dnsResolver;
@@ -279,7 +281,10 @@ class ZhipuOcrClient implements OcrDocumentClient {
         final request = http.Request('GET', uri)..followRedirects = false;
         final response = await client.send(request).timeout(timeout);
         if (response.statusCode >= 300 && response.statusCode < 400) {
-          await response.stream.drain<void>();
+          await _discardRemoteResponseBodyBounded(
+            response.stream,
+            timeout: timeout,
+          );
           if (redirect == maxRemoteImageRedirects) return null;
           final location = response.headers['location'];
           if (location == null || location.trim().isEmpty) return null;
@@ -287,7 +292,10 @@ class ZhipuOcrClient implements OcrDocumentClient {
           continue;
         }
         if (response.statusCode != 200) {
-          await response.stream.drain<void>();
+          await _discardRemoteResponseBodyBounded(
+            response.stream,
+            timeout: timeout,
+          );
           return null;
         }
         final contentLength = response.contentLength;
@@ -317,6 +325,43 @@ class ZhipuOcrClient implements OcrDocumentClient {
       }
     }
     return null;
+  }
+
+  Future<void> _discardRemoteResponseBodyBounded(
+    Stream<List<int>> stream, {
+    required Duration timeout,
+  }) async {
+    final completed = Completer<void>();
+    late final StreamSubscription<List<int>> subscription;
+    Timer? timer;
+    var discardedBytes = 0;
+
+    void complete() {
+      if (!completed.isCompleted) completed.complete();
+    }
+
+    subscription = stream.listen(
+      (chunk) {
+        discardedBytes += chunk.length;
+        if (discardedBytes >= maxRemoteResponseDiscardBytes) {
+          unawaited(subscription.cancel());
+          complete();
+        }
+      },
+      onError: (_, __) => complete(),
+      onDone: complete,
+    );
+    timer = Timer(timeout, () {
+      unawaited(subscription.cancel());
+      complete();
+    });
+
+    try {
+      await completed.future;
+    } finally {
+      timer.cancel();
+      await subscription.cancel();
+    }
   }
 
   Duration _effectiveRemoteImageTimeout(Duration requestTimeout) {
