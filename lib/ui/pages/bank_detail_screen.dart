@@ -6,6 +6,7 @@ import '../../data/repositories/question_repository.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
+  final QuestionRepository? questionRepository;
 
   @visibleForTesting
   final QuestionBankMutationCommand? questionBankMutation;
@@ -13,6 +14,7 @@ class BankDetailScreen extends StatefulWidget {
   const BankDetailScreen({
     super.key,
     required this.bankName,
+    this.questionRepository,
     this.questionBankMutation,
   });
 
@@ -25,7 +27,9 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
 
   QuestionBankMutationCommand get _questionBankMutation =>
       widget.questionBankMutation ??
-      QuestionBankMutationCommand(QuestionRepository.instance);
+      QuestionBankMutationCommand(
+        widget.questionRepository ?? QuestionRepository.instance,
+      );
 
   void _startPractice(BuildContext context, int? filterType) {
     Navigator.push(
@@ -176,8 +180,10 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                 Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) =>
-                            QuestionListScreen(bankName: widget.bankName)));
+                        builder: (_) => QuestionListScreen(
+                              bankName: widget.bankName,
+                              questionRepository: widget.questionRepository,
+                            )));
               },
             ),
           ),

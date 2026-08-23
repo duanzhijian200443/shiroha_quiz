@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,15 +19,9 @@ void main() {
   });
 
   test('admits provider image bytes as a source-qualified asset part', () {
-    final dataUrl = 'data:image/png;base64,${base64Encode(<int>[
-          137,
-          80,
-          78,
-          71,
-          1,
-          2,
-          3
-        ])}';
+    const dataUrl = 'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
     final document = _document(<OcrBlock>[
       _block('img_001', 'image', dataUrl),
     ]);
@@ -61,6 +54,25 @@ void main() {
     expect(withStore.parts.whereType<UnsupportedSourcePart>(), isEmpty);
   });
 
+  test('rejects image bytes whose signature disagrees with declared MIME', () {
+    const mismatchedDataUrl = 'data:image/png;base64,/9j/4AAQSkZJRg==';
+    expect(OcrImagePayload.fromDataUrl(mismatchedDataUrl), isNull);
+
+    final converted = OcrSourceDocumentAdapter(
+      assetStore: ManagedContentAssetStore(managedRoot: temp),
+    ).convert(
+      _document(<OcrBlock>[
+        _block('image_bad_signature', 'image', mismatchedDataUrl),
+      ]),
+      sourceId: 'source_a',
+    );
+    expect(converted.parts.single, isA<UnsupportedSourcePart>());
+    expect(
+      (converted.parts.single as UnsupportedSourcePart).kindCode,
+      'ocr_image',
+    );
+  });
+
   test('projects a supported provider table into SourceTablePart', () {
     final document = _document(<OcrBlock>[
       _block(
@@ -88,7 +100,9 @@ void main() {
       r'C:\private\crop.png',
       'custom+provider://crop/001',
       'data:image/png;base64,AAAA',
-      List<String>.filled(128, 'A').join(),
+      'prefix https://provider.invalid/crop',
+      r'provider crop at C:\private\crop.png',
+      'iVBORw0KGgo=',
     ];
 
     for (final value in values) {
@@ -102,6 +116,20 @@ void main() {
         '[不支持的内容]',
       );
     }
+  });
+
+  test('does not classify ordinary long text as an image payload', () {
+    const ordinary = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    final converted = const OcrSourceDocumentAdapter().convert(
+      _document(<OcrBlock>[_block('ordinary', 'provider_blob', ordinary)]),
+      sourceId: 'source_a',
+    );
+    final part = converted.parts.single as UnsupportedSourcePart;
+    expect(
+      const RichContentTextProjection().project(part.fallbackContent),
+      ordinary,
+    );
   });
 
   test('markdown fallback also redacts provider locators', () {

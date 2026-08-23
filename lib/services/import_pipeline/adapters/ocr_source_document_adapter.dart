@@ -2,6 +2,7 @@ import '../../../application/content/content_asset_authority.dart';
 import '../../../domain/assets/asset_ref.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
+import '../../../domain/content/rich_content_privacy_admission.dart';
 import '../../../domain/import/import_issue.dart';
 import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
@@ -342,24 +343,9 @@ String _safeStructuralFallback(String value, String placeholder) {
 }
 
 bool _containsUnsafeLocator(String value) {
-  if (value.contains('<') ||
-      RegExp(r'[A-Za-z][A-Za-z0-9+.-]*://', caseSensitive: false)
-          .hasMatch(value) ||
-      RegExp(r'data:[^\s,;]+(?:;[^\s,]*)?,', caseSensitive: false)
-          .hasMatch(value) ||
+  return value.contains('<') ||
       RegExp(r'!?\[[^\]]*\]\([^)]*\)').hasMatch(value) ||
-      RegExp(r'[A-Za-z0-9+/]{128,}={0,2}').hasMatch(value) ||
-      RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*:', caseSensitive: false)
-          .hasMatch(value) ||
-      RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value) ||
-      value.startsWith('/') ||
-      value.startsWith('\\\\') ||
-      (value.length >= 128 &&
-          value.length % 4 == 0 &&
-          RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(value))) {
-    return true;
-  }
-  return false;
+      RichContentPrivacyAdmission.isUnsafeFallbackString(value);
 }
 
 String? _normalizeType(String value) {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,11 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
+
+final _validPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+  '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+);
 
 void main() {
   late Directory temp;
@@ -20,7 +26,7 @@ void main() {
   test('stores source-qualified bytes atomically and resolves after reopen',
       () async {
     final first = ManagedContentAssetStore(managedRoot: temp);
-    final bytes = <int>[137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3];
+    final bytes = List<int>.from(_validPng);
 
     final result = first.storeBytesSync(
       sourceId: 'source_a',
@@ -60,13 +66,13 @@ void main() {
     store.storeBytesSync(
       sourceId: 'source_a',
       localAssetId: 'img_001',
-      bytes: <int>[1, 2, 3],
+      bytes: <int>[..._validPng, 1],
       mimeType: 'image/png',
     );
     store.storeBytesSync(
       sourceId: 'source_b',
       localAssetId: 'img_001',
-      bytes: <int>[4, 5, 6],
+      bytes: <int>[..._validPng, 2],
       mimeType: 'image/png',
     );
 
@@ -77,11 +83,33 @@ void main() {
     );
     expect(
       store.readAssetBytes(sourceId: 'source_a', localAssetId: 'img_001'),
-      <int>[1, 2, 3],
+      <int>[..._validPng, 1],
     );
     expect(
       store.readAssetBytes(sourceId: 'source_b', localAssetId: 'img_001'),
-      <int>[4, 5, 6],
+      <int>[..._validPng, 2],
+    );
+  });
+
+  test('rejects MIME declarations that disagree with image signatures', () {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    expect(
+      () => store.storeBytesSync(
+        sourceId: 'source_a',
+        localAssetId: 'img_001',
+        bytes: <int>[0xff, 0xd8, 0xff, 0xe0],
+        mimeType: 'image/png',
+      ),
+      throwsA(isA<FormatException>()),
+    );
+    expect(
+      () => store.storeBytesSync(
+        sourceId: 'source_a',
+        localAssetId: 'img_002',
+        bytes: <int>[1, 2, 3],
+        mimeType: 'image/png',
+      ),
+      throwsA(isA<FormatException>()),
     );
   });
 
@@ -90,7 +118,7 @@ void main() {
     store.storeBytesSync(
       sourceId: 'source_a',
       localAssetId: 'img_001',
-      bytes: <int>[1, 2, 3],
+      bytes: <int>[..._validPng, 3],
       mimeType: 'image/png',
     );
 
@@ -98,7 +126,7 @@ void main() {
       () => store.storeBytesSync(
         sourceId: 'source_a',
         localAssetId: 'img_001',
-        bytes: <int>[9, 8, 7],
+        bytes: <int>[..._validPng, 4],
         mimeType: 'image/png',
       ),
       throwsA(isA<FormatException>()),
@@ -111,7 +139,7 @@ void main() {
     store.storeBytesSync(
       sourceId: 'source_a',
       localAssetId: 'img_001',
-      bytes: <int>[1, 2, 3],
+      bytes: <int>[..._validPng, 5],
       mimeType: 'image/png',
     );
     final file = File(

@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -28,6 +30,12 @@ final class _InfiniteDisk implements BackupDiskSpaceProbe {
   @override
   Future<int?> availableBytes(String path) async => 1 << 40;
 }
+
+const _tinyPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+    '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+List<int> _tinyPngBytes() => base64Decode(_tinyPngBase64);
 
 void main() {
   sqfliteFfiInit();
@@ -62,7 +70,7 @@ void main() {
     contentStore.storeBytesSync(
       sourceId: 'source_001',
       localAssetId: 'asset_000001',
-      bytes: <int>[137, 80, 78, 71, 1, 2, 3],
+      bytes: _tinyPngBytes(),
       mimeType: 'image/png',
     );
     final draft = _imageDraft();
@@ -134,7 +142,7 @@ void main() {
         sourceId: 'source_001',
         localAssetId: 'asset_000001',
       ),
-      <int>[137, 80, 78, 71, 1, 2, 3],
+      _tinyPngBytes(),
     );
 
     final db = await helper.database;
@@ -145,7 +153,57 @@ void main() {
     expect(decoded.assetRefs.single.sourceId, 'source_001');
     expect(decoded.assetRefs.single.localAssetId, 'asset_000001');
     expect(reachableImageNodes(decoded.stem), hasLength(1));
+    await _expectDecodableImage(
+      contentStore.readAssetBytes(
+        sourceId: 'source_001',
+        localAssetId: 'asset_000001',
+      )!,
+    );
   });
+
+  test('typed ImageNode and managed bytes survive database close and reopen',
+      () async {
+    await helper.close();
+    final reopened = await helper.database;
+    final row = (await reopened.query('question_v2_payloads')).single;
+    final decoded = const QuestionDraftV2Codec().decode(
+      jsonDecode(row['payload_json']! as String),
+    );
+
+    expect(reachableImageNodes(decoded.stem), hasLength(1));
+    expect(
+      contentStore.readAssetBytes(
+        sourceId: 'source_001',
+        localAssetId: 'asset_000001',
+      ),
+      _tinyPngBytes(),
+    );
+    expect(
+      await contentStore.resolveAssetBytesAsync(
+        sourceId: 'source_001',
+        localAssetId: 'asset_000001',
+      ),
+      _tinyPngBytes(),
+    );
+    await _expectDecodableImage(
+      (await contentStore.resolveAssetBytesAsync(
+        sourceId: 'source_001',
+        localAssetId: 'asset_000001',
+      ))!,
+    );
+  });
+}
+
+Future<void> _expectDecodableImage(List<int> bytes) async {
+  final codec = await ui.instantiateImageCodec(Uint8List.fromList(bytes));
+  try {
+    final frame = await codec.getNextFrame();
+    expect(frame.image.width, 1);
+    expect(frame.image.height, 1);
+    frame.image.dispose();
+  } finally {
+    codec.dispose();
+  }
 }
 
 QuestionDraftV2 _imageDraft() {

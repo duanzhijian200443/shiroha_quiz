@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../../application/content/content_asset_authority.dart';
 import '../../domain/backup/archive_path_policy.dart';
 import '../../domain/assets/sourced_asset_ref.dart';
+import '../../domain/assets/image_byte_signature.dart';
 import '../backup/sha256.dart';
 
 /// Filesystem-backed content asset authority under the existing managed root.
@@ -66,7 +67,8 @@ final class ManagedContentAssetStore
       throw const FormatException('Content asset byte size is unsupported.');
     }
     final normalizedMime = mimeType.trim().toLowerCase().split(';').first;
-    if (!_mimePattern.hasMatch(normalizedMime)) {
+    if (!_mimePattern.hasMatch(normalizedMime) ||
+        !ImageByteSignature.matchesMime(bytes, normalizedMime)) {
       throw const FormatException('Content asset media type is unsupported.');
     }
 
@@ -123,7 +125,11 @@ final class ManagedContentAssetStore
       );
       if (!file.existsSync()) return null;
       final bytes = file.readAsBytesSync();
-      if (bytes.isEmpty || bytes.length > maxImageBytes) return null;
+      if (bytes.isEmpty ||
+          bytes.length > maxImageBytes ||
+          ImageByteSignature.detectMime(bytes) == null) {
+        return null;
+      }
       return List<int>.unmodifiable(bytes);
     } on FileSystemException {
       return null;
@@ -138,6 +144,30 @@ final class ManagedContentAssetStore
     required String localAssetId,
   }) {
     return readAssetBytes(sourceId: sourceId, localAssetId: localAssetId);
+  }
+
+  @override
+  Future<List<int>?> resolveAssetBytesAsync({
+    required String sourceId,
+    required String localAssetId,
+  }) async {
+    try {
+      final file = _resolveKey(
+        storageKey(sourceId: sourceId, localAssetId: localAssetId),
+      );
+      if (!await file.exists()) return null;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty ||
+          bytes.length > maxImageBytes ||
+          ImageByteSignature.detectMime(bytes) == null) {
+        return null;
+      }
+      return List<int>.unmodifiable(bytes);
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    }
   }
 
   @override
@@ -177,7 +207,11 @@ final class ManagedContentAssetStore
           localAssetId: localAssetId,
         );
         final bytes = await assetEntity.readAsBytes();
-        if (bytes.isEmpty || bytes.length > maxImageBytes) continue;
+        if (bytes.isEmpty ||
+            bytes.length > maxImageBytes ||
+            ImageByteSignature.detectMime(bytes) == null) {
+          continue;
+        }
         records.add(
           ContentAssetRecord(
             sourceId: sourceId,
@@ -232,6 +266,6 @@ final class ManagedContentAssetStore
   }
 
   static String _canonicalMime(String mimeType) {
-    return mimeType == 'image/jpg' ? 'image/jpeg' : mimeType;
+    return ImageByteSignature.canonicalMime(mimeType) ?? mimeType;
   }
 }

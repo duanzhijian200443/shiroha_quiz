@@ -324,10 +324,18 @@ List<SourcedAssetRef> _deriveAssetRefs(
   Iterable<QuestionRegionFragment> fragments,
   Iterable<SourcedAssetRef> sourceAssetRefs,
 ) {
-  final metadataByIdentity = <(String, String), SourcedAssetRef>{
-    for (final sourced in sourceAssetRefs)
-      (sourced.sourceId, sourced.localAssetId): sourced,
-  };
+  final metadataByIdentity = <(String, String), SourcedAssetRef>{};
+  for (final sourced in sourceAssetRefs) {
+    final identity = (sourced.sourceId, sourced.localAssetId);
+    final existing = metadataByIdentity[identity];
+    if (existing == null) {
+      metadataByIdentity[identity] = sourced;
+    } else if (existing.asset != sourced.asset) {
+      throw const FormatException(
+        'A source-qualified asset identity has conflicting metadata.',
+      );
+    }
+  }
   for (final fragment in fragments) {
     final part = fragment.part;
     if (part is! SourceAssetPart) continue;
@@ -410,8 +418,8 @@ List<SourcedAssetRef> _deriveAssetRefs(
             visitNodes(cell.nodes);
           }
         }
-      case UnsupportedSourcePart():
-        break;
+      case UnsupportedSourcePart(:final fallbackContent):
+        visitNodes(fallbackContent.nodes);
     }
   }
   return List<SourcedAssetRef>.unmodifiable(derived);

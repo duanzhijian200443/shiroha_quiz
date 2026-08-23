@@ -8,6 +8,7 @@ import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
@@ -21,6 +22,7 @@ class MainScreen extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.questionRepository,
     this.startRetrievalTurn,
     this.proposalService,
     this.studyPlanDraftService,
@@ -35,6 +37,7 @@ class MainScreen extends StatefulWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final QuestionRepository? questionRepository;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
@@ -70,6 +73,7 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       HomePage(
+        questionRepository: widget.questionRepository,
         studyPlanSelectionService: widget.studyPlanSelectionService,
         studyPlanCommandService: widget.studyPlanCommandService,
         studyPlanSessionLauncher: widget.studyPlanSessionLauncher,

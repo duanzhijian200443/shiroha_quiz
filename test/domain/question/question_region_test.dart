@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
@@ -414,6 +415,79 @@ void main() {
               ),
             ),
           ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('deduplicates identical source asset metadata and rejects conflicts',
+        () {
+      final source = _sourceRef('source_a');
+      final first = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+      final same = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          _fragment(_contentPart(source, 'stem')),
+        ],
+        sourceAssetRefs: <SourcedAssetRef>[first, same],
+      );
+      expect(region.assetRefs, isEmpty);
+
+      expect(
+        () => QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[
+            _fragment(_contentPart(source, 'stem')),
+          ],
+          sourceAssetRefs: <SourcedAssetRef>[
+            first,
+            SourcedAssetRef(
+              sourceId: 'source_a',
+              asset: AssetRef(
+                assetId: 'asset_a',
+                kind: AssetKind.image,
+                mimeType: 'image/jpeg',
+              ),
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('unsupported fallback image participates in exact asset closure', () {
+      final source = _sourceRef('source_a');
+      final fallback = UnsupportedSourcePart(
+        sourceRef: source,
+        kindCode: 'future_layout',
+        fallbackContent: RichContent(nodes: <ContentNode>[
+          ImageNode(sourceId: 'source_a', localAssetId: 'asset_a'),
+        ]),
+      );
+      final authority = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          _fragment(fallback),
+        ],
+        sourceAssetRefs: <SourcedAssetRef>[authority],
+      );
+      expect(region.assetRefs, <SourcedAssetRef>[authority]);
+      expect(
+        () => QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[_fragment(fallback)],
         ),
         throwsFormatException,
       );

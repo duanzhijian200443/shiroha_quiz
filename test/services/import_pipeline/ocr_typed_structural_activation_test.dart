@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -25,15 +24,9 @@ void main() {
   });
 
   test('typed candidate preserves image node and durable asset closure', () {
-    final dataUrl = 'data:image/png;base64,${base64Encode(<int>[
-          137,
-          80,
-          78,
-          71,
-          1,
-          2,
-          3
-        ])}';
+    const dataUrl = 'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
     final document = _document(<OcrBlock>[
       _block('section', 'text', '三、解答题', 0),
       _block('q_1', 'text', '1. Prompt before image', 1),

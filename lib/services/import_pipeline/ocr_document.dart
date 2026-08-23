@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../domain/assets/image_byte_signature.dart';
+
 class OcrDocument {
   const OcrDocument({
     required this.sourceName,
@@ -346,7 +348,11 @@ final class OcrImagePayload {
     if (encoded.length > _maxEncodedImageCharacters) return null;
     try {
       final bytes = base64Decode(encoded);
-      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) return null;
+      if (bytes.isEmpty ||
+          bytes.length > 10 * 1024 * 1024 ||
+          !ImageByteSignature.matchesMime(bytes, mimeType)) {
+        return null;
+      }
       return OcrImagePayload(bytes: bytes, mimeType: mimeType);
     } on FormatException {
       return null;

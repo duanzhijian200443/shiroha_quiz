@@ -6,6 +6,7 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,7 @@ import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
@@ -32,7 +34,10 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 
 import 'support/memory_engine_credential_store.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
@@ -46,6 +51,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.da
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
+import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
 
@@ -316,11 +322,54 @@ void main() {
     );
     await drainBackgroundWork(tester);
   });
+
+  testWidgets(
+      'production composition forwards configured question and asset seams',
+      (WidgetTester tester) async {
+    final temp = Directory.systemTemp.createTempSync('wiring_assets_');
+    try {
+      final contentAssetStore = ManagedContentAssetStore(managedRoot: temp);
+      final configured = QuestionRepository(
+        databaseHelper: DatabaseHelper.instance,
+        mapper: QuestionV2PersistenceMapper(
+          contentAssetAuthority: contentAssetStore,
+        ),
+      );
+      await tester.pumpWidget(
+        _buildTestApp(
+          questionRepository: configured,
+          contentAssetResolver: contentAssetStore,
+        ),
+      );
+      await tester.pump();
+
+      final app = tester.widget<ShirohaQuizApp>(
+        find.byType(ShirohaQuizApp),
+      );
+      expect(app.questionRepository, same(configured));
+      expect(app.contentAssetResolver, same(contentAssetStore));
+      expect(
+        tester.widget<MainScreen>(find.byType(MainScreen)).questionRepository,
+        same(configured),
+      );
+      expect(
+        tester.widget<HomePage>(find.byType(HomePage)).questionRepository,
+        same(configured),
+      );
+      expect(tester.takeException(), isNull);
+      await drainBackgroundWork(tester);
+    } finally {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    }
+  });
 }
 
 /// Builds the full app with deterministic fail-closed fakes. Never touches a
 /// live provider, network, or real credential store.
-Widget _buildTestApp() {
+Widget _buildTestApp({
+  QuestionRepository? questionRepository,
+  ContentAssetResolver? contentAssetResolver,
+}) {
   final engineRepository = AiEngineRepository(
     store: DatabaseHelper.instance,
     credentialStore: MemoryEngineCredentialStore(),
@@ -356,6 +405,11 @@ Widget _buildTestApp() {
   final examMutationCommand = ExamMutationCommand(
     _EmptyExamMutationPersistence(),
   );
+  final configuredQuestionRepository = questionRepository ??
+      QuestionRepository(
+        databaseHelper: DatabaseHelper.instance,
+        mapper: const QuestionV2PersistenceMapper(),
+      );
   return ShirohaQuizApp(
     engineRepository: engineRepository,
     aiService: aiService,
@@ -364,6 +418,8 @@ Widget _buildTestApp() {
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
     examMutationCommand: examMutationCommand,
+    questionRepository: configuredQuestionRepository,
+    contentAssetResolver: contentAssetResolver,
     u1WorkspaceFacade: _emptyWorkspaceFacade(),
     conversationService: _emptyConversationService(),
     agentSettingsService: AgentSettingsService(

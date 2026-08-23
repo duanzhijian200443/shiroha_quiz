@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../data/models/ai_engine_profile.dart';
+import '../../domain/assets/image_byte_signature.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
 
@@ -309,7 +310,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
       'image/gif' => 'image/gif',
       _ => null,
     };
-    final detected = _detectImageMime(bytes);
+    final detected = ImageByteSignature.detectMime(bytes);
     if (detected == null) return null;
     if (declared != null && declared != detected) return null;
     if (normalized != null &&
@@ -318,33 +319,6 @@ class ZhipuOcrClient implements OcrDocumentClient {
       return null;
     }
     return detected;
-  }
-
-  String? _detectImageMime(List<int> bytes) {
-    if (bytes.length >= 8 &&
-        bytes[0] == 0x89 &&
-        bytes[1] == 0x50 &&
-        bytes[2] == 0x4e &&
-        bytes[3] == 0x47 &&
-        bytes[4] == 0x0d &&
-        bytes[5] == 0x0a &&
-        bytes[6] == 0x1a &&
-        bytes[7] == 0x0a) {
-      return 'image/png';
-    }
-    if (bytes.length >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8) {
-      return 'image/jpeg';
-    }
-    if (bytes.length >= 6) {
-      final prefix = ascii.decode(bytes.sublist(0, 6), allowInvalid: true);
-      if (prefix == 'GIF87a' || prefix == 'GIF89a') return 'image/gif';
-    }
-    if (bytes.length >= 12 &&
-        ascii.decode(bytes.sublist(0, 4), allowInvalid: true) == 'RIFF' &&
-        ascii.decode(bytes.sublist(8, 12), allowInvalid: true) == 'WEBP') {
-      return 'image/webp';
-    }
-    return null;
   }
 
   /// Resolves the media type for OCR admission.

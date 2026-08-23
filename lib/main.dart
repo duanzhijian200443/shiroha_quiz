@@ -449,6 +449,7 @@ void main() {
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
             examMutationCommand: examMutationCommand,
+            questionRepository: questionRepository,
             u1WorkspaceFacade: u1WorkspaceFacade,
             conversationService: conversationService,
             agentSettingsService: agentSettingsService,
@@ -491,6 +492,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
+    required this.questionRepository,
     required this.u1WorkspaceFacade,
     required this.conversationService,
     required this.agentSettingsService,
@@ -515,6 +517,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
   final ExamMutationCommand examMutationCommand;
+  final QuestionRepository questionRepository;
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
@@ -547,6 +550,7 @@ class ShirohaQuizApp extends StatelessWidget {
             conversationService: conversationService,
             agentSettingsService: agentSettingsService,
             startAgentTurn: startAgentTurn,
+            questionRepository: questionRepository,
             startRetrievalTurn: startRetrievalTurn,
             proposalService: proposalService,
             studyPlanDraftService: studyPlanDraftService,

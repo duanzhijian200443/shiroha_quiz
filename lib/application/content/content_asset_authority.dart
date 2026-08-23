@@ -82,4 +82,9 @@ abstract interface class ContentAssetResolver {
     required String sourceId,
     required String localAssetId,
   });
+
+  Future<List<int>?> resolveAssetBytesAsync({
+    required String sourceId,
+    required String localAssetId,
+  });
 }

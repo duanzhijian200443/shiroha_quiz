@@ -9,6 +9,7 @@ import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/repositories/settings_repository.dart';
+import '../../data/repositories/question_repository.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
@@ -29,6 +30,7 @@ class HomePage extends StatefulWidget {
     this.onSwitchBank,
     this.onPracticeRequested,
     this.onImportRequested,
+    this.questionRepository,
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
     this.studyPlanSessionLauncher,
@@ -39,6 +41,7 @@ class HomePage extends StatefulWidget {
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
+  final QuestionRepository? questionRepository;
 
   /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
   /// shows the real no-plan state without querying. Production composition
@@ -238,7 +241,9 @@ class _HomePageState extends State<HomePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const TaskCenterScreen(),
+                    builder: (_) => TaskCenterScreen(
+                      questionRepository: widget.questionRepository,
+                    ),
                   ),
                 );
               },
@@ -1375,7 +1380,10 @@ class _HomePageState extends State<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (_) => BankDetailScreen(bankName: _currentBank)),
+          builder: (_) => BankDetailScreen(
+                bankName: _currentBank,
+                questionRepository: widget.questionRepository,
+              )),
     ).then((_) => _loadContext());
   }
 }

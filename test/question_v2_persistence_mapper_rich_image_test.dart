@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -41,7 +42,10 @@ void main() {
     store.storeBytesSync(
       sourceId: 'source_001',
       localAssetId: 'asset_000001',
-      bytes: <int>[137, 80, 78, 71, 1, 2, 3],
+      bytes: base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      ),
       mimeType: 'image/png',
     );
     final frozen = mapper.freezeForWrite(
