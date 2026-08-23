@@ -9,6 +9,51 @@ import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
+const _validCropPng = <int>[
+  137,
+  80,
+  78,
+  71,
+  13,
+  10,
+  26,
+  10,
+  1,
+];
+
+Map<String, dynamic> _cropResponse({
+  required int count,
+  String url = 'https://cdn.example.com/crop.png',
+}) {
+  return <String, dynamic>{
+    'md_results': '',
+    'layout_details': <Object?>[
+      [
+        for (var index = 0; index < count; index++)
+          <String, Object?>{
+            'index': index + 1,
+            'label': 'image',
+            'content': url,
+          },
+      ],
+    ],
+    'data_info': <String, Object?>{
+      'num_pages': 1,
+      'pages': <Object?>[
+        <String, Object?>{'width': 1, 'height': 1},
+      ],
+    },
+  };
+}
+
+File _syntheticPngFile(String prefix) {
+  final file = File(
+    '${Directory.systemTemp.path}${Platform.pathSeparator}'
+    '$prefix-${DateTime.now().microsecondsSinceEpoch}.png',
+  )..writeAsBytesSync(const <int>[1]);
+  return file;
+}
+
 void main() {
   const profile = AiEngineProfile(
     id: 'test-ocr',
@@ -122,6 +167,9 @@ void main() {
               200,
             );
           }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
         );
         return client.parseFile(
           profile: profile,
@@ -131,13 +179,162 @@ void main() {
       }
 
       final valid = await parseCrop(
-        const <int>[137, 80, 78, 71, 13, 10, 26, 10, 1],
+        _validCropPng,
       );
       expect(valid.flattenedBlocks.single.imagePayload, isNotNull);
 
       final invalid = await parseCrop(const <int>[1, 2, 3]);
       expect(invalid.flattenedBlocks.single.imagePayload, isNull);
       expect(invalid.flattenedBlocks.single.text, '[图片]');
+    });
+
+    test('remote crop count and byte budgets are aggregate and fail closed',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-crop-budget');
+      addTearDown(() => file.deleteSync());
+
+      Future<OcrDocument> parse({
+        required int count,
+        required int byteLimit,
+        int countLimit = 2,
+      }) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'GET') {
+              return http.Response.bytes(
+                _validCropPng,
+                200,
+                headers: const <String, String>{
+                  'content-type': 'image/png',
+                },
+              );
+            }
+            return http.Response(
+              jsonEncode(_cropResponse(count: count)),
+              200,
+            );
+          }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+          remoteCropCountLimit: countLimit,
+          remoteCropTotalBytesLimit: byteLimit,
+        );
+        return client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      final exactCount = await parse(
+        count: 2,
+        byteLimit: _validCropPng.length * 2,
+      );
+      expect(exactCount.flattenedBlocks, hasLength(2));
+      expect(
+        exactCount.flattenedBlocks.every((block) => block.imagePayload != null),
+        isTrue,
+      );
+
+      await expectLater(
+        parse(count: 3, byteLimit: _validCropPng.length * 3),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
+      await expectLater(
+        parse(count: 2, byteLimit: _validCropPng.length),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
+    });
+
+    test('redirects share crop budget and re-check the resolved target',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-crop-redirect');
+      addTearDown(() => file.deleteSync());
+      final requestedHosts = <String>[];
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          requestedHosts.add(request.url.host);
+          if (request.method != 'GET') {
+            return http.Response(
+              jsonEncode(
+                _cropResponse(
+                  count: 1,
+                  url: 'https://cdn.example.com/redirect.png',
+                ),
+              ),
+              200,
+            );
+          }
+          if (request.url.host == 'cdn.example.com') {
+            return http.Response(
+              '',
+              302,
+              headers: const <String, String>{
+                'location': 'https://final.example.com/final.png',
+              },
+            );
+          }
+          return http.Response.bytes(
+            _validCropPng,
+            200,
+            headers: const <String, String>{'content-type': 'image/png'},
+          );
+        }),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+        remoteCropCountLimit: 1,
+        remoteCropTotalBytesLimit: _validCropPng.length,
+      );
+      final redirected = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+      expect(redirected.flattenedBlocks.single.imagePayload, isNotNull);
+      expect(requestedHosts, <String>[
+        'example.test',
+        'cdn.example.com',
+        'final.example.com',
+      ]);
+
+      final privateClient = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          if (request.method != 'GET') {
+            return http.Response(
+              jsonEncode(
+                _cropResponse(
+                  count: 1,
+                  url: 'https://cdn.example.com/private.png',
+                ),
+              ),
+              200,
+            );
+          }
+          return http.Response(
+            '',
+            302,
+            headers: const <String, String>{
+              'location': 'https://private.example.com/image.png',
+            },
+          );
+        }),
+        dnsResolver: (host) async => <InternetAddress>[
+          InternetAddress(
+            host == 'private.example.com' ? '127.0.0.1' : '93.184.216.34',
+          ),
+        ],
+        remoteCropCountLimit: 1,
+        remoteCropTotalBytesLimit: _validCropPng.length,
+      );
+      final privateTarget = await privateClient.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+      expect(privateTarget.flattenedBlocks.single.imagePayload, isNull);
+      expect(privateTarget.flattenedBlocks.single.text, '[图片]');
     });
 
     test('uses a typed authentication failure without response-body leakage',

@@ -8,8 +8,9 @@ import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_diagnostic_summary.dart';
 import '../../services/import_pipeline/import_task_coordinator.dart';
 import '../../services/task_manager.dart';
-import '../../data/repositories/question_repository.dart';
+import '../../application/questions/question_presentation_port.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../../services/import_review/import_commit_service.dart';
 import 'import_staging_screen.dart';
 import 'task_center_projection.dart';
 
@@ -29,6 +30,7 @@ class TaskCenterScreen extends StatefulWidget {
     this.taskCoordinator,
     this.retryFilePicker,
     this.questionRepository,
+    this.commitService,
   });
 
   final ValueChanged<ImportTask>? onOpenReview;
@@ -36,7 +38,8 @@ class TaskCenterScreen extends StatefulWidget {
   final TaskManager? taskManager;
   final ImportTaskCoordinator? taskCoordinator;
   final TaskCenterRetryFilePicker? retryFilePicker;
-  final QuestionRepository? questionRepository;
+  final QuestionPresentationPort? questionRepository;
+  final ImportCommitService? commitService;
 
   @override
   State<TaskCenterScreen> createState() => _TaskCenterScreenState();
@@ -519,6 +522,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
             taskId: task.id,
             parsedQuestions: task.parsedData!,
             questionRepository: widget.questionRepository,
+            commitService: widget.commitService,
             warnings: task.warnings,
             diagnostics: task.diagnostics,
             initialExplanationRetentionMode: task.explanationRetentionMode,

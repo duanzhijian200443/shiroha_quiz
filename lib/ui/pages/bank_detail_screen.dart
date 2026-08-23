@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'practice_page.dart';
 import 'question_list_screen.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
-import '../../data/repositories/question_repository.dart';
+import '../../application/questions/question_presentation_port.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
-  final QuestionRepository? questionRepository;
+  final QuestionPresentationPort? questionRepository;
 
   @visibleForTesting
   final QuestionBankMutationCommand? questionBankMutation;
@@ -28,8 +28,16 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
   QuestionBankMutationCommand get _questionBankMutation =>
       widget.questionBankMutation ??
       QuestionBankMutationCommand(
-        widget.questionRepository ?? QuestionRepository.instance,
+        _requireQuestionPort,
       );
+
+  QuestionPresentationPort get _requireQuestionPort {
+    final port = widget.questionRepository;
+    if (port == null) {
+      throw StateError('Question presentation dependency is not configured.');
+    }
+    return port;
+  }
 
   void _startPractice(BuildContext context, int? filterType) {
     Navigator.push(

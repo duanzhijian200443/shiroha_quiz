@@ -10,6 +10,8 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
+import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
+import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/backup/backup_values.dart';
@@ -192,6 +194,87 @@ void main() {
       ))!,
     );
   });
+
+  test('B0 ignores valid but unreferenced inventory members', () async {
+    final db = await helper.database;
+    await _replacePayload(db, _imageDraftWithExtraInventory());
+
+    final packagePath = p.join(temp.path, 'export', 'extra-inventory.shiroha');
+    final summary = await buildRuntime().exportTo(packagePath);
+    expect(summary.managedBytes, greaterThan(0));
+    final manifest = await BackupArchiveIo.readManifestOnly(packagePath);
+
+    expect(
+      manifest.contentAssets.map(
+        (asset) => '${asset.sourceId}/${asset.localAssetId}',
+      ),
+      <String>['source_001/asset_000001'],
+    );
+  });
+
+  test('B0 blocks a missing reachable image asset', () async {
+    final asset = File(
+      p.join(
+        managedRoot.path,
+        'content_assets',
+        'source_001',
+        'asset_000001',
+      ),
+    );
+    await asset.delete();
+
+    await expectLater(
+      buildRuntime().exportTo(p.join(temp.path, 'export', 'missing.shiroha')),
+      throwsA(
+        isA<BackupException>().having(
+          (error) => error.failure,
+          'failure',
+          BackupFailure.integrityMismatch,
+        ),
+      ),
+    );
+  });
+
+  test('B0 includes table-cell, answer, and explanation image closure',
+      () async {
+    final bytes = _tinyPngBytes();
+    for (final localAssetId in <String>[
+      'asset_table',
+      'asset_answer',
+      'asset_explanation',
+    ]) {
+      contentStore.storeBytesSync(
+        sourceId: 'source_001',
+        localAssetId: localAssetId,
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+    }
+    final db = await helper.database;
+    await _replacePayload(db, _imageDraftWithNestedClosure());
+
+    final packagePath = p.join(temp.path, 'export', 'nested-closure.shiroha');
+    final summary = await buildRuntime().exportTo(packagePath);
+    expect(summary.managedBytes, greaterThan(0));
+    final manifest = await BackupArchiveIo.readManifestOnly(packagePath);
+    expect(
+      manifest.contentAssets
+          .map((asset) => asset.localAssetId)
+          .toList(growable: false),
+      <String>['asset_answer', 'asset_explanation', 'asset_table'],
+    );
+  });
+}
+
+Future<void> _replacePayload(Database db, QuestionDraftV2 draft) async {
+  await db.update(
+    'question_v2_payloads',
+    <String, Object?>{
+      'payload_json': jsonEncode(const QuestionDraftV2Codec().encode(draft)),
+    },
+    where: 'question_id = ?',
+    whereArgs: const <Object?>['a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b'],
+  );
 }
 
 Future<void> _expectDecodableImage(List<int> bytes) async {
@@ -219,6 +302,71 @@ QuestionDraftV2 _imageDraft() {
         sourceId: 'source_001',
         asset: AssetRef(assetId: 'asset_000001', kind: AssetKind.image),
       ),
+    ],
+  );
+}
+
+QuestionDraftV2 _imageDraftWithExtraInventory() {
+  return QuestionDraftV2(
+    questionId: 'question_001',
+    kind: QuestionKind.shortAnswer,
+    stem: RichContent(nodes: <ContentNode>[
+      ImageNode(sourceId: 'source_001', localAssetId: 'asset_000001'),
+    ]),
+    sourceRefs: <SourceRef>[SourceRef.document(sourceId: 'source_001')],
+    assetRefs: <SourcedAssetRef>[
+      SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(assetId: 'asset_000001', kind: AssetKind.image),
+      ),
+      SourcedAssetRef(
+        sourceId: 'source_001',
+        asset: AssetRef(assetId: 'asset_000002', kind: AssetKind.image),
+      ),
+    ],
+  );
+}
+
+QuestionDraftV2 _imageDraftWithNestedClosure() {
+  ImageNode image(String localAssetId) {
+    return ImageNode(sourceId: 'source_001', localAssetId: localAssetId);
+  }
+
+  final table = TableNode(
+    structure: TableStructure(
+      rows: <TableRow>[
+        TableRow(
+          cells: <TableCell>[
+            TableCell(
+              content: RichContent(nodes: <ContentNode>[image('asset_table')]),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+  return QuestionDraftV2(
+    questionId: 'question_001',
+    kind: QuestionKind.shortAnswer,
+    stem: RichContent(nodes: <ContentNode>[table]),
+    answer: ContentAnswer(
+      content: RichContent(nodes: <ContentNode>[image('asset_answer')]),
+    ),
+    explanation: RichContent(
+      nodes: <ContentNode>[image('asset_explanation')],
+    ),
+    sourceRefs: <SourceRef>[SourceRef.document(sourceId: 'source_001')],
+    assetRefs: <SourcedAssetRef>[
+      for (final localAssetId in <String>[
+        'asset_000001',
+        'asset_table',
+        'asset_answer',
+        'asset_explanation',
+      ])
+        SourcedAssetRef(
+          sourceId: 'source_001',
+          asset: AssetRef(assetId: localAssetId, kind: AssetKind.image),
+        ),
     ],
   );
 }

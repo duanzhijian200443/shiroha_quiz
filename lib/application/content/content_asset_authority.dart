@@ -8,12 +8,30 @@ final class ContentAssetWriteResult {
     required this.sha256,
     required this.sizeBytes,
     required this.mimeType,
+    this.created = false,
   });
 
   final String storageKey;
   final String sha256;
   final int sizeBytes;
   final String mimeType;
+
+  /// True only when this call created the managed identity. An idempotent
+  /// write against an existing identity is never candidate-owned.
+  final bool created;
+}
+
+/// Bounded ownership token for assets acquired while building one transient
+/// OCR candidate. It contains only source-qualified safe identities; it is
+/// never persisted as question content or a provider locator.
+final class ContentAssetCandidateLease {
+  ContentAssetCandidateLease({
+    required this.sourceId,
+    required Iterable<String> localAssetIds,
+  }) : localAssetIds = List<String>.unmodifiable(localAssetIds.toSet());
+
+  final String sourceId;
+  final List<String> localAssetIds;
 }
 
 /// Redacted inventory row used by bounded backup export and restore checks.
@@ -52,6 +70,11 @@ abstract interface class ContentAssetStore {
     required List<int> bytes,
     required String mimeType,
   });
+
+  /// Deletes only the identities owned by one candidate lease. Implementations
+  /// must make this operation idempotent and must not perform namespace-wide
+  /// or unrelated asset cleanup.
+  Future<void> deleteCandidateAssets(ContentAssetCandidateLease lease);
 
   List<int>? readAssetBytes({
     required String sourceId,

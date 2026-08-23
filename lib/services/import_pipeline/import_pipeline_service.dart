@@ -80,6 +80,7 @@ class ImportPipelineService {
           ).tryParse,
           questionMerger: aiService.mergeStructuredQuestions,
           taskManager: taskManager,
+          contentAssetStore: contentAssetStore,
           docxTextFirstParseService: DocxTextFirstParseService(
             repairService: SingleQuestionRepairService(
               engineRepository: engineRepository,
@@ -93,12 +94,14 @@ class ImportPipelineService {
     required ImportOcrParser ocrParser,
     required ImportQuestionMerger questionMerger,
     required TaskManager taskManager,
+    ContentAssetStore? contentAssetStore,
     required DocxTextFirstParseService docxTextFirstParseService,
   })  : _textParser = textParser,
         _visionParser = visionParser,
         _ocrParser = ocrParser,
         _questionMerger = questionMerger,
         _taskManager = taskManager,
+        _contentAssetStore = contentAssetStore,
         _docxTextFirstParseService = docxTextFirstParseService;
 
   @visibleForTesting
@@ -108,6 +111,7 @@ class ImportPipelineService {
     required ImportOcrParser ocrParser,
     ImportQuestionMerger? questionMerger,
     TaskManager? taskManager,
+    ContentAssetStore? contentAssetStore,
     DocxTextFirstParseService docxTextFirstParseService =
         const DocxTextFirstParseService(),
   }) : this._(
@@ -116,6 +120,7 @@ class ImportPipelineService {
           ocrParser: ocrParser,
           questionMerger: questionMerger ?? _mergeQuestionsForTesting,
           taskManager: taskManager ?? TaskManager.instance,
+          contentAssetStore: contentAssetStore,
           docxTextFirstParseService: docxTextFirstParseService,
         );
 
@@ -124,6 +129,7 @@ class ImportPipelineService {
   final ImportOcrParser _ocrParser;
   final ImportQuestionMerger _questionMerger;
   final TaskManager _taskManager;
+  final ContentAssetStore? _contentAssetStore;
   final DocxTextFirstParseService _docxTextFirstParseService;
 
   static Future<List<Map<String, dynamic>>> _mergeQuestionsForTesting(
@@ -437,7 +443,7 @@ class ImportPipelineService {
         sorted.questions,
         mode: request.explanationRetentionMode,
       );
-      final storage = _resolveOcrCandidateStorage(
+      final storage = await _resolveOcrCandidateStorage(
         request,
         ocrTypedCandidateBatch,
         finalized,
@@ -449,6 +455,7 @@ class ImportPipelineService {
         explanationRetentionMode: request.explanationRetentionMode,
         storageRoute: storage.route,
         storageReason: storage.reason,
+        candidateAssetLease: storage.candidateAssetLease,
       );
     } else if (fileResults.isNotEmpty) {
       final flattenedQuestions = fileResults.expand((e) => e).toList();
@@ -459,7 +466,7 @@ class ImportPipelineService {
         sorted.questions,
         mode: request.explanationRetentionMode,
       );
-      final storage = _resolveOcrCandidateStorage(
+      final storage = await _resolveOcrCandidateStorage(
         request,
         ocrTypedCandidateBatch,
         finalized,
@@ -473,6 +480,7 @@ class ImportPipelineService {
         explanationRetentionMode: request.explanationRetentionMode,
         storageRoute: storage.route,
         storageReason: storage.reason,
+        candidateAssetLease: storage.candidateAssetLease,
       );
     } else {
       if (allWarnings.isEmpty && allDiagnostics.isNotEmpty) {
@@ -500,20 +508,23 @@ class ImportPipelineService {
   /// Resolves the R7B shadow candidate storage metadata after the final
   /// finalization. Non-OCR modes and parsers without a candidate batch keep
   /// the strict defaults; OCR batches go through the all-or-nothing gate.
-  ({
-    List<Map<String, dynamic>> questions,
-    ImportStorageRoute route,
-    String? reason,
-  }) _resolveOcrCandidateStorage(
+  Future<
+      ({
+        List<Map<String, dynamic>> questions,
+        ImportStorageRoute route,
+        String? reason,
+        ContentAssetCandidateLease? candidateAssetLease,
+      })> _resolveOcrCandidateStorage(
     ImportParseRequest request,
     OcrTypedCandidateBatch? batch,
     List<Map<String, dynamic>> finalized,
-  ) {
+  ) async {
     if (request.mode != ImportParseMode.ocr || batch == null) {
       return (
         questions: finalized,
         route: ImportStorageRoute.legacyV1,
         reason: null,
+        candidateAssetLease: null,
       );
     }
     final gate = applyOcrTypedCandidateGate(
@@ -521,7 +532,40 @@ class ImportPipelineService {
       finalQuestions: finalized,
       singleFile: request.filePaths.length == 1,
     );
-    return (questions: gate.questions, route: gate.route, reason: gate.reason);
+    if (gate.candidateAssetLease != null || batch.candidateAssetLease == null) {
+      return (
+        questions: gate.questions,
+        route: gate.route,
+        reason: gate.reason,
+        candidateAssetLease: gate.candidateAssetLease,
+      );
+    }
+    await _rollbackCandidateAssets(batch.candidateAssetLease);
+    return (
+      questions: gate.questions,
+      route: gate.route,
+      reason: gate.reason,
+      candidateAssetLease: null,
+    );
+  }
+
+  Future<void> _rollbackCandidateAssets(
+    ContentAssetCandidateLease? lease,
+  ) async {
+    final store = _contentAssetStore;
+    if (store == null || lease == null || lease.localAssetIds.isEmpty) return;
+    try {
+      await store.deleteCandidateAssets(lease);
+    } catch (_) {
+      AppLogger.warning(
+        'Candidate asset rollback did not complete',
+        module: 'ImportPipeline',
+        data: const <String, Object?>{
+          'stage': 'candidate_asset_rollback',
+          'status': 'failed',
+        },
+      );
+    }
   }
 
   Future<void> _updateTaskProgress(

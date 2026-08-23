@@ -7,13 +7,14 @@ import 'practice_page.dart';
 import 'task_center_screen.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
+import '../../application/questions/question_presentation_port.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/repositories/settings_repository.dart';
-import '../../data/repositories/question_repository.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import '../../services/task_manager.dart';
+import '../../services/import_review/import_commit_service.dart';
 
 /// Final Today mode organization (UI-R1 freeze): 普通 / 特训 / 考试.
 ///
@@ -31,6 +32,7 @@ class HomePage extends StatefulWidget {
     this.onPracticeRequested,
     this.onImportRequested,
     this.questionRepository,
+    this.importCommitService,
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
     this.studyPlanSessionLauncher,
@@ -41,7 +43,8 @@ class HomePage extends StatefulWidget {
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
-  final QuestionRepository? questionRepository;
+  final QuestionPresentationPort? questionRepository;
+  final ImportCommitService? importCommitService;
 
   /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
   /// shows the real no-plan state without querying. Production composition
@@ -243,6 +246,7 @@ class _HomePageState extends State<HomePage> {
                   MaterialPageRoute(
                     builder: (_) => TaskCenterScreen(
                       questionRepository: widget.questionRepository,
+                      commitService: widget.importCommitService,
                     ),
                   ),
                 );

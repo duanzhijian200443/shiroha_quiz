@@ -7,7 +7,7 @@ import '../../application/answers/ai_answer_generation.dart';
 import '../../application/answers/answer_candidate_review_session.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
-import '../../data/repositories/question_repository.dart';
+import '../../application/questions/question_presentation_port.dart';
 import '../../domain/answers/answer_candidate.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -19,7 +19,7 @@ import 'typed_answer_repair_screen.dart';
 
 class QuestionListScreen extends StatefulWidget {
   final String bankName;
-  final QuestionRepository? questionRepository;
+  final QuestionPresentationPort? questionRepository;
   final ValueChanged<int?>? onLoadFinished;
 
   const QuestionListScreen({
@@ -49,8 +49,13 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
   /// generations without touching a BuildContext.
   AiAnswerGenerationService? _generationService;
 
-  QuestionRepository get _questionRepository =>
-      widget.questionRepository ?? QuestionRepository.instance;
+  QuestionPresentationPort get _questionRepository {
+    final port = widget.questionRepository;
+    if (port == null) {
+      throw StateError('Question presentation dependency is not configured.');
+    }
+    return port;
+  }
 
   QuestionMutationCommand get _questionMutation =>
       QuestionMutationCommand(_questionRepository);
@@ -82,12 +87,12 @@ class _QuestionListScreenState extends State<QuestionListScreen> {
       _hasLoadError = false;
     });
     try {
-      final persisted = await _questionRepository.getPersistedQuestionsByBank(
+      final persisted = await _questionRepository.listQuestionsForBank(
         widget.bankName,
       );
       if (!mounted) return;
       final views = List<PersistedQuestionView>.unmodifiable(
-        persisted.map(PersistedQuestionViewAdapter.fromPersisted),
+        persisted.map(PersistedQuestionViewAdapter.fromApplication),
       );
       setState(() {
         _allQuestions = views;

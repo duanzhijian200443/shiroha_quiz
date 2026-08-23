@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart'
@@ -76,7 +77,8 @@ void main() {
     }
   });
 
-  testWidgets('typed TextNode is rendered as literal text', (tester) async {
+  testWidgets('typed TextNode keeps literal text around the blank marker',
+      (tester) async {
     final content = RichContent(
       nodes: <domain_content.ContentNode>[
         domain_content.TextNode('Fill ___ and **literal** text'),
@@ -91,11 +93,13 @@ void main() {
       ),
     );
 
+    expect(find.byType(BlankTokenWidget), findsOneWidget);
+    expect(find.textContaining('Fill', findRichText: true), findsOneWidget);
     expect(
-      find.text('Fill ___ and **literal** text', findRichText: true),
+      find.textContaining('and **literal** text', findRichText: true),
       findsOneWidget,
     );
-    expect(find.byType(BlankTokenWidget), findsNothing);
+    expect(find.byType(Math), findsNothing);
   });
 
   testWidgets('TableNode renderer preserves row and column spans',

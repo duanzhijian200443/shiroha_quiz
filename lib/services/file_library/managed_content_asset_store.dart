@@ -87,6 +87,7 @@ final class ManagedContentAssetStore
         sha256: expectedDigest,
         sizeBytes: bytes.length,
         mimeType: _canonicalMime(normalizedMime),
+        created: false,
       );
     }
 
@@ -111,7 +112,29 @@ final class ManagedContentAssetStore
       sha256: expectedDigest,
       sizeBytes: bytes.length,
       mimeType: _canonicalMime(normalizedMime),
+      created: true,
     );
+  }
+
+  @override
+  Future<void> deleteCandidateAssets(ContentAssetCandidateLease lease) async {
+    for (final localAssetId in lease.localAssetIds) {
+      try {
+        final file = _resolveKey(
+          storageKey(
+            sourceId: lease.sourceId,
+            localAssetId: localAssetId,
+          ),
+        );
+        if (await file.exists()) await file.delete();
+      } on FileSystemException {
+        // Candidate rollback is best-effort and idempotent. A later retry or
+        // explicit failure path can safely attempt the same lease again.
+      } on FormatException {
+        // Invalid identities are ignored rather than allowing diagnostics to
+        // carry an implementation detail or unsafe path.
+      }
+    }
   }
 
   @override

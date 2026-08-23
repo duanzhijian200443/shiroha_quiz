@@ -13,10 +13,13 @@ import '../ocr_table_projection.dart';
 final _ocrTypeControlPattern = RegExp(r'[\u0000-\u001f\u007f]');
 
 final class OcrSourceDocumentAdapter {
-  const OcrSourceDocumentAdapter({ContentAssetStore? assetStore})
-      : _assetStore = assetStore;
+  const OcrSourceDocumentAdapter({
+    ContentAssetStore? assetStore,
+    this.onAssetCreated,
+  }) : _assetStore = assetStore;
 
   final ContentAssetStore? _assetStore;
+  final void Function(String localAssetId)? onAssetCreated;
 
   SourceDocument convert(
     OcrDocument document, {
@@ -118,7 +121,12 @@ final class OcrSourceDocumentAdapter {
         );
       }
 
-      final mapped = _mapBlock(block, sourceRef, _assetStore);
+      final mapped = _mapBlock(
+        block,
+        sourceRef,
+        _assetStore,
+        onAssetCreated: onAssetCreated,
+      );
       parts.add(mapped.part);
       if (mapped.structureUnsupported) {
         issues.add(
@@ -222,8 +230,9 @@ SourceDocument _convertWithoutBlocks({
 ({SourcePart part, bool structureUnsupported}) _mapBlock(
   OcrBlock block,
   SourceRef sourceRef,
-  ContentAssetStore? assetStore,
-) {
+  ContentAssetStore? assetStore, {
+  void Function(String localAssetId)? onAssetCreated,
+}) {
   final normalizedType = _normalizeType(block.type);
   return switch (normalizedType) {
     'text' || 'paragraph' => (
@@ -251,7 +260,12 @@ SourceDocument _convertWithoutBlocks({
         structureUnsupported: false,
       ),
     'table' => _mapTableBlock(block, sourceRef),
-    'image' || 'figure' => _mapImageBlock(block, sourceRef, assetStore),
+    'image' || 'figure' => _mapImageBlock(
+        block,
+        sourceRef,
+        assetStore,
+        onAssetCreated: onAssetCreated,
+      ),
     _ => (
         part: UnsupportedSourcePart(
           sourceRef: sourceRef,
@@ -292,8 +306,9 @@ SourceDocument _convertWithoutBlocks({
 ({SourcePart part, bool structureUnsupported}) _mapImageBlock(
   OcrBlock block,
   SourceRef sourceRef,
-  ContentAssetStore? assetStore,
-) {
+  ContentAssetStore? assetStore, {
+  void Function(String localAssetId)? onAssetCreated,
+}) {
   final payload = block.imagePayload ?? OcrImagePayload.fromDataUrl(block.text);
   final localAssetId = block.blockId;
   if (assetStore != null &&
@@ -306,6 +321,7 @@ SourceDocument _convertWithoutBlocks({
         bytes: payload.bytes,
         mimeType: payload.mimeType,
       );
+      if (stored.created) onAssetCreated?.call(localAssetId);
       return (
         part: SourceAssetPart(
           sourceRef: sourceRef,

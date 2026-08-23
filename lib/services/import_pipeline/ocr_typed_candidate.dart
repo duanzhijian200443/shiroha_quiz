@@ -115,20 +115,28 @@ final class OcrTypedCandidateBatch {
   factory OcrTypedCandidateBatch({
     required List<OcrTypedCandidate> candidates,
     OcrTypedCandidateFailure? failure,
+    ContentAssetCandidateLease? candidateAssetLease,
   }) {
     return OcrTypedCandidateBatch._(
       candidates: List<OcrTypedCandidate>.unmodifiable(candidates),
       failure: failure,
+      candidateAssetLease: candidateAssetLease,
     );
   }
 
   const OcrTypedCandidateBatch._({
     required this.candidates,
     required this.failure,
+    required this.candidateAssetLease,
   });
 
   final List<OcrTypedCandidate> candidates;
   final OcrTypedCandidateFailure? failure;
+
+  /// Candidate-owned bytes remain available only while the candidate is
+  /// pending formal retention. The pipeline rolls this lease back on a
+  /// rejected/fallback/cancelled outcome.
+  final ContentAssetCandidateLease? candidateAssetLease;
 }
 
 /// Builds shadow typed candidates from the real production objects already
@@ -166,17 +174,32 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     }
   }
 
-  final String sourceId;
+  String? sourceId;
   final SourceDocument sourceDocument;
+  final createdAssetIds = <String>{};
+  ContentAssetCandidateLease? candidateAssetLease;
   try {
-    sourceId = uuidV4Factory();
+    final generatedSourceId = uuidV4Factory();
+    sourceId = generatedSourceId;
     sourceDocument = OcrSourceDocumentAdapter(
       assetStore: assetStore,
-    ).convert(document, sourceId: sourceId, displayLabel: null);
+      onAssetCreated: createdAssetIds.add,
+    ).convert(document, sourceId: generatedSourceId, displayLabel: null);
+    candidateAssetLease = ContentAssetCandidateLease(
+      sourceId: generatedSourceId,
+      localAssetIds: createdAssetIds,
+    );
   } catch (_) {
+    if (sourceId != null) {
+      candidateAssetLease = ContentAssetCandidateLease(
+        sourceId: sourceId,
+        localAssetIds: createdAssetIds,
+      );
+    }
     return OcrTypedCandidateBatch(
       candidates: <OcrTypedCandidate>[],
       failure: OcrTypedCandidateFailure.internalError,
+      candidateAssetLease: candidateAssetLease,
     );
   }
 
@@ -232,21 +255,27 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
+        candidateAssetLease: candidateAssetLease,
       );
     } on LegacyProjectionUnsupportedException {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.projectionUnsupported,
+        candidateAssetLease: candidateAssetLease,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.internalError,
+        candidateAssetLease: candidateAssetLease,
       );
     }
   }
 
-  return OcrTypedCandidateBatch(candidates: candidates);
+  return OcrTypedCandidateBatch(
+    candidates: candidates,
+    candidateAssetLease: candidateAssetLease,
+  );
 }
 
 /// The all-or-nothing storage outcome of the final parity gate.
@@ -255,11 +284,13 @@ final class OcrTypedCandidateGateResult {
     required this.questions,
     required this.route,
     required this.reason,
+    this.candidateAssetLease,
   });
 
   final List<Map<String, dynamic>> questions;
   final ImportStorageRoute route;
   final String? reason;
+  final ContentAssetCandidateLease? candidateAssetLease;
 }
 
 /// Applies the R7B eligibility gate over one OCR batch after the final
@@ -440,6 +471,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     questions: List<Map<String, dynamic>>.unmodifiable(attached),
     route: ImportStorageRoute.typedV2,
     reason: ocrTypedCandidateReadyReason,
+    candidateAssetLease: batch.candidateAssetLease,
   );
 }
 

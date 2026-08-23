@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:path/path.dart' as p;
 
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/content/content_asset_authority.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
@@ -111,6 +112,7 @@ class ImportTaskCoordinator {
     String Function()? traceIdFactory,
     String Function()? attemptTokenFactory,
     String Function()? batchIdFactory,
+    ContentAssetStore? contentAssetStore,
     this.onReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
@@ -119,10 +121,13 @@ class ImportTaskCoordinator {
         _taskIdFactory = taskIdFactory ?? _createTaskId,
         _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId,
         _attemptTokenFactory = attemptTokenFactory ?? ImportAttemptToken.create,
-        _batchIdFactory = batchIdFactory ?? _createBatchId;
+        _batchIdFactory = batchIdFactory ?? _createBatchId,
+        _contentAssetStore = contentAssetStore;
 
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
+  static const String keyCandidateAssetSourceId = '_candidate_asset_source_id';
+  static const String keyCandidateAssetLocalIds = '_candidate_asset_local_ids';
   static const Set<String> _safeOcrStatuses = <String>{
     'failed_not_configured',
     'failed_empty_ocr_blocks',
@@ -180,6 +185,7 @@ class ImportTaskCoordinator {
   final String Function() _traceIdFactory;
   final String Function() _attemptTokenFactory;
   final String Function() _batchIdFactory;
+  final ContentAssetStore? _contentAssetStore;
   final void Function(String sourceDescription)? onReadyForReview;
 
   static String _createTaskId() =>
@@ -468,7 +474,9 @@ class ImportTaskCoordinator {
         attemptToken: attempt.attemptToken,
       );
       if (schedulerResult == OcrRequestCancellation.notFound) {
-        return _taskManager.finalizeAttemptCancelled(attempt);
+        final result = await _taskManager.finalizeAttemptCancelled(attempt);
+        await _rollbackLeaseFromDiagnostics(task.diagnostics);
+        return result;
       }
       return ImportAttemptWriteStatus.applied;
     });
@@ -568,6 +576,9 @@ class ImportTaskCoordinator {
       throw const ImportTaskRetryRejectedException();
     }
     final task = matches.first;
+    if (task.status != TaskStatus.completed) {
+      await _rollbackLeaseFromDiagnostics(task.diagnostics);
+    }
     final reservedTraceIds = _taskManager.tasks
         .where((candidate) => candidate.id != taskId)
         .map((candidate) => candidate.traceId)
@@ -656,6 +667,7 @@ class ImportTaskCoordinator {
       data: const <String, Object?>{'stage': 'import_dispatch'},
     );
     final stopwatch = Stopwatch()..start();
+    ImportParseResult? parsedResult;
     try {
       final progressStatus = await _taskManager.updateAttemptProgress(
         handle.attempt,
@@ -672,6 +684,7 @@ class ImportTaskCoordinator {
         },
       );
       final result = await parse(handle.taskId);
+      parsedResult = result;
       AppLogger.info(
         'Import parsing completed',
         module: 'Import',
@@ -681,13 +694,18 @@ class ImportTaskCoordinator {
           'durationMs': stopwatch.elapsedMilliseconds,
         },
       );
-      if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
+      if (!_taskManager.isCurrentAttempt(handle.attempt)) {
+        await _rollbackLease(result.candidateAssetLease);
+        return;
+      }
       if (!_taskManager.isAttemptRunnable(handle.attempt)) {
+        await _rollbackLease(result.candidateAssetLease);
         await _taskManager.finalizeAttemptCancelled(handle.attempt);
         return;
       }
 
       if (result.questions.isEmpty) {
+        await _rollbackLease(result.candidateAssetLease);
         final emptyFailure = _classifyEmptyResult(result);
         await _failSafely(
           handle,
@@ -729,6 +747,10 @@ class ImportTaskCoordinator {
               ),
             )
             .toList(growable: false),
+        if (result.candidateAssetLease != null) ...{
+          keyCandidateAssetSourceId: result.candidateAssetLease!.sourceId,
+          keyCandidateAssetLocalIds: result.candidateAssetLease!.localAssetIds,
+        },
       };
       final reviewStatus = await _taskManager.requireAttemptReview(
         handle.attempt,
@@ -740,6 +762,7 @@ class ImportTaskCoordinator {
         diagnostics: diagnostics,
       );
       if (reviewStatus != ImportAttemptWriteStatus.applied) {
+        await _rollbackLease(result.candidateAssetLease);
         if (_taskManager.isCurrentAttempt(handle.attempt)) {
           await _taskManager.finalizeAttemptCancelled(handle.attempt);
         }
@@ -766,6 +789,7 @@ class ImportTaskCoordinator {
         );
       }
     } on OcrRequestCancelledException {
+      await _rollbackLease(parsedResult?.candidateAssetLease);
       await _taskManager.finalizeAttemptCancelled(handle.attempt);
       AppLogger.info(
         'Background import cancelled',
@@ -777,6 +801,7 @@ class ImportTaskCoordinator {
         },
       );
     } catch (error) {
+      await _rollbackLease(parsedResult?.candidateAssetLease);
       if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
       final currentTask = _taskManager.tasks.firstWhere(
         (task) => task.id == handle.taskId,
@@ -799,6 +824,41 @@ class ImportTaskCoordinator {
         },
       );
     }
+  }
+
+  Future<void> _rollbackLease(ContentAssetCandidateLease? lease) async {
+    final store = _contentAssetStore;
+    if (store == null || lease == null || lease.localAssetIds.isEmpty) return;
+    try {
+      await store.deleteCandidateAssets(lease);
+    } catch (_) {
+      AppLogger.warning(
+        'Candidate asset rollback did not complete',
+        module: 'Import',
+        data: const <String, Object?>{
+          'stage': 'candidate_asset_rollback',
+          'status': 'failed',
+        },
+      );
+    }
+  }
+
+  Future<void> _rollbackLeaseFromDiagnostics(
+    Map<String, dynamic>? diagnostics,
+  ) async {
+    final sourceId = diagnostics?[keyCandidateAssetSourceId];
+    final rawIds = diagnostics?[keyCandidateAssetLocalIds];
+    if (sourceId is! String || sourceId.trim().isEmpty || rawIds is! List) {
+      return;
+    }
+    final localIds = <String>[];
+    for (final value in rawIds) {
+      if (value is! String || value.trim().isEmpty) return;
+      localIds.add(value);
+    }
+    await _rollbackLease(
+      ContentAssetCandidateLease(sourceId: sourceId, localAssetIds: localIds),
+    );
   }
 
   static String _safeSourceDescription(String sourceDescription) {

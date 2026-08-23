@@ -7,8 +7,11 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../data/models/ai_engine_profile.dart';
 import '../../domain/assets/image_byte_signature.dart';
+import '../../domain/content/rich_content_limits.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
+
+typedef OcrDnsResolver = Future<List<InternetAddress>> Function(String host);
 
 class ZhipuOcrAuthenticationException implements Exception {
   const ZhipuOcrAuthenticationException();
@@ -27,8 +30,14 @@ class ZhipuOcrInvalidPdfException implements Exception {
 }
 
 class ZhipuOcrClient implements OcrDocumentClient {
-  const ZhipuOcrClient({http.Client? httpClient, this.pdfPageChunkSize = 30})
-      : _httpClient = httpClient;
+  const ZhipuOcrClient({
+    http.Client? httpClient,
+    this.pdfPageChunkSize = 30,
+    OcrDnsResolver? dnsResolver,
+    this.remoteCropCountLimit = maxRemoteCropCount,
+    this.remoteCropTotalBytesLimit = maxRemoteCropTotalBytes,
+  })  : _httpClient = httpClient,
+        _dnsResolver = dnsResolver;
 
   final http.Client? _httpClient;
   final int pdfPageChunkSize;
@@ -36,8 +45,17 @@ class ZhipuOcrClient implements OcrDocumentClient {
   static const String model = 'glm-ocr';
   static const int maxPdfBytes = 50 * 1024 * 1024;
   static const int maxImageBytes = 10 * 1024 * 1024;
+
+  /// Transient OCR/provider acquisition limits. These are not persisted
+  /// schema values and are intentionally independent from domain admission.
+  static const int maxRemoteCropCount = RichContentLimits.maxImages;
+  static const int maxRemoteCropTotalBytes = 32 * 1024 * 1024;
   static const int maxRemoteImageRedirects = 3;
   static const Duration remoteImageTimeout = Duration(seconds: 30);
+
+  final OcrDnsResolver? _dnsResolver;
+  final int remoteCropCountLimit;
+  final int remoteCropTotalBytesLimit;
 
   @override
   String get modelId => model;
@@ -185,6 +203,11 @@ class ZhipuOcrClient implements OcrDocumentClient {
     required http.Client client,
     required Duration requestTimeout,
   }) async {
+    final budget = _RemoteCropBudget(
+      maxCount: remoteCropCountLimit,
+      maxTotalBytes: remoteCropTotalBytesLimit,
+    );
+
     Future<void> visit(dynamic value) async {
       if (value is List) {
         for (final item in value) {
@@ -199,17 +222,23 @@ class ZhipuOcrClient implements OcrDocumentClient {
       if ((label == 'image' || label == 'figure') && rawContent is String) {
         final uri = Uri.tryParse(rawContent.trim());
         if (uri != null && uri.scheme.toLowerCase() == 'https') {
+          try {
+            budget.reserveCrop();
+          } on _RemoteCropBudgetExceeded {
+            throw const ZhipuOcrResponseFormatException();
+          }
           String? materialized;
-          if (_isSafeRemoteImageUri(uri)) {
-            try {
-              materialized = await _downloadRemoteImageAsDataUrl(
-                client,
-                uri,
-                timeout: _effectiveRemoteImageTimeout(requestTimeout),
-              );
-            } catch (_) {
-              materialized = null;
-            }
+          try {
+            materialized = await _downloadRemoteImageAsDataUrl(
+              client,
+              uri,
+              timeout: _effectiveRemoteImageTimeout(requestTimeout),
+              budget: budget,
+            );
+          } on _RemoteCropBudgetExceeded {
+            throw const ZhipuOcrResponseFormatException();
+          } catch (_) {
+            materialized = null;
           }
           // The URL is ephemeral provider infrastructure. It must not reach
           // OcrDocument text, replay JSON, or any Domain/persistence payload.
@@ -230,10 +259,11 @@ class ZhipuOcrClient implements OcrDocumentClient {
     http.Client client,
     Uri initialUri, {
     required Duration timeout,
+    required _RemoteCropBudget budget,
   }) async {
     var uri = initialUri;
     for (var redirect = 0; redirect <= maxRemoteImageRedirects; redirect++) {
-      if (!_isSafeRemoteImageUri(uri)) return null;
+      if (!await _isSafeRemoteImageUri(uri)) return null;
       final request = http.Request('GET', uri)..followRedirects = false;
       final response = await client.send(request).timeout(timeout);
       if (response.statusCode >= 300 && response.statusCode < 400) {
@@ -250,12 +280,16 @@ class ZhipuOcrClient implements OcrDocumentClient {
       }
       final contentLength = response.contentLength;
       if (contentLength != null && contentLength > maxImageBytes) return null;
+      if (contentLength != null && !budget.canReserveBytes(contentLength)) {
+        throw const _RemoteCropBudgetExceeded();
+      }
 
       final builder = BytesBuilder(copy: false);
       var totalBytes = 0;
       await for (final chunk in response.stream.timeout(timeout)) {
         totalBytes += chunk.length;
         if (totalBytes > maxImageBytes) return null;
+        budget.reserveBytes(chunk.length);
         builder.add(chunk);
       }
       final bytes = builder.takeBytes();
@@ -276,7 +310,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
         : remoteImageTimeout;
   }
 
-  bool _isSafeRemoteImageUri(Uri uri) {
+  Future<bool> _isSafeRemoteImageUri(Uri uri) async {
     if (uri.scheme.toLowerCase() != 'https' ||
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
@@ -297,6 +331,72 @@ class ZhipuOcrClient implements OcrDocumentClient {
         host.endsWith('.invalid') ||
         host.endsWith('.example')) {
       return false;
+    }
+    try {
+      final addresses = await (_dnsResolver ?? InternetAddress.lookup)(host);
+      return addresses.isNotEmpty && addresses.every(_isPublicAddress);
+    } on SocketException {
+      return false;
+    } on OSError {
+      return false;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  bool _isPublicAddress(InternetAddress address) {
+    final bytes = address.rawAddress;
+    if (address.type == InternetAddressType.IPv4 && bytes.length == 4) {
+      final first = bytes[0];
+      final second = bytes[1];
+      final third = bytes[2];
+      if (first == 0 ||
+          first == 10 ||
+          first == 127 ||
+          (first == 100 && second >= 64 && second <= 127) ||
+          (first == 169 && second == 254) ||
+          (first == 172 && second >= 16 && second <= 31) ||
+          (first == 192 && second == 0 && third == 0) ||
+          (first == 192 && second == 0 && third == 2) ||
+          (first == 192 && second == 88 && third == 99) ||
+          (first == 192 && second == 168) ||
+          (first == 198 && second >= 18 && second <= 19) ||
+          (first == 198 && second == 51 && third == 100) ||
+          (first == 203 && second == 0 && third == 113) ||
+          first >= 224) {
+        return false;
+      }
+      return true;
+    }
+    if (address.type != InternetAddressType.IPv6 || bytes.length != 16) {
+      return false;
+    }
+    final allZero = bytes.every((byte) => byte == 0);
+    final loopback = allZero && bytes[15] == 1;
+    final uniqueLocal = (bytes[0] & 0xfe) == 0xfc;
+    final linkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80;
+    final multicast = bytes[0] == 0xff;
+    final documentation = bytes[0] == 0x20 &&
+        bytes[1] == 0x01 &&
+        bytes[2] == 0x0d &&
+        bytes[3] == 0xb8;
+    final mappedIpv4 = bytes.take(10).every((byte) => byte == 0) &&
+        bytes[10] == 0xff &&
+        bytes[11] == 0xff;
+    if (allZero ||
+        loopback ||
+        uniqueLocal ||
+        linkLocal ||
+        multicast ||
+        documentation) {
+      return false;
+    }
+    if (mappedIpv4) {
+      return _isPublicAddress(
+        InternetAddress(
+          '${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}',
+        ),
+      );
     }
     return true;
   }
@@ -373,4 +473,33 @@ class ZhipuOcrClient implements OcrDocumentClient {
     final requestId = 'ocr_${prefix}_${suffix}_$millis';
     return requestId.length > 64 ? requestId.substring(0, 64) : requestId;
   }
+}
+
+final class _RemoteCropBudget {
+  _RemoteCropBudget({required this.maxCount, required this.maxTotalBytes});
+
+  final int maxCount;
+  final int maxTotalBytes;
+  var count = 0;
+  var totalBytes = 0;
+
+  void reserveCrop() {
+    count++;
+    if (count > maxCount) throw const _RemoteCropBudgetExceeded();
+  }
+
+  void reserveBytes(int bytes) {
+    if (!canReserveBytes(bytes)) {
+      throw const _RemoteCropBudgetExceeded();
+    }
+    totalBytes += bytes;
+  }
+
+  bool canReserveBytes(int bytes) {
+    return bytes >= 0 && bytes <= maxTotalBytes - totalBytes;
+  }
+}
+
+final class _RemoteCropBudgetExceeded implements Exception {
+  const _RemoteCropBudgetExceeded();
 }

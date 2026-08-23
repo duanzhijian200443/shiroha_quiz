@@ -8,12 +8,13 @@ import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
-import '../../data/repositories/question_repository.dart';
+import '../../application/questions/question_presentation_port.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../assistant/assistant_workspace_shell.dart';
+import '../../services/import_review/import_commit_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({
@@ -23,6 +24,7 @@ class MainScreen extends StatefulWidget {
     required this.agentSettingsService,
     required this.startAgentTurn,
     this.questionRepository,
+    this.importCommitService,
     this.startRetrievalTurn,
     this.proposalService,
     this.studyPlanDraftService,
@@ -37,7 +39,8 @@ class MainScreen extends StatefulWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
-  final QuestionRepository? questionRepository;
+  final QuestionPresentationPort? questionRepository;
+  final ImportCommitService? importCommitService;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
@@ -74,6 +77,7 @@ class _MainScreenState extends State<MainScreen> {
     final pages = <Widget>[
       HomePage(
         questionRepository: widget.questionRepository,
+        importCommitService: widget.importCommitService,
         studyPlanSelectionService: widget.studyPlanSelectionService,
         studyPlanCommandService: widget.studyPlanCommandService,
         studyPlanSessionLauncher: widget.studyPlanSessionLauncher,

@@ -8,6 +8,9 @@ import '../../application/backup/backup_contracts.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
+import '../../domain/content/content_node.dart';
+import '../../domain/content/rich_content.dart';
+import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_draft_v2_codec.dart';
 
 /// B0 data authority for consistent SQLite snapshots and staged DB
@@ -125,8 +128,29 @@ final class BackupSnapshotRepository {
       try {
         final draft =
             const QuestionDraftV2Codec().decode(jsonDecode(payloadJson));
-        for (final asset in draft.assetRefs) {
-          identities.add((asset.sourceId, asset.localAssetId));
+        final inventory = <(String, String)>{
+          for (final asset in draft.assetRefs)
+            (asset.sourceId, asset.localAssetId),
+        };
+        void collect(RichContent content) {
+          for (final image in reachableImageNodes(content)) {
+            final identity = (image.sourceId, image.localAssetId);
+            if (!inventory.contains(identity)) {
+              throw const BackupException(BackupFailure.databaseInvalid);
+            }
+            identities.add(identity);
+          }
+        }
+
+        collect(draft.stem);
+        for (final option in draft.options) {
+          collect(option.content);
+        }
+        if (draft.answer case ContentAnswer(:final content)) {
+          collect(content);
+        }
+        if (draft.explanation != null) {
+          collect(draft.explanation!);
         }
       } on BackupException {
         rethrow;

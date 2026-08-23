@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../application/questions/question_presentation_port.dart';
 import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
 import '../../domain/content/content_node.dart';
@@ -95,6 +96,90 @@ final class PersistedQuestionView {
 /// Converts persisted union rows into display views at one boundary so the
 /// typed/legacy branching never spreads across widgets.
 abstract final class PersistedQuestionViewAdapter {
+  static PersistedQuestionView fromApplication(
+    QuestionPresentationRead question,
+  ) {
+    final metrics = question.reviewMetrics == null
+        ? null
+        : PersistedQuestionReviewMetrics(
+            lapses: question.reviewMetrics!.lapses,
+            difficulty: question.reviewMetrics!.difficulty,
+            stability: question.reviewMetrics!.stability,
+            lastLapseTime: question.reviewMetrics!.lastLapseTime,
+          );
+    return switch (question) {
+      TypedQuestionPresentationRead(:final draft) => PersistedQuestionView(
+          storageId: question.storageId,
+          bankName: question.bankName,
+          createdAt: question.createdAt,
+          kind: _typedKind(draft.kind),
+          isTyped: true,
+          typedStem: draft.stem,
+          legacyStem: '',
+          options: List<PersistedQuestionOptionView>.unmodifiable(
+            <PersistedQuestionOptionView>[
+              for (final option in draft.options)
+                PersistedQuestionOptionView(
+                  label: option.label,
+                  typedContent: option.content,
+                  legacyText: '',
+                ),
+            ],
+          ),
+          typedAnswer: _typedAnswer(draft),
+          legacyAnswer: '',
+          typedExplanation: draft.explanation,
+          legacyExplanation: '',
+          legacyEditPayload: null,
+          typedDraft: draft,
+          searchText: _typedSearchText(draft),
+          reviewMetrics: metrics,
+        ),
+      LegacyQuestionPresentationRead(
+        :final type,
+        :final content,
+        :final options,
+        :final answer,
+        :final explanation,
+        :final rawExplanation,
+      ) =>
+        PersistedQuestionView(
+          storageId: question.storageId,
+          bankName: question.bankName,
+          createdAt: question.createdAt,
+          kind: _legacyKind(type),
+          isTyped: false,
+          typedStem: null,
+          legacyStem: content,
+          options: _parseLegacyOptions(options),
+          typedAnswer: null,
+          legacyAnswer: answer,
+          typedExplanation: null,
+          legacyExplanation: explanation ?? '',
+          legacyEditPayload:
+              Map<String, dynamic>.unmodifiable(<String, dynamic>{
+            'id': question.storageId,
+            'type': type,
+            'content': content,
+            'options': options,
+            'standard_answer': answer,
+            'created_at': question.createdAt,
+            'bank_name': question.bankName,
+            'explanation': explanation,
+            'raw_explanation': rawExplanation,
+          }),
+          typedDraft: null,
+          searchText: _legacySearchTextFromFields(
+            content: content,
+            options: options,
+            answer: answer,
+            explanation: explanation,
+          ),
+          reviewMetrics: metrics,
+        ),
+    };
+  }
+
   static PersistedQuestionView fromPersisted(PersistedQuestion question) {
     return switch (question) {
       TypedPersistedQuestion(:final draft) => _fromTyped(question, draft),
@@ -306,5 +391,15 @@ abstract final class PersistedQuestionViewAdapter {
       question.answer,
       question.explanation ?? '',
     ].join(' ');
+  }
+
+  static String _legacySearchTextFromFields({
+    required String content,
+    required String? options,
+    required String answer,
+    required String? explanation,
+  }) {
+    final parts = <String>[content, options ?? '', answer, explanation ?? ''];
+    return parts.where((part) => part.isNotEmpty).join(' ');
   }
 }

@@ -19,6 +19,7 @@ import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'application/agent/agent_retrieval_tool.dart';
 import 'application/answers/ai_answer_commit_command.dart';
 import 'application/answers/ai_answer_generation.dart';
+import 'application/questions/question_presentation_port.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
@@ -73,6 +74,7 @@ import 'services/file_library/managed_content_asset_store.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
 import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
+import 'services/import_review/import_commit_service.dart';
 import 'services/task_manager.dart';
 import 'services/llm_providers/zhipu_ocr_client.dart';
 import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
@@ -402,6 +404,10 @@ void main() {
           ),
         );
         final taskManager = TaskManager.instance;
+        final importCommitService = ImportCommitService(
+          questionRepository: questionRepository,
+          taskManager: taskManager,
+        );
         final aiService = AiService(
           engineRepository: engineRepository,
           taskManager: taskManager,
@@ -418,6 +424,7 @@ void main() {
           taskManager: taskManager,
           parser: importPipelineService.parseFiles,
           requestScheduler: ocrRequestScheduler,
+          contentAssetStore: contentAssetStore,
           onReadyForReview: (sourceDescription) {
             rootScaffoldMessengerKey.currentState?.showSnackBar(
               SnackBar(
@@ -446,6 +453,7 @@ void main() {
             aiService: aiService,
             importPipelineService: importPipelineService,
             importTaskCoordinator: importTaskCoordinator,
+            importCommitService: importCommitService,
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
             examMutationCommand: examMutationCommand,
@@ -489,6 +497,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
+    this.importCommitService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
@@ -512,12 +521,13 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
+  final ImportCommitService? importCommitService;
 
   /// P7 Application seams for the AI answer review UI.
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
   final ExamMutationCommand examMutationCommand;
-  final QuestionRepository questionRepository;
+  final QuestionPresentationPort questionRepository;
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
@@ -551,6 +561,7 @@ class ShirohaQuizApp extends StatelessWidget {
             agentSettingsService: agentSettingsService,
             startAgentTurn: startAgentTurn,
             questionRepository: questionRepository,
+            importCommitService: importCommitService,
             startRetrievalTurn: startRetrievalTurn,
             proposalService: proposalService,
             studyPlanDraftService: studyPlanDraftService,

@@ -303,7 +303,7 @@ class RichContentRenderer extends StatelessWidget {
     final parts = text.split('\n');
     for (var i = 0; i < parts.length; i++) {
       if (parts[i].isNotEmpty) {
-        inlineTokens.add(TextToken(parts[i]));
+        _appendTypedTextLine(parts[i], inlineTokens);
       }
       if (i != parts.length - 1) {
         flushInline();
@@ -311,6 +311,42 @@ class RichContentRenderer extends StatelessWidget {
           widgets.add(SizedBox(height: fontSize * 0.35));
         }
       }
+    }
+  }
+
+  /// Typed text is persisted as literal text. The R5 contract has one
+  /// deliberately narrow exception for the legacy fill-blank marker: an
+  /// underscore run of at least three characters becomes a blank widget.
+  /// No Markdown, image, or math syntax is inferred here.
+  void _appendTypedTextLine(
+    String line,
+    List<ContentToken> inlineTokens,
+  ) {
+    var textStart = 0;
+    var index = 0;
+    while (index < line.length) {
+      if (line[index] != '_') {
+        index++;
+        continue;
+      }
+
+      var runEnd = index + 1;
+      while (runEnd < line.length && line[runEnd] == '_') {
+        runEnd++;
+      }
+      final runLength = runEnd - index;
+      if (runLength >= 3) {
+        if (textStart < index) {
+          inlineTokens.add(TextToken(line.substring(textStart, index)));
+        }
+        inlineTokens.add(BlankToken(runLength));
+        textStart = runEnd;
+      }
+      index = runEnd;
+    }
+
+    if (textStart < line.length) {
+      inlineTokens.add(TextToken(line.substring(textStart)));
     }
   }
 }

@@ -811,6 +811,38 @@ import '../../domain/content/content_node.dart'
       }
     });
 
+    test('production composition wires the configured typed content authority',
+        () {
+      final source = File('lib/main.dart').readAsStringSync();
+      expect(
+        source,
+        contains('final contentAssetStore = ManagedContentAssetStore('),
+      );
+      expect(
+        source,
+        contains(
+            'final productionQuestionMapper = QuestionV2PersistenceMapper('),
+      );
+      expect(source, contains('contentAssetAuthority: contentAssetStore'));
+      expect(
+          source, contains('final questionRepository = QuestionRepository('));
+      expect(source, contains('mapper: productionQuestionMapper'));
+      expect(
+          source, contains('final importCommitService = ImportCommitService('));
+      expect(source, contains('questionRepository: questionRepository'));
+      expect(
+        source,
+        contains('final importPipelineService = ImportPipelineService('),
+      );
+      expect(source, contains('contentAssetStore: contentAssetStore'));
+      expect(
+        source,
+        contains('final importTaskCoordinator = ImportTaskCoordinator('),
+      );
+      expect(source, contains('importCommitService: importCommitService'));
+      expect(source, contains('contentAssetResolver: contentAssetStore'));
+    });
+
     test(
       'A0-1 application contracts stay provider and infrastructure neutral',
       () {
