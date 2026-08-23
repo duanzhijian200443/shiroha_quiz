@@ -122,12 +122,14 @@ final class StagedRestore {
     required this.stagingPath,
     required this.databasePath,
     required this.managedFilesPath,
+    required this.contentAssetsPath,
     required this.manifest,
   });
 
   final String stagingPath;
   final String databasePath;
   final String managedFilesPath;
+  final String contentAssetsPath;
   final BackupManifest manifest;
 }
 

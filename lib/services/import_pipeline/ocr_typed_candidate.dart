@@ -1,3 +1,4 @@
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
@@ -146,6 +147,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   required List<OcrQuestionRegion> regions,
   required List<Map<String, dynamic>> legacyQuestions,
   required String Function() uuidV4Factory,
+  ContentAssetStore? assetStore,
 }) {
   if (regions.length != legacyQuestions.length) {
     return OcrTypedCandidateBatch(
@@ -168,11 +170,9 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   final SourceDocument sourceDocument;
   try {
     sourceId = uuidV4Factory();
-    sourceDocument = const OcrSourceDocumentAdapter().convert(
-      document,
-      sourceId: sourceId,
-      displayLabel: null,
-    );
+    sourceDocument = OcrSourceDocumentAdapter(
+      assetStore: assetStore,
+    ).convert(document, sourceId: sourceId, displayLabel: null);
   } catch (_) {
     return OcrTypedCandidateBatch(
       candidates: <OcrTypedCandidate>[],
@@ -205,8 +205,9 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
             (projectedQuestion['question_number'] as num?)?.toInt() ??
                 region.number,
         content: projectedQuestion['content'] as String,
-        options:
-            List<String>.from(projectedQuestion['options'] as List<Object?>),
+        options: List<String>.from(
+          projectedQuestion['options'] as List<Object?>,
+        ),
         standardAnswer: projectedQuestion['standard_answer'] as String,
         explanation: projectedQuestion['explanation'] as String,
       );
@@ -342,9 +343,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       !_sameNumberSet(candidateNumbers, finalNumbers)) {
     return _ineligible(
       finalQuestions,
-      ocrTypedCandidateFailureReason(
-        OcrTypedCandidateFailure.identityMismatch,
-      ),
+      ocrTypedCandidateFailureReason(OcrTypedCandidateFailure.identityMismatch),
     );
   }
 
@@ -465,9 +464,7 @@ OcrTypedCandidateGateResult _ineligible(
 /// Strict six-field baseline decode from the final legacy map. Any shape
 /// anomaly (wrong type, non-string option, negative or missing number)
 /// returns null; no `toString()` repair or silent option drop is allowed.
-LegacyReviewBaseline? _strictDecodeBaseline(
-  Map<String, dynamic> question,
-) {
+LegacyReviewBaseline? _strictDecodeBaseline(Map<String, dynamic> question) {
   final type = question['type'];
   final number = question['question_number'];
   final content = question['content'];

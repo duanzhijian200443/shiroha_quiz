@@ -16,11 +16,13 @@ final class ExtractedPackage {
     required this.manifest,
     required this.databasePath,
     required this.managedFilesRoot,
+    required this.contentAssetsRoot,
   });
 
   final BackupManifest manifest;
   final String databasePath;
   final String managedFilesRoot;
+  final String contentAssetsRoot;
 }
 
 final class ArchiveEntryRecord {
@@ -77,7 +79,7 @@ abstract final class BackupArchiveIo {
         final stream = InputFileStream(source.path);
         inputs.add(stream);
         final file = ArchiveFile.stream(
-          BackupValues.managedArchivePath(source.fileId),
+          source.archivePath ?? BackupValues.managedArchivePath(source.fileId),
           File(source.path).lengthSync(),
           stream,
         )..compress = false;
@@ -191,6 +193,7 @@ abstract final class BackupArchiveIo {
         BackupValues.manifestArchivePath,
         BackupValues.databaseArchivePath,
         ...manifest.managedFiles.map((file) => file.archivePath),
+        ...manifest.contentAssets.map((asset) => asset.archivePath),
       };
       if (expectedPaths.length != headers.length) {
         throw const BackupException(BackupFailure.invalidPackage);
@@ -217,8 +220,10 @@ abstract final class BackupArchiveIo {
         BackupValues.databaseArchivePath,
       );
       final managedRoot = p.join(stagingRoot, 'files', 'library');
+      final contentAssetsRoot = p.join(stagingRoot, 'files', 'content_assets');
       await Directory(p.dirname(databasePath)).create(recursive: true);
       await Directory(managedRoot).create(recursive: true);
+      await Directory(contentAssetsRoot).create(recursive: true);
 
       var totalActualBytes = 0;
       for (final header in headers) {
@@ -261,6 +266,7 @@ abstract final class BackupArchiveIo {
         manifest: manifest,
         databasePath: databasePath,
         managedFilesRoot: managedRoot,
+        contentAssetsRoot: contentAssetsRoot,
       );
     } finally {
       input.closeSync();
@@ -294,10 +300,15 @@ abstract final class BackupArchiveIo {
         sha256: manifest.database.sha256,
       );
     }
-    final file = manifest.managedFiles.firstWhere(
+    for (final file in manifest.managedFiles) {
+      if (file.archivePath == archivePath) {
+        return (sizeBytes: file.sizeBytes, sha256: file.sha256);
+      }
+    }
+    final asset = manifest.contentAssets.firstWhere(
       (entry) => entry.archivePath == archivePath,
     );
-    return (sizeBytes: file.sizeBytes, sha256: file.sha256);
+    return (sizeBytes: asset.sizeBytes, sha256: asset.sha256);
   }
 
   static int _declaredLimitFor(
@@ -310,8 +321,11 @@ abstract final class BackupArchiveIo {
     if (header.filename == BackupValues.databaseArchivePath) {
       return manifest.database.sizeBytes;
     }
-    return manifest.managedFiles
-        .firstWhere((file) => file.archivePath == header.filename)
+    for (final file in manifest.managedFiles) {
+      if (file.archivePath == header.filename) return file.sizeBytes;
+    }
+    return manifest.contentAssets
+        .firstWhere((asset) => asset.archivePath == header.filename)
         .sizeBytes;
   }
 
@@ -457,10 +471,15 @@ abstract final class BackupArchiveIo {
 }
 
 final class ArchiveSourceFile {
-  const ArchiveSourceFile({required this.fileId, required this.path});
+  const ArchiveSourceFile({
+    required this.fileId,
+    required this.path,
+    this.archivePath,
+  });
 
   final String fileId;
   final String path;
+  final String? archivePath;
 }
 
 final class _RecentBytes {

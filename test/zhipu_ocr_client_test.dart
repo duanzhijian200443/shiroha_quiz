@@ -82,6 +82,64 @@ void main() {
       expect(document.toDiagnostics()['pageCount'], 2);
     });
 
+    test('crop materialization requires image bytes matching the MIME',
+        () async {
+      final file = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'zhipu-ocr-crop-${DateTime.now().microsecondsSinceEpoch}.png',
+      )..writeAsBytesSync(const <int>[1]);
+      addTearDown(() => file.deleteSync());
+
+      Future<OcrDocument> parseCrop(List<int> cropBytes) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'GET') {
+              return http.Response.bytes(
+                cropBytes,
+                200,
+                headers: <String, String>{'content-type': 'image/png'},
+              );
+            }
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'md_results': '',
+                'layout_details': <Object?>[
+                  <Object?>[
+                    <String, Object?>{
+                      'index': 1,
+                      'label': 'image',
+                      'content': 'https://cdn.example.com/crop.png',
+                    },
+                  ],
+                ],
+                'data_info': <String, Object?>{
+                  'num_pages': 1,
+                  'pages': <Object?>[
+                    <String, Object?>{'width': 1, 'height': 1},
+                  ],
+                },
+              }),
+              200,
+            );
+          }),
+        );
+        return client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      final valid = await parseCrop(
+        const <int>[137, 80, 78, 71, 13, 10, 26, 10, 1],
+      );
+      expect(valid.flattenedBlocks.single.imagePayload, isNotNull);
+
+      final invalid = await parseCrop(const <int>[1, 2, 3]);
+      expect(invalid.flattenedBlocks.single.imagePayload, isNull);
+      expect(invalid.flattenedBlocks.single.text, '[图片]');
+    });
+
     test('uses a typed authentication failure without response-body leakage',
         () async {
       final image = File(

@@ -1,3 +1,4 @@
+import '../../application/content/content_asset_authority.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../core/observability/trace_context.dart';
 import '../llm_providers/llm_provider_registry.dart';
@@ -52,6 +53,7 @@ class OcrImportService {
     OcrRequestScheduler? requestScheduler,
     TaskManager? taskManager,
     String Function()? uuidV4Factory,
+    ContentAssetStore? contentAssetStore,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
@@ -61,10 +63,9 @@ class OcrImportService {
         _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
         _taskManager = taskManager,
         _uuidV4Factory = uuidV4Factory ?? _defaultUuidV4,
+        _contentAssetStore = contentAssetStore,
         _repairService = repairService ??
-            SingleQuestionRepairService(
-              engineRepository: engineRepository,
-            );
+            SingleQuestionRepairService(engineRepository: engineRepository);
 
   final OcrDocumentClient _ocrClient;
   final AiEngineRepository _engineRepository;
@@ -76,6 +77,7 @@ class OcrImportService {
   final TaskManager? _taskManager;
   final SingleQuestionRepairService _repairService;
   final String Function() _uuidV4Factory;
+  final ContentAssetStore? _contentAssetStore;
 
   static String _defaultUuidV4() => const Uuid().v4();
 
@@ -159,8 +161,9 @@ class OcrImportService {
           attemptToken: attempt?.attemptToken,
           operation: () async {
             if (attempt != null && taskManager != null) {
-              final runningStatus =
-                  await taskManager.markAttemptRunning(attempt);
+              final runningStatus = await taskManager.markAttemptRunning(
+                attempt,
+              );
               if (runningStatus != ImportAttemptWriteStatus.applied ||
                   !taskManager.isAttemptRunnable(attempt)) {
                 throw const OcrRequestCancelledException();
@@ -232,8 +235,9 @@ class OcrImportService {
           .where(
             (region) =>
                 region.diagnostics.contains('reference_answer_conflict') ||
-                region.diagnostics
-                    .contains('reference_answer_duplicate_conflict'),
+                region.diagnostics.contains(
+                  'reference_answer_duplicate_conflict',
+                ),
           )
           .length;
       diagnostics['referenceAnswers'] = referenceAnswerIndex.diagnostics;
@@ -269,8 +273,9 @@ class OcrImportService {
         final roleAssessment = _assessDocumentRole(
           document: document,
           assembled: assembled,
-          sectionHeadingCount:
-              _readInt(regionized.diagnostics['sectionHeadingCount']),
+          sectionHeadingCount: _readInt(
+            regionized.diagnostics['sectionHeadingCount'],
+          ),
         );
         return (candidates: assembled, roleAssessment: roleAssessment);
       });
@@ -467,18 +472,16 @@ class OcrImportService {
                 ExplanationRetentionMode.allQuestionTypes &&
             diagnostic == 'dropped_non_subjective_explanation',
       );
-    final finalized = finalizeAndAuditImportQuestion(
-      <String, dynamic>{
-        ...result.question,
-        'diagnostics': diagnostics,
-      },
-      mode: explanationRetentionMode,
-    );
+    final finalized = finalizeAndAuditImportQuestion(<String, dynamic>{
+      ...result.question,
+      'diagnostics': diagnostics,
+    }, mode: explanationRetentionMode);
     final finalizedDiagnostics = <String>{
       ...diagnostics,
       if (finalized['diagnostics'] is List)
-        ...(finalized['diagnostics'] as List)
-            .map((diagnostic) => diagnostic.toString()),
+        ...(finalized['diagnostics'] as List).map(
+          (diagnostic) => diagnostic.toString(),
+        ),
     }.toList(growable: false);
     final withCandidates =
         const ImportQuestionRepairPolicy().syncCandidateMetadata(
@@ -524,6 +527,7 @@ class OcrImportService {
         regions: regions,
         legacyQuestions: legacyQuestions,
         uuidV4Factory: _uuidV4Factory,
+        assetStore: _contentAssetStore,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(
@@ -541,7 +545,8 @@ class OcrImportService {
     final questionCount = assembled.length;
     final nonEmptyStemCount = assembled
         .where(
-            (item) => _readString(item.result.question['content']).isNotEmpty)
+          (item) => _readString(item.result.question['content']).isNotEmpty,
+        )
         .length;
     final nonEmptyAnswerCount = assembled
         .where((item) => _hasNonEmptyAnswer(item.result.question))
@@ -675,8 +680,10 @@ class _OcrAssemblyCandidate {
 }
 
 class _ExplicitMarkerCounts {
-  const _ExplicitMarkerCounts(
-      {required this.answer, required this.explanation});
+  const _ExplicitMarkerCounts({
+    required this.answer,
+    required this.explanation,
+  });
 
   final int answer;
   final int explanation;

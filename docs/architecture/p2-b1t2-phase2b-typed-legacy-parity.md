@@ -361,9 +361,8 @@ The following remain deferred and are not activated by this contract:
   generic normalization design;
 - evidence-backed handling, if required, for finalizer safe-HTML cleanup or
   deterministic LaTeX repair differences;
-- Phase 3 durable asset lifecycle and B0 asset integration;
-- real image/table `OcrSourceDocumentAdapter` source activation;
-- provider materialization, durable image bytes, renderer/resolver work, and
-  live PDF acceptance;
+- unbounded asset registry, reference counting, garbage collection, and other
+  lifecycle expansion beyond the bounded managed lifetime;
+- final live PDF acceptance for the real provider trace;
 - AI Repair, P2-B2, AnswerAttempt, RAG, MCP, and option-extraction redesign;
 - P3 mixed-structural stem option extraction.

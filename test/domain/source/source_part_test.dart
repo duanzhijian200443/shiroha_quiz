@@ -93,7 +93,7 @@ void main() {
       expect(part.role, SourceContentRole.unknown);
     });
 
-    test('keeps unresolved image and table nodes out of Source v1 parts', () {
+    test('allows nested images but keeps table nodes out of source parts', () {
       final sourceRef = SourceRef.document(sourceId: 'source_001');
       final asset = AssetRef(assetId: 'asset_001', kind: AssetKind.image);
       final image = ImageNode(
@@ -112,12 +112,6 @@ void main() {
               sourceRef: sourceRef,
               content: content,
             ),
-        (content) => SourceTablePart(
-              sourceRef: sourceRef,
-              rows: <List<RichContent>>[
-                <RichContent>[content]
-              ],
-            ),
         (content) => SourceAssetPart(
               sourceRef: sourceRef,
               asset: asset,
@@ -130,12 +124,38 @@ void main() {
             ),
       ];
 
-      for (final node in <ContentNode>[image, table]) {
-        final content = RichContent(nodes: <ContentNode>[node]);
-        for (final build in builders) {
-          expect(() => build(content), throwsFormatException);
-        }
+      final imageContent = RichContent(nodes: <ContentNode>[image]);
+      for (final build in builders) {
+        expect(() => build(imageContent), returnsNormally);
       }
+
+      final tableContent = RichContent(nodes: <ContentNode>[table]);
+      for (final build in builders) {
+        expect(() => build(tableContent), throwsFormatException);
+      }
+
+      expect(
+        () => SourceTablePart(
+          sourceRef: sourceRef,
+          rows: <List<RichContent>>[
+            <RichContent>[
+              RichContent(nodes: <ContentNode>[image]),
+            ]
+          ],
+        ),
+        returnsNormally,
+      );
+      expect(
+        () => SourceTablePart(
+          sourceRef: sourceRef,
+          rows: <List<RichContent>>[
+            <RichContent>[
+              RichContent(nodes: <ContentNode>[table]),
+            ]
+          ],
+        ),
+        throwsFormatException,
+      );
     });
 
     test('uses deep RichContent value equality and stable hashes', () {

@@ -8,6 +8,7 @@ import '../../domain/source/source_ref.dart';
 import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
+import 'ocr_table_projection.dart';
 
 /// Explicit, stable projection profile selecting the legacy map shape,
 /// provenance fields, and source tag of one authoritative legacy assembler.
@@ -142,23 +143,24 @@ final class QuestionDraftV2LegacyProjector {
       diagnostics.add('choice_options_less_than_2');
     }
 
-    var question =
-        const ImportQuestionFieldPolicy().applyToMap(<String, dynamic>{
-      'question_number': region.questionNumber,
-      'type': type,
-      'content': content,
-      'options': options,
-      'standard_answer': answer,
-      'explanation': rawExplanation,
-      'raw_explanation': rawExplanation.isEmpty ? null : rawExplanation,
-      'source': profile.sourceTag,
-      'diagnostics': diagnostics,
-      if (isOcr) ...<String, dynamic>{
-        'q_num': region.questionNumber.toString(),
-        'source_page_indices': _pageNumbers(region),
-        'source_block_ids': _blockIds(region),
+    var question = const ImportQuestionFieldPolicy().applyToMap(
+      <String, dynamic>{
+        'question_number': region.questionNumber,
+        'type': type,
+        'content': content,
+        'options': options,
+        'standard_answer': answer,
+        'explanation': rawExplanation,
+        'raw_explanation': rawExplanation.isEmpty ? null : rawExplanation,
+        'source': profile.sourceTag,
+        'diagnostics': diagnostics,
+        if (isOcr) ...<String, dynamic>{
+          'q_num': region.questionNumber.toString(),
+          'source_page_indices': _pageNumbers(region),
+          'source_block_ids': _blockIds(region),
+        },
       },
-    });
+    );
     if (_hasDanglingLatexInFinalFields(question)) {
       diagnostics.add('dangling_latex');
     }
@@ -177,8 +179,10 @@ final class QuestionDraftV2LegacyProjector {
             content: rawContent,
             options: options,
             diagnostics: diagnostics,
-            rawTextLength:
-                _untrimmedTextLength(region, QuestionRegionField.stem),
+            rawTextLength: _untrimmedTextLength(
+              region,
+              QuestionRegionField.stem,
+            ),
           );
     final rejected =
         rawContent.trim().isEmpty && _rawTextLength(region, isOcr: isOcr) < 8;
@@ -278,6 +282,11 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
         _materializeContentNodes(part.content, fragment.slice),
       ).trim();
       if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      parts.add('[图片]');
+    } else if (part is SourceTablePart) {
+      final text = OcrTableProjector.projectToPlainText(part).trim();
+      if (text.isNotEmpty) parts.add(text);
     }
   }
   return parts.join('\n');
@@ -285,10 +294,7 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field) {
 
 /// Sums the untrimmed searchable text length of every [field] fragment,
 /// mirroring the legacy assemblers that threshold on `region.rawText.length`.
-int _untrimmedTextLength(
-  QuestionRegion region,
-  QuestionRegionField field,
-) {
+int _untrimmedTextLength(QuestionRegion region, QuestionRegionField field) {
   final parts = <String>[];
   for (final fragment in region.fragmentsFor(field)) {
     final part = fragment.part;
@@ -297,15 +303,17 @@ int _untrimmedTextLength(
         _materializeContentNodes(part.content, fragment.slice),
       );
       if (text.isNotEmpty) parts.add(text);
+    } else if (part is SourceAssetPart) {
+      parts.add('[图片]');
+    } else if (part is SourceTablePart) {
+      final text = OcrTableProjector.projectToPlainText(part);
+      if (text.isNotEmpty) parts.add(text);
     }
   }
   return parts.join('\n').length;
 }
 
-void _guardNoRawFallback(
-  QuestionDraftV2 draft,
-  QuestionRegion region,
-) {
+void _guardNoRawFallback(QuestionDraftV2 draft, QuestionRegion region) {
   void check(String label, List<ContentNode> nodes) {
     if (nodes.any((node) => node is RawFallbackNode)) {
       throw LegacyProjectionUnsupportedException(
@@ -334,17 +342,11 @@ void _guardNoRawFallback(
           _materializeContentNodes(content, fragment.slice),
         );
       case SourceAssetPart():
-        throw LegacyProjectionUnsupportedException(
-          kindCode: 'source_asset',
-          message: 'Asset fragments cannot be projected losslessly by the '
-              'legacy map.',
-        );
       case SourceTablePart():
-        throw LegacyProjectionUnsupportedException(
-          kindCode: 'source_table',
-          message: 'Table fragments cannot be projected losslessly by the '
-              'legacy map.',
-        );
+        // These structural parts are already represented by the typed draft.
+        // Their safe compatibility text is obtained from the draft projection
+        // below; no source-part string recovery is needed here.
+        break;
       case UnsupportedSourcePart(:final kindCode):
         throw LegacyProjectionUnsupportedException(
           kindCode: kindCode,
@@ -355,10 +357,7 @@ void _guardNoRawFallback(
   }
 }
 
-void _guardProjectionBoundary(
-  QuestionDraftV2 draft,
-  QuestionRegion region,
-) {
+void _guardProjectionBoundary(QuestionDraftV2 draft, QuestionRegion region) {
   _guardNoRawFallback(draft, region);
   _guardDraftRegionConsistency(draft, region);
 }
@@ -392,9 +391,9 @@ String _ocrRegionStem(QuestionRegion region) {
     RegExp('^\\s*(?:第\\s*)?${region.questionNumber}\\s*(?:题|[\\.、．])?\\s*'),
     '',
   );
-  return _stripOcrFieldLabels(withoutNumber)
-      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-      .trim();
+  return _stripOcrFieldLabels(
+    withoutNumber,
+  ).replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
 
 /// Mirrors the OCR assembler option split: only the complete ordered A-D
@@ -484,14 +483,8 @@ bool _ocrHasBlankMarkers(String content) {
 
 String _stripOcrFieldLabels(String text) {
   return text
-      .replaceFirst(
-        RegExp(r'^\s*(?:标准答案|参考答案|答案)\s*[:：]?\s*'),
-        '',
-      )
-      .replaceFirst(
-        RegExp(r'^\s*(?:答案解析|解析|分析|详解|解|证明)\s*[:：]?\s*'),
-        '',
-      )
+      .replaceFirst(RegExp(r'^\s*(?:标准答案|参考答案|答案)\s*[:：]?\s*'), '')
+      .replaceFirst(RegExp(r'^\s*(?:答案解析|解析|分析|详解|解|证明)\s*[:：]?\s*'), '')
       .trim();
 }
 
@@ -545,8 +538,10 @@ String _composeRawText(QuestionRegion region) {
   );
   final answer = _fragmentText(region, QuestionRegionField.answer).trim();
   if (answer.isNotEmpty) buffer.writeln('答案: $answer');
-  final explanation =
-      _fragmentText(region, QuestionRegionField.explanation).trim();
+  final explanation = _fragmentText(
+    region,
+    QuestionRegionField.explanation,
+  ).trim();
   if (explanation.isNotEmpty) buffer.writeln('解析: $explanation');
   return buffer.toString().trim();
 }

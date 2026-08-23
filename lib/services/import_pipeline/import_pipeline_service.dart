@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
+import '../../application/content/content_asset_authority.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
@@ -41,8 +42,7 @@ typedef ImportTextParser = Future<List<Map<String, dynamic>>> Function(
 });
 
 typedef ImportVisionParser = Future<List<Map<String, dynamic>>> Function(
-  List<String> imagePaths,
-);
+    List<String> imagePaths);
 
 typedef ImportOcrParser = Future<OcrImportResult?> Function({
   required String filePath,
@@ -61,26 +61,22 @@ class ImportPipelineService {
     required AiEngineRepository engineRepository,
     required TaskManager taskManager,
     OcrRequestScheduler? ocrRequestScheduler,
+    ContentAssetStore? contentAssetStore,
   }) : this._(
-          textParser: (
-            rawText, {
-            required taskId,
-            required isMarkdown,
-          }) =>
+          textParser: (rawText, {required taskId, required isMarkdown}) =>
               aiService.parseTextToQuestions(
             rawText,
             taskId: taskId,
             isMarkdown: isMarkdown,
           ),
-          visionParser: (imagePaths) => aiService.parseImagesWithVision(
-            imagePaths,
-            repairLatex: false,
-          ),
+          visionParser: (imagePaths) =>
+              aiService.parseImagesWithVision(imagePaths, repairLatex: false),
           ocrParser: OcrImportService(
             ocrClient: const ZhipuOcrClient(),
             engineRepository: engineRepository,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
             taskManager: taskManager,
+            contentAssetStore: contentAssetStore,
           ).tryParse,
           questionMerger: aiService.mergeStructuredQuestions,
           taskManager: taskManager,
@@ -149,10 +145,7 @@ class ImportPipelineService {
         );
 
     if (TraceContext.traceId == null) {
-      return TraceContext.run(
-        taskId: request.taskId,
-        action: runPipeline,
-      );
+      return TraceContext.run(taskId: request.taskId, action: runPipeline);
     }
     return runPipeline();
   }
@@ -185,10 +178,7 @@ class ImportPipelineService {
       AppLogger.info(
         'Import file processing started',
         module: 'ImportPipeline',
-        data: <String, Object?>{
-          'fileIndex': fileIdx,
-          'format': format.name,
-        },
+        data: <String, Object?>{'fileIndex': fileIdx, 'format': format.name},
       );
 
       switch (request.mode) {
@@ -199,8 +189,9 @@ class ImportPipelineService {
               filePath: filePath,
               sourceName: sourceName,
             );
-            final rawText =
-                parsedDoc.toPlainTextForParsing(includeImages: false);
+            final rawText = parsedDoc.toPlainTextForParsing(
+              includeImages: false,
+            );
 
             allDiagnostics[sourceName] = parsedDoc.toDiagnostics();
             if (!parsedDoc.fallbackUsed &&
@@ -345,8 +336,11 @@ class ImportPipelineService {
             },
             onBatchSuccess: (batchIdx, questions) {
               final chunkKey = 'batch_${fileIdx}_$batchIdx';
-              TaskManager.instance
-                  .markChunkSuccess(taskId, chunkKey, questions);
+              TaskManager.instance.markChunkSuccess(
+                taskId,
+                chunkKey,
+                questions,
+              );
             },
             onBatchFailed: (batchIdx, error) {
               final chunkKey = 'batch_${fileIdx}_$batchIdx';
@@ -434,11 +428,7 @@ class ImportPipelineService {
     }
 
     if (fileResults.length > 1 && !hasStrictDocxRoute && !hasBlockedParse) {
-      await _updateTaskProgress(
-        taskId,
-        '启动 AI 结构化交叉配对引擎...',
-        0.9,
-      );
+      await _updateTaskProgress(taskId, '启动 AI 结构化交叉配对引擎...', 0.9);
       final merged = await _questionMerger(fileResults);
       final sorted = const ImportQuestionFinalSorter().sort(merged);
       allDiagnostics['final_sort'] = sorted.diagnostics;
@@ -513,7 +503,7 @@ class ImportPipelineService {
   ({
     List<Map<String, dynamic>> questions,
     ImportStorageRoute route,
-    String? reason
+    String? reason,
   }) _resolveOcrCandidateStorage(
     ImportParseRequest request,
     OcrTypedCandidateBatch? batch,
@@ -531,11 +521,7 @@ class ImportPipelineService {
       finalQuestions: finalized,
       singleFile: request.filePaths.length == 1,
     );
-    return (
-      questions: gate.questions,
-      route: gate.route,
-      reason: gate.reason,
-    );
+    return (questions: gate.questions, route: gate.route, reason: gate.reason);
   }
 
   Future<void> _updateTaskProgress(

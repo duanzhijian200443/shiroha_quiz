@@ -44,18 +44,23 @@ class QuestionRepository
         QuestionBankFolderMutationPersistencePort,
         QuestionWriteMutationPersistencePort,
         PracticeSessionMutationPersistencePort {
-  QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
-      : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
-        _uuid = uuid ?? const Uuid();
+  QuestionRepository({
+    DatabaseHelper? databaseHelper,
+    Uuid? uuid,
+    QuestionV2PersistenceMapper mapper = const QuestionV2PersistenceMapper(),
+    TypedAnswerPersistenceKernel? typedAnswerKernel,
+  })  : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
+        _uuid = uuid ?? const Uuid(),
+        _mapper = mapper,
+        _typedAnswerKernel =
+            typedAnswerKernel ?? TypedAnswerPersistenceKernel(mapper);
 
   static final QuestionRepository instance = QuestionRepository();
 
   final DatabaseHelper _databaseHelper;
   final Uuid _uuid;
-  static const QuestionV2PersistenceMapper _mapper =
-      QuestionV2PersistenceMapper();
-  static const TypedAnswerPersistenceKernel _typedAnswerKernel =
-      TypedAnswerPersistenceKernel();
+  final QuestionV2PersistenceMapper _mapper;
+  final TypedAnswerPersistenceKernel _typedAnswerKernel;
 
   @override
   Future<void> saveQuestionsToBank({

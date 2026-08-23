@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../../application/backup/backup_contracts.dart';
+import '../../application/content/content_asset_authority.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/repositories/backup_snapshot_repository.dart';
 import '../../domain/backup/backup_failure.dart';
@@ -52,6 +53,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     required BackupDatabaseAuthority databaseAuthority,
     required BackupSnapshotRepository snapshotRepository,
     required ManagedFileStorage managedFileStorage,
+    ContentAssetStore? contentAssetStore,
     required Directory restoreRoot,
     required Directory managedFilesRoot,
     BackupDiskSpaceProbe diskSpaceProbe = const PlatformDiskSpaceProbe(),
@@ -60,6 +62,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
   })  : _database = databaseAuthority,
         _snapshots = snapshotRepository,
         _managedFiles = managedFileStorage,
+        _contentAssets = contentAssetStore,
         _restoreRoot = restoreRoot,
         _managedFilesRoot = managedFilesRoot,
         _diskSpaceProbe = diskSpaceProbe,
@@ -71,6 +74,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
   final BackupDatabaseAuthority _database;
   final BackupSnapshotRepository _snapshots;
   final ManagedFileStorage _managedFiles;
+  final ContentAssetStore? _contentAssets;
   final Directory _restoreRoot;
   final Directory _managedFilesRoot;
   final BackupDiskSpaceProbe _diskSpaceProbe;
@@ -120,8 +124,11 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         'shiroha.db',
       );
       final snapshot = await _snapshots.createSanitizedSnapshot(snapshotPath);
+      final referencedAssetIdentities =
+          await _snapshots.readReferencedContentAssetIdentities(snapshotPath);
 
       final copiedFiles = <ArchiveSourceFile>[];
+      final copiedContentAssets = <BackupContentAssetEntry>[];
       var managedBytes = 0;
       for (final file in snapshot.files) {
         final source = _managedFiles.resolveManagedFile(file.storageKey);
@@ -148,8 +155,80 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         );
       }
 
+      if (referencedAssetIdentities.isNotEmpty && _contentAssets == null) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+      final contentRecords = _contentAssets == null
+          ? const <ContentAssetRecord>[]
+          : await _contentAssets.listAssets();
+      final recordsByIdentity = <(String, String), ContentAssetRecord>{
+        for (final record in contentRecords)
+          (record.sourceId, record.localAssetId): record,
+      };
+      final orderedAssetIdentities = referencedAssetIdentities.toList()
+        ..sort((a, b) {
+          final source = a.$1.compareTo(b.$1);
+          return source == 0 ? a.$2.compareTo(b.$2) : source;
+        });
+      for (final identity in orderedAssetIdentities) {
+        final record = recordsByIdentity[identity];
+        final store = _contentAssets;
+        if (record == null || store == null) {
+          throw const BackupException(BackupFailure.integrityMismatch);
+        }
+        final sourceBytes = store.readAssetBytes(
+          sourceId: identity.$1,
+          localAssetId: identity.$2,
+        );
+        if (sourceBytes == null || sourceBytes.isEmpty) {
+          throw const BackupException(BackupFailure.integrityMismatch);
+        }
+        final targetPath = p.join(
+          workspace.path,
+          'files',
+          'content_assets',
+          identity.$1,
+          identity.$2,
+        );
+        await File(targetPath).parent.create(recursive: true);
+        await File(targetPath).writeAsBytes(sourceBytes, flush: true);
+        final measured = (
+          sizeBytes: sourceBytes.length,
+          sha256: BackupFilesystem.sha256File(targetPath),
+        );
+        if (measured.sizeBytes != record.sizeBytes ||
+            measured.sha256 != record.sha256) {
+          throw const BackupException(BackupFailure.integrityMismatch);
+        }
+        managedBytes += measured.sizeBytes;
+        copiedFiles.add(
+          ArchiveSourceFile(
+            fileId: identity.$2,
+            path: targetPath,
+            archivePath: BackupValues.contentAssetArchivePath(
+              sourceId: identity.$1,
+              localAssetId: identity.$2,
+            ),
+          ),
+        );
+        copiedContentAssets.add(
+          BackupContentAssetEntry(
+            sourceId: identity.$1,
+            localAssetId: identity.$2,
+            storageKey: record.storageKey,
+            archivePath: BackupValues.contentAssetArchivePath(
+              sourceId: identity.$1,
+              localAssetId: identity.$2,
+            ),
+            sizeBytes: measured.sizeBytes,
+            sha256: measured.sha256,
+          ),
+        );
+      }
+
       final durableBytes = File(snapshotPath).lengthSync() + managedBytes;
-      if (snapshot.files.length + 2 > BackupValues.maxArchiveEntries ||
+      if (snapshot.files.length + copiedContentAssets.length + 2 >
+              BackupValues.maxArchiveEntries ||
           durableBytes > BackupValues.packageMaxDeclaredUncompressedBytes) {
         throw const BackupException(BackupFailure.resourceLimitExceeded);
       }
@@ -160,6 +239,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       );
 
       final manifest = BackupManifest(
+        packageVersion: BackupValues.currentPackageVersion,
         schemaVersion: snapshot.schemaVersion,
         createdAtUtc: DateTime.now().toUtc(),
         database: BackupDatabaseEntry(
@@ -179,6 +259,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
               sha256: snapshot.files[index].sha256,
             ),
         ],
+        contentAssets: copiedContentAssets,
       );
       if (manifest.encode().length > BackupValues.manifestEntryMaxBytes) {
         throw const BackupException(BackupFailure.resourceLimitExceeded);
@@ -270,7 +351,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       throw const BackupException(BackupFailure.restoreBusy);
     }
     final manifest = await BackupArchiveIo.readManifestOnly(packagePath);
-    if (manifest.packageVersion > BackupValues.packageVersion) {
+    if (manifest.packageVersion > BackupValues.currentPackageVersion) {
       throw const BackupException(BackupFailure.unsupportedPackageVersion);
     }
     if (manifest.schemaVersion > BackupValues.currentSchemaVersion) {
@@ -293,14 +374,19 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         packagePath: packagePath,
         stagingRoot: stagingRoot.path,
       );
+      if (manifest.contentAssets.isNotEmpty && _contentAssets == null) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
       await _snapshots.openStagedAndValidate(extracted.databasePath);
       final staged = StagedRestore(
         stagingPath: stagingRoot.path,
         databasePath: extracted.databasePath,
         managedFilesPath: extracted.managedFilesRoot,
+        contentAssetsPath: extracted.contentAssetsRoot,
         manifest: manifest,
       );
       await _verifyStagedLibraryFiles(staged);
+      await _verifyStagedContentAssets(staged);
       _staged = staged;
       _stagedPackagePath = packagePath;
       return BackupRestorePreview(
@@ -421,6 +507,7 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       await _database.validateOpenProduction();
       await _database.validateOpenProductionScrubInvariants();
       await _verifyLiveLibraryState(staged.manifest);
+      await _verifyLiveContentAssets(staged.manifest);
 
       // B0 §14: authoritative in-memory invalidation/recomposition must
       // complete BEFORE COMMITTED can be published or success reported.
@@ -567,6 +654,26 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
     }
   }
 
+  Future<void> _verifyLiveContentAssets(BackupManifest manifest) async {
+    for (final entry in manifest.contentAssets) {
+      final file = _managedFiles.resolveManagedFile(entry.storageKey);
+      if (!await file.exists() ||
+          file.lengthSync() != entry.sizeBytes ||
+          BackupFilesystem.sha256File(file.path) != entry.sha256) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+      final store = _contentAssets;
+      if (store != null &&
+          store.readAssetBytes(
+                sourceId: entry.sourceId,
+                localAssetId: entry.localAssetId,
+              ) ==
+              null) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+    }
+  }
+
   Future<void> _verifyDirectoryCopy({
     required Directory source,
     required Directory copy,
@@ -630,6 +737,17 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
       final target = _managedFiles.resolveManagedFile(entry.storageKey);
       await BackupFilesystem.copyAndMeasure(
         sourcePath: p.join(staged.managedFilesPath, entry.fileId),
+        targetPath: target.path,
+      );
+    }
+    for (final entry in staged.manifest.contentAssets) {
+      final target = _managedFiles.resolveManagedFile(entry.storageKey);
+      await BackupFilesystem.copyAndMeasure(
+        sourcePath: p.join(
+          staged.contentAssetsPath,
+          entry.sourceId,
+          entry.localAssetId,
+        ),
         targetPath: target.path,
       );
     }
@@ -890,6 +1008,29 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
         throw const BackupException(BackupFailure.integrityMismatch);
       }
       final file = File(p.join(staged.managedFilesPath, entry.fileId));
+      if (!await file.exists() ||
+          file.lengthSync() != entry.sizeBytes ||
+          BackupFilesystem.sha256File(file.path) != entry.sha256) {
+        throw const BackupException(BackupFailure.integrityMismatch);
+      }
+    }
+  }
+
+  Future<void> _verifyStagedContentAssets(StagedRestore staged) async {
+    final referenced = await _snapshots
+        .readReferencedContentAssetIdentities(staged.databasePath);
+    final manifestIdentities = <(String, String)>{
+      for (final entry in staged.manifest.contentAssets)
+        (entry.sourceId, entry.localAssetId),
+    };
+    if (referenced.length != manifestIdentities.length ||
+        !referenced.containsAll(manifestIdentities)) {
+      throw const BackupException(BackupFailure.integrityMismatch);
+    }
+    for (final entry in staged.manifest.contentAssets) {
+      final file = File(
+        p.join(staged.contentAssetsPath, entry.sourceId, entry.localAssetId),
+      );
       if (!await file.exists() ||
           file.lengthSync() != entry.sizeBytes ||
           BackupFilesystem.sha256File(file.path) != entry.sha256) {

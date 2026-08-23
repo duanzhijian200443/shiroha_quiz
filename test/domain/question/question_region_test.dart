@@ -5,6 +5,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
 import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
+import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 
 void main() {
@@ -232,6 +233,52 @@ void main() {
         expect(() => _fragment(part, slice: slice), throwsFormatException);
       }
     });
+  });
+
+  test('nested table image closure uses source document metadata authority',
+      () {
+    final documentRef = SourceRef.document(sourceId: 'source_001');
+    final inventory = SourceAssetPart(
+      sourceRef: documentRef,
+      asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+    );
+    final table = SourceTablePart(
+      sourceRef: SourceRef.at(
+        sourceId: 'source_001',
+        point: SourcePoint.block(
+          pageNumber: 1,
+          blockId: 'table_001',
+          readingOrder: 0,
+        ),
+      ),
+      rows: <List<RichContent>>[
+        <RichContent>[
+          RichContent(nodes: <ContentNode>[
+            ImageNode(
+              sourceId: 'source_001',
+              localAssetId: 'asset_001',
+            ),
+          ]),
+        ],
+      ],
+    );
+    final document = SourceDocument(
+      sourceId: 'source_001',
+      parts: <SourcePart>[inventory, table],
+    );
+    final region = QuestionRegion(
+      questionNumber: 1,
+      fragments: <QuestionRegionFragment>[
+        QuestionRegionFragment(
+          field: QuestionRegionField.stem,
+          part: table,
+        ),
+      ],
+      sourceAssetRefs: document.assetRefs,
+    );
+
+    expect(region.assetRefs, hasLength(1));
+    expect(region.assetRefs.single.localAssetId, 'asset_001');
   });
 
   group('QuestionRegion derivation', () {

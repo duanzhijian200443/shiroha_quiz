@@ -27,10 +27,10 @@ final class SupplementalAnswerPersistenceRepository
   SupplementalAnswerPersistenceRepository({
     DatabaseHelper? databaseHelper,
     QuestionV2PersistenceMapper mapper = const QuestionV2PersistenceMapper(),
-    TypedAnswerPersistenceKernel kernel = const TypedAnswerPersistenceKernel(),
+    TypedAnswerPersistenceKernel? kernel,
   })  : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
         _mapper = mapper,
-        _kernel = kernel;
+        _kernel = kernel ?? TypedAnswerPersistenceKernel(mapper);
 
   final DatabaseHelper _databaseHelper;
   final QuestionV2PersistenceMapper _mapper;

@@ -7,6 +7,7 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/content/rich_content_text_projection.dart';
+import '../../application/content/content_asset_authority.dart';
 import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
 import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
@@ -194,12 +195,14 @@ class RichContentRenderer extends StatelessWidget {
     this.textColor,
     this.fontSize = 16.0,
     this.fontWeight = FontWeight.normal,
+    this.assetResolver,
   });
 
   final RichContent content;
   final Color? textColor;
   final double fontSize;
   final FontWeight fontWeight;
+  final ContentAssetResolver? assetResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -214,6 +217,8 @@ class RichContentRenderer extends StatelessWidget {
     );
     final nodes = content.nodes;
     if (nodes.isEmpty) return const SizedBox.shrink();
+    final resolver =
+        assetResolver ?? ContentAssetResolverScope.maybeOf(context);
 
     final widgets = <Widget>[];
     final inlineTokens = <ContentToken>[];
@@ -243,22 +248,30 @@ class RichContentRenderer extends StatelessWidget {
             color: color,
             fontSize: fontSize,
           ));
-        case ImageNode():
+        case ImageNode(
+            :final sourceId,
+            :final localAssetId,
+            :final alternativeText,
+          ):
           flushInline();
           widgets.add(
-            _RichContentTextPlaceholder(
-              text: _safeTypedNodePreview(node),
+            _ImageNodeView(
+              sourceId: sourceId,
+              localAssetId: localAssetId,
+              alternativeText: alternativeText,
+              resolver: resolver,
               style: style,
             ),
           );
-        case TableNode():
+        case TableNode(:final structure):
           flushInline();
-          widgets.add(
-            _RichContentTextPlaceholder(
-              text: _safeTypedNodePreview(node),
-              style: style,
-            ),
-          );
+          widgets.add(_TableNodeView(
+            structure: structure,
+            textColor: color,
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+            resolver: resolver,
+          ));
         case RawFallbackNode(:final rawJson):
           flushInline();
           widgets.add(_RawFallbackPlaceholder(rawJson: rawJson, style: style));
@@ -307,16 +320,139 @@ class RichContentRenderer extends StatelessWidget {
   }
 }
 
-String _safeTypedNodePreview(ContentNode node) {
-  try {
-    final projected = const RichContentTextProjection().project(
-      RichContent(nodes: <ContentNode>[node]),
-    );
-    if (projected.trim().isNotEmpty) return projected;
-  } on FormatException {
-    // The bounded placeholder below is the renderer's fail-closed state.
+final class ContentAssetResolverScope extends InheritedWidget {
+  const ContentAssetResolverScope({
+    super.key,
+    required this.resolver,
+    required super.child,
+  });
+
+  final ContentAssetResolver resolver;
+
+  static ContentAssetResolver? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<ContentAssetResolverScope>()
+        ?.resolver;
   }
-  return node is ImageNode ? '[图片]' : '[表格]';
+
+  @override
+  bool updateShouldNotify(ContentAssetResolverScope oldWidget) =>
+      resolver != oldWidget.resolver;
+}
+
+class _ImageNodeView extends StatelessWidget {
+  const _ImageNodeView({
+    required this.sourceId,
+    required this.localAssetId,
+    required this.alternativeText,
+    required this.resolver,
+    required this.style,
+  });
+
+  final String sourceId;
+  final String localAssetId;
+  final RichContent? alternativeText;
+  final ContentAssetResolver? resolver;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    List<int>? bytes;
+    try {
+      bytes = resolver?.resolveAssetBytes(
+        sourceId: sourceId,
+        localAssetId: localAssetId,
+      );
+    } catch (_) {
+      bytes = null;
+    }
+    if (bytes == null || bytes.isEmpty) {
+      return _RichContentTextPlaceholder(
+        text: _alternativeTextOrPlaceholder(alternativeText),
+        style: style,
+      );
+    }
+    return Semantics(
+      image: true,
+      label: _alternativeTextOrPlaceholder(alternativeText),
+      child: Image.memory(
+        Uint8List.fromList(bytes),
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) =>
+            _RichContentTextPlaceholder(
+          text: _alternativeTextOrPlaceholder(alternativeText),
+          style: style,
+        ),
+      ),
+    );
+  }
+}
+
+class _TableNodeView extends StatelessWidget {
+  const _TableNodeView({
+    required this.structure,
+    required this.textColor,
+    required this.fontSize,
+    required this.fontWeight,
+    required this.resolver,
+  });
+
+  final TableStructure structure;
+  final Color textColor;
+  final double fontSize;
+  final FontWeight fontWeight;
+  final ContentAssetResolver? resolver;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).dividerColor;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final row in structure.expandedCells)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final cell in row)
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: cell == null
+                          ? const SizedBox.shrink()
+                          : RichContentRenderer(
+                              content: cell.content,
+                              textColor: textColor,
+                              fontSize: fontSize,
+                              fontWeight: fontWeight,
+                              assetResolver: resolver,
+                            ),
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String _alternativeTextOrPlaceholder(RichContent? alternativeText) {
+  if (alternativeText == null) return '[图片]';
+  try {
+    final projected =
+        const RichContentTextProjection().project(alternativeText);
+    return projected.trim().isEmpty ? '[图片]' : projected;
+  } on FormatException {
+    return '[图片]';
+  }
 }
 
 class _RichContentTextPlaceholder extends StatelessWidget {
@@ -340,6 +476,7 @@ class RichContentFieldRenderer extends StatelessWidget {
     this.fontSize = 16.0,
     this.fontWeight = FontWeight.normal,
     this.imageBuilder,
+    this.assetResolver,
   });
 
   final RichContent? content;
@@ -348,6 +485,7 @@ class RichContentFieldRenderer extends StatelessWidget {
   final double fontSize;
   final FontWeight fontWeight;
   final StructuredImageBuilder? imageBuilder;
+  final ContentAssetResolver? assetResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +496,7 @@ class RichContentFieldRenderer extends StatelessWidget {
         textColor: textColor,
         fontSize: fontSize,
         fontWeight: fontWeight,
+        assetResolver: assetResolver,
       );
     }
     return StructuredContentRenderer(

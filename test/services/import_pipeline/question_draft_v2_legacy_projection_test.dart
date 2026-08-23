@@ -706,7 +706,7 @@ void main() {
       expect(content, isNot(contains('<table')));
     });
 
-    test('rejects SourceAssetPart fragments instead of ignoring them', () {
+    test('projects SourceAssetPart through the typed draft', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -720,10 +720,18 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
-      expectUnsupported(matchingDraft(region), region, 'source_asset');
+      final draft = assembler.assemble(region, questionId: 'task_q_asset');
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+
+      expect(projected.question['content'], '[图片]');
+      expect(projected.question['standard_answer'], '');
     });
 
-    test('rejects SourceTablePart fragments instead of ignoring them', () {
+    test('projects SourceTablePart through the typed draft', () {
       final region = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[
@@ -741,7 +749,15 @@ void main() {
         ],
         kindHint: QuestionRegionKindHint.shortAnswer,
       );
-      expectUnsupported(matchingDraft(region), region, 'source_table');
+      final draft = assembler.assemble(region, questionId: 'task_q_table');
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const TextLegacyProjectionProfile(),
+      );
+
+      expect(projected.question['content'], 'cell');
+      expect(projected.question['standard_answer'], '');
     });
 
     test('rejects UnsupportedSourcePart fragments with their kind code', () {
