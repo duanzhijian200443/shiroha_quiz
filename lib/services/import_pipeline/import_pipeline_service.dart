@@ -589,7 +589,7 @@ class ImportPipelineService {
     required ImportStorageRoute route,
     required OcrTypedCandidateBatch? batch,
   }) {
-    if (route != ImportStorageRoute.typedV2 || batch == null) return null;
+    if (route.name != 'typedV2' || batch == null) return null;
     final original = batch.candidateAssetLease;
     if (original == null || original.localAssetIds.isEmpty) return null;
 
