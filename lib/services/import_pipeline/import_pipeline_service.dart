@@ -6,11 +6,10 @@ import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/repositories/ai_engine_repository.dart';
-import '../../domain/content/content_node.dart';
-import '../../domain/content/rich_content.dart';
-import '../../domain/question/question_draft_v2.dart';
 import '../ai_service.dart';
 import '../task_manager.dart';
+import 'candidate_asset_cleanup.dart';
+import 'candidate_asset_retention.dart';
 import 'final_question_latex_audit.dart';
 import 'import_document_role.dart';
 import 'import_file_detector.dart';
@@ -533,7 +532,7 @@ class ImportPipelineService {
       for (final lease in List<ContentAssetCandidateLease>.from(
         ownedCandidateLeases,
       )) {
-        await _rollbackCandidateAssets(lease);
+        await _rollbackCandidateAssets(lease, taskId: taskId);
       }
     }
   }
@@ -581,70 +580,21 @@ class ImportPipelineService {
     );
   }
 
-  ({
-    ContentAssetCandidateLease original,
-    ContentAssetCandidateLease? retained,
-    ContentAssetCandidateLease? unused,
-  })? _planCandidateAssetRetention({
+  CandidateAssetRetentionPlan? _planCandidateAssetRetention({
     required ImportStorageRoute route,
     required OcrTypedCandidateBatch? batch,
   }) {
     if (route.name != 'typedV2' || batch == null) return null;
     final original = batch.candidateAssetLease;
     if (original == null || original.localAssetIds.isEmpty) return null;
-
-    final reachable = <(String sourceId, String localAssetId)>{};
-    void collect(RichContent content) {
-      for (final image in reachableImageNodes(content)) {
-        reachable.add((image.sourceId, image.localAssetId));
-      }
-    }
-
-    for (final candidate in batch.candidates) {
-      final draft = candidate.draft;
-      collect(draft.stem);
-      for (final option in draft.options) {
-        collect(option.content);
-      }
-      final answer = draft.answer;
-      if (answer is ContentAnswer) collect(answer.content);
-      final explanation = draft.explanation;
-      if (explanation != null) collect(explanation);
-    }
-
-    final retainedIds = <String>[];
-    final unusedIds = <String>[];
-    for (final localAssetId in original.localAssetIds) {
-      if (reachable.contains((original.sourceId, localAssetId))) {
-        retainedIds.add(localAssetId);
-      } else {
-        unusedIds.add(localAssetId);
-      }
-    }
-
-    return (
-      original: original,
-      retained: retainedIds.isEmpty
-          ? null
-          : ContentAssetCandidateLease(
-              sourceId: original.sourceId,
-              localAssetIds: retainedIds,
-            ),
-      unused: unusedIds.isEmpty
-          ? null
-          : ContentAssetCandidateLease(
-              sourceId: original.sourceId,
-              localAssetIds: unusedIds,
-            ),
+    return partitionCandidateAssets(
+      lease: original,
+      drafts: batch.candidates.map((candidate) => candidate.draft),
     );
   }
 
   void _commitCandidateAssetOwnership(
-    ({
-      ContentAssetCandidateLease original,
-      ContentAssetCandidateLease? retained,
-      ContentAssetCandidateLease? unused,
-    })? plan,
+    CandidateAssetRetentionPlan? plan,
     List<ContentAssetCandidateLease> ownedCandidateLeases,
   ) {
     if (plan == null) return;
@@ -656,30 +606,18 @@ class ImportPipelineService {
   }
 
   Future<ContentAssetRollbackResult?> _rollbackCandidateAssets(
-    ContentAssetCandidateLease? lease,
-  ) async {
+    ContentAssetCandidateLease? lease, {
+    required String taskId,
+  }) async {
     final store = _contentAssetStore;
     if (store == null || lease == null || lease.localAssetIds.isEmpty) {
       return null;
     }
-    try {
-      final outcome = await store.deleteCandidateAssets(lease);
-      if (outcome.failedCount > 0) {
-        AppLogger.warning(
-          'Candidate asset rollback did not complete',
-          module: 'ImportPipeline',
-          data: <String, Object?>{
-            'stage': 'candidate_asset_rollback',
-            'code': 'candidate_asset_rollback_incomplete',
-            'status': 'incomplete',
-            'deletedCount': outcome.deletedCount,
-            'missingCount': outcome.missingCount,
-            'failedCount': outcome.failedCount,
-          },
-        );
-      }
-      return outcome;
-    } catch (_) {
+    final outcome = await deleteCandidateAssetsWithRetry(
+      store: store,
+      lease: lease,
+    );
+    if (outcome.failedCount > 0) {
       AppLogger.warning(
         'Candidate asset rollback did not complete',
         module: 'ImportPipeline',
@@ -687,15 +625,29 @@ class ImportPipelineService {
           'stage': 'candidate_asset_rollback',
           'code': 'candidate_asset_rollback_incomplete',
           'status': 'incomplete',
-          'deletedCount': 0,
-          'missingCount': 0,
-          'failedCount': lease.localAssetIds.length,
+          'deletedCount': outcome.deletedCount,
+          'missingCount': outcome.missingCount,
+          'failedCount': outcome.failedCount,
         },
       );
-      return ContentAssetRollbackResult(
-        failedCount: lease.localAssetIds.length,
+      final ownershipStatus =
+          await _taskManager.persistCandidateAssetCleanupPending(
+        taskId: taskId,
+        lease: lease,
       );
+      if (ownershipStatus != ImportAttemptWriteStatus.applied) {
+        AppLogger.warning(
+          'Candidate asset cleanup ownership was not persisted',
+          module: 'ImportPipeline',
+          data: <String, Object?>{
+            'stage': 'candidate_asset_rollback',
+            'code': 'candidate_asset_cleanup_ownership_incomplete',
+            'status': 'incomplete',
+          },
+        );
+      }
     }
+    return outcome;
   }
 
   Future<void> _updateTaskProgress(

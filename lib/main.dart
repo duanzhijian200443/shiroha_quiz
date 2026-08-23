@@ -411,6 +411,7 @@ void main() {
         final importCommitService = ImportCommitService(
           questionRepository: questionRepository,
           taskManager: taskManager,
+          contentAssetStore: contentAssetStore,
         );
         final aiService = AiService(
           engineRepository: engineRepository,

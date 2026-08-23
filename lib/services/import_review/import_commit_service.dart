@@ -1,9 +1,14 @@
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/content/content_asset_authority.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
+import '../../core/observability/app_logger.dart';
 import '../../data/models/question_draft.dart';
 import '../../data/models/typed_import_commit_guard.dart';
 import '../../data/repositories/question_repository.dart';
 import '../import_pipeline/import_parse_result.dart';
+import '../import_pipeline/candidate_asset_cleanup.dart';
+import '../import_pipeline/candidate_asset_lease.dart';
+import '../import_pipeline/candidate_asset_retention.dart';
 import '../import_pipeline/final_question_latex_audit.dart';
 import '../import_pipeline/import_question_field_policy.dart';
 import '../import_pipeline/ocr_typed_candidate.dart';
@@ -95,13 +100,16 @@ class ImportCommitService {
     QuestionRepository? questionRepository,
     TaskManager? taskManager,
     TypedReviewResultBuilder? typedResultBuilder,
+    ContentAssetStore? contentAssetStore,
   })  : _questionRepository = questionRepository ?? QuestionRepository.instance,
         _taskManager = taskManager ?? TaskManager.instance,
-        _typedResultBuilder = typedResultBuilder ?? TypedReviewResultBuilder();
+        _typedResultBuilder = typedResultBuilder ?? TypedReviewResultBuilder(),
+        _contentAssetStore = contentAssetStore;
 
   final QuestionRepository _questionRepository;
   final TaskManager _taskManager;
   final TypedReviewResultBuilder _typedResultBuilder;
+  final ContentAssetStore? _contentAssetStore;
 
   /// Legacy V1 compatibility writer. Behavior is frozen by the R7B baseline:
   /// finalize -> analyzer -> blocking policy -> `saveQuestionDraftsToBank` ->
@@ -522,6 +530,21 @@ class ImportCommitService {
         );
       }
 
+      final candidateLease = _candidateAssetLeaseForTask(taskId);
+      final retentionPlan = candidateLease == null
+          ? null
+          : partitionCandidateAssets(
+              lease: candidateLease,
+              drafts: built.acceptedDrafts,
+            );
+      final unusedCandidateAssets = retentionPlan?.unused;
+      final contentAssetStore = _contentAssetStore;
+      if (unusedCandidateAssets != null && contentAssetStore == null) {
+        throw const TypedReviewCommitAttemptException(
+          TypedReviewCommitAttemptFailure.persistenceFailed,
+        );
+      }
+
       final persistenceResult =
           await _questionRepository.commitQuestionDraftsV2ForImport(
         bankName: bankName,
@@ -537,12 +560,34 @@ class ImportCommitService {
         ),
         completionText: '已成功导入题库: $bankName',
       );
-      _taskManager.applyDurableTypedCommitCompletion(
+      final cleanupOutcome = unusedCandidateAssets == null
+          ? null
+          : await deleteCandidateAssetsWithRetry(
+              store: contentAssetStore ??
+                  (throw const TypedReviewCommitAttemptException(
+                    TypedReviewCommitAttemptFailure.persistenceFailed,
+                  )),
+              lease: unusedCandidateAssets,
+            );
+      final completionStatus = _taskManager.applyDurableTypedCommitCompletion(
         lease: lease,
         completionText: '已成功导入题库: $bankName',
         completedAt: persistenceResult.completedAt,
       );
       durableApplied = true;
+      final cleanupLease = unusedCandidateAssets;
+      if (cleanupOutcome != null &&
+          cleanupLease != null &&
+          cleanupOutcome.failedCount > 0) {
+        _logCommitCleanupIncomplete(cleanupOutcome);
+        if (completionStatus == TypedDurableCompletionStatus.applied ||
+            completionStatus == TypedDurableCompletionStatus.alreadyCompleted) {
+          await _persistCommitCleanupPending(
+            taskId: taskId,
+            lease: cleanupLease,
+          );
+        }
+      }
       return ImportCommitResult(questionCount: persistenceResult.questionCount);
     } on TypedReviewCommitException {
       rethrow;
@@ -560,6 +605,63 @@ class ImportCommitService {
       if (!durableApplied) {
         _taskManager.releaseTypedCommitLease(lease);
       }
+    }
+  }
+
+  ContentAssetCandidateLease? _candidateAssetLeaseForTask(String taskId) {
+    for (final task in _taskManager.tasks) {
+      if (task.id == taskId) {
+        return decodeCandidateAssetLeaseFromDiagnostics(task.diagnostics);
+      }
+    }
+    return null;
+  }
+
+  void _logCommitCleanupIncomplete(ContentAssetRollbackResult outcome) {
+    AppLogger.warning(
+      'Candidate asset commit cleanup did not complete',
+      module: 'ImportCommit',
+      data: <String, Object?>{
+        'stage': 'candidate_asset_commit_cleanup',
+        'code': 'candidate_asset_commit_cleanup_incomplete',
+        'status': 'incomplete',
+        'deletedCount': outcome.deletedCount,
+        'missingCount': outcome.missingCount,
+        'failedCount': outcome.failedCount,
+      },
+    );
+  }
+
+  Future<void> _persistCommitCleanupPending({
+    required String taskId,
+    required ContentAssetCandidateLease lease,
+  }) async {
+    try {
+      final status = await _taskManager.persistCandidateAssetCleanupPending(
+        taskId: taskId,
+        lease: lease,
+      );
+      if (status != ImportAttemptWriteStatus.applied) {
+        AppLogger.warning(
+          'Candidate asset cleanup ownership was not persisted',
+          module: 'ImportCommit',
+          data: const <String, Object?>{
+            'stage': 'candidate_asset_commit_cleanup',
+            'code': 'candidate_asset_cleanup_ownership_incomplete',
+            'status': 'incomplete',
+          },
+        );
+      }
+    } catch (_) {
+      AppLogger.warning(
+        'Candidate asset cleanup ownership was not persisted',
+        module: 'ImportCommit',
+        data: const <String, Object?>{
+          'stage': 'candidate_asset_commit_cleanup',
+          'code': 'candidate_asset_cleanup_ownership_incomplete',
+          'status': 'incomplete',
+        },
+      );
     }
   }
 

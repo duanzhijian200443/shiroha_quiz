@@ -47,6 +47,35 @@ Map<String, dynamic> _cropResponse({
   };
 }
 
+String _inlineImageDataUrl() =>
+    'data:image/png;base64,${base64Encode(_validCropPng)}';
+
+Map<String, dynamic> _mixedCropResponse({required String inlineDataUrl}) {
+  return <String, dynamic>{
+    'md_results': '',
+    'layout_details': <Object?>[
+      <Object?>[
+        <String, Object?>{
+          'index': 1,
+          'label': 'image',
+          'content': 'https://cdn.example.com/crop.png',
+        },
+        <String, Object?>{
+          'index': 2,
+          'label': 'figure',
+          'content': inlineDataUrl,
+        },
+      ],
+    ],
+    'data_info': <String, Object?>{
+      'num_pages': 1,
+      'pages': <Object?>[
+        <String, Object?>{'width': 1, 'height': 1},
+      ],
+    },
+  };
+}
+
 File _syntheticPngFile(String prefix) {
   final file = File(
     '${Directory.systemTemp.path}${Platform.pathSeparator}'
@@ -244,6 +273,111 @@ void main() {
       );
       await expectLater(
         parse(count: 2, byteLimit: _validCropPng.length),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
+    });
+
+    test('inline data URLs use the shared count and decoded-byte budgets',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-inline-budget');
+      addTearDown(() => file.deleteSync());
+      final inlineDataUrl = _inlineImageDataUrl();
+
+      Future<OcrDocument> parse({
+        required int count,
+        required int byteLimit,
+        int countLimit = 2,
+      }) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            return http.Response(
+              jsonEncode(_cropResponse(count: count, url: inlineDataUrl)),
+              200,
+            );
+          }),
+          remoteCropCountLimit: countLimit,
+          remoteCropTotalBytesLimit: byteLimit,
+        );
+        return client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      final valid = await parse(
+        count: 1,
+        byteLimit: _validCropPng.length,
+      );
+      expect(valid.flattenedBlocks.single.imagePayload, isNotNull);
+
+      await expectLater(
+        parse(
+          count: 2,
+          byteLimit: _validCropPng.length * 2,
+          countLimit: 1,
+        ),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
+      await expectLater(
+        parse(
+          count: 2,
+          byteLimit: _validCropPng.length,
+        ),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
+    });
+
+    test('remote and inline images share one document budget', () async {
+      final file = _syntheticPngFile('zhipu-ocr-mixed-budget');
+      addTearDown(() => file.deleteSync());
+      final inlineDataUrl = _inlineImageDataUrl();
+
+      Future<OcrDocument> parse({
+        required int countLimit,
+        required int byteLimit,
+      }) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'GET') {
+              return http.Response.bytes(
+                _validCropPng,
+                200,
+                headers: const <String, String>{
+                  'content-type': 'image/png',
+                },
+              );
+            }
+            return http.Response(
+              jsonEncode(_mixedCropResponse(inlineDataUrl: inlineDataUrl)),
+              200,
+            );
+          }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+          remoteCropCountLimit: countLimit,
+          remoteCropTotalBytesLimit: byteLimit,
+        );
+        return client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      await expectLater(
+        parse(
+          countLimit: 1,
+          byteLimit: _validCropPng.length * 2,
+        ),
+        throwsA(isA<ZhipuOcrResponseFormatException>()),
+      );
+      await expectLater(
+        parse(
+          countLimit: 2,
+          byteLimit: _validCropPng.length,
+        ),
         throwsA(isA<ZhipuOcrResponseFormatException>()),
       );
     });
@@ -768,6 +902,35 @@ void main() {
           ),
           throwsA(isA<ZhipuOcrResponseFormatException>()),
         );
+      });
+
+      test('inline image budget remains shared across PDF chunks', () async {
+        final pdfFile = createSyntheticPdf(2);
+        addTearDown(() => pdfFile.deleteSync());
+        final inlineDataUrl = _inlineImageDataUrl();
+        var requests = 0;
+        final client = ZhipuOcrClient(
+          pdfPageChunkSize: 1,
+          httpClient: MockClient((request) async {
+            requests++;
+            return http.Response(
+              jsonEncode(_cropResponse(count: 1, url: inlineDataUrl)),
+              200,
+            );
+          }),
+          remoteCropCountLimit: 2,
+          remoteCropTotalBytesLimit: _validCropPng.length,
+        );
+
+        await expectLater(
+          client.parseFile(
+            profile: profile,
+            filePath: pdfFile.path,
+            sourceName: 'two-page-inline.pdf',
+          ),
+          throwsA(isA<ZhipuOcrResponseFormatException>()),
+        );
+        expect(requests, 2);
       });
 
       test(

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../application/backup/backup_restore_gate.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/data/models/import_task_cleanup.dart';
@@ -11,6 +12,7 @@ import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
+import 'package:shiroha_quiz/services/import_pipeline/candidate_asset_lease.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
 
@@ -1131,6 +1133,31 @@ class TaskManager extends ChangeNotifier {
     );
   }
 
+  /// Persists a bounded, source-qualified owner for candidate bytes whose
+  /// immediate deletion did not complete. The marker contains no path,
+  /// provider locator, exception or content and can be swept by a later
+  /// lifecycle phase without changing the typed sidecar authority.
+  Future<ImportAttemptWriteStatus> persistCandidateAssetCleanupPending({
+    required String taskId,
+    required ContentAssetCandidateLease lease,
+  }) {
+    if (lease.localAssetIds.isEmpty) {
+      return Future<ImportAttemptWriteStatus>.value(
+        ImportAttemptWriteStatus.applied,
+      );
+    }
+    return _enqueueAttemptTransition(
+      taskId,
+      transition: (_, next) {
+        next.diagnostics = <String, dynamic>{
+          ...?next.diagnostics,
+          ...candidateAssetCleanupPendingDiagnostics(lease),
+        };
+        return null;
+      },
+    );
+  }
+
   Future<ImportAttemptWriteStatus> restartAttempt(
     ImportAttemptRef nextAttempt, {
     required String parseMode,
@@ -1406,6 +1433,9 @@ class TaskManager extends ChangeNotifier {
       keyAttemptState,
       keyImportStorageRoute,
       keyImportStorageReason,
+      candidateAssetCleanupPendingKey,
+      candidateAssetCleanupSourceIdKey,
+      candidateAssetCleanupLocalIdsKey,
     ]) {
       final value = existing?[key];
       if (value != null) metadata[key] = value;
@@ -1494,6 +1524,9 @@ class TaskManager extends ChangeNotifier {
       keyAttemptState,
       keyImportStorageRoute,
       keyImportStorageReason,
+      candidateAssetCleanupPendingKey,
+      candidateAssetCleanupSourceIdKey,
+      candidateAssetCleanupLocalIdsKey,
     ]) {
       final value = existing?[key];
       if (value != null) {

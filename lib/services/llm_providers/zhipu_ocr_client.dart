@@ -232,7 +232,24 @@ class ZhipuOcrClient implements OcrDocumentClient {
       final label = value['label']?.toString().trim().toLowerCase();
       final rawContent = value['content'];
       if ((label == 'image' || label == 'figure') && rawContent is String) {
-        final uri = Uri.tryParse(rawContent.trim());
+        final trimmedContent = rawContent.trim();
+        if (trimmedContent.toLowerCase().startsWith('data:image/')) {
+          try {
+            // Inline provider payloads share the same document-level count
+            // and decoded-byte authority as remote crop acquisitions.
+            budget.reserveCrop();
+            final payload = OcrImagePayload.fromDataUrl(trimmedContent);
+            if (payload == null) {
+              value['content'] = '[图片]';
+            } else {
+              budget.reserveBytes(payload.bytes.length);
+            }
+          } on _RemoteCropBudgetExceeded {
+            throw const ZhipuOcrResponseFormatException();
+          }
+        }
+
+        final uri = Uri.tryParse(trimmedContent);
         if (uri != null && uri.scheme.toLowerCase() == 'https') {
           try {
             budget.reserveCrop();

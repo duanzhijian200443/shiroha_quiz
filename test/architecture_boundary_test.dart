@@ -830,6 +830,7 @@ import '../../domain/content/content_node.dart'
       expect(
           source, contains('final importCommitService = ImportCommitService('));
       expect(source, contains('questionRepository: questionRepository'));
+      expect(source, contains('contentAssetStore: contentAssetStore'));
       expect(
         source,
         contains('final importPipelineService = ImportPipelineService('),

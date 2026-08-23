@@ -10,6 +10,8 @@ import '../../core/observability/trace_context.dart';
 import '../../data/models/question_identity.dart';
 import '../task_manager.dart';
 import 'import_attempt_context.dart';
+import 'candidate_asset_cleanup.dart';
+import 'candidate_asset_lease.dart';
 import 'import_failure_classifier.dart';
 import 'import_file_detector.dart';
 import 'import_format.dart';
@@ -126,8 +128,8 @@ class ImportTaskCoordinator {
 
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
-  static const String keyCandidateAssetSourceId = '_candidate_asset_source_id';
-  static const String keyCandidateAssetLocalIds = '_candidate_asset_local_ids';
+  static const String keyCandidateAssetSourceId = candidateAssetSourceIdKey;
+  static const String keyCandidateAssetLocalIds = candidateAssetLocalIdsKey;
   static const Set<String> _safeOcrStatuses = <String>{
     'failed_not_configured',
     'failed_empty_ocr_blocks',
@@ -475,7 +477,10 @@ class ImportTaskCoordinator {
       );
       if (schedulerResult == OcrRequestCancellation.notFound) {
         final result = await _taskManager.finalizeAttemptCancelled(attempt);
-        await _rollbackLeaseFromDiagnostics(task.diagnostics);
+        await _rollbackLeaseFromDiagnostics(
+          task.diagnostics,
+          taskId: task.id,
+        );
         return result;
       }
       return ImportAttemptWriteStatus.applied;
@@ -613,7 +618,7 @@ class ImportTaskCoordinator {
     if (writeStatus != ImportAttemptWriteStatus.applied) {
       throw const ImportTaskRetryRejectedException();
     }
-    await _rollbackLease(previousLease);
+    await _rollbackLease(previousLease, taskId: taskId);
 
     unawaited(Future<void>.microtask(() => _runScheduledTask(
           _ScheduledImportTask(
@@ -696,17 +701,17 @@ class ImportTaskCoordinator {
         },
       );
       if (!_taskManager.isCurrentAttempt(handle.attempt)) {
-        await _rollbackLease(result.candidateAssetLease);
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         return;
       }
       if (!_taskManager.isAttemptRunnable(handle.attempt)) {
-        await _rollbackLease(result.candidateAssetLease);
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         await _taskManager.finalizeAttemptCancelled(handle.attempt);
         return;
       }
 
       if (result.questions.isEmpty) {
-        await _rollbackLease(result.candidateAssetLease);
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         final emptyFailure = _classifyEmptyResult(result);
         await _failSafely(
           handle,
@@ -763,7 +768,7 @@ class ImportTaskCoordinator {
         diagnostics: diagnostics,
       );
       if (reviewStatus != ImportAttemptWriteStatus.applied) {
-        await _rollbackLease(result.candidateAssetLease);
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         if (_taskManager.isCurrentAttempt(handle.attempt)) {
           await _taskManager.finalizeAttemptCancelled(handle.attempt);
         }
@@ -790,7 +795,10 @@ class ImportTaskCoordinator {
         );
       }
     } on OcrRequestCancelledException {
-      await _rollbackLease(parsedResult?.candidateAssetLease);
+      await _rollbackLease(
+        parsedResult?.candidateAssetLease,
+        taskId: handle.taskId,
+      );
       await _taskManager.finalizeAttemptCancelled(handle.attempt);
       AppLogger.info(
         'Background import cancelled',
@@ -802,7 +810,10 @@ class ImportTaskCoordinator {
         },
       );
     } catch (error) {
-      await _rollbackLease(parsedResult?.candidateAssetLease);
+      await _rollbackLease(
+        parsedResult?.candidateAssetLease,
+        taskId: handle.taskId,
+      );
       if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
       final currentTask = _taskManager.tasks.firstWhere(
         (task) => task.id == handle.taskId,
@@ -827,26 +838,17 @@ class ImportTaskCoordinator {
     }
   }
 
-  Future<void> _rollbackLease(ContentAssetCandidateLease? lease) async {
+  Future<void> _rollbackLease(
+    ContentAssetCandidateLease? lease, {
+    required String taskId,
+  }) async {
     final store = _contentAssetStore;
     if (store == null || lease == null || lease.localAssetIds.isEmpty) return;
-    try {
-      final outcome = await store.deleteCandidateAssets(lease);
-      if (outcome.failedCount > 0) {
-        AppLogger.warning(
-          'Candidate asset rollback did not complete',
-          module: 'Import',
-          data: <String, Object?>{
-            'stage': 'candidate_asset_rollback',
-            'code': 'candidate_asset_rollback_incomplete',
-            'status': 'incomplete',
-            'deletedCount': outcome.deletedCount,
-            'missingCount': outcome.missingCount,
-            'failedCount': outcome.failedCount,
-          },
-        );
-      }
-    } catch (_) {
+    final outcome = await deleteCandidateAssetsWithRetry(
+      store: store,
+      lease: lease,
+    );
+    if (outcome.failedCount > 0) {
       AppLogger.warning(
         'Candidate asset rollback did not complete',
         module: 'Import',
@@ -854,38 +856,44 @@ class ImportTaskCoordinator {
           'stage': 'candidate_asset_rollback',
           'code': 'candidate_asset_rollback_incomplete',
           'status': 'incomplete',
-          'deletedCount': 0,
-          'missingCount': 0,
-          'failedCount': lease.localAssetIds.length,
+          'deletedCount': outcome.deletedCount,
+          'missingCount': outcome.missingCount,
+          'failedCount': outcome.failedCount,
         },
       );
+      final ownershipStatus =
+          await _taskManager.persistCandidateAssetCleanupPending(
+        taskId: taskId,
+        lease: lease,
+      );
+      if (ownershipStatus != ImportAttemptWriteStatus.applied) {
+        AppLogger.warning(
+          'Candidate asset cleanup ownership was not persisted',
+          module: 'Import',
+          data: const <String, Object?>{
+            'stage': 'candidate_asset_rollback',
+            'code': 'candidate_asset_cleanup_ownership_incomplete',
+            'status': 'incomplete',
+          },
+        );
+      }
     }
   }
 
   Future<void> _rollbackLeaseFromDiagnostics(
-    Map<String, dynamic>? diagnostics,
-  ) async {
-    await _rollbackLease(_readLeaseFromDiagnostics(diagnostics));
+    Map<String, dynamic>? diagnostics, {
+    required String taskId,
+  }) async {
+    await _rollbackLease(
+      _readLeaseFromDiagnostics(diagnostics),
+      taskId: taskId,
+    );
   }
 
   ContentAssetCandidateLease? _readLeaseFromDiagnostics(
     Map<String, dynamic>? diagnostics,
   ) {
-    final sourceId = diagnostics?[keyCandidateAssetSourceId];
-    final rawIds = diagnostics?[keyCandidateAssetLocalIds];
-    if (sourceId is! String || sourceId.trim().isEmpty || rawIds is! List) {
-      return null;
-    }
-    final localIds = <String>[];
-    for (final value in rawIds) {
-      if (value is! String || value.trim().isEmpty) return null;
-      localIds.add(value);
-    }
-    if (localIds.isEmpty) return null;
-    return ContentAssetCandidateLease(
-      sourceId: sourceId,
-      localAssetIds: localIds,
-    );
+    return decodeCandidateAssetLeaseFromDiagnostics(diagnostics);
   }
 
   static String _safeSourceDescription(String sourceDescription) {
