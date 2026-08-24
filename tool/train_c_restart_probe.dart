@@ -28,7 +28,8 @@ Future<Map<String, Object?>> captureTrainCRestartDurableCheckpoint(
   );
 
   final logicalRows = <String>[
-    for (final row in questionRows) jsonEncode(<String, Object?>{'id': row['id']}),
+    for (final row in questionRows)
+      jsonEncode(<String, Object?>{'id': row['id']}),
     for (final row in sidecars)
       jsonEncode(<String, Object?>{
         'questionId': row['question_id'],

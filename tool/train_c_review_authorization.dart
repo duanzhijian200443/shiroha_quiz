@@ -2,12 +2,9 @@ import 'dart:io';
 
 import 'train_c_evidence_probe.dart';
 
-const trainCApprovedHarnessHeadEnvironment =
-    'TRAIN_C_APPROVED_HARNESS_HEAD';
-const trainCApprovedBase =
-    'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
-const trainCApprovedProductionBase =
-    '711fd33f564b9fb6bb3c992d6458b0075990646c';
+const trainCApprovedHarnessHeadEnvironment = 'TRAIN_C_APPROVED_HARNESS_HEAD';
+const trainCApprovedBase = 'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
+const trainCApprovedProductionBase = '711fd33f564b9fb6bb3c992d6458b0075990646c';
 
 /// Out-of-band review authorization for any execution-capable TRAIN C gate.
 ///
