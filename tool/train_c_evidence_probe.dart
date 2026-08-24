@@ -228,25 +228,6 @@ final class TrainCEvidenceProbe {
     );
   }
 
-  /// This method is called only by the trusted collector seam, never by the
-  /// JSON CLI. Its source must be an isolated runtime collector rather than a
-  /// user-provided file.
-  TrainCEvidenceProbeResult inspectTrustedSnapshot(
-    Map<String, dynamic> authoritativeSnapshot,
-  ) {
-    final schemaResult = inspect(authoritativeSnapshot);
-    if (!schemaResult.schemaValid) return schemaResult;
-    return TrainCEvidenceProbeResult(
-      schemaValid: true,
-      acceptanceAuthorized: true,
-      evidence: <String, dynamic>{
-        ...schemaResult.evidence,
-        'authority': 'trusted_collector',
-        'result': 'PASS',
-      },
-    );
-  }
-
   TrainCEvidenceProbeResult inspectJson(String rawJson) {
     try {
       final decoded = jsonDecode(rawJson);
@@ -482,6 +463,11 @@ final class TrainCEvidenceProbe {
         'TRAIN_C_IMAGE_CLOSURE_FAILURE',
       );
     }
+    if (referencedImageCount > _requiredInt(parse, 'imageBlockCount')) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+      );
+    }
 
     final tables = _section(evidence, 'tableSummary');
     final referencedTableCount =
@@ -503,12 +489,21 @@ final class TrainCEvidenceProbe {
     } else {
       _requiredBool(tables, 'tableContractConformant');
     }
+    if (referencedTableCount > _requiredInt(parse, 'tableBlockCount')) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_TABLE_CLOSURE_FAILURE',
+      );
+    }
 
     final mandatory = evidence['mandatoryQuestions'] as Map<String, dynamic>;
+    var mandatoryReferencedTotal = 0;
+    var mandatoryTypedTotal = 0;
     for (final number in const <String>['5', '18', '19']) {
       final question = mandatory[number] as Map<String, dynamic>;
       final referenced = _requiredInt(question, 'referencedImageCount');
       final typedCount = _requiredInt(question, 'typedImageNodeCount');
+      mandatoryReferencedTotal += referenced;
+      mandatoryTypedTotal += typedCount;
       final referencedAssets =
           _requiredInt(question, 'referencedUniqueAssetCount');
       if (referenced <= 0 ||
@@ -528,6 +523,12 @@ final class TrainCEvidenceProbe {
           'TRAIN_C_IMAGE_CLOSURE_FAILURE',
         );
       }
+    }
+    if (mandatoryReferencedTotal > referencedImageCount ||
+        mandatoryTypedTotal > typedImageCount) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+      );
     }
 
     final commit = _section(evidence, 'commit');
@@ -563,6 +564,11 @@ final class TrainCEvidenceProbe {
         _requiredBool(backup, 'restoredIdentityPreserved') != true ||
         _requiredBool(backup, 'allReachableResolved') != true ||
         _requiredInt(backup, 'providerDispatchCount') != 0) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_B0_ASSET_SET_FAILURE',
+      );
+    }
+    if (reachableAssets != referencedAssetCount) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_B0_ASSET_SET_FAILURE',
       );

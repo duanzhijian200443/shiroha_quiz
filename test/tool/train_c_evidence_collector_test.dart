@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/train_c_evidence_collector.dart';
@@ -14,15 +16,85 @@ void main() {
     expect(external.schemaValid, isTrue);
     expect(external.acceptanceAuthorized, isFalse);
     expect(external.evidence['result'], 'SCHEMA_VALID');
+    expect(external.evidence['authority'], 'schema_validator_only');
 
     final result = await TrainCTrustedEvidenceCollector(
       probe,
+      executionStateGate: const _FakeExecutionStateGate(),
     ).collect(source);
     expect(result.schemaValid, isTrue);
     expect(result.acceptanceAuthorized, isTrue);
     expect(result.evidence['authority'], 'trusted_collector');
     expect(result.evidence['result'], 'PASS');
   });
+
+  test('blocks a dirty worktree without changing schema validity', () async {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
+    final result = await TrainCTrustedEvidenceCollector(
+      probe,
+      executionStateGate: const _FakeExecutionStateGate(
+        failureCode: 'TRAIN_C_DIRTY_WORKTREE',
+      ),
+    ).collect(_SyntheticTrustedSource(_validSnapshot(expected)));
+
+    expect(result.schemaValid, isTrue);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['authority'], 'trusted_collector_blocked');
+    expect(result.evidence['result'], 'AUTHORIZATION_BLOCKED');
+    expect(result.evidence['failureCode'], 'TRAIN_C_DIRTY_WORKTREE');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P0',
+    });
+    expect(jsonEncode(result.evidence), isNot(contains('modified-file.dart')));
+  });
+
+  test('maps an unreadable repository state to a fixed safe failure', () async {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
+    final result = await TrainCTrustedEvidenceCollector(
+      probe,
+      executionStateGate: const _FakeExecutionStateGate(
+        throwUnexpectedError: true,
+      ),
+    ).collect(_SyntheticTrustedSource(_validSnapshot(expected)));
+
+    expect(result.schemaValid, isTrue);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['authority'], 'trusted_collector_blocked');
+    expect(result.evidence['result'], 'AUTHORIZATION_BLOCKED');
+    expect(result.evidence['failureCode'], 'TRAIN_C_CODE_IDENTITY_MISMATCH');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P0',
+    });
+    expect(
+      jsonEncode(result.evidence),
+      isNot(contains('private repository state')),
+    );
+  });
+}
+
+final class _FakeExecutionStateGate implements TrainCExecutionStateGate {
+  const _FakeExecutionStateGate({
+    this.failureCode,
+    this.throwUnexpectedError = false,
+  });
+
+  final String? failureCode;
+  final bool throwUnexpectedError;
+
+  @override
+  void verify() {
+    if (throwUnexpectedError) {
+      throw StateError('private repository state');
+    }
+    final code = failureCode;
+    if (code != null) {
+      throw TrainCEvidenceProbeException(code);
+    }
+  }
 }
 
 final class _SyntheticTrustedSource implements TrainCTrustedEvidenceSource {
@@ -69,7 +141,7 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
     'parse': <String, dynamic>{
       'status': 'PASS',
       'blockCount': 22,
-      'imageBlockCount': 1,
+      'imageBlockCount': 3,
       'tableBlockCount': 0,
       'assembledQuestionCount': 22,
       'finalQuestionCount': 22,
@@ -87,11 +159,11 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
       'validEnvelopeCount': 22,
     },
     'imageSummary': <String, dynamic>{
-      'referencedImageBlockCount': 1,
-      'typedImageNodeCount': 1,
-      'referencedUniqueAssetCount': 1,
-      'typedUniqueAssetCount': 1,
-      'resolvedUniqueAssetCount': 1,
+      'referencedImageBlockCount': 3,
+      'typedImageNodeCount': 3,
+      'referencedUniqueAssetCount': 3,
+      'typedUniqueAssetCount': 3,
+      'resolvedUniqueAssetCount': 3,
       'allReachableResolved': true,
       'canonicalIdentityPreserved': true,
     },
@@ -121,9 +193,9 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
       'restoreStatus': 'PASS',
       'restoredQuestionCount': 22,
       'restoredV2Sidecars': 22,
-      'reachableAssetCount': 1,
-      'backupManifestAssetCount': 1,
-      'restoredAssetCount': 1,
+      'reachableAssetCount': 3,
+      'backupManifestAssetCount': 3,
+      'restoredAssetCount': 3,
       'manifestMatchesReachableAssets': true,
       'restoredIdentityPreserved': true,
       'allReachableResolved': true,

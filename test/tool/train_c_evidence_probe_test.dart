@@ -125,6 +125,64 @@ void main() {
     expect(result.evidence['failureCode'], 'TRAIN_C_IMAGE_CLOSURE_FAILURE');
   });
 
+  test('rejects a mandatory image encounter subtotal above the global count',
+      () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['imageSummary'] as Map<String, dynamic>)
+      ..['referencedImageBlockCount'] = 2
+      ..['typedImageNodeCount'] = 2;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_IMAGE_CLOSURE_FAILURE');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P7',
+    });
+  });
+
+  test('rejects referenced images above parsed provider image blocks', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['parse'] as Map<String, dynamic>)['imageBlockCount'] = 2;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_IMAGE_CLOSURE_FAILURE');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P7',
+    });
+  });
+
+  test('rejects referenced tables above parsed provider table blocks', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected)
+      ..['tableLiveCoverage'] = 'PRESENT';
+    (snapshot['parse'] as Map<String, dynamic>)['tableBlockCount'] = 0;
+    (snapshot['tableSummary'] as Map<String, dynamic>)
+      ..['referencedTableBlockCount'] = 1
+      ..['typedTableNodeCount'] = 1;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_TABLE_CLOSURE_FAILURE');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P7',
+    });
+  });
+
   test('rejects a mandatory Q18 local image loss', () {
     final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
     final snapshot = _validSnapshot(expected);
@@ -219,6 +277,27 @@ void main() {
     expect(result.schemaValid, isFalse);
     expect(result.evidence['failureCode'], 'TRAIN_C_B0_ASSET_SET_FAILURE');
   });
+
+  test('rejects a B0 asset set that exceeds the global reachable inventory',
+      () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['backupRestore'] as Map<String, dynamic>)
+      ..['reachableAssetCount'] = 1
+      ..['backupManifestAssetCount'] = 1
+      ..['restoredAssetCount'] = 1;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_B0_ASSET_SET_FAILURE');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P14',
+    });
+  });
 }
 
 Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
@@ -256,7 +335,7 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
     'parse': <String, dynamic>{
       'status': 'PASS',
       'blockCount': 100,
-      'imageBlockCount': 5,
+      'imageBlockCount': 3,
       'tableBlockCount': 0,
       'assembledQuestionCount': 22,
       'finalQuestionCount': 22,
@@ -274,8 +353,8 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
       'validEnvelopeCount': 22,
     },
     'imageSummary': <String, dynamic>{
-      'referencedImageBlockCount': 5,
-      'typedImageNodeCount': 5,
+      'referencedImageBlockCount': 3,
+      'typedImageNodeCount': 3,
       'referencedUniqueAssetCount': 3,
       'typedUniqueAssetCount': 3,
       'resolvedUniqueAssetCount': 3,
