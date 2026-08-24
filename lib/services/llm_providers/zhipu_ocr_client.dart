@@ -331,8 +331,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
         }
         builder.add(chunk);
       },
-      onError: (Object error, StackTrace stackTrace) =>
-          fail(error, stackTrace),
+      onError: (Object error, StackTrace stackTrace) => fail(error, stackTrace),
       onDone: () {
         if (!completed.isCompleted) {
           completed.complete(builder.takeBytes());
