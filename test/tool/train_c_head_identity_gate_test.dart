@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/train_c_evidence_collector.dart';
@@ -165,5 +167,23 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('execution runtime source requires reviewed identity explicitly', () {
+    final source = File(
+      'tool/train_c_runtime_evidence_source.dart',
+    ).readAsStringSync();
+    final collector = File(
+      'tool/train_c_evidence_collector.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('required this.reviewedIdentity'));
+    expect(source, contains('sealed class TrainCTrustedEvidenceSource'));
+    expect(
+      source,
+      isNot(contains('this.reviewedIdentity = TrainCReviewedIdentity.l1a')),
+    );
+    expect(collector, isNot(contains('source as dynamic')));
+    expect(collector, isNot(contains('processRestartVerified')));
   });
 }

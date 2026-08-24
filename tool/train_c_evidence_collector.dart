@@ -2,13 +2,7 @@ import 'dart:io';
 
 import 'train_c_evidence_probe.dart';
 import 'train_c_http_observer.dart';
-
-/// The only source allowed to promote a schema-valid snapshot to final
-/// acceptance is an isolated runtime collector implemented by the live runner.
-/// It is intentionally not a JSON/file adapter.
-abstract interface class TrainCTrustedEvidenceSource {
-  Future<Map<String, dynamic>> readAuthoritativeSnapshot();
-}
+import 'train_c_runtime_evidence_source.dart';
 
 abstract interface class TrainCExecutionStateGate {
   void verify();
@@ -23,10 +17,13 @@ final class GitTrainCExecutionStateGate implements TrainCExecutionStateGate {
   void verify() {
     try {
       final result = Process.runSync(
-        'git',
-        <String>['status', '--porcelain=v1', '--untracked-files=all'],
-        workingDirectory: workingDirectory,
-      );
+          'git',
+          <String>[
+            'status',
+            '--porcelain=v1',
+            '--untracked-files=all',
+          ],
+          workingDirectory: workingDirectory);
       if (result.exitCode != 0 || result.stdout is! String) {
         throw const TrainCEvidenceProbeException(
           'TRAIN_C_CODE_IDENTITY_MISMATCH',
@@ -46,25 +43,33 @@ final class GitTrainCExecutionStateGate implements TrainCExecutionStateGate {
 }
 
 final class TrainCTrustedEvidenceCollector {
-  const TrainCTrustedEvidenceCollector(
-    this._probe, {
+  TrainCTrustedEvidenceCollector({
+    required this.reviewedIdentity,
     this.executionStateGate = const GitTrainCExecutionStateGate(),
-  });
+  }) : _probe = TrainCEvidenceProbe(
+          expectedIdentity: reviewedIdentity.toExpectedCodeIdentity(),
+        );
 
   final TrainCEvidenceProbe _probe;
+  final TrainCReviewedIdentity reviewedIdentity;
   final TrainCExecutionStateGate executionStateGate;
+
+  /// Synthetic maps remain schema-test inputs only and can never authorize a
+  /// final TRAIN C result.
+  TrainCEvidenceProbeResult inspectSchema(Map<String, dynamic> rawSnapshot) {
+    return _probe.inspect(_bindProductionRequestAuthority(rawSnapshot));
+  }
 
   Future<TrainCEvidenceProbeResult> collect(
     TrainCTrustedEvidenceSource source,
   ) async {
+    if (!_sameReviewedIdentity(source.reviewedIdentity, reviewedIdentity)) {
+      return _identityBlockedResult();
+    }
     final rawSnapshot = await source.readAuthoritativeSnapshot();
     final snapshot = _bindProductionRequestAuthority(rawSnapshot);
     final schemaResult = _probe.inspect(snapshot);
     if (!schemaResult.schemaValid) return schemaResult;
-
-    if (!_hasOsProcessRestartProof(source)) {
-      return _blockedResult(schemaResult, 'TRAIN_C_RESTART_FAILURE');
-    }
 
     try {
       executionStateGate.verify();
@@ -82,10 +87,7 @@ final class TrainCTrustedEvidenceCollector {
         'authority': 'trusted_collector',
         'result': 'PASS',
         'failureCode': null,
-        'firstLoss': <String, dynamic>{
-          'status': 'NONE',
-          'checkpoint': null,
-        },
+        'firstLoss': <String, dynamic>{'status': 'NONE', 'checkpoint': null},
       },
     );
   }
@@ -104,19 +106,27 @@ final class TrainCTrustedEvidenceCollector {
     };
   }
 
-  bool _hasOsProcessRestartProof(TrainCTrustedEvidenceSource source) {
-    try {
-      final direct = (source as dynamic).processRestartVerified;
-      if (direct == true) return true;
-    } catch (_) {
-      // Fall through to runtime-backed sources.
-    }
-    try {
-      final runtime = (source as dynamic).runtime;
-      return (runtime as dynamic).processRestartVerified == true;
-    } catch (_) {
-      return false;
-    }
+  bool _sameReviewedIdentity(
+    TrainCReviewedIdentity left,
+    TrainCReviewedIdentity right,
+  ) {
+    return left.approvedHarnessHead == right.approvedHarnessHead &&
+        left.approvedBase == right.approvedBase &&
+        left.approvedProductionBase == right.approvedProductionBase;
+  }
+
+  TrainCEvidenceProbeResult _identityBlockedResult() {
+    return const TrainCEvidenceProbeResult(
+      schemaValid: false,
+      acceptanceAuthorized: false,
+      evidence: <String, dynamic>{
+        'schemaVersion': 3,
+        'authority': 'trusted_collector_blocked',
+        'result': 'AUTHORIZATION_BLOCKED',
+        'failureCode': 'TRAIN_C_CODE_IDENTITY_MISMATCH',
+        'firstLoss': <String, dynamic>{'status': 'PROVEN', 'checkpoint': 'P0'},
+      },
+    );
   }
 
   TrainCEvidenceProbeResult _blockedResult(

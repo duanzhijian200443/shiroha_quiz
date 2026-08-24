@@ -11,19 +11,41 @@ import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.d
 
 import 'train_c_b0_runtime.dart';
 import 'train_c_file_storage.dart';
+import 'train_c_restart_proof.dart';
 
 const _markerName = '.train_c_isolated_v1';
 const _markerContents = 'train-c-isolated-v1\n';
 const _reattachCapabilityName = '.train_c_reattach_v1';
 const _reattachEnvironmentKey = 'TRAIN_C_REATTACH_CAPABILITY';
+const _restartTimeout = Duration(seconds: 30);
+
+Map<String, String> buildTrainCRestartChildEnvironment(
+  String capability, {
+  Map<String, String> parentEnvironment = const <String, String>{},
+}) {
+  final environment = <String, String>{
+    _reattachEnvironmentKey: capability,
+  };
+  final safeBootstrapKeys = Platform.isWindows
+      ? const <String>['SystemRoot', 'WINDIR', 'TEMP', 'TMP']
+      : const <String>['TMPDIR', 'LANG', 'LC_ALL'];
+  for (final key in safeBootstrapKeys) {
+    final value = parentEnvironment[key];
+    if (value != null && value.isNotEmpty) {
+      environment[key] = value;
+    }
+  }
+  return environment;
+}
 
 final class TrainCIsolationException implements Exception {
-  const TrainCIsolationException();
+  const TrainCIsolationException([this.safeDetail]);
 
   static const String code = 'TRAIN_C_ISOLATION_FAILURE';
+  final String? safeDetail;
 
   @override
-  String toString() => code;
+  String toString() => safeDetail == null ? code : '$code:$safeDetail';
 }
 
 final class TrainCBlankStoreProof {
@@ -55,10 +77,8 @@ final class TrainCBlankStoreProof {
 /// All database, managed-file, restore, and export paths are derived from the
 /// self-created root and checked for lexical and resolved containment.
 final class TrainCIsolatedRuntime {
-  TrainCIsolatedRuntime._({
-    required this.root,
-    bool deleteRootOnDispose = true,
-  })  : _deleteRootOnDispose = deleteRootOnDispose,
+  TrainCIsolatedRuntime._({required this.root, bool deleteRootOnDispose = true})
+      : _deleteRootOnDispose = deleteRootOnDispose,
         dbDirectory = Directory(p.join(root.path, 'db')),
         managedDirectory = Directory(p.join(root.path, 'managed')),
         restoreDirectory = Directory(p.join(root.path, 'restore')),
@@ -81,9 +101,7 @@ final class TrainCIsolatedRuntime {
 
   bool _opened = false;
   bool _disposed = false;
-  bool _processRestartVerified = false;
-  int? _processRestartProcessId;
-  String? _processRestartDigest;
+  TrainCOsProcessRestartProof? _osProcessRestartProof;
 
   static Future<TrainCIsolatedRuntime> create() async {
     try {
@@ -106,7 +124,14 @@ final class TrainCIsolatedRuntime {
     bool deleteRootOnDispose = false,
   }) async {
     try {
-      final decoded = _decodeCapability(capability);
+      late final (String, String) decoded;
+      try {
+        decoded = _decodeCapability(capability);
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_CAPABILITY_INVALID',
+        );
+      }
       final rootPath = decoded.$1;
       final nonce = decoded.$2;
       if (!p.isAbsolute(rootPath) || nonce.isEmpty) {
@@ -116,7 +141,13 @@ final class TrainCIsolatedRuntime {
         root: Directory(rootPath),
         deleteRootOnDispose: deleteRootOnDispose,
       );
-      await runtime._validateOwnedRoot();
+      try {
+        await runtime._validateOwnedRoot();
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_ROOT_INVALID',
+        );
+      }
       final capabilityFile = File(
         _containedPath(
           runtime.root,
@@ -125,9 +156,19 @@ final class TrainCIsolatedRuntime {
       );
       if (!await capabilityFile.exists() ||
           await capabilityFile.readAsString() != '$nonce\n') {
-        throw const TrainCIsolationException();
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_NONCE_INVALID',
+        );
       }
-      await runtime._openExistingDatabase();
+      try {
+        await runtime._openExistingDatabase(configureRuntimeProfile: true);
+      } on TrainCIsolationException {
+        rethrow;
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_DATABASE_FAILURE',
+        );
+      }
       return runtime;
     } on TrainCIsolationException {
       rethrow;
@@ -145,16 +186,26 @@ final class TrainCIsolatedRuntime {
   Future<TrainCIsolatedRuntime> reopenFresh() async {
     _ensureUsable();
     final capability = await _issueReattachCapability();
-    await closeForRestart();
-    final processProof = await _runProcessRestartProbe(capability);
-    final fresh = await reattachFromCapability(
-      capability,
-      deleteRootOnDispose: true,
+    final preCloseCheckpoint = await captureTrainCDurableRestartCheckpoint(
+      database: await database,
+      managedDirectory: managedDirectory,
     );
+    await closeForRestart();
+    final processProof = await _runProcessRestartProbe(
+      capability,
+      preCloseCheckpoint,
+    );
+    final fresh = await _reattachInOriginalProcess(capability);
+    final parentCheckpoint = await captureTrainCDurableRestartCheckpoint(
+      database: await fresh.database,
+      managedDirectory: fresh.managedDirectory,
+    );
+    if (!preCloseCheckpoint.equivalentTo(parentCheckpoint) ||
+        !processProof.matches(parentCheckpoint)) {
+      throw const TrainCRestartException(trainCRestartStateMismatch);
+    }
     await fresh._consumeReattachCapability();
-    fresh._processRestartVerified = true;
-    fresh._processRestartProcessId = processProof.$1;
-    fresh._processRestartDigest = processProof.$2;
+    fresh._osProcessRestartProof = processProof;
     _disposed = true;
     return fresh;
   }
@@ -163,11 +214,8 @@ final class TrainCIsolatedRuntime {
 
   Object get fileStorage => _fileStorage;
 
-  bool get processRestartVerified => _processRestartVerified;
-
-  int? get processRestartProcessId => _processRestartProcessId;
-
-  String? get processRestartDigest => _processRestartDigest;
+  TrainCOsProcessRestartProof? get osProcessRestartProof =>
+      _osProcessRestartProof;
 
   Future<Database> get database async {
     _ensureUsable();
@@ -344,48 +392,65 @@ final class TrainCIsolatedRuntime {
     );
   }
 
-  Future<(int, String)> _runProcessRestartProbe(String capability) async {
+  Future<TrainCOsProcessRestartProof> _runProcessRestartProbe(
+    String capability,
+    TrainCDurableRestartCheckpoint expectedCheckpoint,
+  ) async {
+    final bootstrap = await _resolveRestartBootstrap();
+    return runTrainCRestartProcess(
+      timeout: _restartTimeout,
+      parentPid: pid,
+      expectedCheckpoint: expectedCheckpoint,
+      start: () async {
+        final process = await Process.start(
+          bootstrap.dartExecutable,
+          <String>[
+            '--packages=${bootstrap.packageConfigPath}',
+            'run',
+            '--verbosity=error',
+            bootstrap.scriptPath,
+            '--child',
+          ],
+          workingDirectory: bootstrap.packageRoot,
+          environment: buildTrainCRestartChildEnvironment(
+            capability,
+            parentEnvironment: Platform.environment,
+          ),
+          includeParentEnvironment: false,
+          runInShell: false,
+        );
+        return (
+          stdout: process.stdout,
+          stderr: process.stderr,
+          exitCode: process.exitCode,
+          kill: process.kill,
+        );
+      },
+    );
+  }
+
+  static Future<TrainCIsolatedRuntime> _reattachInOriginalProcess(
+    String capability,
+  ) async {
     try {
-      final environment = Map<String, String>.from(Platform.environment)
-        ..remove('FLUTTER_TEST')
-        ..[_reattachEnvironmentKey] = capability;
-      final script = p.join(
-        Directory.current.path,
-        'tool',
-        'train_c_restart_probe.dart',
+      final decoded = _decodeCapability(capability);
+      final runtime = TrainCIsolatedRuntime._(
+        root: Directory(decoded.$1),
+        deleteRootOnDispose: true,
       );
-      final executable = _dartExecutable();
-      final result = await Process.run(
-        executable,
-        <String>['run', script, '--child'],
-        environment: environment,
+      await runtime._validateOwnedRoot();
+      final capabilityFile = File(
+        _containedPath(
+          runtime.root,
+          p.join(runtime.root.path, _reattachCapabilityName),
+        ),
       );
-      if (result.exitCode != 0 || result.stdout is! String) {
+      if (!await capabilityFile.exists() ||
+          await capabilityFile.readAsString() != '${decoded.$2}\n') {
         throw const TrainCIsolationException();
       }
-      final lines = (result.stdout as String)
-          .split(RegExp(r'\r?\n'))
-          .where((line) => line.trim().isNotEmpty)
-          .toList(growable: false);
-      if (lines.isEmpty) throw const TrainCIsolationException();
-      final decoded = jsonDecode(lines.last);
-      if (decoded is! Map) throw const TrainCIsolationException();
-      final map = Map<String, dynamic>.from(decoded);
-      final childPid = map['childPid'];
-      final digest = map['durableDigest'];
-      if (map['status'] != 'PASS' ||
-          childPid is! int ||
-          childPid <= 0 ||
-          childPid == pid ||
-          digest is! String ||
-          !RegExp(r'^[0-9a-f]{64}$').hasMatch(digest) ||
-          map['providerDispatchCount'] != 0 ||
-          map['questionRows'] is! int ||
-          map['v2Sidecars'] is! int ||
-          map['managedFileCount'] is! int) {
-        throw const TrainCIsolationException();
-      }
-      return (childPid, digest);
+      await runtime._openExistingDatabase(configureRuntimeProfile: false);
+      return runtime;
     } on TrainCIsolationException {
       rethrow;
     } catch (_) {
@@ -430,16 +495,44 @@ final class TrainCIsolatedRuntime {
     }
   }
 
-  Future<void> _openExistingDatabase() async {
-    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-      initializeStandaloneDatabaseRuntime();
+  Future<void> _openExistingDatabase({
+    required bool configureRuntimeProfile,
+  }) async {
+    if (configureRuntimeProfile) {
+      try {
+        if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+          initializeStandaloneDatabaseRuntime();
+        }
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_DATABASE_INIT_FAILURE',
+        );
+      }
+      try {
+        await databaseFactory.setDatabasesPath(dbDirectory.path);
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_DATABASE_PATH_FAILURE',
+        );
+      }
+      try {
+        DatabaseHelper.configureRuntimeProfile(
+          DatabaseRuntimeProfile.explicitFile,
+          databasePath: dbDirectory.path,
+        );
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_DATABASE_PROFILE_FAILURE',
+        );
+      }
     }
-    await databaseFactory.setDatabasesPath(dbDirectory.path);
-    DatabaseHelper.configureRuntimeProfile(
-      DatabaseRuntimeProfile.explicitFile,
-      databasePath: dbDirectory.path,
-    );
-    await DatabaseHelper.instance.database;
+    try {
+      await DatabaseHelper.instance.database;
+    } catch (_) {
+      throw const TrainCIsolationException(
+        'TRAIN_C_REATTACH_DATABASE_OPEN_FAILURE',
+      );
+    }
     final openedPath =
         await DatabaseHelper.instance.getProductionDatabasePath();
     final expectedPath = _containedPath(
@@ -448,7 +541,9 @@ final class TrainCIsolatedRuntime {
     );
     if (p.normalize(p.absolute(openedPath)) !=
         p.normalize(p.absolute(expectedPath))) {
-      throw const TrainCIsolationException();
+      throw const TrainCIsolationException(
+        'TRAIN_C_REATTACH_DATABASE_IDENTITY_FAILURE',
+      );
     }
     _opened = true;
   }
@@ -490,10 +585,114 @@ final class TrainCIsolatedRuntime {
     return buffer.toString();
   }
 
-  static String _dartExecutable() {
+  static Future<_TrainCRestartBootstrap> _resolveRestartBootstrap() async {
+    try {
+      String? packageArgument;
+      for (final argument in Platform.executableArguments) {
+        if (argument.startsWith('--packages=')) {
+          packageArgument = argument.substring('--packages='.length);
+          break;
+        }
+      }
+      if (packageArgument == null || packageArgument.isEmpty) {
+        throw const TrainCRestartException(trainCRestartProcessStartFailure);
+      }
+      final parsedArgument = Uri.tryParse(packageArgument);
+      final packageConfigUri = parsedArgument?.scheme == 'file'
+          ? parsedArgument!
+          : p.isAbsolute(packageArgument)
+              ? Uri.file(packageArgument)
+              : null;
+      if (packageConfigUri == null) {
+        throw const TrainCRestartException(trainCRestartProcessStartFailure);
+      }
+      final packageConfigFile = File(packageConfigUri.toFilePath());
+      if (!packageConfigFile.existsSync()) {
+        throw const TrainCRestartException(trainCRestartProcessStartFailure);
+      }
+      final decoded = jsonDecode(packageConfigFile.readAsStringSync());
+      if (decoded is! Map || decoded['packages'] is! List) {
+        throw const TrainCRestartException(trainCRestartProcessStartFailure);
+      }
+      final packages = decoded['packages'] as List;
+      final packageRoot = _packageDirectory(
+        packages,
+        packageConfigUri,
+        'shiroha_quiz',
+      );
+      final flutterPackageDirectory = _packageDirectory(
+        packages,
+        packageConfigUri,
+        'flutter',
+      );
+      final script = File(
+        p.join(packageRoot.path, 'tool', 'train_c_restart_probe.dart'),
+      );
+      final pubspec = File(p.join(packageRoot.path, 'pubspec.yaml'));
+      final childPackageConfig = File(
+        p.join(packageRoot.path, '.dart_tool', 'package_config.json'),
+      );
+      if (!script.existsSync() ||
+          !pubspec.existsSync() ||
+          !childPackageConfig.existsSync()) {
+        throw const TrainCRestartException(trainCRestartProcessStartFailure);
+      }
+      final dartExecutable = _dartExecutableFromPackageConfig(
+        flutterPackageDirectory,
+      );
+      return _TrainCRestartBootstrap(
+        dartExecutable: dartExecutable,
+        packageConfigPath: childPackageConfig.path,
+        packageRoot: packageRoot.path,
+        scriptPath: script.path,
+      );
+    } on TrainCRestartException {
+      rethrow;
+    } catch (_) {
+      throw const TrainCRestartException(trainCRestartProcessStartFailure);
+    }
+  }
+
+  static String _dartExecutableFromPackageConfig(
+    Directory flutterPackageDirectory,
+  ) {
     final resolved = Platform.resolvedExecutable;
     final name = p.basenameWithoutExtension(resolved).toLowerCase();
-    return name == 'dart' ? resolved : 'dart';
+    if (name == 'dart' && File(resolved).existsSync()) return resolved;
+
+    final flutterSdkRoot = flutterPackageDirectory.parent.parent;
+    final executable = p.join(
+      flutterSdkRoot.path,
+      'bin',
+      'cache',
+      'dart-sdk',
+      'bin',
+      Platform.isWindows ? 'dart.exe' : 'dart',
+    );
+    if (!File(executable).existsSync()) {
+      throw const TrainCRestartException(trainCRestartProcessStartFailure);
+    }
+    return executable;
+  }
+
+  static Directory _packageDirectory(
+    List<dynamic> packages,
+    Uri packageConfigUri,
+    String packageName,
+  ) {
+    for (final entry in packages) {
+      if (entry is Map && entry['name'] == packageName) {
+        final rootUri = entry['rootUri'];
+        if (rootUri is String) {
+          final resolved = packageConfigUri.resolve(rootUri);
+          if (resolved.scheme == 'file') {
+            return Directory(resolved.toFilePath());
+          }
+        }
+        break;
+      }
+    }
+    throw const TrainCRestartException(trainCRestartProcessStartFailure);
   }
 
   static String _containedPath(Directory root, String candidate) {
@@ -507,9 +706,7 @@ final class TrainCIsolatedRuntime {
       final existing = _nearestExisting(candidatePath);
       final canonicalExisting = existing.resolveSymbolicLinksSync();
       final suffix = p.relative(candidatePath, from: existing.path);
-      final canonicalCandidate = p.normalize(
-        p.join(canonicalExisting, suffix),
-      );
+      final canonicalCandidate = p.normalize(p.join(canonicalExisting, suffix));
       if (canonicalCandidate != canonicalRoot &&
           !p.isWithin(canonicalRoot, canonicalCandidate)) {
         throw const TrainCIsolationException();
@@ -539,4 +736,18 @@ final class TrainCIsolatedRuntime {
     }
     return current;
   }
+}
+
+final class _TrainCRestartBootstrap {
+  const _TrainCRestartBootstrap({
+    required this.dartExecutable,
+    required this.packageConfigPath,
+    required this.packageRoot,
+    required this.scriptPath,
+  });
+
+  final String dartExecutable;
+  final String packageConfigPath;
+  final String packageRoot;
+  final String scriptPath;
 }

@@ -50,6 +50,19 @@ final class _CleanGate implements TrainCExecutionStateGate {
   void verify() {}
 }
 
+final class _FailureGate implements TrainCExecutionStateGate {
+  const _FailureGate({this.code, this.unexpected = false});
+
+  final String? code;
+  final bool unexpected;
+
+  @override
+  void verify() {
+    if (unexpected) throw StateError('not surfaced');
+    throw TrainCEvidenceProbeException(code!);
+  }
+}
+
 TrainCRuntimePhaseFacts _placeholderFacts() {
   final empty = TrainCRuntimeCheckpoint.empty();
   return TrainCRuntimePhaseFacts(
@@ -86,6 +99,7 @@ Future<TrainCRuntimeCheckpoint> _capture(TrainCIsolatedRuntime runtime) {
   return TrainCRuntimeEvidenceSource(
     runtime: runtime,
     phaseFacts: _placeholderFacts(),
+    reviewedIdentity: _reviewedForCurrentHead(),
   ).captureCheckpoint();
 }
 
@@ -452,14 +466,46 @@ void main() {
     final snapshot = await source.readAuthoritativeSnapshot();
     expect(snapshot['imageSummary'], isA<Map<String, dynamic>>());
     final result = await TrainCTrustedEvidenceCollector(
-      TrainCEvidenceProbe(
-        expectedIdentity: reviewed.toExpectedCodeIdentity(),
-      ),
+      reviewedIdentity: reviewed,
       executionStateGate: const _CleanGate(),
     ).collect(source);
     expect(result.schemaValid, isTrue);
     expect(result.acceptanceAuthorized, isTrue);
     expect(result.evidence['result'], 'PASS');
+
+    final wrongReviewedIdentity = TrainCReviewedIdentity(
+      approvedHarnessHead: '0' * 40,
+      approvedBase: reviewed.approvedBase,
+      approvedProductionBase: reviewed.approvedProductionBase,
+    );
+    final wrongReviewResult = await TrainCTrustedEvidenceCollector(
+      reviewedIdentity: wrongReviewedIdentity,
+      executionStateGate: const _CleanGate(),
+    ).collect(source);
+    expect(wrongReviewResult.acceptanceAuthorized, isFalse);
+    expect(
+      wrongReviewResult.evidence['failureCode'],
+      'TRAIN_C_CODE_IDENTITY_MISMATCH',
+    );
+
+    final dirtyResult = await TrainCTrustedEvidenceCollector(
+      reviewedIdentity: reviewed,
+      executionStateGate: const _FailureGate(
+        code: 'TRAIN_C_DIRTY_WORKTREE',
+      ),
+    ).collect(source);
+    expect(dirtyResult.acceptanceAuthorized, isFalse);
+    expect(dirtyResult.evidence['failureCode'], 'TRAIN_C_DIRTY_WORKTREE');
+
+    final unreadableResult = await TrainCTrustedEvidenceCollector(
+      reviewedIdentity: reviewed,
+      executionStateGate: const _FailureGate(unexpected: true),
+    ).collect(source);
+    expect(unreadableResult.acceptanceAuthorized, isFalse);
+    expect(
+      unreadableResult.evidence['failureCode'],
+      'TRAIN_C_CODE_IDENTITY_MISMATCH',
+    );
   });
 
   test('source ownership mismatch fails when global image counts still match',
@@ -796,6 +842,7 @@ void main() {
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _placeholderFacts(),
+      reviewedIdentity: _reviewedForCurrentHead(),
     );
     await expectLater(
       source.readAuthoritativeSnapshot(),
@@ -821,6 +868,7 @@ void main() {
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _placeholderFacts(),
+      reviewedIdentity: _reviewedForCurrentHead(),
     );
     await expectLater(
       source.captureCheckpoint(),
@@ -844,6 +892,7 @@ void main() {
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _placeholderFacts(),
+      reviewedIdentity: _reviewedForCurrentHead(),
     );
     await expectLater(
       source.readAuthoritativeSnapshot(),
@@ -863,6 +912,8 @@ void main() {
     final b0 = runtime.buildBackupRuntime();
     await b0.exportTo(packagePath);
     final ledger = await _syntheticLedger();
+    runtime = await runtime.reopenFresh();
+    final restart = await _capture(runtime);
     final altered = TrainCRuntimeCheckpoint(
       questionRows: commit.questionRows,
       v2Sidecars: commit.v2Sidecars,
@@ -889,7 +940,7 @@ void main() {
       runtime: runtime,
       phaseFacts: _finalFacts(
         commit: commit,
-        restart: commit,
+        restart: restart,
         restore: altered,
         packagePath: packagePath,
         ledger: ledger,

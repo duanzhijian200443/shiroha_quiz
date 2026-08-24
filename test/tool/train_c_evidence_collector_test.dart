@@ -1,61 +1,38 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/train_c_evidence_collector.dart';
 import '../../tool/train_c_evidence_probe.dart';
 
 void main() {
-  test('trusted collector is the only seam that can authorize final PASS',
-      () async {
+  test('synthetic schema input cannot authorize final PASS', () {
     final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
-    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
     final source = _SyntheticTrustedSource(_validSnapshot(expected));
-
-    final external = probe.inspect(_validSnapshot(expected));
-    expect(external.schemaValid, isTrue);
-    expect(external.acceptanceAuthorized, isFalse);
-    expect(external.evidence['result'], 'SCHEMA_VALID');
-    expect(external.evidence['authority'], 'schema_validator_only');
-
-    final result = await TrainCTrustedEvidenceCollector(
-      probe,
-      executionStateGate: const _FakeExecutionStateGate(),
-    ).collect(source);
-    expect(result.schemaValid, isTrue);
-    expect(result.acceptanceAuthorized, isTrue);
-    expect(result.evidence['authority'], 'trusted_collector');
-    expect(result.evidence['result'], 'PASS');
-  });
-
-  test('trusted collector blocks a source without OS-process restart proof',
-      () async {
-    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
-    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
-    final result = await TrainCTrustedEvidenceCollector(
-      probe,
-      executionStateGate: const _FakeExecutionStateGate(),
-    ).collect(
-      _SyntheticTrustedSource(
-        _validSnapshot(expected),
-        processRestartVerified: false,
-      ),
-    );
-
+    final result = TrainCTrustedEvidenceCollector(
+      reviewedIdentity: _reviewed(expected),
+    ).inspectSchema(source.snapshot);
     expect(result.schemaValid, isTrue);
     expect(result.acceptanceAuthorized, isFalse);
-    expect(result.evidence['authority'], 'trusted_collector_blocked');
-    expect(result.evidence['failureCode'], 'TRAIN_C_RESTART_FAILURE');
-    expect(result.evidence['firstLoss'], <String, dynamic>{
-      'status': 'PROVEN',
-      'checkpoint': 'P12',
-    });
+    expect(result.evidence['authority'], 'schema_validator_only');
+    expect(result.evidence['result'], 'SCHEMA_VALID');
   });
 
-  test('trusted collector recomputes request count with production chunk',
-      () async {
+  test('synthetic boolean restart metadata cannot authorize final PASS', () {
     final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
-    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
+    final source = _SyntheticTrustedSource(
+      _validSnapshot(expected),
+      processRestartVerified: true,
+    );
+    expect(source.processRestartVerified, isTrue);
+    final result = TrainCTrustedEvidenceCollector(
+      reviewedIdentity: _reviewed(expected),
+    ).inspectSchema(source.snapshot);
+    expect(result.schemaValid, isTrue);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['authority'], 'schema_validator_only');
+  });
+
+  test('trusted collector recomputes request count with production chunk', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
     final snapshot = _validSnapshot(expected);
     (snapshot['input'] as Map<String, dynamic>)['pageCount'] = 25;
     final attempt = snapshot['attempt'] as Map<String, dynamic>;
@@ -65,10 +42,9 @@ void main() {
     attempt['providerDispatchCount'] = 2;
     attempt['providerResponseCount'] = 2;
 
-    final result = await TrainCTrustedEvidenceCollector(
-      probe,
-      executionStateGate: const _FakeExecutionStateGate(),
-    ).collect(_SyntheticTrustedSource(snapshot));
+    final result = TrainCTrustedEvidenceCollector(
+      reviewedIdentity: _reviewed(expected),
+    ).inspectSchema(snapshot);
 
     expect(result.schemaValid, isFalse);
     expect(result.acceptanceAuthorized, isFalse);
@@ -78,76 +54,26 @@ void main() {
     );
   });
 
-  test('blocks a dirty worktree without changing schema validity', () async {
+  test('synthetic extra metadata fails with a fixed privacy category', () {
     final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
-    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
-    final result = await TrainCTrustedEvidenceCollector(
-      probe,
-      executionStateGate: const _FakeExecutionStateGate(
-        failureCode: 'TRAIN_C_DIRTY_WORKTREE',
-      ),
-    ).collect(_SyntheticTrustedSource(_validSnapshot(expected)));
-
-    expect(result.schemaValid, isTrue);
-    expect(result.acceptanceAuthorized, isFalse);
-    expect(result.evidence['authority'], 'trusted_collector_blocked');
-    expect(result.evidence['result'], 'AUTHORIZATION_BLOCKED');
-    expect(result.evidence['failureCode'], 'TRAIN_C_DIRTY_WORKTREE');
-    expect(result.evidence['firstLoss'], <String, dynamic>{
-      'status': 'PROVEN',
-      'checkpoint': 'P0',
-    });
-    expect(jsonEncode(result.evidence), isNot(contains('modified-file.dart')));
-  });
-
-  test('maps an unreadable repository state to a fixed safe failure', () async {
-    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
-    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
-    final result = await TrainCTrustedEvidenceCollector(
-      probe,
-      executionStateGate: const _FakeExecutionStateGate(
-        throwUnexpectedError: true,
-      ),
-    ).collect(_SyntheticTrustedSource(_validSnapshot(expected)));
-
-    expect(result.schemaValid, isTrue);
-    expect(result.acceptanceAuthorized, isFalse);
-    expect(result.evidence['authority'], 'trusted_collector_blocked');
-    expect(result.evidence['result'], 'AUTHORIZATION_BLOCKED');
-    expect(result.evidence['failureCode'], 'TRAIN_C_CODE_IDENTITY_MISMATCH');
-    expect(result.evidence['firstLoss'], <String, dynamic>{
-      'status': 'PROVEN',
-      'checkpoint': 'P0',
-    });
+    final snapshot = _validSnapshot(expected)
+      ..['privateMetadata'] = 'private repository state';
     expect(
-      jsonEncode(result.evidence),
-      isNot(contains('private repository state')),
+      () => TrainCTrustedEvidenceCollector(
+        reviewedIdentity: _reviewed(expected),
+      ).inspectSchema(snapshot),
+      throwsA(
+        isA<TrainCEvidenceProbeException>().having(
+          (error) => error.code,
+          'code',
+          'TRAIN_C_PRIVACY_FAILURE',
+        ),
+      ),
     );
   });
 }
 
-final class _FakeExecutionStateGate implements TrainCExecutionStateGate {
-  const _FakeExecutionStateGate({
-    this.failureCode,
-    this.throwUnexpectedError = false,
-  });
-
-  final String? failureCode;
-  final bool throwUnexpectedError;
-
-  @override
-  void verify() {
-    if (throwUnexpectedError) {
-      throw StateError('private repository state');
-    }
-    final code = failureCode;
-    if (code != null) {
-      throw TrainCEvidenceProbeException(code);
-    }
-  }
-}
-
-final class _SyntheticTrustedSource implements TrainCTrustedEvidenceSource {
+final class _SyntheticTrustedSource {
   _SyntheticTrustedSource(
     this.snapshot, {
     this.processRestartVerified = true,
@@ -155,9 +81,20 @@ final class _SyntheticTrustedSource implements TrainCTrustedEvidenceSource {
 
   final Map<String, dynamic> snapshot;
   final bool processRestartVerified;
+}
 
-  @override
-  Future<Map<String, dynamic>> readAuthoritativeSnapshot() async => snapshot;
+TrainCReviewedIdentity _reviewed(TrainCExpectedCodeIdentity expected) {
+  return TrainCReviewedIdentity(
+    approvedHarnessHead: expected.approvedHarnessHead.isEmpty
+        ? expected.harnessHead
+        : expected.approvedHarnessHead,
+    approvedBase: expected.approvedBase.isEmpty
+        ? 'f1d58a278180eff38686338c28f26e4d1d7b8b7a'
+        : expected.approvedBase,
+    approvedProductionBase: expected.approvedProductionBase.isEmpty
+        ? expected.productionHead
+        : expected.approvedProductionBase,
+  );
 }
 
 Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {

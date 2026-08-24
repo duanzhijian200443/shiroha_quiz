@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../tool/train_c_isolated_runtime.dart';
+import '../../tool/train_c_restart_proof.dart';
 
 const _tinyPngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
@@ -24,9 +26,7 @@ QuestionDraftV2 _draft({int? number}) {
     questionNumber: number,
     kind: QuestionKind.shortAnswer,
     stem: RichContent(nodes: const <ContentNode>[TextNode('synthetic')]),
-    sourceRefs: <SourceRef>[
-      SourceRef.document(sourceId: 'synthetic_source'),
-    ],
+    sourceRefs: <SourceRef>[SourceRef.document(sourceId: 'synthetic_source')],
   );
 }
 
@@ -55,10 +55,7 @@ void main() {
     expect(proof.importTasks, 0);
     expect(proof.contentAssets, 0);
     final openedPath = (await runtime.database).path;
-    expect(
-      p.isWithin(runtime.dbDirectory.path, openedPath),
-      isTrue,
-    );
+    expect(p.isWithin(runtime.dbDirectory.path, openedPath), isTrue);
   });
 
   test('existing question row fails closed without deleting it', () async {
@@ -136,24 +133,156 @@ void main() {
     );
   });
 
-  test('restart proves a new OS process can reattach to the same root',
-      () async {
-    final first = runtime;
-    final rootPath = first.root.path;
-    final firstDatabasePath = (await first.database).path;
+  test(
+    'restart proves a new OS process can reattach to the same root',
+    () async {
+      final first = runtime;
+      final rootPath = first.root.path;
+      final firstDatabasePath = (await first.database).path;
 
-    final second = await first.reopenFresh();
-    runtime = second;
+      final second = await first.reopenFresh();
+      runtime = second;
 
-    expect(second, isNot(same(first)));
-    expect(second.root.path, rootPath);
-    expect((await second.database).path, firstDatabasePath);
-    expect(second.contentAssetStore, isNot(same(first.contentAssetStore)));
-    expect(second.fileStorage, isNot(same(first.fileStorage)));
-    expect(second.processRestartVerified, isTrue);
-    expect(second.processRestartProcessId, isNotNull);
-    expect(second.processRestartProcessId, isNot(pid));
-    expect(second.processRestartDigest, matches(RegExp(r'^[0-9a-f]{64}$')));
-    expect(await second.verifyBlankStore(), isA<TrainCBlankStoreProof>());
+      expect(second, isNot(same(first)));
+      expect(second.root.path, rootPath);
+      expect((await second.database).path, firstDatabasePath);
+      expect(second.contentAssetStore, isNot(same(first.contentAssetStore)));
+      expect(second.fileStorage, isNot(same(first.fileStorage)));
+      final restartProof = second.osProcessRestartProof;
+      expect(restartProof, isNotNull);
+      expect(restartProof!.childPid, isNot(pid));
+      expect(restartProof.parentPid, pid);
+      expect(restartProof.providerDispatchCount, 0);
+      expect(
+        restartProof.checkpoint.durableDigest,
+        matches(RegExp(r'^[0-9a-f]{64}$')),
+      );
+      expect(await second.verifyBlankStore(), isA<TrainCBlankStoreProof>());
+    },
+  );
+
+  test('restart child environment uses a strict capability-only allowlist', () {
+    final environment = buildTrainCRestartChildEnvironment(
+      'opaque-capability',
+      parentEnvironment: const <String, String>{
+        'TRAIN_C_TEST_SENTINEL_SECRET': 'must-not-propagate',
+        'TEMP': 'safe-bootstrap',
+      },
+    );
+
+    expect(environment.keys, contains('TRAIN_C_REATTACH_CAPABILITY'));
+    expect(environment.keys, isNot(contains('TRAIN_C_TEST_SENTINEL_SECRET')));
+    expect(environment.length, Platform.isWindows ? 2 : 1);
   });
+
+  test('restart child with valid-looking wrong state fails closed', () async {
+    final expected = _durableCheckpoint('a');
+    final wrong = _durableCheckpoint('b');
+
+    await expectLater(
+      runTrainCRestartProcess(
+        start: () async => _completedProcess(
+          stdout: jsonEncode(
+            trainCRestartProtocolMap(childPid: pid + 1, checkpoint: wrong),
+          ),
+        ),
+        timeout: const Duration(seconds: 1),
+        parentPid: pid,
+        expectedCheckpoint: expected,
+      ),
+      _restartFailure(trainCRestartStateMismatch),
+    );
+  });
+
+  test('malformed restart protocol has a fixed safe failure', () async {
+    await expectLater(
+      runTrainCRestartProcess(
+        start: () async => _completedProcess(stdout: '{"status":"PASS"'),
+        timeout: const Duration(seconds: 1),
+        parentPid: pid,
+        expectedCheckpoint: _durableCheckpoint('a'),
+      ),
+      _restartFailure(trainCRestartProtocolFailure),
+    );
+  });
+
+  test('non-zero restart child has a fixed safe failure', () async {
+    await expectLater(
+      runTrainCRestartProcess(
+        start: () async => _completedProcess(exitCode: 7),
+        timeout: const Duration(seconds: 1),
+        parentPid: pid,
+        expectedCheckpoint: _durableCheckpoint('a'),
+      ),
+      _restartFailure(trainCRestartChildFailure),
+    );
+  });
+
+  test('restart process start failure has a fixed safe failure', () async {
+    await expectLater(
+      runTrainCRestartProcess(
+        start: () => Future<TrainCRestartStartedProcess>.error(
+          StateError('not surfaced'),
+        ),
+        timeout: const Duration(seconds: 1),
+        parentPid: pid,
+        expectedCheckpoint: _durableCheckpoint('a'),
+      ),
+      _restartFailure(trainCRestartProcessStartFailure),
+    );
+  });
+
+  test('restart process timeout is bounded and safely categorized', () async {
+    final exitCode = Completer<int>();
+    var killed = false;
+    await expectLater(
+      runTrainCRestartProcess(
+        start: () async => (
+          stdout: const Stream<List<int>>.empty(),
+          stderr: const Stream<List<int>>.empty(),
+          exitCode: exitCode.future,
+          kill: () {
+            killed = true;
+            return true;
+          },
+        ),
+        timeout: const Duration(milliseconds: 20),
+        parentPid: pid,
+        expectedCheckpoint: _durableCheckpoint('a'),
+      ),
+      _restartFailure(trainCRestartTimeout),
+    );
+    expect(killed, isTrue);
+  });
+}
+
+TrainCDurableRestartCheckpoint _durableCheckpoint(String digestCharacter) {
+  return TrainCDurableRestartCheckpoint(
+    questionRows: 22,
+    v2Sidecars: 22,
+    managedFileCount: 3,
+    durableDigest: List<String>.filled(64, digestCharacter).join(),
+  );
+}
+
+TrainCRestartStartedProcess _completedProcess({
+  int exitCode = 0,
+  String stdout = '',
+}) {
+  return (
+    stdout: Stream<List<int>>.value(utf8.encode(stdout)),
+    stderr: const Stream<List<int>>.empty(),
+    exitCode: Future<int>.value(exitCode),
+    kill: () => true,
+  );
+}
+
+Matcher _restartFailure(String code) {
+  return throwsA(
+    isA<TrainCRestartException>().having(
+      (error) => error.code,
+      'code',
+      code,
+    ),
+  );
 }

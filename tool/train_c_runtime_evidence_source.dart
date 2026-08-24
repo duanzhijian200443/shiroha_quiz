@@ -8,10 +8,10 @@ import 'package:shiroha_quiz/domain/question/question_draft_v2_codec.dart';
 import 'package:shiroha_quiz/services/backup/backup_archive_io.dart';
 import 'package:shiroha_quiz/services/backup/sha256.dart';
 
-import 'train_c_evidence_collector.dart';
 import 'train_c_evidence_probe.dart';
 import 'train_c_http_observer.dart';
 import 'train_c_isolated_runtime.dart';
+import 'train_c_restart_proof.dart';
 
 final class TrainCRuntimeEvidenceException implements Exception {
   const TrainCRuntimeEvidenceException(this.code);
@@ -550,18 +550,27 @@ final class TrainCRuntimePhaseFacts {
 /// persisted question, sidecar, image, table, and B0 facts are re-derived from
 /// the isolated runtime. It has no provider, PDF, backup mutation, or delete
 /// capability.
-final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
+sealed class TrainCTrustedEvidenceSource {
+  const TrainCTrustedEvidenceSource();
+
+  TrainCReviewedIdentity get reviewedIdentity;
+
+  Future<Map<String, dynamic>> readAuthoritativeSnapshot();
+}
+
+final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
   TrainCRuntimeEvidenceSource({
     required this.runtime,
     required this.phaseFacts,
+    required this.reviewedIdentity,
     this.renderEvidence = const UnavailableTrainCRenderEvidencePort(),
-    this.reviewedIdentity = TrainCReviewedIdentity.l1a,
     this.currentHeadReader = _readCurrentHead,
-  });
+  }) : super();
 
   final TrainCIsolatedRuntime runtime;
   final TrainCRuntimePhaseFacts phaseFacts;
   final TrainCRenderEvidencePort renderEvidence;
+  @override
   final TrainCReviewedIdentity reviewedIdentity;
   final String Function() currentHeadReader;
 
@@ -731,6 +740,24 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       final commit = phaseFacts.commitCheckpoint;
       final restart = phaseFacts.b0.preB0Checkpoint;
       final candidate = phaseFacts.candidateCheckpoint;
+      final restartProof = runtime.osProcessRestartProof;
+      if (restartProof == null) {
+        throw const TrainCRuntimeEvidenceException(
+          trainCRestartStateMismatch,
+        );
+      }
+      final acceptedDurableCheckpoint =
+          await captureTrainCDurableRestartCheckpoint(
+        database: await runtime.database,
+        managedDirectory: runtime.managedDirectory,
+      );
+      if (!restartProof.matches(acceptedDurableCheckpoint) ||
+          restartProof.checkpoint.questionRows != restart.questionRows ||
+          restartProof.checkpoint.v2Sidecars != restart.v2Sidecars) {
+        throw const TrainCRuntimeEvidenceException(
+          trainCRestartStateMismatch,
+        );
+      }
       if (!phaseFacts.restartCheckpoint.equivalentTo(restart)) {
         throw const TrainCRuntimeEvidenceException('TRAIN_C_RESTART_FAILURE');
       }
@@ -936,6 +963,8 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       };
     } on TrainCRuntimeEvidenceException {
       rethrow;
+    } on TrainCRestartException catch (error) {
+      throw TrainCRuntimeEvidenceException(error.code);
     } on TrainCEvidenceProbeException catch (error) {
       throw TrainCRuntimeEvidenceException(error.code);
     } catch (_) {
