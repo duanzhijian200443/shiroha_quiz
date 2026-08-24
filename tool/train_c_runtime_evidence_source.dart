@@ -22,6 +22,32 @@ final class TrainCRuntimeEvidenceException implements Exception {
   String toString() => code;
 }
 
+/// One source-side image placement captured before typed persistence.
+///
+/// The tuple is intentionally stronger than a set membership proof: blockId
+/// and readingOrder preserve source placement authority while contentHash binds
+/// the source observation to the exact bytes that must survive the full
+/// Typed -> Commit -> Restart -> B0 -> Restore chain.
+final class TrainCPreTypedSourceImageEvidence {
+  const TrainCPreTypedSourceImageEvidence({
+    required this.questionNumber,
+    required this.sourceId,
+    required this.blockId,
+    required this.localAssetId,
+    required this.contentHash,
+    required this.readingOrder,
+  });
+
+  final int questionNumber;
+  final String sourceId;
+  final String blockId;
+  final String localAssetId;
+  final String contentHash;
+  final int readingOrder;
+
+  (String, String) get identity => (sourceId, localAssetId);
+}
+
 /// Source-side image ownership facts captured during the same parse that
 /// produced the typed drafts. Raw identities never cross into the persisted
 /// evidence map; they are used only for in-process ownership comparison.
@@ -29,17 +55,20 @@ final class TrainCSourceImageFacts {
   const TrainCSourceImageFacts._(
     this.referencedImageCounts,
     this.referencedIdentitiesByQuestion,
+    this.orderedEvidence,
   );
 
   const TrainCSourceImageFacts.empty()
       : this._(
           const <int, int>{},
           const <int, Set<(String, String)>>{},
+          const <TrainCPreTypedSourceImageEvidence>[],
         );
 
   factory TrainCSourceImageFacts({
     required Map<int, int> referencedImageCounts,
     required Map<int, Set<(String, String)>> referencedIdentitiesByQuestion,
+    required List<TrainCPreTypedSourceImageEvidence> orderedEvidence,
   }) {
     return TrainCSourceImageFacts._(
       Map<int, int>.unmodifiable(referencedImageCounts),
@@ -49,11 +78,13 @@ final class TrainCSourceImageFacts {
               MapEntry(number, Set<(String, String)>.unmodifiable(identities)),
         ),
       ),
+      List<TrainCPreTypedSourceImageEvidence>.unmodifiable(orderedEvidence),
     );
   }
 
   final Map<int, int> referencedImageCounts;
   final Map<int, Set<(String, String)>> referencedIdentitiesByQuestion;
+  final List<TrainCPreTypedSourceImageEvidence> orderedEvidence;
 
   int countFor(int questionNumber) =>
       referencedImageCounts[questionNumber] ?? 0;
@@ -61,6 +92,14 @@ final class TrainCSourceImageFacts {
   Set<(String, String)> identitiesFor(int questionNumber) =>
       referencedIdentitiesByQuestion[questionNumber] ??
       const <(String, String)>{};
+
+  List<TrainCPreTypedSourceImageEvidence> evidenceFor(int questionNumber) {
+    final values = orderedEvidence
+        .where((evidence) => evidence.questionNumber == questionNumber)
+        .toList(growable: false)
+      ..sort((left, right) => left.readingOrder.compareTo(right.readingOrder));
+    return List<TrainCPreTypedSourceImageEvidence>.unmodifiable(values);
+  }
 
   int get totalReferencedImageCount =>
       referencedImageCounts.values.fold(0, (sum, count) => sum + count);
@@ -72,6 +111,11 @@ final class TrainCSourceImageFacts {
     }
     return Set<(String, String)>.unmodifiable(identities);
   }
+
+  Set<(String, String)> get allEvidenceIdentities =>
+      Set<(String, String)>.unmodifiable(
+        orderedEvidence.map((evidence) => evidence.identity),
+      );
 }
 
 final class TrainCInputFacts {
@@ -161,6 +205,7 @@ final class TrainCQuestionCheckpoint {
     required this.allReachableResolved,
     required this.identityDigest,
     required this.reachableIdentities,
+    required this.orderedImageIdentities,
   });
 
   final int? questionNumber;
@@ -173,6 +218,7 @@ final class TrainCQuestionCheckpoint {
   final bool allReachableResolved;
   final String identityDigest;
   final Set<(String, String)> reachableIdentities;
+  final List<(String, String)> orderedImageIdentities;
 
   bool equivalentTo(TrainCQuestionCheckpoint other) {
     return questionNumber == other.questionNumber &&
@@ -184,7 +230,8 @@ final class TrainCQuestionCheckpoint {
         canonicalIdentityPreserved == other.canonicalIdentityPreserved &&
         allReachableResolved == other.allReachableResolved &&
         identityDigest == other.identityDigest &&
-        _sameIdentitySet(reachableIdentities, other.reachableIdentities);
+        _sameIdentitySet(reachableIdentities, other.reachableIdentities) &&
+        _sameIdentityList(orderedImageIdentities, other.orderedImageIdentities);
   }
 }
 
@@ -603,6 +650,9 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
             reachableIdentities: Set<(String, String)>.unmodifiable(
               inspection.uniqueIdentities,
             ),
+            orderedImageIdentities: List<(String, String)>.unmodifiable(
+              inspection.orderedIdentities,
+            ),
           ),
         );
         imageNodeCount += inspection.imageNodeCount;
@@ -736,6 +786,10 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
             'TRAIN_C_NUMBERING_FAILURE',
           );
         }
+        final sourceSequence = sourceClosure
+            .evidenceFor(number)
+            .map((evidence) => evidence.identity)
+            .toList(growable: false);
         mandatory['$number'] = <String, dynamic>{
           'referencedImageCount': sourceClosure.countFor(number),
           'sourceReferencedImageCount': sourceClosure.countFor(number),
@@ -745,9 +799,9 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           'sourceReferencedUniqueAssetCount':
               sourceClosure.identitiesFor(number).length,
           'resolvedUniqueAssetCount': currentQuestion.resolvedUniqueAssetCount,
-          'sourceIdentityPreserved': _sameIdentitySet(
-            sourceClosure.identitiesFor(number),
-            currentQuestion.reachableIdentities,
+          'sourceIdentityPreserved': _sameIdentityList(
+            sourceSequence,
+            currentQuestion.orderedImageIdentities,
           ),
           'canonicalIdentityPreserved':
               currentQuestion.canonicalIdentityPreserved,
@@ -896,6 +950,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       for (final asset in draft.assetRefs) (asset.sourceId, asset.localAssetId),
     };
     final identities = <(String, String)>{};
+    final orderedIdentities = <(String, String)>[];
     final resolved = <(String, String)>{};
     var imageCount = 0;
     var tableCount = 0;
@@ -906,6 +961,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
         final identity = (image.sourceId, image.localAssetId);
         if (!inventory.contains(identity)) canonical = false;
         identities.add(identity);
+        orderedIdentities.add(identity);
       }
       tableCount += _countTables(content);
     }
@@ -930,6 +986,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
     return _DraftInspection(
       imageNodeCount: imageCount,
       uniqueIdentities: identities,
+      orderedIdentities: orderedIdentities,
       resolvedIdentities: resolved,
       tableNodeCount: tableCount,
       canonicalIdentityPreserved: canonical,
@@ -1031,27 +1088,66 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
     final sourceQuestionNumbers = <int>{
       ...source.referencedImageCounts.keys,
       ...source.referencedIdentitiesByQuestion.keys,
+      ...source.orderedEvidence.map((evidence) => evidence.questionNumber),
     };
     if (sourceQuestionNumbers.any((number) => number < 1 || number > 22)) {
       throw const TrainCRuntimeEvidenceException(
         'TRAIN_C_IMAGE_CLOSURE_FAILURE',
       );
     }
-    if (source.totalReferencedImageCount !=
+    if (source.orderedEvidence.length != source.totalReferencedImageCount ||
+        source.totalReferencedImageCount !=
             phaseFacts.parse.referencedImageBlockCount ||
         source.totalReferencedImageCount != current.typedImageNodeCount ||
-        !_sameIdentitySet(source.allIdentities, current.reachableIdentities)) {
+        !_sameIdentitySet(source.allIdentities, current.reachableIdentities) ||
+        !_sameIdentitySet(
+          source.allEvidenceIdentities,
+          current.reachableIdentities,
+        )) {
       throw const TrainCRuntimeEvidenceException(
         'TRAIN_C_IMAGE_CLOSURE_FAILURE',
       );
     }
+    for (final evidence in source.orderedEvidence) {
+      if (evidence.blockId.trim().isEmpty ||
+          evidence.sourceId.trim().isEmpty ||
+          evidence.localAssetId.trim().isEmpty ||
+          evidence.readingOrder < 0 ||
+          !_isSha256(evidence.contentHash)) {
+        throw const TrainCRuntimeEvidenceException(
+          'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        );
+      }
+      if (current.assetDigests[evidence.identity] != evidence.contentHash) {
+        throw const TrainCRuntimeEvidenceException(
+          'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        );
+      }
+    }
     for (var number = 1; number <= 22; number++) {
       final question = current.question(number);
+      final evidence = source.evidenceFor(number);
+      final evidenceIdentities =
+          evidence.map((item) => item.identity).toList(growable: false);
+      final evidenceIdentitySet = evidenceIdentities.toSet();
+      final readingOrderIsCanonical = evidence.asMap().entries.every(
+            (entry) => entry.value.readingOrder == entry.key,
+          );
       if (question == null ||
           source.countFor(number) != question.imageNodeCount ||
+          evidence.length != question.imageNodeCount ||
+          !readingOrderIsCanonical ||
           !_sameIdentitySet(
             source.identitiesFor(number),
             question.reachableIdentities,
+          ) ||
+          !_sameIdentitySet(
+            source.identitiesFor(number),
+            evidenceIdentitySet,
+          ) ||
+          !_sameIdentityList(
+            evidenceIdentities,
+            question.orderedImageIdentities,
           )) {
         throw const TrainCRuntimeEvidenceException(
           'TRAIN_C_IMAGE_CLOSURE_FAILURE',
@@ -1073,6 +1169,7 @@ final class _DraftInspection {
   const _DraftInspection({
     required this.imageNodeCount,
     required this.uniqueIdentities,
+    required this.orderedIdentities,
     required this.resolvedIdentities,
     required this.tableNodeCount,
     required this.canonicalIdentityPreserved,
@@ -1081,6 +1178,7 @@ final class _DraftInspection {
 
   final int imageNodeCount;
   final Set<(String, String)> uniqueIdentities;
+  final List<(String, String)> orderedIdentities;
   final Set<(String, String)> resolvedIdentities;
   final int tableNodeCount;
   final bool canonicalIdentityPreserved;
@@ -1096,6 +1194,9 @@ final class _SourceImageClosure {
 
   Set<(String, String)> identitiesFor(int questionNumber) =>
       facts.identitiesFor(questionNumber);
+
+  List<TrainCPreTypedSourceImageEvidence> evidenceFor(int questionNumber) =>
+      facts.evidenceFor(questionNumber);
 
   int get totalReferencedImageCount => facts.totalReferencedImageCount;
 
@@ -1118,6 +1219,17 @@ bool _sameIdentitySet(
   return left.length == right.length && left.containsAll(right);
 }
 
+bool _sameIdentityList(
+  List<(String, String)> left,
+  List<(String, String)> right,
+) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
+}
+
 bool _sameMap<K, V>(Map<K, V> left, Map<K, V> right) {
   if (left.length != right.length) return false;
   for (final entry in left.entries) {
@@ -1125,6 +1237,9 @@ bool _sameMap<K, V>(Map<K, V> left, Map<K, V> right) {
   }
   return true;
 }
+
+bool _isSha256(String value) =>
+    RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
 
 String _questionPayloadDigest<T>(
   Iterable<T> questions, {
