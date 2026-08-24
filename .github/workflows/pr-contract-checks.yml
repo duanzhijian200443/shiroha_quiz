@@ -102,6 +102,10 @@ jobs:
         shell: pwsh
         run: |
           $tests = @(
+            'test/tool/train_c_http_observer_test.dart',
+            'test/tool/train_c_http_overrides_test.dart',
+            'test/tool/train_c_evidence_probe_test.dart',
+            'test/tool/train_c_evidence_collector_test.dart',
             'test/architecture_boundary_test.dart',
             'test/backup/backup_manifest_test.dart',
             'test/backup/backup_restore_gate_test.dart',
