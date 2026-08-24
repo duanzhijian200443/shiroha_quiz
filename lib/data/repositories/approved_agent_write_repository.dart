@@ -23,8 +23,13 @@ import '../persistence/typed_answer_persistence.dart';
 /// rolls the complete transaction back with zero formal writes.
 final class ApprovedAgentWriteRepository
     implements AgentWritePersistencePort, AgentWriteReconciliationPort {
-  ApprovedAgentWriteRepository({DatabaseHelper? databaseHelper})
-      : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
+  ApprovedAgentWriteRepository({
+    DatabaseHelper? databaseHelper,
+    QuestionV2PersistenceMapper mapper = const QuestionV2PersistenceMapper(),
+    TypedAnswerPersistenceKernel? kernel,
+  })  : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
+        _mapper = mapper,
+        _kernel = kernel ?? TypedAnswerPersistenceKernel(mapper);
 
   static final ApprovedAgentWriteRepository instance =
       ApprovedAgentWriteRepository();
@@ -35,10 +40,8 @@ final class ApprovedAgentWriteRepository
   /// in-memory proposal cache; proposal staging lives in the Application
   /// service instance which is reconstructed on restore reload.
   void clearTransientState() {}
-  static const QuestionV2PersistenceMapper _mapper =
-      QuestionV2PersistenceMapper();
-  static const TypedAnswerPersistenceKernel _kernel =
-      TypedAnswerPersistenceKernel();
+  final QuestionV2PersistenceMapper _mapper;
+  final TypedAnswerPersistenceKernel _kernel;
   static const AgentWriteProposedAnswerPolicy _answerPolicy =
       AgentWriteProposedAnswerPolicy();
 

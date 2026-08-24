@@ -1,3 +1,4 @@
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 
 import 'import_question_field_policy.dart';
@@ -63,6 +64,7 @@ class ImportParseResult {
   final ExplanationRetentionMode explanationRetentionMode;
   final ImportStorageRoute storageRoute;
   final String? storageReason;
+  final ContentAssetCandidateLease? candidateAssetLease;
 
   const ImportParseResult({
     required this.questions,
@@ -73,6 +75,7 @@ class ImportParseResult {
     this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
     this.storageRoute = ImportStorageRoute.legacyV1,
     this.storageReason,
+    this.candidateAssetLease,
   });
 
   /// Strict construction boundary for R7B shadow storage metadata.
@@ -92,6 +95,7 @@ class ImportParseResult {
         ExplanationRetentionMode.subjectiveOnly,
     ImportStorageRoute storageRoute = ImportStorageRoute.legacyV1,
     String? storageReason,
+    ContentAssetCandidateLease? candidateAssetLease,
   }) {
     final validated = validateImportStorageMetadata(
       route: storageRoute,
@@ -106,6 +110,7 @@ class ImportParseResult {
       explanationRetentionMode: explanationRetentionMode,
       storageRoute: validated.route,
       storageReason: validated.reason,
+      candidateAssetLease: candidateAssetLease,
     );
   }
 }

@@ -138,10 +138,10 @@ void main() {
   test('global error callbacks preserve unhandled failure semantics', () {
     final source = File('lib/main.dart').readAsStringSync();
     final platformHandler = RegExp(
-      r'PlatformDispatcher\.instance\.onError\s*=\s*\(error, stackTrace\)\s*\{([\s\S]*?)\n\s*\};',
+      r'PlatformDispatcher\.instance\.onError\s*=\s*\(\s*error\s*,\s*stackTrace\s*\)\s*\{([\s\S]*?)\n\s*\};',
     ).firstMatch(source);
     final rootZoneHandler = RegExp(
-      r'\}, \(error, stackTrace\) \{([\s\S]*?)\n\s*\}\);',
+      r'\}\s*,\s*\(\s*error\s*,\s*stackTrace\s*\)\s*\{([\s\S]*?)\n\s*\}\s*\)\s*;',
     ).firstMatch(source);
 
     expect(platformHandler, isNotNull);

@@ -1,12 +1,14 @@
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide TableCell;
 import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/content/rich_content_text_projection.dart';
+import '../../application/content/content_asset_authority.dart';
 import '../../services/import_pipeline/latex_block_environment_normalizer.dart';
 import '../../services/import_pipeline/latex_renderability_checker.dart';
 import '../../utils/content_normalizer.dart';
@@ -194,12 +196,14 @@ class RichContentRenderer extends StatelessWidget {
     this.textColor,
     this.fontSize = 16.0,
     this.fontWeight = FontWeight.normal,
+    this.assetResolver,
   });
 
   final RichContent content;
   final Color? textColor;
   final double fontSize;
   final FontWeight fontWeight;
+  final ContentAssetResolver? assetResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -214,6 +218,8 @@ class RichContentRenderer extends StatelessWidget {
     );
     final nodes = content.nodes;
     if (nodes.isEmpty) return const SizedBox.shrink();
+    final resolver =
+        assetResolver ?? ContentAssetResolverScope.maybeOf(context);
 
     final widgets = <Widget>[];
     final inlineTokens = <ContentToken>[];
@@ -225,6 +231,7 @@ class RichContentRenderer extends StatelessWidget {
         style: style,
         color: color,
         fontSize: fontSize,
+        literalText: true,
       ));
       inlineTokens.clear();
     }
@@ -243,22 +250,30 @@ class RichContentRenderer extends StatelessWidget {
             color: color,
             fontSize: fontSize,
           ));
-        case ImageNode():
+        case ImageNode(
+            :final sourceId,
+            :final localAssetId,
+            :final alternativeText,
+          ):
           flushInline();
           widgets.add(
-            _RichContentTextPlaceholder(
-              text: _safeTypedNodePreview(node),
+            _ImageNodeView(
+              sourceId: sourceId,
+              localAssetId: localAssetId,
+              alternativeText: alternativeText,
+              resolver: resolver,
               style: style,
             ),
           );
-        case TableNode():
+        case TableNode(:final structure):
           flushInline();
-          widgets.add(
-            _RichContentTextPlaceholder(
-              text: _safeTypedNodePreview(node),
-              style: style,
-            ),
-          );
+          widgets.add(_TableNodeView(
+            structure: structure,
+            textColor: color,
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+            resolver: resolver,
+          ));
         case RawFallbackNode(:final rawJson):
           flushInline();
           widgets.add(_RawFallbackPlaceholder(rawJson: rawJson, style: style));
@@ -285,38 +300,408 @@ class RichContentRenderer extends StatelessWidget {
     VoidCallback flushInline,
     List<Widget> widgets,
   ) {
-    final tokens = _TypedTextTokenizer.tokenize(text);
-    for (final token in tokens) {
-      if (token is TextToken && token.text.contains('\n')) {
-        final parts = token.text.split('\n');
-        for (var i = 0; i < parts.length; i++) {
-          if (parts[i].isNotEmpty) {
-            inlineTokens.add(TextToken(parts[i]));
-          }
-          if (i != parts.length - 1) {
-            flushInline();
-            if (parts[i].isEmpty) {
-              widgets.add(SizedBox(height: fontSize * 0.35));
-            }
-          }
-        }
-      } else {
-        inlineTokens.add(token);
+    final parts = text.split('\n');
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].isNotEmpty) {
+        _appendTypedTextLine(parts[i], inlineTokens);
       }
+      if (i != parts.length - 1) {
+        flushInline();
+        if (parts[i].isEmpty) {
+          widgets.add(SizedBox(height: fontSize * 0.35));
+        }
+      }
+    }
+  }
+
+  /// Typed text is persisted as literal text. The R5 contract has one
+  /// deliberately narrow exception for the legacy fill-blank marker: an
+  /// underscore run of at least three characters becomes a blank widget.
+  /// No Markdown, image, or math syntax is inferred here.
+  void _appendTypedTextLine(
+    String line,
+    List<ContentToken> inlineTokens,
+  ) {
+    var textStart = 0;
+    var index = 0;
+    while (index < line.length) {
+      if (line[index] != '_') {
+        index++;
+        continue;
+      }
+
+      var runEnd = index + 1;
+      while (runEnd < line.length && line[runEnd] == '_') {
+        runEnd++;
+      }
+      final runLength = runEnd - index;
+      if (runLength >= 3) {
+        if (textStart < index) {
+          inlineTokens.add(TextToken(line.substring(textStart, index)));
+        }
+        inlineTokens.add(BlankToken(runLength));
+        textStart = runEnd;
+      }
+      index = runEnd;
+    }
+
+    if (textStart < line.length) {
+      inlineTokens.add(TextToken(line.substring(textStart)));
     }
   }
 }
 
-String _safeTypedNodePreview(ContentNode node) {
-  try {
-    final projected = const RichContentTextProjection().project(
-      RichContent(nodes: <ContentNode>[node]),
-    );
-    if (projected.trim().isNotEmpty) return projected;
-  } on FormatException {
-    // The bounded placeholder below is the renderer's fail-closed state.
+final class ContentAssetResolverScope extends InheritedWidget {
+  const ContentAssetResolverScope({
+    super.key,
+    required this.resolver,
+    required super.child,
+  });
+
+  final ContentAssetResolver resolver;
+
+  static ContentAssetResolver? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<ContentAssetResolverScope>()
+        ?.resolver;
   }
-  return node is ImageNode ? '[图片]' : '[表格]';
+
+  @override
+  bool updateShouldNotify(ContentAssetResolverScope oldWidget) =>
+      resolver != oldWidget.resolver;
+}
+
+class _ImageNodeView extends StatefulWidget {
+  const _ImageNodeView({
+    required this.sourceId,
+    required this.localAssetId,
+    required this.alternativeText,
+    required this.resolver,
+    required this.style,
+  });
+
+  final String sourceId;
+  final String localAssetId;
+  final RichContent? alternativeText;
+  final ContentAssetResolver? resolver;
+  final TextStyle style;
+
+  @override
+  State<_ImageNodeView> createState() => _ImageNodeViewState();
+}
+
+class _ImageNodeViewState extends State<_ImageNodeView> {
+  Future<List<int>?>? _bytesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _bytesFuture = _resolveBytes();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ImageNodeView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resolver != widget.resolver ||
+        oldWidget.sourceId != widget.sourceId ||
+        oldWidget.localAssetId != widget.localAssetId) {
+      _bytesFuture = _resolveBytes();
+    }
+  }
+
+  Future<List<int>?> _resolveBytes() async {
+    final resolver = widget.resolver;
+    if (resolver == null) return null;
+    try {
+      return await resolver.resolveAssetBytesAsync(
+        sourceId: widget.sourceId,
+        localAssetId: widget.localAssetId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = _RichContentTextPlaceholder(
+      text: _alternativeTextOrPlaceholder(widget.alternativeText),
+      style: widget.style,
+    );
+    return FutureBuilder<List<int>?>(
+      future: _bytesFuture,
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (snapshot.connectionState != ConnectionState.done ||
+            bytes == null ||
+            bytes.isEmpty) {
+          return fallback;
+        }
+        return Semantics(
+          image: true,
+          label: _alternativeTextOrPlaceholder(widget.alternativeText),
+          child: Image.memory(
+            Uint8List.fromList(bytes),
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => fallback,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TableNodeView extends StatelessWidget {
+  const _TableNodeView({
+    required this.structure,
+    required this.textColor,
+    required this.fontSize,
+    required this.fontWeight,
+    required this.resolver,
+  });
+
+  final TableStructure structure;
+  final Color textColor;
+  final double fontSize;
+  final FontWeight fontWeight;
+  final ContentAssetResolver? resolver;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).dividerColor;
+    final anchors = _tableAnchors(structure);
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: borderColor),
+      ),
+      child: _SpannedTableLayout(
+        rowCount: structure.rows.length,
+        columnCount: structure.columnCount,
+        anchors: anchors,
+        children: [
+          for (final anchor in anchors)
+            Container(
+              key: ValueKey<String>(
+                'rich-table-anchor-${anchor.row}-${anchor.column}',
+              ),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: borderColor),
+              ),
+              child: RichContentRenderer(
+                content: anchor.cell.content,
+                textColor: textColor,
+                fontSize: fontSize,
+                fontWeight: fontWeight,
+                assetResolver: resolver,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _TableAnchor {
+  const _TableAnchor({
+    required this.row,
+    required this.column,
+    required this.cell,
+  });
+
+  final int row;
+  final int column;
+  final TableCell cell;
+
+  int get rowSpan => cell.rowSpan;
+  int get columnSpan => cell.columnSpan;
+}
+
+List<_TableAnchor> _tableAnchors(TableStructure structure) {
+  final occupied = <List<TableCell?>>[
+    for (var row = 0; row < structure.rows.length; row++)
+      List<TableCell?>.filled(structure.columnCount, null),
+  ];
+  final anchors = <_TableAnchor>[];
+
+  for (var rowIndex = 0; rowIndex < structure.rows.length; rowIndex++) {
+    var cursor = 0;
+    for (final cell in structure.rows[rowIndex].cells) {
+      while (cursor < structure.columnCount &&
+          occupied[rowIndex][cursor] != null) {
+        cursor++;
+      }
+      final column = cursor;
+      anchors.add(_TableAnchor(row: rowIndex, column: column, cell: cell));
+      for (var row = rowIndex; row < rowIndex + cell.rowSpan; row++) {
+        for (var columnIndex = column;
+            columnIndex < column + cell.columnSpan;
+            columnIndex++) {
+          occupied[row][columnIndex] = cell;
+        }
+      }
+      cursor += cell.columnSpan;
+    }
+  }
+  return List<_TableAnchor>.unmodifiable(anchors);
+}
+
+final class _SpannedTableLayout extends MultiChildRenderObjectWidget {
+  const _SpannedTableLayout({
+    required this.rowCount,
+    required this.columnCount,
+    required this.anchors,
+    required super.children,
+  });
+
+  final int rowCount;
+  final int columnCount;
+  final List<_TableAnchor> anchors;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return _SpannedTableRenderBox(
+      rowCount: rowCount,
+      columnCount: columnCount,
+      anchors: anchors,
+    );
+  }
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _SpannedTableRenderBox renderObject,
+  ) {
+    renderObject
+      ..rowCount = rowCount
+      ..columnCount = columnCount
+      ..anchors = anchors
+      ..markNeedsLayout();
+  }
+
+  @override
+  void didUnmountRenderObject(covariant _SpannedTableRenderBox renderObject) {}
+}
+
+final class _SpannedTableParentData extends ContainerBoxParentData<RenderBox> {
+  late _TableAnchor anchor;
+}
+
+final class _SpannedTableRenderBox extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _SpannedTableParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _SpannedTableParentData> {
+  _SpannedTableRenderBox({
+    required int rowCount,
+    required int columnCount,
+    required List<_TableAnchor> anchors,
+  })  : _rowCount = rowCount,
+        _columnCount = columnCount,
+        _anchors = anchors;
+
+  int _rowCount;
+  int _columnCount;
+  List<_TableAnchor> _anchors;
+
+  set rowCount(int value) => _rowCount = value;
+  set columnCount(int value) => _columnCount = value;
+  set anchors(List<_TableAnchor> value) => _anchors = value;
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _SpannedTableParentData) {
+      child.parentData = _SpannedTableParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final width = constraints.hasBoundedWidth
+        ? constraints.maxWidth
+        : _columnCount * 120.0;
+    final columnWidth = width / _columnCount;
+    final rowHeights = List<double>.filled(_rowCount, 12.0);
+    final childByAnchor = <_TableAnchor, RenderBox>{};
+
+    var child = firstChild;
+    var childIndex = 0;
+    while (child != null) {
+      final data = child.parentData! as _SpannedTableParentData;
+      final anchor = _anchors[childIndex++];
+      data.anchor = anchor;
+      childByAnchor[anchor] = child;
+      final cellWidth = columnWidth * anchor.columnSpan;
+      child.layout(
+        BoxConstraints(maxWidth: cellWidth),
+        parentUsesSize: true,
+      );
+      if (anchor.rowSpan == 1) {
+        rowHeights[anchor.row] = rowHeights[anchor.row]
+            .clamp(child.size.height, double.infinity)
+            .toDouble();
+      }
+      child = data.nextSibling;
+    }
+
+    for (final anchor in _anchors.where((anchor) => anchor.rowSpan > 1)) {
+      final child = childByAnchor[anchor]!;
+      final start = anchor.row;
+      final end = start + anchor.rowSpan;
+      final currentHeight = rowHeights
+          .sublist(start, end)
+          .fold<double>(0, (sum, height) => sum + height);
+      if (child.size.height > currentHeight) {
+        rowHeights[end - 1] += child.size.height - currentHeight;
+      }
+    }
+
+    final totalHeight =
+        rowHeights.fold<double>(0, (sum, height) => sum + height);
+    size = constraints.constrain(Size(width, totalHeight));
+
+    child = firstChild;
+    childIndex = 0;
+    while (child != null) {
+      final data = child.parentData! as _SpannedTableParentData;
+      final anchor = _anchors[childIndex++];
+      final left = anchor.column * columnWidth;
+      final top = rowHeights
+          .take(anchor.row)
+          .fold<double>(0, (sum, height) => sum + height);
+      final height = rowHeights
+          .sublist(anchor.row, anchor.row + anchor.rowSpan)
+          .fold<double>(0, (sum, value) => sum + value);
+      child.layout(
+        BoxConstraints.tightFor(
+          width: columnWidth * anchor.columnSpan,
+          height: height,
+        ),
+      );
+      data.offset = Offset(left, top);
+      child = data.nextSibling;
+    }
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    defaultPaint(context, offset);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    return defaultHitTestChildren(result, position: position);
+  }
+}
+
+String _alternativeTextOrPlaceholder(RichContent? alternativeText) {
+  if (alternativeText == null) return '[图片]';
+  try {
+    final projected =
+        const RichContentTextProjection().project(alternativeText);
+    return projected.trim().isEmpty ? '[图片]' : projected;
+  } on FormatException {
+    return '[图片]';
+  }
 }
 
 class _RichContentTextPlaceholder extends StatelessWidget {
@@ -340,6 +725,7 @@ class RichContentFieldRenderer extends StatelessWidget {
     this.fontSize = 16.0,
     this.fontWeight = FontWeight.normal,
     this.imageBuilder,
+    this.assetResolver,
   });
 
   final RichContent? content;
@@ -348,6 +734,7 @@ class RichContentFieldRenderer extends StatelessWidget {
   final double fontSize;
   final FontWeight fontWeight;
   final StructuredImageBuilder? imageBuilder;
+  final ContentAssetResolver? assetResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +745,7 @@ class RichContentFieldRenderer extends StatelessWidget {
         textColor: textColor,
         fontSize: fontSize,
         fontWeight: fontWeight,
+        assetResolver: assetResolver,
       );
     }
     return StructuredContentRenderer(
@@ -408,45 +796,6 @@ class _RawFallbackPlaceholder extends StatelessWidget {
   }
 }
 
-class _TypedTextTokenizer {
-  const _TypedTextTokenizer._();
-
-  /// Tokenizes typed text without re-parsing math delimiters, Markdown
-  /// images, URLs, parse errors, or raw fallbacks. Only underscore runs of
-  /// length >= 3 become blanks; everything else stays plain text.
-  static List<ContentToken> tokenize(String input) {
-    if (input.isEmpty) return const <ContentToken>[];
-    final tokens = <ContentToken>[];
-    final textBuffer = StringBuffer();
-
-    void flushText() {
-      if (textBuffer.isEmpty) return;
-      tokens.add(TextToken(textBuffer.toString()));
-      textBuffer.clear();
-    }
-
-    var i = 0;
-    while (i < input.length) {
-      if (input[i] == '_') {
-        var end = i;
-        while (end < input.length && input[end] == '_') {
-          end++;
-        }
-        if (end - i >= 3) {
-          flushText();
-          tokens.add(BlankToken(end - i));
-          i = end;
-          continue;
-        }
-      }
-      textBuffer.write(input[i]);
-      i++;
-    }
-    flushText();
-    return tokens;
-  }
-}
-
 class BlankTokenWidget extends StatelessWidget {
   final int length;
   final Color color;
@@ -482,12 +831,14 @@ class _InlineTokenParagraph extends StatelessWidget {
   final TextStyle style;
   final Color color;
   final double fontSize;
+  final bool literalText;
 
   const _InlineTokenParagraph({
     required this.tokens,
     required this.style,
     required this.color,
     required this.fontSize,
+    this.literalText = false,
   });
 
   @override
@@ -495,7 +846,11 @@ class _InlineTokenParagraph extends StatelessWidget {
     final spans = <InlineSpan>[];
     for (final token in tokens) {
       if (token is TextToken) {
-        spans.addAll(_MarkdownLiteSpans.parse(token.text, style));
+        if (literalText) {
+          spans.add(TextSpan(text: token.text, style: style));
+        } else {
+          spans.addAll(_MarkdownLiteSpans.parse(token.text, style));
+        }
       } else if (token is InlineMathToken) {
         spans.add(WidgetSpan(
           alignment: PlaceholderAlignment.middle,

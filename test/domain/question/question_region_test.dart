@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
 import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
+import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 
 void main() {
@@ -234,6 +236,52 @@ void main() {
     });
   });
 
+  test('nested table image closure uses source document metadata authority',
+      () {
+    final documentRef = SourceRef.document(sourceId: 'source_001');
+    final inventory = SourceAssetPart(
+      sourceRef: documentRef,
+      asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+    );
+    final table = SourceTablePart(
+      sourceRef: SourceRef.at(
+        sourceId: 'source_001',
+        point: SourcePoint.block(
+          pageNumber: 1,
+          blockId: 'table_001',
+          readingOrder: 0,
+        ),
+      ),
+      rows: <List<RichContent>>[
+        <RichContent>[
+          RichContent(nodes: <ContentNode>[
+            ImageNode(
+              sourceId: 'source_001',
+              localAssetId: 'asset_001',
+            ),
+          ]),
+        ],
+      ],
+    );
+    final document = SourceDocument(
+      sourceId: 'source_001',
+      parts: <SourcePart>[inventory, table],
+    );
+    final region = QuestionRegion(
+      questionNumber: 1,
+      fragments: <QuestionRegionFragment>[
+        QuestionRegionFragment(
+          field: QuestionRegionField.stem,
+          part: table,
+        ),
+      ],
+      sourceAssetRefs: document.assetRefs,
+    );
+
+    expect(region.assetRefs, hasLength(1));
+    expect(region.assetRefs.single.localAssetId, 'asset_001');
+  });
+
   group('QuestionRegion derivation', () {
     test('preserves encounter order and returns stable immutable filters', () {
       final inputFragments = <QuestionRegionFragment>[
@@ -367,6 +415,79 @@ void main() {
               ),
             ),
           ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('deduplicates identical source asset metadata and rejects conflicts',
+        () {
+      final source = _sourceRef('source_a');
+      final first = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+      final same = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          _fragment(_contentPart(source, 'stem')),
+        ],
+        sourceAssetRefs: <SourcedAssetRef>[first, same],
+      );
+      expect(region.assetRefs, isEmpty);
+
+      expect(
+        () => QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[
+            _fragment(_contentPart(source, 'stem')),
+          ],
+          sourceAssetRefs: <SourcedAssetRef>[
+            first,
+            SourcedAssetRef(
+              sourceId: 'source_a',
+              asset: AssetRef(
+                assetId: 'asset_a',
+                kind: AssetKind.image,
+                mimeType: 'image/jpeg',
+              ),
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('unsupported fallback image participates in exact asset closure', () {
+      final source = _sourceRef('source_a');
+      final fallback = UnsupportedSourcePart(
+        sourceRef: source,
+        kindCode: 'future_layout',
+        fallbackContent: RichContent(nodes: <ContentNode>[
+          ImageNode(sourceId: 'source_a', localAssetId: 'asset_a'),
+        ]),
+      );
+      final authority = SourcedAssetRef(
+        sourceId: 'source_a',
+        asset: AssetRef(assetId: 'asset_a', kind: AssetKind.image),
+      );
+
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          _fragment(fallback),
+        ],
+        sourceAssetRefs: <SourcedAssetRef>[authority],
+      );
+      expect(region.assetRefs, <SourcedAssetRef>[authority]);
+      expect(
+        () => QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[_fragment(fallback)],
         ),
         throwsFormatException,
       );

@@ -254,6 +254,38 @@ void main() {
       expect(image.alternativeText!.nodes, <ContentNode>[const TextNode('图示')]);
     });
 
+    test('classifies malformed asset alternative text as unsupported', () {
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceAssetPart(
+              sourceRef: _docRef(),
+              asset: AssetRef(assetId: 'asset_unsafe', kind: AssetKind.image),
+              alternativeText: RichContent(
+                nodes: <ContentNode>[
+                  RawFallbackNode(<Object?, Object?>{
+                    'type': 'future_markup',
+                    'payload': <Object?, Object?>{'safe': true},
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+
+      expect(
+        () => assembler.assemble(region, questionId: 'q_unsafe_alt'),
+        throwsA(
+          isA<QuestionRegionUnsupportedException>()
+              .having((error) => error.kindCode, 'kindCode', 'source_asset'),
+        ),
+      );
+    });
+
     test('preserves repeated asset placements while deduplicating inventory',
         () {
       final assetPart = SourceAssetPart(

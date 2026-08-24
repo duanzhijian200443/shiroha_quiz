@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
-import '../../data/repositories/question_repository.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
@@ -40,7 +40,7 @@ class ImportStagingScreen extends StatefulWidget {
   final String? taskId;
   final List<String>? warnings;
   final Map<String, dynamic>? diagnostics;
-  final QuestionRepository? questionRepository;
+  final FolderQueryPort? folderQuery;
   final ImportCommitService? commitService;
   final SubjectiveAnswerDistiller? answerDistiller;
   final TaskManager? taskManager;
@@ -52,7 +52,7 @@ class ImportStagingScreen extends StatefulWidget {
     this.taskId,
     this.warnings,
     this.diagnostics,
-    this.questionRepository,
+    this.folderQuery,
     this.commitService,
     this.answerDistiller,
     this.taskManager,
@@ -120,10 +120,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
-  late final QuestionRepository _questionRepository =
-      widget.questionRepository ?? QuestionRepository.instance;
-  late final ImportCommitService _commitService = widget.commitService ??
-      ImportCommitService(questionRepository: _questionRepository);
+  FolderQueryPort? get _folderQuery => widget.folderQuery;
+  late final ImportCommitService _commitService =
+      widget.commitService ?? ImportCommitService();
   late final TaskManager _taskManager =
       widget.taskManager ?? TaskManager.instance;
   List<String> _existingFolders = [];
@@ -250,7 +249,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _loadExistingFolders() async {
-    final folders = await _questionRepository.getAvailableFolders();
+    final folders =
+        await _folderQuery?.listAvailableFolders() ?? const <String>[];
     if (mounted) {
       setState(() {
         _existingFolders = folders;

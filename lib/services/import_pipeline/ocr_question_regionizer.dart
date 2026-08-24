@@ -1,4 +1,5 @@
 import 'ocr_document.dart';
+import 'ocr_table_projection.dart';
 import 'reference_answer_section.dart';
 import 'text_question_region.dart';
 
@@ -119,10 +120,10 @@ class OcrQuestionRegion {
 
   TextQuestionKind _detectKind() {
     final text = stemText;
-    final optionCount =
-        RegExp(r'(^|\n)\s*(?:\([A-D]\)|[A-D][\.、．])', multiLine: true)
-            .allMatches(text)
-            .length;
+    final optionCount = RegExp(
+      r'(^|\n)\s*(?:\([A-D]\)|[A-D][\.、．])',
+      multiLine: true,
+    ).allMatches(text).length;
     if (optionCount >= 2) return TextQuestionKind.choice;
     if (RegExp(r'[_＿—–－﹏]{2,}|（\s*）|\(\s*\)|填空|应填').hasMatch(text)) {
       return TextQuestionKind.fillBlank;
@@ -154,9 +155,7 @@ class OcrQuestionRegion {
 }
 
 class OcrQuestionRegionizer {
-  const OcrQuestionRegionizer({
-    this.questionNumberKindRanges = const [],
-  });
+  const OcrQuestionRegionizer({this.questionNumberKindRanges = const []});
 
   final List<OcrQuestionNumberKindRange> questionNumberKindRanges;
 
@@ -203,9 +202,7 @@ class OcrQuestionRegionizer {
     caseSensitive: false,
   );
 
-  static final RegExp _markdownQuotePrefixRegex = RegExp(
-    r'^[ \t]{0,3}>[ \t]+',
-  );
+  static final RegExp _markdownQuotePrefixRegex = RegExp(r'^[ \t]{0,3}>[ \t]+');
 
   static final RegExp _markdownHeadingPrefixRegex = RegExp(
     r'^[ \t]{0,3}#{1,6}[ \t]+',
@@ -604,9 +601,9 @@ class OcrQuestionRegionizer {
         }
       } else {
         if (_looksLikeOption(text)) {
-          final match =
-              RegExp(r'^\s*(?:[（(]\s*([A-D])\s*[）)]|([A-D])\s*[\.．、])')
-                  .firstMatch(_normalizeQuestionCandidateText(text));
+          final match = RegExp(
+            r'^\s*(?:[（(]\s*([A-D])\s*[）)]|([A-D])\s*[\.．、])',
+          ).firstMatch(_normalizeQuestionCandidateText(text));
           final letter =
               (match?.group(1) ?? match?.group(2) ?? 'A').toUpperCase();
           final numVal = letter.codeUnitAt(0) - 'A'.codeUnitAt(0) + 1;
@@ -681,7 +678,8 @@ class OcrQuestionRegionizer {
 
             final numberVal = parsedNum ??
                 int.tryParse(
-                    _normalizeQuestionMarkerText(info.rawNumberString ?? '')) ??
+                  _normalizeQuestionMarkerText(info.rawNumberString ?? ''),
+                ) ??
                 0;
 
             addTrace(
@@ -845,7 +843,9 @@ class OcrQuestionRegionizer {
   }
 
   List<_OcrTextUnit> _splitBlock(OcrBlock block) {
-    final text = block.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final text = _legacyRegionText(
+      block,
+    ).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final boundaries = <int>{0, text.length};
 
     var lineStart = 0;
@@ -899,7 +899,8 @@ class OcrQuestionRegionizer {
         units.add(
           _OcrTextUnit(
             block: block.copyWith(
-                blockId: '${block.blockId}#s${units.length + 1}'),
+              blockId: '${block.blockId}#s${units.length + 1}',
+            ),
             sourceBlockId: block.blockId,
             text: part,
             wasSplit: true,
@@ -914,10 +915,26 @@ class OcrQuestionRegionizer {
     return units;
   }
 
-  int? _detectQuestionNumber(
-    _OcrTextUnit unit, {
-    _OcrTextUnit? nextUnit,
-  }) {
+  String _legacyRegionText(OcrBlock block) {
+    final type = block.type.trim().toLowerCase();
+    if (type == 'image' || type == 'figure') {
+      final content = block.text.trim().toLowerCase();
+      if (block.imagePayload != null ||
+          content.startsWith('data:image/') ||
+          content.startsWith('http://') ||
+          content.startsWith('https://') ||
+          content.startsWith('content_assets/')) {
+        return '[图片]';
+      }
+      return block.text;
+    }
+    if (type == 'table') {
+      return OcrTableProjector.projectHtmlToPlainText(block.text) ?? block.text;
+    }
+    return block.text;
+  }
+
+  int? _detectQuestionNumber(_OcrTextUnit unit, {_OcrTextUnit? nextUnit}) {
     final text = _normalizeQuestionCandidateText(unit.text);
     if (_isValidInlineQuestionStart(text) || _isValidBareQuestionStart(text)) {
       return _extractQuestionNumber(text);
@@ -1019,10 +1036,7 @@ class OcrQuestionRegionizer {
     return match != null && _parseQuestionNumber(match.group(1) ?? '') != null;
   }
 
-  bool _isValidStandaloneFollower(
-    _OcrTextUnit unit,
-    _OcrTextUnit? nextUnit,
-  ) {
+  bool _isValidStandaloneFollower(_OcrTextUnit unit, _OcrTextUnit? nextUnit) {
     if (nextUnit == null || unit.block.pageIndex != nextUnit.block.pageIndex) {
       return false;
     }
@@ -1128,8 +1142,9 @@ class OcrQuestionRegionizer {
       );
     }
 
-    final standaloneMatch =
-        _standaloneQuestionMarkerRegex.firstMatch(candidate);
+    final standaloneMatch = _standaloneQuestionMarkerRegex.firstMatch(
+      candidate,
+    );
     if (standaloneMatch != null) {
       final rawNum = standaloneMatch.group(1) ?? '';
       return _MarkerInfo(
@@ -1139,8 +1154,9 @@ class OcrQuestionRegionizer {
       );
     }
 
-    final numericOnlyMatch =
-        _numericOnlyQuestionMarkerRegex.firstMatch(candidate);
+    final numericOnlyMatch = _numericOnlyQuestionMarkerRegex.firstMatch(
+      candidate,
+    );
     if (numericOnlyMatch != null) {
       final rawNum = numericOnlyMatch.group(1) ?? '';
       return _MarkerInfo(
@@ -1253,24 +1269,16 @@ class OcrQuestionRegionizer {
   }
 
   _SectionHeadingInfo? _readSectionHeading(String text) {
-    final normalized = _normalizeQuestionCandidateText(text)
-        .replaceFirst(RegExp(r'^第\s*'), '')
-        .replaceAll(RegExp(r'\s+'), '');
+    final normalized = _normalizeQuestionCandidateText(
+      text,
+    ).replaceFirst(RegExp(r'^第\s*'), '').replaceAll(RegExp(r'\s+'), '');
 
     final prefix = RegExp(
       r'^([一二三四五六七八九十]+)[、,，\.．]?(.*)$',
     ).firstMatch(normalized);
     if (prefix == null) return null;
 
-    const labels = [
-      '单项选择题',
-      '多项选择题',
-      '选择题',
-      '填空题',
-      '解答题',
-      '证明题',
-      '计算题',
-    ];
+    const labels = ['单项选择题', '多项选择题', '选择题', '填空题', '解答题', '证明题', '计算题'];
     final remainder = prefix.group(2) ?? '';
     final label = labels.cast<String?>().firstWhere(
           (candidate) => remainder.startsWith(candidate!),
@@ -1350,22 +1358,25 @@ class OcrQuestionRegionizer {
   bool _looksLikeSectionInstruction(String text) {
     final normalized = text.trim();
     if (normalized.isEmpty) return false;
-    final hasInstructionSubject =
-        RegExp(r'^(?:本题|每|共|请|其中|答题|作答)').hasMatch(normalized);
-    final hasInstructionDetail =
-        RegExp(r'(?:题|分|选项|作答|要求)').hasMatch(normalized);
+    final hasInstructionSubject = RegExp(
+      r'^(?:本题|每|共|请|其中|答题|作答)',
+    ).hasMatch(normalized);
+    final hasInstructionDetail = RegExp(
+      r'(?:题|分|选项|作答|要求)',
+    ).hasMatch(normalized);
     return hasInstructionSubject && hasInstructionDetail;
   }
 
   bool _looksLikeOption(String text) {
-    return RegExp(r'^\s*(?:\([A-D]\)|[A-D][\.、．])').hasMatch(
-      _normalizeQuestionCandidateText(text),
-    );
+    return RegExp(
+      r'^\s*(?:\([A-D]\)|[A-D][\.、．])',
+    ).hasMatch(_normalizeQuestionCandidateText(text));
   }
 
   bool _looksLikeStemStart(String text) {
-    return RegExp(r'^\s*(?:设|已知|若|求|证明|计算|下列|关于|函数|随机|令|讨论|判断|选择|填空|设随机|设函数)')
-        .hasMatch(text);
+    return RegExp(
+      r'^\s*(?:设|已知|若|求|证明|计算|下列|关于|函数|随机|令|讨论|判断|选择|填空|设随机|设函数)',
+    ).hasMatch(text);
   }
 
   bool _looksLikeFormulaLeadingStem(String text) {
@@ -1436,18 +1447,16 @@ class OcrQuestionRegionizer {
     required TextQuestionKind currentSectionKind,
   }) {
     if (currentSectionKind != TextQuestionKind.unknown) {
-      return _KindInfo(
-        currentSectionKind,
-        ['kind_declared_from_section:${currentSectionKind.name}'],
-      );
+      return _KindInfo(currentSectionKind, [
+        'kind_declared_from_section:${currentSectionKind.name}',
+      ]);
     }
 
     for (final range in questionNumberKindRanges) {
       if (range.contains(questionNumber)) {
-        return _KindInfo(
-          range.kind,
-          ['kind_inferred_from_question_number_range:${range.kind.name}'],
-        );
+        return _KindInfo(range.kind, [
+          'kind_inferred_from_question_number_range:${range.kind.name}',
+        ]);
       }
     }
 

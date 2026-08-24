@@ -186,6 +186,7 @@ jobs:
             'test/core/observability/observability_test.dart',
             'test/core/observability/unified_operation_trace_test.dart',
             'test/import_task_coordinator_test.dart',
+            'test/pr137_final_transport_retry_regression_test.dart',
             'test/application/questions/question_mutation_command_test.dart',
             'test/application/exam/exam_mutation_command_test.dart',
             'test/application/agent/agent_settings_mutation_test.dart',

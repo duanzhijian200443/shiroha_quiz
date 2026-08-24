@@ -2,25 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_diagnostic_formatter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_diagnostic_message.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_service.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 
-class _MockRepo implements QuestionRepository {
+class _MockRepo implements FolderQueryPort {
   @override
-  Future<void> saveQuestionDraftsToBank({
-    required String bankName,
-    String? folderName,
-    required List<dynamic> questions,
-  }) async {}
-
-  @override
-  Future<List<String>> getAvailableFolders() async => [];
-
-  @override
-  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+  Future<List<String>> listAvailableFolders() async => [];
 }
 
 class _FakeDistiller implements SubjectiveAnswerDistiller {
@@ -178,7 +168,7 @@ void main() {
                 },
               ],
           diagnostics: diagnostics,
-          questionRepository: _MockRepo(),
+          folderQuery: _MockRepo(),
           answerDistiller: distiller,
         ),
       );

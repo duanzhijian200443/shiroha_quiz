@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:path/path.dart' as p;
 
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/content/content_asset_authority.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/models/question_identity.dart';
 import '../task_manager.dart';
 import 'import_attempt_context.dart';
+import 'candidate_asset_cleanup.dart';
+import 'candidate_asset_lease.dart';
 import 'import_failure_classifier.dart';
 import 'import_file_detector.dart';
 import 'import_format.dart';
@@ -111,6 +114,7 @@ class ImportTaskCoordinator {
     String Function()? traceIdFactory,
     String Function()? attemptTokenFactory,
     String Function()? batchIdFactory,
+    ContentAssetStore? contentAssetStore,
     this.onReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
@@ -119,10 +123,13 @@ class ImportTaskCoordinator {
         _taskIdFactory = taskIdFactory ?? _createTaskId,
         _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId,
         _attemptTokenFactory = attemptTokenFactory ?? ImportAttemptToken.create,
-        _batchIdFactory = batchIdFactory ?? _createBatchId;
+        _batchIdFactory = batchIdFactory ?? _createBatchId,
+        _contentAssetStore = contentAssetStore;
 
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
+  static const String keyCandidateAssetSourceId = candidateAssetSourceIdKey;
+  static const String keyCandidateAssetLocalIds = candidateAssetLocalIdsKey;
   static const Set<String> _safeOcrStatuses = <String>{
     'failed_not_configured',
     'failed_empty_ocr_blocks',
@@ -180,6 +187,7 @@ class ImportTaskCoordinator {
   final String Function() _traceIdFactory;
   final String Function() _attemptTokenFactory;
   final String Function() _batchIdFactory;
+  final ContentAssetStore? _contentAssetStore;
   final void Function(String sourceDescription)? onReadyForReview;
 
   static String _createTaskId() =>
@@ -468,7 +476,12 @@ class ImportTaskCoordinator {
         attemptToken: attempt.attemptToken,
       );
       if (schedulerResult == OcrRequestCancellation.notFound) {
-        return _taskManager.finalizeAttemptCancelled(attempt);
+        final result = await _taskManager.finalizeAttemptCancelled(attempt);
+        await _rollbackLeaseFromDiagnostics(
+          task.diagnostics,
+          taskId: task.id,
+        );
+        return result;
       }
       return ImportAttemptWriteStatus.applied;
     });
@@ -568,6 +581,38 @@ class ImportTaskCoordinator {
       throw const ImportTaskRetryRejectedException();
     }
     final task = matches.first;
+    final previousLease = task.status != TaskStatus.completed
+        ? _readLeaseFromDiagnostics(task.diagnostics)
+        : null;
+    final cleanupPendingLease = decodeCandidateAssetLeaseFromDiagnostics(
+      task.diagnostics,
+      cleanupPending: true,
+    );
+    if (cleanupPendingLease != null) {
+      final store = _contentAssetStore;
+      if (store == null) {
+        throw const ImportTaskRetryRejectedException();
+      }
+      final cleanupOutcome = await deleteCandidateAssetsWithRetry(
+        store: store,
+        lease: cleanupPendingLease,
+      );
+      if (cleanupOutcome.failedCount > 0) {
+        AppLogger.warning(
+          'Retry blocked by pending candidate asset cleanup',
+          module: 'Import',
+          data: <String, Object?>{
+            'stage': 'candidate_asset_retry_preflight',
+            'code': 'candidate_asset_cleanup_pending',
+            'status': 'blocked',
+            'deletedCount': cleanupOutcome.deletedCount,
+            'missingCount': cleanupOutcome.missingCount,
+            'failedCount': cleanupOutcome.failedCount,
+          },
+        );
+        throw const ImportTaskRetryRejectedException();
+      }
+    }
     final reservedTraceIds = _taskManager.tasks
         .where((candidate) => candidate.id != taskId)
         .map((candidate) => candidate.traceId)
@@ -602,6 +647,7 @@ class ImportTaskCoordinator {
     if (writeStatus != ImportAttemptWriteStatus.applied) {
       throw const ImportTaskRetryRejectedException();
     }
+    await _rollbackLease(previousLease, taskId: taskId);
 
     unawaited(Future<void>.microtask(() => _runScheduledTask(
           _ScheduledImportTask(
@@ -656,6 +702,7 @@ class ImportTaskCoordinator {
       data: const <String, Object?>{'stage': 'import_dispatch'},
     );
     final stopwatch = Stopwatch()..start();
+    ImportParseResult? parsedResult;
     try {
       final progressStatus = await _taskManager.updateAttemptProgress(
         handle.attempt,
@@ -672,6 +719,7 @@ class ImportTaskCoordinator {
         },
       );
       final result = await parse(handle.taskId);
+      parsedResult = result;
       AppLogger.info(
         'Import parsing completed',
         module: 'Import',
@@ -681,13 +729,18 @@ class ImportTaskCoordinator {
           'durationMs': stopwatch.elapsedMilliseconds,
         },
       );
-      if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
+      if (!_taskManager.isCurrentAttempt(handle.attempt)) {
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
+        return;
+      }
       if (!_taskManager.isAttemptRunnable(handle.attempt)) {
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         await _taskManager.finalizeAttemptCancelled(handle.attempt);
         return;
       }
 
       if (result.questions.isEmpty) {
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         final emptyFailure = _classifyEmptyResult(result);
         await _failSafely(
           handle,
@@ -729,6 +782,10 @@ class ImportTaskCoordinator {
               ),
             )
             .toList(growable: false),
+        if (result.candidateAssetLease != null) ...{
+          keyCandidateAssetSourceId: result.candidateAssetLease!.sourceId,
+          keyCandidateAssetLocalIds: result.candidateAssetLease!.localAssetIds,
+        },
       };
       final reviewStatus = await _taskManager.requireAttemptReview(
         handle.attempt,
@@ -740,6 +797,7 @@ class ImportTaskCoordinator {
         diagnostics: diagnostics,
       );
       if (reviewStatus != ImportAttemptWriteStatus.applied) {
+        await _rollbackLease(result.candidateAssetLease, taskId: handle.taskId);
         if (_taskManager.isCurrentAttempt(handle.attempt)) {
           await _taskManager.finalizeAttemptCancelled(handle.attempt);
         }
@@ -766,6 +824,10 @@ class ImportTaskCoordinator {
         );
       }
     } on OcrRequestCancelledException {
+      await _rollbackLease(
+        parsedResult?.candidateAssetLease,
+        taskId: handle.taskId,
+      );
       await _taskManager.finalizeAttemptCancelled(handle.attempt);
       AppLogger.info(
         'Background import cancelled',
@@ -777,6 +839,10 @@ class ImportTaskCoordinator {
         },
       );
     } catch (error) {
+      await _rollbackLease(
+        parsedResult?.candidateAssetLease,
+        taskId: handle.taskId,
+      );
       if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
       final currentTask = _taskManager.tasks.firstWhere(
         (task) => task.id == handle.taskId,
@@ -799,6 +865,64 @@ class ImportTaskCoordinator {
         },
       );
     }
+  }
+
+  Future<void> _rollbackLease(
+    ContentAssetCandidateLease? lease, {
+    required String taskId,
+  }) async {
+    final store = _contentAssetStore;
+    if (store == null || lease == null || lease.localAssetIds.isEmpty) return;
+    final outcome = await deleteCandidateAssetsWithRetry(
+      store: store,
+      lease: lease,
+    );
+    if (outcome.failedCount > 0) {
+      AppLogger.warning(
+        'Candidate asset rollback did not complete',
+        module: 'Import',
+        data: <String, Object?>{
+          'stage': 'candidate_asset_rollback',
+          'code': 'candidate_asset_rollback_incomplete',
+          'status': 'incomplete',
+          'deletedCount': outcome.deletedCount,
+          'missingCount': outcome.missingCount,
+          'failedCount': outcome.failedCount,
+        },
+      );
+      final ownershipStatus =
+          await _taskManager.persistCandidateAssetCleanupPending(
+        taskId: taskId,
+        lease: lease,
+      );
+      if (ownershipStatus != ImportAttemptWriteStatus.applied) {
+        AppLogger.warning(
+          'Candidate asset cleanup ownership was not persisted',
+          module: 'Import',
+          data: const <String, Object?>{
+            'stage': 'candidate_asset_rollback',
+            'code': 'candidate_asset_cleanup_ownership_incomplete',
+            'status': 'incomplete',
+          },
+        );
+      }
+    }
+  }
+
+  Future<void> _rollbackLeaseFromDiagnostics(
+    Map<String, dynamic>? diagnostics, {
+    required String taskId,
+  }) async {
+    await _rollbackLease(
+      _readLeaseFromDiagnostics(diagnostics),
+      taskId: taskId,
+    );
+  }
+
+  ContentAssetCandidateLease? _readLeaseFromDiagnostics(
+    Map<String, dynamic>? diagnostics,
+  ) {
+    return decodeCandidateAssetLeaseFromDiagnostics(diagnostics);
   }
 
   static String _safeSourceDescription(String sourceDescription) {

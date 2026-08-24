@@ -699,7 +699,9 @@ void main() {
       tester,
       QuestionListScreen(
         bankName: _bankName,
-        questionRepository: listRepository,
+        questionListQuery: listRepository,
+        questionMutationPersistence: listRepository,
+        typedAnswerPersistence: listRepository,
         onLoadFinished: (count) => listCount = count,
       ),
     );
@@ -830,7 +832,9 @@ void main() {
       tester,
       QuestionListScreen(
         bankName: _bankName,
-        questionRepository: listRepository,
+        questionListQuery: listRepository,
+        questionMutationPersistence: listRepository,
+        typedAnswerPersistence: listRepository,
       ),
     );
     expect(find.text('Historical legacy row A.'), findsOneWidget);

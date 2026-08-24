@@ -134,6 +134,7 @@ final class QuestionRegion {
     required Iterable<QuestionRegionFragment> fragments,
     QuestionRegionKindHint kindHint = QuestionRegionKindHint.unknown,
     Iterable<ImportIssue> issues = const <ImportIssue>[],
+    Iterable<SourcedAssetRef> sourceAssetRefs = const <SourcedAssetRef>[],
   }) {
     if (questionNumber <= 0) {
       throw const FormatException('Question numbers must be positive.');
@@ -147,8 +148,11 @@ final class QuestionRegion {
       );
     }
     final copiedIssues = List<ImportIssue>.unmodifiable(issues);
+    final copiedSourceAssetRefs = List<SourcedAssetRef>.unmodifiable(
+      sourceAssetRefs,
+    );
 
-    _deriveAssetRefs(copiedFragments);
+    _deriveAssetRefs(copiedFragments, copiedSourceAssetRefs);
     _validateIssueSources(copiedFragments, copiedIssues);
     _validateStemEvidence(copiedFragments, copiedIssues);
 
@@ -157,6 +161,7 @@ final class QuestionRegion {
       fragments: copiedFragments,
       kindHint: kindHint,
       issues: copiedIssues,
+      sourceAssetRefs: copiedSourceAssetRefs,
     );
   }
 
@@ -165,12 +170,14 @@ final class QuestionRegion {
     required this.fragments,
     required this.kindHint,
     required this.issues,
+    required this.sourceAssetRefs,
   });
 
   final int questionNumber;
   final List<QuestionRegionFragment> fragments;
   final QuestionRegionKindHint kindHint;
   final List<ImportIssue> issues;
+  final List<SourcedAssetRef> sourceAssetRefs;
 
   QuestionRegionReadiness get readiness {
     if (issues.any((issue) => issue.severity == ImportIssueSeverity.error)) {
@@ -200,7 +207,8 @@ final class QuestionRegion {
     return List<SourceRef>.unmodifiable(derived);
   }
 
-  List<SourcedAssetRef> get assetRefs => _deriveAssetRefs(fragments);
+  List<SourcedAssetRef> get assetRefs =>
+      _deriveAssetRefs(fragments, sourceAssetRefs);
 
   @override
   bool operator ==(Object other) {
@@ -209,7 +217,8 @@ final class QuestionRegion {
             questionNumber == other.questionNumber &&
             kindHint == other.kindHint &&
             _listEquals(fragments, other.fragments) &&
-            _listEquals(issues, other.issues);
+            _listEquals(issues, other.issues) &&
+            _listEquals(sourceAssetRefs, other.sourceAssetRefs);
   }
 
   @override
@@ -218,6 +227,7 @@ final class QuestionRegion {
         kindHint,
         Object.hashAll(fragments),
         Object.hashAll(issues),
+        Object.hashAll(sourceAssetRefs),
       );
 }
 
@@ -312,8 +322,20 @@ List<ContentNode> materializeQuestionRegionContent(
 
 List<SourcedAssetRef> _deriveAssetRefs(
   Iterable<QuestionRegionFragment> fragments,
+  Iterable<SourcedAssetRef> sourceAssetRefs,
 ) {
   final metadataByIdentity = <(String, String), SourcedAssetRef>{};
+  for (final sourced in sourceAssetRefs) {
+    final identity = (sourced.sourceId, sourced.localAssetId);
+    final existing = metadataByIdentity[identity];
+    if (existing == null) {
+      metadataByIdentity[identity] = sourced;
+    } else if (existing.asset != sourced.asset) {
+      throw const FormatException(
+        'A source-qualified asset identity has conflicting metadata.',
+      );
+    }
+  }
   for (final fragment in fragments) {
     final part = fragment.part;
     if (part is! SourceAssetPart) continue;
@@ -396,8 +418,8 @@ List<SourcedAssetRef> _deriveAssetRefs(
             visitNodes(cell.nodes);
           }
         }
-      case UnsupportedSourcePart():
-        break;
+      case UnsupportedSourcePart(:final fallbackContent):
+        visitNodes(fallbackContent.nodes);
     }
   }
   return List<SourcedAssetRef>.unmodifiable(derived);

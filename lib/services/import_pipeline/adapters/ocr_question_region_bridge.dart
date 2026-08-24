@@ -121,6 +121,7 @@ final class OcrQuestionRegionBridge {
       fragments: fragments,
       kindHint: _mapKind(region.effectiveKind),
       issues: issues,
+      sourceAssetRefs: sourceDocument.assetRefs,
     );
   }
 }

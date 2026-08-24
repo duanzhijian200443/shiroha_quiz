@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'practice_page.dart';
 import 'question_list_screen.dart';
+import '../../application/questions/question_list_query_port.dart';
+import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
-import '../../data/repositories/question_repository.dart';
+import '../../application/safe_write/typed_answer_command.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
+  final QuestionListQueryPort? questionListQuery;
+  final QuestionMutationPersistencePort? questionMutationPersistence;
+  final TypedAnswerPersistencePort? typedAnswerPersistence;
+  final QuestionBankMutationPersistencePort? questionBankMutationPersistence;
 
   @visibleForTesting
   final QuestionBankMutationCommand? questionBankMutation;
@@ -13,6 +19,10 @@ class BankDetailScreen extends StatefulWidget {
   const BankDetailScreen({
     super.key,
     required this.bankName,
+    this.questionListQuery,
+    this.questionMutationPersistence,
+    this.typedAnswerPersistence,
+    this.questionBankMutationPersistence,
     this.questionBankMutation,
   });
 
@@ -25,7 +35,18 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
 
   QuestionBankMutationCommand get _questionBankMutation =>
       widget.questionBankMutation ??
-      QuestionBankMutationCommand(QuestionRepository.instance);
+      QuestionBankMutationCommand(
+        _requireQuestionBankMutationPersistence,
+      );
+
+  QuestionBankMutationPersistencePort
+      get _requireQuestionBankMutationPersistence {
+    final port = widget.questionBankMutationPersistence;
+    if (port == null) {
+      throw StateError('Question-bank mutation dependency is not configured.');
+    }
+    return port;
+  }
 
   void _startPractice(BuildContext context, int? filterType) {
     Navigator.push(
@@ -176,8 +197,14 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                 Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) =>
-                            QuestionListScreen(bankName: widget.bankName)));
+                        builder: (_) => QuestionListScreen(
+                              bankName: widget.bankName,
+                              questionListQuery: widget.questionListQuery,
+                              questionMutationPersistence:
+                                  widget.questionMutationPersistence,
+                              typedAnswerPersistence:
+                                  widget.typedAnswerPersistence,
+                            )));
               },
             ),
           ),

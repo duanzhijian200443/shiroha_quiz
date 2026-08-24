@@ -14,6 +14,20 @@ closure) are COMPLETE. B0 adds no migration or dependency changes. The
 current runtime schema is v23 because the additive AnswerAttempt migration was
 introduced after the original B0-P0 v22 freeze.
 
+### Current-state amendment: Rich content asset package v2
+
+B0 package version **1 remains frozen and readable** with exactly the original
+library-only layout. The bounded P2-B1T2 production activation adds package
+version **2** as an additive strict DTO extension. Version 2 preserves every
+version 1 field and adds the optional `contentAssets[]` manifest inventory plus
+the matching `files/content_assets/<sourceId>/<localAssetId>` archive entries.
+Version 2 is required whenever referenced durable `ImageNode` bytes are
+present; version 1 manifests must not contain `contentAssets`.
+
+The package reader remains backward-compatible with version 1. Unknown package
+versions and unknown manifest fields remain fail-closed. No database schema or
+typed-sidecar migration is introduced by this amendment.
+
 ### Current-state amendment: DM-D3A
 
 - The current runtime and current-runtime backup fixtures use schema **v23**.
@@ -36,10 +50,10 @@ B0-D0 -> B0-E0 -> B0-I0 -> B0-U0 -> B0-V0 -> B0-CL
 - `.shiroha` is a **ZIP-compatible archive with a custom extension name**.
 - The project already has the `archive` dependency. B0 v0 must use that
   dependency and must not add or upgrade dependencies.
-- Two independent version numbers are frozen and must never be merged:
+- Two independent version numbers remain separate and must never be merged:
 
 ```text
-packageVersion = 1
+packageVersion = 1 (frozen baseline) or 2 (additive content-assets package)
 schemaVersion  = SQLite PRAGMA user_version
 ```
 
@@ -65,6 +79,21 @@ files/
   library/
     <fileId>
 ```
+
+Version 1 contains exactly the layout above. Version 2 additionally permits:
+
+```text
+files/
+  content_assets/
+    <sourceId>/
+      <localAssetId>
+```
+
+Every version 2 content asset entry is declared by `manifest.json`, uses the
+source-qualified identity `(sourceId, localAssetId)`, and is verified by size
+and SHA-256 before publication or restore success. No provider URL, DataURL,
+Base64 payload, absolute path, or provider response body is stored in the
+manifest or archive.
 
 Rules:
 
@@ -347,6 +376,25 @@ Validation is fail-closed:
 B0 v0 provides corruption/integrity detection. It does not claim cryptographic
 authenticity or signatures.
 
+### 6.1 Manifest v2 content asset extension
+
+Version 2 retains all v1 fields and may add `contentAssets[]`. Each entry is a
+strict DTO containing:
+
+```text
+sourceId
+localAssetId
+storageKey = content_assets/<sourceId>/<localAssetId>
+archivePath = files/content_assets/<sourceId>/<localAssetId>
+sizeBytes
+sha256
+```
+
+The entry is allowed only for a source-qualified asset referenced by the
+sanitized typed sidecar payload. Duplicate identities, storage keys, archive
+paths, missing entries, extra entries, unsafe identities, and digest/size
+mismatches fail closed. Version 1 emits no extra root fields.
+
 ## 7. Restore semantics
 
 B0 v0 is **WHOLE RESTORE ONLY**. The following are explicitly not in v0:
@@ -401,7 +449,9 @@ schemaVersion <= current runtime schema
    to migrate the STAGED database
 ```
 
-- At B0-P0 the supported packageVersion is exactly `1`; any other package
+- At B0-P0 the supported package versions are `1` and additive version `2`.
+  Version `1` is the frozen library-only baseline; version `2` is required
+  when the package carries the `contentAssets[]` extension. Any other package
   version is unsupported.
 - B0 v0 creates no second migration logic and never runs package migration
   directly against the live DB.
@@ -632,8 +682,9 @@ packageMaxDeclaredUncompressedBytes   = 16 GiB (17,179,869,184 bytes)
   `manifestEntryMaxBytes`; the parser never buffers more.
 - `database.sizeBytes` and each `managedFiles[].sizeBytes` must respect their
   entry ceilings and their sum must respect the package ceiling.
-- These limits are `packageVersion = 1` contract values. A later version may
-  raise them only through a new package-version contract.
+- These limits are the frozen `packageVersion = 1` baseline and are also
+  enforced for additive `packageVersion = 2`. A later version may raise them
+  only through a new package-version contract.
 
 Enforcement before extraction:
 

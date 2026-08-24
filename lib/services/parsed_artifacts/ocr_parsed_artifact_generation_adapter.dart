@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../../application/content/content_asset_authority.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../../domain/assets/library_file.dart';
@@ -37,20 +38,21 @@ final class OcrParsedArtifactGenerationAdapter
     required ManagedFileStorage managedFileStorage,
     required OcrDocumentClient ocrClient,
     required ActiveOcrProfileLoader activeOcrProfileLoader,
+    ContentAssetStore? contentAssetStore,
   })  : _managedFileStorage = managedFileStorage,
         _ocrClient = ocrClient,
-        _activeOcrProfileLoader = activeOcrProfileLoader;
+        _activeOcrProfileLoader = activeOcrProfileLoader,
+        _contentAssetStore = contentAssetStore;
 
   final ManagedFileStorage _managedFileStorage;
   final OcrDocumentClient _ocrClient;
   final ActiveOcrProfileLoader _activeOcrProfileLoader;
+  final ContentAssetStore? _contentAssetStore;
 
   static const String ocrPdfRoute = 'ocr_pdf';
   static const String ocrImageRoute = 'ocr_image';
   static const String _parserVersion = 'glm-ocr.ocr-source-adapter.v1';
   static const int _optionsSchemaVersion = 1;
-  static const OcrSourceDocumentAdapter _sourceDocumentAdapter =
-      OcrSourceDocumentAdapter();
 
   @override
   Future<ParsedArtifactGenerationPlan> resolvePlan({
@@ -140,11 +142,9 @@ final class OcrParsedArtifactGenerationAdapter
           ParsedArtifactGenerationFailure.sourceUnavailable,
         );
       }
-      final sourceDocument = _sourceDocumentAdapter.convert(
-        document,
-        sourceId: artifactId,
-        displayLabel: file.displayName,
-      );
+      final sourceDocument = OcrSourceDocumentAdapter(
+        assetStore: _contentAssetStore,
+      ).convert(document, sourceId: artifactId, displayLabel: file.displayName);
       if (sourceDocument.documentRef.sourceId != artifactId) {
         throw const ParsedArtifactGenerationException(
           ParsedArtifactGenerationFailure.parseFailed,
@@ -218,11 +218,7 @@ final class OcrParsedArtifactGenerationAdapter
 
   /// Privacy-neutral provider runtime source name with the correct extension
   /// for MIME resolution. The user's display name never reaches the provider.
-  String _runtimeSourceName(
-    LibraryFile file,
-    String artifactId,
-    String route,
-  ) {
+  String _runtimeSourceName(LibraryFile file, String artifactId, String route) {
     if (route == ocrPdfRoute) return '$artifactId.pdf';
     final lower = file.displayName.toLowerCase();
     if (lower.endsWith('.png') || file.mimeType == 'image/png') {

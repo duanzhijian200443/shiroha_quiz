@@ -1,23 +1,25 @@
 # RichContent Foundation Phase 0 Contract
 
-Status: **FINAL / FROZEN architecture target; implementation and production
-activation are deferred.**
+Status: **FINAL / FROZEN architecture target; bounded Phase 2A and TRAIN B
+implementation are present, with final live acceptance pending.**
 
 Durable architecture truth changed by this contract: **YES**.
 
 This document is the focused canonical authority for the RichContent
 Foundation target. It freezes the contracts that future `ImageNode`,
 `TableNode`, codec, admission, asset-resolution, structural-import, renderer,
-and AI-repair work must preserve. It does not claim that those nodes are
-already implemented.
+and AI-repair work must preserve. The bounded TRAIN B implementation now
+admits the typed image/table path, persists managed image bytes, covers the
+referenced bytes in B0, and provides explicit resolver-backed rendering;
+final live acceptance remains a separate checkpoint.
 
 The current runtime remains authoritative for existing text/math/fallback
-behavior. In particular, current `master` has `RichContent` with `TextNode`,
-`InlineMathNode`, `BlockMathNode`, and `RawFallbackNode`; `QuestionDraftV2` is
-the typed question authority and already owns a source-qualified asset
-inventory; `SourceAssetPart` and `SourceTablePart` already preserve typed
-source structure; and the current assembler still rejects Asset/Table source
-parts. This contract freezes the additive target that closes those gaps.
+behavior. `QuestionDraftV2` is the typed question authority and owns a
+source-qualified asset inventory; `SourceAssetPart` and `SourceTablePart`
+preserve typed source structure; and the bounded TRAIN B path maps those parts
+through `TypedQuestionAssembler` to `ImageNode`/`TableNode`, with managed-byte
+resolution, B0 package coverage, and shared rendering. This contract continues
+to freeze the additive target and does not claim final live-PDF acceptance.
 
 Canonical documentation placement:
 
@@ -217,8 +219,10 @@ its concrete type/location is deferred. It must not be reconstructed from a
 path, URL, bytes, provider payload, or opaque identity alone.
 
 The Source authority must cover both direct `SourceAssetPart` values and every
-image reference nested in source `RichContent`, including `SourceTablePart`
-cells. For one local asset identity within a SourceDocument, metadata must be
+image reference nested in source `RichContent`, including `SourceContentPart`
+content, asset alternative text, unsupported fallback content, and
+`SourceTablePart` cells. For one local asset identity within a SourceDocument,
+metadata must be
 unique; missing or conflicting source metadata fails closed before a nested
 image can progress into typed question assembly.
 
@@ -261,8 +265,10 @@ Question's only byte authority.
 Before production activation of `ImageNode`, all durable image assets required
 by confirmed Questions must participate in the formal Backup/Restore contract.
 Restoring a typed question while permanently omitting its required image bytes
-is not an acceptable successful restore. Registry, storage layout, archive
-format, manifest, and validation mechanics remain deferred.
+is not an acceptable successful restore. The bounded TRAIN B path satisfies
+this invariant with source-qualified managed content assets and B0 manifest,
+archive, and restore validation; registry, reference counting, and garbage
+collection remain deferred.
 
 ## D. TableNode v0 FINAL Contract
 
@@ -591,16 +597,16 @@ HTML to recover Domain content.
 
 The following are explicitly not frozen by Phase 0:
 
-- concrete asset registry or asset-resolution implementation;
+- concrete asset registry, reference counting, or garbage collection;
 - concrete source-level asset inventory type, whether `SourceDocument` gains
   an `assetRefs`/inventory field, and the exact Region closure implementation;
 - concrete source/draft contextual validator class names and APIs;
 - SQLite tables, migration, or database version;
-- managed-storage directory/key layout, reference counting, or garbage
-  collection;
-- Backup package version, archive layout, manifest, and restore mechanics;
-- concrete Renderer/Application asset-read API, caching, lazy-loading, and
-  asynchronous loading implementation;
+- future managed-storage lifecycle beyond the bounded source-qualified store;
+- future Backup package evolution beyond the bounded content-asset archive and
+  restore contract;
+- renderer caching, lazy-loading, and asynchronous loading policy beyond the
+  explicit resolver seam;
 - concrete OCR block-claim/region-fragment class;
 - DOCX parser/adapter implementation;
 - concrete numeric admission/resource defaults;
@@ -610,7 +616,7 @@ The following are explicitly not frozen by Phase 0:
 - provider-specific OCR/DOCX payload schemas;
 - concrete `SourceDocumentCodec` next schema version, legacy compatibility
   carrier type, and exact irregular-table upgrade/rebuild mechanics;
-- Rich Image production activation.
+- final live-PDF acceptance of the bounded Rich Image production path.
 
 These deferred implementation choices may not weaken the FINAL identity,
 inventory, privacy, boundedness, compatibility, structural-ownership,
@@ -663,6 +669,6 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | Durable confirmed-image lifetime invariant | FINAL | Provider temp/cache/artifact generations cannot be sole byte authority. |
 | Backup/Restore before ImageNode production activation | FINAL | A successful restore cannot permanently orphan required images. |
 | Concrete SQLite asset registry | DEFERRED | Phase 0 freezes invariants, not persistence implementation. |
-| Concrete Backup package implementation | DEFERRED | Archive mechanics require a separate asset-lifecycle contract. |
+| Concrete Backup package implementation | IMPLEMENTED (bounded) | Source-qualified referenced content assets are included and validated through B0; registry, reference counting, and garbage collection remain deferred. |
 | Ambient/global asset resolver | REJECTED | Renderer access requires an explicit safe Application/Presentation seam. |
 | AI Repair String overwrite authority | REJECTED | Future repair proposes admitted node trees against exact revision/CAS state. |

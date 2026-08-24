@@ -92,6 +92,111 @@ void main() {
         isNull,
       );
     });
+
+    test('derives source asset authority for nested table images', () {
+      final documentRef = SourceRef.document(sourceId: 'source_001');
+      final inventory = SourceAssetPart(
+        sourceRef: documentRef,
+        asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+      );
+      final tableRef = SourceRef.at(
+        sourceId: 'source_001',
+        point: SourcePoint.block(
+          pageNumber: 1,
+          blockId: 'table_001',
+          readingOrder: 0,
+        ),
+      );
+      final table = SourceTablePart(
+        sourceRef: tableRef,
+        rows: <List<RichContent>>[
+          <RichContent>[
+            RichContent(nodes: <ContentNode>[
+              ImageNode(
+                sourceId: 'source_001',
+                localAssetId: 'asset_001',
+              ),
+            ]),
+          ],
+        ],
+      );
+
+      final document = SourceDocument(
+        sourceId: 'source_001',
+        parts: <SourcePart>[inventory, table],
+      );
+
+      expect(document.assetRefs, hasLength(1));
+      expect(document.assetRefs.single.localAssetId, 'asset_001');
+    });
+
+    test('derives source asset authority for nested content images', () {
+      final documentRef = SourceRef.document(sourceId: 'source_001');
+      final inventory = SourceAssetPart(
+        sourceRef: documentRef,
+        asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+      );
+      final content = SourceContentPart(
+        sourceRef: documentRef,
+        content: RichContent(nodes: <ContentNode>[
+          ImageNode(sourceId: 'source_001', localAssetId: 'asset_001'),
+        ]),
+      );
+
+      final document = SourceDocument(
+        sourceId: 'source_001',
+        parts: <SourcePart>[inventory, content],
+      );
+
+      expect(document.assetRefs, hasLength(1));
+      expect(document.assetRefs.single.localAssetId, 'asset_001');
+    });
+
+    test('rejects nested content images without source metadata', () {
+      final sourceRef = SourceRef.document(sourceId: 'source_001');
+      expect(
+        () => SourceDocument(
+          sourceId: 'source_001',
+          parts: <SourcePart>[
+            SourceContentPart(
+              sourceRef: sourceRef,
+              content: RichContent(nodes: <ContentNode>[
+                ImageNode(
+                  sourceId: 'source_001',
+                  localAssetId: 'missing_asset',
+                ),
+              ]),
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects nested table images without source metadata', () {
+      final sourceRef = SourceRef.document(sourceId: 'source_001');
+      expect(
+        () => SourceDocument(
+          sourceId: 'source_001',
+          parts: <SourcePart>[
+            SourceTablePart(
+              sourceRef: sourceRef,
+              rows: <List<RichContent>>[
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[
+                    ImageNode(
+                      sourceId: 'source_001',
+                      localAssetId: 'missing_asset',
+                    ),
+                  ]),
+                ],
+              ],
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
   });
 
   group('SourceDocument order and immutability', () {

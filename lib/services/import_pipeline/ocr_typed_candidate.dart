@@ -1,3 +1,4 @@
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
@@ -114,20 +115,28 @@ final class OcrTypedCandidateBatch {
   factory OcrTypedCandidateBatch({
     required List<OcrTypedCandidate> candidates,
     OcrTypedCandidateFailure? failure,
+    ContentAssetCandidateLease? candidateAssetLease,
   }) {
     return OcrTypedCandidateBatch._(
       candidates: List<OcrTypedCandidate>.unmodifiable(candidates),
       failure: failure,
+      candidateAssetLease: candidateAssetLease,
     );
   }
 
   const OcrTypedCandidateBatch._({
     required this.candidates,
     required this.failure,
+    required this.candidateAssetLease,
   });
 
   final List<OcrTypedCandidate> candidates;
   final OcrTypedCandidateFailure? failure;
+
+  /// Candidate-owned bytes remain available only while the candidate is
+  /// pending formal retention. The pipeline rolls this lease back on a
+  /// rejected/fallback/cancelled outcome.
+  final ContentAssetCandidateLease? candidateAssetLease;
 }
 
 /// Builds shadow typed candidates from the real production objects already
@@ -146,6 +155,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   required List<OcrQuestionRegion> regions,
   required List<Map<String, dynamic>> legacyQuestions,
   required String Function() uuidV4Factory,
+  ContentAssetStore? assetStore,
 }) {
   if (regions.length != legacyQuestions.length) {
     return OcrTypedCandidateBatch(
@@ -164,19 +174,32 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     }
   }
 
-  final String sourceId;
+  String? sourceId;
   final SourceDocument sourceDocument;
+  final createdAssetIds = <String>{};
+  ContentAssetCandidateLease? candidateAssetLease;
   try {
-    sourceId = uuidV4Factory();
-    sourceDocument = const OcrSourceDocumentAdapter().convert(
-      document,
-      sourceId: sourceId,
-      displayLabel: null,
+    final generatedSourceId = uuidV4Factory();
+    sourceId = generatedSourceId;
+    sourceDocument = OcrSourceDocumentAdapter(
+      assetStore: assetStore,
+      onAssetCreated: createdAssetIds.add,
+    ).convert(document, sourceId: generatedSourceId, displayLabel: null);
+    candidateAssetLease = ContentAssetCandidateLease(
+      sourceId: generatedSourceId,
+      localAssetIds: createdAssetIds,
     );
   } catch (_) {
+    if (sourceId != null) {
+      candidateAssetLease = ContentAssetCandidateLease(
+        sourceId: sourceId,
+        localAssetIds: createdAssetIds,
+      );
+    }
     return OcrTypedCandidateBatch(
       candidates: <OcrTypedCandidate>[],
       failure: OcrTypedCandidateFailure.internalError,
+      candidateAssetLease: candidateAssetLease,
     );
   }
 
@@ -205,8 +228,9 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
             (projectedQuestion['question_number'] as num?)?.toInt() ??
                 region.number,
         content: projectedQuestion['content'] as String,
-        options:
-            List<String>.from(projectedQuestion['options'] as List<Object?>),
+        options: List<String>.from(
+          projectedQuestion['options'] as List<Object?>,
+        ),
         standardAnswer: projectedQuestion['standard_answer'] as String,
         explanation: projectedQuestion['explanation'] as String,
       );
@@ -231,21 +255,27 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
+        candidateAssetLease: candidateAssetLease,
       );
     } on LegacyProjectionUnsupportedException {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.projectionUnsupported,
+        candidateAssetLease: candidateAssetLease,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.internalError,
+        candidateAssetLease: candidateAssetLease,
       );
     }
   }
 
-  return OcrTypedCandidateBatch(candidates: candidates);
+  return OcrTypedCandidateBatch(
+    candidates: candidates,
+    candidateAssetLease: candidateAssetLease,
+  );
 }
 
 /// The all-or-nothing storage outcome of the final parity gate.
@@ -254,11 +284,13 @@ final class OcrTypedCandidateGateResult {
     required this.questions,
     required this.route,
     required this.reason,
+    this.candidateAssetLease,
   });
 
   final List<Map<String, dynamic>> questions;
   final ImportStorageRoute route;
   final String? reason;
+  final ContentAssetCandidateLease? candidateAssetLease;
 }
 
 /// Applies the R7B eligibility gate over one OCR batch after the final
@@ -342,9 +374,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       !_sameNumberSet(candidateNumbers, finalNumbers)) {
     return _ineligible(
       finalQuestions,
-      ocrTypedCandidateFailureReason(
-        OcrTypedCandidateFailure.identityMismatch,
-      ),
+      ocrTypedCandidateFailureReason(OcrTypedCandidateFailure.identityMismatch),
     );
   }
 
@@ -441,6 +471,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     questions: List<Map<String, dynamic>>.unmodifiable(attached),
     route: ImportStorageRoute.typedV2,
     reason: ocrTypedCandidateReadyReason,
+    candidateAssetLease: batch.candidateAssetLease,
   );
 }
 
@@ -465,9 +496,7 @@ OcrTypedCandidateGateResult _ineligible(
 /// Strict six-field baseline decode from the final legacy map. Any shape
 /// anomaly (wrong type, non-string option, negative or missing number)
 /// returns null; no `toString()` repair or silent option drop is allowed.
-LegacyReviewBaseline? _strictDecodeBaseline(
-  Map<String, dynamic> question,
-) {
+LegacyReviewBaseline? _strictDecodeBaseline(Map<String, dynamic> question) {
   final type = question['type'];
   final number = question['question_number'];
   final content = question['content'];

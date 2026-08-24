@@ -2,9 +2,12 @@
 // fixtures; no real database, OCR, Provider, or network).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/questions/question_list_query_port.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_presentation_read.dart';
+import 'package:shiroha_quiz/application/safe_write/typed_answer_command.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -12,6 +15,7 @@ import 'package:shiroha_quiz/ui/pages/question_edit_screen.dart';
 import 'package:shiroha_quiz/ui/pages/question_list_screen.dart';
 import 'package:shiroha_quiz/ui/pages/typed_answer_repair_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/persisted_question_card.dart';
+import 'support/question_presentation_read_fixtures.dart';
 
 const _bankName = 'synthetic_bank';
 
@@ -19,7 +23,11 @@ RichContent _text(String text) {
   return RichContent(nodes: <ContentNode>[TextNode(text)]);
 }
 
-class _FakeQuestionRepository extends Fake implements QuestionRepository {
+class _FakeQuestionRepository extends Fake
+    implements
+        QuestionListQueryPort,
+        QuestionMutationPersistencePort,
+        TypedAnswerPersistencePort {
   _FakeQuestionRepository({List<PersistedQuestion> persisted = const []})
       : persisted = List<PersistedQuestion>.from(persisted);
 
@@ -30,12 +38,12 @@ class _FakeQuestionRepository extends Fake implements QuestionRepository {
   final List<String> deletedIds = <String>[];
 
   @override
-  Future<List<PersistedQuestion>> getPersistedQuestionsByBank(
+  Future<List<QuestionPresentationRead>> listQuestionsForBank(
     String bankName,
   ) async {
     persistedCalls++;
     if (failLoad) throw StateError('synthetic load failure');
-    return List<PersistedQuestion>.from(persisted);
+    return questionPresentationReadsFrom(persisted);
   }
 
   @override
@@ -100,7 +108,9 @@ Future<void> _pumpScreen(
     MaterialApp(
       home: QuestionListScreen(
         bankName: _bankName,
-        questionRepository: repository,
+        questionListQuery: repository,
+        questionMutationPersistence: repository,
+        typedAnswerPersistence: repository,
         onLoadFinished: onLoadFinished,
       ),
     ),

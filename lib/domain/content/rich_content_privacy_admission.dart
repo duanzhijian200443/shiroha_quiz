@@ -5,6 +5,18 @@ import 'rich_content_limits.dart';
 final class RichContentPrivacyAdmission {
   const RichContentPrivacyAdmission();
 
+  /// Returns true only for explicit fallback-side-channel representations.
+  ///
+  /// This is intentionally scoped to fallback values. Ordinary user-visible
+  /// TextNode content may contain URLs or path-like prose and is not routed
+  /// through this helper.
+  static bool isUnsafeFallbackString(String value) {
+    final trimmed = value.trimLeft();
+    return _forbiddenFallbackStringPattern.hasMatch(trimmed) ||
+        _embeddedForbiddenLocatorPattern.hasMatch(value) ||
+        _embeddedImagePayloadPattern.hasMatch(value);
+  }
+
   void validate(RichContent content) {
     _visitContent(
       content,
@@ -141,6 +153,16 @@ final _forbiddenFallbackStringPattern = RegExp(
   r'^(?:(?:file|https?)://|data:[^,]*;base64,|[a-z]:[\\/]|\\\\|/)',
   caseSensitive: false,
 );
+final _embeddedForbiddenLocatorPattern = RegExp(
+  r'''(?:[A-Za-z][A-Za-z0-9+.-]{1,31}://|(?:^|[\s("'=:])(?:[A-Za-z]:[\\/]|\\\\)|(?:^|[\s("'=:])/(?:[A-Za-z0-9._-]+[\\/]?){2,})''',
+  caseSensitive: false,
+  multiLine: true,
+);
+final _embeddedImagePayloadPattern = RegExp(
+  r'''(?:data:[^\s,;]+(?:;[^\s,;]*)*;base64,|(?:^|[\s("'=:])(?:iVBORw0KGgo|/9j/|R0lGOD|UklGR)[A-Za-z0-9+/=]*)''',
+  caseSensitive: false,
+  multiLine: true,
+);
 
 const _forbiddenFallbackKeys = <String>{
   'path',
@@ -229,7 +251,7 @@ void _validateFallbackValue(
   }
   if (value is String) {
     _countScalarText(value, state);
-    if (_forbiddenFallbackStringPattern.hasMatch(value.trimLeft())) {
+    if (RichContentPrivacyAdmission.isUnsafeFallbackString(value)) {
       throw const FormatException(
         'Source fallback content contains a prohibited locator value.',
       );

@@ -65,7 +65,7 @@ final class SourceTablePart extends SourcePart {
     );
     for (final row in copiedRows) {
       for (final cell in row) {
-        _validateSourceContent(cell);
+        _validateSourceTableCell(cell);
       }
     }
     return SourceTablePart._(
@@ -202,11 +202,6 @@ void _validateSourceContent(RichContent content) {
   const RichContentPrivacyAdmission().validate(content);
   for (final node in content.nodes) {
     switch (node) {
-      case ImageNode():
-        throw const FormatException(
-          'Source v1 content cannot contain ImageNode without a source asset '
-          'inventory authority.',
-        );
       case TableNode():
         throw const FormatException(
           'Source v1 content cannot contain TableNode without a versioned '
@@ -215,6 +210,25 @@ void _validateSourceContent(RichContent content) {
       case TextNode():
       case InlineMathNode():
       case BlockMathNode():
+      case ImageNode():
+      case RawFallbackNode():
+        break;
+    }
+  }
+}
+
+void _validateSourceTableCell(RichContent content) {
+  const RichContentPrivacyAdmission().validate(content);
+  for (final node in content.nodes) {
+    switch (node) {
+      case TableNode():
+        throw const FormatException(
+          'Source table cells cannot contain nested TableNode values.',
+        );
+      case TextNode():
+      case InlineMathNode():
+      case BlockMathNode():
+      case ImageNode():
       case RawFallbackNode():
         break;
     }

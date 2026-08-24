@@ -1,15 +1,25 @@
+import '../../../application/content/content_asset_authority.dart';
+import '../../../domain/assets/asset_ref.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
+import '../../../domain/content/rich_content_privacy_admission.dart';
 import '../../../domain/import/import_issue.dart';
 import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
 import '../ocr_document.dart';
+import '../ocr_table_projection.dart';
 
 final _ocrTypeControlPattern = RegExp(r'[\u0000-\u001f\u007f]');
 
 final class OcrSourceDocumentAdapter {
-  const OcrSourceDocumentAdapter();
+  const OcrSourceDocumentAdapter({
+    ContentAssetStore? assetStore,
+    this.onAssetCreated,
+  }) : _assetStore = assetStore;
+
+  final ContentAssetStore? _assetStore;
+  final void Function(String localAssetId)? onAssetCreated;
 
   SourceDocument convert(
     OcrDocument document, {
@@ -22,10 +32,7 @@ final class OcrSourceDocumentAdapter {
 
     if (displayLabel != null) {
       try {
-        SourceRef.document(
-          sourceId: sourceId,
-          displayLabel: displayLabel,
-        );
+        SourceRef.document(sourceId: sourceId, displayLabel: displayLabel);
       } on FormatException {
         safeDisplayLabel = null;
         issues.add(
@@ -114,7 +121,12 @@ final class OcrSourceDocumentAdapter {
         );
       }
 
-      final mapped = _mapBlock(block, sourceRef);
+      final mapped = _mapBlock(
+        block,
+        sourceRef,
+        _assetStore,
+        onAssetCreated: onAssetCreated,
+      );
       parts.add(mapped.part);
       if (mapped.structureUnsupported) {
         issues.add(
@@ -146,7 +158,11 @@ List<_IndexedOcrBlock> _usableBlocks(OcrDocument document) {
         blockEncounter < page.blocks.length;
         blockEncounter++) {
       final block = page.blocks[blockEncounter];
-      if (block.text.trim().isEmpty) continue;
+      if (block.text.trim().isEmpty &&
+          block.imagePayload == null &&
+          !_isStructuralBlockType(block.type)) {
+        continue;
+      }
       indexedBlocks.add(
         _IndexedOcrBlock(
           block: block,
@@ -158,6 +174,13 @@ List<_IndexedOcrBlock> _usableBlocks(OcrDocument document) {
     }
   }
   return indexedBlocks;
+}
+
+bool _isStructuralBlockType(String type) {
+  final normalized = type.trim().toLowerCase();
+  return normalized == 'image' ||
+      normalized == 'figure' ||
+      normalized == 'table';
 }
 
 SourceDocument _convertWithoutBlocks({
@@ -174,7 +197,9 @@ SourceDocument _convertWithoutBlocks({
         UnsupportedSourcePart(
           sourceRef: documentRef,
           kindCode: 'ocr_markdown_fallback',
-          fallbackContent: _textContent(markdown),
+          fallbackContent: _textContent(
+            _safeStructuralFallback(markdown, '[不支持的内容]'),
+          ),
         ),
       ],
       issues: <ImportIssue>[
@@ -205,7 +230,9 @@ SourceDocument _convertWithoutBlocks({
 ({SourcePart part, bool structureUnsupported}) _mapBlock(
   OcrBlock block,
   SourceRef sourceRef,
-) {
+  ContentAssetStore? assetStore, {
+  void Function(String localAssetId)? onAssetCreated,
+}) {
   final normalizedType = _normalizeType(block.type);
   return switch (normalizedType) {
     'text' || 'paragraph' => (
@@ -232,31 +259,109 @@ SourceDocument _convertWithoutBlocks({
         ),
         structureUnsupported: false,
       ),
-    'table' => (
-        part: UnsupportedSourcePart(
-          sourceRef: sourceRef,
-          kindCode: 'ocr_table',
-          fallbackContent: _textContent(block.text),
-        ),
-        structureUnsupported: true,
-      ),
-    'image' || 'figure' => (
-        part: UnsupportedSourcePart(
-          sourceRef: sourceRef,
-          kindCode: 'ocr_image',
-          fallbackContent: _textContent(block.text),
-        ),
-        structureUnsupported: true,
+    'table' => _mapTableBlock(block, sourceRef),
+    'image' || 'figure' => _mapImageBlock(
+        block,
+        sourceRef,
+        assetStore,
+        onAssetCreated: onAssetCreated,
       ),
     _ => (
         part: UnsupportedSourcePart(
           sourceRef: sourceRef,
           kindCode: 'ocr_unknown',
-          fallbackContent: _textContent(block.text),
+          fallbackContent: _textContent(
+            _safeStructuralFallback(block.text, '[不支持的内容]'),
+          ),
         ),
         structureUnsupported: true,
       ),
   };
+}
+
+({SourcePart part, bool structureUnsupported}) _mapTableBlock(
+  OcrBlock block,
+  SourceRef sourceRef,
+) {
+  final table = OcrTableProjector.parseHtmlTable(
+    block.text,
+    sourceRef: sourceRef,
+  );
+  if (table != null) {
+    return (part: table, structureUnsupported: false);
+  }
+  return (
+    part: UnsupportedSourcePart(
+      sourceRef: sourceRef,
+      kindCode: 'ocr_table',
+      fallbackContent: _textContent(
+        OcrTableProjector.projectHtmlToPlainText(block.text) ??
+            _safeStructuralFallback(block.text, '[表格]'),
+      ),
+    ),
+    structureUnsupported: true,
+  );
+}
+
+({SourcePart part, bool structureUnsupported}) _mapImageBlock(
+  OcrBlock block,
+  SourceRef sourceRef,
+  ContentAssetStore? assetStore, {
+  void Function(String localAssetId)? onAssetCreated,
+}) {
+  final payload = block.imagePayload ?? OcrImagePayload.fromDataUrl(block.text);
+  final localAssetId = block.blockId;
+  if (assetStore != null &&
+      payload != null &&
+      sourceRef.start?.blockId == localAssetId) {
+    try {
+      final stored = assetStore.storeBytesSync(
+        sourceId: sourceRef.sourceId,
+        localAssetId: localAssetId,
+        bytes: payload.bytes,
+        mimeType: payload.mimeType,
+      );
+      if (stored.created) onAssetCreated?.call(localAssetId);
+      return (
+        part: SourceAssetPart(
+          sourceRef: sourceRef,
+          asset: AssetRef(
+            assetId: localAssetId,
+            kind: AssetKind.image,
+            mimeType: stored.mimeType,
+          ),
+        ),
+        structureUnsupported: false,
+      );
+    } catch (_) {
+      // An image that cannot be admitted is explicit unsupported structure;
+      // the provider locator or bytes never enter the fallback content.
+    }
+  }
+  return (
+    part: UnsupportedSourcePart(
+      sourceRef: sourceRef,
+      kindCode: 'ocr_image',
+      fallbackContent: _textContent(
+        payload == null ? _safeStructuralFallback(block.text, '[图片]') : '[图片]',
+      ),
+    ),
+    structureUnsupported: true,
+  );
+}
+
+String _safeStructuralFallback(String value, String placeholder) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty || _containsUnsafeLocator(trimmed)) {
+    return placeholder;
+  }
+  return value;
+}
+
+bool _containsUnsafeLocator(String value) {
+  return value.contains('<') ||
+      RegExp(r'!?\[[^\]]*\]\([^)]*\)').hasMatch(value) ||
+      RichContentPrivacyAdmission.isUnsafeFallbackString(value);
 }
 
 String? _normalizeType(String value) {
@@ -269,11 +374,7 @@ String? _normalizeType(String value) {
 
 bool _isValidBlockId(String blockId) {
   try {
-    SourcePoint.block(
-      pageNumber: 1,
-      blockId: blockId,
-      readingOrder: 0,
-    );
+    SourcePoint.block(pageNumber: 1, blockId: blockId, readingOrder: 0);
     return true;
   } on FormatException {
     return false;
@@ -309,11 +410,13 @@ ImportIssue _issue({
 int _compareIndexedBlocks(_IndexedOcrBlock left, _IndexedOcrBlock right) {
   final pageComparison = left.pageIndex.compareTo(right.pageIndex);
   if (pageComparison != 0) return pageComparison;
-  final orderComparison =
-      left.block.readingOrder.compareTo(right.block.readingOrder);
+  final orderComparison = left.block.readingOrder.compareTo(
+    right.block.readingOrder,
+  );
   if (orderComparison != 0) return orderComparison;
-  final pageEncounterComparison =
-      left.pageEncounter.compareTo(right.pageEncounter);
+  final pageEncounterComparison = left.pageEncounter.compareTo(
+    right.pageEncounter,
+  );
   if (pageEncounterComparison != 0) return pageEncounterComparison;
   return left.blockEncounter.compareTo(right.blockEncounter);
 }

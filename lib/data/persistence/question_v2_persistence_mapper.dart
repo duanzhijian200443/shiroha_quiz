@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import '../../application/content/content_asset_authority.dart';
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/content/rich_content_limits.dart';
 import '../../domain/content/rich_content_privacy_admission.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_draft_v2_codec.dart';
+import '../../domain/assets/sourced_asset_ref.dart';
 import '../../utils/storage_content_normalizer.dart';
 import '../models/persisted_question.dart';
 import '../models/question.dart';
@@ -114,7 +116,14 @@ final class FrozenQuestionV2AnswerUpdate {
 }
 
 final class QuestionV2PersistenceMapper {
-  const QuestionV2PersistenceMapper();
+  const QuestionV2PersistenceMapper({this.contentAssetAuthority});
+
+  /// Explicit production authority for durable reachable ImageNode bytes.
+  ///
+  /// A mapper without this port remains fail-closed. This keeps tests and
+  /// unconfigured write paths from accidentally activating Rich Image
+  /// persistence through an ambient/global resolver.
+  final ContentAssetAuthority? contentAssetAuthority;
 
   /// Joined-row aliases for the V2 sidecar columns.
   static const String payloadSchemaVersionAlias = 'v2_payload_schema_version';
@@ -143,7 +152,10 @@ final class QuestionV2PersistenceMapper {
     }
     try {
       _validatePrivacy(draft);
-      _validateProductionActivation(draft);
+      _validateProductionActivation(
+        draft,
+        contentAssetAuthority: contentAssetAuthority,
+      );
     } on FormatException {
       throw const QuestionV2PayloadException(
         QuestionV2PayloadFailure.unsafePayload,
@@ -209,7 +221,10 @@ final class QuestionV2PersistenceMapper {
   }) {
     try {
       _validatePrivacy(replacementDraft);
-      _validateProductionActivation(replacementDraft);
+      _validateProductionActivation(
+        replacementDraft,
+        contentAssetAuthority: contentAssetAuthority,
+      );
     } on FormatException {
       throw const QuestionV2PayloadException(
         QuestionV2PayloadFailure.unsafePayload,
@@ -379,31 +394,45 @@ final class QuestionV2PersistenceMapper {
   }
 }
 
-/// Temporary production activation gate. ImageNode Domain/codec support is
-/// available, but confirmed ImageNode writes remain blocked until the durable
-/// asset-lifetime and Backup/Restore activation contract is implemented; see
-/// `docs/architecture/rich-content-foundation.md`.
-void _validateProductionActivation(QuestionDraftV2 draft) {
-  if (reachableImageNodes(draft.stem).isNotEmpty) {
-    throw const FormatException('ImageNode production activation is deferred.');
+/// The production activation gate is now conditional on an explicit durable
+/// asset authority. Unconfigured mappers still fail closed; configured
+/// production writes must prove every reachable image has durable bytes.
+void _validateProductionActivation(
+  QuestionDraftV2 draft, {
+  required ContentAssetAuthority? contentAssetAuthority,
+}) {
+  final images = <ImageNode>[];
+  void collect(RichContent content) {
+    images.addAll(reachableImageNodes(content));
   }
+
+  collect(draft.stem);
   for (final option in draft.options) {
-    if (reachableImageNodes(option.content).isNotEmpty) {
-      throw const FormatException(
-        'ImageNode production activation is deferred.',
-      );
-    }
+    collect(option.content);
   }
   if (draft.answer case ContentAnswer(:final content)) {
-    if (reachableImageNodes(content).isNotEmpty) {
-      throw const FormatException(
-        'ImageNode production activation is deferred.',
-      );
-    }
+    collect(content);
   }
   final explanation = draft.explanation;
-  if (explanation != null && reachableImageNodes(explanation).isNotEmpty) {
+  if (explanation != null) {
+    collect(explanation);
+  }
+  if (images.isEmpty) return;
+
+  if (contentAssetAuthority == null) {
     throw const FormatException('ImageNode production activation is deferred.');
+  }
+  final inventory = <(String, String), SourcedAssetRef>{
+    for (final asset in draft.assetRefs)
+      (asset.sourceId, asset.localAssetId): asset,
+  };
+  for (final image in images) {
+    final asset = inventory[(image.sourceId, image.localAssetId)];
+    if (asset == null || !contentAssetAuthority.isDurableAssetReady(asset)) {
+      throw const FormatException(
+        'ImageNode durable asset integrity is unavailable.',
+      );
+    }
   }
 }
 

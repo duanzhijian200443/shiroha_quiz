@@ -3,9 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shiroha_quiz/application/questions/question_presentation_read.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
@@ -15,6 +17,7 @@ import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/pages/question_list_screen.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/main_ocr_ui_smoke.dart';
+import 'support/question_presentation_read_fixtures.dart';
 
 class _SmokeQuestionRepository extends Fake implements QuestionRepository {
   var saveCalls = 0;
@@ -22,6 +25,9 @@ class _SmokeQuestionRepository extends Fake implements QuestionRepository {
 
   @override
   Future<List<String>> getAvailableFolders() async => const [];
+
+  @override
+  Future<List<String>> listAvailableFolders() async => const [];
 
   @override
   Future<void> saveQuestionDraftsToBank({
@@ -44,6 +50,26 @@ class _SmokeQuestionRepository extends Fake implements QuestionRepository {
   }
 
   @override
+  Future<LegacyImportCommitPersistenceResult>
+      commitQuestionDraftsLegacyForImport({
+    required String bankName,
+    required String? folderName,
+    required List<QuestionDraft> questions,
+    required LegacyImportCommitGuard guard,
+    required String completionText,
+  }) async {
+    await saveQuestionDraftsToBank(
+      bankName: bankName,
+      folderName: folderName,
+      questions: questions,
+    );
+    return LegacyImportCommitPersistenceResult(
+      questionCount: questions.length,
+      completedAt: 1700000000,
+    );
+  }
+
+  @override
   Future<List<PersistedQuestion>> getPersistedQuestionsByBank(
     String bankName,
   ) async {
@@ -54,6 +80,15 @@ class _SmokeQuestionRepository extends Fake implements QuestionRepository {
             question: Question.fromMap(saved),
           ),
     ];
+  }
+
+  @override
+  Future<List<QuestionPresentationRead>> listQuestionsForBank(
+    String bankName,
+  ) async {
+    return questionPresentationReadsFrom(
+      await getPersistedQuestionsByBank(bankName),
+    );
   }
 }
 
@@ -138,14 +173,18 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
-  final manager = TaskManager.forTesting();
+  late TaskManager manager;
   var sequence = 0;
 
-  setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+  Future<void> prepareManager() async {
+    manager = TaskManager.forTesting();
     await manager.ready;
     manager.tasks.clear();
     sequence++;
+  }
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
   });
 
   tearDown(() {
@@ -154,6 +193,7 @@ void main() {
 
   testWidgets('review mode opens the real staging screen without committing',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final parseResult = Completer<ImportParseResult>();
@@ -199,6 +239,7 @@ void main() {
 
   testWidgets('commit mode uses the shared service and opens question list',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final coordinator = ImportTaskCoordinator(
@@ -247,6 +288,7 @@ void main() {
 
   testWidgets('quality gate blocks non-commit review without success output',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final coordinator = ImportTaskCoordinator(
@@ -295,6 +337,7 @@ void main() {
 
   testWidgets('quality gate blocks commit mode before repository commit',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final coordinator = ImportTaskCoordinator(
@@ -341,6 +384,7 @@ void main() {
 
   testWidgets('reordered question numbers fail validation before commit',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final coordinator = ImportTaskCoordinator(
@@ -393,6 +437,7 @@ void main() {
   testWidgets(
       'duplicate raw question numbers override final count and quality gate',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final coordinator = ImportTaskCoordinator(
@@ -452,6 +497,7 @@ void main() {
 
   testWidgets('staging screen build failure never reports ui ready',
       (tester) async {
+    await prepareManager();
     final repository = _SmokeQuestionRepository();
     final lines = <String>[];
     final coordinator = ImportTaskCoordinator(

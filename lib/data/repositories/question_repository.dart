@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../../application/safe_write/typed_answer_command.dart';
+import '../../application/questions/folder_query_port.dart';
+import '../../application/questions/question_list_query_port.dart';
+import '../../application/questions/question_presentation_read.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_bank_folder_mutation_command.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
@@ -43,19 +46,26 @@ class QuestionRepository
         QuestionBankMutationPersistencePort,
         QuestionBankFolderMutationPersistencePort,
         QuestionWriteMutationPersistencePort,
-        PracticeSessionMutationPersistencePort {
-  QuestionRepository({DatabaseHelper? databaseHelper, Uuid? uuid})
-      : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
-        _uuid = uuid ?? const Uuid();
+        PracticeSessionMutationPersistencePort,
+        QuestionListQueryPort,
+        FolderQueryPort {
+  QuestionRepository({
+    DatabaseHelper? databaseHelper,
+    Uuid? uuid,
+    QuestionV2PersistenceMapper mapper = const QuestionV2PersistenceMapper(),
+    TypedAnswerPersistenceKernel? typedAnswerKernel,
+  })  : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
+        _uuid = uuid ?? const Uuid(),
+        _mapper = mapper,
+        _typedAnswerKernel =
+            typedAnswerKernel ?? TypedAnswerPersistenceKernel(mapper);
 
   static final QuestionRepository instance = QuestionRepository();
 
   final DatabaseHelper _databaseHelper;
   final Uuid _uuid;
-  static const QuestionV2PersistenceMapper _mapper =
-      QuestionV2PersistenceMapper();
-  static const TypedAnswerPersistenceKernel _typedAnswerKernel =
-      TypedAnswerPersistenceKernel();
+  final QuestionV2PersistenceMapper _mapper;
+  final TypedAnswerPersistenceKernel _typedAnswerKernel;
 
   @override
   Future<void> saveQuestionsToBank({
@@ -707,6 +717,55 @@ class QuestionRepository
   Future<List<String>> getAvailableFolders() async {
     final index = await getSubjectTreeIndex();
     return index.availableFolders;
+  }
+
+  @override
+  Future<List<String>> listAvailableFolders() => getAvailableFolders();
+
+  @override
+  Future<List<QuestionPresentationRead>> listQuestionsForBank(
+    String bankName,
+  ) async {
+    final rows = await getPersistedQuestionsByBank(bankName);
+    return List<QuestionPresentationRead>.unmodifiable(
+      rows.map(_toQuestionPresentationRead),
+    );
+  }
+
+  QuestionPresentationRead _toQuestionPresentationRead(
+    PersistedQuestion row,
+  ) {
+    final metrics = row.reviewMetrics;
+    final reviewMetrics = metrics == null
+        ? null
+        : QuestionPresentationReviewMetrics(
+            lapses: metrics.lapses,
+            difficulty: metrics.difficulty,
+            stability: metrics.stability,
+            lastLapseTime: metrics.lastLapseTime,
+          );
+    return switch (row) {
+      TypedPersistedQuestion(:final draft) => TypedQuestionPresentationRead(
+          storageId: row.storageId,
+          bankName: row.bankName,
+          createdAt: row.createdAt,
+          draft: draft,
+          reviewMetrics: reviewMetrics,
+        ),
+      LegacyPersistedQuestion(:final question) =>
+        LegacyQuestionPresentationRead(
+          storageId: row.storageId,
+          bankName: row.bankName,
+          createdAt: row.createdAt,
+          type: question.type,
+          content: question.content,
+          options: question.options,
+          answer: question.answer,
+          explanation: question.explanation,
+          rawExplanation: question.rawExplanation,
+          reviewMetrics: reviewMetrics,
+        ),
+    };
   }
 
   @override

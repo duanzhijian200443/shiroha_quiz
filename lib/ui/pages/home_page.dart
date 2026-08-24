@@ -7,12 +7,18 @@ import 'practice_page.dart';
 import 'task_center_screen.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
+import '../../application/questions/folder_query_port.dart';
+import '../../application/questions/question_bank_mutation_command.dart';
+import '../../application/questions/question_list_query_port.dart';
+import '../../application/questions/question_mutation_command.dart';
+import '../../application/safe_write/typed_answer_command.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import '../../services/task_manager.dart';
+import '../../services/import_review/import_commit_service.dart';
 
 /// Final Today mode organization (UI-R1 freeze): 普通 / 特训 / 考试.
 ///
@@ -29,6 +35,12 @@ class HomePage extends StatefulWidget {
     this.onSwitchBank,
     this.onPracticeRequested,
     this.onImportRequested,
+    this.questionListQuery,
+    this.questionMutationPersistence,
+    this.typedAnswerPersistence,
+    this.questionBankMutationPersistence,
+    this.folderQuery,
+    this.importCommitService,
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
     this.studyPlanSessionLauncher,
@@ -39,6 +51,12 @@ class HomePage extends StatefulWidget {
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
+  final QuestionListQueryPort? questionListQuery;
+  final QuestionMutationPersistencePort? questionMutationPersistence;
+  final TypedAnswerPersistencePort? typedAnswerPersistence;
+  final QuestionBankMutationPersistencePort? questionBankMutationPersistence;
+  final FolderQueryPort? folderQuery;
+  final ImportCommitService? importCommitService;
 
   /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
   /// shows the real no-plan state without querying. Production composition
@@ -238,7 +256,10 @@ class _HomePageState extends State<HomePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const TaskCenterScreen(),
+                    builder: (_) => TaskCenterScreen(
+                      folderQuery: widget.folderQuery,
+                      commitService: widget.importCommitService,
+                    ),
                   ),
                 );
               },
@@ -1375,7 +1396,14 @@ class _HomePageState extends State<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (_) => BankDetailScreen(bankName: _currentBank)),
+          builder: (_) => BankDetailScreen(
+                bankName: _currentBank,
+                questionListQuery: widget.questionListQuery,
+                questionMutationPersistence: widget.questionMutationPersistence,
+                typedAnswerPersistence: widget.typedAnswerPersistence,
+                questionBankMutationPersistence:
+                    widget.questionBankMutationPersistence,
+              )),
     ).then((_) => _loadContext());
   }
 }

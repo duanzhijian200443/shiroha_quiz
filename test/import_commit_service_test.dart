@@ -1,13 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_pipeline/candidate_asset_lease.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
@@ -79,6 +83,96 @@ class _CommitRepository extends Fake implements QuestionRepository {
   }
 }
 
+final class _CandidateAssetStore implements ContentAssetStore {
+  _CandidateAssetStore(Iterable<(String, String)> identities)
+      : identities = <(String, String)>{...identities};
+
+  final Set<(String, String)> identities;
+  var deleteCalls = 0;
+  var failDeletions = false;
+
+  @override
+  String storageKey({required String sourceId, required String localAssetId}) {
+    return '$sourceId/$localAssetId';
+  }
+
+  @override
+  Future<ContentAssetWriteResult> storeBytes({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) async {
+    return storeBytesSync(
+      sourceId: sourceId,
+      localAssetId: localAssetId,
+      bytes: bytes,
+      mimeType: mimeType,
+    );
+  }
+
+  @override
+  ContentAssetWriteResult storeBytesSync({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) {
+    identities.add((sourceId, localAssetId));
+    return ContentAssetWriteResult(
+      storageKey: storageKey(sourceId: sourceId, localAssetId: localAssetId),
+      sha256: 'fixture',
+      sizeBytes: bytes.length,
+      mimeType: mimeType,
+      created: true,
+    );
+  }
+
+  @override
+  Future<ContentAssetRollbackResult> deleteCandidateAssets(
+    ContentAssetCandidateLease lease,
+  ) async {
+    deleteCalls++;
+    if (failDeletions) {
+      return ContentAssetRollbackResult(
+        failedCount: lease.localAssetIds.length,
+      );
+    }
+    var deletedCount = 0;
+    var missingCount = 0;
+    for (final localAssetId in lease.localAssetIds) {
+      if (identities.remove((lease.sourceId, localAssetId))) {
+        deletedCount++;
+      } else {
+        missingCount++;
+      }
+    }
+    return ContentAssetRollbackResult(
+      deletedCount: deletedCount,
+      missingCount: missingCount,
+    );
+  }
+
+  @override
+  List<int>? readAssetBytes({
+    required String sourceId,
+    required String localAssetId,
+  }) {
+    return identities.contains((sourceId, localAssetId)) ? const [1] : null;
+  }
+
+  @override
+  Future<bool> assetExists({
+    required String sourceId,
+    required String localAssetId,
+  }) async {
+    return identities.contains((sourceId, localAssetId));
+  }
+
+  @override
+  Future<List<ContentAssetRecord>> listAssets() async => const [];
+}
+
 const _typedQuestionId = '66666666-6666-4666-8666-666666666666';
 const _typedReviewItemId = '77777777-7777-4777-8777-777777777777';
 const _typedSourceId = '88888888-8888-4888-8888-888888888888';
@@ -87,6 +181,86 @@ const _typedAttemptToken = 'typed-commit-attempt';
 const _typedQuestionIdB = '99999999-9999-4999-8999-999999999999';
 const _typedReviewItemIdB = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const _typedSourceIdB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const _imageSourceId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const _imageQuestionIdA = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const _imageReviewItemIdA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const _imageQuestionIdB = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const _imageReviewItemIdB = '12121212-1212-4121-8121-121212121212';
+const _imageQuestionIdC = '13131313-1313-4131-8131-131313131313';
+const _imageReviewItemIdC = '14141414-1414-4141-8141-141414141414';
+
+QuestionDraftV2 _imageDraft({
+  required String questionId,
+  required int questionNumber,
+  required String sourceId,
+  required String localAssetId,
+}) {
+  return QuestionDraftV2(
+    questionId: questionId,
+    kind: QuestionKind.shortAnswer,
+    questionNumber: questionNumber,
+    stem: RichContent(
+      nodes: <ContentNode>[
+        ImageNode(sourceId: sourceId, localAssetId: localAssetId),
+      ],
+    ),
+    answer: ContentAnswer(
+      content: RichContent(nodes: <ContentNode>[TextNode('Conclusion')]),
+    ),
+    explanation: RichContent(
+      nodes: <ContentNode>[TextNode('Subjective explanation')],
+    ),
+    sourceRefs: <SourceRef>[
+      SourceRef.document(sourceId: sourceId, displayLabel: null),
+    ],
+    assetRefs: <SourcedAssetRef>[
+      SourcedAssetRef(
+        sourceId: sourceId,
+        asset: AssetRef(assetId: localAssetId, kind: AssetKind.image),
+      ),
+    ],
+  );
+}
+
+TypedReviewCommitInput _imageInput({
+  required String questionId,
+  required String reviewItemId,
+  required int questionNumber,
+  required String sourceId,
+  required String localAssetId,
+}) {
+  final draft = _imageDraft(
+    questionId: questionId,
+    questionNumber: questionNumber,
+    sourceId: sourceId,
+    localAssetId: localAssetId,
+  );
+  return TypedReviewCommitInput(
+    reviewItemId: reviewItemId,
+    envelope: TypedReviewSnapshotCodec().encode(
+      TypedReviewSnapshot(
+        reviewItemId: reviewItemId,
+        questionId: questionId,
+        draft: draft,
+        baselineLegacy: LegacyReviewBaseline(
+          type: 3,
+          questionNumber: questionNumber,
+          content: '[图片]',
+          options: const <String>[],
+          standardAnswer: 'Conclusion',
+          explanation: 'Subjective explanation',
+        ),
+      ),
+    ),
+    currentDraft: const QuestionDraft(
+      type: QuestionType.shortAnswer,
+      content: '[图片]',
+      options: <String>[],
+      standardAnswer: 'Conclusion',
+      explanation: 'Subjective explanation',
+    ),
+  );
+}
 
 QuestionDraftV2 _typedDraft() {
   return QuestionDraftV2(
@@ -623,6 +797,8 @@ void main() {
     ImportCommitService typedService(
       _CommitRepository repository, {
       bool withTask = true,
+      ContentAssetStore? contentAssetStore,
+      ContentAssetCandidateLease? candidateAssetLease,
     }) {
       if (withTask) {
         manager.addTask(ImportTask(
@@ -637,19 +813,22 @@ void main() {
               'standard_answer': 'Conclusion',
             },
           ],
-          diagnostics: const <String, dynamic>{
+          diagnostics: <String, dynamic>{
             TaskManager.keyAttemptToken: _typedAttemptToken,
             TaskManager.keyAttemptNumber: 1,
             TaskManager.keyAttemptState: 'readyForReview',
             TaskManager.keyImportStorageRoute: 'typedV2',
             TaskManager.keyImportStorageReason: 'typed_candidate_ready',
             TaskManager.keyReviewDraftRevision: 1,
+            if (candidateAssetLease != null)
+              ...candidateAssetLeaseDiagnostics(candidateAssetLease),
           },
         ));
       }
       return ImportCommitService(
         questionRepository: repository,
         taskManager: manager,
+        contentAssetStore: contentAssetStore,
       );
     }
 
@@ -736,6 +915,275 @@ void main() {
       expect(result.questionCount, 2);
       expect(repository.savedV2Questions, hasLength(2));
       expect(manager.tasks.single.status, TaskStatus.completed);
+    });
+
+    test('typed commit cleans only assets from deleted review questions',
+        () async {
+      final store = _CandidateAssetStore(<(String, String)>{
+        (_imageSourceId, 'asset-a'),
+        (_imageSourceId, 'asset-b'),
+      });
+      final repository = _CommitRepository();
+      final service = typedService(
+        repository,
+        contentAssetStore: store,
+        candidateAssetLease: ContentAssetCandidateLease(
+          sourceId: _imageSourceId,
+          localAssetIds: const <String>['asset-a', 'asset-b'],
+        ),
+      );
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[
+          _imageInput(
+            questionId: _imageQuestionIdA,
+            reviewItemId: _imageReviewItemIdA,
+            questionNumber: 1,
+            sourceId: _imageSourceId,
+            localAssetId: 'asset-a',
+          ),
+        ],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(repository.savedV2Questions, hasLength(1));
+      expect(
+        await store.assetExists(
+          sourceId: _imageSourceId,
+          localAssetId: 'asset-a',
+        ),
+        isTrue,
+      );
+      expect(
+        await store.assetExists(
+          sourceId: _imageSourceId,
+          localAssetId: 'asset-b',
+        ),
+        isFalse,
+      );
+      expect(store.deleteCalls, 1);
+    });
+
+    test('typed repository failure preserves all candidate assets', () async {
+      final store = _CandidateAssetStore(<(String, String)>{
+        (_imageSourceId, 'asset-a'),
+        (_imageSourceId, 'asset-b'),
+      });
+      final repository = _CommitRepository()
+        ..failure = StateError('synthetic-db-error');
+      final service = typedService(
+        repository,
+        contentAssetStore: store,
+        candidateAssetLease: ContentAssetCandidateLease(
+          sourceId: _imageSourceId,
+          localAssetIds: const <String>['asset-a', 'asset-b'],
+        ),
+      );
+
+      await expectLater(
+        service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[
+            _imageInput(
+              questionId: _imageQuestionIdA,
+              reviewItemId: _imageReviewItemIdA,
+              questionNumber: 1,
+              sourceId: _imageSourceId,
+              localAssetId: 'asset-a',
+            ),
+          ],
+          taskId: _typedTaskId,
+          attemptToken: _typedAttemptToken,
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        throwsA(isA<TypedReviewCommitAttemptException>()),
+      );
+
+      expect(store.deleteCalls, 0);
+      expect(
+        await store.assetExists(
+          sourceId: _imageSourceId,
+          localAssetId: 'asset-a',
+        ),
+        isTrue,
+      );
+      expect(
+        await store.assetExists(
+          sourceId: _imageSourceId,
+          localAssetId: 'asset-b',
+        ),
+        isTrue,
+      );
+      expect(manager.tasks.single.status, TaskStatus.pendingReview);
+    });
+
+    test('typed cleanup failure keeps a durable-safe pending ownership marker',
+        () async {
+      final store = _CandidateAssetStore(<(String, String)>{
+        (_imageSourceId, 'asset-a'),
+        (_imageSourceId, 'asset-b'),
+      })
+        ..failDeletions = true;
+      final repository = _CommitRepository();
+      final service = typedService(
+        repository,
+        contentAssetStore: store,
+        candidateAssetLease: ContentAssetCandidateLease(
+          sourceId: _imageSourceId,
+          localAssetIds: const <String>['asset-a', 'asset-b'],
+        ),
+      );
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[
+          _imageInput(
+            questionId: _imageQuestionIdA,
+            reviewItemId: _imageReviewItemIdA,
+            questionNumber: 1,
+            sourceId: _imageSourceId,
+            localAssetId: 'asset-a',
+          ),
+        ],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(store.deleteCalls, 2);
+      expect(manager.tasks.single.status, TaskStatus.completed);
+      expect(
+        manager.tasks.single.diagnostics?[candidateAssetCleanupPendingKey],
+        isTrue,
+      );
+      expect(
+        manager.tasks.single.diagnostics?[candidateAssetCleanupLocalIdsKey],
+        <String>['asset-b'],
+      );
+    });
+
+    test('typed commit retains every accepted image and performs no cleanup',
+        () async {
+      final store = _CandidateAssetStore(<(String, String)>{
+        (_imageSourceId, 'asset-a'),
+        (_imageSourceId, 'asset-b'),
+      });
+      final repository = _CommitRepository();
+      final service = typedService(
+        repository,
+        contentAssetStore: store,
+        candidateAssetLease: ContentAssetCandidateLease(
+          sourceId: _imageSourceId,
+          localAssetIds: const <String>['asset-a', 'asset-b'],
+        ),
+      );
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[
+          _imageInput(
+            questionId: _imageQuestionIdA,
+            reviewItemId: _imageReviewItemIdA,
+            questionNumber: 1,
+            sourceId: _imageSourceId,
+            localAssetId: 'asset-a',
+          ),
+          _imageInput(
+            questionId: _imageQuestionIdB,
+            reviewItemId: _imageReviewItemIdB,
+            questionNumber: 2,
+            sourceId: _imageSourceId,
+            localAssetId: 'asset-b',
+          ),
+        ],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(repository.savedV2Questions, hasLength(2));
+      expect(store.deleteCalls, 0);
+      expect(
+          store.identities,
+          containsAll(<(String, String)>{
+            (_imageSourceId, 'asset-a'),
+            (_imageSourceId, 'asset-b'),
+          }));
+    });
+
+    test('typed commit never deletes a pre-existing asset identity', () async {
+      final store = _CandidateAssetStore(<(String, String)>{
+        (_imageSourceId, 'asset-a'),
+        (_imageSourceId, 'pre-existing'),
+      });
+      final repository = _CommitRepository();
+      final service = typedService(
+        repository,
+        contentAssetStore: store,
+        candidateAssetLease: ContentAssetCandidateLease(
+          sourceId: _imageSourceId,
+          localAssetIds: const <String>['asset-a'],
+        ),
+      );
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[
+          _imageInput(
+            questionId: _imageQuestionIdC,
+            reviewItemId: _imageReviewItemIdC,
+            questionNumber: 1,
+            sourceId: _imageSourceId,
+            localAssetId: 'pre-existing',
+          ),
+        ],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(
+        await store.assetExists(
+          sourceId: _imageSourceId,
+          localAssetId: 'pre-existing',
+        ),
+        isTrue,
+      );
+      expect(
+        await store.assetExists(
+          sourceId: _imageSourceId,
+          localAssetId: 'asset-a',
+        ),
+        isFalse,
+      );
     });
 
     test('V2 writer success completes the task', () async {

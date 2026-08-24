@@ -5,15 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
-import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 
-class _QuestionRepository extends Fake implements QuestionRepository {
+class _QuestionRepository extends Fake implements FolderQueryPort {
   @override
-  Future<List<String>> getAvailableFolders() async => const [];
+  Future<List<String>> listAvailableFolders() async => const [];
 }
 
 class _FakeDistiller implements SubjectiveAnswerDistiller {
@@ -72,7 +72,7 @@ Widget _widget(
     home: ImportStagingScreen(
       parsedQuestions: questions ?? [_subjectiveQuestion(1)],
       taskId: taskId,
-      questionRepository: _QuestionRepository(),
+      folderQuery: _QuestionRepository(),
       answerDistiller: distiller,
       taskManager: taskManager,
     ),

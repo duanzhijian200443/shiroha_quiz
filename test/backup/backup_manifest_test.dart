@@ -59,6 +59,28 @@ void main() {
     );
   });
 
+  test('v1 rejects the additive content asset extension', () {
+    final json = validJson()
+      ..['contentAssets'] = <Object?>[
+        <String, Object?>{
+          'sourceId': 'source-1',
+          'localAssetId': 'asset-1',
+          'storageKey': 'content_assets/source-1/asset-1',
+          'archivePath': 'files/content_assets/source-1/asset-1',
+          'sizeBytes': 3,
+          'sha256': 'c' * 64,
+        },
+      ];
+    expect(
+      () => BackupManifest.fromJson(json),
+      throwsA(isA<BackupException>().having(
+        (e) => e.failure,
+        'failure',
+        BackupFailure.unsupportedPackageVersion,
+      )),
+    );
+  });
+
   test('wrong types are rejected', () {
     final json = validJson();
     json['schemaVersion'] = '23';

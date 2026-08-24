@@ -207,7 +207,9 @@ Future<void> _pumpScreen(
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
           onLoadFinished: onLoadFinished,
         ),
       ),

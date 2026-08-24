@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -7,6 +8,10 @@ import '../../application/backup/backup_contracts.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
+import '../../domain/content/content_node.dart';
+import '../../domain/content/rich_content.dart';
+import '../../domain/question/question_draft_v2.dart';
+import '../../domain/question/question_draft_v2_codec.dart';
 
 /// B0 data authority for consistent SQLite snapshots and staged DB
 /// validation/scrub. Raw SQL and sqflite imports are intentionally confined
@@ -83,6 +88,77 @@ final class BackupSnapshotRepository {
     } finally {
       await candidate.close();
     }
+  }
+
+  Future<Set<(String, String)>> readReferencedContentAssetIdentities(
+    String snapshotPath,
+  ) async {
+    final Database db;
+    try {
+      db = await databaseFactory.openDatabase(snapshotPath);
+    } catch (_) {
+      throw const BackupException(BackupFailure.databaseInvalid);
+    }
+    try {
+      return await _readReferencedContentAssetIdentities(db);
+    } finally {
+      await db.close();
+    }
+  }
+
+  Future<Set<(String, String)>> _readReferencedContentAssetIdentities(
+    Database db,
+  ) async {
+    if (!await _tableExists(db, 'question_v2_payloads')) {
+      return <(String, String)>{};
+    }
+    final rows = await db.query(
+      'question_v2_payloads',
+      columns: <String>['payload_schema_version', 'payload_json'],
+      orderBy: 'question_id',
+    );
+    final identities = <(String, String)>{};
+    for (final row in rows) {
+      final schemaVersion = row['payload_schema_version'];
+      final payloadJson = row['payload_json'];
+      if (schemaVersion != QuestionDraftV2Codec.schemaVersion) continue;
+      if (payloadJson is! String || payloadJson.isEmpty) {
+        throw const BackupException(BackupFailure.databaseInvalid);
+      }
+      try {
+        final draft =
+            const QuestionDraftV2Codec().decode(jsonDecode(payloadJson));
+        final inventory = <(String, String)>{
+          for (final asset in draft.assetRefs)
+            (asset.sourceId, asset.localAssetId),
+        };
+        void collect(RichContent content) {
+          for (final image in reachableImageNodes(content)) {
+            final identity = (image.sourceId, image.localAssetId);
+            if (!inventory.contains(identity)) {
+              throw const BackupException(BackupFailure.databaseInvalid);
+            }
+            identities.add(identity);
+          }
+        }
+
+        collect(draft.stem);
+        for (final option in draft.options) {
+          collect(option.content);
+        }
+        if (draft.answer case ContentAnswer(:final content)) {
+          collect(content);
+        }
+        if (draft.explanation != null) {
+          collect(draft.explanation!);
+        }
+      } on BackupException {
+        rethrow;
+      } catch (_) {
+        throw const BackupException(BackupFailure.databaseInvalid);
+      }
+    }
+    return Set<(String, String)>.unmodifiable(identities);
   }
 
   Future<void> _scrub(Database db) async {

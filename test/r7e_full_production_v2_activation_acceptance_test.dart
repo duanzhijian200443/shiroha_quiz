@@ -419,7 +419,9 @@ Future<void> _pumpListScreen(
       MaterialApp(
         home: QuestionListScreen(
           bankName: _bankName,
-          questionRepository: repository,
+          questionListQuery: repository,
+          questionMutationPersistence: repository,
+          typedAnswerPersistence: repository,
           onLoadFinished: onLoadFinished,
         ),
       ),
@@ -576,7 +578,7 @@ void main() {
               parsedQuestions: task.parsedData!,
               taskId: task.id,
               diagnostics: task.diagnostics,
-              questionRepository: repository,
+              folderQuery: repository,
               taskManager: stagingManager,
               commitService: service,
               answerDistiller: const _FixedDistiller('E1 distilled conclusion'),

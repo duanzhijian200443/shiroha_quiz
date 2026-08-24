@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import '../../domain/assets/image_byte_signature.dart';
+
 class OcrDocument {
   const OcrDocument({
     required this.sourceName,
@@ -13,8 +17,11 @@ class OcrDocument {
   final List<Map<String, dynamic>> rawResponses;
   final Map<String, dynamic> usage;
 
-  bool get hasUsableBlocks => pages
-      .any((page) => page.blocks.any((block) => block.text.trim().isNotEmpty));
+  bool get hasUsableBlocks => pages.any(
+        (page) => page.blocks.any(
+          (block) => block.text.trim().isNotEmpty || block.imagePayload != null,
+        ),
+      );
 
   List<OcrBlock> get flattenedBlocks {
     final blocks = <OcrBlock>[];
@@ -59,7 +66,17 @@ class OcrDocument {
 
       for (var order = 0; order < entries.length; order++) {
         final entry = entries[order];
-        final text = _readString(entry['content']);
+        final label = _readString(entry['label'], fallback: 'text');
+        final rawText = _readString(entry['content']);
+        final imagePayload = _readImagePayload(label, rawText);
+        final text = imagePayload == null && rawText.trim().isEmpty
+            ? (label.trim().toLowerCase() == 'image' ||
+                    label.trim().toLowerCase() == 'figure'
+                ? '[图片]'
+                : '')
+            : imagePayload == null
+                ? rawText
+                : '[图片]';
         if (text.trim().isEmpty) continue;
 
         final rawIndex = _readInt(entry['index']) ?? order + 1;
@@ -68,13 +85,14 @@ class OcrDocument {
             blockId:
                 'p${pageIndex.toString().padLeft(3, '0')}_b${rawIndex.toString().padLeft(4, '0')}',
             pageIndex: pageIndex,
-            type: _readString(entry['label'], fallback: 'text'),
+            type: label,
             text: text,
             bbox: _readBbox(entry['bbox_2d']),
             readingOrder: order,
             confidence: _readDouble(entry['confidence']),
             width: _readInt(entry['width']) ?? info?.width,
             height: _readInt(entry['height']) ?? info?.height,
+            imagePayload: imagePayload,
             raw: Map<String, dynamic>.from(entry),
           ),
         );
@@ -240,6 +258,7 @@ class OcrBlock {
     this.confidence,
     this.width,
     this.height,
+    this.imagePayload,
     this.raw = const {},
   });
 
@@ -252,12 +271,17 @@ class OcrBlock {
   final double? confidence;
   final int? width;
   final int? height;
+
+  /// Transient provider crop bytes. This field is intentionally omitted from
+  /// replay JSON and never enters a Domain/persistence payload.
+  final OcrImagePayload? imagePayload;
   final Map<String, dynamic> raw;
 
   OcrBlock copyWith({
     String? blockId,
     String? text,
     int? readingOrder,
+    OcrImagePayload? imagePayload,
     Map<String, dynamic>? raw,
   }) {
     return OcrBlock(
@@ -270,6 +294,7 @@ class OcrBlock {
       confidence: confidence,
       width: width,
       height: height,
+      imagePayload: imagePayload ?? this.imagePayload,
       raw: raw ?? this.raw,
     );
   }
@@ -279,7 +304,7 @@ class OcrBlock {
       'blockId': blockId,
       'pageIndex': pageIndex,
       'type': type,
-      'text': text,
+      'text': _isImageType(type) ? '[图片]' : text,
       'readingOrder': readingOrder,
     };
   }
@@ -295,9 +320,67 @@ class OcrBlock {
       confidence: null,
       width: null,
       height: null,
+      imagePayload: null,
       raw: const {},
     );
   }
+}
+
+/// Transient in-memory crop payload extracted from a provider response.
+///
+/// It is deliberately not serializable. Confirmed-question durability is
+/// provided by [ContentAssetStore], not by an OCR replay or provider body.
+final class OcrImagePayload {
+  OcrImagePayload({required Iterable<int> bytes, required String mimeType})
+      : bytes = List<int>.unmodifiable(bytes),
+        mimeType = mimeType.trim().toLowerCase().split(';').first;
+
+  static OcrImagePayload? fromDataUrl(String text) {
+    final trimmed = text.trim();
+    if (!trimmed.toLowerCase().startsWith('data:image/')) return null;
+    final comma = trimmed.indexOf(',');
+    if (comma <= 0) return null;
+    final header = trimmed.substring(5, comma).toLowerCase();
+    if (!header.endsWith(';base64')) return null;
+    final mimeType = header.substring(0, header.length - ';base64'.length);
+    if (!_supportedImageMimes.contains(mimeType)) return null;
+    final encoded = trimmed.substring(comma + 1).replaceAll(RegExp(r'\s+'), '');
+    if (encoded.length > _maxEncodedImageCharacters) return null;
+    try {
+      final bytes = base64Decode(encoded);
+      if (bytes.isEmpty ||
+          bytes.length > 10 * 1024 * 1024 ||
+          !ImageByteSignature.matchesMime(bytes, mimeType)) {
+        return null;
+      }
+      return OcrImagePayload(bytes: bytes, mimeType: mimeType);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  final List<int> bytes;
+  final String mimeType;
+}
+
+const _supportedImageMimes = <String>{
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif',
+};
+
+const _maxEncodedImageCharacters = ((10 * 1024 * 1024 + 2) ~/ 3) * 4;
+
+OcrImagePayload? _readImagePayload(String label, String text) {
+  if (!_isImageType(label)) return null;
+  return OcrImagePayload.fromDataUrl(text);
+}
+
+bool _isImageType(String type) {
+  final normalized = type.trim().toLowerCase();
+  return normalized == 'image' || normalized == 'figure';
 }
 
 class _PageInfo {

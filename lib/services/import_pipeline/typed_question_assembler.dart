@@ -74,13 +74,21 @@ final class TypedQuestionAssembler {
           ):
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
-          target.add(
-            ImageNode(
-              sourceId: fragment.part.sourceRef.sourceId,
-              localAssetId: asset.assetId,
-              alternativeText: alternativeText,
-            ),
-          );
+          try {
+            target.add(
+              ImageNode(
+                sourceId: fragment.part.sourceRef.sourceId,
+                localAssetId: asset.assetId,
+                alternativeText: alternativeText,
+              ),
+            );
+          } on FormatException {
+            throw QuestionRegionUnsupportedException(
+              kindCode: 'source_asset',
+              field: fragment.field,
+              message: 'Source image alternative text is unsupported.',
+            );
+          }
           lastFragmentWasPlainText[fragment.field] = false;
         case SourceTablePart():
           final target =

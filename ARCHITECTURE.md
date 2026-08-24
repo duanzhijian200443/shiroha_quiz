@@ -112,10 +112,10 @@ The FINAL/FROZEN additive architecture target for first-class `ImageNode` and
 `TableNode`, draft-level asset inventory authority, codec evolution, recursive
 privacy admission, compatibility projection, durable asset lifetime, and
 block-native structural ownership is
-`docs/architecture/rich-content-foundation.md`. Implementation and production
-activation remain deferred; current text/math/fallback behavior remains the
-runtime truth until separately authorized implementation conforms to that
-focused contract.
+`docs/architecture/rich-content-foundation.md`. The bounded Phase 2A/Train B
+implementation now conforms for typed image/table admission, managed asset
+durability, B0 package v2 coverage, and explicit resolver-backed rendering;
+final live acceptance and unbounded asset lifecycle expansion remain deferred.
 
 ## 4. Learning asset expansion boundary
 
