@@ -5,12 +5,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/sqflite_runtime.dart';
-import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
-import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
-import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
-import 'package:shiroha_quiz/services/backup/backup_restore_runtime.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
-import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
+
+import 'train_c_b0_runtime.dart';
+import 'train_c_file_storage.dart';
 
 const _markerName = '.train_c_isolated_v1';
 const _markerContents = 'train-c-isolated-v1\n';
@@ -61,7 +59,7 @@ final class TrainCIsolatedRuntime {
         _contentAssetStore = ManagedContentAssetStore(
           managedRoot: Directory(p.join(root.path, 'managed')),
         ),
-        _fileStorage = ManagedFileStorageAdapter(
+        _fileStorage = createTrainCManagedFileStorage(
           managedRoot: Directory(p.join(root.path, 'managed')),
         );
 
@@ -71,7 +69,7 @@ final class TrainCIsolatedRuntime {
   final Directory restoreDirectory;
   final Directory exportDirectory;
   final ManagedContentAssetStore _contentAssetStore;
-  final ManagedFileStorageAdapter _fileStorage;
+  final Object _fileStorage;
 
   bool _opened = false;
   bool _disposed = false;
@@ -89,7 +87,7 @@ final class TrainCIsolatedRuntime {
 
   ManagedContentAssetStore get contentAssetStore => _contentAssetStore;
 
-  ManagedFileStorageAdapter get fileStorage => _fileStorage;
+  Object get fileStorage => _fileStorage;
 
   Future<Database> get database async {
     _ensureUsable();
@@ -187,25 +185,17 @@ final class TrainCIsolatedRuntime {
     }
   }
 
-  BackupRestoreRuntime buildBackupRuntime() {
+  TrainCBackupRuntimePort buildBackupRuntime() {
     _ensureUsable();
     if (!_opened) {
       throw const TrainCIsolationException();
     }
-    final snapshots = BackupSnapshotRepository(
+    return createTrainCBackupRuntime(
       databaseHelper: DatabaseHelper.instance,
-    );
-    return BackupRestoreRuntime(
-      databaseAuthority: SqliteBackupDatabaseAuthority(
-        databaseHelper: DatabaseHelper.instance,
-        snapshotRepository: snapshots,
-      ),
-      snapshotRepository: snapshots,
       managedFileStorage: _fileStorage,
       contentAssetStore: _contentAssetStore,
       restoreRoot: restoreDirectory,
       managedFilesRoot: managedDirectory,
-      diskSpaceProbe: const _InfiniteDiskSpaceProbe(),
     );
   }
 
@@ -308,11 +298,4 @@ final class TrainCIsolatedRuntime {
     }
     return current;
   }
-}
-
-final class _InfiniteDiskSpaceProbe implements BackupDiskSpaceProbe {
-  const _InfiniteDiskSpaceProbe();
-
-  @override
-  Future<int?> availableBytes(String path) async => 1 << 40;
 }
