@@ -27,6 +27,10 @@ const _sectionKeys = <String, Set<String>>{
     'productionHead',
     'harnessHead',
     'trainBMergeCommit',
+    'currentHead',
+    'approvedHarnessHead',
+    'approvedBase',
+    'approvedProductionBase',
     'productionDiffFromBase',
   },
   'input': <String>{'sha256', 'sizeBytes', 'pageCount'},
@@ -110,9 +114,12 @@ const _sectionKeys = <String, Set<String>>{
 
 const _mandatoryQuestionKeys = <String>{
   'referencedImageCount',
+  'sourceReferencedImageCount',
   'typedImageNodeCount',
   'referencedUniqueAssetCount',
+  'sourceReferencedUniqueAssetCount',
   'resolvedUniqueAssetCount',
+  'sourceIdentityPreserved',
   'canonicalIdentityPreserved',
   'commitPreserved',
   'restartResolution',
@@ -122,6 +129,8 @@ const _mandatoryQuestionKeys = <String>{
 };
 
 const _trainBMergeCommit = '711fd33f564b9fb6bb3c992d6458b0075990646c';
+const _trainCL1BaseMaster = 'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
+const _trainCL1ReviewedHarnessHead = '2fc0bc823e3ce75c1205729206280db5a59b2c58';
 
 final class TrainCEvidenceProbeException implements Exception {
   const TrainCEvidenceProbeException(this.code);
@@ -132,16 +141,83 @@ final class TrainCEvidenceProbeException implements Exception {
   String toString() => code;
 }
 
+final class TrainCReviewedIdentity {
+  const TrainCReviewedIdentity({
+    required this.approvedHarnessHead,
+    required this.approvedBase,
+    required this.approvedProductionBase,
+  });
+
+  static const l1a = TrainCReviewedIdentity(
+    approvedHarnessHead: _trainCL1ReviewedHarnessHead,
+    approvedBase: _trainCL1BaseMaster,
+    approvedProductionBase: _trainBMergeCommit,
+  );
+
+  /// Creates the identity used only by the offline L1A mechanical preflight.
+  ///
+  /// Offline preflight is not an acceptance authority and never reaches a
+  /// provider boundary. Trusted evidence and any future live runner must still
+  /// receive an independently reviewed, explicit identity.
+  factory TrainCReviewedIdentity.forOfflineCurrentRepository() {
+    final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+    final output = result.stdout;
+    if (result.exitCode != 0 || output is! String) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    final head = output.trim();
+    if (!_isHex(head, 40)) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    return TrainCReviewedIdentity(
+      approvedHarnessHead: head,
+      approvedBase: _trainCL1BaseMaster,
+      approvedProductionBase: _trainBMergeCommit,
+    );
+  }
+
+  final String approvedHarnessHead;
+  final String approvedBase;
+  final String approvedProductionBase;
+
+  TrainCExpectedCodeIdentity toExpectedCodeIdentity() {
+    return TrainCExpectedCodeIdentity.fromReviewed(this);
+  }
+}
+
 final class TrainCExpectedCodeIdentity {
   const TrainCExpectedCodeIdentity({
     required this.productionHead,
     required this.harnessHead,
     required this.trainBMergeCommit,
+    this.approvedHarnessHead = '',
+    this.approvedBase = '',
+    this.approvedProductionBase = '',
   });
 
   final String productionHead;
   final String harnessHead;
   final String trainBMergeCommit;
+  final String approvedHarnessHead;
+  final String approvedBase;
+  final String approvedProductionBase;
+
+  factory TrainCExpectedCodeIdentity.fromReviewed(
+    TrainCReviewedIdentity reviewed,
+  ) {
+    return TrainCExpectedCodeIdentity(
+      productionHead: reviewed.approvedProductionBase,
+      harnessHead: reviewed.approvedHarnessHead,
+      trainBMergeCommit: reviewed.approvedProductionBase,
+      approvedHarnessHead: reviewed.approvedHarnessHead,
+      approvedBase: reviewed.approvedBase,
+      approvedProductionBase: reviewed.approvedProductionBase,
+    );
+  }
 
   factory TrainCExpectedCodeIdentity.forCurrentRepository() {
     final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
@@ -157,17 +233,30 @@ final class TrainCExpectedCodeIdentity {
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
       );
     }
-    return TrainCExpectedCodeIdentity(
-      productionHead: _trainBMergeCommit,
-      harnessHead: harnessHead,
-      trainBMergeCommit: _trainBMergeCommit,
+    return TrainCExpectedCodeIdentity.fromReviewed(
+      TrainCReviewedIdentity(
+        approvedHarnessHead: harnessHead,
+        approvedBase: _trainCL1BaseMaster,
+        approvedProductionBase: _trainBMergeCommit,
+      ),
     );
   }
 
   void validate(Map<String, dynamic> code) {
-    if (_requiredString(code, 'productionHead') != productionHead ||
-        _requiredString(code, 'harnessHead') != harnessHead ||
-        _requiredString(code, 'trainBMergeCommit') != trainBMergeCommit) {
+    final expectedHarness =
+        approvedHarnessHead.isEmpty ? harnessHead : approvedHarnessHead;
+    final expectedBase =
+        approvedBase.isEmpty ? _trainCL1BaseMaster : approvedBase;
+    final expectedProduction = approvedProductionBase.isEmpty
+        ? (productionHead.isEmpty ? trainBMergeCommit : productionHead)
+        : approvedProductionBase;
+    if (_requiredString(code, 'productionHead') != expectedProduction ||
+        _requiredString(code, 'harnessHead') != expectedHarness ||
+        _requiredString(code, 'trainBMergeCommit') != expectedProduction ||
+        _requiredString(code, 'currentHead') != expectedHarness ||
+        _requiredString(code, 'approvedHarnessHead') != expectedHarness ||
+        _requiredString(code, 'approvedBase') != expectedBase ||
+        _requiredString(code, 'approvedProductionBase') != expectedProduction) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
       );
@@ -201,8 +290,10 @@ final class TrainCEvidenceProbe {
   const TrainCEvidenceProbe({required this.expectedIdentity});
 
   factory TrainCEvidenceProbe.forCurrentRepository() {
+    // Schema-only CLI compatibility. The default remains bound to the frozen
+    // review artifact; it must never derive acceptance authority from HEAD.
     return TrainCEvidenceProbe(
-      expectedIdentity: TrainCExpectedCodeIdentity.forCurrentRepository(),
+      expectedIdentity: TrainCReviewedIdentity.l1a.toExpectedCodeIdentity(),
     );
   }
 
@@ -501,16 +592,23 @@ final class TrainCEvidenceProbe {
     for (final number in const <String>['5', '18', '19']) {
       final question = mandatory[number] as Map<String, dynamic>;
       final referenced = _requiredInt(question, 'referencedImageCount');
+      final sourceReferenced =
+          _requiredInt(question, 'sourceReferencedImageCount');
       final typedCount = _requiredInt(question, 'typedImageNodeCount');
       mandatoryReferencedTotal += referenced;
       mandatoryTypedTotal += typedCount;
       final referencedAssets =
           _requiredInt(question, 'referencedUniqueAssetCount');
+      final sourceReferencedAssets =
+          _requiredInt(question, 'sourceReferencedUniqueAssetCount');
       if (referenced <= 0 ||
+          sourceReferenced != referenced ||
           typedCount != referenced ||
           referencedAssets <= 0 ||
+          sourceReferencedAssets != referencedAssets ||
           _requiredInt(question, 'resolvedUniqueAssetCount') !=
               referencedAssets ||
+          _requiredBool(question, 'sourceIdentityPreserved') != true ||
           !_allTrue(question, const <String>[
             'canonicalIdentityPreserved',
             'commitPreserved',
@@ -594,6 +692,7 @@ final class TrainCEvidenceProbe {
         'TRAIN_C_IMAGE_NODE_MISSING' => 'P7',
         'TRAIN_C_COMMIT_FAILURE' => 'P11',
         'TRAIN_C_RESTART_FAILURE' => 'P12',
+        'TRAIN_C_B0_IDENTITY_MISMATCH' => 'P14',
         'TRAIN_C_B0_ASSET_SET_FAILURE' => 'P14',
         'TRAIN_C_RESTORE_FAILURE' => 'P14',
         'TRAIN_C_CODE_IDENTITY_MISMATCH' => 'P0',

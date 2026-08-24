@@ -1,13 +1,8 @@
 import 'dart:io';
 
 import 'train_c_evidence_probe.dart';
-
-/// The only source allowed to promote a schema-valid snapshot to final
-/// acceptance is an isolated runtime collector implemented by the live runner.
-/// It is intentionally not a JSON/file adapter.
-abstract interface class TrainCTrustedEvidenceSource {
-  Future<Map<String, dynamic>> readAuthoritativeSnapshot();
-}
+import 'train_c_http_observer.dart';
+import 'train_c_runtime_evidence_source.dart';
 
 abstract interface class TrainCExecutionStateGate {
   void verify();
@@ -22,10 +17,13 @@ final class GitTrainCExecutionStateGate implements TrainCExecutionStateGate {
   void verify() {
     try {
       final result = Process.runSync(
-        'git',
-        <String>['status', '--porcelain=v1', '--untracked-files=all'],
-        workingDirectory: workingDirectory,
-      );
+          'git',
+          <String>[
+            'status',
+            '--porcelain=v1',
+            '--untracked-files=all',
+          ],
+          workingDirectory: workingDirectory);
       if (result.exitCode != 0 || result.stdout is! String) {
         throw const TrainCEvidenceProbeException(
           'TRAIN_C_CODE_IDENTITY_MISMATCH',
@@ -45,18 +43,31 @@ final class GitTrainCExecutionStateGate implements TrainCExecutionStateGate {
 }
 
 final class TrainCTrustedEvidenceCollector {
-  const TrainCTrustedEvidenceCollector(
-    this._probe, {
+  TrainCTrustedEvidenceCollector({
+    required this.reviewedIdentity,
     this.executionStateGate = const GitTrainCExecutionStateGate(),
-  });
+  }) : _probe = TrainCEvidenceProbe(
+          expectedIdentity: reviewedIdentity.toExpectedCodeIdentity(),
+        );
 
   final TrainCEvidenceProbe _probe;
+  final TrainCReviewedIdentity reviewedIdentity;
   final TrainCExecutionStateGate executionStateGate;
+
+  /// Synthetic maps remain schema-test inputs only and can never authorize a
+  /// final TRAIN C result.
+  TrainCEvidenceProbeResult inspectSchema(Map<String, dynamic> rawSnapshot) {
+    return _probe.inspect(_bindProductionRequestAuthority(rawSnapshot));
+  }
 
   Future<TrainCEvidenceProbeResult> collect(
     TrainCTrustedEvidenceSource source,
   ) async {
-    final snapshot = await source.readAuthoritativeSnapshot();
+    if (!_sameReviewedIdentity(source.reviewedIdentity, reviewedIdentity)) {
+      return _identityBlockedResult();
+    }
+    final rawSnapshot = await source.readAuthoritativeSnapshot();
+    final snapshot = _bindProductionRequestAuthority(rawSnapshot);
     final schemaResult = _probe.inspect(snapshot);
     if (!schemaResult.schemaValid) return schemaResult;
 
@@ -76,10 +87,44 @@ final class TrainCTrustedEvidenceCollector {
         'authority': 'trusted_collector',
         'result': 'PASS',
         'failureCode': null,
-        'firstLoss': <String, dynamic>{
-          'status': 'NONE',
-          'checkpoint': null,
-        },
+        'firstLoss': <String, dynamic>{'status': 'NONE', 'checkpoint': null},
+      },
+    );
+  }
+
+  Map<String, dynamic> _bindProductionRequestAuthority(
+    Map<String, dynamic> snapshot,
+  ) {
+    final attempt = snapshot['attempt'];
+    if (attempt is! Map) return snapshot;
+    return <String, dynamic>{
+      ...snapshot,
+      'attempt': <String, dynamic>{
+        ...Map<String, dynamic>.from(attempt),
+        'layoutChunkSize': trainCProductionPdfPageChunkSize,
+      },
+    };
+  }
+
+  bool _sameReviewedIdentity(
+    TrainCReviewedIdentity left,
+    TrainCReviewedIdentity right,
+  ) {
+    return left.approvedHarnessHead == right.approvedHarnessHead &&
+        left.approvedBase == right.approvedBase &&
+        left.approvedProductionBase == right.approvedProductionBase;
+  }
+
+  TrainCEvidenceProbeResult _identityBlockedResult() {
+    return const TrainCEvidenceProbeResult(
+      schemaValid: false,
+      acceptanceAuthorized: false,
+      evidence: <String, dynamic>{
+        'schemaVersion': 3,
+        'authority': 'trusted_collector_blocked',
+        'result': 'AUTHORIZATION_BLOCKED',
+        'failureCode': 'TRAIN_C_CODE_IDENTITY_MISMATCH',
+        'firstLoss': <String, dynamic>{'status': 'PROVEN', 'checkpoint': 'P0'},
       },
     );
   }
@@ -98,7 +143,7 @@ final class TrainCTrustedEvidenceCollector {
         'failureCode': failureCode,
         'firstLoss': <String, dynamic>{
           'status': 'PROVEN',
-          'checkpoint': 'P0',
+          'checkpoint': failureCode == 'TRAIN_C_RESTART_FAILURE' ? 'P12' : 'P0',
         },
       },
     );
@@ -108,6 +153,7 @@ final class TrainCTrustedEvidenceCollector {
     return switch (code) {
       'TRAIN_C_DIRTY_WORKTREE' => code,
       'TRAIN_C_CODE_IDENTITY_MISMATCH' => code,
+      'TRAIN_C_RESTART_FAILURE' => code,
       _ => 'TRAIN_C_CODE_IDENTITY_MISMATCH',
     };
   }

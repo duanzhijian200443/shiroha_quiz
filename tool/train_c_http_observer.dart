@@ -58,7 +58,15 @@ final class _TrainCNetworkEvent {
   int durationMs = 0;
 }
 
-/// Computes expected layout requests from the runtime page count and chunk.
+/// Frozen production request authority. CI cross-checks this value against the
+/// default [ZhipuOcrClient] constructor so trusted acceptance cannot let the
+/// evidence producer choose its own page chunk.
+const int trainCProductionPdfPageChunkSize = 30;
+
+/// Computes expected layout requests from the production chunk size.
+///
+/// [pageChunkSize] is retained only as an observed/reported value for the
+/// evidence schema. It is deliberately not an authority for the calculation.
 int trainCExpectedLayoutRequestCount({
   required int pageCount,
   required int pageChunkSize,
@@ -66,7 +74,8 @@ int trainCExpectedLayoutRequestCount({
   if (pageCount <= 0 || pageChunkSize <= 0) {
     throw const TrainCProtocolException('TRAIN_C_INPUT_INVALID');
   }
-  return (pageCount + pageChunkSize - 1) ~/ pageChunkSize;
+  return (pageCount + trainCProductionPdfPageChunkSize - 1) ~/
+      trainCProductionPdfPageChunkSize;
 }
 
 /// In-memory request/phase ledger for the TRAIN C entrypoint.
