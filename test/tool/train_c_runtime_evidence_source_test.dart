@@ -108,7 +108,7 @@ QuestionDraftV2 _draft(
       : ImageNode(sourceId: sourceId, localAssetId: imageAsset);
   final stem = number == 5 && dualImageQuestion5
       ? RichContent(
-          nodes: const <ContentNode>[
+          nodes: <ContentNode>[
             ImageNode(
               sourceId: 'synthetic_source',
               localAssetId: 'asset_q5_a',
@@ -160,14 +160,14 @@ QuestionDraftV2 _draft(
         ? <SourcedAssetRef>[
             SourcedAssetRef(
               sourceId: sourceId,
-              asset: const AssetRef(
+              asset: AssetRef(
                 assetId: 'asset_q5_a',
                 kind: AssetKind.image,
               ),
             ),
             SourcedAssetRef(
               sourceId: sourceId,
-              asset: const AssetRef(
+              asset: AssetRef(
                 assetId: 'asset_q5_b',
                 kind: AssetKind.image,
               ),
@@ -212,7 +212,8 @@ Future<void> _seedTwentyTwo(
   final assetIds = <String>[
     if (includeNonMandatoryImages) 'asset_q1',
     if (includeNonMandatoryImages) 'asset_q2',
-    if (dualImageQuestion5) ...<String>['asset_q5_a', 'asset_q5_b'] else 'asset_q5',
+    if (dualImageQuestion5) ...<String>['asset_q5_a', 'asset_q5_b'] else
+      'asset_q5',
     'asset_q18',
     'asset_q19',
   ];
@@ -280,7 +281,8 @@ TrainCSourceImageFacts _sourceFacts(
 
 TrainCSourceImageFacts _defaultSourceFacts() {
   return _sourceFacts(<TrainCPreTypedSourceImageEvidence>[
-    _sourceEvidence(questionNumber: 5, localAssetId: 'asset_q5', readingOrder: 0),
+    _sourceEvidence(
+        questionNumber: 5, localAssetId: 'asset_q5', readingOrder: 0),
     _sourceEvidence(
       questionNumber: 18,
       localAssetId: 'asset_q18',
@@ -627,8 +629,7 @@ void main() {
         packagePath: packagePath,
         ledger: await _syntheticLedger(),
         sourceImages: sourceImages,
-        candidateCheckpoint:
-            _candidateForSynthetic(dualImageQuestion5: true),
+        candidateCheckpoint: _candidateForSynthetic(dualImageQuestion5: true),
         blockCount: 5,
         imageBlockCount: 4,
         referencedImageBlockCount: 4,
