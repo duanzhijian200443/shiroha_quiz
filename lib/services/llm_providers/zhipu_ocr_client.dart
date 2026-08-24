@@ -116,6 +116,9 @@ class ZhipuOcrClient implements OcrDocumentClient {
       maxCount: remoteCropCountLimit,
       maxTotalBytes: remoteCropTotalBytesLimit,
     );
+    final layoutResponseBudget = _LayoutResponseBudget(
+      maxTotalBytes: layoutResponseBytesLimit,
+    );
 
     if (!isPdf || pageCount <= pdfPageChunkSize) {
       chunks.add(
@@ -126,6 +129,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
           timeout: timeout,
           pageOffset: 0,
           remoteCropBudget: remoteCropBudget,
+          layoutResponseBudget: layoutResponseBudget,
         ),
       );
     } else {
@@ -141,6 +145,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
             endPage: end,
             pageOffset: start - 1,
             remoteCropBudget: remoteCropBudget,
+            layoutResponseBudget: layoutResponseBudget,
           ),
         );
       }
@@ -158,6 +163,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
     int? endPage,
     required int pageOffset,
     required _RemoteCropBudget remoteCropBudget,
+    required _LayoutResponseBudget layoutResponseBudget,
   }) async {
     final client = _httpClient ?? http.Client();
     try {
@@ -198,6 +204,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
           response.stream,
           contentLength: response.contentLength,
           timeout: timeout,
+          budget: layoutResponseBudget,
         );
         final decoded = jsonDecode(utf8.decode(responseBytes));
         if (decoded is! Map) {
@@ -299,9 +306,12 @@ class ZhipuOcrClient implements OcrDocumentClient {
     Stream<List<int>> stream, {
     required int? contentLength,
     required Duration timeout,
+    required _LayoutResponseBudget budget,
   }) async {
     if (layoutResponseBytesLimit <= 0 ||
-        (contentLength != null && contentLength > layoutResponseBytesLimit)) {
+        (contentLength != null &&
+            (contentLength > layoutResponseBytesLimit ||
+                !budget.canReserveBytes(contentLength)))) {
       throw const ZhipuOcrResponseFormatException();
     }
 
@@ -325,10 +335,12 @@ class ZhipuOcrClient implements OcrDocumentClient {
       (chunk) {
         if (completed.isCompleted) return;
         totalBytes += chunk.length;
-        if (totalBytes > layoutResponseBytesLimit) {
+        if (totalBytes > layoutResponseBytesLimit ||
+            !budget.canReserveBytes(chunk.length)) {
           fail(const ZhipuOcrResponseFormatException());
           return;
         }
+        budget.reserveBytes(chunk.length);
         builder.add(chunk);
       },
       onError: (Object error, StackTrace stackTrace) => fail(error, stackTrace),
@@ -658,6 +670,21 @@ class ZhipuOcrClient implements OcrDocumentClient {
     final suffix = startPage == null ? 'all' : 'p$startPage';
     final requestId = 'ocr_${prefix}_${suffix}_$millis';
     return requestId.length > 64 ? requestId.substring(0, 64) : requestId;
+  }
+}
+
+final class _LayoutResponseBudget {
+  _LayoutResponseBudget({required this.maxTotalBytes});
+
+  final int maxTotalBytes;
+  var totalBytes = 0;
+
+  void reserveBytes(int bytes) {
+    totalBytes += bytes;
+  }
+
+  bool canReserveBytes(int bytes) {
+    return bytes >= 0 && bytes <= maxTotalBytes - totalBytes;
   }
 }
 
