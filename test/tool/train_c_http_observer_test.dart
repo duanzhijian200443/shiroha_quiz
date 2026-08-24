@@ -1,60 +1,68 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
 
 import '../../tool/train_c_http_observer.dart';
 import '../../tool/train_c_live_entrypoint.dart';
 
 void main() {
-  test('observer records only safe request aggregates', () async {
-    final client = _FakeClient();
+  test('ledger exposes safe request aggregates only', () {
     final ledger = TrainCRequestLedger();
     ledger.beginParse(expectedLayoutRequests: 1);
-    final observer = TrainCHttpObserver(innerClient: client, ledger: ledger);
 
-    final response = await observer.post(
-      Uri.parse('https://provider.example/layout'),
-      body: 'PRIVATE_REQUEST_BODY',
-    );
+    final layout = ledger.recordDispatchMethod('POST');
+    final crop = ledger.recordDispatchMethod('GET');
+    ledger.recordResponse(eventIndex: layout, statusCode: 200, durationMs: 2);
+    ledger.recordResponse(eventIndex: crop, statusCode: 302, durationMs: 3);
 
-    expect(response.statusCode, 200);
-    expect(client.sendCount, 1);
     final encoded = jsonEncode(ledger.safeSummary());
     expect(encoded, isNot(contains('provider.example')));
     expect(encoded, isNot(contains('PRIVATE_REQUEST_BODY')));
-    expect(ledger.providerDispatchCount, 1);
-    expect(ledger.providerResponseCount, 1);
-    expect(ledger.remoteCropRequestCount, 0);
-    expect(ledger.unexpectedProviderRequestCount, 0);
-  });
-
-  test('observer classifies crop GET without reading its URL', () async {
-    final client = _FakeClient();
-    final ledger = TrainCRequestLedger();
-    ledger.beginParse(expectedLayoutRequests: 1);
-    final observer = TrainCHttpObserver(innerClient: client, ledger: ledger);
-
-    await observer.post(Uri.parse('https://provider.example/layout'));
-    await observer.get(Uri.parse('https://cdn.example/crop'));
-
+    expect(ledger.layoutPostCount, 1);
     expect(ledger.providerDispatchCount, 2);
-    expect(ledger.remoteCropRequestCount, 1);
     expect(ledger.providerResponseCount, 2);
-    expect(ledger.safeSummary()['responseStatusCounts'], <String, int>{
-      'success': 2,
-    });
+    expect(ledger.remoteCropRequestCount, 1);
+    expect(ledger.unexpectedProviderRequestCount, 0);
+    expect(ledger.networkFailureCount, 0);
   });
 
-  test('second layout request is rejected before transport dispatch', () async {
-    final client = _FakeClient();
+  test('layout expectation is derived from page count and chunk size', () {
+    expect(
+      trainCExpectedLayoutRequestCount(pageCount: 22, pageChunkSize: 30),
+      1,
+    );
+
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(
+      expectedLayoutRequests: trainCExpectedLayoutRequestCount(
+        pageCount: 22,
+        pageChunkSize: 30,
+      ),
+    );
+    final events = <int>[
+      ledger.recordDispatchMethod('POST'),
+      ledger.recordDispatchMethod('GET'),
+      ledger.recordDispatchMethod('GET'),
+      ledger.recordDispatchMethod('GET'),
+    ];
+    for (final event in events) {
+      ledger.recordResponse(eventIndex: event, statusCode: 200, durationMs: 1);
+    }
+
+    expect(ledger.providerDispatchCount, 4);
+    expect(ledger.providerResponseCount, 4);
+    expect(ledger.safeSummary()['layoutPostCount'], 1);
+    expect(ledger.safeSummary()['remoteCropRequestCount'], 3);
+    expect(ledger.safeSummary()['networkFailureCount'], 0);
+  });
+
+  test('second layout request is rejected before a new event is recorded', () {
     final ledger = TrainCRequestLedger();
     ledger.beginParse(expectedLayoutRequests: 1);
-    final observer = TrainCHttpObserver(innerClient: client, ledger: ledger);
+    ledger.recordDispatchMethod('POST');
 
-    await observer.post(Uri.parse('https://provider.example/layout'));
     expect(
-      () => observer.post(Uri.parse('https://provider.example/retry')),
+      () => ledger.recordDispatchMethod('POST'),
       throwsA(
         isA<TrainCProtocolException>().having(
           (error) => error.code,
@@ -63,22 +71,20 @@ void main() {
         ),
       ),
     );
-    expect(client.sendCount, 1);
+    expect(ledger.providerDispatchCount, 1);
   });
 
-  test('provider dispatch is forbidden after parse', () async {
-    final client = _FakeClient();
+  test('provider dispatch is forbidden after parse', () {
     final ledger = TrainCRequestLedger();
     ledger.beginParse(expectedLayoutRequests: 1);
-    final observer = TrainCHttpObserver(innerClient: client, ledger: ledger);
-
-    await observer.post(Uri.parse('https://provider.example/layout'));
+    final event = ledger.recordDispatchMethod('POST');
+    ledger.recordResponse(eventIndex: event, statusCode: 200, durationMs: 1);
     ledger.finishParse(successful: true);
     ledger.enterPhase(TrainCPhase.commit);
     ledger.enterPhase(TrainCPhase.restart);
 
     expect(
-      () => observer.get(Uri.parse('https://provider.example/late')),
+      () => ledger.recordDispatchMethod('GET'),
       throwsA(
         isA<TrainCProtocolException>().having(
           (error) => error.code,
@@ -87,7 +93,8 @@ void main() {
         ),
       ),
     );
-    expect(client.sendCount, 1);
+    expect(ledger.providerDispatchCount, 2);
+    expect(ledger.unexpectedProviderRequestCount, 1);
   });
 
   test('offline entrypoint proves provider dispatch is zero', () {
@@ -96,23 +103,8 @@ void main() {
     expect(proof['stage'], 'TRAIN-C-H0');
     expect(proof['status'], 'PASS');
     expect(proof['liveRun'], 'BLOCKED');
+    expect(proof['authority'], 'offline_harness_only');
     expect(proof['providerDispatchCount'], 0);
     expect(proof['providerResponseCount'], 0);
   });
-}
-
-final class _FakeClient extends http.BaseClient {
-  var sendCount = 0;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    sendCount++;
-    return http.StreamedResponse(
-      Stream<List<int>>.fromIterable(<List<int>>[
-        utf8.encode('PRIVATE_RESPONSE_BODY'),
-      ]),
-      200,
-      request: request,
-    );
-  }
 }

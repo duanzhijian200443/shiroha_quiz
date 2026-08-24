@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'train_c_http_observer.dart';
+
 const _topLevelKeys = <String>{
   'schemaVersion',
   'runNumber',
@@ -17,9 +19,7 @@ const _topLevelKeys = <String>{
   'restart',
   'backupRestore',
   'tableLiveCoverage',
-  'firstLoss',
-  'result',
-  'failureCode',
+  'tableSummary',
 };
 
 const _sectionKeys = <String, Set<String>>{
@@ -32,10 +32,14 @@ const _sectionKeys = <String, Set<String>>{
   'input': <String>{'sha256', 'sizeBytes', 'pageCount'},
   'attempt': <String>{
     'consumed',
+    'layoutPostCount',
+    'layoutChunkSize',
+    'expectedLayoutRequestCount',
     'providerDispatchCount',
     'providerResponseCount',
     'remoteCropRequestCount',
     'unexpectedProviderRequestCount',
+    'networkFailureCount',
   },
   'safety': <String>{
     'layoutResponsePolicyActive',
@@ -60,10 +64,18 @@ const _sectionKeys = <String, Set<String>>{
     'validEnvelopeCount',
   },
   'imageSummary': <String>{
+    'referencedImageBlockCount',
     'typedImageNodeCount',
-    'uniqueReferencedAssetCount',
-    'resolvedAssetCount',
+    'referencedUniqueAssetCount',
+    'typedUniqueAssetCount',
+    'resolvedUniqueAssetCount',
     'allReachableResolved',
+    'canonicalIdentityPreserved',
+  },
+  'tableSummary': <String>{
+    'referencedTableBlockCount',
+    'typedTableNodeCount',
+    'tableContractConformant',
   },
   'commit': <String>{
     'status',
@@ -86,21 +98,30 @@ const _sectionKeys = <String, Set<String>>{
     'restoreStatus',
     'restoredQuestionCount',
     'restoredV2Sidecars',
+    'reachableAssetCount',
+    'backupManifestAssetCount',
+    'restoredAssetCount',
+    'manifestMatchesReachableAssets',
+    'restoredIdentityPreserved',
     'allReachableResolved',
     'providerDispatchCount',
   },
-  'firstLoss': <String>{'status', 'checkpoint'},
 };
 
 const _mandatoryQuestionKeys = <String>{
-  'typedImageNode',
-  'assetRefClosure',
-  'durableBytes',
+  'referencedImageCount',
+  'typedImageNodeCount',
+  'referencedUniqueAssetCount',
+  'resolvedUniqueAssetCount',
+  'canonicalIdentityPreserved',
+  'commitPreserved',
   'restartResolution',
   'restartRender',
   'b0RestoreResolution',
   'b0RestoreRender',
 };
+
+const _trainBMergeCommit = '711fd33f564b9fb6bb3c992d6458b0075990646c';
 
 final class TrainCEvidenceProbeException implements Exception {
   const TrainCEvidenceProbeException(this.code);
@@ -111,31 +132,89 @@ final class TrainCEvidenceProbeException implements Exception {
   String toString() => code;
 }
 
+final class TrainCExpectedCodeIdentity {
+  const TrainCExpectedCodeIdentity({
+    required this.productionHead,
+    required this.harnessHead,
+    required this.trainBMergeCommit,
+  });
+
+  final String productionHead;
+  final String harnessHead;
+  final String trainBMergeCommit;
+
+  factory TrainCExpectedCodeIdentity.forCurrentRepository() {
+    final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+    final output = result.stdout;
+    if (result.exitCode != 0 || output is! String) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    final harnessHead = output.trim();
+    if (!_isHex(harnessHead, 40)) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    return TrainCExpectedCodeIdentity(
+      productionHead: _trainBMergeCommit,
+      harnessHead: harnessHead,
+      trainBMergeCommit: _trainBMergeCommit,
+    );
+  }
+
+  void validate(Map<String, dynamic> code) {
+    if (_requiredString(code, 'productionHead') != productionHead ||
+        _requiredString(code, 'harnessHead') != harnessHead ||
+        _requiredString(code, 'trainBMergeCommit') != trainBMergeCommit) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+  }
+}
+
 final class TrainCEvidenceProbeResult {
   const TrainCEvidenceProbeResult({
-    required this.passed,
+    required this.schemaValid,
+    required this.acceptanceAuthorized,
     required this.evidence,
   });
 
-  final bool passed;
+  final bool schemaValid;
+  final bool acceptanceAuthorized;
   final Map<String, dynamic> evidence;
+
+  /// Compatibility accessor for focused harness tests. A true value means
+  /// only that the supplied snapshot is schema-valid, not live-accepted.
+  bool get passed => schemaValid;
 }
 
-/// Read-only, privacy-allowlisted acceptance probe.
+/// Read-only, privacy-allowlisted schema validator.
 ///
-/// The probe accepts only the safe aggregate schema from the TRAIN C runbook.
-/// It never opens a database, starts Flutter, calls a provider, or writes a
-/// replay/evidence file. The optional CLI input is a JSON snapshot supplied by
-/// a future live runner, never the source PDF itself.
+/// This class never opens a database, starts Flutter, calls a provider, or
+/// writes replay/evidence data. External JSON can become `SCHEMA_VALID`, but
+/// it cannot become final TRAIN C acceptance because [acceptanceAuthorized]
+/// remains false. The trusted collector is the only acceptance seam.
 final class TrainCEvidenceProbe {
-  const TrainCEvidenceProbe();
+  const TrainCEvidenceProbe({required this.expectedIdentity});
+
+  factory TrainCEvidenceProbe.forCurrentRepository() {
+    return TrainCEvidenceProbe(
+      expectedIdentity: TrainCExpectedCodeIdentity.forCurrentRepository(),
+    );
+  }
+
+  final TrainCExpectedCodeIdentity expectedIdentity;
 
   TrainCEvidenceProbeResult inspect(Map<String, dynamic> input) {
     final safe = _normalize(input);
     final failure = _firstFailure(safe);
     final evidence = <String, dynamic>{
       ...safe,
-      'result': failure == null ? 'PASS' : 'FAIL',
+      'authority': 'schema_validator_only',
+      'result': failure == null ? 'SCHEMA_VALID' : 'SCHEMA_INVALID',
       'failureCode': failure?.code,
       'firstLoss': <String, dynamic>{
         'status': failure == null ? 'NONE' : 'PROVEN',
@@ -143,8 +222,28 @@ final class TrainCEvidenceProbe {
       },
     };
     return TrainCEvidenceProbeResult(
-      passed: failure == null,
+      schemaValid: failure == null,
+      acceptanceAuthorized: false,
       evidence: evidence,
+    );
+  }
+
+  /// This method is called only by the trusted collector seam, never by the
+  /// JSON CLI. Its source must be an isolated runtime collector rather than a
+  /// user-provided file.
+  TrainCEvidenceProbeResult inspectTrustedSnapshot(
+    Map<String, dynamic> authoritativeSnapshot,
+  ) {
+    final schemaResult = inspect(authoritativeSnapshot);
+    if (!schemaResult.schemaValid) return schemaResult;
+    return TrainCEvidenceProbeResult(
+      schemaValid: true,
+      acceptanceAuthorized: true,
+      evidence: <String, dynamic>{
+        ...schemaResult.evidence,
+        'authority': 'trusted_collector',
+        'result': 'PASS',
+      },
     );
   }
 
@@ -187,7 +286,7 @@ final class TrainCEvidenceProbe {
 
     final schemaVersion = _requiredInt(input, 'schemaVersion');
     final runNumber = _requiredInt(input, 'runNumber');
-    if (schemaVersion != 2 || runNumber != 1) {
+    if (schemaVersion != 3 || runNumber != 1) {
       throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
     }
 
@@ -257,33 +356,58 @@ final class TrainCEvidenceProbe {
 
   void _validateTypes(Map<String, dynamic> evidence) {
     final code = _section(evidence, 'code');
-    _requireHex(code, 'productionHead', 40);
-    _requireHex(code, 'harnessHead', 40);
-    _requireHex(code, 'trainBMergeCommit', 40);
+    expectedIdentity.validate(code);
     if (_requiredInt(code, 'productionDiffFromBase') != 0) {
       throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
     }
 
     final input = _section(evidence, 'input');
     _requireHex(input, 'sha256', 64);
-    if (_requiredInt(input, 'sizeBytes') <= 0 ||
-        _requiredInt(input, 'pageCount') <= 0) {
+    final pageCount = _requiredInt(input, 'pageCount');
+    if (_requiredInt(input, 'sizeBytes') <= 0 || pageCount <= 0) {
       throw const TrainCEvidenceProbeException('TRAIN_C_INPUT_INVALID');
     }
 
     final attempt = _section(evidence, 'attempt');
+    final pageChunkSize = _requiredInt(attempt, 'layoutChunkSize');
+    final expectedLayoutCount = trainCExpectedLayoutRequestCount(
+      pageCount: pageCount,
+      pageChunkSize: pageChunkSize,
+    );
     if (_requiredBool(attempt, 'consumed') != true ||
+        _requiredInt(attempt, 'expectedLayoutRequestCount') !=
+            expectedLayoutCount ||
+        _requiredInt(attempt, 'layoutPostCount') != expectedLayoutCount ||
         _requiredInt(attempt, 'unexpectedProviderRequestCount') != 0) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE',
       );
     }
     _nonNegativeFields(attempt, const <String>[
+      'layoutPostCount',
+      'layoutChunkSize',
+      'expectedLayoutRequestCount',
       'providerDispatchCount',
       'providerResponseCount',
       'remoteCropRequestCount',
       'unexpectedProviderRequestCount',
+      'networkFailureCount',
     ]);
+    final dispatch = _requiredInt(attempt, 'providerDispatchCount');
+    final arithmetic = _requiredInt(attempt, 'layoutPostCount') +
+        _requiredInt(attempt, 'remoteCropRequestCount') +
+        _requiredInt(attempt, 'unexpectedProviderRequestCount');
+    if (dispatch != arithmetic ||
+        _requiredInt(attempt, 'providerResponseCount') != dispatch) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_EVIDENCE_INCONSISTENT',
+      );
+    }
+    if (_requiredInt(attempt, 'networkFailureCount') != 0) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_PROVIDER_RESPONSE_RESOURCE_FAILURE',
+      );
+    }
 
     final safety = _section(evidence, 'safety');
     if (_requiredBool(safety, 'layoutResponsePolicyActive') != true ||
@@ -303,6 +427,7 @@ final class TrainCEvidenceProbe {
 
     final parse = _section(evidence, 'parse');
     if (_requiredString(parse, 'status') != 'PASS' ||
+        _requiredInt(parse, 'imageBlockCount') <= 0 ||
         _requiredInt(parse, 'assembledQuestionCount') != 22 ||
         _requiredInt(parse, 'finalQuestionCount') != 22) {
       throw const TrainCEvidenceProbeException(
@@ -321,10 +446,10 @@ final class TrainCEvidenceProbe {
     final numbering = _section(evidence, 'numbering');
     final numbers = numbering['questionNumbers'];
     if (numbers is! List ||
-        !List<Object?>.generate(
-          22,
-          (index) => index + 1,
-        ).asMap().entries.every((entry) => numbers[entry.key] == entry.value) ||
+        numbers.length != 22 ||
+        numbers.asMap().entries.any(
+              (entry) => entry.value is! int || entry.value != entry.key + 1,
+            ) ||
         _requiredInt(numbering, 'questionCount') != 22 ||
         _requiredBool(numbering, 'exactSet1To22') != true) {
       throw const TrainCEvidenceProbeException('TRAIN_C_NUMBERING_FAILURE');
@@ -339,25 +464,69 @@ final class TrainCEvidenceProbe {
     }
 
     final images = _section(evidence, 'imageSummary');
-    if (_requiredInt(images, 'typedImageNodeCount') <= 0 ||
-        _requiredInt(images, 'uniqueReferencedAssetCount') <= 0 ||
-        _requiredInt(images, 'resolvedAssetCount') !=
-            _requiredInt(images, 'uniqueReferencedAssetCount') ||
-        _requiredBool(images, 'allReachableResolved') != true) {
+    final referencedImageCount =
+        _requiredInt(images, 'referencedImageBlockCount');
+    final typedImageCount = _requiredInt(images, 'typedImageNodeCount');
+    final referencedAssetCount =
+        _requiredInt(images, 'referencedUniqueAssetCount');
+    final typedAssetCount = _requiredInt(images, 'typedUniqueAssetCount');
+    final resolvedAssetCount = _requiredInt(images, 'resolvedUniqueAssetCount');
+    if (referencedImageCount <= 0 ||
+        typedImageCount != referencedImageCount ||
+        referencedAssetCount <= 0 ||
+        typedAssetCount != referencedAssetCount ||
+        resolvedAssetCount != referencedAssetCount ||
+        _requiredBool(images, 'allReachableResolved') != true ||
+        _requiredBool(images, 'canonicalIdentityPreserved') != true) {
       throw const TrainCEvidenceProbeException(
-        'TRAIN_C_ASSET_RESOLUTION_FAILURE',
+        'TRAIN_C_IMAGE_CLOSURE_FAILURE',
       );
+    }
+
+    final tables = _section(evidence, 'tableSummary');
+    final referencedTableCount =
+        _requiredInt(tables, 'referencedTableBlockCount');
+    final typedTableCount = _requiredInt(tables, 'typedTableNodeCount');
+    final tableCoverage = evidence['tableLiveCoverage'];
+    if (tableCoverage == 'PRESENT') {
+      if (referencedTableCount <= 0 ||
+          typedTableCount != referencedTableCount ||
+          _requiredBool(tables, 'tableContractConformant') != true) {
+        throw const TrainCEvidenceProbeException(
+          'TRAIN_C_TABLE_CLOSURE_FAILURE',
+        );
+      }
+    } else if (referencedTableCount != 0 || typedTableCount != 0) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_TABLE_CLOSURE_FAILURE',
+      );
+    } else {
+      _requiredBool(tables, 'tableContractConformant');
     }
 
     final mandatory = evidence['mandatoryQuestions'] as Map<String, dynamic>;
     for (final number in const <String>['5', '18', '19']) {
       final question = mandatory[number] as Map<String, dynamic>;
-      for (final key in _mandatoryQuestionKeys) {
-        if (_requiredBool(question, key) != true) {
-          throw const TrainCEvidenceProbeException(
-            'TRAIN_C_IMAGE_NODE_MISSING',
-          );
-        }
+      final referenced = _requiredInt(question, 'referencedImageCount');
+      final typedCount = _requiredInt(question, 'typedImageNodeCount');
+      final referencedAssets =
+          _requiredInt(question, 'referencedUniqueAssetCount');
+      if (referenced <= 0 ||
+          typedCount != referenced ||
+          referencedAssets <= 0 ||
+          _requiredInt(question, 'resolvedUniqueAssetCount') !=
+              referencedAssets ||
+          !_allTrue(question, const <String>[
+            'canonicalIdentityPreserved',
+            'commitPreserved',
+            'restartResolution',
+            'restartRender',
+            'b0RestoreResolution',
+            'b0RestoreRender',
+          ])) {
+        throw const TrainCEvidenceProbeException(
+          'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        );
       }
     }
 
@@ -380,21 +549,23 @@ final class TrainCEvidenceProbe {
     }
 
     final backup = _section(evidence, 'backupRestore');
+    final reachableAssets = _requiredInt(backup, 'reachableAssetCount');
     if (_requiredInt(backup, 'packageVersion') != 2 ||
         _requiredInt(backup, 'schemaVersion') != 23 ||
         _requiredString(backup, 'backupStatus') != 'PASS' ||
         _requiredString(backup, 'restoreStatus') != 'PASS' ||
         _requiredInt(backup, 'restoredQuestionCount') != 22 ||
         _requiredInt(backup, 'restoredV2Sidecars') != 22 ||
+        reachableAssets <= 0 ||
+        _requiredInt(backup, 'backupManifestAssetCount') != reachableAssets ||
+        _requiredInt(backup, 'restoredAssetCount') != reachableAssets ||
+        _requiredBool(backup, 'manifestMatchesReachableAssets') != true ||
+        _requiredBool(backup, 'restoredIdentityPreserved') != true ||
         _requiredBool(backup, 'allReachableResolved') != true ||
         _requiredInt(backup, 'providerDispatchCount') != 0) {
-      throw const TrainCEvidenceProbeException('TRAIN_C_RESTORE_FAILURE');
-    }
-
-    final firstLoss = _section(evidence, 'firstLoss');
-    if (_requiredString(firstLoss, 'status') != 'NONE' ||
-        firstLoss['checkpoint'] != null) {
-      throw const TrainCEvidenceProbeException('TRAIN_C_FIRST_LOSS_UNKNOWN');
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_B0_ASSET_SET_FAILURE',
+      );
     }
   }
 
@@ -406,15 +577,20 @@ final class TrainCEvidenceProbe {
       final checkpoint = switch (error.code) {
         'TRAIN_C_PROVIDER_RESPONSE_RESOURCE_FAILURE' => 'P2',
         'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE' => 'P1',
+        'TRAIN_C_EVIDENCE_INCONSISTENT' => 'P2',
         'TRAIN_C_CANDIDATE_CLEANUP_PENDING' => 'P9',
         'TRAIN_C_PENDING_REVIEW_FAILURE' => 'P9',
         'TRAIN_C_NUMBERING_FAILURE' => 'P8',
         'TRAIN_C_TYPED_ROUTE_FAILURE' => 'P8',
+        'TRAIN_C_IMAGE_CLOSURE_FAILURE' => 'P7',
+        'TRAIN_C_TABLE_CLOSURE_FAILURE' => 'P7',
         'TRAIN_C_ASSET_RESOLUTION_FAILURE' => 'P7',
         'TRAIN_C_IMAGE_NODE_MISSING' => 'P7',
         'TRAIN_C_COMMIT_FAILURE' => 'P11',
         'TRAIN_C_RESTART_FAILURE' => 'P12',
+        'TRAIN_C_B0_ASSET_SET_FAILURE' => 'P14',
         'TRAIN_C_RESTORE_FAILURE' => 'P14',
+        'TRAIN_C_CODE_IDENTITY_MISMATCH' => 'P0',
         'TRAIN_C_INPUT_INVALID' => 'P0',
         'TRAIN_C_HEAD_DRIFT' => 'P0',
         _ => 'P0',
@@ -429,6 +605,13 @@ final class TrainCEvidenceProbe {
       throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
     }
     return value;
+  }
+
+  bool _allTrue(Map<String, dynamic> map, Iterable<String> keys) {
+    for (final key in keys) {
+      if (_requiredBool(map, key) != true) return false;
+    }
+    return true;
   }
 
   int _requiredInt(Map<String, dynamic> map, String key) {
@@ -457,8 +640,8 @@ final class TrainCEvidenceProbe {
 
   void _requireHex(Map<String, dynamic> map, String key, int length) {
     final value = _requiredString(map, key);
-    if (value.length != length || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(value)) {
-      throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+    if (!_isHex(value, length)) {
+      throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
     }
   }
 
@@ -478,6 +661,18 @@ final class _ProbeFailure {
   final String code;
 }
 
+bool _isHex(String value, int length) {
+  return value.length == length && RegExp(r'^[0-9a-fA-F]+$').hasMatch(value);
+}
+
+String _requiredString(Map<String, dynamic> map, String key) {
+  final value = map[key];
+  if (value is! String) {
+    throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
+  }
+  return value;
+}
+
 void main(List<String> args) {
   if (args.length != 2 || args.first != '--input') {
     stderr.writeln('TRAIN_C_HARNESS_NOT_READY');
@@ -485,9 +680,11 @@ void main(List<String> args) {
     return;
   }
   try {
-    final result = const TrainCEvidenceProbe().inspectFile(args[1]);
+    final result = TrainCEvidenceProbe.forCurrentRepository().inspectFile(
+      args[1],
+    );
     stdout.writeln(const JsonEncoder.withIndent('  ').convert(result.evidence));
-    exitCode = result.passed ? 0 : 1;
+    exitCode = result.schemaValid ? 0 : 1;
   } on TrainCEvidenceProbeException catch (error) {
     stderr.writeln(error.code);
     exitCode = 2;

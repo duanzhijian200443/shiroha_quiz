@@ -1,8 +1,10 @@
-// ignore_for_file: depend_on_referenced_packages
+// Safe request/phase accounting for the TRAIN C offline harness.
+//
+// This file deliberately contains no HTTP client wrapper. The transparent
+// dart:io interception lives in [train_c_http_overrides.dart] and delegates
+// to the production-created client so it cannot replace production transport
+// policy.
 
-import 'package:http/http.dart' as http;
-
-/// Production phases in which an OCR provider request is forbidden.
 enum TrainCPhase {
   preflight,
   parse,
@@ -56,12 +58,22 @@ final class _TrainCNetworkEvent {
   int durationMs = 0;
 }
 
+/// Computes expected layout requests from the runtime page count and chunk.
+int trainCExpectedLayoutRequestCount({
+  required int pageCount,
+  required int pageChunkSize,
+}) {
+  if (pageCount <= 0 || pageChunkSize <= 0) {
+    throw const TrainCProtocolException('TRAIN_C_INPUT_INVALID');
+  }
+  return (pageCount + pageChunkSize - 1) ~/ pageChunkSize;
+}
+
 /// In-memory request/phase ledger for the TRAIN C entrypoint.
 ///
 /// The ledger observes only HTTP method, safe status category and timing. It
-/// deliberately never reads a request URL, request body, response body or
-/// exception detail. It is a guard around the production entrypoint, not a
-/// second implementation of OCR transport or image-budget policy.
+/// never reads a request URI, request body, response body or exception detail.
+/// It is a guard around the production entrypoint, not a second OCR transport.
 final class TrainCRequestLedger {
   TrainCRequestLedger();
 
@@ -71,19 +83,22 @@ final class TrainCRequestLedger {
   int _remoteCropRequestCount = 0;
   int _unexpectedProviderRequestCount = 0;
   int _providerResponseCount = 0;
+  int _networkFailureCount = 0;
   bool _attemptConsumed = false;
   final List<_TrainCNetworkEvent> _events = <_TrainCNetworkEvent>[];
   final Map<String, int> _responseStatusCounts = <String, int>{};
 
   TrainCPhase get phase => _phase;
   bool get attemptConsumed => _attemptConsumed;
+  int get layoutPostCount => _layoutPostCount;
+  int get remoteCropRequestCount => _remoteCropRequestCount;
+  int get unexpectedProviderRequestCount => _unexpectedProviderRequestCount;
+  int get providerResponseCount => _providerResponseCount;
+  int get networkFailureCount => _networkFailureCount;
   int get providerDispatchCount =>
       _layoutPostCount +
       _remoteCropRequestCount +
       _unexpectedProviderRequestCount;
-  int get providerResponseCount => _providerResponseCount;
-  int get remoteCropRequestCount => _remoteCropRequestCount;
-  int get unexpectedProviderRequestCount => _unexpectedProviderRequestCount;
 
   /// Opens the one and only live parse window.
   void beginParse({required int expectedLayoutRequests}) {
@@ -102,10 +117,18 @@ final class TrainCRequestLedger {
     if (_phase != TrainCPhase.parse) {
       throw const TrainCProtocolException('TRAIN_C_HARNESS_NOT_READY');
     }
-    if (successful && _layoutPostCount != _expectedLayoutRequests) {
-      throw const TrainCProtocolException(
-        'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE',
-      );
+    if (successful) {
+      if (_layoutPostCount != _expectedLayoutRequests) {
+        throw const TrainCProtocolException(
+          'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE',
+        );
+      }
+      if (_providerResponseCount != providerDispatchCount ||
+          _networkFailureCount != 0) {
+        throw const TrainCProtocolException(
+          'TRAIN_C_PROVIDER_RESPONSE_RESOURCE_FAILURE',
+        );
+      }
     }
     _phase = successful ? TrainCPhase.pendingReview : TrainCPhase.complete;
   }
@@ -126,12 +149,16 @@ final class TrainCRequestLedger {
     _phase = next;
   }
 
-  TrainCRequestKind classify(http.BaseRequest request) {
-    return switch (request.method.toUpperCase()) {
+  TrainCRequestKind classifyMethod(String method) {
+    return switch (method.toUpperCase()) {
       'POST' => TrainCRequestKind.layoutPost,
       'GET' => TrainCRequestKind.remoteCropGet,
       _ => TrainCRequestKind.unexpected,
     };
+  }
+
+  int recordDispatchMethod(String method) {
+    return recordDispatch(classifyMethod(method));
   }
 
   int recordDispatch(TrainCRequestKind kind) {
@@ -187,16 +214,19 @@ final class TrainCRequestLedger {
     final event = _eventAt(eventIndex);
     event.statusCategory = 'network_failure';
     event.durationMs = durationMs < 0 ? 0 : durationMs;
+    _networkFailureCount++;
   }
 
   Map<String, Object?> safeSummary() {
     return <String, Object?>{
       'phase': _phase.wireName,
       'attemptConsumed': _attemptConsumed,
+      'layoutPostCount': _layoutPostCount,
       'providerDispatchCount': providerDispatchCount,
       'providerResponseCount': _providerResponseCount,
       'remoteCropRequestCount': _remoteCropRequestCount,
       'unexpectedProviderRequestCount': _unexpectedProviderRequestCount,
+      'networkFailureCount': _networkFailureCount,
       'eventCount': _events.length,
       'responseStatusCounts': Map<String, int>.unmodifiable(
         _responseStatusCounts,
@@ -218,43 +248,4 @@ final class TrainCRequestLedger {
     if (statusCode >= 500 && statusCode < 600) return 'server_error';
     return 'other';
   }
-}
-
-/// Transparent package:http wrapper for the production composition seam.
-///
-/// It observes headers only. Stream ownership and response-body handling stay
-/// entirely with the production client.
-final class TrainCHttpObserver extends http.BaseClient {
-  TrainCHttpObserver({
-    required http.Client innerClient,
-    required TrainCRequestLedger ledger,
-  })  : _innerClient = innerClient,
-        _ledger = ledger;
-
-  final http.Client _innerClient;
-  final TrainCRequestLedger _ledger;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final eventIndex = _ledger.recordDispatch(_ledger.classify(request));
-    final stopwatch = Stopwatch()..start();
-    try {
-      final response = await _innerClient.send(request);
-      _ledger.recordResponse(
-        eventIndex: eventIndex,
-        statusCode: response.statusCode,
-        durationMs: stopwatch.elapsedMilliseconds,
-      );
-      return response;
-    } catch (_) {
-      _ledger.recordNetworkFailure(
-        eventIndex: eventIndex,
-        durationMs: stopwatch.elapsedMilliseconds,
-      );
-      rethrow;
-    }
-  }
-
-  @override
-  void close() => _innerClient.close();
 }

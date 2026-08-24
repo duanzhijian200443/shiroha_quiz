@@ -5,13 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../tool/train_c_evidence_probe.dart';
 
 void main() {
-  const probe = TrainCEvidenceProbe();
+  test('accepts a complete safe schema without granting live authority', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      _validSnapshot(expected),
+    );
 
-  test('accepts a complete safe TRAIN C snapshot', () {
-    final result = probe.inspect(_validSnapshot());
-
-    expect(result.passed, isTrue);
-    expect(result.evidence['result'], 'PASS');
+    expect(result.schemaValid, isTrue);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['result'], 'SCHEMA_VALID');
+    expect(result.evidence['authority'], 'schema_validator_only');
     expect(result.evidence['failureCode'], isNull);
     expect(
       result.evidence['numbering']['questionNumbers'],
@@ -22,11 +25,12 @@ void main() {
   });
 
   test('rejects unknown privacy-bearing keys before projection', () {
-    final snapshot = _validSnapshot()
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected)
       ..['providerUrl'] = 'https://provider.example';
 
     expect(
-      () => probe.inspect(snapshot),
+      () => TrainCEvidenceProbe(expectedIdentity: expected).inspect(snapshot),
       throwsA(
         isA<TrainCEvidenceProbeException>().having(
           (error) => error.code,
@@ -38,12 +42,13 @@ void main() {
   });
 
   test('rejects raw source identity fields in nested safe sections', () {
-    final snapshot = _validSnapshot();
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
     final images = snapshot['imageSummary'] as Map<String, dynamic>;
     images['sourceId'] = 'private-source';
 
     expect(
-      () => probe.inspect(snapshot),
+      () => TrainCEvidenceProbe(expectedIdentity: expected).inspect(snapshot),
       throwsA(
         isA<TrainCEvidenceProbeException>().having(
           (error) => error.code,
@@ -55,13 +60,17 @@ void main() {
   });
 
   test('returns a fixed first-loss code for typed route failure', () {
-    final snapshot = _validSnapshot();
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
     (snapshot['typed'] as Map<String, dynamic>)['storageRoute'] = 'legacyV1';
 
-    final result = probe.inspect(snapshot);
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
 
-    expect(result.passed, isFalse);
-    expect(result.evidence['result'], 'FAIL');
+    expect(result.schemaValid, isFalse);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['result'], 'SCHEMA_INVALID');
     expect(result.evidence['failureCode'], 'TRAIN_C_TYPED_ROUTE_FAILURE');
     expect(result.evidence['firstLoss'], <String, dynamic>{
       'status': 'PROVEN',
@@ -70,29 +79,156 @@ void main() {
   });
 
   test('reports cleanup pending as a lifecycle failure', () {
-    final snapshot = _validSnapshot();
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
     (snapshot['safety'] as Map<String, dynamic>)['candidateCleanupPending'] =
         true;
 
-    final result = probe.inspect(snapshot);
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
 
-    expect(result.passed, isFalse);
+    expect(result.schemaValid, isFalse);
     expect(result.evidence['failureCode'], 'TRAIN_C_CANDIDATE_CLEANUP_PENDING');
     expect(result.evidence['firstLoss'], <String, dynamic>{
       'status': 'PROVEN',
       'checkpoint': 'P9',
     });
   });
+
+  test('rejects image first-loss instead of accepting a partial typed set', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    final images = snapshot['imageSummary'] as Map<String, dynamic>;
+    images['typedImageNodeCount'] = 3;
+    images['referencedImageBlockCount'] = 5;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_IMAGE_CLOSURE_FAILURE');
+  });
+
+  test('rejects unique asset resolution loss', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['imageSummary']
+        as Map<String, dynamic>)['resolvedUniqueAssetCount'] = 4;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_IMAGE_CLOSURE_FAILURE');
+  });
+
+  test('rejects a mandatory Q18 local image loss', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    final q18 = (snapshot['mandatoryQuestions'] as Map<String, dynamic>)['18']
+        as Map<String, dynamic>;
+    q18['typedImageNodeCount'] = 1;
+    q18['referencedImageCount'] = 2;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_IMAGE_CLOSURE_FAILURE');
+  });
+
+  test('rejects a present table with a missing TableNode', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    snapshot['tableLiveCoverage'] = 'PRESENT';
+    (snapshot['tableSummary'] as Map<String, dynamic>)
+      ..['referencedTableBlockCount'] = 2
+      ..['typedTableNodeCount'] = 1;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_TABLE_CLOSURE_FAILURE');
+  });
+
+  test('rejects inconsistent provider arithmetic', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['attempt'] as Map<String, dynamic>)['providerDispatchCount'] = 1;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_EVIDENCE_INCONSISTENT');
+  });
+
+  test('rejects a well-formed but unexpected code identity', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['code'] as Map<String, dynamic>)['harnessHead'] =
+        List<String>.filled(40, 'f').join();
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_CODE_IDENTITY_MISMATCH');
+  });
+
+  test('malformed numbering fails closed without RangeError', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
+    final variants = <List<Object?>>[
+      <Object?>[],
+      <Object?>[1],
+      List<Object?>.generate(21, (index) => index + 1),
+      List<Object?>.generate(23, (index) => index + 1),
+      List<Object?>.generate(22, (index) => index + 1)..[4] = '5',
+      List<Object?>.generate(22, (index) => index + 1)..[4] = 6,
+    ];
+
+    for (final numbers in variants) {
+      final snapshot = _validSnapshot(expected);
+      (snapshot['numbering'] as Map<String, dynamic>)['questionNumbers'] =
+          numbers;
+      final result = probe.inspect(snapshot);
+      expect(result.schemaValid, isFalse);
+      expect(result.evidence['failureCode'], 'TRAIN_C_NUMBERING_FAILURE');
+    }
+  });
+
+  test('rejects a B0 manifest that omits a reachable asset', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+    (snapshot['backupRestore']
+        as Map<String, dynamic>)['backupManifestAssetCount'] = 4;
+
+    final result = TrainCEvidenceProbe(expectedIdentity: expected).inspect(
+      snapshot,
+    );
+
+    expect(result.schemaValid, isFalse);
+    expect(result.evidence['failureCode'], 'TRAIN_C_B0_ASSET_SET_FAILURE');
+  });
 }
 
-Map<String, dynamic> _validSnapshot() {
+Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
   return <String, dynamic>{
-    'schemaVersion': 2,
+    'schemaVersion': 3,
     'runNumber': 1,
     'code': <String, dynamic>{
-      'productionHead': _hex('a', 40),
-      'harnessHead': _hex('b', 40),
-      'trainBMergeCommit': _hex('c', 40),
+      'productionHead': expected.productionHead,
+      'harnessHead': expected.harnessHead,
+      'trainBMergeCommit': expected.trainBMergeCommit,
       'productionDiffFromBase': 0,
     },
     'input': <String, dynamic>{
@@ -102,10 +238,14 @@ Map<String, dynamic> _validSnapshot() {
     },
     'attempt': <String, dynamic>{
       'consumed': true,
-      'providerDispatchCount': 1,
-      'providerResponseCount': 1,
+      'layoutPostCount': 1,
+      'layoutChunkSize': 30,
+      'expectedLayoutRequestCount': 1,
+      'providerDispatchCount': 4,
+      'providerResponseCount': 4,
       'remoteCropRequestCount': 3,
       'unexpectedProviderRequestCount': 0,
+      'networkFailureCount': 0,
     },
     'safety': <String, dynamic>{
       'layoutResponsePolicyActive': true,
@@ -116,7 +256,7 @@ Map<String, dynamic> _validSnapshot() {
     'parse': <String, dynamic>{
       'status': 'PASS',
       'blockCount': 100,
-      'imageBlockCount': 3,
+      'imageBlockCount': 5,
       'tableBlockCount': 0,
       'assembledQuestionCount': 22,
       'finalQuestionCount': 22,
@@ -134,10 +274,13 @@ Map<String, dynamic> _validSnapshot() {
       'validEnvelopeCount': 22,
     },
     'imageSummary': <String, dynamic>{
-      'typedImageNodeCount': 3,
-      'uniqueReferencedAssetCount': 3,
-      'resolvedAssetCount': 3,
+      'referencedImageBlockCount': 5,
+      'typedImageNodeCount': 5,
+      'referencedUniqueAssetCount': 3,
+      'typedUniqueAssetCount': 3,
+      'resolvedUniqueAssetCount': 3,
       'allReachableResolved': true,
+      'canonicalIdentityPreserved': true,
     },
     'mandatoryQuestions': <String, dynamic>{
       '5': _mandatoryQuestion(),
@@ -165,19 +308,31 @@ Map<String, dynamic> _validSnapshot() {
       'restoreStatus': 'PASS',
       'restoredQuestionCount': 22,
       'restoredV2Sidecars': 22,
+      'reachableAssetCount': 3,
+      'backupManifestAssetCount': 3,
+      'restoredAssetCount': 3,
+      'manifestMatchesReachableAssets': true,
+      'restoredIdentityPreserved': true,
       'allReachableResolved': true,
       'providerDispatchCount': 0,
     },
     'tableLiveCoverage': 'NOT PRESENT',
-    'firstLoss': <String, dynamic>{'status': 'NONE', 'checkpoint': null},
+    'tableSummary': <String, dynamic>{
+      'referencedTableBlockCount': 0,
+      'typedTableNodeCount': 0,
+      'tableContractConformant': true,
+    },
   };
 }
 
-Map<String, bool> _mandatoryQuestion() {
-  return <String, bool>{
-    'typedImageNode': true,
-    'assetRefClosure': true,
-    'durableBytes': true,
+Map<String, dynamic> _mandatoryQuestion() {
+  return <String, dynamic>{
+    'referencedImageCount': 1,
+    'typedImageNodeCount': 1,
+    'referencedUniqueAssetCount': 1,
+    'resolvedUniqueAssetCount': 1,
+    'canonicalIdentityPreserved': true,
+    'commitPreserved': true,
     'restartResolution': true,
     'restartRender': true,
     'b0RestoreResolution': true,

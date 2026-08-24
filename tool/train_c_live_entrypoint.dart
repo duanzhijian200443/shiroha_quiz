@@ -15,6 +15,7 @@ final class TrainCLiveEntrypoint {
       'stage': 'TRAIN-C-H0',
       'status': 'PASS',
       'liveRun': 'BLOCKED',
+      'authority': 'offline_harness_only',
       ...ledger.safeSummary(),
     };
   }
