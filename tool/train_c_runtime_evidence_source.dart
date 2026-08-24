@@ -1238,8 +1238,7 @@ bool _sameMap<K, V>(Map<K, V> left, Map<K, V> right) {
   return true;
 }
 
-bool _isSha256(String value) =>
-    RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
+bool _isSha256(String value) => RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
 
 String _questionPayloadDigest<T>(
   Iterable<T> questions, {
