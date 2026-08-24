@@ -584,6 +584,35 @@ class ImportTaskCoordinator {
     final previousLease = task.status != TaskStatus.completed
         ? _readLeaseFromDiagnostics(task.diagnostics)
         : null;
+    final cleanupPendingLease = decodeCandidateAssetLeaseFromDiagnostics(
+      task.diagnostics,
+      cleanupPending: true,
+    );
+    if (cleanupPendingLease != null) {
+      final store = _contentAssetStore;
+      if (store == null) {
+        throw const ImportTaskRetryRejectedException();
+      }
+      final cleanupOutcome = await deleteCandidateAssetsWithRetry(
+        store: store,
+        lease: cleanupPendingLease,
+      );
+      if (cleanupOutcome.failedCount > 0) {
+        AppLogger.warning(
+          'Retry blocked by pending candidate asset cleanup',
+          module: 'Import',
+          data: <String, Object?>{
+            'stage': 'candidate_asset_retry_preflight',
+            'code': 'candidate_asset_cleanup_pending',
+            'status': 'blocked',
+            'deletedCount': cleanupOutcome.deletedCount,
+            'missingCount': cleanupOutcome.missingCount,
+            'failedCount': cleanupOutcome.failedCount,
+          },
+        );
+        throw const ImportTaskRetryRejectedException();
+      }
+    }
     final reservedTraceIds = _taskManager.tasks
         .where((candidate) => candidate.id != taskId)
         .map((candidate) => candidate.traceId)

@@ -43,6 +43,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
     OcrRemoteCropClientFactory? remoteCropClientFactory,
     this.remoteCropCountLimit = maxRemoteCropCount,
     this.remoteCropTotalBytesLimit = maxRemoteCropTotalBytes,
+    this.layoutResponseBytesLimit = maxLayoutParsingResponseBytes,
   })  : _httpClient = httpClient,
         _dnsResolver = dnsResolver,
         _remoteCropClientFactory = remoteCropClientFactory;
@@ -58,6 +59,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
   /// schema values and are intentionally independent from domain admission.
   static const int maxRemoteCropCount = RichContentLimits.maxImages;
   static const int maxRemoteCropTotalBytes = 32 * 1024 * 1024;
+  static const int maxLayoutParsingResponseBytes = 64 * 1024 * 1024;
   static const int maxRemoteImageRedirects = 3;
   static const int maxRemoteResponseDiscardBytes = 64 * 1024;
   static const Duration remoteImageTimeout = Duration(seconds: 30);
@@ -66,6 +68,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
   final OcrRemoteCropClientFactory? _remoteCropClientFactory;
   final int remoteCropCountLimit;
   final int remoteCropTotalBytesLimit;
+  final int layoutResponseBytesLimit;
 
   @override
   String get modelId => model;
@@ -168,18 +171,22 @@ class ZhipuOcrClient implements OcrDocumentClient {
         if (endPage != null) 'end_page_id': endPage,
       };
 
-      final response = await client
-          .post(
-            Uri.parse(buildLayoutParsingUrl(profile.baseUrl)),
-            headers: {
-              'Authorization': 'Bearer ${profile.apiKey}',
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode(body),
-          )
-          .timeout(timeout);
+      final request = http.Request(
+        'POST',
+        Uri.parse(buildLayoutParsingUrl(profile.baseUrl)),
+      )
+        ..headers.addAll(<String, String>{
+          'Authorization': 'Bearer ${profile.apiKey}',
+          'Content-Type': 'application/json',
+        })
+        ..body = jsonEncode(body);
+      final response = await client.send(request).timeout(timeout);
 
       if (response.statusCode != 200) {
+        await _discardRemoteResponseBodyBounded(
+          response.stream,
+          timeout: timeout,
+        );
         if (response.statusCode == 401 || response.statusCode == 403) {
           throw const ZhipuOcrAuthenticationException();
         }
@@ -187,7 +194,12 @@ class ZhipuOcrClient implements OcrDocumentClient {
       }
 
       try {
-        final decoded = jsonDecode(response.body);
+        final responseBytes = await _readLayoutResponseBodyBounded(
+          response.stream,
+          contentLength: response.contentLength,
+          timeout: timeout,
+        );
+        final decoded = jsonDecode(utf8.decode(responseBytes));
         if (decoded is! Map) {
           throw const ZhipuOcrResponseFormatException();
         }
@@ -281,6 +293,63 @@ class ZhipuOcrClient implements OcrDocumentClient {
     }
 
     await visit(response['layout_details']);
+  }
+
+  Future<List<int>> _readLayoutResponseBodyBounded(
+    Stream<List<int>> stream, {
+    required int? contentLength,
+    required Duration timeout,
+  }) async {
+    if (layoutResponseBytesLimit <= 0 ||
+        (contentLength != null && contentLength > layoutResponseBytesLimit)) {
+      throw const ZhipuOcrResponseFormatException();
+    }
+
+    final completed = Completer<List<int>>();
+    final builder = BytesBuilder(copy: false);
+    late final StreamSubscription<List<int>> subscription;
+    Timer? timer;
+    var totalBytes = 0;
+
+    void fail(Object error, [StackTrace? stackTrace]) {
+      if (completed.isCompleted) return;
+      unawaited(subscription.cancel());
+      if (stackTrace == null) {
+        completed.completeError(error);
+      } else {
+        completed.completeError(error, stackTrace);
+      }
+    }
+
+    subscription = stream.listen(
+      (chunk) {
+        if (completed.isCompleted) return;
+        totalBytes += chunk.length;
+        if (totalBytes > layoutResponseBytesLimit) {
+          fail(const ZhipuOcrResponseFormatException());
+          return;
+        }
+        builder.add(chunk);
+      },
+      onError: (Object error, StackTrace stackTrace) =>
+          fail(error, stackTrace),
+      onDone: () {
+        if (!completed.isCompleted) {
+          completed.complete(builder.takeBytes());
+        }
+      },
+    );
+    timer = Timer(
+      timeout,
+      () => fail(TimeoutException('GLM-OCR response body timed out.')),
+    );
+
+    try {
+      return await completed.future;
+    } finally {
+      timer.cancel();
+      await subscription.cancel();
+    }
   }
 
   Future<String?> _downloadRemoteImageAsDataUrl(
