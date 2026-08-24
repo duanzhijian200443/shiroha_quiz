@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -71,6 +72,7 @@ TrainCRuntimePhaseFacts _placeholderFacts() {
     restartCheckpoint: empty,
     b0: TrainCB0PhaseFacts(
       packagePath: '',
+      preB0Checkpoint: empty,
       restoreCheckpoint: empty,
     ),
   );
@@ -186,6 +188,7 @@ TrainCRuntimePhaseFacts _finalFacts({
   required TrainCRuntimeCheckpoint restore,
   required String packagePath,
   required TrainCRequestLedger ledger,
+  TrainCSourceImageFacts? sourceImages,
 }) {
   return TrainCRuntimePhaseFacts(
     input: const TrainCInputFacts(
@@ -194,7 +197,7 @@ TrainCRuntimePhaseFacts _finalFacts({
       sizeBytes: 123,
       pageCount: 20,
     ),
-    parse: const TrainCParseFacts(
+    parse: TrainCParseFacts(
       blockCount: 4,
       imageBlockCount: 3,
       tableBlockCount: 1,
@@ -205,12 +208,22 @@ TrainCRuntimePhaseFacts _finalFacts({
       storageRoute: 'typedV2',
       storageReason: 'typed_candidate_ready',
       layoutChunkSize: 20,
+      sourceImages: sourceImages ??
+          TrainCSourceImageFacts(
+            referencedImageCounts: <int, int>{5: 1, 18: 1, 19: 1},
+            referencedIdentitiesByQuestion: <int, Set<(String, String)>>{
+              5: <(String, String)>{('synthetic_source', 'asset_q5')},
+              18: <(String, String)>{('synthetic_source', 'asset_q18')},
+              19: <(String, String)>{('synthetic_source', 'asset_q19')},
+            },
+          ),
     ),
     requestLedger: ledger,
     commitCheckpoint: commit,
     restartCheckpoint: restart,
     b0: TrainCB0PhaseFacts(
       packagePath: packagePath,
+      preB0Checkpoint: restart,
       restoreCheckpoint: restore,
     ),
   );
@@ -300,6 +313,7 @@ void main() {
       );
     }
 
+    final reviewed = _reviewedForCurrentHead();
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _finalFacts(
@@ -310,16 +324,62 @@ void main() {
         ledger: await _syntheticLedger(),
       ),
       renderEvidence: const _AllRenderEvidence(),
+      reviewedIdentity: reviewed,
     );
     final snapshot = await source.readAuthoritativeSnapshot();
     expect(snapshot['imageSummary'], isA<Map<String, dynamic>>());
     final result = await TrainCTrustedEvidenceCollector(
-      TrainCEvidenceProbe.forCurrentRepository(),
+      TrainCEvidenceProbe(
+        expectedIdentity: reviewed.toExpectedCodeIdentity(),
+      ),
       executionStateGate: const _CleanGate(),
     ).collect(source);
     expect(result.schemaValid, isTrue);
     expect(result.acceptanceAuthorized, isTrue);
     expect(result.evidence['result'], 'PASS');
+  });
+
+  test('source ownership mismatch fails when global image counts still match',
+      () async {
+    await _seedTwentyTwo(runtime);
+    final commit = await _capture(runtime);
+    await runtime.closeForRestart();
+    await runtime.reopen();
+    final restart = await _capture(runtime);
+    final packagePath =
+        p.join(runtime.exportDirectory.path, 'ownership.shiroha');
+    final b0 = runtime.buildBackupRuntime();
+    await b0.exportTo(packagePath);
+    final sourceImages = TrainCSourceImageFacts(
+      referencedImageCounts: <int, int>{5: 1, 18: 1, 19: 1},
+      referencedIdentitiesByQuestion: <int, Set<(String, String)>>{
+        5: <(String, String)>{('synthetic_source', 'asset_q18')},
+        18: <(String, String)>{('synthetic_source', 'asset_q5')},
+        19: <(String, String)>{('synthetic_source', 'asset_q19')},
+      },
+    );
+    final reviewed = _reviewedForCurrentHead();
+    final source = TrainCRuntimeEvidenceSource(
+      runtime: runtime,
+      phaseFacts: _finalFacts(
+        commit: commit,
+        restart: restart,
+        restore: restart,
+        packagePath: packagePath,
+        ledger: await _syntheticLedger(),
+        sourceImages: sourceImages,
+      ),
+      reviewedIdentity: reviewed,
+    );
+
+    await expectLater(
+      source.readAuthoritativeSnapshot(),
+      throwsA(
+        predicate<TrainCRuntimeEvidenceException>(
+          (error) => error.code == 'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        ),
+      ),
+    );
   });
 
   test('default render source cannot claim final acceptance', () async {
@@ -333,6 +393,7 @@ void main() {
     final b0 = runtime.buildBackupRuntime();
     await b0.exportTo(packagePath);
     final restore = await _capture(runtime);
+    final reviewed = _reviewedForCurrentHead();
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _finalFacts(
@@ -342,8 +403,11 @@ void main() {
         packagePath: packagePath,
         ledger: ledger,
       ),
+      reviewedIdentity: reviewed,
     );
-    final result = TrainCEvidenceProbe.forCurrentRepository().inspect(
+    final result = TrainCEvidenceProbe(
+      expectedIdentity: reviewed.toExpectedCodeIdentity(),
+    ).inspect(
       await source.readAuthoritativeSnapshot(),
     );
     expect(result.schemaValid, isFalse);
@@ -420,46 +484,79 @@ void main() {
     );
   });
 
-  test('B0 manifest count mismatch is reported by the probe', () async {
+  test('B0 restore is compared with the pre-B0 restart baseline', () async {
     await _seedTwentyTwo(runtime);
     final commit = await _capture(runtime);
     final packagePath = p.join(runtime.exportDirectory.path, 'b0.shiroha');
     final b0 = runtime.buildBackupRuntime();
     await b0.exportTo(packagePath);
     final ledger = await _syntheticLedger();
-    final altered = TrainCRuntimeCheckpoint(
+    final baseline = TrainCRuntimeCheckpoint(
       questionRows: commit.questionRows,
       v2Sidecars: commit.v2Sidecars,
       typedCount: commit.typedCount,
       validEnvelopeCount: commit.validEnvelopeCount,
       questionNumbers: commit.questionNumbers,
-      typedImageNodeCount: commit.typedImageNodeCount,
-      typedUniqueAssetCount: commit.typedUniqueAssetCount,
-      resolvedUniqueAssetCount: commit.resolvedUniqueAssetCount,
+      typedImageNodeCount: commit.typedImageNodeCount + 1,
+      typedUniqueAssetCount: commit.typedUniqueAssetCount + 1,
+      resolvedUniqueAssetCount: commit.resolvedUniqueAssetCount + 1,
       allReachableResolved: true,
       canonicalIdentityPreserved: true,
       typedTableNodeCount: commit.typedTableNodeCount,
       payloadDigest: commit.payloadDigest,
       reachableIdentities: <(String, String)>{
         ...commit.reachableIdentities,
-      }..remove(('synthetic_source', 'asset_q19')),
+        ('synthetic_source', 'asset_q7'),
+      },
       questions: commit.questions,
     );
+    final altered = TrainCRuntimeCheckpoint(
+      questionRows: baseline.questionRows,
+      v2Sidecars: baseline.v2Sidecars,
+      typedCount: baseline.typedCount,
+      validEnvelopeCount: baseline.validEnvelopeCount,
+      questionNumbers: baseline.questionNumbers,
+      typedImageNodeCount: baseline.typedImageNodeCount - 1,
+      typedUniqueAssetCount: baseline.typedUniqueAssetCount - 1,
+      resolvedUniqueAssetCount: baseline.resolvedUniqueAssetCount - 1,
+      allReachableResolved: true,
+      canonicalIdentityPreserved: true,
+      typedTableNodeCount: baseline.typedTableNodeCount,
+      payloadDigest: baseline.payloadDigest,
+      reachableIdentities: <(String, String)>{
+        ...baseline.reachableIdentities,
+      }..remove(('synthetic_source', 'asset_q7')),
+      questions: baseline.questions,
+    );
+    final reviewed = _reviewedForCurrentHead();
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _finalFacts(
         commit: commit,
-        restart: commit,
+        restart: baseline,
         restore: altered,
         packagePath: packagePath,
         ledger: ledger,
       ),
       renderEvidence: const _AllRenderEvidence(),
+      reviewedIdentity: reviewed,
     );
-    final result = TrainCEvidenceProbe.forCurrentRepository().inspect(
-      await source.readAuthoritativeSnapshot(),
+    await expectLater(
+      source.readAuthoritativeSnapshot(),
+      throwsA(
+        predicate<TrainCRuntimeEvidenceException>(
+          (error) => error.code == 'TRAIN_C_B0_IDENTITY_MISMATCH',
+        ),
+      ),
     );
-    expect(result.schemaValid, isFalse);
-    expect(result.evidence['failureCode'], 'TRAIN_C_B0_ASSET_SET_FAILURE');
   });
+}
+
+TrainCReviewedIdentity _reviewedForCurrentHead() {
+  final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+  return TrainCReviewedIdentity(
+    approvedHarnessHead: (result.stdout as String).trim(),
+    approvedBase: 'f1d58a278180eff38686338c28f26e4d1d7b8b7a',
+    approvedProductionBase: '711fd33f564b9fb6bb3c992d6458b0075990646c',
+  );
 }

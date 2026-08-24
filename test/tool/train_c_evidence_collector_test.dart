@@ -114,6 +114,18 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
       'productionHead': expected.productionHead,
       'harnessHead': expected.harnessHead,
       'trainBMergeCommit': expected.trainBMergeCommit,
+      'currentHead': expected.approvedHarnessHead.isEmpty
+          ? expected.harnessHead
+          : expected.approvedHarnessHead,
+      'approvedHarnessHead': expected.approvedHarnessHead.isEmpty
+          ? expected.harnessHead
+          : expected.approvedHarnessHead,
+      'approvedBase': expected.approvedBase.isEmpty
+          ? 'f1d58a278180eff38686338c28f26e4d1d7b8b7a'
+          : expected.approvedBase,
+      'approvedProductionBase': expected.approvedProductionBase.isEmpty
+          ? expected.productionHead
+          : expected.approvedProductionBase,
       'productionDiffFromBase': 0,
     },
     'input': <String, dynamic>{
@@ -213,9 +225,12 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
 Map<String, dynamic> _mandatoryQuestion() {
   return <String, dynamic>{
     'referencedImageCount': 1,
+    'sourceReferencedImageCount': 1,
     'typedImageNodeCount': 1,
     'referencedUniqueAssetCount': 1,
+    'sourceReferencedUniqueAssetCount': 1,
     'resolvedUniqueAssetCount': 1,
+    'sourceIdentityPreserved': true,
     'canonicalIdentityPreserved': true,
     'commitPreserved': true,
     'restartResolution': true,

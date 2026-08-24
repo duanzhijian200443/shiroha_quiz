@@ -13,8 +13,6 @@ import 'train_c_evidence_probe.dart';
 import 'train_c_http_observer.dart';
 import 'train_c_isolated_runtime.dart';
 
-const _trainBMergeCommit = '711fd33f564b9fb6bb3c992d6458b0075990646c';
-
 final class TrainCRuntimeEvidenceException implements Exception {
   const TrainCRuntimeEvidenceException(this.code);
 
@@ -22,6 +20,58 @@ final class TrainCRuntimeEvidenceException implements Exception {
 
   @override
   String toString() => code;
+}
+
+/// Source-side image ownership facts captured during the same parse that
+/// produced the typed drafts. Raw identities never cross into the persisted
+/// evidence map; they are used only for in-process ownership comparison.
+final class TrainCSourceImageFacts {
+  const TrainCSourceImageFacts._(
+    this.referencedImageCounts,
+    this.referencedIdentitiesByQuestion,
+  );
+
+  const TrainCSourceImageFacts.empty()
+      : this._(
+          const <int, int>{},
+          const <int, Set<(String, String)>>{},
+        );
+
+  factory TrainCSourceImageFacts({
+    required Map<int, int> referencedImageCounts,
+    required Map<int, Set<(String, String)>> referencedIdentitiesByQuestion,
+  }) {
+    return TrainCSourceImageFacts._(
+      Map<int, int>.unmodifiable(referencedImageCounts),
+      Map<int, Set<(String, String)>>.unmodifiable(
+        referencedIdentitiesByQuestion.map(
+          (number, identities) =>
+              MapEntry(number, Set<(String, String)>.unmodifiable(identities)),
+        ),
+      ),
+    );
+  }
+
+  final Map<int, int> referencedImageCounts;
+  final Map<int, Set<(String, String)>> referencedIdentitiesByQuestion;
+
+  int countFor(int questionNumber) =>
+      referencedImageCounts[questionNumber] ?? 0;
+
+  Set<(String, String)> identitiesFor(int questionNumber) =>
+      referencedIdentitiesByQuestion[questionNumber] ??
+      const <(String, String)>{};
+
+  int get totalReferencedImageCount =>
+      referencedImageCounts.values.fold(0, (sum, count) => sum + count);
+
+  Set<(String, String)> get allIdentities {
+    final identities = <(String, String)>{};
+    for (final value in referencedIdentitiesByQuestion.values) {
+      identities.addAll(value);
+    }
+    return Set<(String, String)>.unmodifiable(identities);
+  }
 }
 
 final class TrainCInputFacts {
@@ -47,6 +97,7 @@ final class TrainCParseFacts {
     required this.finalQuestionCount,
     required this.storageRoute,
     required this.storageReason,
+    this.sourceImages = const TrainCSourceImageFacts.empty(),
     this.warningCount = 0,
     this.status = 'PASS',
     this.layoutResponsePolicyActive = true,
@@ -68,6 +119,7 @@ final class TrainCParseFacts {
   final int warningCount;
   final String storageRoute;
   final String storageReason;
+  final TrainCSourceImageFacts sourceImages;
   final bool layoutResponsePolicyActive;
   final bool documentImageBudgetPolicyActive;
   final bool resourceFailure;
@@ -107,6 +159,7 @@ final class TrainCQuestionCheckpoint {
     required this.canonicalIdentityPreserved,
     required this.allReachableResolved,
     required this.identityDigest,
+    required this.reachableIdentities,
   });
 
   final int? questionNumber;
@@ -117,6 +170,7 @@ final class TrainCQuestionCheckpoint {
   final bool canonicalIdentityPreserved;
   final bool allReachableResolved;
   final String identityDigest;
+  final Set<(String, String)> reachableIdentities;
 
   bool equivalentTo(TrainCQuestionCheckpoint other) {
     return questionNumber == other.questionNumber &&
@@ -126,7 +180,8 @@ final class TrainCQuestionCheckpoint {
         tableNodeCount == other.tableNodeCount &&
         canonicalIdentityPreserved == other.canonicalIdentityPreserved &&
         allReachableResolved == other.allReachableResolved &&
-        identityDigest == other.identityDigest;
+        identityDigest == other.identityDigest &&
+        _sameIdentitySet(reachableIdentities, other.reachableIdentities);
   }
 }
 
@@ -200,9 +255,15 @@ final class TrainCRuntimeCheckpoint {
         v2Sidecars != other.v2Sidecars ||
         typedCount != other.typedCount ||
         validEnvelopeCount != other.validEnvelopeCount ||
+        !_sameIntList(questionNumbers, other.questionNumbers) ||
+        typedImageNodeCount != other.typedImageNodeCount ||
+        typedUniqueAssetCount != other.typedUniqueAssetCount ||
+        resolvedUniqueAssetCount != other.resolvedUniqueAssetCount ||
+        allReachableResolved != other.allReachableResolved ||
+        canonicalIdentityPreserved != other.canonicalIdentityPreserved ||
+        typedTableNodeCount != other.typedTableNodeCount ||
         payloadDigest != other.payloadDigest ||
-        reachableIdentities.length != other.reachableIdentities.length ||
-        !reachableIdentities.containsAll(other.reachableIdentities)) {
+        !_sameIdentitySet(reachableIdentities, other.reachableIdentities)) {
       return false;
     }
     if (questions.length != other.questions.length) return false;
@@ -216,12 +277,14 @@ final class TrainCRuntimeCheckpoint {
 final class TrainCB0PhaseFacts {
   const TrainCB0PhaseFacts({
     required this.packagePath,
+    required this.preB0Checkpoint,
     required this.restoreCheckpoint,
     this.backupStatus = 'PASS',
     this.restoreStatus = 'PASS',
   });
 
   final String packagePath;
+  final TrainCRuntimeCheckpoint preB0Checkpoint;
   final TrainCRuntimeCheckpoint restoreCheckpoint;
   final String backupStatus;
   final String restoreStatus;
@@ -259,11 +322,15 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
     required this.runtime,
     required this.phaseFacts,
     this.renderEvidence = const UnavailableTrainCRenderEvidencePort(),
+    this.reviewedIdentity = TrainCReviewedIdentity.l1a,
+    this.currentHeadReader = _readCurrentHead,
   });
 
   final TrainCIsolatedRuntime runtime;
   final TrainCRuntimePhaseFacts phaseFacts;
   final TrainCRenderEvidencePort renderEvidence;
+  final TrainCReviewedIdentity reviewedIdentity;
+  final String Function() currentHeadReader;
 
   Future<TrainCRuntimeCheckpoint> captureCheckpoint() async {
     try {
@@ -343,6 +410,9 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
             canonicalIdentityPreserved: inspection.canonicalIdentityPreserved,
             allReachableResolved: inspection.allReachableResolved,
             identityDigest: _identityDigest(inspection.uniqueIdentities),
+            reachableIdentities: Set<(String, String)>.unmodifiable(
+              inspection.uniqueIdentities,
+            ),
           ),
         );
         imageNodeCount += inspection.imageNodeCount;
@@ -400,17 +470,29 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
     try {
       final current = await captureCheckpoint();
       _requireFinalCheckpoint(current);
-      final identity = TrainCExpectedCodeIdentity.forCurrentRepository();
+      final currentHead = currentHeadReader().trim();
+      if (currentHead != reviewedIdentity.approvedHarnessHead) {
+        throw const TrainCRuntimeEvidenceException('TRAIN_C_HEAD_DRIFT');
+      }
       final productionDiff = _productionDiffFromBase();
       if (productionDiff != 0) {
         throw const TrainCRuntimeEvidenceException('TRAIN_C_HEAD_DRIFT');
       }
       final commit = phaseFacts.commitCheckpoint;
-      final restart = phaseFacts.restartCheckpoint;
+      final restart = phaseFacts.b0.preB0Checkpoint;
+      if (!phaseFacts.restartCheckpoint.equivalentTo(restart)) {
+        throw const TrainCRuntimeEvidenceException('TRAIN_C_RESTART_FAILURE');
+      }
       final restore = phaseFacts.b0.restoreCheckpoint;
       _requireFinalCheckpoint(commit);
       _requireFinalCheckpoint(restart);
       _requireFinalCheckpoint(restore);
+      if (!restore.equivalentTo(restart)) {
+        throw const TrainCRuntimeEvidenceException(
+          'TRAIN_C_B0_IDENTITY_MISMATCH',
+        );
+      }
+      final sourceClosure = _validateSourceImageClosure(current);
       final manifest = await BackupArchiveIo.readManifestOnly(
         phaseFacts.b0.packagePath,
       );
@@ -433,10 +515,15 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           );
         }
         mandatory['$number'] = <String, dynamic>{
-          'referencedImageCount': currentQuestion.imageNodeCount,
+          'referencedImageCount': sourceClosure.countFor(number),
+          'sourceReferencedImageCount': sourceClosure.countFor(number),
           'typedImageNodeCount': currentQuestion.imageNodeCount,
-          'referencedUniqueAssetCount': currentQuestion.uniqueAssetCount,
+          'referencedUniqueAssetCount':
+              sourceClosure.identitiesFor(number).length,
+          'sourceReferencedUniqueAssetCount':
+              sourceClosure.identitiesFor(number).length,
           'resolvedUniqueAssetCount': currentQuestion.resolvedUniqueAssetCount,
+          'sourceIdentityPreserved': true,
           'canonicalIdentityPreserved':
               currentQuestion.canonicalIdentityPreserved,
           'commitPreserved': currentQuestion.equivalentTo(commitQuestion),
@@ -452,15 +539,20 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           ),
         };
       }
-      final backupReachable = restore.reachableIdentities.length;
+      final backupReachable = restart.reachableIdentities.length;
       final backupManifestAssets = manifest.contentAssets.length;
+      final restoredIdentityPreserved = true;
       return <String, dynamic>{
         'schemaVersion': 3,
         'runNumber': 1,
         'code': <String, dynamic>{
-          'productionHead': identity.productionHead,
-          'harnessHead': identity.harnessHead,
-          'trainBMergeCommit': identity.trainBMergeCommit,
+          'productionHead': reviewedIdentity.approvedProductionBase,
+          'harnessHead': reviewedIdentity.approvedHarnessHead,
+          'trainBMergeCommit': reviewedIdentity.approvedProductionBase,
+          'currentHead': currentHead,
+          'approvedHarnessHead': reviewedIdentity.approvedHarnessHead,
+          'approvedBase': reviewedIdentity.approvedBase,
+          'approvedProductionBase': reviewedIdentity.approvedProductionBase,
           'productionDiffFromBase': productionDiff,
         },
         'input': <String, dynamic>{
@@ -511,9 +603,9 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           'validEnvelopeCount': current.validEnvelopeCount,
         },
         'imageSummary': <String, dynamic>{
-          'referencedImageBlockCount': parse.referencedImageBlockCount,
+          'referencedImageBlockCount': sourceClosure.totalReferencedImageCount,
           'typedImageNodeCount': current.typedImageNodeCount,
-          'referencedUniqueAssetCount': current.typedUniqueAssetCount,
+          'referencedUniqueAssetCount': sourceClosure.allIdentities.length,
           'typedUniqueAssetCount': current.typedUniqueAssetCount,
           'resolvedUniqueAssetCount': current.resolvedUniqueAssetCount,
           'allReachableResolved': current.allReachableResolved,
@@ -550,11 +642,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           'restoredAssetCount': assetInventoryCount,
           'manifestMatchesReachableAssets':
               backupManifestAssets == backupReachable,
-          'restoredIdentityPreserved': restore.reachableIdentities.length ==
-                  current.reachableIdentities.length &&
-              restore.reachableIdentities.containsAll(
-                current.reachableIdentities,
-              ),
+          'restoredIdentityPreserved': restoredIdentityPreserved,
           'allReachableResolved': restore.allReachableResolved,
           'providerDispatchCount': 0,
         },
@@ -669,7 +757,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       <String>[
         'diff',
         '--name-only',
-        '$_trainBMergeCommit..HEAD',
+        '${reviewedIdentity.approvedProductionBase}..HEAD',
         '--',
         'lib',
       ],
@@ -690,6 +778,34 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
         .toList()
       ..sort();
     return sha256Hex(utf8.encode(values.join('\u001f')));
+  }
+
+  _SourceImageClosure _validateSourceImageClosure(
+    TrainCRuntimeCheckpoint current,
+  ) {
+    final source = phaseFacts.parse.sourceImages;
+    if (source.totalReferencedImageCount !=
+            phaseFacts.parse.referencedImageBlockCount ||
+        source.totalReferencedImageCount != current.typedImageNodeCount ||
+        !_sameIdentitySet(source.allIdentities, current.reachableIdentities)) {
+      throw const TrainCRuntimeEvidenceException(
+        'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+      );
+    }
+    for (final number in const <int>[5, 18, 19]) {
+      final question = current.question(number);
+      if (question == null ||
+          source.countFor(number) != question.imageNodeCount ||
+          !_sameIdentitySet(
+            source.identitiesFor(number),
+            question.reachableIdentities,
+          )) {
+        throw const TrainCRuntimeEvidenceException(
+          'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        );
+      }
+    }
+    return _SourceImageClosure(source);
   }
 }
 
@@ -716,4 +832,43 @@ final class _DraftInspection {
   final int tableNodeCount;
   final bool canonicalIdentityPreserved;
   final bool allReachableResolved;
+}
+
+final class _SourceImageClosure {
+  const _SourceImageClosure(this.facts);
+
+  final TrainCSourceImageFacts facts;
+
+  int countFor(int questionNumber) => facts.countFor(questionNumber);
+
+  Set<(String, String)> identitiesFor(int questionNumber) =>
+      facts.identitiesFor(questionNumber);
+
+  int get totalReferencedImageCount => facts.totalReferencedImageCount;
+
+  Set<(String, String)> get allIdentities => facts.allIdentities;
+}
+
+String _readCurrentHead() {
+  final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+  if (result.exitCode != 0 || result.stdout is! String) {
+    throw const TrainCRuntimeEvidenceException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH');
+  }
+  return (result.stdout as String).trim();
+}
+
+bool _sameIdentitySet(
+  Set<(String, String)> left,
+  Set<(String, String)> right,
+) {
+  return left.length == right.length && left.containsAll(right);
+}
+
+bool _sameIntList(List<int> left, List<int> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
