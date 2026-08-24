@@ -11,14 +11,17 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_field_poli
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 final class _ChunkedResponseClient extends http.BaseClient {
   _ChunkedResponseClient(this.chunks);
 
   final List<List<int>> chunks;
+  var sendCalls = 0;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    sendCalls++;
     return http.StreamedResponse(
       Stream<List<int>>.fromIterable(chunks),
       200,
@@ -103,6 +106,19 @@ const _profile = AiEngineProfile(
   isActive: true,
 );
 
+File _syntheticPdfFile(int pageCount) {
+  final document = PdfDocument();
+  for (var index = 0; index < pageCount; index++) {
+    document.pages.add();
+  }
+  final bytes = document.saveSync();
+  document.dispose();
+  return File(
+    '${Directory.systemTemp.path}${Platform.pathSeparator}'
+    'pr137-layout-budget-${DateTime.now().microsecondsSinceEpoch}.pdf',
+  )..writeAsBytesSync(bytes);
+}
+
 void main() {
   test('layout response cap rejects before JSON admission', () async {
     final file = File(
@@ -140,6 +156,52 @@ void main() {
       ),
       throwsA(isA<ZhipuOcrResponseFormatException>()),
     );
+  });
+
+  test('layout response budget is shared across PDF chunks', () async {
+    final file = _syntheticPdfFile(2);
+    addTearDown(() {
+      if (file.existsSync()) file.deleteSync();
+    });
+
+    final body = utf8.encode(jsonEncode(<String, Object?>{
+      'md_results': 'Page Content',
+      'layout_details': const <Object?>[
+        <Object?>[
+          <String, Object?>{
+            'index': 1,
+            'label': 'text',
+            'content': 'hello',
+          },
+        ],
+      ],
+      'data_info': const <String, Object?>{
+        'num_pages': 1,
+        'pages': <Object?>[
+          <String, Object?>{'width': 600, 'height': 800},
+        ],
+      },
+    }));
+    final split = body.length ~/ 2;
+    final transport = _ChunkedResponseClient(<List<int>>[
+      body.sublist(0, split),
+      body.sublist(split),
+    ]);
+    final client = ZhipuOcrClient(
+      pdfPageChunkSize: 1,
+      httpClient: transport,
+      layoutResponseBytesLimit: body.length + split - 1,
+    );
+
+    await expectLater(
+      client.parseFile(
+        profile: _profile,
+        filePath: file.path,
+        sourceName: 'fixture.pdf',
+      ),
+      throwsA(isA<ZhipuOcrResponseFormatException>()),
+    );
+    expect(transport.sendCalls, 2);
   });
 
   test('retry keeps cleanup owner when deletion still fails', () async {
