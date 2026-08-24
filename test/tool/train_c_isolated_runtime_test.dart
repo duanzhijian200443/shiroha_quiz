@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
@@ -134,7 +136,7 @@ void main() {
     );
   });
 
-  test('restart creates a fresh runtime composition over the same root',
+  test('restart proves a new OS process can reattach to the same root',
       () async {
     final first = runtime;
     final rootPath = first.root.path;
@@ -148,6 +150,10 @@ void main() {
     expect((await second.database).path, firstDatabasePath);
     expect(second.contentAssetStore, isNot(same(first.contentAssetStore)));
     expect(second.fileStorage, isNot(same(first.fileStorage)));
+    expect(second.processRestartVerified, isTrue);
+    expect(second.processRestartProcessId, isNotNull);
+    expect(second.processRestartProcessId, isNot(pid));
+    expect(second.processRestartDigest, matches(RegExp(r'^[0-9a-f]{64}$')));
     expect(await second.verifyBlankStore(), isA<TrainCBlankStoreProof>());
   });
 }

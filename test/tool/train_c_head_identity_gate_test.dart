@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../tool/train_c_evidence_collector.dart';
 import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_l1_preflight.dart';
+import '../../tool/train_c_review_authorization.dart';
 
 final class _CleanState implements TrainCExecutionStateGate {
   const _CleanState();
@@ -29,6 +30,33 @@ TrainCReviewedIdentity _reviewed(String head) {
 }
 
 void main() {
+  test('out-of-band review authorization requires an explicit HEAD', () {
+    expect(
+      () => TrainCReviewAuthorization.requireFromEnvironment(
+        environment: const <String, String>{},
+      ),
+      throwsA(
+        isA<TrainCEvidenceProbeException>().having(
+          (error) => error.code,
+          'code',
+          'TRAIN_C_CODE_IDENTITY_MISMATCH',
+        ),
+      ),
+    );
+  });
+
+  test('out-of-band review authorization carries the reviewed HEAD', () {
+    final reviewed = TrainCReviewAuthorization.requireFromEnvironment(
+      environment: <String, String>{
+        trainCApprovedHarnessHeadEnvironment: 'a' * 40,
+      },
+    );
+
+    expect(reviewed.approvedHarnessHead, 'a' * 40);
+    expect(reviewed.approvedBase, trainCApprovedBase);
+    expect(reviewed.approvedProductionBase, trainCApprovedProductionBase);
+  });
+
   test('approved reviewed HEAD passes after a fresh master fetch', () {
     var fetches = 0;
     final reviewed = _reviewed('a' * 40);

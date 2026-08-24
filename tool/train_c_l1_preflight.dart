@@ -4,6 +4,7 @@ import 'dart:io';
 import 'train_c_evidence_collector.dart';
 import 'train_c_evidence_probe.dart';
 import 'train_c_isolated_runtime.dart';
+import 'train_c_review_authorization.dart';
 
 const trainCL1BaseMaster = 'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
 const trainCL1TrainBMerge = '711fd33f564b9fb6bb3c992d6458b0075990646c';
@@ -15,16 +16,19 @@ typedef TrainCGitFetch = void Function();
 ///
 /// This gate is intentionally separate from the collector's final
 /// authorization gate. It must run before isolated runtime creation and before
-/// any future provider boundary.
+/// any future provider boundary. When [reviewedIdentity] is omitted, authority
+/// must come from the out-of-band review environment rather than repository
+/// source.
 final class TrainCPreExecutionGitGate {
-  const TrainCPreExecutionGitGate({
+  TrainCPreExecutionGitGate({
     this.executionStateGate = const GitTrainCExecutionStateGate(),
     this.productionDiffReader,
     this.masterReader = _readOriginMaster,
     this.currentHeadReader = _readCurrentHead,
     this.fetchMaster = _fetchOriginMaster,
-    this.reviewedIdentity = TrainCReviewedIdentity.l1a,
-  });
+    TrainCReviewedIdentity? reviewedIdentity,
+  }) : reviewedIdentity = reviewedIdentity ??
+            TrainCReviewAuthorization.requireFromEnvironment();
 
   final TrainCExecutionStateGate executionStateGate;
   final TrainCProductionDiffReader? productionDiffReader;

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
 import '../../tool/train_c_http_observer.dart';
 import '../../tool/train_c_live_entrypoint.dart';
@@ -26,9 +27,31 @@ void main() {
     expect(ledger.networkFailureCount, 0);
   });
 
-  test('layout expectation is derived from page count and chunk size', () {
+  test('layout expectation is bound to the production 30-page chunk', () {
+    expect(const ZhipuOcrClient().pdfPageChunkSize, 30);
     expect(
-      trainCExpectedLayoutRequestCount(pageCount: 22, pageChunkSize: 30),
+      const ZhipuOcrClient().pdfPageChunkSize,
+      trainCProductionPdfPageChunkSize,
+    );
+
+    for (final expectation in <(int, int)>[
+      (21, 1),
+      (22, 1),
+      (30, 1),
+      (31, 2),
+    ]) {
+      expect(
+        trainCExpectedLayoutRequestCount(
+          pageCount: expectation.$1,
+          pageChunkSize: trainCProductionPdfPageChunkSize,
+        ),
+        expectation.$2,
+      );
+    }
+
+    // A caller-reported chunk of 20 cannot change the acceptance oracle.
+    expect(
+      trainCExpectedLayoutRequestCount(pageCount: 25, pageChunkSize: 20),
       1,
     );
 
@@ -36,7 +59,7 @@ void main() {
     ledger.beginParse(
       expectedLayoutRequests: trainCExpectedLayoutRequestCount(
         pageCount: 22,
-        pageChunkSize: 30,
+        pageChunkSize: trainCProductionPdfPageChunkSize,
       ),
     );
     final events = <int>[

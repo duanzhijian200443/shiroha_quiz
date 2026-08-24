@@ -28,6 +28,56 @@ void main() {
     expect(result.evidence['result'], 'PASS');
   });
 
+  test('trusted collector blocks a source without OS-process restart proof',
+      () async {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
+    final result = await TrainCTrustedEvidenceCollector(
+      probe,
+      executionStateGate: const _FakeExecutionStateGate(),
+    ).collect(
+      _SyntheticTrustedSource(
+        _validSnapshot(expected),
+        processRestartVerified: false,
+      ),
+    );
+
+    expect(result.schemaValid, isTrue);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['authority'], 'trusted_collector_blocked');
+    expect(result.evidence['failureCode'], 'TRAIN_C_RESTART_FAILURE');
+    expect(result.evidence['firstLoss'], <String, dynamic>{
+      'status': 'PROVEN',
+      'checkpoint': 'P12',
+    });
+  });
+
+  test('trusted collector recomputes request count with production chunk',
+      () async {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final probe = TrainCEvidenceProbe(expectedIdentity: expected);
+    final snapshot = _validSnapshot(expected);
+    (snapshot['input'] as Map<String, dynamic>)['pageCount'] = 25;
+    final attempt = snapshot['attempt'] as Map<String, dynamic>;
+    attempt['layoutChunkSize'] = 20;
+    attempt['layoutPostCount'] = 2;
+    attempt['expectedLayoutRequestCount'] = 2;
+    attempt['providerDispatchCount'] = 2;
+    attempt['providerResponseCount'] = 2;
+
+    final result = await TrainCTrustedEvidenceCollector(
+      probe,
+      executionStateGate: const _FakeExecutionStateGate(),
+    ).collect(_SyntheticTrustedSource(snapshot));
+
+    expect(result.schemaValid, isFalse);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(
+      result.evidence['failureCode'],
+      'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE',
+    );
+  });
+
   test('blocks a dirty worktree without changing schema validity', () async {
     final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
     final probe = TrainCEvidenceProbe(expectedIdentity: expected);
@@ -98,9 +148,13 @@ final class _FakeExecutionStateGate implements TrainCExecutionStateGate {
 }
 
 final class _SyntheticTrustedSource implements TrainCTrustedEvidenceSource {
-  _SyntheticTrustedSource(this.snapshot);
+  _SyntheticTrustedSource(
+    this.snapshot, {
+    this.processRestartVerified = true,
+  });
 
   final Map<String, dynamic> snapshot;
+  final bool processRestartVerified;
 
   @override
   Future<Map<String, dynamic>> readAuthoritativeSnapshot() async => snapshot;

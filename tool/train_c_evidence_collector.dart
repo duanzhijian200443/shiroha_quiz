@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'train_c_evidence_probe.dart';
+import 'train_c_http_observer.dart';
 
 /// The only source allowed to promote a schema-valid snapshot to final
 /// acceptance is an isolated runtime collector implemented by the live runner.
@@ -56,9 +57,14 @@ final class TrainCTrustedEvidenceCollector {
   Future<TrainCEvidenceProbeResult> collect(
     TrainCTrustedEvidenceSource source,
   ) async {
-    final snapshot = await source.readAuthoritativeSnapshot();
+    final rawSnapshot = await source.readAuthoritativeSnapshot();
+    final snapshot = _bindProductionRequestAuthority(rawSnapshot);
     final schemaResult = _probe.inspect(snapshot);
     if (!schemaResult.schemaValid) return schemaResult;
+
+    if (!_hasOsProcessRestartProof(source)) {
+      return _blockedResult(schemaResult, 'TRAIN_C_RESTART_FAILURE');
+    }
 
     try {
       executionStateGate.verify();
@@ -84,6 +90,35 @@ final class TrainCTrustedEvidenceCollector {
     );
   }
 
+  Map<String, dynamic> _bindProductionRequestAuthority(
+    Map<String, dynamic> snapshot,
+  ) {
+    final attempt = snapshot['attempt'];
+    if (attempt is! Map) return snapshot;
+    return <String, dynamic>{
+      ...snapshot,
+      'attempt': <String, dynamic>{
+        ...Map<String, dynamic>.from(attempt),
+        'layoutChunkSize': trainCProductionPdfPageChunkSize,
+      },
+    };
+  }
+
+  bool _hasOsProcessRestartProof(TrainCTrustedEvidenceSource source) {
+    try {
+      final direct = (source as dynamic).processRestartVerified;
+      if (direct == true) return true;
+    } catch (_) {
+      // Fall through to runtime-backed sources.
+    }
+    try {
+      final runtime = (source as dynamic).runtime;
+      return (runtime as dynamic).processRestartVerified == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   TrainCEvidenceProbeResult _blockedResult(
     TrainCEvidenceProbeResult schemaResult,
     String failureCode,
@@ -98,7 +133,7 @@ final class TrainCTrustedEvidenceCollector {
         'failureCode': failureCode,
         'firstLoss': <String, dynamic>{
           'status': 'PROVEN',
-          'checkpoint': 'P0',
+          'checkpoint': failureCode == 'TRAIN_C_RESTART_FAILURE' ? 'P12' : 'P0',
         },
       },
     );
@@ -108,6 +143,7 @@ final class TrainCTrustedEvidenceCollector {
     return switch (code) {
       'TRAIN_C_DIRTY_WORKTREE' => code,
       'TRAIN_C_CODE_IDENTITY_MISMATCH' => code,
+      'TRAIN_C_RESTART_FAILURE' => code,
       _ => 'TRAIN_C_CODE_IDENTITY_MISMATCH',
     };
   }
