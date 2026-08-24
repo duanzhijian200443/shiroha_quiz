@@ -133,4 +133,21 @@ void main() {
       isTrue,
     );
   });
+
+  test('restart creates a fresh runtime composition over the same root',
+      () async {
+    final first = runtime;
+    final rootPath = first.root.path;
+    final firstDatabasePath = (await first.database).path;
+
+    final second = await first.reopenFresh();
+    runtime = second;
+
+    expect(second, isNot(same(first)));
+    expect(second.root.path, rootPath);
+    expect((await second.database).path, firstDatabasePath);
+    expect(second.contentAssetStore, isNot(same(first.contentAssetStore)));
+    expect(second.fileStorage, isNot(same(first.fileStorage)));
+    expect(await second.verifyBlankStore(), isA<TrainCBlankStoreProof>());
+  });
 }

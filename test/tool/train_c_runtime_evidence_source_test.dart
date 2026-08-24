@@ -67,6 +67,7 @@ TrainCRuntimePhaseFacts _placeholderFacts() {
       storageRoute: 'legacyV1',
       storageReason: 'placeholder',
     ),
+    candidateCheckpoint: TrainCCandidateCheckpoint.empty(),
     requestLedger: TrainCRequestLedger(),
     commitCheckpoint: empty,
     restartCheckpoint: empty,
@@ -85,9 +86,14 @@ Future<TrainCRuntimeCheckpoint> _capture(TrainCIsolatedRuntime runtime) {
   ).captureCheckpoint();
 }
 
-QuestionDraftV2 _draft(int number) {
+QuestionDraftV2 _draft(
+  int number, {
+  bool includeNonMandatoryImages = false,
+}) {
   final sourceId = 'synthetic_source';
   final imageAsset = switch (number) {
+    1 when includeNonMandatoryImages => 'asset_q1',
+    2 when includeNonMandatoryImages => 'asset_q2',
     5 => 'asset_q5',
     18 => 'asset_q18',
     19 => 'asset_q19',
@@ -144,9 +150,33 @@ QuestionDraftV2 _draft(int number) {
   );
 }
 
-Future<void> _seedTwentyTwo(TrainCIsolatedRuntime runtime) async {
+TrainCCandidateCheckpoint _candidateForSynthetic({
+  bool includeNonMandatoryImages = false,
+}) {
+  return TrainCCandidateCheckpoint.fromDrafts(
+    List<QuestionDraftV2>.generate(
+      22,
+      (index) => _draft(
+        index + 1,
+        includeNonMandatoryImages: includeNonMandatoryImages,
+      ),
+    ),
+  );
+}
+
+Future<void> _seedTwentyTwo(
+  TrainCIsolatedRuntime runtime, {
+  bool includeNonMandatoryImages = false,
+}) async {
   final store = runtime.contentAssetStore;
-  for (final assetId in const <String>['asset_q5', 'asset_q18', 'asset_q19']) {
+  final assetIds = <String>[
+    if (includeNonMandatoryImages) 'asset_q1',
+    if (includeNonMandatoryImages) 'asset_q2',
+    'asset_q5',
+    'asset_q18',
+    'asset_q19',
+  ];
+  for (final assetId in assetIds) {
     store.storeBytesSync(
       sourceId: 'synthetic_source',
       localAssetId: assetId,
@@ -162,7 +192,10 @@ Future<void> _seedTwentyTwo(TrainCIsolatedRuntime runtime) async {
           'a3f9c2e4-5b6d-4e7f-8a9b-${number.toString().padLeft(12, '0')}',
       bankName: 'synthetic',
       createdAt: number,
-      draft: _draft(number),
+      draft: _draft(
+        number,
+        includeNonMandatoryImages: includeNonMandatoryImages,
+      ),
     );
     await db.insert('questions', frozen.questionRow);
     await db.insert('question_v2_payloads', frozen.payloadRow);
@@ -189,6 +222,10 @@ TrainCRuntimePhaseFacts _finalFacts({
   required String packagePath,
   required TrainCRequestLedger ledger,
   TrainCSourceImageFacts? sourceImages,
+  TrainCCandidateCheckpoint? candidateCheckpoint,
+  int imageBlockCount = 3,
+  int referencedImageBlockCount = 3,
+  int blockCount = 4,
 }) {
   return TrainCRuntimePhaseFacts(
     input: const TrainCInputFacts(
@@ -198,10 +235,10 @@ TrainCRuntimePhaseFacts _finalFacts({
       pageCount: 20,
     ),
     parse: TrainCParseFacts(
-      blockCount: 4,
-      imageBlockCount: 3,
+      blockCount: blockCount,
+      imageBlockCount: imageBlockCount,
       tableBlockCount: 1,
-      referencedImageBlockCount: 3,
+      referencedImageBlockCount: referencedImageBlockCount,
       referencedTableBlockCount: 1,
       assembledQuestionCount: 22,
       finalQuestionCount: 22,
@@ -218,6 +255,7 @@ TrainCRuntimePhaseFacts _finalFacts({
             },
           ),
     ),
+    candidateCheckpoint: candidateCheckpoint ?? _candidateForSynthetic(),
     requestLedger: ledger,
     commitCheckpoint: commit,
     restartCheckpoint: restart,
@@ -268,8 +306,7 @@ void main() {
     expect(commit.question(18)?.imageNodeCount, 1);
     expect(commit.question(19)?.imageNodeCount, 1);
 
-    await runtime.closeForRestart();
-    await runtime.reopen();
+    runtime = await runtime.reopenFresh();
     final restart = await _capture(runtime);
     expect(restart.equivalentTo(commit), isTrue);
     await _expectDecodable(
@@ -343,8 +380,7 @@ void main() {
       () async {
     await _seedTwentyTwo(runtime);
     final commit = await _capture(runtime);
-    await runtime.closeForRestart();
-    await runtime.reopen();
+    runtime = await runtime.reopenFresh();
     final restart = await _capture(runtime);
     final packagePath =
         p.join(runtime.exportDirectory.path, 'ownership.shiroha');
@@ -382,12 +418,116 @@ void main() {
     );
   });
 
+  test('source identity mismatch on a non-mandatory question fails closed',
+      () async {
+    await _seedTwentyTwo(runtime, includeNonMandatoryImages: true);
+    final commit = await _capture(runtime);
+    runtime = await runtime.reopenFresh();
+    final restart = await _capture(runtime);
+    final packagePath =
+        p.join(runtime.exportDirectory.path, 'non_mandatory_ownership.shiroha');
+    final b0 = runtime.buildBackupRuntime();
+    await b0.exportTo(packagePath);
+    final sourceImages = TrainCSourceImageFacts(
+      referencedImageCounts: <int, int>{1: 1, 2: 1, 5: 1, 18: 1, 19: 1},
+      referencedIdentitiesByQuestion: <int, Set<(String, String)>>{
+        1: <(String, String)>{('synthetic_source', 'asset_q2')},
+        2: <(String, String)>{('synthetic_source', 'asset_q1')},
+        5: <(String, String)>{('synthetic_source', 'asset_q5')},
+        18: <(String, String)>{('synthetic_source', 'asset_q18')},
+        19: <(String, String)>{('synthetic_source', 'asset_q19')},
+      },
+    );
+    final reviewed = _reviewedForCurrentHead();
+    final source = TrainCRuntimeEvidenceSource(
+      runtime: runtime,
+      phaseFacts: _finalFacts(
+        commit: commit,
+        restart: restart,
+        restore: restart,
+        packagePath: packagePath,
+        ledger: await _syntheticLedger(),
+        sourceImages: sourceImages,
+        candidateCheckpoint:
+            _candidateForSynthetic(includeNonMandatoryImages: true),
+        blockCount: 6,
+        imageBlockCount: 5,
+        referencedImageBlockCount: 5,
+      ),
+      reviewedIdentity: reviewed,
+    );
+
+    await expectLater(
+      source.readAuthoritativeSnapshot(),
+      throwsA(
+        predicate<TrainCRuntimeEvidenceException>(
+          (error) => error.code == 'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        ),
+      ),
+    );
+  });
+
+  test('candidate checkpoint is independent of the final database', () async {
+    await _seedTwentyTwo(runtime);
+    final candidate = _candidateForSynthetic();
+    final db = await runtime.database;
+    final rows = await db.query(
+      'question_v2_payloads',
+      columns: <String>['payload_json'],
+      where: 'question_id = ?',
+      whereArgs: <Object?>[
+        'a3f9c2e4-5b6d-4e7f-8a9b-000000000001',
+      ],
+    );
+    final payload = rows.single['payload_json'];
+    if (payload is! String) fail('missing synthetic payload');
+    await db.update(
+      'question_v2_payloads',
+      <String, Object?>{
+        'payload_json':
+            payload.replaceFirst('question 1', 'changed question 1'),
+      },
+      where: 'question_id = ?',
+      whereArgs: <Object?>[
+        'a3f9c2e4-5b6d-4e7f-8a9b-000000000001',
+      ],
+    );
+    final commit = await _capture(runtime);
+    runtime = await runtime.reopenFresh();
+    final restart = await _capture(runtime);
+    final packagePath =
+        p.join(runtime.exportDirectory.path, 'candidate.shiroha');
+    final b0 = runtime.buildBackupRuntime();
+    await b0.exportTo(packagePath);
+    final reviewed = _reviewedForCurrentHead();
+    final source = TrainCRuntimeEvidenceSource(
+      runtime: runtime,
+      phaseFacts: _finalFacts(
+        commit: commit,
+        restart: restart,
+        restore: restart,
+        packagePath: packagePath,
+        ledger: await _syntheticLedger(),
+        candidateCheckpoint: candidate,
+      ),
+      reviewedIdentity: reviewed,
+    );
+
+    await expectLater(
+      source.readAuthoritativeSnapshot(),
+      throwsA(
+        predicate<TrainCRuntimeEvidenceException>(
+          (error) => error.code == 'TRAIN_C_COMMIT_FAILURE',
+        ),
+      ),
+    );
+  });
+
   test('default render source cannot claim final acceptance', () async {
     await _seedTwentyTwo(runtime);
     final commit = await _capture(runtime);
     final ledger = await _syntheticLedger();
-    await runtime.closeForRestart();
-    await runtime.reopen();
+    runtime = await runtime.reopenFresh();
     final restart = await _capture(runtime);
     final packagePath = p.join(runtime.exportDirectory.path, 'render.shiroha');
     final b0 = runtime.buildBackupRuntime();
@@ -484,56 +624,41 @@ void main() {
     );
   });
 
-  test('B0 restore is compared with the pre-B0 restart baseline', () async {
+  test('B0 restore compares exact identity and digest with restart baseline',
+      () async {
     await _seedTwentyTwo(runtime);
     final commit = await _capture(runtime);
     final packagePath = p.join(runtime.exportDirectory.path, 'b0.shiroha');
     final b0 = runtime.buildBackupRuntime();
     await b0.exportTo(packagePath);
     final ledger = await _syntheticLedger();
-    final baseline = TrainCRuntimeCheckpoint(
+    final altered = TrainCRuntimeCheckpoint(
       questionRows: commit.questionRows,
       v2Sidecars: commit.v2Sidecars,
       typedCount: commit.typedCount,
       validEnvelopeCount: commit.validEnvelopeCount,
       questionNumbers: commit.questionNumbers,
-      typedImageNodeCount: commit.typedImageNodeCount + 1,
-      typedUniqueAssetCount: commit.typedUniqueAssetCount + 1,
-      resolvedUniqueAssetCount: commit.resolvedUniqueAssetCount + 1,
-      allReachableResolved: true,
-      canonicalIdentityPreserved: true,
+      typedImageNodeCount: commit.typedImageNodeCount,
+      typedUniqueAssetCount: commit.typedUniqueAssetCount,
+      resolvedUniqueAssetCount: commit.resolvedUniqueAssetCount,
+      allReachableResolved: commit.allReachableResolved,
+      canonicalIdentityPreserved: commit.canonicalIdentityPreserved,
       typedTableNodeCount: commit.typedTableNodeCount,
       payloadDigest: commit.payloadDigest,
-      reachableIdentities: <(String, String)>{
-        ...commit.reachableIdentities,
-        ('synthetic_source', 'asset_q7'),
+      reachableIdentities: commit.reachableIdentities,
+      assetSizes: commit.assetSizes,
+      assetDigests: <(String, String), String>{
+        ...commit.assetDigests,
+        ('synthetic_source', 'asset_q5'): List.filled(64, '0').join(),
       },
       questions: commit.questions,
-    );
-    final altered = TrainCRuntimeCheckpoint(
-      questionRows: baseline.questionRows,
-      v2Sidecars: baseline.v2Sidecars,
-      typedCount: baseline.typedCount,
-      validEnvelopeCount: baseline.validEnvelopeCount,
-      questionNumbers: baseline.questionNumbers,
-      typedImageNodeCount: baseline.typedImageNodeCount - 1,
-      typedUniqueAssetCount: baseline.typedUniqueAssetCount - 1,
-      resolvedUniqueAssetCount: baseline.resolvedUniqueAssetCount - 1,
-      allReachableResolved: true,
-      canonicalIdentityPreserved: true,
-      typedTableNodeCount: baseline.typedTableNodeCount,
-      payloadDigest: baseline.payloadDigest,
-      reachableIdentities: <(String, String)>{
-        ...baseline.reachableIdentities,
-      }..remove(('synthetic_source', 'asset_q7')),
-      questions: baseline.questions,
     );
     final reviewed = _reviewedForCurrentHead();
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
       phaseFacts: _finalFacts(
         commit: commit,
-        restart: baseline,
+        restart: commit,
         restore: altered,
         packagePath: packagePath,
         ledger: ledger,

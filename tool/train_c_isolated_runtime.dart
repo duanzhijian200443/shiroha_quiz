@@ -85,6 +85,18 @@ final class TrainCIsolatedRuntime {
     }
   }
 
+  /// Closes the current database handle and creates a fresh tool composition
+  /// over the same self-owned durable root. The explicit-file profile is kept
+  /// intact; no production runtime profile or database is consulted.
+  Future<TrainCIsolatedRuntime> reopenFresh() async {
+    _ensureUsable();
+    final ownedRoot = root;
+    await closeForRestart();
+    final fresh = await _reopenFromOwnedRoot(ownedRoot);
+    _disposed = true;
+    return fresh;
+  }
+
   ManagedContentAssetStore get contentAssetStore => _contentAssetStore;
 
   Object get fileStorage => _fileStorage;
@@ -157,6 +169,7 @@ final class TrainCIsolatedRuntime {
     _ensureUsable();
     if (_opened) {
       await DatabaseHelper.instance.close();
+      _opened = false;
     }
   }
 
@@ -242,6 +255,70 @@ final class TrainCIsolatedRuntime {
     } catch (_) {
       throw const TrainCIsolationException();
     }
+  }
+
+  static Future<TrainCIsolatedRuntime> _reopenFromOwnedRoot(
+    Directory root,
+  ) async {
+    try {
+      final runtime = TrainCIsolatedRuntime._(root: root);
+      await runtime._validateOwnedRoot();
+      await runtime._openExistingDatabase();
+      return runtime;
+    } on TrainCIsolationException {
+      rethrow;
+    } catch (_) {
+      throw const TrainCIsolationException();
+    }
+  }
+
+  Future<void> _validateOwnedRoot() async {
+    if (!await root.exists()) throw const TrainCIsolationException();
+    final marker = File(_containedPath(root, p.join(root.path, _markerName)));
+    if (!await marker.exists() ||
+        await marker.readAsString() != _markerContents) {
+      throw const TrainCIsolationException();
+    }
+    for (final directory in <Directory>[
+      dbDirectory,
+      managedDirectory,
+      restoreDirectory,
+      exportDirectory,
+    ]) {
+      _containedPath(root, directory.path);
+      if (!await directory.exists()) {
+        throw const TrainCIsolationException();
+      }
+    }
+    final dbPath = _containedPath(
+      root,
+      p.join(dbDirectory.path, DatabaseHelper.databaseFileName),
+    );
+    if (!File(dbPath).existsSync()) {
+      throw const TrainCIsolationException();
+    }
+  }
+
+  Future<void> _openExistingDatabase() async {
+    if (DatabaseHelper.runtimeProfile != DatabaseRuntimeProfile.explicitFile) {
+      throw const TrainCIsolationException();
+    }
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      initializeStandaloneDatabaseRuntime();
+    }
+    await databaseFactory.setDatabasesPath(dbDirectory.path);
+    await DatabaseHelper.instance.database;
+    final openedPath =
+        await DatabaseHelper.instance.getProductionDatabasePath();
+    final expectedPath = _containedPath(
+      root,
+      p.join(dbDirectory.path, DatabaseHelper.databaseFileName),
+    );
+    if (p.normalize(p.absolute(openedPath)) !=
+        p.normalize(p.absolute(expectedPath))) {
+      throw const TrainCIsolationException();
+    }
+    _opened = true;
   }
 
   Future<int> _count(Database db, String table) async {

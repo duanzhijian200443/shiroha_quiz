@@ -23,6 +23,15 @@ final class _FailureGate implements TrainCExecutionStateGate {
 }
 
 void main() {
+  test('offline mechanical identity follows the current checkout only', () {
+    final identity = TrainCReviewedIdentity.forOfflineCurrentRepository();
+
+    expect(identity.approvedHarnessHead, hasLength(40));
+    expect(identity.approvedHarnessHead, matches(RegExp(r'^[0-9a-f]{40}$')));
+    expect(identity.approvedBase, trainCL1BaseMaster);
+    expect(identity.approvedProductionBase, trainCL1TrainBMerge);
+  });
+
   test('clean pre-execution state passes before runtime creation', () {
     final reviewed = _reviewedForTest();
     final gate = TrainCPreExecutionGitGate(

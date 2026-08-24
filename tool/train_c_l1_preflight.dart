@@ -124,6 +124,7 @@ final class TrainCPreExecutionGitGate {
 
 Future<Map<String, Object?>> runTrainCL1AOfflinePreflight() async {
   final gate = TrainCPreExecutionGitGate(
+    reviewedIdentity: TrainCReviewedIdentity.forOfflineCurrentRepository(),
     // Offline mode may use the frozen remote state, but never grants live
     // authority. A future live runner must use the default fetch callback.
     fetchMaster: () {},

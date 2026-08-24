@@ -152,6 +152,7 @@ final class UnavailableTrainCRenderEvidencePort
 final class TrainCQuestionCheckpoint {
   const TrainCQuestionCheckpoint({
     required this.questionNumber,
+    required this.payloadDigest,
     required this.imageNodeCount,
     required this.uniqueAssetCount,
     required this.resolvedUniqueAssetCount,
@@ -163,6 +164,7 @@ final class TrainCQuestionCheckpoint {
   });
 
   final int? questionNumber;
+  final String payloadDigest;
   final int imageNodeCount;
   final int uniqueAssetCount;
   final int resolvedUniqueAssetCount;
@@ -174,6 +176,7 @@ final class TrainCQuestionCheckpoint {
 
   bool equivalentTo(TrainCQuestionCheckpoint other) {
     return questionNumber == other.questionNumber &&
+        payloadDigest == other.payloadDigest &&
         imageNodeCount == other.imageNodeCount &&
         uniqueAssetCount == other.uniqueAssetCount &&
         resolvedUniqueAssetCount == other.resolvedUniqueAssetCount &&
@@ -182,6 +185,179 @@ final class TrainCQuestionCheckpoint {
         allReachableResolved == other.allReachableResolved &&
         identityDigest == other.identityDigest &&
         _sameIdentitySet(reachableIdentities, other.reachableIdentities);
+  }
+}
+
+final class TrainCCandidateQuestionCheckpoint {
+  const TrainCCandidateQuestionCheckpoint({
+    required this.questionNumber,
+    required this.payloadDigest,
+    required this.imageNodeCount,
+    required this.uniqueAssetCount,
+    required this.tableNodeCount,
+    required this.canonicalIdentityPreserved,
+    required this.reachableIdentities,
+  });
+
+  final int? questionNumber;
+  final String payloadDigest;
+  final int imageNodeCount;
+  final int uniqueAssetCount;
+  final int tableNodeCount;
+  final bool canonicalIdentityPreserved;
+  final Set<(String, String)> reachableIdentities;
+}
+
+/// Strongly typed candidate facts captured from the in-process typed result
+/// before persistence. It is intentionally separate from a DB checkpoint so a
+/// final database read cannot manufacture its own candidate authority.
+final class TrainCCandidateCheckpoint {
+  const TrainCCandidateCheckpoint({
+    required this.typedCount,
+    required this.validEnvelopeCount,
+    required this.payloadDigest,
+    required this.questionNumbers,
+    required this.typedImageNodeCount,
+    required this.typedUniqueAssetCount,
+    required this.typedTableNodeCount,
+    required this.reachableIdentities,
+    required this.questions,
+  });
+
+  factory TrainCCandidateCheckpoint.empty() {
+    return const TrainCCandidateCheckpoint(
+      typedCount: 0,
+      validEnvelopeCount: 0,
+      payloadDigest: '',
+      questionNumbers: <int>[],
+      typedImageNodeCount: 0,
+      typedUniqueAssetCount: 0,
+      typedTableNodeCount: 0,
+      reachableIdentities: <(String, String)>{},
+      questions: <TrainCCandidateQuestionCheckpoint>[],
+    );
+  }
+
+  factory TrainCCandidateCheckpoint.fromDrafts(
+    Iterable<QuestionDraftV2> drafts,
+  ) {
+    final questions = <TrainCCandidateQuestionCheckpoint>[];
+    final reachable = <(String, String)>{};
+    var imageNodeCount = 0;
+    var tableNodeCount = 0;
+    final numbers = <int>[];
+
+    for (final draft in drafts) {
+      final inventory = <(String, String)>{
+        for (final asset in draft.assetRefs)
+          (asset.sourceId, asset.localAssetId),
+      };
+      final identities = <(String, String)>{};
+      var questionImageNodeCount = 0;
+      var questionTableNodeCount = 0;
+      var canonical = true;
+
+      void inspectContent(RichContent content) {
+        for (final image in reachableImageNodes(content)) {
+          questionImageNodeCount++;
+          final identity = (image.sourceId, image.localAssetId);
+          if (!inventory.contains(identity)) canonical = false;
+          identities.add(identity);
+        }
+        questionTableNodeCount += _countTablesInContent(content);
+      }
+
+      inspectContent(draft.stem);
+      for (final option in draft.options) {
+        inspectContent(option.content);
+      }
+      if (draft.answer case ContentAnswer(:final content)) {
+        inspectContent(content);
+      }
+      if (draft.explanation != null) {
+        inspectContent(draft.explanation!);
+      }
+
+      final encoded = jsonEncode(const QuestionDraftV2Codec().encode(draft));
+      final question = TrainCCandidateQuestionCheckpoint(
+        questionNumber: draft.questionNumber,
+        payloadDigest: sha256Hex(utf8.encode(encoded)),
+        imageNodeCount: questionImageNodeCount,
+        uniqueAssetCount: identities.length,
+        tableNodeCount: questionTableNodeCount,
+        canonicalIdentityPreserved: canonical,
+        reachableIdentities: Set<(String, String)>.unmodifiable(identities),
+      );
+      questions.add(question);
+      if (draft.questionNumber != null) numbers.add(draft.questionNumber!);
+      imageNodeCount += questionImageNodeCount;
+      tableNodeCount += questionTableNodeCount;
+      reachable.addAll(identities);
+    }
+
+    questions.sort(
+      (left, right) =>
+          (left.questionNumber ?? -1).compareTo(right.questionNumber ?? -1),
+    );
+    numbers.sort();
+    return TrainCCandidateCheckpoint(
+      typedCount: questions.length,
+      validEnvelopeCount: questions.length,
+      payloadDigest: _questionPayloadDigest(
+        questions,
+        questionNumber: (question) => question.questionNumber,
+        payloadDigest: (question) => question.payloadDigest,
+      ),
+      questionNumbers: List<int>.unmodifiable(numbers),
+      typedImageNodeCount: imageNodeCount,
+      typedUniqueAssetCount: reachable.length,
+      typedTableNodeCount: tableNodeCount,
+      reachableIdentities: Set<(String, String)>.unmodifiable(reachable),
+      questions:
+          List<TrainCCandidateQuestionCheckpoint>.unmodifiable(questions),
+    );
+  }
+
+  final int typedCount;
+  final int validEnvelopeCount;
+  final String payloadDigest;
+  final List<int> questionNumbers;
+  final int typedImageNodeCount;
+  final int typedUniqueAssetCount;
+  final int typedTableNodeCount;
+  final Set<(String, String)> reachableIdentities;
+  final List<TrainCCandidateQuestionCheckpoint> questions;
+
+  bool matches(TrainCRuntimeCheckpoint committed) {
+    if (typedCount != committed.typedCount ||
+        validEnvelopeCount != committed.validEnvelopeCount ||
+        payloadDigest != committed.payloadDigest ||
+        !_sameIntList(questionNumbers, committed.questionNumbers) ||
+        typedImageNodeCount != committed.typedImageNodeCount ||
+        typedUniqueAssetCount != committed.typedUniqueAssetCount ||
+        typedTableNodeCount != committed.typedTableNodeCount ||
+        !_sameIdentitySet(reachableIdentities, committed.reachableIdentities) ||
+        questions.length != committed.questions.length) {
+      return false;
+    }
+    for (final candidate in questions) {
+      final committedQuestion =
+          committed.question(candidate.questionNumber ?? -1);
+      if (committedQuestion == null ||
+          candidate.payloadDigest != committedQuestion.payloadDigest ||
+          candidate.imageNodeCount != committedQuestion.imageNodeCount ||
+          candidate.uniqueAssetCount != committedQuestion.uniqueAssetCount ||
+          candidate.tableNodeCount != committedQuestion.tableNodeCount ||
+          candidate.canonicalIdentityPreserved !=
+              committedQuestion.canonicalIdentityPreserved ||
+          !_sameIdentitySet(
+            candidate.reachableIdentities,
+            committedQuestion.reachableIdentities,
+          )) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
@@ -200,6 +376,8 @@ final class TrainCRuntimeCheckpoint {
     required this.typedTableNodeCount,
     required this.payloadDigest,
     required this.reachableIdentities,
+    required this.assetSizes,
+    required this.assetDigests,
     required this.questions,
   });
 
@@ -216,6 +394,8 @@ final class TrainCRuntimeCheckpoint {
   final int typedTableNodeCount;
   final String payloadDigest;
   final Set<(String, String)> reachableIdentities;
+  final Map<(String, String), int> assetSizes;
+  final Map<(String, String), String> assetDigests;
   final List<TrainCQuestionCheckpoint> questions;
 
   factory TrainCRuntimeCheckpoint.empty() {
@@ -233,6 +413,8 @@ final class TrainCRuntimeCheckpoint {
       typedTableNodeCount: 0,
       payloadDigest: '',
       reachableIdentities: <(String, String)>{},
+      assetSizes: <(String, String), int>{},
+      assetDigests: <(String, String), String>{},
       questions: <TrainCQuestionCheckpoint>[],
     );
   }
@@ -263,7 +445,9 @@ final class TrainCRuntimeCheckpoint {
         canonicalIdentityPreserved != other.canonicalIdentityPreserved ||
         typedTableNodeCount != other.typedTableNodeCount ||
         payloadDigest != other.payloadDigest ||
-        !_sameIdentitySet(reachableIdentities, other.reachableIdentities)) {
+        !_sameIdentitySet(reachableIdentities, other.reachableIdentities) ||
+        !_sameMap(assetSizes, other.assetSizes) ||
+        !_sameMap(assetDigests, other.assetDigests)) {
       return false;
     }
     if (questions.length != other.questions.length) return false;
@@ -294,6 +478,7 @@ final class TrainCRuntimePhaseFacts {
   const TrainCRuntimePhaseFacts({
     required this.input,
     required this.parse,
+    required this.candidateCheckpoint,
     required this.requestLedger,
     required this.commitCheckpoint,
     required this.restartCheckpoint,
@@ -303,6 +488,7 @@ final class TrainCRuntimePhaseFacts {
 
   final TrainCInputFacts input;
   final TrainCParseFacts parse;
+  final TrainCCandidateCheckpoint candidateCheckpoint;
   final TrainCRequestLedger requestLedger;
   final TrainCRuntimeCheckpoint commitCheckpoint;
   final TrainCRuntimeCheckpoint restartCheckpoint;
@@ -380,7 +566,9 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
             jsonDecode(payloadJson),
           );
           drafts.add(_DecodedDraft(questionId: questionId, draft: draft));
-          encodedPayloads.add(payloadJson);
+          encodedPayloads.add(
+            jsonEncode(const QuestionDraftV2Codec().encode(draft)),
+          );
         } catch (_) {
           throw const TrainCRuntimeEvidenceException(
             'TRAIN_C_RUNTIME_EVIDENCE_FAILURE',
@@ -398,11 +586,13 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       var imageNodeCount = 0;
       var tableNodeCount = 0;
       var canonicalIdentityPreserved = true;
-      for (final decoded in drafts) {
+      for (var index = 0; index < drafts.length; index++) {
+        final decoded = drafts[index];
         final inspection = await _inspectDraft(decoded.draft);
         questionFacts.add(
           TrainCQuestionCheckpoint(
             questionNumber: decoded.draft.questionNumber,
+            payloadDigest: sha256Hex(utf8.encode(encodedPayloads[index])),
             imageNodeCount: inspection.imageNodeCount,
             uniqueAssetCount: inspection.uniqueIdentities.length,
             resolvedUniqueAssetCount: inspection.resolvedIdentities.length,
@@ -422,12 +612,18 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
             canonicalIdentityPreserved && inspection.canonicalIdentityPreserved;
       }
       final resolvedGlobal = <(String, String)>{};
+      final assetSizes = <(String, String), int>{};
+      final assetDigests = <(String, String), String>{};
       for (final identity in reachable) {
         final bytes = runtime.contentAssetStore.readAssetBytes(
           sourceId: identity.$1,
           localAssetId: identity.$2,
         );
-        if (bytes != null) resolvedGlobal.add(identity);
+        if (bytes != null) {
+          resolvedGlobal.add(identity);
+          assetSizes[identity] = bytes.length;
+          assetDigests[identity] = sha256Hex(bytes);
+        }
       }
       final questionNumbers = <int>[];
       for (final fact in questionFacts) {
@@ -450,10 +646,14 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
         allReachableResolved: resolvedGlobal.length == reachable.length,
         canonicalIdentityPreserved: canonicalIdentityPreserved,
         typedTableNodeCount: tableNodeCount,
-        payloadDigest: sha256Hex(
-          utf8.encode(encodedPayloads.join('\u001f')),
+        payloadDigest: _questionPayloadDigest(
+          questionFacts,
+          questionNumber: (question) => question.questionNumber,
+          payloadDigest: (question) => question.payloadDigest,
         ),
         reachableIdentities: Set<(String, String)>.unmodifiable(reachable),
+        assetSizes: Map<(String, String), int>.unmodifiable(assetSizes),
+        assetDigests: Map<(String, String), String>.unmodifiable(assetDigests),
         questions: List<TrainCQuestionCheckpoint>.unmodifiable(questionFacts),
       );
     } on TrainCRuntimeEvidenceException {
@@ -480,6 +680,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       }
       final commit = phaseFacts.commitCheckpoint;
       final restart = phaseFacts.b0.preB0Checkpoint;
+      final candidate = phaseFacts.candidateCheckpoint;
       if (!phaseFacts.restartCheckpoint.equivalentTo(restart)) {
         throw const TrainCRuntimeEvidenceException('TRAIN_C_RESTART_FAILURE');
       }
@@ -487,7 +688,10 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       _requireFinalCheckpoint(commit);
       _requireFinalCheckpoint(restart);
       _requireFinalCheckpoint(restore);
-      if (!restore.equivalentTo(restart)) {
+      if (!candidate.matches(commit) || !commit.equivalentTo(restart)) {
+        throw const TrainCRuntimeEvidenceException('TRAIN_C_COMMIT_FAILURE');
+      }
+      if (!restore.equivalentTo(restart) || !current.equivalentTo(restore)) {
         throw const TrainCRuntimeEvidenceException(
           'TRAIN_C_B0_IDENTITY_MISMATCH',
         );
@@ -496,8 +700,26 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       final manifest = await BackupArchiveIo.readManifestOnly(
         phaseFacts.b0.packagePath,
       );
-      final assetInventoryCount =
-          (await runtime.contentAssetStore.listAssets()).length;
+      final assetInventory = await runtime.contentAssetStore.listAssets();
+      final assetInventoryByIdentity = <(String, String), dynamic>{
+        for (final asset in assetInventory)
+          (asset.sourceId, asset.localAssetId): asset,
+      };
+      final manifestByIdentity = <(String, String), dynamic>{
+        for (final asset in manifest.contentAssets)
+          (asset.sourceId, asset.localAssetId): asset,
+      };
+      if (assetInventoryByIdentity.length != assetInventory.length ||
+          manifestByIdentity.length != manifest.contentAssets.length) {
+        throw const TrainCRuntimeEvidenceException(
+          'TRAIN_C_B0_IDENTITY_MISMATCH',
+        );
+      }
+      _requireAssetInventory(
+        restart,
+        assetInventoryByIdentity,
+        manifestByIdentity,
+      );
       final request = phaseFacts.requestLedger;
       final parse = phaseFacts.parse;
       final mandatory = <String, dynamic>{};
@@ -523,7 +745,10 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           'sourceReferencedUniqueAssetCount':
               sourceClosure.identitiesFor(number).length,
           'resolvedUniqueAssetCount': currentQuestion.resolvedUniqueAssetCount,
-          'sourceIdentityPreserved': true,
+          'sourceIdentityPreserved': _sameIdentitySet(
+            sourceClosure.identitiesFor(number),
+            currentQuestion.reachableIdentities,
+          ),
           'canonicalIdentityPreserved':
               currentQuestion.canonicalIdentityPreserved,
           'commitPreserved': currentQuestion.equivalentTo(commitQuestion),
@@ -541,7 +766,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
       }
       final backupReachable = restart.reachableIdentities.length;
       final backupManifestAssets = manifest.contentAssets.length;
-      final restoredIdentityPreserved = true;
+      final restoredIdentityPreserved = restore.equivalentTo(restart);
       return <String, dynamic>{
         'schemaVersion': 3,
         'runNumber': 1,
@@ -639,7 +864,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
           'restoredV2Sidecars': restore.v2Sidecars,
           'reachableAssetCount': backupReachable,
           'backupManifestAssetCount': backupManifestAssets,
-          'restoredAssetCount': assetInventoryCount,
+          'restoredAssetCount': assetInventory.length,
           'manifestMatchesReachableAssets':
               backupManifestAssets == backupReachable,
           'restoredIdentityPreserved': restoredIdentityPreserved,
@@ -713,26 +938,45 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
   }
 
   int _countTables(RichContent content) {
-    var count = 0;
-    for (final node in content.nodes) {
-      switch (node) {
-        case TableNode(:final structure):
-          count++;
-          for (final row in structure.rows) {
-            for (final cell in row.cells) {
-              count += _countTables(cell.content);
-            }
-          }
-        case ImageNode(:final alternativeText):
-          if (alternativeText != null) count += _countTables(alternativeText);
-        case TextNode():
-        case InlineMathNode():
-        case BlockMathNode():
-        case RawFallbackNode():
-          break;
+    return _countTablesInContent(content);
+  }
+
+  void _requireAssetInventory(
+    TrainCRuntimeCheckpoint restart,
+    Map<(String, String), dynamic> inventory,
+    Map<(String, String), dynamic> manifest,
+  ) {
+    final expected = restart.reachableIdentities;
+    if (!_sameIdentitySet(expected, inventory.keys.toSet()) ||
+        !_sameIdentitySet(expected, manifest.keys.toSet())) {
+      throw const TrainCRuntimeEvidenceException(
+        'TRAIN_C_B0_IDENTITY_MISMATCH',
+      );
+    }
+    for (final identity in expected) {
+      final expectedSize = restart.assetSizes[identity];
+      final expectedDigest = restart.assetDigests[identity];
+      final inventoryAsset = inventory[identity];
+      final manifestAsset = manifest[identity];
+      final expectedStorageKey = runtime.contentAssetStore.storageKey(
+        sourceId: identity.$1,
+        localAssetId: identity.$2,
+      );
+      if (expectedSize == null ||
+          expectedDigest == null ||
+          inventoryAsset == null ||
+          manifestAsset == null ||
+          inventoryAsset.storageKey != expectedStorageKey ||
+          manifestAsset.storageKey != expectedStorageKey ||
+          inventoryAsset.sizeBytes != expectedSize ||
+          inventoryAsset.sha256 != expectedDigest ||
+          manifestAsset.sizeBytes != expectedSize ||
+          manifestAsset.sha256 != expectedDigest) {
+        throw const TrainCRuntimeEvidenceException(
+          'TRAIN_C_B0_IDENTITY_MISMATCH',
+        );
       }
     }
-    return count;
   }
 
   void _requireFinalCheckpoint(TrainCRuntimeCheckpoint checkpoint) {
@@ -784,6 +1028,15 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
     TrainCRuntimeCheckpoint current,
   ) {
     final source = phaseFacts.parse.sourceImages;
+    final sourceQuestionNumbers = <int>{
+      ...source.referencedImageCounts.keys,
+      ...source.referencedIdentitiesByQuestion.keys,
+    };
+    if (sourceQuestionNumbers.any((number) => number < 1 || number > 22)) {
+      throw const TrainCRuntimeEvidenceException(
+        'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+      );
+    }
     if (source.totalReferencedImageCount !=
             phaseFacts.parse.referencedImageBlockCount ||
         source.totalReferencedImageCount != current.typedImageNodeCount ||
@@ -792,7 +1045,7 @@ final class TrainCRuntimeEvidenceSource implements TrainCTrustedEvidenceSource {
         'TRAIN_C_IMAGE_CLOSURE_FAILURE',
       );
     }
-    for (final number in const <int>[5, 18, 19]) {
+    for (var number = 1; number <= 22; number++) {
       final question = current.question(number);
       if (question == null ||
           source.countFor(number) != question.imageNodeCount ||
@@ -863,6 +1116,54 @@ bool _sameIdentitySet(
   Set<(String, String)> right,
 ) {
   return left.length == right.length && left.containsAll(right);
+}
+
+bool _sameMap<K, V>(Map<K, V> left, Map<K, V> right) {
+  if (left.length != right.length) return false;
+  for (final entry in left.entries) {
+    if (right[entry.key] != entry.value) return false;
+  }
+  return true;
+}
+
+String _questionPayloadDigest<T>(
+  Iterable<T> questions, {
+  required int? Function(T) questionNumber,
+  required String Function(T) payloadDigest,
+}) {
+  final values = questions
+      .map(
+        (question) => '${questionNumber(question) ?? -1}:\u0000'
+            '${payloadDigest(question)}',
+      )
+      .toList()
+    ..sort();
+  return sha256Hex(utf8.encode(values.join('\u001f')));
+}
+
+int _countTablesInContent(RichContent content) {
+  var count = 0;
+  for (final node in content.nodes) {
+    switch (node) {
+      case TableNode(:final structure):
+        count++;
+        for (final row in structure.rows) {
+          for (final cell in row.cells) {
+            count += _countTablesInContent(cell.content);
+          }
+        }
+      case ImageNode(:final alternativeText):
+        if (alternativeText != null) {
+          count += _countTablesInContent(alternativeText);
+        }
+      case TextNode():
+      case InlineMathNode():
+      case BlockMathNode():
+      case RawFallbackNode():
+        break;
+    }
+  }
+  return count;
 }
 
 bool _sameIntList(List<int> left, List<int> right) {

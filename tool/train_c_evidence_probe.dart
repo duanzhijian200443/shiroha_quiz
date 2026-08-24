@@ -154,6 +154,32 @@ final class TrainCReviewedIdentity {
     approvedProductionBase: _trainBMergeCommit,
   );
 
+  /// Creates the identity used only by the offline L1A mechanical preflight.
+  ///
+  /// Offline preflight is not an acceptance authority and never reaches a
+  /// provider boundary. Trusted evidence and any future live runner must still
+  /// receive an independently reviewed, explicit identity.
+  factory TrainCReviewedIdentity.forOfflineCurrentRepository() {
+    final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+    final output = result.stdout;
+    if (result.exitCode != 0 || output is! String) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    final head = output.trim();
+    if (!_isHex(head, 40)) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    return TrainCReviewedIdentity(
+      approvedHarnessHead: head,
+      approvedBase: _trainCL1BaseMaster,
+      approvedProductionBase: _trainBMergeCommit,
+    );
+  }
+
   final String approvedHarnessHead;
   final String approvedBase;
   final String approvedProductionBase;
