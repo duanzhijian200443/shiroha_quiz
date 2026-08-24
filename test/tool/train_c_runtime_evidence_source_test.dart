@@ -9,12 +9,13 @@ import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/backup/backup_archive_io.dart';
-import 'package:shiroha_quiz/domain/backup/backup_values.dart';
+import 'package:shiroha_quiz/services/backup/sha256.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../tool/train_c_evidence_collector.dart';
@@ -28,6 +29,8 @@ const _tinyPngBase64 =
     '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 List<int> _tinyPng() => base64Decode(_tinyPngBase64);
+
+String get _tinyPngDigest => sha256Hex(_tinyPng());
 
 final class _AllRenderEvidence implements TrainCRenderEvidencePort {
   const _AllRenderEvidence();
@@ -89,12 +92,13 @@ Future<TrainCRuntimeCheckpoint> _capture(TrainCIsolatedRuntime runtime) {
 QuestionDraftV2 _draft(
   int number, {
   bool includeNonMandatoryImages = false,
+  bool dualImageQuestion5 = false,
 }) {
   final sourceId = 'synthetic_source';
   final imageAsset = switch (number) {
     1 when includeNonMandatoryImages => 'asset_q1',
     2 when includeNonMandatoryImages => 'asset_q2',
-    5 => 'asset_q5',
+    5 when !dualImageQuestion5 => 'asset_q5',
     18 => 'asset_q18',
     19 => 'asset_q19',
     _ => null,
@@ -102,29 +106,45 @@ QuestionDraftV2 _draft(
   final image = imageAsset == null
       ? null
       : ImageNode(sourceId: sourceId, localAssetId: imageAsset);
-  final stem = number == 5
-      ? RichContent(nodes: <ContentNode>[image!])
-      : number == 19
-          ? RichContent(
-              nodes: <ContentNode>[
-                TableNode(
-                  structure: TableStructure(
-                    rows: <TableRow>[
-                      TableRow(
-                        cells: <TableCell>[
-                          TableCell(
-                            content: RichContent(nodes: <ContentNode>[image!]),
-                            rowSpan: 1,
-                            columnSpan: 1,
+  final stem = number == 5 && dualImageQuestion5
+      ? RichContent(
+          nodes: const <ContentNode>[
+            ImageNode(
+              sourceId: 'synthetic_source',
+              localAssetId: 'asset_q5_a',
+            ),
+            ImageNode(
+              sourceId: 'synthetic_source',
+              localAssetId: 'asset_q5_b',
+            ),
+          ],
+        )
+      : number == 5
+          ? RichContent(nodes: <ContentNode>[image!])
+          : number == 19
+              ? RichContent(
+                  nodes: <ContentNode>[
+                    TableNode(
+                      structure: TableStructure(
+                        rows: <TableRow>[
+                          TableRow(
+                            cells: <TableCell>[
+                              TableCell(
+                                content:
+                                    RichContent(nodes: <ContentNode>[image!]),
+                                rowSpan: 1,
+                                columnSpan: 1,
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : RichContent(nodes: <ContentNode>[TextNode('question $number')]);
+                    ),
+                  ],
+                )
+              : RichContent(
+                  nodes: <ContentNode>[TextNode('question $number')],
+                );
   final explanation =
       number == 18 ? RichContent(nodes: <ContentNode>[image!]) : null;
   return QuestionDraftV2(
@@ -136,22 +156,40 @@ QuestionDraftV2 _draft(
     sourceRefs: <SourceRef>[
       SourceRef.document(sourceId: sourceId),
     ],
-    assetRefs: imageAsset == null
-        ? const <SourcedAssetRef>[]
-        : <SourcedAssetRef>[
+    assetRefs: number == 5 && dualImageQuestion5
+        ? <SourcedAssetRef>[
             SourcedAssetRef(
               sourceId: sourceId,
-              asset: AssetRef(
-                assetId: imageAsset,
+              asset: const AssetRef(
+                assetId: 'asset_q5_a',
                 kind: AssetKind.image,
               ),
             ),
-          ],
+            SourcedAssetRef(
+              sourceId: sourceId,
+              asset: const AssetRef(
+                assetId: 'asset_q5_b',
+                kind: AssetKind.image,
+              ),
+            ),
+          ]
+        : imageAsset == null
+            ? const <SourcedAssetRef>[]
+            : <SourcedAssetRef>[
+                SourcedAssetRef(
+                  sourceId: sourceId,
+                  asset: AssetRef(
+                    assetId: imageAsset,
+                    kind: AssetKind.image,
+                  ),
+                ),
+              ],
   );
 }
 
 TrainCCandidateCheckpoint _candidateForSynthetic({
   bool includeNonMandatoryImages = false,
+  bool dualImageQuestion5 = false,
 }) {
   return TrainCCandidateCheckpoint.fromDrafts(
     List<QuestionDraftV2>.generate(
@@ -159,6 +197,7 @@ TrainCCandidateCheckpoint _candidateForSynthetic({
       (index) => _draft(
         index + 1,
         includeNonMandatoryImages: includeNonMandatoryImages,
+        dualImageQuestion5: dualImageQuestion5,
       ),
     ),
   );
@@ -167,12 +206,13 @@ TrainCCandidateCheckpoint _candidateForSynthetic({
 Future<void> _seedTwentyTwo(
   TrainCIsolatedRuntime runtime, {
   bool includeNonMandatoryImages = false,
+  bool dualImageQuestion5 = false,
 }) async {
   final store = runtime.contentAssetStore;
   final assetIds = <String>[
     if (includeNonMandatoryImages) 'asset_q1',
     if (includeNonMandatoryImages) 'asset_q2',
-    'asset_q5',
+    if (dualImageQuestion5) ...<String>['asset_q5_a', 'asset_q5_b'] else 'asset_q5',
     'asset_q18',
     'asset_q19',
   ];
@@ -195,11 +235,63 @@ Future<void> _seedTwentyTwo(
       draft: _draft(
         number,
         includeNonMandatoryImages: includeNonMandatoryImages,
+        dualImageQuestion5: dualImageQuestion5,
       ),
     );
     await db.insert('questions', frozen.questionRow);
     await db.insert('question_v2_payloads', frozen.payloadRow);
   }
+}
+
+TrainCPreTypedSourceImageEvidence _sourceEvidence({
+  required int questionNumber,
+  required String localAssetId,
+  required int readingOrder,
+  String? blockId,
+  String? contentHash,
+}) {
+  return TrainCPreTypedSourceImageEvidence(
+    questionNumber: questionNumber,
+    sourceId: 'synthetic_source',
+    blockId: blockId ?? 'block_${questionNumber}_$readingOrder',
+    localAssetId: localAssetId,
+    contentHash: contentHash ?? _tinyPngDigest,
+    readingOrder: readingOrder,
+  );
+}
+
+TrainCSourceImageFacts _sourceFacts(
+  List<TrainCPreTypedSourceImageEvidence> evidence,
+) {
+  final counts = <int, int>{};
+  final identities = <int, Set<(String, String)>>{};
+  for (final item in evidence) {
+    counts[item.questionNumber] = (counts[item.questionNumber] ?? 0) + 1;
+    identities
+        .putIfAbsent(item.questionNumber, () => <(String, String)>{})
+        .add(item.identity);
+  }
+  return TrainCSourceImageFacts(
+    referencedImageCounts: counts,
+    referencedIdentitiesByQuestion: identities,
+    orderedEvidence: evidence,
+  );
+}
+
+TrainCSourceImageFacts _defaultSourceFacts() {
+  return _sourceFacts(<TrainCPreTypedSourceImageEvidence>[
+    _sourceEvidence(questionNumber: 5, localAssetId: 'asset_q5', readingOrder: 0),
+    _sourceEvidence(
+      questionNumber: 18,
+      localAssetId: 'asset_q18',
+      readingOrder: 0,
+    ),
+    _sourceEvidence(
+      questionNumber: 19,
+      localAssetId: 'asset_q19',
+      readingOrder: 0,
+    ),
+  ]);
 }
 
 Future<TrainCRequestLedger> _syntheticLedger() async {
@@ -245,15 +337,7 @@ TrainCRuntimePhaseFacts _finalFacts({
       storageRoute: 'typedV2',
       storageReason: 'typed_candidate_ready',
       layoutChunkSize: 20,
-      sourceImages: sourceImages ??
-          TrainCSourceImageFacts(
-            referencedImageCounts: <int, int>{5: 1, 18: 1, 19: 1},
-            referencedIdentitiesByQuestion: <int, Set<(String, String)>>{
-              5: <(String, String)>{('synthetic_source', 'asset_q5')},
-              18: <(String, String)>{('synthetic_source', 'asset_q18')},
-              19: <(String, String)>{('synthetic_source', 'asset_q19')},
-            },
-          ),
+      sourceImages: sourceImages ?? _defaultSourceFacts(),
     ),
     candidateCheckpoint: candidateCheckpoint ?? _candidateForSynthetic(),
     requestLedger: ledger,
@@ -386,14 +470,23 @@ void main() {
         p.join(runtime.exportDirectory.path, 'ownership.shiroha');
     final b0 = runtime.buildBackupRuntime();
     await b0.exportTo(packagePath);
-    final sourceImages = TrainCSourceImageFacts(
-      referencedImageCounts: <int, int>{5: 1, 18: 1, 19: 1},
-      referencedIdentitiesByQuestion: <int, Set<(String, String)>>{
-        5: <(String, String)>{('synthetic_source', 'asset_q18')},
-        18: <(String, String)>{('synthetic_source', 'asset_q5')},
-        19: <(String, String)>{('synthetic_source', 'asset_q19')},
-      },
-    );
+    final sourceImages = _sourceFacts(<TrainCPreTypedSourceImageEvidence>[
+      _sourceEvidence(
+        questionNumber: 5,
+        localAssetId: 'asset_q18',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 18,
+        localAssetId: 'asset_q5',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 19,
+        localAssetId: 'asset_q19',
+        readingOrder: 0,
+      ),
+    ]);
     final reviewed = _reviewedForCurrentHead();
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
@@ -428,16 +521,33 @@ void main() {
         p.join(runtime.exportDirectory.path, 'non_mandatory_ownership.shiroha');
     final b0 = runtime.buildBackupRuntime();
     await b0.exportTo(packagePath);
-    final sourceImages = TrainCSourceImageFacts(
-      referencedImageCounts: <int, int>{1: 1, 2: 1, 5: 1, 18: 1, 19: 1},
-      referencedIdentitiesByQuestion: <int, Set<(String, String)>>{
-        1: <(String, String)>{('synthetic_source', 'asset_q2')},
-        2: <(String, String)>{('synthetic_source', 'asset_q1')},
-        5: <(String, String)>{('synthetic_source', 'asset_q5')},
-        18: <(String, String)>{('synthetic_source', 'asset_q18')},
-        19: <(String, String)>{('synthetic_source', 'asset_q19')},
-      },
-    );
+    final sourceImages = _sourceFacts(<TrainCPreTypedSourceImageEvidence>[
+      _sourceEvidence(
+        questionNumber: 1,
+        localAssetId: 'asset_q2',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 2,
+        localAssetId: 'asset_q1',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 5,
+        localAssetId: 'asset_q5',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 18,
+        localAssetId: 'asset_q18',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 19,
+        localAssetId: 'asset_q19',
+        readingOrder: 0,
+      ),
+    ]);
     final reviewed = _reviewedForCurrentHead();
     final source = TrainCRuntimeEvidenceSource(
       runtime: runtime,
@@ -453,6 +563,126 @@ void main() {
         blockCount: 6,
         imageBlockCount: 5,
         referencedImageBlockCount: 5,
+      ),
+      reviewedIdentity: reviewed,
+    );
+
+    await expectLater(
+      source.readAuthoritativeSnapshot(),
+      throwsA(
+        predicate<TrainCRuntimeEvidenceException>(
+          (error) => error.code == 'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        ),
+      ),
+    );
+  });
+
+  test('source reading order mismatch fails when identity set still matches',
+      () async {
+    await _seedTwentyTwo(runtime, dualImageQuestion5: true);
+    final commit = await _capture(runtime);
+    expect(
+      commit.question(5)?.orderedImageIdentities,
+      <(String, String)>[
+        ('synthetic_source', 'asset_q5_a'),
+        ('synthetic_source', 'asset_q5_b'),
+      ],
+    );
+    runtime = await runtime.reopenFresh();
+    final restart = await _capture(runtime);
+    final packagePath = p.join(runtime.exportDirectory.path, 'order.shiroha');
+    final b0 = runtime.buildBackupRuntime();
+    await b0.exportTo(packagePath);
+    final sourceImages = _sourceFacts(<TrainCPreTypedSourceImageEvidence>[
+      _sourceEvidence(
+        questionNumber: 5,
+        localAssetId: 'asset_q5_b',
+        readingOrder: 0,
+        blockId: 'block_q5_b',
+      ),
+      _sourceEvidence(
+        questionNumber: 5,
+        localAssetId: 'asset_q5_a',
+        readingOrder: 1,
+        blockId: 'block_q5_a',
+      ),
+      _sourceEvidence(
+        questionNumber: 18,
+        localAssetId: 'asset_q18',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 19,
+        localAssetId: 'asset_q19',
+        readingOrder: 0,
+      ),
+    ]);
+    final reviewed = _reviewedForCurrentHead();
+    final source = TrainCRuntimeEvidenceSource(
+      runtime: runtime,
+      phaseFacts: _finalFacts(
+        commit: commit,
+        restart: restart,
+        restore: restart,
+        packagePath: packagePath,
+        ledger: await _syntheticLedger(),
+        sourceImages: sourceImages,
+        candidateCheckpoint:
+            _candidateForSynthetic(dualImageQuestion5: true),
+        blockCount: 5,
+        imageBlockCount: 4,
+        referencedImageBlockCount: 4,
+      ),
+      reviewedIdentity: reviewed,
+    );
+
+    await expectLater(
+      source.readAuthoritativeSnapshot(),
+      throwsA(
+        predicate<TrainCRuntimeEvidenceException>(
+          (error) => error.code == 'TRAIN_C_IMAGE_CLOSURE_FAILURE',
+        ),
+      ),
+    );
+  });
+
+  test('source content hash mismatch fails before B0 can mask it', () async {
+    await _seedTwentyTwo(runtime);
+    final commit = await _capture(runtime);
+    runtime = await runtime.reopenFresh();
+    final restart = await _capture(runtime);
+    final packagePath = p.join(runtime.exportDirectory.path, 'hash.shiroha');
+    final b0 = runtime.buildBackupRuntime();
+    await b0.exportTo(packagePath);
+    final sourceImages = _sourceFacts(<TrainCPreTypedSourceImageEvidence>[
+      _sourceEvidence(
+        questionNumber: 5,
+        localAssetId: 'asset_q5',
+        readingOrder: 0,
+        contentHash:
+            '0000000000000000000000000000000000000000000000000000000000000000',
+      ),
+      _sourceEvidence(
+        questionNumber: 18,
+        localAssetId: 'asset_q18',
+        readingOrder: 0,
+      ),
+      _sourceEvidence(
+        questionNumber: 19,
+        localAssetId: 'asset_q19',
+        readingOrder: 0,
+      ),
+    ]);
+    final reviewed = _reviewedForCurrentHead();
+    final source = TrainCRuntimeEvidenceSource(
+      runtime: runtime,
+      phaseFacts: _finalFacts(
+        commit: commit,
+        restart: restart,
+        restore: restart,
+        packagePath: packagePath,
+        ledger: await _syntheticLedger(),
+        sourceImages: sourceImages,
       ),
       reviewedIdentity: reviewed,
     );
