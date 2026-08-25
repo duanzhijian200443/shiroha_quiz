@@ -246,6 +246,43 @@ void main() {
     expect(finalFacts, contains(TrainCL1BChildPhase.restart.wireName));
   });
 
+  test('supervisor preserves parse failure code and terminalizer callback',
+      () async {
+    var terminalizerCalls = 0;
+    await expectLater(
+      TrainCL1BSupervisor.run(
+        liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+        continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
+        onParseFailure: () {
+          terminalizerCalls++;
+        },
+        startChild: (phase, environment) async {
+          final exit = Completer<int>();
+          unawaited(Future<void>(() async {
+            final client = TrainCL1BSupervisorClient.fromEnvironment(
+              environment: environment,
+            );
+            await client.reportFailure('TRAIN_C_PROVIDER_SHAPE_MISMATCH');
+            exit.complete(1);
+          }));
+          return (
+            pid: 2000,
+            stdout: const Stream<List<int>>.empty(),
+            stderr: const Stream<List<int>>.empty(),
+            exitCode: exit.future,
+            kill: () => true,
+          );
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_PROVIDER_SHAPE_MISMATCH',
+        ),
+      ),
+    );
+    expect(terminalizerCalls, 1);
+  });
+
   test('completed request ledger survives supervisor handoff without replay',
       () {
     final ledger = TrainCRequestLedger();
