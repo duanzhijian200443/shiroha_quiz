@@ -78,7 +78,10 @@ final class TrainCL1BLiveLaunchGuard {
         'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
       );
     }
-    TrainCLiveAttemptAuthority.fromCapability(attemptCapability).verifyUnused(
+    final capability =
+        TrainCLiveAttemptAuthority.fromCapability(attemptCapability);
+    _verifyCapabilityIdentity(capability, reviewed);
+    capability.verifyUnused(
       reviewedHarnessHead: reviewed.approvedHarnessHead,
     );
     (verifyGit ?? _verifyGit).call(reviewed);
@@ -135,6 +138,7 @@ final class TrainCL1BLiveLaunchGuard {
     }
     final capability =
         TrainCLiveAttemptAuthority.fromCapability(attemptCapability);
+    _verifyCapabilityIdentity(capability, reviewed);
     TrainCL1BPhaseController.forContinuation(
       capability: capability,
       reviewedHarnessHead: reviewed.approvedHarnessHead,
@@ -228,6 +232,17 @@ final class TrainCL1BLiveLaunchGuard {
       ..remove(trainCL1BCredentialReadyEnvironment)
       ..[trainCL1BContinuationEnvironment] = '1';
     return result;
+  }
+
+  static void _verifyCapabilityIdentity(
+    TrainCLiveAttemptAuthority capability,
+    TrainCReviewedIdentity reviewed,
+  ) {
+    final durable = capability.snapshot;
+    if (durable.approvedHarnessHead != reviewed.approvedHarnessHead ||
+        durable.approvedBase != reviewed.approvedBase) {
+      throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+    }
   }
 
   static void _verifyGit(TrainCReviewedIdentity reviewed) {
