@@ -194,11 +194,15 @@ final class TrainCLiveRunCapability {
 
   void verifyUnused({
     required String reviewedHarnessHead,
-    required String reviewedBase,
+    String? reviewedBase,
   }) {
     final state = _readCurrentState();
     _validateState(state);
-    _verifyReviewedIdentity(state, reviewedHarnessHead, reviewedBase);
+    _verifyReviewedIdentity(
+      state,
+      reviewedHarnessHead,
+      reviewedBase ?? state['approvedBase'] as String,
+    );
     final attempt = TrainCLiveRunAttemptStateX.parse(
       state['attemptState'] as String,
     );
@@ -214,11 +218,15 @@ final class TrainCLiveRunCapability {
 
   void verifyContinuation({
     required String reviewedHarnessHead,
-    required String reviewedBase,
+    String? reviewedBase,
   }) {
     final state = _readCurrentState();
     _validateState(state);
-    _verifyReviewedIdentity(state, reviewedHarnessHead, reviewedBase);
+    _verifyReviewedIdentity(
+      state,
+      reviewedHarnessHead,
+      reviewedBase ?? state['approvedBase'] as String,
+    );
     final attempt = TrainCLiveRunAttemptStateX.parse(
       state['attemptState'] as String,
     );
