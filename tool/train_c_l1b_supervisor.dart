@@ -47,6 +47,8 @@ typedef TrainCL1BChildStarter = Future<TrainCL1BStartedChild> Function(
   Map<String, String> environment,
 );
 
+typedef TrainCL1BParseFailureHandler = void Function();
+
 /// Loopback-only client used by a Flutter child to exchange transient TRAIN C
 /// facts with its parent supervisor. Raw source identities/hashes never touch
 /// stdout, a durable file, or the final evidence map.
@@ -170,6 +172,7 @@ final class TrainCL1BSupervisor {
     required Map<String, String> liveEnvironment,
     required Map<String, String> continuationEnvironment,
     TrainCL1BChildStarter? startChild,
+    TrainCL1BParseFailureHandler? onParseFailure,
   }) async {
     final server = await _TrainCL1BSupervisorServer.bind();
     try {
@@ -203,9 +206,7 @@ final class TrainCL1BSupervisor {
           ]).timeout(timeout);
           final report = values[0];
           final exitCode = values[1];
-          if (report is! Map<String, Object?> ||
-              exitCode is! int ||
-              exitCode != 0) {
+          if (report is! Map<String, Object?> || exitCode is! int) {
             throw const TrainCL1BSupervisorException(
               'TRAIN_C_HARNESS_NOT_READY',
             );
@@ -216,6 +217,11 @@ final class TrainCL1BSupervisor {
               code is String && code.isNotEmpty
                   ? code
                   : 'TRAIN_C_HARNESS_NOT_READY',
+            );
+          }
+          if (exitCode != 0) {
+            throw const TrainCL1BSupervisorException(
+              'TRAIN_C_HARNESS_NOT_READY',
             );
           }
           final payload = report['payload'];
@@ -230,14 +236,31 @@ final class TrainCL1BSupervisor {
           );
         } on TimeoutException {
           child.kill();
+          _notifyParseFailure(phase, onParseFailure);
           throw const TrainCL1BSupervisorException(
             'TRAIN_C_HARNESS_NOT_READY',
           );
+        } catch (_) {
+          _notifyParseFailure(phase, onParseFailure);
+          rethrow;
         }
       }
       return 0;
     } finally {
       await server.close();
+    }
+  }
+
+  static void _notifyParseFailure(
+    TrainCL1BChildPhase phase,
+    TrainCL1BParseFailureHandler? onParseFailure,
+  ) {
+    if (phase != TrainCL1BChildPhase.parse || onParseFailure == null) return;
+    try {
+      onParseFailure();
+    } catch (_) {
+      // Failure terminalization is best-effort here. The durable consumed
+      // attempt itself remains fail-closed even if this status update fails.
     }
   }
 
