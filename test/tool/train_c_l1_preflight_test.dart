@@ -1,8 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/services/import_pipeline/candidate_asset_lease.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 
 import '../../tool/train_c_evidence_collector.dart';
 import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_l1_preflight.dart';
+import '../../tool/train_c_l1b_review_authorization.dart';
+import '../../tool/train_c_l1b_source_observer.dart';
+import '../../tool/train_c_review_authorization.dart';
 
 final class _NoopGate implements TrainCExecutionStateGate {
   const _NoopGate();
@@ -20,6 +28,33 @@ final class _FailureGate implements TrainCExecutionStateGate {
   void verify() {
     throw TrainCEvidenceProbeException(code);
   }
+}
+
+final class _FixedRegionizer extends OcrQuestionRegionizer {
+  const _FixedRegionizer(this.result);
+
+  final OcrQuestionRegionizerResult result;
+
+  @override
+  OcrQuestionRegionizerResult regionize(OcrDocument document) => result;
+}
+
+final class _FixedOcrClient implements OcrDocumentClient {
+  const _FixedOcrClient(this.document);
+
+  final OcrDocument document;
+
+  @override
+  String get modelId => 'fixed';
+
+  @override
+  Future<OcrDocument> parseFile({
+    required AiEngineProfile profile,
+    required String filePath,
+    required String sourceName,
+    Duration timeout = const Duration(minutes: 8),
+  }) async =>
+      document;
 }
 
 void main() {
@@ -135,6 +170,105 @@ void main() {
       ),
     );
   });
+
+  test('L1B review identity requires independent head and base', () {
+    final reviewed = TrainCL1BReviewAuthorization.requireFromEnvironment(
+      environment: const <String, String>{
+        trainCApprovedHarnessHeadEnvironment:
+            'b000000000000000000000000000000000000000',
+        trainCL1BApprovedBaseEnvironment:
+            'c000000000000000000000000000000000000000',
+      },
+    );
+
+    expect(
+      reviewed.approvedHarnessHead,
+      'b000000000000000000000000000000000000000',
+    );
+    expect(
+      reviewed.approvedBase,
+      'c000000000000000000000000000000000000000',
+    );
+    expect(reviewed.approvedProductionBase, trainCApprovedProductionBase);
+  });
+
+  test('L1B review identity fails closed when base is absent', () {
+    expect(
+      () => TrainCL1BReviewAuthorization.requireFromEnvironment(
+        environment: const <String, String>{
+          trainCApprovedHarnessHeadEnvironment:
+              'b000000000000000000000000000000000000000',
+        },
+      ),
+      throwsA(
+        predicate<TrainCEvidenceProbeException>(
+          (error) => error.code == 'TRAIN_C_CODE_IDENTITY_MISMATCH',
+        ),
+      ),
+    );
+  });
+
+  test('same-parse observer returns the production document unchanged',
+      () async {
+    final document = _singleImageDocument();
+    final observer = TrainCL1BObservingOcrClient(_FixedOcrClient(document));
+    final result = await observer.parseFile(
+      profile: _profile(),
+      filePath: 'unused.pdf',
+      sourceName: 'unused.pdf',
+    );
+
+    expect(result, same(document));
+    expect(observer.observedDocument, same(document));
+    expect(observer.parseCount, 1);
+  });
+
+  test('source observation binds image bytes and canonical question order', () {
+    final document = _singleImageDocument();
+    final region = OcrQuestionRegion(
+      number: 5,
+      stemParts: const <String>['[图片]'],
+      answerParts: const <String>[],
+      explanationParts: const <String>[],
+      sourcePageIndices: const <int>[1],
+      sourceBlockIds: const <String>['image_5'],
+      diagnostics: const <String>[],
+      ownedSources: const <OcrQuestionRegionSource>[
+        OcrQuestionRegionSource(
+          blockId: 'image_5',
+          field: OcrRegionField.stem,
+          text: '[图片]',
+        ),
+      ],
+    );
+    final observation = buildTrainCL1BSourceObservation(
+      document: document,
+      retainedLease: const ContentAssetCandidateLease(
+        sourceId: 'source_5',
+        localAssetIds: <String>['image_5'],
+      ),
+      acceptedQuestionNumbers: const <int>{5},
+      regionizer: _FixedRegionizer(
+        OcrQuestionRegionizerResult(
+          regions: <OcrQuestionRegion>[region],
+          diagnostics: const <String, dynamic>{},
+        ),
+      ),
+    );
+
+    final evidence = observation.sourceImages.evidenceFor(5);
+    expect(observation.blockCount, 1);
+    expect(observation.imageBlockCount, 1);
+    expect(observation.tableBlockCount, 0);
+    expect(observation.referencedTableBlockCount, 0);
+    expect(evidence, hasLength(1));
+    expect(evidence.single.questionNumber, 5);
+    expect(evidence.single.sourceId, 'source_5');
+    expect(evidence.single.blockId, 'image_5');
+    expect(evidence.single.localAssetId, 'image_5');
+    expect(evidence.single.readingOrder, 0);
+    expect(evidence.single.contentHash, matches(RegExp(r'^[0-9a-f]{64}$')));
+  });
 }
 
 TrainCReviewedIdentity _reviewedForTest() {
@@ -142,5 +276,47 @@ TrainCReviewedIdentity _reviewedForTest() {
     approvedHarnessHead: 'a000000000000000000000000000000000000000',
     approvedBase: trainCL1BaseMaster,
     approvedProductionBase: trainCL1TrainBMerge,
+  );
+}
+
+OcrDocument _singleImageDocument() {
+  return OcrDocument(
+    sourceName: 'fixture.pdf',
+    pages: <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          OcrBlock(
+            blockId: 'image_5',
+            pageIndex: 1,
+            type: 'image',
+            text: '[图片]',
+            bbox: const <double>[],
+            readingOrder: 7,
+            imagePayload: OcrImagePayload(
+              bytes: const <int>[1, 2, 3, 4],
+              mimeType: 'image/png',
+            ),
+          ),
+        ],
+      ),
+    ],
+    markdown: '',
+    rawResponses: const <Map<String, dynamic>>[],
+    usage: const <String, dynamic>{},
+  );
+}
+
+AiEngineProfile _profile() {
+  return const AiEngineProfile(
+    id: 'train-c-test-ocr',
+    engineType: AiEngineType.ocr,
+    name: 'train-c-test',
+    apiKey: 'test-key',
+    baseUrl: 'https://open.bigmodel.cn/api/paas',
+    modelName: 'glm-ocr',
+    temperature: 0,
+    reasoningEffort: '',
+    isActive: true,
   );
 }
