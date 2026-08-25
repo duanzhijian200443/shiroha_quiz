@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'train_c_evidence_probe.dart';
 import 'train_c_review_authorization.dart';
 
@@ -18,7 +20,7 @@ final class TrainCL1BReviewAuthorization {
   static TrainCReviewedIdentity requireFromEnvironment({
     Map<String, String>? environment,
   }) {
-    final values = environment ?? const <String, String>{};
+    final values = environment ?? Platform.environment;
     final head = values[trainCApprovedHarnessHeadEnvironment]?.trim() ?? '';
     final base = values[trainCL1BApprovedBaseEnvironment]?.trim() ?? '';
     if (!_isCommitSha(head) || !_isCommitSha(base)) {
