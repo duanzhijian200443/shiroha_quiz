@@ -17,8 +17,12 @@ final class TrainCL1BPhaseController {
   static TrainCL1BPhaseController forLive({
     required TrainCLiveRunCapability capability,
     required String reviewedHarnessHead,
+    required String reviewedBase,
   }) {
-    capability.verifyUnused(reviewedHarnessHead: reviewedHarnessHead);
+    capability.verifyUnused(
+      reviewedHarnessHead: reviewedHarnessHead,
+      reviewedBase: reviewedBase,
+    );
     final controller = TrainCL1BPhaseController._(capability);
     // PREPARED is the only phase before the first process has created and
     // bound its isolated runtime. Later live launches must already be bound.
@@ -32,8 +36,12 @@ final class TrainCL1BPhaseController {
   static TrainCL1BPhaseController forContinuation({
     required TrainCLiveRunCapability capability,
     required String reviewedHarnessHead,
+    required String reviewedBase,
   }) {
-    capability.verifyContinuation(reviewedHarnessHead: reviewedHarnessHead);
+    capability.verifyContinuation(
+      reviewedHarnessHead: reviewedHarnessHead,
+      reviewedBase: reviewedBase,
+    );
     return TrainCL1BPhaseController._(capability);
   }
 
@@ -123,5 +131,12 @@ final class TrainCL1BPhaseController {
 
   void requireProviderForbidden() => capability.requireProviderForbidden();
 
-  Map<String, Object?> safeStatus() => capability.safeStatus();
+  Map<String, Object?> safeStatus({
+    required String reviewedHarnessHead,
+    required String reviewedBase,
+  }) =>
+      capability.safeStatus(
+        reviewedHarnessHead: reviewedHarnessHead,
+        reviewedBase: reviewedBase,
+      );
 }
