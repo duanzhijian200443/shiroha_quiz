@@ -132,8 +132,7 @@ TrainCCandidateCheckpoint decodeTrainCCandidateCheckpoint(Object? raw) {
           imageNodeCount: _nonNegativeInt(item['imageNodeCount']),
           uniqueAssetCount: _nonNegativeInt(item['uniqueAssetCount']),
           tableNodeCount: _nonNegativeInt(item['tableNodeCount']),
-          canonicalIdentityPreserved:
-              _bool(item['canonicalIdentityPreserved']),
+          canonicalIdentityPreserved: _bool(item['canonicalIdentityPreserved']),
           reachableIdentities: _decodeIdentities(item['reachableIdentities']),
         ),
       );
@@ -235,8 +234,7 @@ TrainCRuntimeCheckpoint decodeTrainCRuntimeCheckpoint(Object? raw) {
           resolvedUniqueAssetCount:
               _nonNegativeInt(item['resolvedUniqueAssetCount']),
           tableNodeCount: _nonNegativeInt(item['tableNodeCount']),
-          canonicalIdentityPreserved:
-              _bool(item['canonicalIdentityPreserved']),
+          canonicalIdentityPreserved: _bool(item['canonicalIdentityPreserved']),
           allReachableResolved: _bool(item['allReachableResolved']),
           identityDigest: _digest(item['identityDigest']),
           reachableIdentities: _decodeIdentities(item['reachableIdentities']),
@@ -269,7 +267,8 @@ TrainCRuntimeCheckpoint decodeTrainCRuntimeCheckpoint(Object? raw) {
   }
 }
 
-Map<String, Object?> encodeTrainCRestartProof(TrainCOsProcessRestartProof proof) {
+Map<String, Object?> encodeTrainCRestartProof(
+    TrainCOsProcessRestartProof proof) {
   return <String, Object?>{
     'parentPid': proof.parentPid,
     'childPid': proof.childPid,

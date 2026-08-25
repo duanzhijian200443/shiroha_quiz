@@ -116,7 +116,8 @@ void main() {
     );
   });
 
-  test('continuation is provider-forbidden and pending survives recreation', () {
+  test('continuation is provider-forbidden and pending survives recreation',
+      () {
     final authority = authorize();
     final capability = authority.capability;
     bindAndConfigure(capability);
@@ -245,7 +246,8 @@ void main() {
     expect(finalFacts, contains(TrainCL1BChildPhase.restart.wireName));
   });
 
-  test('completed request ledger survives supervisor handoff without replay', () {
+  test('completed request ledger survives supervisor handoff without replay',
+      () {
     final ledger = TrainCRequestLedger();
     ledger.beginParse(expectedLayoutRequests: 1);
     final post = ledger.recordDispatchMethod('POST');
@@ -284,7 +286,8 @@ void main() {
     );
     final restored = decodeTrainCSourceImages(encodeTrainCSourceImages(source));
     expect(restored.countFor(5), 1);
-    expect(restored.identitiesFor(5), <(String, String)>{('source-a', 'asset-a')});
+    expect(
+        restored.identitiesFor(5), <(String, String)>{('source-a', 'asset-a')});
     expect(restored.evidenceFor(5).single.contentHash, digest);
   });
 }

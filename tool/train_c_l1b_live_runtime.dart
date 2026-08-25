@@ -280,23 +280,30 @@ final class TrainCL1BProductionComposition {
         task.status != TaskStatus.pendingReview ||
         parsed == null ||
         parsed.length != 22) {
-      throw const TrainCL1BLiveRuntimeException('TRAIN_C_TYPED_ENVELOPE_FAILURE');
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_TYPED_ENVELOPE_FAILURE',
+      );
     }
     final route = decodeImportStorageRoute(
       task.diagnostics?[TaskManager.keyImportStorageRoute],
     );
     final reason = task.diagnostics?[TaskManager.keyImportStorageReason];
-    if (route != ImportStorageRoute.typedV2 || reason != 'typed_candidate_ready') {
+    if (route != ImportStorageRoute.typedV2 ||
+        reason != 'typed_candidate_ready') {
       throw const TrainCL1BLiveRuntimeException('TRAIN_C_TYPED_ROUTE_FAILURE');
     }
     const codec = TypedReviewSnapshotCodec();
     final drafts = <QuestionDraftV2>[];
     try {
       for (final question in parsed) {
-        drafts.add(codec.decodeRequired(question[TypedReviewSnapshotCodec.mapKey]).draft);
+        drafts.add(codec
+            .decodeRequired(question[TypedReviewSnapshotCodec.mapKey])
+            .draft);
       }
     } catch (_) {
-      throw const TrainCL1BLiveRuntimeException('TRAIN_C_TYPED_ENVELOPE_FAILURE');
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_TYPED_ENVELOPE_FAILURE',
+      );
     }
     final checkpoint = TrainCCandidateCheckpoint.fromDrafts(drafts);
     if (checkpoint.typedCount != 22 ||
@@ -306,7 +313,9 @@ final class TrainCL1BProductionComposition {
             .asMap()
             .entries
             .every((entry) => entry.value == entry.key + 1)) {
-      throw const TrainCL1BLiveRuntimeException('TRAIN_C_TYPED_ENVELOPE_FAILURE');
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_TYPED_ENVELOPE_FAILURE',
+      );
     }
     return checkpoint;
   }
@@ -653,7 +662,8 @@ Future<TrainCL1BPhaseController> _runParseChild(
     task.diagnostics?[TaskManager.keyImportStorageRoute],
   );
   final reason = task.diagnostics?[TaskManager.keyImportStorageReason];
-  if (route != ImportStorageRoute.typedV2 || reason != 'typed_candidate_ready') {
+  if (route != ImportStorageRoute.typedV2 ||
+      reason != 'typed_candidate_ready') {
     throw const TrainCL1BLiveRuntimeException('TRAIN_C_TYPED_ROUTE_FAILURE');
   }
   controller.markPendingReview();
@@ -771,7 +781,9 @@ Future<TrainCL1BPhaseController> _runRestartChild(
   final checkpoint = await _captureCheckpoint(runtime, reviewed);
   final render = await _renderMandatoryQuestions(runtime);
   if (!render.values.every((value) => value)) {
-    throw const TrainCL1BLiveRuntimeException('TRAIN_C_ASSET_RESOLUTION_FAILURE');
+    throw const TrainCL1BLiveRuntimeException(
+      'TRAIN_C_ASSET_RESOLUTION_FAILURE',
+    );
   }
   controller.markRestartProved();
   await client.reportPass(<String, Object?>{
@@ -872,7 +884,8 @@ Future<TrainCL1BPhaseController> _runFinalizeChild(
     persistentRuntimeCapability,
   );
   sourceRuntime = await sourceRuntime.reopenFresh();
-  final finalSourceCheckpoint = await _captureCheckpoint(sourceRuntime, reviewed);
+  final finalSourceCheckpoint =
+      await _captureCheckpoint(sourceRuntime, reviewed);
   if (!finalSourceCheckpoint.equivalentTo(restart)) {
     throw const TrainCL1BLiveRuntimeException('TRAIN_C_RESTART_FAILURE');
   }
@@ -1008,7 +1021,9 @@ Future<Map<int, bool>> _renderMandatoryQuestions(
         drafts[number] = draft;
       }
     } catch (_) {
-      throw const TrainCL1BLiveRuntimeException('TRAIN_C_TYPED_ENVELOPE_FAILURE');
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_TYPED_ENVELOPE_FAILURE',
+      );
     }
   }
   if (drafts.length != 3) {
@@ -1056,6 +1071,7 @@ Future<bool> _renderQuestionDraft(
         if (element.widget is RawImage) rawImages++;
         element.visitChildren(visit);
       }
+
       visit(root);
       if (!flutterFailure && rawImages >= expectedImages) return true;
     }
@@ -1277,7 +1293,8 @@ Future<void> _safeReportFailure(
 
 String _capabilityValue() {
   final value =
-      Platform.environment[trainCLiveAttemptCapabilityEnvironment]?.trim() ?? '';
+      Platform.environment[trainCLiveAttemptCapabilityEnvironment]?.trim() ??
+          '';
   if (value.isEmpty) {
     throw const TrainCL1BLiveRuntimeException(
       'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',

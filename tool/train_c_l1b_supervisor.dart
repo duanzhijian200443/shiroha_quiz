@@ -116,6 +116,7 @@ final class TrainCL1BSupervisorClient {
       }));
       await socket.flush();
       final line = await socket
+          .cast<List<int>>()
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .first
@@ -183,7 +184,8 @@ final class TrainCL1BSupervisor {
           trainCL1BChildPhaseEnvironment: phase.wireName,
         };
         final reportFuture = server.expect(phase);
-        final child = await (startChild ?? _startFlutterChild)(phase, environment);
+        final child =
+            await (startChild ?? _startFlutterChild)(phase, environment);
         final stdoutDrain = child.stdout.drain<void>();
         final stderrDrain = child.stderr.drain<void>();
         final timeout = switch (phase) {
@@ -322,6 +324,7 @@ final class _TrainCL1BSupervisorServer {
   Future<void> _handleSocket(Socket socket) async {
     try {
       final line = await socket
+          .cast<List<int>>()
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .first

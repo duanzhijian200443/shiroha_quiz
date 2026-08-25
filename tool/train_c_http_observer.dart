@@ -312,7 +312,8 @@ final class TrainCRequestLedger {
           if (entry.key is! String || entry.value is! int || entry.value < 0) {
             throw const FormatException();
           }
-          ledger._responseStatusCounts[entry.key as String] = entry.value as int;
+          ledger._responseStatusCounts[entry.key as String] =
+              entry.value as int;
         }
       }
       return ledger;
