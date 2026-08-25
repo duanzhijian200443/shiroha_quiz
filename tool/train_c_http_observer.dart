@@ -202,8 +202,15 @@ final class TrainCRequestLedger {
       );
     }
 
-    attemptAuthority?.consumeAtDispatch();
-    _attemptConsumed = true;
+    // Run #1 is consumed durably by the first legitimate provider dispatch.
+    // Later requests that belong to this already-open parse window are still
+    // part of the same Run and remain bounded by this ledger's phase/request
+    // contract. A fresh ledger/process must pass assertParseAllowed() again,
+    // which fails once the durable capability is CONSUMED.
+    if (!_attemptConsumed) {
+      attemptAuthority?.consumeAtDispatch();
+      _attemptConsumed = true;
+    }
     if (kind == TrainCRequestKind.layoutPost) {
       _layoutPostCount++;
     } else {
