@@ -92,8 +92,8 @@ final class TrainCLiveRunCapabilitySnapshot {
         'phase': phase.wireName,
         'revision': revision,
         'runtimeIdentityPreserved': runtimeBound,
-        'approvedHeadMatches': approvedHarnessHead.isNotEmpty,
-        'approvedBaseMatches': approvedBase.isNotEmpty,
+        'approvedHeadPresent': approvedHarnessHead.isNotEmpty,
+        'approvedBasePresent': approvedBase.isNotEmpty,
       };
 }
 
@@ -115,6 +115,7 @@ final class TrainCLiveRunCapability {
   final Directory _stateDirectory;
   final String _nonce;
   String? _verifiedHead;
+  String? _verifiedBase;
 
   File get _lockFile => File(
         '${_stateDirectory.path}${Platform.pathSeparator}$_lockName',
@@ -191,10 +192,13 @@ final class TrainCLiveRunCapability {
     return value;
   }
 
-  void verifyUnused({required String reviewedHarnessHead}) {
+  void verifyUnused({
+    required String reviewedHarnessHead,
+    required String reviewedBase,
+  }) {
     final state = _readCurrentState();
     _validateState(state);
-    _verifyReviewedHead(state, reviewedHarnessHead);
+    _verifyReviewedIdentity(state, reviewedHarnessHead, reviewedBase);
     final attempt = TrainCLiveRunAttemptStateX.parse(
       state['attemptState'] as String,
     );
@@ -206,13 +210,15 @@ final class TrainCLiveRunCapability {
         'TRAIN_C_ATTEMPT_BUDGET_EXHAUSTED',
       );
     }
-    _verifiedHead = reviewedHarnessHead;
   }
 
-  void verifyContinuation({required String reviewedHarnessHead}) {
+  void verifyContinuation({
+    required String reviewedHarnessHead,
+    required String reviewedBase,
+  }) {
     final state = _readCurrentState();
     _validateState(state);
-    _verifyReviewedHead(state, reviewedHarnessHead);
+    _verifyReviewedIdentity(state, reviewedHarnessHead, reviewedBase);
     final attempt = TrainCLiveRunAttemptStateX.parse(
       state['attemptState'] as String,
     );
@@ -225,7 +231,6 @@ final class TrainCLiveRunCapability {
         'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
       );
     }
-    _verifiedHead = reviewedHarnessHead;
   }
 
   void bindRuntimeCapability(String runtimeCapability) {
@@ -234,7 +239,7 @@ final class TrainCLiveRunCapability {
       throw const TrainCEvidenceProbeException('TRAIN_C_RUNTIME_NOT_BOUND');
     }
     _mutate((state) {
-      _requireVerifiedHead(state);
+      _requireVerifiedIdentity(state);
       final phase = TrainCLiveRunPhaseX.parse(state['phase'] as String);
       if (phase != TrainCLiveRunPhase.prepared ||
           state['runtimeCapability'] != null ||
@@ -257,7 +262,7 @@ final class TrainCLiveRunCapability {
   /// delegated to dart:io. A failure here prevents network dispatch.
   void consumeAtDispatch() {
     _mutate((state) {
-      _requireVerifiedHead(state);
+      _requireVerifiedIdentity(state);
       final attempt = TrainCLiveRunAttemptStateX.parse(
         state['attemptState'] as String,
       );
@@ -280,7 +285,7 @@ final class TrainCLiveRunCapability {
   void assertParseAllowed() {
     final state = _readCurrentState();
     _validateState(state);
-    _requireVerifiedHead(state);
+    _requireVerifiedIdentity(state);
     final attempt = TrainCLiveRunAttemptStateX.parse(
       state['attemptState'] as String,
     );
@@ -300,7 +305,7 @@ final class TrainCLiveRunCapability {
     int? expectedRevision,
   }) {
     _mutate((state) {
-      _requireVerifiedHead(state);
+      _requireVerifiedIdentity(state);
       final current = TrainCLiveRunPhaseX.parse(state['phase'] as String);
       final attempt = TrainCLiveRunAttemptStateX.parse(
         state['attemptState'] as String,
@@ -349,7 +354,19 @@ final class TrainCLiveRunCapability {
     }
   }
 
-  Map<String, Object?> safeStatus() => snapshot.toSafeMap();
+  Map<String, Object?> safeStatus({
+    String? reviewedHarnessHead,
+    String? reviewedBase,
+  }) {
+    final current = snapshot;
+    return <String, Object?>{
+      ...current.toSafeMap(),
+      'approvedHeadMatches': reviewedHarnessHead != null &&
+          current.approvedHarnessHead == reviewedHarnessHead,
+      'approvedBaseMatches':
+          reviewedBase != null && current.approvedBase == reviewedBase,
+    };
+  }
 
   void _writeInitialState({
     required String approvedHarnessHead,
@@ -516,19 +533,24 @@ final class TrainCLiveRunCapability {
     );
   }
 
-  void _verifyReviewedHead(
+  void _verifyReviewedIdentity(
     Map<String, Object?> state,
     String reviewedHarnessHead,
+    String reviewedBase,
   ) {
-    if (state['approvedHarnessHead'] != reviewedHarnessHead) {
+    if (state['approvedHarnessHead'] != reviewedHarnessHead ||
+        state['approvedBase'] != reviewedBase) {
       throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
     }
     _verifiedHead = reviewedHarnessHead;
+    _verifiedBase = reviewedBase;
   }
 
-  void _requireVerifiedHead(Map<String, Object?> state) {
+  void _requireVerifiedIdentity(Map<String, Object?> state) {
     if (_verifiedHead == null ||
-        state['approvedHarnessHead'] != _verifiedHead) {
+        _verifiedBase == null ||
+        state['approvedHarnessHead'] != _verifiedHead ||
+        state['approvedBase'] != _verifiedBase) {
       throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
     }
   }
