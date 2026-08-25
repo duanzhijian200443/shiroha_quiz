@@ -8,6 +8,9 @@ import 'train_c_review_authorization.dart';
 
 const trainCL1BaseMaster = 'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
 const trainCL1TrainBMerge = '711fd33f564b9fb6bb3c992d6458b0075990646c';
+const trainCL1BAllowedProductionPaths = <String>{
+  'lib/services/import_pipeline/import_pipeline_service.dart',
+};
 
 typedef TrainCProductionDiffReader = int Function();
 typedef TrainCGitFetch = void Function();
@@ -159,6 +162,72 @@ Future<Map<String, Object?>> runTrainCL1AOfflinePreflight() async {
   }
 }
 
+/// Offline preflight for the L1B branch. L1B is allowed one exact,
+/// default-disabled production observation seam; every other production
+/// change remains a hard identity failure.
+Future<Map<String, Object?>> runTrainCL1BOfflinePreflight() async {
+  final reviewed = TrainCReviewedIdentity.forOfflineCurrentRepository();
+  final gate = TrainCPreExecutionGitGate(
+    reviewedIdentity: reviewed,
+    fetchMaster: () {},
+    masterReader: () => trainCL1BaseMaster,
+    productionDiffReader: () {
+      final changedPaths = _readProductionDiffPaths();
+      final unexpected = changedPaths
+          .where((path) => !trainCL1BAllowedProductionPaths.contains(path))
+          .toList(growable: false);
+      if (unexpected.isNotEmpty) {
+        throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+      }
+      return 0;
+    },
+  );
+  gate.verify();
+
+  final runtime = await TrainCIsolatedRuntime.create();
+  try {
+    await runtime.open();
+    final blank = await runtime.verifyBlankStore();
+    return <String, Object?>{
+      'stage': 'TRAIN-C-L1B',
+      'status': blank.passed ? 'PASS' : 'FAIL',
+      'liveRun': 'BLOCKED',
+      'gitClean': true,
+      'isolatedStore': true,
+      'blank': blank.passed,
+      'questionRows': blank.questionRows,
+      'v2Sidecars': blank.v2Sidecars,
+      'contentAssets': blank.contentAssets,
+      'providerDispatchCount': 0,
+      'providerResponseCount': 0,
+      'remoteCropRequestCount': 0,
+    };
+  } finally {
+    await runtime.dispose();
+  }
+}
+
+List<String> _readProductionDiffPaths() {
+  final result = Process.runSync(
+    'git',
+    <String>[
+      'diff',
+      '--name-only',
+      '$trainCL1TrainBMerge..HEAD',
+      '--',
+      'lib',
+    ],
+  );
+  if (result.exitCode != 0 || result.stdout is! String) {
+    throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+  }
+  return (result.stdout as String)
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim().replaceAll('\\', '/'))
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+}
+
 final class _TrainCRemoteStateException implements Exception {
   const _TrainCRemoteStateException();
 }
@@ -171,7 +240,9 @@ Future<void> main(List<String> args) async {
     return;
   }
   try {
-    final result = await runTrainCL1AOfflinePreflight();
+    final result = args.single == '--preflight'
+        ? await runTrainCL1BOfflinePreflight()
+        : await runTrainCL1AOfflinePreflight();
     stdout.writeln(const JsonEncoder.withIndent('  ').convert(result));
   } on TrainCEvidenceProbeException catch (error) {
     stderr.writeln(error.code);

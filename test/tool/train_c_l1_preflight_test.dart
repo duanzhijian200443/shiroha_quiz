@@ -150,6 +150,30 @@ void main() {
     );
   });
 
+  test('L1B preflight accepts only the minimal observer production seam', () {
+    expect(
+      trainCL1BAllowedProductionPaths,
+      contains(
+        'lib/services/import_pipeline/import_pipeline_service.dart',
+      ),
+    );
+    expect(
+      trainCL1BAllowedProductionPaths,
+      isNot(contains('lib/main.dart')),
+    );
+  });
+
+  test('L1B production allowlist rejects unrelated production paths', () {
+    const changed = <String>[
+      'lib/services/import_pipeline/import_pipeline_service.dart',
+      'lib/core/database/database_helper.dart',
+    ];
+    final unexpected = changed
+        .where((path) => !trainCL1BAllowedProductionPaths.contains(path))
+        .toList();
+    expect(unexpected, <String>['lib/core/database/database_helper.dart']);
+  });
+
   test('unexpected origin master is blocked', () {
     final reviewed = _reviewedForTest();
     final gate = TrainCPreExecutionGitGate(
