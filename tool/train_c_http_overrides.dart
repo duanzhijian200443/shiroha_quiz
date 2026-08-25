@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'train_c_http_observer.dart';
@@ -34,39 +35,11 @@ final class TrainCObservedHttpClient implements HttpClient {
     String method,
     Future<HttpClientRequest> Function() operation,
   ) async {
-    final eventIndex = _ledger.recordDispatchMethod(method);
-    final stopwatch = Stopwatch()..start();
-    try {
-      final request = await operation();
-      unawaited(_observeResponse(request.done, eventIndex, stopwatch));
-      return request;
-    } catch (_) {
-      _ledger.recordNetworkFailure(
-        eventIndex: eventIndex,
-        durationMs: stopwatch.elapsedMilliseconds,
-      );
-      rethrow;
-    }
-  }
-
-  Future<void> _observeResponse(
-    Future<HttpClientResponse> responseFuture,
-    int eventIndex,
-    Stopwatch stopwatch,
-  ) async {
-    try {
-      final response = await responseFuture;
-      _ledger.recordResponse(
-        eventIndex: eventIndex,
-        statusCode: response.statusCode,
-        durationMs: stopwatch.elapsedMilliseconds,
-      );
-    } catch (_) {
-      _ledger.recordNetworkFailure(
-        eventIndex: eventIndex,
-        durationMs: stopwatch.elapsedMilliseconds,
-      );
-    }
+    // Opening a dart:io request establishes the request object/connection but
+    // is not the frozen TRAIN C attempt-consumption boundary. The attempt is
+    // consumed only when HttpClientRequest.close() is invoked.
+    final request = await operation();
+    return TrainCObservedHttpClientRequest(request, _ledger, method);
   }
 
   @override
@@ -226,4 +199,143 @@ final class TrainCObservedHttpClient implements HttpClient {
   void close({bool force = false}) {
     _inner.close(force: force);
   }
+}
+
+/// Delegates the complete request/IOSink surface while moving TRAIN C attempt
+/// accounting to the frozen dispatch boundary: the first [close] call.
+///
+/// Headers and bodies are never inspected. A repeated close returns the same
+/// observed future and cannot create a second ledger event.
+final class TrainCObservedHttpClientRequest implements HttpClientRequest {
+  TrainCObservedHttpClientRequest(this._inner, this._ledger, this._method);
+
+  final HttpClientRequest _inner;
+  final TrainCRequestLedger _ledger;
+  final String _method;
+
+  Future<HttpClientResponse>? _closeFuture;
+
+  @override
+  Future<HttpClientResponse> close() {
+    final existing = _closeFuture;
+    if (existing != null) return existing;
+
+    final eventIndex = _ledger.recordDispatchMethod(_method);
+    final stopwatch = Stopwatch()..start();
+    late final Future<HttpClientResponse> observed;
+    try {
+      observed = _inner.close().then(
+        (response) {
+          _ledger.recordResponse(
+            eventIndex: eventIndex,
+            statusCode: response.statusCode,
+            durationMs: stopwatch.elapsedMilliseconds,
+          );
+          return response;
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          _ledger.recordNetworkFailure(
+            eventIndex: eventIndex,
+            durationMs: stopwatch.elapsedMilliseconds,
+          );
+          Error.throwWithStackTrace(error, stackTrace);
+        },
+      );
+    } catch (_) {
+      _ledger.recordNetworkFailure(
+        eventIndex: eventIndex,
+        durationMs: stopwatch.elapsedMilliseconds,
+      );
+      rethrow;
+    }
+    _closeFuture = observed;
+    return observed;
+  }
+
+  @override
+  Future<HttpClientResponse> get done => _closeFuture ?? _inner.done;
+
+  @override
+  HttpHeaders get headers => _inner.headers;
+
+  @override
+  List<Cookie> get cookies => _inner.cookies;
+
+  @override
+  bool get persistentConnection => _inner.persistentConnection;
+
+  @override
+  set persistentConnection(bool value) => _inner.persistentConnection = value;
+
+  @override
+  bool get followRedirects => _inner.followRedirects;
+
+  @override
+  set followRedirects(bool value) => _inner.followRedirects = value;
+
+  @override
+  int get maxRedirects => _inner.maxRedirects;
+
+  @override
+  set maxRedirects(int value) => _inner.maxRedirects = value;
+
+  @override
+  int get contentLength => _inner.contentLength;
+
+  @override
+  set contentLength(int value) => _inner.contentLength = value;
+
+  @override
+  bool get bufferOutput => _inner.bufferOutput;
+
+  @override
+  set bufferOutput(bool value) => _inner.bufferOutput = value;
+
+  @override
+  Encoding get encoding => _inner.encoding;
+
+  @override
+  set encoding(Encoding value) => _inner.encoding = value;
+
+  @override
+  HttpConnectionInfo? get connectionInfo => _inner.connectionInfo;
+
+  @override
+  Uri get uri => _inner.uri;
+
+  @override
+  String get method => _inner.method;
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    _inner.abort(exception, stackTrace);
+  }
+
+  @override
+  void add(List<int> data) => _inner.add(data);
+
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) {
+    _inner.addError(error, stackTrace);
+  }
+
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => _inner.addStream(stream);
+
+  @override
+  Future<void> flush() => _inner.flush();
+
+  @override
+  void write(Object? object) => _inner.write(object);
+
+  @override
+  void writeAll(Iterable<Object?> objects, [String separator = '']) {
+    _inner.writeAll(objects, separator);
+  }
+
+  @override
+  void writeCharCode(int charCode) => _inner.writeCharCode(charCode);
+
+  @override
+  void writeln([Object? object = '']) => _inner.writeln(object);
 }
