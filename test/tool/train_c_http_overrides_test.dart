@@ -133,6 +133,55 @@ void main() {
       await server.close(force: true);
     }
   });
+
+  test('synchronous close failure is cached and counted once', () async {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+    final request = TrainCObservedHttpClientRequest(
+      _SynchronousFailingRequest(),
+      ledger,
+      'POST',
+    );
+
+    final firstClose = request.close();
+    final secondClose = request.close();
+
+    expect(secondClose, same(firstClose));
+    expect(ledger.providerDispatchCount, 1);
+    expect(ledger.attemptConsumed, isTrue);
+
+    await expectLater(firstClose, throwsA(isA<StateError>()));
+    await expectLater(secondClose, throwsA(isA<StateError>()));
+    expect(ledger.providerDispatchCount, 1);
+    expect(ledger.networkFailureCount, 1);
+  });
+
+  test('protocol-rejected close is cached without duplicate accounting',
+      () async {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+    ledger.finishParse(successful: false);
+    final request = TrainCObservedHttpClientRequest(
+      _SynchronousFailingRequest(),
+      ledger,
+      'GET',
+    );
+
+    final firstClose = request.close();
+    final secondClose = request.close();
+
+    expect(secondClose, same(firstClose));
+    await expectLater(
+      firstClose,
+      throwsA(isA<TrainCProtocolException>()),
+    );
+    await expectLater(
+      secondClose,
+      throwsA(isA<TrainCProtocolException>()),
+    );
+    expect(ledger.unexpectedProviderRequestCount, 1);
+    expect(ledger.providerDispatchCount, 1);
+  });
 }
 
 final class _RecordingHttpClient implements HttpClient {
@@ -162,5 +211,15 @@ final class _RecordingHttpClient implements HttpClient {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     throw UnsupportedError('unused fake client member');
+  }
+}
+
+final class _SynchronousFailingRequest implements HttpClientRequest {
+  @override
+  Future<HttpClientResponse> close() => throw StateError('synthetic close');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    throw UnsupportedError('unused fake request member');
   }
 }

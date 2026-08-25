@@ -220,11 +220,18 @@ final class TrainCObservedHttpClientRequest implements HttpClientRequest {
     final existing = _closeFuture;
     if (existing != null) return existing;
 
-    final eventIndex = _ledger.recordDispatchMethod(_method);
     final stopwatch = Stopwatch()..start();
-    late final Future<HttpClientResponse> observed;
-    try {
-      observed = _inner.close().then(
+    // Future.sync also captures a protocol rejection from the ledger itself,
+    // so a repeated close cannot re-run the rejection or increment an
+    // unexpected-request count a second time.
+    final observed = Future<int>.sync(
+      () => _ledger.recordDispatchMethod(_method),
+    ).then((eventIndex) {
+      // Future.sync converts a synchronous transport failure into the same
+      // cached future as an asynchronous transport failure. This preserves
+      // the one-close/one-dispatch invariant before the underlying request
+      // returns its Future.
+      return Future<HttpClientResponse>.sync(_inner.close).then(
         (response) {
           _ledger.recordResponse(
             eventIndex: eventIndex,
@@ -241,13 +248,7 @@ final class TrainCObservedHttpClientRequest implements HttpClientRequest {
           Error.throwWithStackTrace(error, stackTrace);
         },
       );
-    } catch (_) {
-      _ledger.recordNetworkFailure(
-        eventIndex: eventIndex,
-        durationMs: stopwatch.elapsedMilliseconds,
-      );
-      rethrow;
-    }
+    });
     _closeFuture = observed;
     return observed;
   }
