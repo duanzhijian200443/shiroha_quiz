@@ -83,6 +83,7 @@ final class TrainCL1BLiveLaunchGuard {
     _verifyCapabilityIdentity(capability, reviewed);
     capability.verifyUnused(
       reviewedHarnessHead: reviewed.approvedHarnessHead,
+      reviewedBase: reviewed.approvedBase,
     );
     (verifyGit ?? _verifyGit).call(reviewed);
     return reviewed;
@@ -142,6 +143,7 @@ final class TrainCL1BLiveLaunchGuard {
     TrainCL1BPhaseController.forContinuation(
       capability: capability,
       reviewedHarnessHead: reviewed.approvedHarnessHead,
+      reviewedBase: reviewed.approvedBase,
     );
     (verifyGit ?? _verifyGit).call(reviewed);
     return reviewed;
