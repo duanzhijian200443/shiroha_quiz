@@ -5,12 +5,10 @@ import 'train_c_evidence_collector.dart';
 import 'train_c_evidence_probe.dart';
 import 'train_c_isolated_runtime.dart';
 import 'train_c_review_authorization.dart';
+import 'train_c_runtime_evidence_source.dart';
 
 const trainCL1BaseMaster = 'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
 const trainCL1TrainBMerge = '711fd33f564b9fb6bb3c992d6458b0075990646c';
-const trainCL1BAllowedProductionPaths = <String>{
-  'lib/services/import_pipeline/import_pipeline_service.dart',
-};
 
 typedef TrainCProductionDiffReader = int Function();
 typedef TrainCGitFetch = void Function();
@@ -172,7 +170,9 @@ Future<Map<String, Object?>> runTrainCL1BOfflinePreflight() async {
     fetchMaster: () {},
     masterReader: () => trainCL1BaseMaster,
     productionDiffReader: () {
-      final changedPaths = _readProductionDiffPaths();
+      final changedPaths = trainCL1BReadProductionDiffPaths(
+        trainCL1TrainBMerge,
+      );
       final unexpected = changedPaths
           .where((path) => !trainCL1BAllowedProductionPaths.contains(path))
           .toList(growable: false);
@@ -205,27 +205,6 @@ Future<Map<String, Object?>> runTrainCL1BOfflinePreflight() async {
   } finally {
     await runtime.dispose();
   }
-}
-
-List<String> _readProductionDiffPaths() {
-  final result = Process.runSync(
-    'git',
-    <String>[
-      'diff',
-      '--name-only',
-      '$trainCL1TrainBMerge..HEAD',
-      '--',
-      'lib',
-    ],
-  );
-  if (result.exitCode != 0 || result.stdout is! String) {
-    throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
-  }
-  return (result.stdout as String)
-      .split(RegExp(r'\r?\n'))
-      .map((line) => line.trim().replaceAll('\\', '/'))
-      .where((line) => line.isNotEmpty)
-      .toList(growable: false);
 }
 
 final class _TrainCRemoteStateException implements Exception {
