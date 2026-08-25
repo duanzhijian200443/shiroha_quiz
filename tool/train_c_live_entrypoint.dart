@@ -99,10 +99,27 @@ final class TrainCL1BLiveLaunchGuard {
     final reviewed = verify(environment: values, verifyGit: verifyGit);
     if (start != null) return start(reviewed);
 
+    final attemptCapability =
+        values[trainCLiveAttemptCapabilityEnvironment]?.trim() ?? '';
+    final capability =
+        TrainCLiveAttemptAuthority.fromCapability(attemptCapability);
+    _verifyCapabilityIdentity(capability, reviewed);
+    capability.verifyUnused(
+      reviewedHarnessHead: reviewed.approvedHarnessHead,
+      reviewedBase: reviewed.approvedBase,
+    );
+
     return TrainCL1BSupervisor.run(
       liveEnvironment: buildLiveTargetEnvironment(environment: values),
       continuationEnvironment:
           buildContinuationTargetEnvironment(environment: values),
+      onParseFailure: () {
+        final state = capability.snapshot;
+        if (state.attemptState == TrainCLiveRunAttemptState.consumed &&
+            state.phase == TrainCLiveRunPhase.parseRunning) {
+          capability.markFailedConsumed();
+        }
+      },
     );
   }
 
