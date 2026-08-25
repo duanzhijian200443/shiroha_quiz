@@ -12,6 +12,9 @@ import 'train_c_evidence_probe.dart';
 import 'train_c_http_observer.dart';
 import 'train_c_isolated_runtime.dart';
 import 'train_c_restart_proof.dart';
+import 'train_c_l1b_production_diff_authority.dart';
+
+export 'train_c_l1b_production_diff_authority.dart';
 
 final class TrainCRuntimeEvidenceException implements Exception {
   const TrainCRuntimeEvidenceException(this.code);
@@ -20,34 +23,6 @@ final class TrainCRuntimeEvidenceException implements Exception {
 
   @override
   String toString() => code;
-}
-
-/// The only production seam permitted by the L1B harness. The evidence
-/// contract continues to report zero unexpected production changes; this
-/// explicitly reviewed observer wiring is the one narrow exception.
-const trainCL1BAllowedProductionPaths = <String>{
-  'lib/services/import_pipeline/import_pipeline_service.dart',
-};
-
-List<String> trainCL1BReadProductionDiffPaths(String productionBase) {
-  final result = Process.runSync(
-    'git',
-    <String>[
-      'diff',
-      '--name-only',
-      '$productionBase..HEAD',
-      '--',
-      'lib',
-    ],
-  );
-  if (result.exitCode != 0 || result.stdout is! String) {
-    throw const TrainCRuntimeEvidenceException('TRAIN_C_HEAD_DRIFT');
-  }
-  return (result.stdout as String)
-      .split(RegExp(r'\r?\n'))
-      .map((line) => line.trim().replaceAll('\\', '/'))
-      .where((line) => line.isNotEmpty)
-      .toList(growable: false);
 }
 
 /// One source-side image placement captured before typed persistence.
@@ -884,7 +859,14 @@ final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
           'approvedHarnessHead': reviewedIdentity.approvedHarnessHead,
           'approvedBase': reviewedIdentity.approvedBase,
           'approvedProductionBase': reviewedIdentity.approvedProductionBase,
-          'productionDiffFromBase': productionDiff,
+          'approvedProductionSeamBlobSha':
+              reviewedIdentity.approvedProductionSeamBlobSha,
+          'productionDiffFromBase': productionDiff.totalProductionDiffCount,
+          'productionDiffCount': productionDiff.totalProductionDiffCount,
+          'approvedProductionDiffCount':
+              productionDiff.approvedProductionDiffCount,
+          'unexpectedProductionDiffCount':
+              productionDiff.unexpectedProductionDiffCount,
         },
         'input': <String, dynamic>{
           'sha256': phaseFacts.input.sha256,
@@ -1106,17 +1088,18 @@ final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
     }
   }
 
-  int _productionDiffFromBase() {
-    final changedPaths = trainCL1BReadProductionDiffPaths(
-      reviewedIdentity.approvedProductionBase,
-    );
-    final unexpected = changedPaths
-        .where((path) => !trainCL1BAllowedProductionPaths.contains(path))
-        .toList(growable: false);
-    if (unexpected.isNotEmpty) {
-      throw const TrainCRuntimeEvidenceException('TRAIN_C_HEAD_DRIFT');
+  TrainCL1BProductionDiffResult _productionDiffFromBase() {
+    try {
+      return TrainCL1BProductionDiffAuthority(
+        approvedHarnessHead: reviewedIdentity.approvedHarnessHead,
+        approvedBase: reviewedIdentity.approvedBase,
+        approvedProductionBase: reviewedIdentity.approvedProductionBase,
+        approvedProductionSeamBlobSha:
+            reviewedIdentity.approvedProductionSeamBlobSha,
+      ).verify();
+    } on TrainCEvidenceProbeException catch (error) {
+      throw TrainCRuntimeEvidenceException(error.code);
     }
-    return 0;
   }
 
   String _identityDigest(Set<(String, String)> identities) {

@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dar
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/credentials/ai_engine_credential_activation.dart';
 import 'package:shiroha_quiz/data/credentials/secure_engine_credential_store.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/question_identity.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -26,7 +27,9 @@ import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_item.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
+import 'package:shiroha_quiz/services/llm_providers/llm_provider_registry.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/pages/ai_engine_management_screen.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 
@@ -35,6 +38,9 @@ import 'train_c_http_overrides.dart';
 import 'train_c_evidence_probe.dart';
 import 'train_c_isolated_runtime.dart';
 import 'train_c_l1b_source_observer.dart';
+import 'train_c_l1b_phase_controller.dart';
+import 'train_c_l1b_review_authorization.dart';
+import 'train_c_live_attempt_authority.dart';
 import 'train_c_live_entrypoint.dart';
 
 /// Real production composition used by the guarded L1B target.
@@ -67,16 +73,52 @@ final class TrainCL1BProductionComposition {
   final ImportTaskCoordinator importTaskCoordinator;
   final ImportCommitService importCommitService;
 
+  Future<AiEngineProfile> requireConfiguredOcrProfile() async {
+    final engines = await engineRepository.getEngines(AiEngineType.ocr);
+    final active = await engineRepository.getActiveOcrEngine();
+    if (engines.length != 1 ||
+        active == null ||
+        !active.isComplete ||
+        active.modelName != ZhipuOcrClient.model ||
+        LlmProviderRegistry.kindForBaseUrl(active.baseUrl) !=
+            LlmProviderKind.zhipu) {
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+      );
+    }
+    return active;
+  }
+
+  Future<AiEngineProfile> waitForConfiguredOcrProfile({
+    Duration timeout = const Duration(minutes: 10),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        return await requireConfiguredOcrProfile();
+      } on TrainCL1BLiveRuntimeException {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+    }
+    throw const TrainCL1BLiveRuntimeException(
+      'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+    );
+  }
+
   static Future<TrainCL1BProductionComposition> create({
     required TrainCIsolatedRuntime runtime,
+    bool requireBlankStore = true,
+    TrainCL1BPhaseController? phaseController,
   }) async {
     // Blank proof is intentionally before secure credential/profile
     // activation and before any provider-capable client can be dispatched.
-    final blank = await runtime.verifyBlankStore();
-    if (!blank.passed) {
-      throw const TrainCL1BLiveRuntimeException(
-        'TRAIN_C_ISOLATION_FAILURE',
-      );
+    if (requireBlankStore) {
+      final blank = await runtime.verifyBlankStore();
+      if (!blank.passed) {
+        throw const TrainCL1BLiveRuntimeException(
+          'TRAIN_C_ISOLATION_FAILURE',
+        );
+      }
     }
 
     final contentAssetStore = runtime.contentAssetStore;
@@ -120,11 +162,19 @@ final class TrainCL1BProductionComposition {
       requestScheduler: requestScheduler,
       contentAssetStore: contentAssetStore,
     );
-    final importCommitService = ImportCommitService(
+    final baseImportCommitService = ImportCommitService(
       questionRepository: questionRepository,
       taskManager: taskManager,
       contentAssetStore: contentAssetStore,
     );
+    final importCommitService = phaseController == null
+        ? baseImportCommitService
+        : _TrainCPhaseAwareCommitService(
+            questionRepository: questionRepository,
+            taskManager: taskManager,
+            contentAssetStore: contentAssetStore,
+            phaseController: phaseController,
+          );
     return TrainCL1BProductionComposition._(
       engineRepository: engineRepository,
       questionRepository: questionRepository,
@@ -282,6 +332,94 @@ final class TrainCL1BProductionComposition {
   }
 }
 
+/// Runs the production repository/credential state machine for the isolated
+/// configure phase. The credential is supplied by a production UI/input
+/// boundary and is never written directly to SQLite; [AiEngineRepository]
+/// routes it through its configured [EngineCredentialStore].
+Future<AiEngineProfile> configureTrainCL1BOcrProfile({
+  required AiEngineRepository repository,
+  required AiEngineProfile profile,
+}) async {
+  if (profile.engineType != AiEngineType.ocr ||
+      profile.modelName != ZhipuOcrClient.model ||
+      LlmProviderRegistry.kindForBaseUrl(profile.baseUrl) !=
+          LlmProviderKind.zhipu ||
+      profile.apiKey.isEmpty) {
+    throw const TrainCL1BLiveRuntimeException(
+      'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+    );
+  }
+  await repository.saveEngine(profile);
+  await repository.setActiveEngine(profile.id, AiEngineType.ocr);
+  final active = await repository.getActiveOcrEngine();
+  if (active == null ||
+      !active.isComplete ||
+      active.id != profile.id ||
+      active.modelName != ZhipuOcrClient.model ||
+      LlmProviderRegistry.kindForBaseUrl(active.baseUrl) !=
+          LlmProviderKind.zhipu) {
+    throw const TrainCL1BLiveRuntimeException(
+      'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+    );
+  }
+  return active;
+}
+
+/// Keeps the durable phase controller attached to the real production typed
+/// commit call. It does not build commit inputs or write questions itself; it
+/// advances only after [super.commitTyped] reports the production commit's
+/// safe question-count result.
+final class _TrainCPhaseAwareCommitService extends ImportCommitService {
+  _TrainCPhaseAwareCommitService({
+    required super.questionRepository,
+    required super.taskManager,
+    required super.contentAssetStore,
+    required this.phaseController,
+  });
+
+  final TrainCL1BPhaseController phaseController;
+
+  @override
+  Future<ImportCommitResult> commitTyped({
+    required String bankName,
+    required String folderName,
+    required List<TypedReviewCommitInput> items,
+    required String taskId,
+    required String attemptToken,
+    required int attemptNumber,
+    required int expectedReviewDraftRevision,
+    required ImportStorageRoute storageRoute,
+    required String storageReason,
+    required ExplanationRetentionMode explanationRetentionMode,
+    List<QuestionExplanationOverride>? explanationOverrides,
+  }) async {
+    final phase = phaseController.status.phase;
+    if (phase == TrainCLiveRunPhase.pendingReview) {
+      phaseController.transitionTo(TrainCLiveRunPhase.commitReady);
+    } else if (phase != TrainCLiveRunPhase.commitReady) {
+      throw const TrainCL1BLiveRuntimeException('TRAIN_C_COMMIT_FAILURE');
+    }
+    final result = await super.commitTyped(
+      bankName: bankName,
+      folderName: folderName,
+      items: items,
+      taskId: taskId,
+      attemptToken: attemptToken,
+      attemptNumber: attemptNumber,
+      expectedReviewDraftRevision: expectedReviewDraftRevision,
+      storageRoute: storageRoute,
+      storageReason: storageReason,
+      explanationRetentionMode: explanationRetentionMode,
+      explanationOverrides: explanationOverrides,
+    );
+    if (result.questionCount != 22) {
+      throw const TrainCL1BLiveRuntimeException('TRAIN_C_COMMIT_FAILURE');
+    }
+    phaseController.transitionTo(TrainCLiveRunPhase.committed);
+    return result;
+  }
+}
+
 final class TrainCL1BLiveRuntimeException implements Exception {
   const TrainCL1BLiveRuntimeException(this.code);
 
@@ -367,22 +505,88 @@ final class TrainCL1BLiveRuntimeApp extends StatelessWidget {
   }
 }
 
+/// The configure stage uses the production engine-management surface and the
+/// production repository/secure credential authority. It is shown only when
+/// the new isolated database has no active OCR profile; it is never a fake
+/// profile or a direct SQLite/credential shortcut.
+final class TrainCL1BOcrConfigureApp extends StatelessWidget {
+  const TrainCL1BOcrConfigureApp({
+    super.key,
+    required this.composition,
+  });
+
+  final TrainCL1BProductionComposition composition;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: AiEngineManagementScreen(
+        engineType: 'ocr',
+        engineRepository: composition.engineRepository,
+      ),
+    );
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  TrainCL1BPhaseController? liveController;
   try {
-    TrainCL1BLiveLaunchGuard.verify();
+    final continuation =
+        Platform.environment[trainCL1BContinuationEnvironment] == '1';
+    if (continuation) {
+      await _runContinuationProcess();
+      return;
+    }
+
+    final reviewed = TrainCL1BLiveLaunchGuard.verify();
+    final attemptCapability =
+        Platform.environment[trainCLiveAttemptCapabilityEnvironment];
+    if (attemptCapability == null || attemptCapability.trim().isEmpty) {
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+      );
+    }
+    final controller = TrainCL1BPhaseController.forLive(
+      capability: TrainCLiveAttemptAuthority.fromCapability(attemptCapability),
+      reviewedHarnessHead: reviewed.approvedHarnessHead,
+    );
+    liveController = controller;
     final inputPath =
         Platform.environment[trainCL1BPrivateInputPathEnvironment];
     if (inputPath == null || inputPath.trim().isEmpty) {
       throw const TrainCL1BLiveRuntimeException('TRAIN_C_INPUT_INVALID');
     }
-    final input = await readTrainCL1BLiveInputFacts(inputPath);
-    final runtime = await TrainCIsolatedRuntime.create();
-    await runtime.open();
+    // Runtime creation/reattachment and blank proof happen before private
+    // input admission. A restart can only reattach the capability-bound root.
+    final runtime = await controller.createOrReattachRuntime();
     final composition = await TrainCL1BProductionComposition.create(
       runtime: runtime,
+      requireBlankStore: controller.status.phase == TrainCLiveRunPhase.prepared,
+      phaseController: controller,
     );
-    final ledger = TrainCRequestLedger();
+    if (controller.status.phase == TrainCLiveRunPhase.prepared) {
+      try {
+        await composition.requireConfiguredOcrProfile();
+      } on TrainCL1BLiveRuntimeException {
+        runApp(TrainCL1BOcrConfigureApp(composition: composition));
+        await composition.waitForConfiguredOcrProfile();
+      }
+      controller.markConfigured();
+    } else {
+      await composition.requireConfiguredOcrProfile();
+    }
+    final input = await readTrainCL1BLiveInputFacts(inputPath);
+    final attemptAuthority =
+        TrainCLiveAttemptAuthority.fromCapability(attemptCapability);
+    attemptAuthority.verifyUnused(
+      reviewedHarnessHead: reviewed.approvedHarnessHead,
+    );
+    controller.markParseRunning();
+    final ledger = TrainCRequestLedger(
+      attemptAuthority: attemptAuthority,
+    );
     HttpOverrides.global = TrainCHttpOverrides(ledger);
     runApp(TrainCL1BLiveRuntimeApp(composition: composition));
 
@@ -411,17 +615,63 @@ Future<void> main() async {
         'TRAIN_C_PENDING_REVIEW_FAILURE',
       );
     }
+    controller.markPendingReview();
   } on TrainCL1BLiveRuntimeException catch (error) {
+    _markConsumedFailure(liveController);
     runApp(_TrainCL1BFailureApp(code: error.code));
   } on TrainCEvidenceProbeException catch (error) {
+    _markConsumedFailure(liveController);
     runApp(_TrainCL1BFailureApp(code: error.code));
   } on TrainCIsolationException {
+    _markConsumedFailure(liveController);
     runApp(const _TrainCL1BFailureApp(code: 'TRAIN_C_ISOLATION_FAILURE'));
   } catch (_) {
+    _markConsumedFailure(liveController);
     runApp(const _TrainCL1BFailureApp(
       code: 'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
     ));
   }
+}
+
+void _markConsumedFailure(TrainCL1BPhaseController? controller) {
+  if (controller == null) return;
+  try {
+    final state = controller.status;
+    if (state.attemptState == TrainCLiveRunAttemptState.consumed &&
+        state.phase == TrainCLiveRunPhase.parseRunning) {
+      controller.markFailedConsumed();
+    }
+  } catch (_) {
+    // The original safe failure is retained; control-state failure is never
+    // allowed to expose raw process/provider details.
+  }
+}
+
+Future<void> _runContinuationProcess() async {
+  final reviewed = TrainCL1BReviewAuthorization.requireFromEnvironment();
+  final capabilityValue =
+      Platform.environment[trainCLiveAttemptCapabilityEnvironment]?.trim() ??
+          '';
+  if (capabilityValue.isEmpty) {
+    throw const TrainCL1BLiveRuntimeException(
+      'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+    );
+  }
+  final controller = TrainCL1BPhaseController.forContinuation(
+    capability: TrainCLiveAttemptAuthority.fromCapability(capabilityValue),
+    reviewedHarnessHead: reviewed.approvedHarnessHead,
+  );
+  controller.requireProviderForbidden();
+  final runtime = await controller.reattachRuntime();
+  final composition = await TrainCL1BProductionComposition.create(
+    runtime: runtime,
+    requireBlankStore: false,
+    phaseController: controller,
+  );
+  HttpOverrides.global = TrainCHttpOverrides(
+    TrainCRequestLedger(providerDisabled: true),
+  );
+  runApp(TrainCL1BLiveRuntimeApp(composition: composition));
 }
 
 final class _TrainCL1BFailureApp extends StatelessWidget {

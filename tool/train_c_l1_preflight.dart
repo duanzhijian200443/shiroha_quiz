@@ -6,8 +6,10 @@ import 'train_c_evidence_probe.dart';
 import 'train_c_isolated_runtime.dart';
 import 'train_c_review_authorization.dart';
 import 'train_c_runtime_evidence_source.dart';
+import 'train_c_l1b_production_diff_authority.dart';
 
 const trainCL1BaseMaster = 'f1d58a278180eff38686338c28f26e4d1d7b8b7a';
+const trainCL1BBaseMaster = '2f0aee1a7b81cd7a694b4de10702c6e798b9dd04';
 const trainCL1TrainBMerge = '711fd33f564b9fb6bb3c992d6458b0075990646c';
 
 typedef TrainCProductionDiffReader = int Function();
@@ -24,6 +26,7 @@ final class TrainCPreExecutionGitGate {
   TrainCPreExecutionGitGate({
     this.executionStateGate = const GitTrainCExecutionStateGate(),
     this.productionDiffReader,
+    this.productionDiffAuthority,
     this.masterReader = _readOriginMaster,
     this.currentHeadReader = _readCurrentHead,
     this.fetchMaster = _fetchOriginMaster,
@@ -33,6 +36,7 @@ final class TrainCPreExecutionGitGate {
 
   final TrainCExecutionStateGate executionStateGate;
   final TrainCProductionDiffReader? productionDiffReader;
+  final TrainCL1BProductionDiffAuthority? productionDiffAuthority;
   final String Function() masterReader;
   final String Function() currentHeadReader;
   final TrainCGitFetch fetchMaster;
@@ -54,10 +58,14 @@ final class TrainCPreExecutionGitGate {
       if (masterReader().trim() != reviewedIdentity.approvedBase) {
         throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
       }
-      final productionDiff = productionDiffReader?.call() ??
-          _readProductionDiff(reviewedIdentity.approvedProductionBase);
-      if (productionDiff != 0) {
-        throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+      if (productionDiffAuthority != null) {
+        productionDiffAuthority!.verify();
+      } else {
+        final productionDiff = productionDiffReader?.call() ??
+            _readProductionDiff(reviewedIdentity.approvedProductionBase);
+        if (productionDiff != 0) {
+          throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+        }
       }
     } on TrainCEvidenceProbeException {
       rethrow;
@@ -164,23 +172,27 @@ Future<Map<String, Object?>> runTrainCL1AOfflinePreflight() async {
 /// default-disabled production observation seam; every other production
 /// change remains a hard identity failure.
 Future<Map<String, Object?>> runTrainCL1BOfflinePreflight() async {
-  final reviewed = TrainCReviewedIdentity.forOfflineCurrentRepository();
+  final baseIdentity = TrainCReviewedIdentity.forOfflineCurrentRepository();
+  final reviewed = TrainCReviewedIdentity(
+    approvedHarnessHead: baseIdentity.approvedHarnessHead,
+    approvedBase: trainCL1BBaseMaster,
+    approvedProductionBase: baseIdentity.approvedProductionBase,
+    approvedProductionSeamBlobSha:
+        TrainCL1BProductionDiffAuthority.readProductionSeamBlobSha(
+      baseIdentity.approvedHarnessHead,
+    ),
+  );
   final gate = TrainCPreExecutionGitGate(
     reviewedIdentity: reviewed,
     fetchMaster: () {},
-    masterReader: () => trainCL1BaseMaster,
-    productionDiffReader: () {
-      final changedPaths = trainCL1BReadProductionDiffPaths(
-        trainCL1TrainBMerge,
-      );
-      final unexpected = changedPaths
-          .where((path) => !trainCL1BAllowedProductionPaths.contains(path))
-          .toList(growable: false);
-      if (unexpected.isNotEmpty) {
-        throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
-      }
-      return 0;
-    },
+    masterReader: () => trainCL1BBaseMaster,
+    productionDiffAuthority: TrainCL1BProductionDiffAuthority(
+      approvedHarnessHead: reviewed.approvedHarnessHead,
+      approvedBase: reviewed.approvedBase,
+      approvedProductionBase: reviewed.approvedProductionBase,
+      approvedProductionSeamBlobSha: reviewed.approvedProductionSeamBlobSha,
+      masterReader: () => trainCL1BBaseMaster,
+    ),
   );
   gate.verify();
 

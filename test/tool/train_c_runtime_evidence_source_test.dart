@@ -963,7 +963,11 @@ TrainCReviewedIdentity _reviewedForCurrentHead() {
   final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
   return TrainCReviewedIdentity(
     approvedHarnessHead: (result.stdout as String).trim(),
-    approvedBase: 'f1d58a278180eff38686338c28f26e4d1d7b8b7a',
+    approvedBase: '2f0aee1a7b81cd7a694b4de10702c6e798b9dd04',
     approvedProductionBase: '711fd33f564b9fb6bb3c992d6458b0075990646c',
+    approvedProductionSeamBlobSha:
+        TrainCL1BProductionDiffAuthority.readProductionSeamBlobSha(
+      (result.stdout as String).trim(),
+    ),
   );
 }

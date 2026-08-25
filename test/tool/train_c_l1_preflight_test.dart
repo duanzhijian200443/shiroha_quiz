@@ -203,6 +203,8 @@ void main() {
             'b000000000000000000000000000000000000000',
         trainCL1BApprovedBaseEnvironment:
             'c000000000000000000000000000000000000000',
+        trainCL1BApprovedProductionSeamBlobEnvironment:
+            'd000000000000000000000000000000000000000',
       },
     );
 

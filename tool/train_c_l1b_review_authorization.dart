@@ -4,6 +4,8 @@ import 'train_c_evidence_probe.dart';
 import 'train_c_review_authorization.dart';
 
 const trainCL1BApprovedBaseEnvironment = 'TRAIN_C_APPROVED_BASE';
+const trainCL1BApprovedProductionSeamBlobEnvironment =
+    'TRAIN_C_APPROVED_PRODUCTION_SEAM_BLOB_SHA';
 
 /// Independent out-of-band review identity for the execution-capable L1B
 /// harness.
@@ -23,7 +25,9 @@ final class TrainCL1BReviewAuthorization {
     final values = environment ?? Platform.environment;
     final head = values[trainCApprovedHarnessHeadEnvironment]?.trim() ?? '';
     final base = values[trainCL1BApprovedBaseEnvironment]?.trim() ?? '';
-    if (!_isCommitSha(head) || !_isCommitSha(base)) {
+    final seamBlob =
+        values[trainCL1BApprovedProductionSeamBlobEnvironment]?.trim() ?? '';
+    if (!_isCommitSha(head) || !_isCommitSha(base) || !_isCommitSha(seamBlob)) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
       );
@@ -32,6 +36,7 @@ final class TrainCL1BReviewAuthorization {
       approvedHarnessHead: head,
       approvedBase: base,
       approvedProductionBase: trainCApprovedProductionBase,
+      approvedProductionSeamBlobSha: seamBlob,
     );
   }
 

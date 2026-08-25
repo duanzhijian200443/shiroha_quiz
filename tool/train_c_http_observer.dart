@@ -5,6 +5,8 @@
 // to the production-created client so it cannot replace production transport
 // policy.
 
+import 'train_c_live_attempt_authority.dart';
+
 enum TrainCPhase {
   preflight,
   parse,
@@ -84,7 +86,10 @@ int trainCExpectedLayoutRequestCount({
 /// never reads a request URI, request body, response body or exception detail.
 /// It is a guard around the production entrypoint, not a second OCR transport.
 final class TrainCRequestLedger {
-  TrainCRequestLedger();
+  TrainCRequestLedger({this.attemptAuthority, this.providerDisabled = false});
+
+  final TrainCLiveAttemptAuthority? attemptAuthority;
+  final bool providerDisabled;
 
   TrainCPhase _phase = TrainCPhase.preflight;
   int? _expectedLayoutRequests;
@@ -117,6 +122,8 @@ final class TrainCRequestLedger {
     if (expectedLayoutRequests <= 0) {
       throw const TrainCProtocolException('TRAIN_C_INPUT_INVALID');
     }
+    attemptAuthority?.assertParseAllowed();
+    attemptAuthority?.markParseRunning();
     _expectedLayoutRequests = expectedLayoutRequests;
     _phase = TrainCPhase.parse;
   }
@@ -171,6 +178,11 @@ final class TrainCRequestLedger {
   }
 
   int recordDispatch(TrainCRequestKind kind) {
+    if (providerDisabled) {
+      throw const TrainCProtocolException(
+        'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE',
+      );
+    }
     if (_phase != TrainCPhase.parse) {
       _unexpectedProviderRequestCount++;
       throw const TrainCProtocolException(
@@ -190,6 +202,7 @@ final class TrainCRequestLedger {
       );
     }
 
+    attemptAuthority?.consumeAtDispatch();
     _attemptConsumed = true;
     if (kind == TrainCRequestKind.layoutPost) {
       _layoutPostCount++;

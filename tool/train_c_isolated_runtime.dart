@@ -289,6 +289,17 @@ final class TrainCIsolatedRuntime {
     }
   }
 
+  /// Issues a durable reattach capability for the TRAIN C phase controller.
+  ///
+  /// Unlike [reopenFresh], this capability remains present across the
+  /// pending-review/commit/B0 process boundaries. The caller must keep the
+  /// returned opaque token inside the repo-external TRAIN-C control artifact;
+  /// it must not be logged or included in evidence.
+  Future<String> issuePersistentReattachCapability() async {
+    _ensureUsable();
+    return _issueReattachCapability();
+  }
+
   Future<TrainCBlankStoreProof> verifyBlankStore() async {
     _ensureUsable();
     if (!_opened) {

@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart' as p;
 
 import 'train_c_evidence_probe.dart';
 import 'train_c_http_observer.dart';
 import 'train_c_l1_preflight.dart';
+import 'train_c_l1b_production_diff_authority.dart';
+import 'train_c_l1b_phase_controller.dart';
 import 'train_c_l1b_review_authorization.dart';
+import 'train_c_live_attempt_authority.dart';
 import 'train_c_review_authorization.dart';
 
 const trainCL1BLiveRunEnvironment = 'TRAIN_C_LIVE_RUN';
@@ -19,6 +23,7 @@ const trainCL1BTextProviderEnvironment = 'TRAIN_C_TEXT_PROVIDER_ENABLED';
 const trainCL1BVisionProviderEnvironment = 'TRAIN_C_VISION_PROVIDER_ENABLED';
 const trainCL1BAnswerRepairEnvironment =
     'TRAIN_C_ANSWER_REPAIR_PROVIDER_ENABLED';
+const trainCL1BContinuationEnvironment = 'TRAIN_C_L1B_CONTINUATION';
 
 typedef TrainCL1BGitVerification = void Function(
   TrainCReviewedIdentity reviewedIdentity,
@@ -66,6 +71,16 @@ final class TrainCL1BLiveLaunchGuard {
     final reviewed = TrainCL1BReviewAuthorization.requireFromEnvironment(
       environment: values,
     );
+    final attemptCapability =
+        values[trainCLiveAttemptCapabilityEnvironment]?.trim() ?? '';
+    if (attemptCapability.isEmpty) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+      );
+    }
+    TrainCLiveAttemptAuthority.fromCapability(attemptCapability).verifyUnused(
+      reviewedHarnessHead: reviewed.approvedHarnessHead,
+    );
     (verifyGit ?? _verifyGit).call(reviewed);
     return reviewed;
   }
@@ -95,6 +110,66 @@ final class TrainCL1BLiveLaunchGuard {
     return process.exitCode;
   }
 
+  static TrainCReviewedIdentity verifyContinuation({
+    Map<String, String>? environment,
+    TrainCL1BGitVerification? verifyGit,
+  }) {
+    final values = environment ?? Platform.environment;
+    if (values[trainCL1BLiveRunEnvironment] != '1' ||
+        values[trainCL1BTextProviderEnvironment] == '1' ||
+        values[trainCL1BVisionProviderEnvironment] == '1' ||
+        values[trainCL1BAnswerRepairEnvironment] == '1') {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+      );
+    }
+    final reviewed = TrainCL1BReviewAuthorization.requireFromEnvironment(
+      environment: values,
+    );
+    final attemptCapability =
+        values[trainCLiveAttemptCapabilityEnvironment]?.trim() ?? '';
+    if (attemptCapability.isEmpty) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+      );
+    }
+    final capability =
+        TrainCLiveAttemptAuthority.fromCapability(attemptCapability);
+    TrainCL1BPhaseController.forContinuation(
+      capability: capability,
+      reviewedHarnessHead: reviewed.approvedHarnessHead,
+    );
+    (verifyGit ?? _verifyGit).call(reviewed);
+    return reviewed;
+  }
+
+  static Future<int> launchContinuation({
+    Map<String, String>? environment,
+    TrainCL1BGitVerification? verifyGit,
+    Future<int> Function(TrainCReviewedIdentity reviewedIdentity)? start,
+  }) async {
+    final values = environment ?? Platform.environment;
+    final reviewed = verifyContinuation(
+      environment: values,
+      verifyGit: verifyGit,
+    );
+    if (start != null) return start(reviewed);
+    final process = await Process.start(
+      'flutter',
+      const <String>[
+        'run',
+        '-d',
+        'windows',
+        '-t',
+        'tool/train_c_l1b_live_runtime.dart',
+      ],
+      mode: ProcessStartMode.inheritStdio,
+      environment: buildContinuationTargetEnvironment(environment: values),
+      includeParentEnvironment: false,
+    );
+    return process.exitCode;
+  }
+
   /// Passes only the live-run capability values and the minimal Windows/Dart
   /// bootstrap environment. In particular, arbitrary parent variables (and
   /// any provider secret accidentally present there) are not inherited by the
@@ -116,6 +191,8 @@ final class TrainCL1BLiveLaunchGuard {
       trainCL1BAnswerRepairEnvironment,
       trainCApprovedHarnessHeadEnvironment,
       trainCL1BApprovedBaseEnvironment,
+      trainCL1BApprovedProductionSeamBlobEnvironment,
+      trainCLiveAttemptCapabilityEnvironment,
     ];
     const bootstrapKeys = <String>[
       'PATH',
@@ -143,8 +220,26 @@ final class TrainCL1BLiveLaunchGuard {
     return result;
   }
 
+  static Map<String, String> buildContinuationTargetEnvironment({
+    Map<String, String>? environment,
+  }) {
+    final result = buildLiveTargetEnvironment(environment: environment)
+      ..remove(trainCL1BPrivateInputPathEnvironment)
+      ..remove(trainCL1BCredentialReadyEnvironment)
+      ..[trainCL1BContinuationEnvironment] = '1';
+    return result;
+  }
+
   static void _verifyGit(TrainCReviewedIdentity reviewed) {
-    TrainCPreExecutionGitGate(reviewedIdentity: reviewed).verify();
+    TrainCPreExecutionGitGate(
+      reviewedIdentity: reviewed,
+      productionDiffAuthority: TrainCL1BProductionDiffAuthority(
+        approvedHarnessHead: reviewed.approvedHarnessHead,
+        approvedBase: reviewed.approvedBase,
+        approvedProductionBase: reviewed.approvedProductionBase,
+        approvedProductionSeamBlobSha: reviewed.approvedProductionSeamBlobSha,
+      ),
+    ).verify();
   }
 }
 
@@ -177,6 +272,79 @@ void main(List<String> args) {
 
   if (args.length == 1 && args.single == '--live') {
     TrainCL1BLiveLaunchGuard.launch().then<void>((code) {
+      exitCode = code;
+    }).catchError((Object error) {
+      if (error is TrainCEvidenceProbeException) {
+        stderr.writeln(error.code);
+      } else {
+        stderr.writeln('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED');
+      }
+      exitCode = 1;
+    });
+    return;
+  }
+
+  if (args.length == 1 && args.single == '--authorize-run1') {
+    try {
+      final head =
+          Platform.environment[trainCApprovedHarnessHeadEnvironment]?.trim() ??
+              '';
+      final base =
+          Platform.environment[trainCL1BApprovedBaseEnvironment]?.trim() ?? '';
+      final directoryPath =
+          Platform.environment['TRAIN_C_ATTEMPT_STATE_DIRECTORY']?.trim() ?? '';
+      if (head.isEmpty || base.isEmpty || directoryPath.isEmpty) {
+        throw const TrainCEvidenceProbeException(
+          'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+        );
+      }
+      final directory = Directory(p.normalize(p.absolute(directoryPath)));
+      final capability = TrainCLiveAttemptAuthority.authorize(
+        stateDirectory: directory,
+        approvedHarnessHead: head,
+        approvedBase: base,
+      );
+      File(p.join(directory.path, 'capability.v1')).writeAsStringSync(
+        capability,
+        flush: true,
+      );
+      stdout.writeln('TRAIN_C_RUN1_AUTHORIZED');
+    } on TrainCEvidenceProbeException catch (error) {
+      stderr.writeln(error.code);
+      exitCode = 1;
+    } catch (_) {
+      stderr.writeln('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED');
+      exitCode = 1;
+    }
+    return;
+  }
+
+  if (args.length == 1 && args.single == '--status') {
+    try {
+      final capability =
+          Platform.environment[trainCLiveAttemptCapabilityEnvironment]?.trim();
+      if (capability == null || capability.isEmpty) {
+        throw const TrainCEvidenceProbeException(
+          'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+        );
+      }
+      stdout.writeln(
+        const JsonEncoder.withIndent('  ').convert(
+          TrainCLiveAttemptAuthority.fromCapability(capability).safeStatus(),
+        ),
+      );
+    } on TrainCEvidenceProbeException catch (error) {
+      stderr.writeln(error.code);
+      exitCode = 1;
+    } catch (_) {
+      stderr.writeln('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED');
+      exitCode = 1;
+    }
+    return;
+  }
+
+  if (args.length == 1 && args.single == '--continue') {
+    TrainCL1BLiveLaunchGuard.launchContinuation().then<void>((code) {
       exitCode = code;
     }).catchError((Object error) {
       if (error is TrainCEvidenceProbeException) {

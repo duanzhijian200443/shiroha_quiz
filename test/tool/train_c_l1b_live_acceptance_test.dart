@@ -1,23 +1,46 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_live_entrypoint.dart';
 import '../../tool/train_c_l1b_review_authorization.dart';
+import '../../tool/train_c_live_attempt_authority.dart';
 import '../../tool/train_c_review_authorization.dart';
 
 void main() {
-  final baseEnvironment = <String, String>{
-    trainCL1BLiveRunEnvironment: '1',
-    trainCL1BPrivateInputPathEnvironment: 'opaque-input-authority',
-    trainCL1BCredentialReadyEnvironment: '1',
-    trainCL1BIsolatedRuntimeEnvironment: '1',
-    trainCL1BProviderKindEnvironment: 'zhipu',
-    trainCL1BProviderModelEnvironment: 'glm-ocr',
-    trainCApprovedHarnessHeadEnvironment:
-        'a000000000000000000000000000000000000000',
-    trainCL1BApprovedBaseEnvironment:
-        'b000000000000000000000000000000000000000',
-  };
+  late Map<String, String> baseEnvironment;
+
+  setUp(() {
+    final stateDirectory = Directory.systemTemp.createTempSync(
+      'train_c_attempt_test_',
+    );
+    addTearDown(() {
+      if (stateDirectory.existsSync()) {
+        stateDirectory.deleteSync(recursive: true);
+      }
+    });
+    final capability = TrainCLiveAttemptAuthority.authorize(
+      stateDirectory: stateDirectory,
+      approvedHarnessHead: 'a000000000000000000000000000000000000000',
+      approvedBase: 'b000000000000000000000000000000000000000',
+    );
+    baseEnvironment = <String, String>{
+      trainCL1BLiveRunEnvironment: '1',
+      trainCL1BPrivateInputPathEnvironment: 'opaque-input-authority',
+      trainCL1BCredentialReadyEnvironment: '1',
+      trainCL1BIsolatedRuntimeEnvironment: '1',
+      trainCL1BProviderKindEnvironment: 'zhipu',
+      trainCL1BProviderModelEnvironment: 'glm-ocr',
+      trainCApprovedHarnessHeadEnvironment:
+          'a000000000000000000000000000000000000000',
+      trainCL1BApprovedBaseEnvironment:
+          'b000000000000000000000000000000000000000',
+      trainCL1BApprovedProductionSeamBlobEnvironment:
+          'c000000000000000000000000000000000000000',
+      trainCLiveAttemptCapabilityEnvironment: capability,
+    };
+  });
 
   test('live mode is blocked when explicit live authority is absent', () {
     expect(
@@ -139,6 +162,41 @@ void main() {
     expect(target['TRAIN_C_SYNTHETIC_SECRET'], isNull);
     expect(target['TRAIN_C_LIVE_RUN'], '1');
     expect(target['PATH'], r'C:\synthetic\bin');
+  });
+
+  test(
+      'continuation requires consumed pending capability and strips input authority',
+      () {
+    final capability = TrainCLiveAttemptAuthority.fromCapability(
+      baseEnvironment[trainCLiveAttemptCapabilityEnvironment]!,
+    )
+      ..verifyUnused(
+        reviewedHarnessHead:
+            baseEnvironment[trainCApprovedHarnessHeadEnvironment]!,
+      )
+      ..bindRuntimeCapability('runtime-a')
+      ..markConfigured()
+      ..markParseRunning()
+      ..consumeAtDispatch()
+      ..markPendingReview();
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.pendingReview);
+
+    final continuation = <String, String>{
+      ...baseEnvironment,
+      trainCL1BContinuationEnvironment: '1',
+    }..remove(trainCL1BPrivateInputPathEnvironment);
+    final reviewed = TrainCL1BLiveLaunchGuard.verifyContinuation(
+      environment: continuation,
+      verifyGit: (_) {},
+    );
+    expect(reviewed.approvedHarnessHead,
+        baseEnvironment[trainCApprovedHarnessHeadEnvironment]);
+    final target = TrainCL1BLiveLaunchGuard.buildContinuationTargetEnvironment(
+      environment: continuation,
+    );
+    expect(target[trainCL1BPrivateInputPathEnvironment], isNull);
+    expect(target[trainCL1BCredentialReadyEnvironment], isNull);
+    expect(target[trainCL1BContinuationEnvironment], '1');
   });
 }
 
