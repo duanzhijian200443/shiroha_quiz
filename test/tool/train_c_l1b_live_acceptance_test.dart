@@ -75,6 +75,19 @@ void main() {
     );
   });
 
+  test('durable capability base must match out-of-band reviewed base', () {
+    final environment = Map<String, String>.from(baseEnvironment)
+      ..[trainCL1BApprovedBaseEnvironment] =
+          'd000000000000000000000000000000000000000';
+    expect(
+      () => TrainCL1BLiveLaunchGuard.verify(
+        environment: environment,
+        verifyGit: (_) => fail('git gate must not run after identity drift'),
+      ),
+      _code('TRAIN_C_HEAD_DRIFT'),
+    );
+  });
+
   test('missing private input authority is blocked before file access', () {
     final environment = Map<String, String>.from(baseEnvironment)
       ..remove(trainCL1BPrivateInputPathEnvironment);
@@ -185,6 +198,18 @@ void main() {
       ...baseEnvironment,
       trainCL1BContinuationEnvironment: '1',
     }..remove(trainCL1BPrivateInputPathEnvironment);
+
+    final mismatchedBase = Map<String, String>.from(continuation)
+      ..[trainCL1BApprovedBaseEnvironment] =
+          'd000000000000000000000000000000000000000';
+    expect(
+      () => TrainCL1BLiveLaunchGuard.verifyContinuation(
+        environment: mismatchedBase,
+        verifyGit: (_) => fail('git gate must not run after identity drift'),
+      ),
+      _code('TRAIN_C_HEAD_DRIFT'),
+    );
+
     final reviewed = TrainCL1BLiveLaunchGuard.verifyContinuation(
       environment: continuation,
       verifyGit: (_) {},
