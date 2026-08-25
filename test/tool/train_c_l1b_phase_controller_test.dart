@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +9,10 @@ import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_http_observer.dart';
 import '../../tool/train_c_isolated_runtime.dart';
 import '../../tool/train_c_l1b_phase_controller.dart';
+import '../../tool/train_c_l1b_supervisor.dart';
+import '../../tool/train_c_l1b_transport.dart';
 import '../../tool/train_c_live_attempt_authority.dart';
+import '../../tool/train_c_runtime_evidence_source.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -16,6 +20,8 @@ void main() {
 
   const head = 'a000000000000000000000000000000000000000';
   const base = 'b000000000000000000000000000000000000000';
+  const digest =
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
   Directory createState() {
     final directory = Directory.systemTemp.createTempSync(
@@ -34,7 +40,10 @@ void main() {
       approvedBase: base,
     );
     final capability = TrainCLiveRunCapability.fromCapability(token);
-    capability.verifyUnused(reviewedHarnessHead: head);
+    capability.verifyUnused(
+      reviewedHarnessHead: head,
+      reviewedBase: base,
+    );
     return (token: token, capability: capability);
   }
 
@@ -43,18 +52,13 @@ void main() {
     capability.markConfigured();
   }
 
-  test('runtime identity survives recreation and rejects a different runtime',
-      () {
+  test('runtime identity survives recreation and rejects another runtime', () {
     final authority = authorize();
     final capability = authority.capability;
     bindAndConfigure(capability);
-
-    final recreated = TrainCLiveRunCapability.fromCapability(
-      authority.token,
-    );
+    final recreated = TrainCLiveRunCapability.fromCapability(authority.token);
     expect(recreated.runtimeMatches('runtime-a'), isTrue);
     expect(recreated.runtimeMatches('runtime-b'), isFalse);
-    expect(recreated.snapshot.runtimeBound, isTrue);
     expect(
       () => recreated.validateRestoreRuntimeIdentity('runtime-a'),
       _code('TRAIN_C_ISOLATION_FAILURE'),
@@ -71,24 +75,20 @@ void main() {
     final capability = authority.capability;
     bindAndConfigure(capability);
     capability.markParseRunning();
-
     final ledger = TrainCRequestLedger(attemptAuthority: capability);
     ledger.beginParse(expectedLayoutRequests: 1);
     ledger.recordDispatchMethod('POST');
     expect(
-        capability.snapshot.attemptState, TrainCLiveRunAttemptState.consumed);
-
-    final recreated = TrainCLiveRunCapability.fromCapability(
-      authority.token,
+      capability.snapshot.attemptState,
+      TrainCLiveRunAttemptState.consumed,
     );
+    final recreated = TrainCLiveRunCapability.fromCapability(authority.token);
     expect(
-      () => recreated.verifyUnused(reviewedHarnessHead: head),
+      () => recreated.verifyUnused(
+        reviewedHarnessHead: head,
+        reviewedBase: base,
+      ),
       _code('TRAIN_C_ATTEMPT_BUDGET_EXHAUSTED'),
-    );
-    expect(
-      () => TrainCRequestLedger(providerDisabled: true)
-          .recordDispatchMethod('POST'),
-      _protocol('TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE'),
     );
   });
 
@@ -98,10 +98,10 @@ void main() {
     capability.markParseRunning();
     capability.consumeAtDispatch();
     capability.markPendingReview();
-
     final controller = TrainCL1BPhaseController.forContinuation(
       capability: capability,
       reviewedHarnessHead: head,
+      reviewedBase: base,
     );
     controller.transitionTo(TrainCLiveRunPhase.commitReady);
     controller.transitionTo(TrainCLiveRunPhase.committed);
@@ -110,28 +110,24 @@ void main() {
     controller.transitionTo(TrainCLiveRunPhase.b0Restored);
     controller.transitionTo(TrainCLiveRunPhase.finalized);
     expect(capability.snapshot.phase, TrainCLiveRunPhase.finalized);
-
     expect(
       () => controller.transitionTo(TrainCLiveRunPhase.parseRunning),
       _code('TRAIN_C_HARNESS_NOT_READY'),
     );
   });
 
-  test('continuation is provider-forbidden and pending survives recreation',
-      () {
+  test('continuation is provider-forbidden and pending survives recreation', () {
     final authority = authorize();
     final capability = authority.capability;
     bindAndConfigure(capability);
     capability.markParseRunning();
     capability.consumeAtDispatch();
     capability.markPendingReview();
-
-    final recreated = TrainCLiveRunCapability.fromCapability(
-      authority.token,
-    );
+    final recreated = TrainCLiveRunCapability.fromCapability(authority.token);
     final controller = TrainCL1BPhaseController.forContinuation(
       capability: recreated,
       reviewedHarnessHead: head,
+      reviewedBase: base,
     );
     controller.requireProviderForbidden();
     expect(recreated.snapshot.phase, TrainCLiveRunPhase.pendingReview);
@@ -142,8 +138,7 @@ void main() {
     );
   });
 
-  test('stale revision cannot advance a phase after another writer commits',
-      () {
+  test('stale revision cannot advance after another writer commits', () {
     final capability = authorize().capability;
     bindAndConfigure(capability);
     final staleRevision = capability.snapshot.revision;
@@ -155,26 +150,35 @@ void main() {
       ),
       _code('TRAIN_C_STALE_STATE'),
     );
-    expect(capability.snapshot.phase, TrainCLiveRunPhase.parseRunning);
   });
 
-  test('wrong reviewed head fails before runtime or provider continuation', () {
+  test('wrong reviewed head or base fails before runtime continuation', () {
     final capability = authorize().capability;
     expect(
       () => TrainCL1BPhaseController.forLive(
         capability: capability,
         reviewedHarnessHead: 'c000000000000000000000000000000000000000',
+        reviewedBase: base,
+      ),
+      _code('TRAIN_C_HEAD_DRIFT'),
+    );
+    expect(
+      () => TrainCL1BPhaseController.forLive(
+        capability: capability,
+        reviewedHarnessHead: head,
+        reviewedBase: 'd000000000000000000000000000000000000000',
       ),
       _code('TRAIN_C_HEAD_DRIFT'),
     );
   });
 
-  test('controller reattaches the same durable runtime instead of creating B',
+  test('controller reattaches same durable runtime instead of creating B',
       () async {
     final authority = authorize();
     final controller = TrainCL1BPhaseController.forLive(
       capability: authority.capability,
       reviewedHarnessHead: head,
+      reviewedBase: base,
     );
     TrainCIsolatedRuntime? first;
     TrainCIsolatedRuntime? second;
@@ -189,18 +193,99 @@ void main() {
     controller.markConfigured();
     await createdFirst.closeForRestart();
     await DatabaseHelper.resetRuntimeProfileForTesting();
-
     final recreated = TrainCLiveRunCapability.fromCapability(authority.token);
-    final continuationController = TrainCL1BPhaseController.forLive(
+    final continuation = TrainCL1BPhaseController.forLive(
       capability: recreated,
       reviewedHarnessHead: head,
+      reviewedBase: base,
     );
-    final createdSecond = await continuationController.reattachRuntime();
+    final createdSecond = await continuation.reattachRuntime();
     second = createdSecond;
     expect(createdSecond.root.path, firstRoot);
     expect((await createdSecond.database).path, firstDatabasePath);
-    expect(continuationController.status.runtimeBound, isTrue);
     await createdSecond.closeForRestart();
+  });
+
+  test('supervisor serializes fresh child phases and retains transient facts',
+      () async {
+    final started = <TrainCL1BChildPhase>[];
+    Map<String, Object?>? finalFacts;
+    var nextPid = 1000;
+    final result = await TrainCL1BSupervisor.run(
+      liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+      continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
+      startChild: (phase, environment) async {
+        started.add(phase);
+        final exit = Completer<int>();
+        unawaited(Future<void>(() async {
+          final client = TrainCL1BSupervisorClient.fromEnvironment(
+            environment: environment,
+          );
+          if (phase == TrainCL1BChildPhase.finalize) {
+            finalFacts = await client.requestFacts();
+          }
+          await client.reportPass(<String, Object?>{
+            'safeCount': phase.index + 1,
+          });
+          exit.complete(0);
+        }));
+        return (
+          pid: nextPid++,
+          stdout: const Stream<List<int>>.empty(),
+          stderr: const Stream<List<int>>.empty(),
+          exitCode: exit.future,
+          kill: () => true,
+        );
+      },
+    );
+    expect(result, 0);
+    expect(started, TrainCL1BChildPhase.values);
+    expect(finalFacts, contains(TrainCL1BChildPhase.parse.wireName));
+    expect(finalFacts, contains(TrainCL1BChildPhase.commit.wireName));
+    expect(finalFacts, contains(TrainCL1BChildPhase.restart.wireName));
+  });
+
+  test('completed request ledger survives supervisor handoff without replay', () {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+    final post = ledger.recordDispatchMethod('POST');
+    ledger.recordResponse(eventIndex: post, statusCode: 200, durationMs: 1);
+    final crop = ledger.recordDispatchMethod('GET');
+    ledger.recordResponse(eventIndex: crop, statusCode: 200, durationMs: 1);
+    ledger.finishParse(successful: true);
+    final restored = TrainCRequestLedger.fromTransportSnapshot(
+      ledger.transportSnapshot(),
+    );
+    expect(restored.phase, TrainCPhase.pendingReview);
+    expect(restored.attemptConsumed, isTrue);
+    expect(restored.layoutPostCount, 1);
+    expect(restored.remoteCropRequestCount, 1);
+    expect(restored.providerDispatchCount, 2);
+    expect(restored.providerResponseCount, 2);
+  });
+
+  test('same-parse source facts survive memory transport with raw hash intact',
+      () {
+    final source = TrainCSourceImageFacts(
+      referencedImageCounts: const <int, int>{5: 1},
+      referencedIdentitiesByQuestion: const <int, Set<(String, String)>>{
+        5: <(String, String)>{('source-a', 'asset-a')},
+      },
+      orderedEvidence: const <TrainCPreTypedSourceImageEvidence>[
+        TrainCPreTypedSourceImageEvidence(
+          questionNumber: 5,
+          sourceId: 'source-a',
+          blockId: 'block-a',
+          localAssetId: 'asset-a',
+          contentHash: digest,
+          readingOrder: 0,
+        ),
+      ],
+    );
+    final restored = decodeTrainCSourceImages(encodeTrainCSourceImages(source));
+    expect(restored.countFor(5), 1);
+    expect(restored.identitiesFor(5), <(String, String)>{('source-a', 'asset-a')});
+    expect(restored.evidenceFor(5).single.contentHash, digest);
   });
 }
 

@@ -5,9 +5,10 @@ import 'package:path/path.dart' as p;
 import 'train_c_evidence_probe.dart';
 import 'train_c_http_observer.dart';
 import 'train_c_l1_preflight.dart';
-import 'train_c_l1b_production_diff_authority.dart';
 import 'train_c_l1b_phase_controller.dart';
+import 'train_c_l1b_production_diff_authority.dart';
 import 'train_c_l1b_review_authorization.dart';
+import 'train_c_l1b_supervisor.dart';
 import 'train_c_live_attempt_authority.dart';
 import 'train_c_review_authorization.dart';
 
@@ -33,8 +34,8 @@ typedef TrainCL1BGitVerification = void Function(
 ///
 /// This class performs only bounded, safe checks. It never reads the private
 /// input, opens a credential store, creates a runtime, or starts a provider
-/// process. The provider-capable target is launched only by [launch] after all
-/// checks pass.
+/// process. The provider-capable parse child is launched only after all checks
+/// pass and is owned by the in-memory supervisor.
 final class TrainCL1BLiveLaunchGuard {
   const TrainCL1BLiveLaunchGuard._();
 
@@ -98,20 +99,11 @@ final class TrainCL1BLiveLaunchGuard {
     final reviewed = verify(environment: values, verifyGit: verifyGit);
     if (start != null) return start(reviewed);
 
-    final process = await Process.start(
-      'flutter',
-      const <String>[
-        'run',
-        '-d',
-        'windows',
-        '-t',
-        'tool/train_c_l1b_live_runtime.dart',
-      ],
-      mode: ProcessStartMode.inheritStdio,
-      environment: buildLiveTargetEnvironment(environment: values),
-      includeParentEnvironment: false,
+    return TrainCL1BSupervisor.run(
+      liveEnvironment: buildLiveTargetEnvironment(environment: values),
+      continuationEnvironment:
+          buildContinuationTargetEnvironment(environment: values),
     );
-    return process.exitCode;
   }
 
   static TrainCReviewedIdentity verifyContinuation({
@@ -143,11 +135,15 @@ final class TrainCL1BLiveLaunchGuard {
     TrainCL1BPhaseController.forContinuation(
       capability: capability,
       reviewedHarnessHead: reviewed.approvedHarnessHead,
+      reviewedBase: reviewed.approvedBase,
     );
     (verifyGit ?? _verifyGit).call(reviewed);
     return reviewed;
   }
 
+  /// Continuation processes are supervisor-owned. Keeping this method for
+  /// injected mechanical tests avoids a second public launch path that could
+  /// lose same-parse source authority.
   static Future<int> launchContinuation({
     Map<String, String>? environment,
     TrainCL1BGitVerification? verifyGit,
@@ -159,20 +155,7 @@ final class TrainCL1BLiveLaunchGuard {
       verifyGit: verifyGit,
     );
     if (start != null) return start(reviewed);
-    final process = await Process.start(
-      'flutter',
-      const <String>[
-        'run',
-        '-d',
-        'windows',
-        '-t',
-        'tool/train_c_l1b_live_runtime.dart',
-      ],
-      mode: ProcessStartMode.inheritStdio,
-      environment: buildContinuationTargetEnvironment(environment: values),
-      includeParentEnvironment: false,
-    );
-    return process.exitCode;
+    throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
   }
 
   /// Passes only the live-run capability values and the minimal Windows/Dart
@@ -292,6 +275,8 @@ void main(List<String> args) {
     }).catchError((Object error) {
       if (error is TrainCEvidenceProbeException) {
         stderr.writeln(error.code);
+      } else if (error is TrainCL1BSupervisorException) {
+        stderr.writeln(error.code);
       } else {
         stderr.writeln('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED');
       }
@@ -337,16 +322,20 @@ void main(List<String> args) {
 
   if (args.length == 1 && args.single == '--status') {
     try {
-      final capability =
+      final capabilityValue =
           Platform.environment[trainCLiveAttemptCapabilityEnvironment]?.trim();
-      if (capability == null || capability.isEmpty) {
+      if (capabilityValue == null || capabilityValue.isEmpty) {
         throw const TrainCEvidenceProbeException(
           'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
         );
       }
+      final reviewed = TrainCL1BReviewAuthorization.requireFromEnvironment();
       stdout.writeln(
         const JsonEncoder.withIndent('  ').convert(
-          TrainCLiveAttemptAuthority.fromCapability(capability).safeStatus(),
+          TrainCLiveAttemptAuthority.fromCapability(capabilityValue).safeStatus(
+            reviewedHarnessHead: reviewed.approvedHarnessHead,
+            reviewedBase: reviewed.approvedBase,
+          ),
         ),
       );
     } on TrainCEvidenceProbeException catch (error) {
@@ -360,16 +349,8 @@ void main(List<String> args) {
   }
 
   if (args.length == 1 && args.single == '--continue') {
-    TrainCL1BLiveLaunchGuard.launchContinuation().then<void>((code) {
-      exitCode = code;
-    }).catchError((Object error) {
-      if (error is TrainCEvidenceProbeException) {
-        stderr.writeln(error.code);
-      } else {
-        stderr.writeln('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED');
-      }
-      exitCode = 1;
-    });
+    stderr.writeln('TRAIN_C_HARNESS_NOT_READY');
+    exitCode = 2;
     return;
   }
 
