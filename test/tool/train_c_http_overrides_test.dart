@@ -30,6 +30,63 @@ void main() {
     expect(inner.connectionFactoryCallback, same(connectionFactory));
   });
 
+  test('attempt is consumed only by the first request close', () async {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final handled = Completer<void>();
+    final subscription = server.listen((request) async {
+      await utf8.decoder.bind(request).join();
+      request.response.statusCode = 200;
+      await request.response.close();
+      if (!handled.isCompleted) handled.complete();
+    });
+
+    try {
+      await HttpOverrides.runWithHttpOverrides(
+        () async {
+          final client = HttpClient()..findProxy = (_) => 'DIRECT';
+          final request = await client.postUrl(
+            Uri.parse('http://127.0.0.1:${server.port}/opaque'),
+          );
+
+          expect(ledger.attemptConsumed, isFalse);
+          expect(ledger.providerDispatchCount, 0);
+
+          request.write('PRIVATE_REQUEST_BODY');
+          expect(ledger.attemptConsumed, isFalse);
+          expect(ledger.providerDispatchCount, 0);
+
+          final firstClose = request.close();
+          expect(ledger.attemptConsumed, isTrue);
+          expect(ledger.providerDispatchCount, 1);
+          expect(ledger.layoutPostCount, 1);
+
+          final secondClose = request.close();
+          expect(secondClose, same(firstClose));
+          expect(ledger.providerDispatchCount, 1);
+
+          final response = await firstClose;
+          await response.drain<void>();
+          await secondClose;
+          client.close();
+        },
+        TrainCHttpOverrides(ledger),
+      );
+      await handled.future;
+      await Future<void>.value();
+
+      expect(ledger.providerDispatchCount, 1);
+      expect(ledger.providerResponseCount, 1);
+      expect(ledger.networkFailureCount, 0);
+      expect(ledger.safeSummary(), isNot(contains('PRIVATE_REQUEST_BODY')));
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('HttpOverrides observes requests without consuming response body',
       () async {
     final ledger = TrainCRequestLedger();
@@ -54,6 +111,7 @@ void main() {
           final request = await client.getUrl(
             Uri.parse('http://127.0.0.1:${server.port}/opaque'),
           );
+          expect(ledger.providerDispatchCount, 0);
           final response = await request.close();
           final responseBody = await utf8.decoder.bind(response).join();
           client.close();
