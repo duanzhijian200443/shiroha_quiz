@@ -10,7 +10,7 @@ void main() {
   const head = 'a000000000000000000000000000000000000000';
   const base = 'b000000000000000000000000000000000000000';
 
-  test('authorization survives recreation and consumption is one-shot', () {
+  test('one Run permits multiple requests but relaunch stays one-shot', () {
     final directory = Directory.systemTemp.createTempSync(
       'train_c_attempt_authority_test_',
     );
@@ -27,9 +27,21 @@ void main() {
     first.markConfigured();
 
     final ledger = TrainCRequestLedger(attemptAuthority: first);
-    ledger.beginParse(expectedLayoutRequests: 1);
+    ledger.beginParse(expectedLayoutRequests: 2);
+
     ledger.recordDispatchMethod('POST');
-    expect(ledger.providerDispatchCount, 1);
+    expect(ledger.attemptConsumed, isTrue);
+    expect(first.snapshot.attemptState, TrainCLiveRunAttemptState.consumed);
+
+    // These are additional legitimate requests within the same top-level Run,
+    // not a second Run. They must not try to consume durable authority again.
+    ledger.recordDispatchMethod('POST');
+    ledger.recordDispatchMethod('GET');
+    ledger.recordDispatchMethod('GET');
+    expect(ledger.layoutPostCount, 2);
+    expect(ledger.remoteCropRequestCount, 2);
+    expect(ledger.providerDispatchCount, 4);
+
     final files = directory.listSync().whereType<File>().toList();
     expect(
         files.where((file) => file.path.contains('authorized.json')), isEmpty);
@@ -43,6 +55,8 @@ void main() {
       5,
     );
 
+    // A fresh authority/ledger cannot reinterpret the consumed Run as another
+    // top-level live parse.
     final recreated = TrainCLiveAttemptAuthority.fromCapability(capability);
     expect(
       () => recreated.verifyUnused(reviewedHarnessHead: head),
