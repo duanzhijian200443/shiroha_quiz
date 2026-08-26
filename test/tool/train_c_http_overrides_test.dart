@@ -30,6 +30,63 @@ void main() {
     expect(inner.connectionFactoryCallback, same(connectionFactory));
   });
 
+  test('attempt is consumed only by the first request close', () async {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final handled = Completer<void>();
+    final subscription = server.listen((request) async {
+      await utf8.decoder.bind(request).join();
+      request.response.statusCode = 200;
+      await request.response.close();
+      if (!handled.isCompleted) handled.complete();
+    });
+
+    try {
+      await HttpOverrides.runWithHttpOverrides(
+        () async {
+          final client = HttpClient()..findProxy = (_) => 'DIRECT';
+          final request = await client.postUrl(
+            Uri.parse('http://127.0.0.1:${server.port}/opaque'),
+          );
+
+          expect(ledger.attemptConsumed, isFalse);
+          expect(ledger.providerDispatchCount, 0);
+
+          request.write('PRIVATE_REQUEST_BODY');
+          expect(ledger.attemptConsumed, isFalse);
+          expect(ledger.providerDispatchCount, 0);
+
+          final firstClose = request.close();
+          expect(ledger.attemptConsumed, isTrue);
+          expect(ledger.providerDispatchCount, 1);
+          expect(ledger.layoutPostCount, 1);
+
+          final secondClose = request.close();
+          expect(secondClose, same(firstClose));
+          expect(ledger.providerDispatchCount, 1);
+
+          final response = await firstClose;
+          await response.drain<void>();
+          await secondClose;
+          client.close();
+        },
+        TrainCHttpOverrides(ledger),
+      );
+      await handled.future;
+      await Future<void>.value();
+
+      expect(ledger.providerDispatchCount, 1);
+      expect(ledger.providerResponseCount, 1);
+      expect(ledger.networkFailureCount, 0);
+      expect(ledger.safeSummary(), isNot(contains('PRIVATE_REQUEST_BODY')));
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('HttpOverrides observes requests without consuming response body',
       () async {
     final ledger = TrainCRequestLedger();
@@ -54,6 +111,7 @@ void main() {
           final request = await client.getUrl(
             Uri.parse('http://127.0.0.1:${server.port}/opaque'),
           );
+          expect(ledger.providerDispatchCount, 0);
           final response = await request.close();
           final responseBody = await utf8.decoder.bind(response).join();
           client.close();
@@ -74,6 +132,55 @@ void main() {
       await subscription.cancel();
       await server.close(force: true);
     }
+  });
+
+  test('synchronous close failure is cached and counted once', () async {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+    final request = TrainCObservedHttpClientRequest(
+      _SynchronousFailingRequest(),
+      ledger,
+      'POST',
+    );
+
+    final firstClose = request.close();
+    final secondClose = request.close();
+
+    expect(secondClose, same(firstClose));
+    expect(ledger.providerDispatchCount, 1);
+    expect(ledger.attemptConsumed, isTrue);
+
+    await expectLater(firstClose, throwsA(isA<StateError>()));
+    await expectLater(secondClose, throwsA(isA<StateError>()));
+    expect(ledger.providerDispatchCount, 1);
+    expect(ledger.networkFailureCount, 1);
+  });
+
+  test('protocol-rejected close is cached without duplicate accounting',
+      () async {
+    final ledger = TrainCRequestLedger();
+    ledger.beginParse(expectedLayoutRequests: 1);
+    ledger.finishParse(successful: false);
+    final request = TrainCObservedHttpClientRequest(
+      _SynchronousFailingRequest(),
+      ledger,
+      'GET',
+    );
+
+    final firstClose = request.close();
+    final secondClose = request.close();
+
+    expect(secondClose, same(firstClose));
+    await expectLater(
+      firstClose,
+      throwsA(isA<TrainCProtocolException>()),
+    );
+    await expectLater(
+      secondClose,
+      throwsA(isA<TrainCProtocolException>()),
+    );
+    expect(ledger.unexpectedProviderRequestCount, 1);
+    expect(ledger.providerDispatchCount, 1);
   });
 }
 
@@ -104,5 +211,15 @@ final class _RecordingHttpClient implements HttpClient {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     throw UnsupportedError('unused fake client member');
+  }
+}
+
+final class _SynchronousFailingRequest implements HttpClientRequest {
+  @override
+  Future<HttpClientResponse> close() => throw StateError('synthetic close');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    throw UnsupportedError('unused fake request member');
   }
 }

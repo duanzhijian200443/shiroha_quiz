@@ -28,6 +28,7 @@ import '../llm_providers/zhipu_ocr_client.dart';
 import 'adapters/zip_document_adapter.dart';
 import 'import_attempt_context.dart';
 import 'import_question_final_sorter.dart';
+import 'ocr_document_client.dart';
 import 'ocr_import_service.dart';
 import 'ocr_request_scheduler.dart';
 import 'ocr_typed_candidate.dart';
@@ -64,6 +65,7 @@ class ImportPipelineService {
     required TaskManager taskManager,
     OcrRequestScheduler? ocrRequestScheduler,
     ContentAssetStore? contentAssetStore,
+    OcrDocumentClient? ocrClient,
   }) : this._(
           textParser: (rawText, {required taskId, required isMarkdown}) =>
               aiService.parseTextToQuestions(
@@ -74,7 +76,7 @@ class ImportPipelineService {
           visionParser: (imagePaths) =>
               aiService.parseImagesWithVision(imagePaths, repairLatex: false),
           ocrParser: OcrImportService(
-            ocrClient: const ZhipuOcrClient(),
+            ocrClient: ocrClient ?? const ZhipuOcrClient(),
             engineRepository: engineRepository,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
             taskManager: taskManager,

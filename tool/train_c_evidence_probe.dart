@@ -31,7 +31,11 @@ const _sectionKeys = <String, Set<String>>{
     'approvedHarnessHead',
     'approvedBase',
     'approvedProductionBase',
+    'approvedProductionSeamBlobSha',
     'productionDiffFromBase',
+    'productionDiffCount',
+    'approvedProductionDiffCount',
+    'unexpectedProductionDiffCount',
   },
   'input': <String>{'sha256', 'sizeBytes', 'pageCount'},
   'attempt': <String>{
@@ -146,6 +150,7 @@ final class TrainCReviewedIdentity {
     required this.approvedHarnessHead,
     required this.approvedBase,
     required this.approvedProductionBase,
+    this.approvedProductionSeamBlobSha = '',
   });
 
   static const l1a = TrainCReviewedIdentity(
@@ -183,6 +188,7 @@ final class TrainCReviewedIdentity {
   final String approvedHarnessHead;
   final String approvedBase;
   final String approvedProductionBase;
+  final String approvedProductionSeamBlobSha;
 
   TrainCExpectedCodeIdentity toExpectedCodeIdentity() {
     return TrainCExpectedCodeIdentity.fromReviewed(this);
@@ -197,6 +203,7 @@ final class TrainCExpectedCodeIdentity {
     this.approvedHarnessHead = '',
     this.approvedBase = '',
     this.approvedProductionBase = '',
+    this.approvedProductionSeamBlobSha = '',
   });
 
   final String productionHead;
@@ -205,6 +212,7 @@ final class TrainCExpectedCodeIdentity {
   final String approvedHarnessHead;
   final String approvedBase;
   final String approvedProductionBase;
+  final String approvedProductionSeamBlobSha;
 
   factory TrainCExpectedCodeIdentity.fromReviewed(
     TrainCReviewedIdentity reviewed,
@@ -216,6 +224,7 @@ final class TrainCExpectedCodeIdentity {
       approvedHarnessHead: reviewed.approvedHarnessHead,
       approvedBase: reviewed.approvedBase,
       approvedProductionBase: reviewed.approvedProductionBase,
+      approvedProductionSeamBlobSha: reviewed.approvedProductionSeamBlobSha,
     );
   }
 
@@ -256,7 +265,10 @@ final class TrainCExpectedCodeIdentity {
         _requiredString(code, 'currentHead') != expectedHarness ||
         _requiredString(code, 'approvedHarnessHead') != expectedHarness ||
         _requiredString(code, 'approvedBase') != expectedBase ||
-        _requiredString(code, 'approvedProductionBase') != expectedProduction) {
+        _requiredString(code, 'approvedProductionBase') != expectedProduction ||
+        (approvedProductionSeamBlobSha.isNotEmpty &&
+            _requiredString(code, 'approvedProductionSeamBlobSha') !=
+                approvedProductionSeamBlobSha)) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
       );
@@ -429,7 +441,25 @@ final class TrainCEvidenceProbe {
   void _validateTypes(Map<String, dynamic> evidence) {
     final code = _section(evidence, 'code');
     expectedIdentity.validate(code);
-    if (_requiredInt(code, 'productionDiffFromBase') != 0) {
+    final productionDiffFromBase = _requiredInt(code, 'productionDiffFromBase');
+    final hasTruthfulProductionDiff = code.containsKey('productionDiffCount') &&
+        code.containsKey('approvedProductionDiffCount') &&
+        code.containsKey('unexpectedProductionDiffCount');
+    if (hasTruthfulProductionDiff) {
+      final total = _requiredInt(code, 'productionDiffCount');
+      final approved = _requiredInt(code, 'approvedProductionDiffCount');
+      final unexpected = _requiredInt(code, 'unexpectedProductionDiffCount');
+      if (productionDiffFromBase != total ||
+          total < 0 ||
+          approved < 0 ||
+          unexpected < 0 ||
+          total != approved + unexpected ||
+          unexpected != 0 ||
+          approved <= 0) {
+        throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
+      }
+    } else if (expectedIdentity.approvedProductionSeamBlobSha.isNotEmpty ||
+        productionDiffFromBase != 0) {
       throw const TrainCEvidenceProbeException('TRAIN_C_HEAD_DRIFT');
     }
 

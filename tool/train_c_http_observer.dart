@@ -5,6 +5,8 @@
 // to the production-created client so it cannot replace production transport
 // policy.
 
+import 'train_c_live_attempt_authority.dart';
+
 enum TrainCPhase {
   preflight,
   parse,
@@ -84,7 +86,10 @@ int trainCExpectedLayoutRequestCount({
 /// never reads a request URI, request body, response body or exception detail.
 /// It is a guard around the production entrypoint, not a second OCR transport.
 final class TrainCRequestLedger {
-  TrainCRequestLedger();
+  TrainCRequestLedger({this.attemptAuthority, this.providerDisabled = false});
+
+  final TrainCLiveAttemptAuthority? attemptAuthority;
+  final bool providerDisabled;
 
   TrainCPhase _phase = TrainCPhase.preflight;
   int? _expectedLayoutRequests;
@@ -117,6 +122,8 @@ final class TrainCRequestLedger {
     if (expectedLayoutRequests <= 0) {
       throw const TrainCProtocolException('TRAIN_C_INPUT_INVALID');
     }
+    attemptAuthority?.assertParseAllowed();
+    attemptAuthority?.markParseRunning();
     _expectedLayoutRequests = expectedLayoutRequests;
     _phase = TrainCPhase.parse;
   }
@@ -171,6 +178,11 @@ final class TrainCRequestLedger {
   }
 
   int recordDispatch(TrainCRequestKind kind) {
+    if (providerDisabled) {
+      throw const TrainCProtocolException(
+        'TRAIN_C_PROVIDER_REQUEST_COUNT_FAILURE',
+      );
+    }
     if (_phase != TrainCPhase.parse) {
       _unexpectedProviderRequestCount++;
       throw const TrainCProtocolException(
@@ -190,7 +202,15 @@ final class TrainCRequestLedger {
       );
     }
 
-    _attemptConsumed = true;
+    // Run #1 is consumed durably by the first legitimate provider dispatch.
+    // Later requests that belong to this already-open parse window are still
+    // part of the same Run and remain bounded by this ledger's phase/request
+    // contract. A fresh ledger/process must pass assertParseAllowed() again,
+    // which fails once the durable capability is CONSUMED.
+    if (!_attemptConsumed) {
+      attemptAuthority?.consumeAtDispatch();
+      _attemptConsumed = true;
+    }
     if (kind == TrainCRequestKind.layoutPost) {
       _layoutPostCount++;
     } else {
@@ -241,6 +261,65 @@ final class TrainCRequestLedger {
         _responseStatusCounts,
       ),
     };
+  }
+
+  /// Privacy-safe in-memory handoff used only by the live supervisor. It is
+  /// derived from the real ledger after a successful parse and can be restored
+  /// only when the counts prove the same completed request contract.
+  Map<String, Object?> transportSnapshot() => <String, Object?>{
+        ...safeSummary(),
+        'expectedLayoutRequests': _expectedLayoutRequests,
+      };
+
+  factory TrainCRequestLedger.fromTransportSnapshot(Object? raw) {
+    try {
+      if (raw is! Map) throw const FormatException();
+      final map = Map<String, Object?>.from(raw);
+      final phase = map['phase'];
+      final expected = map['expectedLayoutRequests'];
+      final layout = map['layoutPostCount'];
+      final remote = map['remoteCropRequestCount'];
+      final unexpected = map['unexpectedProviderRequestCount'];
+      final responses = map['providerResponseCount'];
+      final failures = map['networkFailureCount'];
+      final consumed = map['attemptConsumed'];
+      if (phase != TrainCPhase.pendingReview.wireName ||
+          expected is! int ||
+          expected <= 0 ||
+          layout is! int ||
+          layout != expected ||
+          remote is! int ||
+          remote < 0 ||
+          unexpected != 0 ||
+          responses is! int ||
+          responses != layout + remote ||
+          failures != 0 ||
+          consumed != true) {
+        throw const FormatException();
+      }
+      final ledger = TrainCRequestLedger();
+      ledger._phase = TrainCPhase.pendingReview;
+      ledger._expectedLayoutRequests = expected;
+      ledger._layoutPostCount = layout;
+      ledger._remoteCropRequestCount = remote;
+      ledger._unexpectedProviderRequestCount = 0;
+      ledger._providerResponseCount = responses;
+      ledger._networkFailureCount = 0;
+      ledger._attemptConsumed = true;
+      final statusCounts = map['responseStatusCounts'];
+      if (statusCounts is Map) {
+        for (final entry in statusCounts.entries) {
+          if (entry.key is! String || entry.value is! int || entry.value < 0) {
+            throw const FormatException();
+          }
+          ledger._responseStatusCounts[entry.key as String] =
+              entry.value as int;
+        }
+      }
+      return ledger;
+    } catch (_) {
+      throw const TrainCProtocolException('TRAIN_C_HARNESS_NOT_READY');
+    }
   }
 
   _TrainCNetworkEvent _eventAt(int eventIndex) {
