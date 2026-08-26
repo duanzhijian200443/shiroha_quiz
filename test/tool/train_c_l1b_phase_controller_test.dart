@@ -253,6 +253,48 @@ void main() {
     expect(finalFacts, contains(TrainCL1BChildPhase.restart.wireName));
   });
 
+  test('reportPass waits for supervisor ACK before completing', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final requestSeen = Completer<void>();
+    final subscription = server.listen((socket) async {
+      try {
+        await socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .first;
+        requestSeen.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        socket.writeln(jsonEncode(const <String, Object?>{'status': 'PASS'}));
+        await socket.flush();
+      } finally {
+        await socket.close();
+      }
+    });
+    addTearDown(() async {
+      await subscription.cancel();
+      await server.close();
+    });
+
+    final client = TrainCL1BSupervisorClient.fromEnvironment(
+      environment: <String, String>{
+        trainCL1BSupervisorPortEnvironment: server.port.toString(),
+        trainCL1BSupervisorNonceEnvironment: 'test-nonce',
+        trainCL1BChildPhaseEnvironment: TrainCL1BChildPhase.parse.wireName,
+      },
+    );
+    var completed = false;
+    final reportFuture = client
+        .reportPass(const <String, Object?>{'safeCount': 1})
+        .whenComplete(() => completed = true);
+
+    await requestSeen.future.timeout(const Duration(seconds: 2));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(completed, isFalse);
+    await reportFuture;
+    expect(completed, isTrue);
+  });
+
   test('supervisor preserves parse failure code and terminalizer callback',
       () async {
     var terminalizerCalls = 0;
@@ -314,7 +356,6 @@ void main() {
         },
         startChild: (phase, environment) async {
           final exit = Completer<int>();
-          // Child exits with error without sending report
           exit.complete(1);
           return (
             pid: 2001,
@@ -332,9 +373,7 @@ void main() {
       ),
     );
     stopwatch.stop();
-    // Must fail quickly (under 2 seconds), not waiting 20 minutes
     expect(stopwatch.elapsedMilliseconds, lessThan(2000));
-    // Pre-dispatch early exit must preserve authorizedUnused, prepared, revision 0
     expect(capability.snapshot.attemptState,
         TrainCLiveRunAttemptState.authorizedUnused);
     expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
@@ -371,39 +410,27 @@ void main() {
     expect(stopwatch.elapsedMilliseconds, lessThan(2000));
   });
 
-  test('supervisor emits bounded and redacted diagnostics on failure',
-      () async {
+  test('supervisor diagnostics are allowlisted and emitted once', () async {
     final diagnostics = <String>[];
-    const userProfile = r'C:\Users\SecretUser';
-
-    final stderrLines = <String>[
-      for (var i = 0; i < 60; i++) 'Pre-error line $i',
-      r'Compiling C:\Users\SecretUser\AppData\Local\shiroha\app.dart',
-      'Authorization: Bearer secret-auth-token-xyz',
-      'Error: api_key=secret-provider-key-abc failed',
-      for (var i = 0; i < 10; i++) 'Tail error line $i',
-    ];
-
-    final stderrBytes = utf8.encode(stderrLines.join('\n'));
+    final privateChildOutput = utf8.encode(
+      r'Failed reading D:\PrivateStudy\secret.pdf' '\n'
+      'OCR_PRIVATE_TEXT=do-not-print-this\n'
+      'Authorization: Bearer secret-auth-token-xyz\n'
+      'providerBody=do-not-print-provider-body\n'
+      'base64=ZXh0cmVtZWx5LXByaXZhdGU=',
+    );
 
     await expectLater(
       TrainCL1BSupervisor.run(
-        liveEnvironment: const <String, String>{
-          'LIVE_ONLY': '1',
-          'USERPROFILE': userProfile,
-        },
-        continuationEnvironment: const <String, String>{
-          'CONTINUE_ONLY': '1',
-          'USERPROFILE': userProfile,
-        },
+        liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+        continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
         diagnosticSink: diagnostics.add,
         startChild: (phase, environment) async {
-          final exit = Completer<int>();
-          exit.complete(1);
+          final exit = Completer<int>()..complete(1);
           return (
             pid: 2003,
-            stdout: const Stream<List<int>>.empty(),
-            stderr: Stream<List<int>>.value(stderrBytes),
+            stdout: Stream<List<int>>.value(privateChildOutput),
+            stderr: Stream<List<int>>.value(privateChildOutput),
             exitCode: exit.future,
             kill: () => true,
           );
@@ -416,19 +443,58 @@ void main() {
       ),
     );
 
-    expect(diagnostics, isNotEmpty);
-    final allOutput = diagnostics.join('\n');
-    expect(allOutput, contains('[TRAIN_C_SUPERVISOR_DIAGNOSTIC]'));
-    expect(allOutput, contains('[STDERR]'));
-    // Redactions:
-    expect(allOutput, isNot(contains(userProfile)));
-    expect(allOutput, contains('<USERPROFILE>'));
-    expect(allOutput, isNot(contains('secret-auth-token-xyz')));
-    expect(allOutput, isNot(contains('secret-provider-key-abc')));
-    expect(allOutput, contains('<REDACTED>'));
-    // Bounded: earlier lines (e.g. Pre-error line 0) rolled off, <= 50 lines + header
-    expect(allOutput, isNot(contains('Pre-error line 0')));
-    expect(diagnostics.length, lessThanOrEqualTo(55));
+    expect(diagnostics, hasLength(1));
+    final output = diagnostics.single;
+    expect(output, contains('phase=parse'));
+    expect(output, contains('category=CHILD_EARLY_EXIT'));
+    expect(output, contains('reportReceived=false'));
+    expect(output, contains('childExitCode=1'));
+    expect(output, isNot(contains('[STDOUT]')));
+    expect(output, isNot(contains('[STDERR]')));
+    expect(output, isNot(contains('PrivateStudy')));
+    expect(output, isNot(contains('OCR_PRIVATE_TEXT')));
+    expect(output, isNot(contains('secret-auth-token-xyz')));
+    expect(output, isNot(contains('providerBody')));
+    expect(output, isNot(contains('ZXh0cmVtZWx5LXByaXZhdGU=')));
+  });
+
+  test('supervisor preserves one deadline across report and child exit',
+      () async {
+    var reportAcknowledged = false;
+    final stopwatch = Stopwatch()..start();
+    await expectLater(
+      TrainCL1BSupervisor.run(
+        liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+        continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
+        phaseTimeoutOverrideForTesting: const Duration(milliseconds: 1000),
+        startChild: (phase, environment) async {
+          final exit = Completer<int>();
+          unawaited(Future<void>(() async {
+            await Future<void>.delayed(const Duration(milliseconds: 400));
+            final client = TrainCL1BSupervisorClient.fromEnvironment(
+              environment: environment,
+            );
+            await client.reportPass(const <String, Object?>{'safeCount': 1});
+            reportAcknowledged = true;
+          }));
+          return (
+            pid: 2004,
+            stdout: const Stream<List<int>>.empty(),
+            stderr: const Stream<List<int>>.empty(),
+            exitCode: exit.future,
+            kill: () => true,
+          );
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+    stopwatch.stop();
+    expect(reportAcknowledged, isTrue);
+    expect(stopwatch.elapsedMilliseconds, lessThan(1250));
   });
 
   test(
