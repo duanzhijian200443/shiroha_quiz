@@ -6,8 +6,8 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/database_helper.dart';
-import 'package:shiroha_quiz/core/database/sqflite_runtime.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'train_c_b0_runtime.dart';
 import 'train_c_file_storage.dart';
@@ -18,6 +18,11 @@ const _markerContents = 'train-c-isolated-v1\n';
 const _reattachCapabilityName = '.train_c_reattach_v1';
 const _reattachEnvironmentKey = 'TRAIN_C_REATTACH_CAPABILITY';
 const _restartTimeout = Duration(seconds: 30);
+
+void _initializeTrainCDatabaseRuntime() {
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
+}
 
 Map<String, String> buildTrainCRestartChildEnvironment(
   String capability, {
@@ -237,11 +242,7 @@ final class TrainCIsolatedRuntime {
         throw const TrainCIsolationException();
       }
 
-      // Plain Dart uses the repository's standalone FFI composition. Flutter
-      // tests install the same FFI factory in their setUpAll hook.
-      if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-        initializeStandaloneDatabaseRuntime();
-      }
+      _initializeTrainCDatabaseRuntime();
       await databaseFactory.setDatabasesPath(dbDirectory.path);
       DatabaseHelper.configureRuntimeProfile(
         DatabaseRuntimeProfile.explicitFile,
@@ -511,9 +512,7 @@ final class TrainCIsolatedRuntime {
   }) async {
     if (configureRuntimeProfile) {
       try {
-        if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-          initializeStandaloneDatabaseRuntime();
-        }
+        _initializeTrainCDatabaseRuntime();
       } catch (_) {
         throw const TrainCIsolationException(
           'TRAIN_C_REATTACH_DATABASE_INIT_FAILURE',
