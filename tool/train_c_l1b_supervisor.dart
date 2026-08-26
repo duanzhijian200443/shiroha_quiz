@@ -172,9 +172,11 @@ final class TrainCL1BSupervisorClient {
   }
 }
 
+typedef TrainCL1BDiagnosticSink = void Function(String message);
+
 /// Owns one Run #1 in a plain Dart process while every application phase runs
 /// in a separate Flutter OS process. The supervisor keeps source-side facts in
-/// memory only and never prints child stdout/stderr.
+/// memory only and never prints unredacted child stdout/stderr.
 final class TrainCL1BSupervisor {
   const TrainCL1BSupervisor._();
 
@@ -184,6 +186,7 @@ final class TrainCL1BSupervisor {
     TrainCL1BChildStarter? startChild,
     TrainCL1BProcessStarter? processStart,
     TrainCL1BParseFailureHandler? onParseFailure,
+    TrainCL1BDiagnosticSink? diagnosticSink,
   }) async {
     final server = await _TrainCL1BSupervisorServer.bind();
     try {
@@ -205,8 +208,16 @@ final class TrainCL1BSupervisor {
                 environment,
                 processStart: processStart,
               );
-        final stdoutDrain = child.stdout.drain<void>();
-        final stderrDrain = child.stderr.drain<void>();
+        final userProfile =
+            environment['USERPROFILE'] ?? Platform.environment['USERPROFILE'];
+        final stdoutCollector = _TrainCL1BSafeDiagnosticCollector.collect(
+          child.stdout,
+          userProfile: userProfile,
+        );
+        final stderrCollector = _TrainCL1BSafeDiagnosticCollector.collect(
+          child.stderr,
+          userProfile: userProfile,
+        );
         final timeout = switch (phase) {
           TrainCL1BChildPhase.parse => const Duration(minutes: 20),
           TrainCL1BChildPhase.commit => const Duration(minutes: 30),
@@ -214,21 +225,28 @@ final class TrainCL1BSupervisor {
           TrainCL1BChildPhase.finalize => const Duration(minutes: 15),
         };
         try {
-          final values = await Future.wait<Object?>(<Future<Object?>>[
-            reportFuture,
-            child.exitCode,
-            stdoutDrain,
-            stderrDrain,
-          ]).timeout(timeout);
-          final report = values[0];
-          final exitCode = values[1];
-          if (report is! Map<String, Object?> || exitCode is! int) {
-            throw const TrainCL1BSupervisorException(
-              'TRAIN_C_HARNESS_NOT_READY',
-            );
-          }
+          final report = await _waitForReportOrEarlyExit(
+            reportFuture: reportFuture,
+            exitCodeFuture: child.exitCode,
+          ).timeout(timeout);
+
+          final exitCode = await child.exitCode.timeout(timeout);
+          await Future.wait<void>(<Future<void>>[
+            stdoutCollector.done,
+            stderrCollector.done,
+          ]).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => <void>[],
+          );
+
           if (report['status'] != 'PASS') {
             final code = report['failureCode'];
+            _emitDiagnostics(
+              phase: phase,
+              stdoutLines: stdoutCollector.lines,
+              stderrLines: stderrCollector.lines,
+              sink: diagnosticSink,
+            );
             throw TrainCL1BSupervisorException(
               code is String && code.isNotEmpty
                   ? code
@@ -236,12 +254,24 @@ final class TrainCL1BSupervisor {
             );
           }
           if (exitCode != 0) {
+            _emitDiagnostics(
+              phase: phase,
+              stdoutLines: stdoutCollector.lines,
+              stderrLines: stderrCollector.lines,
+              sink: diagnosticSink,
+            );
             throw const TrainCL1BSupervisorException(
               'TRAIN_C_HARNESS_NOT_READY',
             );
           }
           final payload = report['payload'];
           if (payload is! Map) {
+            _emitDiagnostics(
+              phase: phase,
+              stdoutLines: stdoutCollector.lines,
+              stderrLines: stderrCollector.lines,
+              sink: diagnosticSink,
+            );
             throw const TrainCL1BSupervisorException(
               'TRAIN_C_HARNESS_NOT_READY',
             );
@@ -253,17 +283,82 @@ final class TrainCL1BSupervisor {
         } on TimeoutException {
           child.kill();
           _notifyParseFailure(phase, onParseFailure);
+          _emitDiagnostics(
+            phase: phase,
+            stdoutLines: stdoutCollector.lines,
+            stderrLines: stderrCollector.lines,
+            sink: diagnosticSink,
+          );
           throw const TrainCL1BSupervisorException(
             'TRAIN_C_HARNESS_NOT_READY',
           );
         } catch (_) {
+          child.kill();
           _notifyParseFailure(phase, onParseFailure);
+          _emitDiagnostics(
+            phase: phase,
+            stdoutLines: stdoutCollector.lines,
+            stderrLines: stderrCollector.lines,
+            sink: diagnosticSink,
+          );
           rethrow;
+        } finally {
+          await stdoutCollector.dispose();
+          await stderrCollector.dispose();
         }
       }
       return 0;
     } finally {
       await server.close();
+    }
+  }
+
+  static Future<Map<String, Object?>> _waitForReportOrEarlyExit({
+    required Future<Map<String, Object?>> reportFuture,
+    required Future<int> exitCodeFuture,
+  }) {
+    final completer = Completer<Map<String, Object?>>();
+
+    reportFuture.then((report) {
+      if (!completer.isCompleted) {
+        completer.complete(report);
+      }
+    }, onError: (Object error, StackTrace stackTrace) {
+      if (!completer.isCompleted) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+
+    exitCodeFuture.then((code) async {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (!completer.isCompleted) {
+        completer.completeError(
+          const TrainCL1BSupervisorException('TRAIN_C_HARNESS_NOT_READY'),
+        );
+      }
+    }, onError: (Object error, StackTrace stackTrace) {
+      if (!completer.isCompleted) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+
+    return completer.future;
+  }
+
+  static void _emitDiagnostics({
+    required TrainCL1BChildPhase phase,
+    required List<String> stdoutLines,
+    required List<String> stderrLines,
+    TrainCL1BDiagnosticSink? sink,
+  }) {
+    if (stdoutLines.isEmpty && stderrLines.isEmpty) return;
+    final emit = sink ?? (String msg) => stderr.writeln(msg);
+    emit('[TRAIN_C_SUPERVISOR_DIAGNOSTIC] Phase: ${phase.wireName}');
+    for (final line in stderrLines) {
+      emit('[STDERR] $line');
+    }
+    for (final line in stdoutLines) {
+      emit('[STDOUT] $line');
     }
   }
 
@@ -462,5 +557,97 @@ final class _TrainCL1BSupervisorServer {
     } finally {
       await socket.close();
     }
+  }
+}
+
+final class _TrainCL1BSafeDiagnosticCollector {
+  _TrainCL1BSafeDiagnosticCollector._(
+    Stream<List<int>> stream, {
+    this.userProfile,
+    this.maxLines = 50,
+    this.maxBytes = 16 * 1024,
+  }) {
+    _doneCompleter = Completer<void>();
+    _subscription =
+        stream.transform(utf8.decoder).transform(const LineSplitter()).listen(
+      _onLine,
+      onError: (_) {
+        if (!_doneCompleter.isCompleted) _doneCompleter.complete();
+      },
+      onDone: () {
+        if (!_doneCompleter.isCompleted) _doneCompleter.complete();
+      },
+      cancelOnError: false,
+    );
+  }
+
+  static _TrainCL1BSafeDiagnosticCollector collect(
+    Stream<List<int>> stream, {
+    String? userProfile,
+    int maxLines = 50,
+    int maxBytes = 16 * 1024,
+  }) {
+    return _TrainCL1BSafeDiagnosticCollector._(
+      stream,
+      userProfile: userProfile,
+      maxLines: maxLines,
+      maxBytes: maxBytes,
+    );
+  }
+
+  final String? userProfile;
+  final int maxLines;
+  final int maxBytes;
+  late final StreamSubscription<String> _subscription;
+  late final Completer<void> _doneCompleter;
+  final List<String> _lines = <String>[];
+  int _currentBytes = 0;
+
+  Future<void> get done => _doneCompleter.future;
+
+  void _onLine(String rawLine) {
+    final sanitized = sanitize(rawLine, userProfile: userProfile);
+    _lines.add(sanitized);
+    _currentBytes += sanitized.length;
+    while (_lines.length > maxLines || _currentBytes > maxBytes) {
+      if (_lines.isEmpty) break;
+      final removed = _lines.removeAt(0);
+      _currentBytes -= removed.length;
+    }
+  }
+
+  List<String> get lines => List<String>.unmodifiable(_lines);
+
+  Future<void> dispose() async {
+    await _subscription.cancel();
+    if (!_doneCompleter.isCompleted) _doneCompleter.complete();
+  }
+
+  static String sanitize(String input, {String? userProfile}) {
+    var text = input;
+    if (userProfile != null && userProfile.trim().isNotEmpty) {
+      final trimmed = userProfile.trim();
+      text = text.replaceAll(trimmed, '<USERPROFILE>');
+      text = text.replaceAll(
+        trimmed.replaceAll(r'\', '/'),
+        '<USERPROFILE>',
+      );
+    }
+    text = text.replaceAll(
+      RegExp(r'(Bearer\s+)[A-Za-z0-9_\-\.]+', caseSensitive: false),
+      r'$1<REDACTED>',
+    );
+    text = text.replaceAll(
+      RegExp(r'(authorization:\s*)[^\r\n]+', caseSensitive: false),
+      r'$1<REDACTED>',
+    );
+    text = text.replaceAll(
+      RegExp(
+        r'((?:api[_-]?key|secret|token)\s*[:=]\s*)[^\s,;&]+',
+        caseSensitive: false,
+      ),
+      r'$1<REDACTED>',
+    );
+    return text;
   }
 }

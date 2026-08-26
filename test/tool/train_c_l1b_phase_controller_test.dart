@@ -291,6 +291,147 @@ void main() {
   });
 
   test(
+      'supervisor fails immediately with TRAIN_C_HARNESS_NOT_READY on child early exit without timeout',
+      () async {
+    final authority = authorize();
+    final capability = authority.capability;
+    expect(capability.snapshot.attemptState,
+        TrainCLiveRunAttemptState.authorizedUnused);
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
+    expect(capability.snapshot.revision, 0);
+
+    final stopwatch = Stopwatch()..start();
+    await expectLater(
+      TrainCL1BSupervisor.run(
+        liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+        continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
+        onParseFailure: () {
+          final state = capability.snapshot;
+          if (state.attemptState == TrainCLiveRunAttemptState.consumed &&
+              state.phase == TrainCLiveRunPhase.parseRunning) {
+            capability.markFailedConsumed();
+          }
+        },
+        startChild: (phase, environment) async {
+          final exit = Completer<int>();
+          // Child exits with error without sending report
+          exit.complete(1);
+          return (
+            pid: 2001,
+            stdout: const Stream<List<int>>.empty(),
+            stderr: const Stream<List<int>>.empty(),
+            exitCode: exit.future,
+            kill: () => true,
+          );
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+    stopwatch.stop();
+    // Must fail quickly (under 2 seconds), not waiting 20 minutes
+    expect(stopwatch.elapsedMilliseconds, lessThan(2000));
+    // Pre-dispatch early exit must preserve authorizedUnused, prepared, revision 0
+    expect(capability.snapshot.attemptState,
+        TrainCLiveRunAttemptState.authorizedUnused);
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
+    expect(capability.snapshot.revision, 0);
+  });
+
+  test(
+      'child early exit with exitCode 0 without report fails immediately as HARNESS_NOT_READY',
+      () async {
+    final stopwatch = Stopwatch()..start();
+    await expectLater(
+      TrainCL1BSupervisor.run(
+        liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+        continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
+        startChild: (phase, environment) async {
+          final exit = Completer<int>();
+          exit.complete(0);
+          return (
+            pid: 2002,
+            stdout: const Stream<List<int>>.empty(),
+            stderr: const Stream<List<int>>.empty(),
+            exitCode: exit.future,
+            kill: () => true,
+          );
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+    stopwatch.stop();
+    expect(stopwatch.elapsedMilliseconds, lessThan(2000));
+  });
+
+  test('supervisor emits bounded and redacted diagnostics on failure',
+      () async {
+    final diagnostics = <String>[];
+    const userProfile = r'C:\Users\SecretUser';
+
+    final stderrLines = <String>[
+      for (var i = 0; i < 60; i++) 'Pre-error line $i',
+      r'Compiling C:\Users\SecretUser\AppData\Local\shiroha\app.dart',
+      'Authorization: Bearer secret-auth-token-xyz',
+      'Error: api_key=secret-provider-key-abc failed',
+      for (var i = 0; i < 10; i++) 'Tail error line $i',
+    ];
+
+    final stderrBytes = utf8.encode(stderrLines.join('\n'));
+
+    await expectLater(
+      TrainCL1BSupervisor.run(
+        liveEnvironment: const <String, String>{
+          'LIVE_ONLY': '1',
+          'USERPROFILE': userProfile,
+        },
+        continuationEnvironment: const <String, String>{
+          'CONTINUE_ONLY': '1',
+          'USERPROFILE': userProfile,
+        },
+        diagnosticSink: diagnostics.add,
+        startChild: (phase, environment) async {
+          final exit = Completer<int>();
+          exit.complete(1);
+          return (
+            pid: 2003,
+            stdout: const Stream<List<int>>.empty(),
+            stderr: Stream<List<int>>.value(stderrBytes),
+            exitCode: exit.future,
+            kill: () => true,
+          );
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+
+    expect(diagnostics, isNotEmpty);
+    final allOutput = diagnostics.join('\n');
+    expect(allOutput, contains('[TRAIN_C_SUPERVISOR_DIAGNOSTIC]'));
+    expect(allOutput, contains('[STDERR]'));
+    // Redactions:
+    expect(allOutput, isNot(contains(userProfile)));
+    expect(allOutput, contains('<USERPROFILE>'));
+    expect(allOutput, isNot(contains('secret-auth-token-xyz')));
+    expect(allOutput, isNot(contains('secret-provider-key-abc')));
+    expect(allOutput, contains('<REDACTED>'));
+    // Bounded: earlier lines (e.g. Pre-error line 0) rolled off, <= 50 lines + header
+    expect(allOutput, isNot(contains('Pre-error line 0')));
+    expect(diagnostics.length, lessThanOrEqualTo(55));
+  });
+
+  test(
       'supervisor maps startChild exception to TRAIN_C_HARNESS_NOT_READY when wrapped',
       () async {
     await expectLater(
