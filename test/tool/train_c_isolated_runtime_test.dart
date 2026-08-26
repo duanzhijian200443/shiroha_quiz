@@ -208,7 +208,7 @@ void main() {
         start: () async => _completedProcess(exitCode: 7),
         timeout: const Duration(seconds: 1),
         parentPid: pid,
-        expectedCheckpoint: expected,
+        expectedCheckpoint: _durableCheckpoint('a'),
       ),
       _restartFailure(trainCRestartChildFailure),
     );
