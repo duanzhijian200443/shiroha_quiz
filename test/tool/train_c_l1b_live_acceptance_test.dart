@@ -166,7 +166,14 @@ void main() {
     final environment = <String, String>{
       ...baseEnvironment,
       'TRAIN_C_SYNTHETIC_SECRET': 'must-not-cross',
+      'OPENAI_API_KEY': 'must-not-cross',
+      'ZHIPU_API_KEY': 'must-not-cross',
+      'SOME_RANDOM_PARENT_ENV': 'must-not-cross',
       'PATH': r'C:\synthetic\bin',
+      'ProgramFiles': r'C:\Program Files',
+      'ProgramFiles(x86)': r'C:\Program Files (x86)',
+      'ProgramData': r'C:\ProgramData',
+      'SystemDrive': r'C:',
     };
 
     final target = TrainCL1BLiveLaunchGuard.buildLiveTargetEnvironment(
@@ -174,8 +181,18 @@ void main() {
     );
 
     expect(target['TRAIN_C_SYNTHETIC_SECRET'], isNull);
+    expect(target['OPENAI_API_KEY'], isNull);
+    expect(target['ZHIPU_API_KEY'], isNull);
+    expect(target['SOME_RANDOM_PARENT_ENV'], isNull);
     expect(target['TRAIN_C_LIVE_RUN'], '1');
     expect(target['PATH'], r'C:\synthetic\bin');
+    expect(target['ProgramFiles'], r'C:\Program Files');
+    expect(target['ProgramFiles(x86)'], r'C:\Program Files (x86)');
+    expect(target['ProgramData'], r'C:\ProgramData');
+    expect(target['SystemDrive'], r'C:');
+    expect(target[trainCL1BProviderKindEnvironment], 'zhipu');
+    expect(target[trainCL1BProviderModelEnvironment], 'glm-ocr');
+    expect(target[trainCLiveAttemptCapabilityEnvironment], isNotNull);
   });
 
   test(
