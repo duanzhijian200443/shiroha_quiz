@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_live_entrypoint.dart';
 import '../../tool/train_c_l1b_review_authorization.dart';
+import '../../tool/train_c_l1b_supervisor.dart';
 import '../../tool/train_c_live_attempt_authority.dart';
 import '../../tool/train_c_review_authorization.dart';
 
@@ -222,6 +223,88 @@ void main() {
     expect(target[trainCL1BPrivateInputPathEnvironment], isNull);
     expect(target[trainCL1BCredentialReadyEnvironment], isNull);
     expect(target[trainCL1BContinuationEnvironment], '1');
+  });
+
+  test('resolveFlutterExecutable uses deterministic platform and SDK branches',
+      () {
+    const customRootEnv = <String, String>{
+      'FLUTTER_ROOT': r'C:\custom\flutter_sdk',
+    };
+
+    final windowsSdk = TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+      environment: customRootEnv,
+      isWindows: true,
+      fileExists: (path) => path.endsWith('flutter.bat'),
+    );
+    expect(windowsSdk, contains('custom'));
+    expect(windowsSdk.endsWith('flutter.bat'), isTrue);
+
+    final nonWindowsSdk =
+        TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+      environment: customRootEnv,
+      isWindows: false,
+      fileExists: (path) => path.endsWith('flutter'),
+    );
+    expect(nonWindowsSdk, contains('custom'));
+    expect(nonWindowsSdk.endsWith('flutter'), isTrue);
+
+    expect(
+      TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+        environment: customRootEnv,
+        isWindows: true,
+        fileExists: (_) => false,
+      ),
+      'flutter.bat',
+    );
+    expect(
+      TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+        environment: customRootEnv,
+        isWindows: false,
+        fileExists: (_) => false,
+      ),
+      'flutter',
+    );
+  });
+
+  test('raw Process.start failure maps safely before dispatch', () async {
+    final capability = TrainCLiveAttemptAuthority.fromCapability(
+      baseEnvironment[trainCLiveAttemptCapabilityEnvironment]!,
+    );
+    expect(
+      capability.snapshot.attemptState,
+      TrainCLiveRunAttemptState.authorizedUnused,
+    );
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
+
+    expect(
+      () => TrainCL1BSupervisor.run(
+        liveEnvironment: baseEnvironment,
+        continuationEnvironment: baseEnvironment,
+        processStart: (executable, arguments,
+            {workingDirectory,
+            environment,
+            required includeParentEnvironment,
+            required runInShell}) async {
+          expect(executable, isNotEmpty);
+          expect(arguments, contains('run'));
+          expect(includeParentEnvironment, isFalse);
+          expect(runInShell, isFalse);
+          throw const ProcessException(
+              'flutter', <String>[], 'file not found', 2);
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+
+    expect(
+      capability.snapshot.attemptState,
+      TrainCLiveRunAttemptState.authorizedUnused,
+    );
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
   });
 }
 

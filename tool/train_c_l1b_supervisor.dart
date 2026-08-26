@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:path/path.dart' as p;
 
 const trainCL1BSupervisorPortEnvironment = 'TRAIN_C_L1B_SUPERVISOR_PORT';
 const trainCL1BSupervisorNonceEnvironment = 'TRAIN_C_L1B_SUPERVISOR_NONCE';
@@ -46,6 +47,15 @@ typedef TrainCL1BChildStarter = Future<TrainCL1BStartedChild> Function(
   TrainCL1BChildPhase phase,
   Map<String, String> environment,
 );
+
+typedef TrainCL1BProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+  required bool includeParentEnvironment,
+  required bool runInShell,
+});
 
 typedef TrainCL1BParseFailureHandler = void Function();
 
@@ -172,6 +182,7 @@ final class TrainCL1BSupervisor {
     required Map<String, String> liveEnvironment,
     required Map<String, String> continuationEnvironment,
     TrainCL1BChildStarter? startChild,
+    TrainCL1BProcessStarter? processStart,
     TrainCL1BParseFailureHandler? onParseFailure,
   }) async {
     final server = await _TrainCL1BSupervisorServer.bind();
@@ -187,8 +198,13 @@ final class TrainCL1BSupervisor {
           trainCL1BChildPhaseEnvironment: phase.wireName,
         };
         final reportFuture = server.expect(phase);
-        final child =
-            await (startChild ?? _startFlutterChild)(phase, environment);
+        final child = startChild != null
+            ? await startChild(phase, environment)
+            : await _startFlutterChild(
+                phase,
+                environment,
+                processStart: processStart,
+              );
         final stdoutDrain = child.stdout.drain<void>();
         final stderrDrain = child.stderr.drain<void>();
         final timeout = switch (phase) {
@@ -264,30 +280,80 @@ final class TrainCL1BSupervisor {
     }
   }
 
+  static String resolveFlutterExecutable([Map<String, String>? environment]) {
+    return resolveFlutterExecutableForPlatform(environment: environment);
+  }
+
+  static String resolveFlutterExecutableForPlatform({
+    Map<String, String>? environment,
+    bool? isWindows,
+    bool Function(String path)? fileExists,
+  }) {
+    final env = environment ?? Platform.environment;
+    final windows = isWindows ?? Platform.isWindows;
+    bool exists(String path) =>
+        fileExists?.call(path) ?? File(path).existsSync();
+    final flutterRoot = env['FLUTTER_ROOT']?.trim();
+    final executableName = windows ? 'flutter.bat' : 'flutter';
+    if (flutterRoot != null && flutterRoot.isNotEmpty) {
+      final candidate = p.join(
+        flutterRoot,
+        'bin',
+        executableName,
+      );
+      if (exists(candidate)) return candidate;
+    }
+    return executableName;
+  }
+
   static Future<TrainCL1BStartedChild> _startFlutterChild(
     TrainCL1BChildPhase phase,
-    Map<String, String> environment,
-  ) async {
-    final process = await Process.start(
-      'flutter',
-      const <String>[
-        'run',
-        '-d',
-        'windows',
-        '-t',
-        'tool/train_c_l1b_live_runtime.dart',
-      ],
-      workingDirectory: Directory.current.path,
+    Map<String, String> environment, {
+    TrainCL1BProcessStarter? processStart,
+  }) async {
+    try {
+      final executable = resolveFlutterExecutable(environment);
+      final process = await (processStart ?? _startProcess)(
+        executable,
+        const <String>[
+          'run',
+          '-d',
+          'windows',
+          '-t',
+          'tool/train_c_l1b_live_runtime.dart',
+        ],
+        workingDirectory: Directory.current.path,
+        environment: environment,
+        includeParentEnvironment: false,
+        runInShell: false,
+      );
+      return (
+        pid: process.pid,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitCode: process.exitCode,
+        kill: process.kill,
+      );
+    } catch (_) {
+      throw const TrainCL1BSupervisorException('TRAIN_C_HARNESS_NOT_READY');
+    }
+  }
+
+  static Future<Process> _startProcess(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    required bool includeParentEnvironment,
+    required bool runInShell,
+  }) {
+    return Process.start(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
       environment: environment,
-      includeParentEnvironment: false,
-      runInShell: false,
-    );
-    return (
-      pid: process.pid,
-      stdout: process.stdout,
-      stderr: process.stderr,
-      exitCode: process.exitCode,
-      kill: process.kill,
+      includeParentEnvironment: includeParentEnvironment,
+      runInShell: runInShell,
     );
   }
 }

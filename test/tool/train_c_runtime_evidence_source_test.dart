@@ -960,14 +960,17 @@ void main() {
 }
 
 TrainCReviewedIdentity _reviewedForCurrentHead() {
-  final result = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+  final headResult = Process.runSync('git', <String>['rev-parse', 'HEAD']);
+  final baseResult =
+      Process.runSync('git', <String>['rev-parse', 'origin/master']);
+  final head = (headResult.stdout as String).trim();
+  final base = (baseResult.stdout as String).trim();
   return TrainCReviewedIdentity(
-    approvedHarnessHead: (result.stdout as String).trim(),
-    approvedBase: '2f0aee1a7b81cd7a694b4de10702c6e798b9dd04',
+    approvedHarnessHead: head,
+    approvedBase:
+        base.isNotEmpty ? base : '03e8fc6d0d65ef906e4cd306d37c166a0e55cd35',
     approvedProductionBase: '711fd33f564b9fb6bb3c992d6458b0075990646c',
     approvedProductionSeamBlobSha:
-        TrainCL1BProductionDiffAuthority.readProductionSeamBlobSha(
-      (result.stdout as String).trim(),
-    ),
+        TrainCL1BProductionDiffAuthority.readProductionSeamBlobSha(head),
   );
 }

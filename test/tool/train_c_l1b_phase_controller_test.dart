@@ -290,6 +290,25 @@ void main() {
     expect(terminalizerCalls, 1);
   });
 
+  test(
+      'supervisor maps startChild exception to TRAIN_C_HARNESS_NOT_READY when wrapped',
+      () async {
+    await expectLater(
+      TrainCL1BSupervisor.run(
+        liveEnvironment: const <String, String>{'LIVE_ONLY': '1'},
+        continuationEnvironment: const <String, String>{'CONTINUE_ONLY': '1'},
+        startChild: (phase, environment) async {
+          throw const TrainCL1BSupervisorException('TRAIN_C_HARNESS_NOT_READY');
+        },
+      ),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+  });
+
   test('completed request ledger survives supervisor handoff without replay',
       () {
     final ledger = TrainCRequestLedger();
