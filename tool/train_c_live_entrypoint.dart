@@ -295,7 +295,7 @@ void main(List<String> args) {
       } else if (error is TrainCL1BSupervisorException) {
         stderr.writeln(error.code);
       } else {
-        stderr.writeln('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED');
+        stderr.writeln('TRAIN_C_HARNESS_NOT_READY');
       }
       exitCode = 1;
     });

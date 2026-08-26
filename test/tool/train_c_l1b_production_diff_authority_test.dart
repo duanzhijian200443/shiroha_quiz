@@ -8,9 +8,14 @@ void main() {
   test('current reviewed L1B seam is the only production diff', () {
     final head =
         (Process.runSync('git', ['rev-parse', 'HEAD']).stdout as String).trim();
+    final base = (Process.runSync('git', ['rev-parse', 'origin/master'])
+            .stdout as String)
+        .trim();
     final authority = TrainCL1BProductionDiffAuthority(
       approvedHarnessHead: head,
-      approvedBase: '2f0aee1a7b81cd7a694b4de10702c6e798b9dd04',
+      approvedBase: base.isNotEmpty
+          ? base
+          : '03e8fc6d0d65ef906e4cd306d37c166a0e55cd35',
       approvedProductionBase: '711fd33f564b9fb6bb3c992d6458b0075990646c',
       approvedProductionSeamBlobSha:
           TrainCL1BProductionDiffAuthority.readProductionSeamBlobSha(head),

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_live_entrypoint.dart';
 import '../../tool/train_c_l1b_review_authorization.dart';
+import '../../tool/train_c_l1b_supervisor.dart';
 import '../../tool/train_c_live_attempt_authority.dart';
 import '../../tool/train_c_review_authorization.dart';
 
@@ -222,6 +223,55 @@ void main() {
     expect(target[trainCL1BPrivateInputPathEnvironment], isNull);
     expect(target[trainCL1BCredentialReadyEnvironment], isNull);
     expect(target[trainCL1BContinuationEnvironment], '1');
+  });
+
+  test('resolveFlutterExecutable returns platform-appropriate executable', () {
+    final defaultExec = TrainCL1BSupervisor.resolveFlutterExecutable();
+    if (Platform.isWindows) {
+      expect(defaultExec.endsWith('flutter.bat'), isTrue);
+    } else {
+      expect(defaultExec.endsWith('flutter'), isTrue);
+    }
+
+    final customRootEnv = <String, String>{
+      'FLUTTER_ROOT': r'C:\custom\flutter_sdk',
+    };
+    final resolvedWithCustom =
+        TrainCL1BSupervisor.resolveFlutterExecutable(customRootEnv);
+    if (Platform.isWindows) {
+      expect(resolvedWithCustom.endsWith('flutter.bat'), isTrue);
+    } else {
+      expect(resolvedWithCustom.endsWith('flutter'), isTrue);
+    }
+  });
+
+  test('pre-dispatch launcher failure does not consume attempt capability',
+      () async {
+    final capability = TrainCLiveAttemptAuthority.fromCapability(
+      baseEnvironment[trainCLiveAttemptCapabilityEnvironment]!,
+    );
+    expect(
+      capability.snapshot.attemptState,
+      TrainCLiveRunAttemptState.authorizedUnused,
+    );
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
+
+    expect(
+      () => TrainCL1BSupervisor.run(
+        liveEnvironment: baseEnvironment,
+        continuationEnvironment: baseEnvironment,
+        startChild: (phase, environment) async {
+          throw const ProcessException('flutter', <String>[], 'file not found', 2);
+        },
+      ),
+      throwsA(isA<ProcessException>()),
+    );
+
+    expect(
+      capability.snapshot.attemptState,
+      TrainCLiveRunAttemptState.authorizedUnused,
+    );
+    expect(capability.snapshot.phase, TrainCLiveRunPhase.prepared);
   });
 }
 

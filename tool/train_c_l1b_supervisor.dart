@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:path/path.dart' as p;
 
 const trainCL1BSupervisorPortEnvironment = 'TRAIN_C_L1B_SUPERVISOR_PORT';
 const trainCL1BSupervisorNonceEnvironment = 'TRAIN_C_L1B_SUPERVISOR_NONCE';
@@ -264,31 +265,50 @@ final class TrainCL1BSupervisor {
     }
   }
 
+  static String resolveFlutterExecutable([Map<String, String>? environment]) {
+    final env = environment ?? Platform.environment;
+    final flutterRoot = env['FLUTTER_ROOT']?.trim();
+    if (flutterRoot != null && flutterRoot.isNotEmpty) {
+      final candidate = p.join(
+        flutterRoot,
+        'bin',
+        Platform.isWindows ? 'flutter.bat' : 'flutter',
+      );
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return Platform.isWindows ? 'flutter.bat' : 'flutter';
+  }
+
   static Future<TrainCL1BStartedChild> _startFlutterChild(
     TrainCL1BChildPhase phase,
     Map<String, String> environment,
   ) async {
-    final process = await Process.start(
-      'flutter',
-      const <String>[
-        'run',
-        '-d',
-        'windows',
-        '-t',
-        'tool/train_c_l1b_live_runtime.dart',
-      ],
-      workingDirectory: Directory.current.path,
-      environment: environment,
-      includeParentEnvironment: false,
-      runInShell: false,
-    );
-    return (
-      pid: process.pid,
-      stdout: process.stdout,
-      stderr: process.stderr,
-      exitCode: process.exitCode,
-      kill: process.kill,
-    );
+    try {
+      final executable = resolveFlutterExecutable(environment);
+      final process = await Process.start(
+        executable,
+        const <String>[
+          'run',
+          '-d',
+          'windows',
+          '-t',
+          'tool/train_c_l1b_live_runtime.dart',
+        ],
+        workingDirectory: Directory.current.path,
+        environment: environment,
+        includeParentEnvironment: false,
+        runInShell: false,
+      );
+      return (
+        pid: process.pid,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitCode: process.exitCode,
+        kill: process.kill,
+      );
+    } catch (_) {
+      throw const TrainCL1BSupervisorException('TRAIN_C_HARNESS_NOT_READY');
+    }
   }
 }
 
