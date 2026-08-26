@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import '../../tool/train_c_evidence_probe.dart';
 import '../../tool/train_c_http_observer.dart';
 import '../../tool/train_c_isolated_runtime.dart';
+import '../../tool/train_c_l1b_live_runtime.dart';
 import '../../tool/train_c_l1b_phase_controller.dart';
 import '../../tool/train_c_l1b_supervisor.dart';
 import '../../tool/train_c_l1b_transport.dart';
@@ -33,9 +35,14 @@ void main() {
     return directory;
   }
 
-  ({String token, TrainCLiveRunCapability capability}) authorize() {
+  ({
+    String token,
+    TrainCLiveRunCapability capability,
+    Directory directory,
+  }) authorize() {
+    final directory = createState();
     final token = TrainCLiveRunCapability.authorize(
-      stateDirectory: createState(),
+      stateDirectory: directory,
       approvedHarnessHead: head,
       approvedBase: base,
     );
@@ -44,7 +51,7 @@ void main() {
       reviewedHarnessHead: head,
       reviewedBase: base,
     );
-    return (token: token, capability: capability);
+    return (token: token, capability: capability, directory: directory);
   }
 
   void bindAndConfigure(TrainCLiveRunCapability capability) {
@@ -301,6 +308,58 @@ void main() {
     expect(restored.remoteCropRequestCount, 1);
     expect(restored.providerDispatchCount, 2);
     expect(restored.providerResponseCount, 2);
+  });
+
+  test('final PASS evidence publishes only after durable finalization', () {
+    final authority = authorize();
+    final evidenceFile = File(
+      '${authority.directory.path}${Platform.pathSeparator}'
+      'train_c_run_1_evidence.json',
+    );
+    final digestFile = File('${evidenceFile.path}.sha256');
+    var finalized = false;
+
+    publishTrainCSafeEvidenceAfterFinalization(
+      attemptCapability: authority.token,
+      evidence: const <String, dynamic>{'result': 'PASS'},
+      finalizeDurably: () {
+        expect(evidenceFile.existsSync(), isFalse);
+        expect(digestFile.existsSync(), isFalse);
+        finalized = true;
+      },
+    );
+
+    expect(finalized, isTrue);
+    expect(evidenceFile.existsSync(), isTrue);
+    expect(digestFile.existsSync(), isTrue);
+    final decoded = jsonDecode(evidenceFile.readAsStringSync());
+    expect(decoded, isA<Map<String, dynamic>>());
+    expect((decoded as Map<String, dynamic>)['result'], 'PASS');
+  });
+
+  test('failed durable finalization leaves no published PASS evidence', () {
+    final authority = authorize();
+    final evidenceFile = File(
+      '${authority.directory.path}${Platform.pathSeparator}'
+      'train_c_run_1_evidence.json',
+    );
+    final digestFile = File('${evidenceFile.path}.sha256');
+
+    expect(
+      () => publishTrainCSafeEvidenceAfterFinalization(
+        attemptCapability: authority.token,
+        evidence: const <String, dynamic>{'result': 'PASS'},
+        finalizeDurably: () => throw const TrainCEvidenceProbeException(
+          'TRAIN_C_STALE_STATE',
+        ),
+      ),
+      _code('TRAIN_C_STALE_STATE'),
+    );
+
+    expect(evidenceFile.existsSync(), isFalse);
+    expect(digestFile.existsSync(), isFalse);
+    expect(File('${evidenceFile.path}.pending').existsSync(), isFalse);
+    expect(File('${digestFile.path}.pending').existsSync(), isFalse);
   });
 
   test('same-parse source facts survive memory transport with raw hash intact',

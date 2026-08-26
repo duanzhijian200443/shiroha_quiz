@@ -936,8 +936,11 @@ Future<TrainCL1BPhaseController> _runFinalizeChild(
       result.evidence['result'] != 'PASS') {
     throw const TrainCL1BLiveRuntimeException('TRAIN_C_FIRST_LOSS_UNKNOWN');
   }
-  _writeSafeEvidence(capabilityValue, result.evidence);
-  controller.markFinalized();
+  publishTrainCSafeEvidenceAfterFinalization(
+    attemptCapability: capabilityValue,
+    evidence: result.evidence,
+    finalizeDurably: controller.markFinalized,
+  );
   await client.reportPass(const <String, Object?>{
     'result': 'PASS',
     'acceptanceAuthorized': true,
@@ -1231,10 +1234,33 @@ Future<void> _retirePersistentRuntimeCapability(
   }
 }
 
-void _writeSafeEvidence(
+/// Stages final TRAIN C evidence privately, advances the durable terminal
+/// phase, and only then publishes the user-visible JSON + digest pair.
+///
+/// If durable finalization fails, no final PASS evidence path is created. If
+/// publication fails after finalization, any partial final pair is removed so
+/// consumers can never observe a complete PASS artifact before `FINALIZED`.
+void publishTrainCSafeEvidenceAfterFinalization({
+  required String attemptCapability,
+  required Map<String, dynamic> evidence,
+  required void Function() finalizeDurably,
+}) {
+  final publication = _stageSafeEvidence(attemptCapability, evidence);
+  try {
+    finalizeDurably();
+  } catch (_) {
+    publication.discard();
+    rethrow;
+  }
+  publication.publish();
+}
+
+_TrainCSafeEvidencePublication _stageSafeEvidence(
   String attemptCapability,
   Map<String, dynamic> evidence,
 ) {
+  File? stagedEvidence;
+  File? stagedDigest;
   try {
     final decoded = jsonDecode(
       utf8.decode(base64Url.decode(base64Url.normalize(attemptCapability))),
@@ -1253,20 +1279,78 @@ void _writeSafeEvidence(
     final digestFile = File(
       p.join(directory.path, 'train_c_run_1_evidence.json.sha256'),
     );
-    if (evidenceFile.existsSync() || digestFile.existsSync()) {
+    stagedEvidence = File('${evidenceFile.path}.pending');
+    stagedDigest = File('${digestFile.path}.pending');
+    if (evidenceFile.existsSync() ||
+        digestFile.existsSync() ||
+        stagedEvidence.existsSync() ||
+        stagedDigest.existsSync()) {
       throw const FormatException();
     }
-    final temporary = File('${evidenceFile.path}.tmp');
-    temporary.createSync(exclusive: true);
-    temporary.writeAsStringSync(encoded, flush: true);
-    temporary.renameSync(evidenceFile.path);
-    digestFile.writeAsStringSync(
+
+    stagedEvidence.createSync(exclusive: true);
+    stagedEvidence.writeAsStringSync(encoded, flush: true);
+    stagedDigest.createSync(exclusive: true);
+    stagedDigest.writeAsStringSync(
       '${sha256Hex(utf8.encode(encoded))}\n',
       flush: true,
     );
+    return _TrainCSafeEvidencePublication(
+      evidenceFile: evidenceFile,
+      digestFile: digestFile,
+      stagedEvidence: stagedEvidence,
+      stagedDigest: stagedDigest,
+    );
   } catch (_) {
+    _deleteFileBestEffort(stagedEvidence);
+    _deleteFileBestEffort(stagedDigest);
     throw const TrainCL1BLiveRuntimeException('TRAIN_C_PRIVACY_FAILURE');
   }
+}
+
+final class _TrainCSafeEvidencePublication {
+  const _TrainCSafeEvidencePublication({
+    required this.evidenceFile,
+    required this.digestFile,
+    required this.stagedEvidence,
+    required this.stagedDigest,
+  });
+
+  final File evidenceFile;
+  final File digestFile;
+  final File stagedEvidence;
+  final File stagedDigest;
+
+  void publish() {
+    try {
+      if (evidenceFile.existsSync() ||
+          digestFile.existsSync() ||
+          !stagedEvidence.existsSync() ||
+          !stagedDigest.existsSync()) {
+        throw const FormatException();
+      }
+      stagedEvidence.renameSync(evidenceFile.path);
+      stagedDigest.renameSync(digestFile.path);
+    } catch (_) {
+      _deleteFileBestEffort(evidenceFile);
+      _deleteFileBestEffort(digestFile);
+      _deleteFileBestEffort(stagedEvidence);
+      _deleteFileBestEffort(stagedDigest);
+      throw const TrainCL1BLiveRuntimeException('TRAIN_C_PRIVACY_FAILURE');
+    }
+  }
+
+  void discard() {
+    _deleteFileBestEffort(stagedEvidence);
+    _deleteFileBestEffort(stagedDigest);
+  }
+}
+
+void _deleteFileBestEffort(File? file) {
+  if (file == null) return;
+  try {
+    if (file.existsSync()) file.deleteSync();
+  } catch (_) {}
 }
 
 void _markConsumedFailure(TrainCL1BPhaseController? controller) {
