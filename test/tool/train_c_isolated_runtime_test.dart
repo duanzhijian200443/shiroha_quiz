@@ -9,7 +9,6 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../tool/train_c_isolated_runtime.dart';
 import '../../tool/train_c_restart_proof.dart';
@@ -31,9 +30,6 @@ QuestionDraftV2 _draft({int? number}) {
 }
 
 void main() {
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
-
   late TrainCIsolatedRuntime runtime;
 
   setUp(() async {
@@ -212,7 +208,7 @@ void main() {
         start: () async => _completedProcess(exitCode: 7),
         timeout: const Duration(seconds: 1),
         parentPid: pid,
-        expectedCheckpoint: _durableCheckpoint('a'),
+        expectedCheckpoint: expected,
       ),
       _restartFailure(trainCRestartChildFailure),
     );
