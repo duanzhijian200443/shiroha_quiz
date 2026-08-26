@@ -225,28 +225,48 @@ void main() {
     expect(target[trainCL1BContinuationEnvironment], '1');
   });
 
-  test('resolveFlutterExecutable returns platform-appropriate executable', () {
-    final defaultExec = TrainCL1BSupervisor.resolveFlutterExecutable();
-    if (Platform.isWindows) {
-      expect(defaultExec.endsWith('flutter.bat'), isTrue);
-    } else {
-      expect(defaultExec.endsWith('flutter'), isTrue);
-    }
-
-    final customRootEnv = <String, String>{
+  test('resolveFlutterExecutable uses deterministic platform and SDK branches',
+      () {
+    const customRootEnv = <String, String>{
       'FLUTTER_ROOT': r'C:\custom\flutter_sdk',
     };
-    final resolvedWithCustom =
-        TrainCL1BSupervisor.resolveFlutterExecutable(customRootEnv);
-    if (Platform.isWindows) {
-      expect(resolvedWithCustom.endsWith('flutter.bat'), isTrue);
-    } else {
-      expect(resolvedWithCustom.endsWith('flutter'), isTrue);
-    }
+
+    final windowsSdk = TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+      environment: customRootEnv,
+      isWindows: true,
+      fileExists: (path) => path.endsWith('flutter.bat'),
+    );
+    expect(windowsSdk, contains('custom'));
+    expect(windowsSdk.endsWith('flutter.bat'), isTrue);
+
+    final nonWindowsSdk =
+        TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+      environment: customRootEnv,
+      isWindows: false,
+      fileExists: (path) => path.endsWith('flutter'),
+    );
+    expect(nonWindowsSdk, contains('custom'));
+    expect(nonWindowsSdk.endsWith('flutter'), isTrue);
+
+    expect(
+      TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+        environment: customRootEnv,
+        isWindows: true,
+        fileExists: (_) => false,
+      ),
+      'flutter.bat',
+    );
+    expect(
+      TrainCL1BSupervisor.resolveFlutterExecutableForPlatform(
+        environment: customRootEnv,
+        isWindows: false,
+        fileExists: (_) => false,
+      ),
+      'flutter',
+    );
   });
 
-  test('pre-dispatch launcher failure does not consume attempt capability',
-      () async {
+  test('raw Process.start failure maps safely before dispatch', () async {
     final capability = TrainCLiveAttemptAuthority.fromCapability(
       baseEnvironment[trainCLiveAttemptCapabilityEnvironment]!,
     );
@@ -260,11 +280,24 @@ void main() {
       () => TrainCL1BSupervisor.run(
         liveEnvironment: baseEnvironment,
         continuationEnvironment: baseEnvironment,
-        startChild: (phase, environment) async {
-          throw const ProcessException('flutter', <String>[], 'file not found', 2);
+        processStart: (executable, arguments,
+            {workingDirectory,
+            environment,
+            required includeParentEnvironment,
+            required runInShell}) async {
+          expect(executable, isNotEmpty);
+          expect(arguments, contains('run'));
+          expect(includeParentEnvironment, isFalse);
+          expect(runInShell, isFalse);
+          throw const ProcessException(
+              'flutter', <String>[], 'file not found', 2);
         },
       ),
-      throwsA(isA<ProcessException>()),
+      throwsA(
+        predicate<TrainCL1BSupervisorException>(
+          (error) => error.code == 'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
     );
 
     expect(

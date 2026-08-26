@@ -290,7 +290,8 @@ void main() {
     expect(terminalizerCalls, 1);
   });
 
-  test('supervisor maps startChild exception to TRAIN_C_HARNESS_NOT_READY when wrapped',
+  test(
+      'supervisor maps startChild exception to TRAIN_C_HARNESS_NOT_READY when wrapped',
       () async {
     await expectLater(
       TrainCL1BSupervisor.run(

@@ -967,9 +967,8 @@ TrainCReviewedIdentity _reviewedForCurrentHead() {
   final base = (baseResult.stdout as String).trim();
   return TrainCReviewedIdentity(
     approvedHarnessHead: head,
-    approvedBase: base.isNotEmpty
-        ? base
-        : '03e8fc6d0d65ef906e4cd306d37c166a0e55cd35',
+    approvedBase:
+        base.isNotEmpty ? base : '03e8fc6d0d65ef906e4cd306d37c166a0e55cd35',
     approvedProductionBase: '711fd33f564b9fb6bb3c992d6458b0075990646c',
     approvedProductionSeamBlobSha:
         TrainCL1BProductionDiffAuthority.readProductionSeamBlobSha(head),
