@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/core/database/sqflite_runtime.dart' as runtime;
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -32,6 +33,24 @@ void main() {
         await tempDir.delete(recursive: true);
       }
     }
+  });
+
+  test('Flutter desktop standalone bootstrap installs a usable FFI runtime',
+      () async {
+    if (!Platform.isWindows && !Platform.isLinux) return;
+
+    runtime.initializeStandaloneDatabaseRuntime();
+    final path = p.join(tempDir.path, 'flutter_desktop_bootstrap.db');
+    final database = await runtime.databaseFactory.openDatabase(path);
+    try {
+      await database.execute(
+        'CREATE TABLE bootstrap_probe (id INTEGER PRIMARY KEY)',
+      );
+      expect(await database.getVersion(), 0);
+    } finally {
+      await database.close();
+    }
+    expect(File(path).existsSync(), isTrue);
   });
 
   test('isolated smoke profile is selected before repository database access',
