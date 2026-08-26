@@ -164,6 +164,17 @@ final class TrainCL1BSupervisorClient {
       );
       socket.writeln(encoded);
       await socket.flush();
+      final line = await socket
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .first
+          .timeout(const Duration(seconds: 5));
+      if (line.length > 1024) throw const FormatException();
+      final decoded = jsonDecode(line);
+      if (decoded is! Map || decoded['status'] != 'PASS') {
+        throw const FormatException();
+      }
     } catch (_) {
       throw const TrainCL1BSupervisorException('TRAIN_C_HARNESS_NOT_READY');
     } finally {
@@ -172,9 +183,11 @@ final class TrainCL1BSupervisorClient {
   }
 }
 
+typedef TrainCL1BDiagnosticSink = void Function(String message);
+
 /// Owns one Run #1 in a plain Dart process while every application phase runs
 /// in a separate Flutter OS process. The supervisor keeps source-side facts in
-/// memory only and never prints child stdout/stderr.
+/// memory only and emits only allowlisted supervisor-owned diagnostics.
 final class TrainCL1BSupervisor {
   const TrainCL1BSupervisor._();
 
@@ -184,6 +197,8 @@ final class TrainCL1BSupervisor {
     TrainCL1BChildStarter? startChild,
     TrainCL1BProcessStarter? processStart,
     TrainCL1BParseFailureHandler? onParseFailure,
+    TrainCL1BDiagnosticSink? diagnosticSink,
+    Duration? phaseTimeoutOverrideForTesting,
   }) async {
     final server = await _TrainCL1BSupervisorServer.bind();
     try {
@@ -207,27 +222,42 @@ final class TrainCL1BSupervisor {
               );
         final stdoutDrain = child.stdout.drain<void>();
         final stderrDrain = child.stderr.drain<void>();
-        final timeout = switch (phase) {
-          TrainCL1BChildPhase.parse => const Duration(minutes: 20),
-          TrainCL1BChildPhase.commit => const Duration(minutes: 30),
-          TrainCL1BChildPhase.restart => const Duration(minutes: 10),
-          TrainCL1BChildPhase.finalize => const Duration(minutes: 15),
-        };
+        final timeout = phaseTimeoutOverrideForTesting ??
+            switch (phase) {
+              TrainCL1BChildPhase.parse => const Duration(minutes: 20),
+              TrainCL1BChildPhase.commit => const Duration(minutes: 30),
+              TrainCL1BChildPhase.restart => const Duration(minutes: 10),
+              TrainCL1BChildPhase.finalize => const Duration(minutes: 15),
+            };
+        final deadline = DateTime.now().add(timeout);
+        var diagnosticCategory = 'SUPERVISOR_FAILURE';
+        var reportReceived = false;
+        int? observedExitCode;
         try {
-          final values = await Future.wait<Object?>(<Future<Object?>>[
-            reportFuture,
-            child.exitCode,
-            stdoutDrain,
-            stderrDrain,
-          ]).timeout(timeout);
-          final report = values[0];
-          final exitCode = values[1];
-          if (report is! Map<String, Object?> || exitCode is! int) {
+          final race = await _waitForReportOrEarlyExit(
+            reportFuture: reportFuture,
+            exitCodeFuture: child.exitCode,
+          ).timeout(_remainingUntil(deadline));
+          final report = race.report;
+          if (report == null) {
+            diagnosticCategory = 'CHILD_EARLY_EXIT';
+            observedExitCode = race.earlyExitCode;
             throw const TrainCL1BSupervisorException(
               'TRAIN_C_HARNESS_NOT_READY',
             );
           }
+          reportReceived = true;
+
+          final exitCode =
+              await child.exitCode.timeout(_remainingUntil(deadline));
+          observedExitCode = exitCode;
+          await Future.wait<void>(<Future<void>>[
+            stdoutDrain,
+            stderrDrain,
+          ]).timeout(_remainingUntil(deadline));
+
           if (report['status'] != 'PASS') {
+            diagnosticCategory = 'CHILD_REPORTED_FAILURE';
             final code = report['failureCode'];
             throw TrainCL1BSupervisorException(
               code is String && code.isNotEmpty
@@ -236,12 +266,14 @@ final class TrainCL1BSupervisor {
             );
           }
           if (exitCode != 0) {
+            diagnosticCategory = 'CHILD_NONZERO_EXIT';
             throw const TrainCL1BSupervisorException(
               'TRAIN_C_HARNESS_NOT_READY',
             );
           }
           final payload = report['payload'];
           if (payload is! Map) {
+            diagnosticCategory = 'INVALID_REPORT_PAYLOAD';
             throw const TrainCL1BSupervisorException(
               'TRAIN_C_HARNESS_NOT_READY',
             );
@@ -253,11 +285,26 @@ final class TrainCL1BSupervisor {
         } on TimeoutException {
           child.kill();
           _notifyParseFailure(phase, onParseFailure);
+          _emitSafeDiagnostic(
+            phase: phase,
+            category: 'PHASE_TIMEOUT',
+            reportReceived: reportReceived,
+            childExitCode: observedExitCode,
+            sink: diagnosticSink,
+          );
           throw const TrainCL1BSupervisorException(
             'TRAIN_C_HARNESS_NOT_READY',
           );
         } catch (_) {
+          child.kill();
           _notifyParseFailure(phase, onParseFailure);
+          _emitSafeDiagnostic(
+            phase: phase,
+            category: diagnosticCategory,
+            reportReceived: reportReceived,
+            childExitCode: observedExitCode,
+            sink: diagnosticSink,
+          );
           rethrow;
         }
       }
@@ -265,6 +312,66 @@ final class TrainCL1BSupervisor {
     } finally {
       await server.close();
     }
+  }
+
+  static Duration _remainingUntil(DateTime deadline) {
+    final remaining = deadline.difference(DateTime.now());
+    if (remaining <= Duration.zero) throw TimeoutException('phase deadline');
+    return remaining;
+  }
+
+  static Future<
+      ({
+        Map<String, Object?>? report,
+        int? earlyExitCode,
+      })> _waitForReportOrEarlyExit({
+    required Future<Map<String, Object?>> reportFuture,
+    required Future<int> exitCodeFuture,
+  }) {
+    final completer = Completer<
+        ({
+          Map<String, Object?>? report,
+          int? earlyExitCode,
+        })>();
+
+    reportFuture.then((report) {
+      if (!completer.isCompleted) {
+        completer.complete((report: report, earlyExitCode: null));
+      }
+    }, onError: (Object error, StackTrace stackTrace) {
+      if (!completer.isCompleted) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+
+    exitCodeFuture.then((code) {
+      if (!completer.isCompleted) {
+        completer.complete((report: null, earlyExitCode: code));
+      }
+    }, onError: (Object error, StackTrace stackTrace) {
+      if (!completer.isCompleted) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+
+    return completer.future;
+  }
+
+  static void _emitSafeDiagnostic({
+    required TrainCL1BChildPhase phase,
+    required String category,
+    required bool reportReceived,
+    required int? childExitCode,
+    TrainCL1BDiagnosticSink? sink,
+  }) {
+    final emit = sink ?? (String message) => stderr.writeln(message);
+    emit(
+      '[TRAIN_C_SUPERVISOR_DIAGNOSTIC] '
+      'phase=${phase.wireName} '
+      'category=$category '
+      'reportReceived=$reportReceived '
+      'childExitCode=${childExitCode ?? 'unknown'}',
+    );
   }
 
   static void _notifyParseFailure(
@@ -456,6 +563,8 @@ final class _TrainCL1BSupervisorServer {
       final failureCode = decoded['failureCode'];
       if (failureCode is String) report['failureCode'] = failureCode;
       waiter.complete(report);
+      socket.writeln(jsonEncode(const <String, Object?>{'status': 'PASS'}));
+      await socket.flush();
     } catch (_) {
       // Invalid loopback traffic never mutates supervisor state. The expected
       // child will still have to provide its authenticated report or timeout.
