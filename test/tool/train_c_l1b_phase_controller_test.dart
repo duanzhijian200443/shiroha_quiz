@@ -285,8 +285,8 @@ void main() {
     );
     var completed = false;
     final reportFuture = client
-        .reportPass(const <String, Object?>{'safeCount': 1})
-        .whenComplete(() => completed = true);
+        .reportPass(const <String, Object?>{'safeCount': 1}).whenComplete(
+            () => completed = true);
 
     await requestSeen.future.timeout(const Duration(seconds: 2));
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -413,7 +413,8 @@ void main() {
   test('supervisor diagnostics are allowlisted and emitted once', () async {
     final diagnostics = <String>[];
     final privateChildOutput = utf8.encode(
-      r'Failed reading D:\PrivateStudy\secret.pdf' '\n'
+      r'Failed reading D:\PrivateStudy\secret.pdf'
+      '\n'
       'OCR_PRIVATE_TEXT=do-not-print-this\n'
       'Authorization: Bearer secret-auth-token-xyz\n'
       'providerBody=do-not-print-provider-body\n'
