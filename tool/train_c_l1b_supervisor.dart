@@ -320,17 +320,19 @@ final class TrainCL1BSupervisor {
     return remaining;
   }
 
-  static Future<({
-    Map<String, Object?>? report,
-    int? earlyExitCode,
-  })> _waitForReportOrEarlyExit({
+  static Future<
+      ({
+        Map<String, Object?>? report,
+        int? earlyExitCode,
+      })> _waitForReportOrEarlyExit({
     required Future<Map<String, Object?>> reportFuture,
     required Future<int> exitCodeFuture,
   }) {
-    final completer = Completer<({
-      Map<String, Object?>? report,
-      int? earlyExitCode,
-    })>();
+    final completer = Completer<
+        ({
+          Map<String, Object?>? report,
+          int? earlyExitCode,
+        })>();
 
     reportFuture.then((report) {
       if (!completer.isCompleted) {
