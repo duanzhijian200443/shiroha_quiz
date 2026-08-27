@@ -86,6 +86,31 @@ String ocrImageBodyFailureCategoryValue(
   };
 }
 
+const _shirohaBuildSha = String.fromEnvironment(
+  'SHIROHA_BUILD_SHA',
+  defaultValue: 'unknown',
+);
+
+enum _RemoteCropPhase {
+  admission,
+  send,
+  headers,
+  body,
+  validation,
+  completed,
+}
+
+String _remoteCropPhaseValue(_RemoteCropPhase phase) {
+  return switch (phase) {
+    _RemoteCropPhase.admission => 'admission',
+    _RemoteCropPhase.send => 'send',
+    _RemoteCropPhase.headers => 'headers',
+    _RemoteCropPhase.body => 'body',
+    _RemoteCropPhase.validation => 'validation',
+    _RemoteCropPhase.completed => 'completed',
+  };
+}
+
 class ZhipuOcrAuthenticationException implements Exception {
   const ZhipuOcrAuthenticationException();
 }
@@ -183,6 +208,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
       maxCount: remoteCropCountLimit,
       maxTotalBytes: remoteCropTotalBytesLimit,
     );
+    final remoteCropSequence = _RemoteCropSequence();
     final layoutResponseBudget = _LayoutResponseBudget(
       maxTotalBytes: layoutResponseBytesLimit,
     );
@@ -196,6 +222,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
           timeout: timeout,
           pageOffset: 0,
           remoteCropBudget: remoteCropBudget,
+          remoteCropSequence: remoteCropSequence,
           layoutResponseBudget: layoutResponseBudget,
         ),
       );
@@ -212,6 +239,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
             endPage: end,
             pageOffset: start - 1,
             remoteCropBudget: remoteCropBudget,
+            remoteCropSequence: remoteCropSequence,
             layoutResponseBudget: layoutResponseBudget,
           ),
         );
@@ -230,6 +258,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
     int? endPage,
     required int pageOffset,
     required _RemoteCropBudget remoteCropBudget,
+    required _RemoteCropSequence remoteCropSequence,
     required _LayoutResponseBudget layoutResponseBudget,
   }) async {
     final client = _httpClient ?? http.Client();
@@ -283,6 +312,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
           normalized,
           requestTimeout: timeout,
           budget: remoteCropBudget,
+          sequence: remoteCropSequence,
         );
         return OcrDocument.fromLayoutParsingResponse(
           normalized,
@@ -305,6 +335,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
     Map<String, dynamic> response, {
     required Duration requestTimeout,
     required _RemoteCropBudget budget,
+    required _RemoteCropSequence sequence,
   }) async {
     Future<void> visit(dynamic value) async {
       if (value is List) {
@@ -342,6 +373,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
         } else {
           final uri = Uri.tryParse(trimmedContent);
           if (uri != null && uri.scheme.toLowerCase() == 'https') {
+            final cropOrdinal = sequence.next();
             try {
               budget.reserveCrop();
             } on _RemoteCropBudgetExceeded {
@@ -353,6 +385,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
                 uri,
                 timeout: _effectiveRemoteImageTimeout(requestTimeout),
                 budget: budget,
+                cropOrdinal: cropOrdinal,
               );
             } on _RemoteCropBudgetExceeded {
               throw const ZhipuOcrResponseFormatException();
@@ -360,6 +393,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
             _recordImageMaterialization(
               materialized.category,
               failureCategory: materialized.failureCategory,
+              telemetry: materialized.telemetry,
             );
             // The URL is ephemeral provider infrastructure. It must not reach
             // OcrDocument text, replay JSON, or any Domain/persistence
@@ -389,6 +423,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
   void _recordImageMaterialization(
     OcrImageMaterializationCategory category, {
     OcrImageBodyFailureCategory? failureCategory,
+    _RemoteCropTelemetry? telemetry,
   }) {
     final data = <String, Object?>{
       'stage': 'image_materialization',
@@ -398,6 +433,9 @@ class ZhipuOcrClient implements OcrDocumentClient {
     if (failureCategory != null) {
       data['failureCategory'] =
           ocrImageBodyFailureCategoryValue(failureCategory);
+    }
+    if (telemetry != null) {
+      data.addAll(telemetry.toData(category));
     }
     AppLogger.info(
       'OCR image materialization classified',
@@ -487,57 +525,90 @@ class ZhipuOcrClient implements OcrDocumentClient {
     Uri initialUri, {
     required Duration timeout,
     required _RemoteCropBudget budget,
+    required int cropOrdinal,
   }) async {
+    final telemetry = _RemoteCropTelemetry(
+      cropOrdinal: cropOrdinal,
+      timeout: timeout,
+      uri: initialUri,
+    );
+
+    _RemoteImageMaterializationResult finish(
+      _RemoteImageMaterializationResult result, {
+      _RemoteCropPhase? phase,
+    }) {
+      if (phase != null) telemetry.enterPhase(phase);
+      return result.withTelemetry(telemetry);
+    }
+
     var uri = initialUri;
     for (var redirect = 0; redirect <= maxRemoteImageRedirects; redirect++) {
+      telemetry.bindUri(uri);
       final addressResolution = await _resolveSafeRemoteImageAddress(uri);
       final approvedAddress = addressResolution.address;
       if (approvedAddress == null) {
-        return _RemoteImageMaterializationResult.failure(
-          addressResolution.failureCategory ??
-              OcrImageMaterializationCategory.uriPolicyRejected,
+        return finish(
+          _RemoteImageMaterializationResult.failure(
+            addressResolution.failureCategory ??
+                OcrImageMaterializationCategory.uriPolicyRejected,
+          ),
         );
       }
       http.Client? client;
       var ownsClient = false;
       try {
+        telemetry.enterPhase(_RemoteCropPhase.send);
         client = _remoteCropClient(uri, approvedAddress);
         ownsClient = !identical(client, _httpClient);
         final request = http.Request('GET', uri)..followRedirects = false;
         final response = await client.send(request).timeout(timeout);
+        telemetry.responseStarted = true;
+        telemetry.httpStatus = response.statusCode;
+        telemetry.enterPhase(_RemoteCropPhase.headers);
         if (response.statusCode >= 300 && response.statusCode < 400) {
-          await _discardRemoteResponseBodyBounded(
+          telemetry.enterPhase(_RemoteCropPhase.body);
+          telemetry.bytesReceived += await _discardRemoteResponseBodyBounded(
             response.stream,
             timeout: timeout,
           );
           if (redirect == maxRemoteImageRedirects) {
-            return _RemoteImageMaterializationResult.failure(
-              OcrImageMaterializationCategory.redirectRejectedOrExhausted,
+            return finish(
+              _RemoteImageMaterializationResult.failure(
+                OcrImageMaterializationCategory.redirectRejectedOrExhausted,
+              ),
             );
           }
           final location = response.headers['location'];
           if (location == null || location.trim().isEmpty) {
-            return _RemoteImageMaterializationResult.failure(
-              OcrImageMaterializationCategory.redirectRejectedOrExhausted,
+            return finish(
+              _RemoteImageMaterializationResult.failure(
+                OcrImageMaterializationCategory.redirectRejectedOrExhausted,
+              ),
             );
           }
           uri = uri.resolve(location.trim());
           continue;
         }
         if (response.statusCode != 200) {
-          await _discardRemoteResponseBodyBounded(
+          telemetry.enterPhase(_RemoteCropPhase.body);
+          telemetry.bytesReceived += await _discardRemoteResponseBodyBounded(
             response.stream,
             timeout: timeout,
           );
-          return _RemoteImageMaterializationResult.failure(
-            OcrImageMaterializationCategory.httpNonSuccess,
+          return finish(
+            _RemoteImageMaterializationResult.failure(
+              OcrImageMaterializationCategory.httpNonSuccess,
+            ),
           );
         }
+        telemetry.enterPhase(_RemoteCropPhase.validation);
         final contentLength = response.contentLength;
         if (contentLength != null && contentLength > maxImageBytes) {
-          return _RemoteImageMaterializationResult.failure(
-            OcrImageMaterializationCategory.bodyOrMimeInvalid,
-            failureCategory: OcrImageBodyFailureCategory.bodyTooLarge,
+          return finish(
+            _RemoteImageMaterializationResult.failure(
+              OcrImageMaterializationCategory.bodyOrMimeInvalid,
+              failureCategory: OcrImageBodyFailureCategory.bodyTooLarge,
+            ),
           );
         }
         if (contentLength != null && !budget.canReserveBytes(contentLength)) {
@@ -546,22 +617,29 @@ class ZhipuOcrClient implements OcrDocumentClient {
 
         final builder = BytesBuilder(copy: false);
         var totalBytes = 0;
+        telemetry.enterPhase(_RemoteCropPhase.body);
         await for (final chunk in response.stream.timeout(timeout)) {
           totalBytes += chunk.length;
+          telemetry.bytesReceived += chunk.length;
           if (totalBytes > maxImageBytes) {
-            return _RemoteImageMaterializationResult.failure(
-              OcrImageMaterializationCategory.bodyOrMimeInvalid,
-              failureCategory: OcrImageBodyFailureCategory.bodyTooLarge,
+            return finish(
+              _RemoteImageMaterializationResult.failure(
+                OcrImageMaterializationCategory.bodyOrMimeInvalid,
+                failureCategory: OcrImageBodyFailureCategory.bodyTooLarge,
+              ),
             );
           }
           budget.reserveBytes(chunk.length);
           builder.add(chunk);
         }
         final bytes = builder.takeBytes();
+        telemetry.enterPhase(_RemoteCropPhase.validation);
         if (bytes.isEmpty) {
-          return _RemoteImageMaterializationResult.failure(
-            OcrImageMaterializationCategory.bodyOrMimeInvalid,
-            failureCategory: OcrImageBodyFailureCategory.emptyBody,
+          return finish(
+            _RemoteImageMaterializationResult.failure(
+              OcrImageMaterializationCategory.bodyOrMimeInvalid,
+              failureCategory: OcrImageBodyFailureCategory.emptyBody,
+            ),
           );
         }
         final mimeResolution = _resolveDownloadedImageMime(
@@ -569,45 +647,58 @@ class ZhipuOcrClient implements OcrDocumentClient {
           bytes,
         );
         if (mimeResolution.mimeType == null) {
-          return _RemoteImageMaterializationResult.failure(
-            OcrImageMaterializationCategory.bodyOrMimeInvalid,
-            failureCategory: mimeResolution.failureCategory ??
-                OcrImageBodyFailureCategory.signatureUnrecognized,
+          return finish(
+            _RemoteImageMaterializationResult.failure(
+              OcrImageMaterializationCategory.bodyOrMimeInvalid,
+              failureCategory: mimeResolution.failureCategory ??
+                  OcrImageBodyFailureCategory.signatureUnrecognized,
+            ),
           );
         }
-        return _RemoteImageMaterializationResult.success(
-          'data:${mimeResolution.mimeType};base64,${base64Encode(bytes)}',
+        return finish(
+          _RemoteImageMaterializationResult.success(
+            'data:${mimeResolution.mimeType};base64,${base64Encode(bytes)}',
+          ),
+          phase: _RemoteCropPhase.completed,
         );
       } on _RemoteCropBudgetExceeded {
         rethrow;
-      } on TimeoutException {
-        return _RemoteImageMaterializationResult.failure(
-          OcrImageMaterializationCategory.timeoutOrTransport,
+      } on TimeoutException catch (error) {
+        telemetry.exceptionType = error.runtimeType.toString();
+        return finish(
+          _RemoteImageMaterializationResult.failure(
+            OcrImageMaterializationCategory.timeoutOrTransport,
+          ),
         );
-      } on Object {
-        return _RemoteImageMaterializationResult.failure(
-          OcrImageMaterializationCategory.timeoutOrTransport,
+      } on Object catch (error) {
+        telemetry.exceptionType = error.runtimeType.toString();
+        return finish(
+          _RemoteImageMaterializationResult.failure(
+            OcrImageMaterializationCategory.timeoutOrTransport,
+          ),
         );
       } finally {
         if (ownsClient) client?.close();
       }
     }
-    return _RemoteImageMaterializationResult.failure(
-      OcrImageMaterializationCategory.redirectRejectedOrExhausted,
+    return finish(
+      _RemoteImageMaterializationResult.failure(
+        OcrImageMaterializationCategory.redirectRejectedOrExhausted,
+      ),
     );
   }
 
-  Future<void> _discardRemoteResponseBodyBounded(
+  Future<int> _discardRemoteResponseBodyBounded(
     Stream<List<int>> stream, {
     required Duration timeout,
   }) async {
-    final completed = Completer<void>();
+    final completed = Completer<int>();
     late final StreamSubscription<List<int>> subscription;
     Timer? timer;
     var discardedBytes = 0;
 
     void complete() {
-      if (!completed.isCompleted) completed.complete();
+      if (!completed.isCompleted) completed.complete(discardedBytes);
     }
 
     subscription = stream.listen(
@@ -627,7 +718,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
     });
 
     try {
-      await completed.future;
+      return await completed.future;
     } finally {
       timer.cancel();
       await subscription.cancel();
@@ -916,11 +1007,78 @@ final class _RemoteCropBudgetExceeded implements Exception {
   const _RemoteCropBudgetExceeded();
 }
 
+final class _RemoteCropSequence {
+  var _nextOrdinal = 0;
+
+  int next() => ++_nextOrdinal;
+}
+
+final class _RemoteCropTelemetry {
+  _RemoteCropTelemetry({
+    required this.cropOrdinal,
+    required Duration timeout,
+    required Uri uri,
+  })  : _timeoutBudgetMs = timeout.inMilliseconds,
+        _stopwatch = Stopwatch()..start() {
+    bindUri(uri);
+  }
+
+  final int cropOrdinal;
+  final int _timeoutBudgetMs;
+  final Stopwatch _stopwatch;
+
+  String scheme = '';
+  String sanitizedHost = '';
+  _RemoteCropPhase phase = _RemoteCropPhase.admission;
+  int? _currentTimeoutBudgetMs;
+  int? _lastTimeoutBudgetMs;
+  String? exceptionType;
+  var responseStarted = false;
+  int? httpStatus;
+  var bytesReceived = 0;
+
+  void bindUri(Uri uri) {
+    scheme = uri.scheme.toLowerCase();
+    sanitizedHost = uri.host.toLowerCase();
+    enterPhase(_RemoteCropPhase.admission);
+  }
+
+  void enterPhase(_RemoteCropPhase nextPhase) {
+    phase = nextPhase;
+    final usesTimeout = nextPhase == _RemoteCropPhase.send ||
+        nextPhase == _RemoteCropPhase.body;
+    _currentTimeoutBudgetMs = usesTimeout ? _timeoutBudgetMs : null;
+    if (usesTimeout) _lastTimeoutBudgetMs = _timeoutBudgetMs;
+  }
+
+  Map<String, Object?> toData(OcrImageMaterializationCategory category) {
+    if (_stopwatch.isRunning) _stopwatch.stop();
+    return <String, Object?>{
+      'cropOrdinal': cropOrdinal,
+      'scheme': scheme,
+      'sanitizedHost': sanitizedHost,
+      'phase': _remoteCropPhaseValue(phase),
+      'elapsedMs': _stopwatch.elapsedMilliseconds,
+      'timeoutBudgetMs':
+          category == OcrImageMaterializationCategory.remoteSuccess
+              ? _lastTimeoutBudgetMs
+              : _currentTimeoutBudgetMs,
+      'exceptionType': exceptionType,
+      'responseStarted': responseStarted,
+      'httpStatus': httpStatus,
+      'bytesReceived': bytesReceived,
+      'result': ocrImageMaterializationCategoryValue(category),
+      'buildSha': _shirohaBuildSha,
+    };
+  }
+}
+
 final class _RemoteImageMaterializationResult {
   const _RemoteImageMaterializationResult({
     required this.category,
     this.dataUrl,
     this.failureCategory,
+    this.telemetry,
   });
 
   const _RemoteImageMaterializationResult.success(String dataUrl)
@@ -934,9 +1092,21 @@ final class _RemoteImageMaterializationResult {
     OcrImageBodyFailureCategory? failureCategory,
   }) : this(category: category, failureCategory: failureCategory);
 
+  _RemoteImageMaterializationResult withTelemetry(
+    _RemoteCropTelemetry telemetry,
+  ) {
+    return _RemoteImageMaterializationResult(
+      category: category,
+      dataUrl: dataUrl,
+      failureCategory: failureCategory,
+      telemetry: telemetry,
+    );
+  }
+
   final OcrImageMaterializationCategory category;
   final String? dataUrl;
   final OcrImageBodyFailureCategory? failureCategory;
+  final _RemoteCropTelemetry? telemetry;
 }
 
 final class _DownloadedImageMimeResolution {
