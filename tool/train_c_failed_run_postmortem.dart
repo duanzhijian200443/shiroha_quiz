@@ -23,9 +23,10 @@ typedef TrainCFailedRunTaskReader = Future<List<Map<String, dynamic>>> Function(
 /// Read-only recovery of safe facts from one already-consumed TRAIN C run.
 ///
 /// The postmortem accepts only a durable FAILED_CONSUMED Run #1 capability,
-/// reattaches the already-owned isolated runtime, reads only `import_tasks`,
-/// and verifies that the control-plane snapshot did not change. It never reads
-/// a private PDF, a credential store, provider bodies, or raw question text.
+/// validates the already-owned isolated runtime, reads only `import_tasks`
+/// through the explicit read-only SQLite profile, and verifies that the
+/// control-plane snapshot did not change. It never reads a private PDF, a
+/// credential store, provider bodies, or raw question text.
 final class TrainCFailedRunPostmortem {
   const TrainCFailedRunPostmortem._();
 
@@ -70,30 +71,25 @@ final class TrainCFailedRunPostmortem {
   static Future<List<Map<String, dynamic>>> _readTaskRows(
     String runtimeCapability,
   ) async {
-    TrainCIsolatedRuntime? runtime;
     try {
-      runtime = await TrainCIsolatedRuntime.reattachFromCapability(
+      return await TrainCIsolatedRuntime.inspectReadOnlyFromCapability(
         runtimeCapability,
-        deleteRootOnDispose: false,
+        (db) async {
+          final rows = await db.query(
+            'import_tasks',
+            columns: const <String>['status', 'parsed_data', 'diagnostics'],
+          );
+          return rows
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList(growable: false);
+        },
       );
-      final db = await runtime.database;
-      final rows = await db.query(
-        'import_tasks',
-        columns: const <String>['status', 'parsed_data', 'diagnostics'],
-      );
-      return rows
-          .map((row) => Map<String, dynamic>.from(row))
-          .toList(growable: false);
     } on TrainCIsolationException {
       rethrow;
     } catch (_) {
       throw const TrainCEvidenceProbeException(
         trainCPostmortemRuntimeUnavailable,
       );
-    } finally {
-      if (runtime != null) {
-        await runtime.closeForRestart();
-      }
     }
   }
 
@@ -116,9 +112,8 @@ final class TrainCFailedRunPostmortem {
     final parsed = _decodeList(row['parsed_data']);
     final diagnostics = _decodeMap(row['diagnostics']);
 
-    final routeRaw = diagnostics?[
-      TypedImportCommitPersistence.keyImportStorageRoute
-    ];
+    final routeRaw =
+        diagnostics?[TypedImportCommitPersistence.keyImportStorageRoute];
     final routePresent = routeRaw != null;
     String? route;
     if (routePresent) {
@@ -131,9 +126,8 @@ final class TrainCFailedRunPostmortem {
       }
     }
 
-    final reasonRaw = diagnostics?[
-      TypedImportCommitPersistence.keyImportStorageReason
-    ];
+    final reasonRaw =
+        diagnostics?[TypedImportCommitPersistence.keyImportStorageReason];
     final reasonPresent = reasonRaw != null;
     String? reason;
     if (reasonPresent) {
