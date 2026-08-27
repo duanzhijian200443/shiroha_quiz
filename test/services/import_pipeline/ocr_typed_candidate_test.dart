@@ -793,6 +793,142 @@ void main() {
       expect(result.reason, 'typed_candidate_raw_explanation_diverged');
     });
 
+    test('raw parity telemetry records safe HTML replay without raw text',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      const rawExplanation = '<div>private raw explanation sentinel</div>';
+      const finalExplanation = 'private raw explanation sentinel';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+      await AppLogger.flush();
+
+      final records = sink.records
+          .where(
+            (record) =>
+                record.data['stage'] ==
+                'typed_candidate_raw_explanation_parity',
+          )
+          .toList(growable: false);
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(records, hasLength(1));
+      final data = records.single.data;
+      expect(data['traceId'], 'unavailable');
+      expect(data['buildSha'], isA<String>());
+      expect(data['questionIndex'], 0);
+      expect(data['candidateIndex'], 0);
+      expect(data['questionNumber'], 1);
+      expect(data['candidateQuestionNumber'], 1);
+      expect(data['fieldCategory'], 'explanation');
+      expect(data['candidateShape'], 'text');
+      expect(data['htmlChanged'], true);
+      expect(data['htmlEqualsFinal'], true);
+      expect(data['latexEqualsFinal'], true);
+      expect(data['rawExplanationAllowed'], true);
+      expect(data['returnPath'], 'deterministic_finalization');
+      expect(data['rawLength'], rawExplanation.length);
+      expect(data['finalLength'], finalExplanation.length);
+      expect(data['rawSha256'], matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(data['finalSha256'], matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(data['candidateIdHash'], matches(RegExp(r'^[0-9a-f]{64}$')));
+      final serialized = records.single.toJson().toString();
+      expect(serialized, isNot(contains(rawExplanation)));
+      expect(serialized, isNot(contains(finalExplanation)));
+    });
+
+    test('raw parity telemetry records deterministic LaTeX replay', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      const rawExplanation = r'Explanation \(\left(x + 1\)';
+      const finalExplanation = r'Explanation \((x + 1\)';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+      await AppLogger.flush();
+
+      final record = sink.records.singleWhere(
+        (item) =>
+            item.data['stage'] == 'typed_candidate_raw_explanation_parity',
+      );
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(record.data['htmlEqualsFinal'], false);
+      expect(record.data['latexChanged'], true);
+      expect(record.data['latexEqualsFinal'], true);
+      expect(record.data['deterministicFinalizationEquivalent'], true);
+      expect(record.data['rawExplanationAllowed'], true);
+      expect(record.data['returnPath'], 'deterministic_finalization');
+    });
+
+    test('raw parity telemetry records deterministic replay rejection',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      const rawExplanation = r'Explanation \(\left(x + 1\)';
+      const finalExplanation = r'Explanation \((x - 1\)';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+      await AppLogger.flush();
+
+      final record = sink.records.singleWhere(
+        (item) =>
+            item.data['stage'] == 'typed_candidate_raw_explanation_parity',
+      );
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+      expect(record.data['htmlEqualsFinal'], false);
+      expect(record.data['latexEqualsFinal'], false);
+      expect(record.data['deterministicFinalizationEquivalent'], false);
+      expect(record.data['textNodeOnly'], true);
+      expect(record.data['n0Equivalent'], false);
+      expect(record.data['rawExplanationAllowed'], false);
+      expect(record.data['returnPath'], 'rejected_diverged');
+      expect(record.toJson().toString(), isNot(contains(rawExplanation)));
+      expect(record.toJson().toString(), isNot(contains(finalExplanation)));
+    });
+
+    test('unsafe HTML diagnostics remain rejecting and privacy-safe', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      const rawExplanation =
+          '<script>unsafe raw explanation sentinel</script><div>'
+          'safe explanation sentinel</div>';
+      const finalExplanation = 'safe explanation sentinel';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+      await AppLogger.flush();
+
+      final record = sink.records.singleWhere(
+        (item) =>
+            item.data['stage'] == 'typed_candidate_raw_explanation_parity',
+      );
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+      expect(record.data['htmlEqualsFinal'], true);
+      expect(record.data['latexEqualsFinal'], true);
+      expect(record.data['unsafeHtmlContentRemoved'], true);
+      expect(record.data['deterministicFinalizationEquivalent'], false);
+      expect(record.data['rawExplanationAllowed'], false);
+      expect(record.data['returnPath'], 'rejected_diverged');
+      final serialized = record.toJson().toString();
+      expect(serialized, isNot(contains('unsafe raw explanation sentinel')));
+      expect(serialized, isNot(contains('safe explanation sentinel')));
+    });
+
     test('B5 keeps projection semantic mismatch rejected', () {
       const rawExplanation = r'Explanation \(\left(x + 1\)';
       const finalExplanation = r'Explanation \((x + 1\)';

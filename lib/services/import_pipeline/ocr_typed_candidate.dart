@@ -1,6 +1,13 @@
+// ignore_for_file: depend_on_referenced_packages
+// `crypto` is already used by the repository; this task does not add a
+// dependency declaration or change the frozen dependency set.
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -14,6 +21,11 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.da
 import 'package:shiroha_quiz/services/import_pipeline/ocr_safe_html_cleanup.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
+
+const _shirohaBuildSha = String.fromEnvironment(
+  'SHIROHA_BUILD_SHA',
+  defaultValue: 'unknown',
+);
 
 /// Fixed task-level storage reason for a successful shadow candidate batch.
 const String ocrTypedCandidateShadowReadyReason =
@@ -472,13 +484,19 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     baselines[number] = baseline;
   }
 
-  for (final question in finalQuestions) {
+  for (var questionIndex = 0;
+      questionIndex < finalQuestions.length;
+      questionIndex++) {
+    final question = finalQuestions[questionIndex];
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
     if (!_rawExplanationAllowed(
       question,
       baselines[number]!.explanation,
       candidate,
+      questionNumber: number,
+      questionIndex: questionIndex,
+      candidateIndex: candidates.indexOf(candidate),
     )) {
       return _ineligible(
         finalQuestions,
@@ -607,14 +625,41 @@ LegacyReviewBaseline? _strictDecodeBaseline(Map<String, dynamic> question) {
 bool _rawExplanationAllowed(
   Map<String, dynamic> question,
   String finalExplanation,
-  OcrTypedCandidate candidate,
-) {
+  OcrTypedCandidate candidate, {
+  required int questionNumber,
+  required int questionIndex,
+  required int candidateIndex,
+}) {
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
   if (raw.isEmpty || raw == finalExplanation) return true;
-  if (finalExplanation.isEmpty) return false;
-  if (_deterministicFinalizationEquivalent(raw, finalExplanation)) {
+  if (finalExplanation.isEmpty) {
+    _recordRawExplanationParityTelemetry(
+      raw: raw,
+      finalExplanation: finalExplanation,
+      candidate: candidate,
+      questionNumber: questionNumber,
+      questionIndex: questionIndex,
+      candidateIndex: candidateIndex,
+      rawExplanationAllowed: false,
+      returnPath: 'rejected_final_empty',
+    );
+    return false;
+  }
+  final deterministicEquivalent =
+      _deterministicFinalizationEquivalent(raw, finalExplanation);
+  if (deterministicEquivalent) {
+    _recordRawExplanationParityTelemetry(
+      raw: raw,
+      finalExplanation: finalExplanation,
+      candidate: candidate,
+      questionNumber: questionNumber,
+      questionIndex: questionIndex,
+      candidateIndex: candidateIndex,
+      rawExplanationAllowed: true,
+      returnPath: 'deterministic_finalization',
+    );
     return true;
   }
   // A supported typed structural explanation is not independently vetoed by
@@ -622,9 +667,33 @@ bool _rawExplanationAllowed(
   // below remains the authority for both representation-only and semantic
   // differences. RawFallbackNode is intentionally excluded here because it
   // is not admitted at the question projection boundary.
-  if (_hasSupportedStructuralExplanation(candidate)) return true;
-  return _textNodeOnlyExplanation(candidate) &&
-      _n0Equals(raw, finalExplanation);
+  if (_hasSupportedStructuralExplanation(candidate)) {
+    _recordRawExplanationParityTelemetry(
+      raw: raw,
+      finalExplanation: finalExplanation,
+      candidate: candidate,
+      questionNumber: questionNumber,
+      questionIndex: questionIndex,
+      candidateIndex: candidateIndex,
+      rawExplanationAllowed: true,
+      returnPath: 'supported_structural_explanation',
+    );
+    return true;
+  }
+  final textNodeOnly = _textNodeOnlyExplanation(candidate);
+  final n0Equivalent = textNodeOnly && _n0Equals(raw, finalExplanation);
+  final allowed = n0Equivalent;
+  _recordRawExplanationParityTelemetry(
+    raw: raw,
+    finalExplanation: finalExplanation,
+    candidate: candidate,
+    questionNumber: questionNumber,
+    questionIndex: questionIndex,
+    candidateIndex: candidateIndex,
+    rawExplanationAllowed: allowed,
+    returnPath: allowed ? 'n0_text_only' : 'rejected_diverged',
+  );
+  return allowed;
 }
 
 const _unsafeHtmlContentRemoved = 'unsafe_html_content_removed';
@@ -640,6 +709,91 @@ bool _deterministicFinalizationEquivalent(
     return false;
   }
   return repairLatexDeterministically(cleaned.text) == finalExplanation;
+}
+
+void _recordRawExplanationParityTelemetry({
+  required String raw,
+  required String finalExplanation,
+  required OcrTypedCandidate candidate,
+  required int questionNumber,
+  required int questionIndex,
+  required int candidateIndex,
+  required bool rawExplanationAllowed,
+  required String returnPath,
+}) {
+  final cleaned = stripSafeHtmlWrappers(raw);
+  final repairedLatex = repairLatexDeterministically(cleaned.text);
+  final unsafeHtmlContentRemoved =
+      cleaned.diagnostics.contains(_unsafeHtmlContentRemoved);
+  final unsupportedHtmlTagPreserved =
+      cleaned.diagnostics.contains(_unsupportedHtmlTagPreserved);
+
+  AppLogger.info(
+    'OCR typed candidate raw explanation parity observed',
+    module: 'ImportPipeline',
+    data: <String, Object?>{
+      'stage': 'typed_candidate_raw_explanation_parity',
+      'traceId': TraceContext.traceId ?? 'unavailable',
+      'buildSha': _shirohaBuildSha,
+      'fieldCategory': 'explanation',
+      'questionIndex': questionIndex,
+      'candidateIndex': candidateIndex,
+      'questionNumber': questionNumber,
+      'candidateQuestionNumber': candidate.questionNumber,
+      'candidateIdHash': _sha256Text(candidate.questionId),
+      'rawLength': raw.length,
+      'rawSha256': _sha256Text(raw),
+      'finalLength': finalExplanation.length,
+      'finalSha256': _sha256Text(finalExplanation),
+      'htmlLength': cleaned.text.length,
+      'htmlSha256': _sha256Text(cleaned.text),
+      'htmlChanged': cleaned.text != raw,
+      'htmlEqualsFinal': cleaned.text == finalExplanation,
+      'unsafeHtmlContentRemoved': unsafeHtmlContentRemoved,
+      'unsupportedHtmlTagPreserved': unsupportedHtmlTagPreserved,
+      'latexLength': repairedLatex.length,
+      'latexSha256': _sha256Text(repairedLatex),
+      'latexChanged': repairedLatex != cleaned.text,
+      'latexEqualsFinal': repairedLatex == finalExplanation,
+      'deterministicFinalizationEquivalent': !unsafeHtmlContentRemoved &&
+          !unsupportedHtmlTagPreserved &&
+          repairedLatex == finalExplanation,
+      'candidateShape': _candidateExplanationShape(candidate),
+      'textNodeOnly': _textNodeOnlyExplanation(candidate),
+      'supportedStructuralExplanation':
+          _hasSupportedStructuralExplanation(candidate),
+      'n0Equivalent': _n0Equals(raw, finalExplanation),
+      'rawExplanationAllowed': rawExplanationAllowed,
+      'returnPath': returnPath,
+    },
+  );
+}
+
+String _sha256Text(String value) =>
+    sha256.convert(utf8.encode(value)).toString();
+
+String _candidateExplanationShape(OcrTypedCandidate candidate) {
+  final explanation = candidate.draft.explanation;
+  if (explanation == null || explanation.nodes.isEmpty) return 'empty';
+
+  final shapes = <String>{};
+  for (final node in explanation.nodes) {
+    if (node is TextNode) {
+      shapes.add('text');
+    } else if (node is InlineMathNode || node is BlockMathNode) {
+      shapes.add('math');
+    } else if (node is ImageNode) {
+      shapes.add('image');
+    } else if (node is TableNode) {
+      shapes.add('table');
+    } else if (node is RawFallbackNode) {
+      shapes.add('raw_fallback');
+    } else {
+      shapes.add('other');
+    }
+  }
+  if (shapes.length == 1) return shapes.single;
+  return 'mixed';
 }
 
 bool _baselineParity(
