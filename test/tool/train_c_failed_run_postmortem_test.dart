@@ -151,68 +151,78 @@ void main() {
     );
   });
 
-  test('default reader preserves failed capability and durable task row',
-      () async {
-    final runtime = await TrainCIsolatedRuntime.create();
-    await runtime.open();
-    final repository = ImportTaskRepository(
-      databaseHelper: DatabaseHelper.instance,
-    );
-    await repository.saveImportTask(
-      ImportTask(
-        id: 'postmortem-task',
-        title: 'synthetic',
-        status: TaskStatus.pendingReview,
-        parsedData: List<Map<String, dynamic>>.generate(
-          22,
-          (_) => <String, dynamic>{},
-        ),
-        diagnostics: const <String, dynamic>{
-          TypedImportCommitPersistence.keyImportStorageRoute: 'legacyV1',
-          TypedImportCommitPersistence.keyImportStorageReason:
-              'typed_candidate_raw_explanation_diverged',
-          TypedImportCommitPersistence.keyAttemptState:
-              TypedImportCommitPersistence.readyForReviewAttemptStateValue,
-        },
-      ).toMap(),
-    );
-    final beforeRows = await repository.getAllImportTasks();
-    final runtimeCapability = await runtime.issuePersistentReattachCapability();
-    final fixture = _failedCapability(runtimeCapability: runtimeCapability);
-    addTearDown(fixture.dispose);
-    addTearDown(() async {
+  test(
+    'default reader preserves failed capability and durable task row',
+    () async {
+      final runtime = await TrainCIsolatedRuntime.create();
+      await runtime.open();
+      final repository = ImportTaskRepository(
+        databaseHelper: DatabaseHelper.instance,
+      );
+      await repository.saveImportTask(
+        ImportTask(
+          id: 'postmortem-task',
+          title: 'synthetic',
+          status: TaskStatus.pendingReview,
+          parsedData: List<Map<String, dynamic>>.generate(
+            22,
+            (_) => <String, dynamic>{},
+          ),
+          diagnostics: const <String, dynamic>{
+            TypedImportCommitPersistence.keyImportStorageRoute: 'legacyV1',
+            TypedImportCommitPersistence.keyImportStorageReason:
+                'typed_candidate_raw_explanation_diverged',
+            TypedImportCommitPersistence.keyAttemptState:
+                TypedImportCommitPersistence.readyForReviewAttemptStateValue,
+          },
+        ).toMap(),
+      );
+      final beforeRows = await repository.getAllImportTasks();
+      final runtimeCapability =
+          await runtime.issuePersistentReattachCapability();
+      final fixture = _failedCapability(runtimeCapability: runtimeCapability);
+      addTearDown(fixture.dispose);
+      addTearDown(() async {
+        await DatabaseHelper.resetRuntimeProfileForTesting();
+        if (await runtime.root.exists()) {
+          await runtime.root.delete(recursive: true);
+        }
+      });
+      await runtime.closeForRestart();
+
+      // The real failed Live child has exited before postmortem starts. Reset
+      // test-only singleton state to model that fresh OS process boundary.
       await DatabaseHelper.resetRuntimeProfileForTesting();
-      if (await runtime.root.exists()) {
-        await runtime.root.delete(recursive: true);
-      }
-    });
-    await runtime.closeForRestart();
 
-    final beforeState = fixture.authority.snapshot;
-    final report = await TrainCFailedRunPostmortem.inspect(
-      capabilityValue: fixture.capabilityValue,
-    );
-    final afterState = fixture.authority.snapshot;
+      final beforeState = fixture.authority.snapshot;
+      final report = await TrainCFailedRunPostmortem.inspect(
+        capabilityValue: fixture.capabilityValue,
+      );
+      final afterState = fixture.authority.snapshot;
 
-    expect(report['importTaskCount'], 1);
-    expect(report['pendingReviewTaskCount'], 1);
-    expect(report['parsedQuestionCount'], 22);
-    expect(report['storageRoute'], 'legacyV1');
-    expect(report['candidateLeasePresent'], isFalse);
-    expect(afterState.revision, beforeState.revision);
-    expect(afterState.phase, beforeState.phase);
-    expect(afterState.attemptState, beforeState.attemptState);
+      expect(report['importTaskCount'], 1);
+      expect(report['pendingReviewTaskCount'], 1);
+      expect(report['parsedQuestionCount'], 22);
+      expect(report['storageRoute'], 'legacyV1');
+      expect(report['candidateLeasePresent'], isFalse);
+      expect(afterState.revision, beforeState.revision);
+      expect(afterState.phase, beforeState.phase);
+      expect(afterState.attemptState, beforeState.attemptState);
 
-    final reopened = await TrainCIsolatedRuntime.reattachFromCapability(
-      runtimeCapability,
-      deleteRootOnDispose: false,
-    );
-    final afterRows = await ImportTaskRepository(
-      databaseHelper: DatabaseHelper.instance,
-    ).getAllImportTasks();
-    expect(afterRows, beforeRows);
-    await reopened.closeForRestart();
-  });
+      // Reopen once more in a fresh simulated process to prove the postmortem
+      // itself did not mutate the durable task row or consume the capability.
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      final reopened = await TrainCIsolatedRuntime.reattachFromCapability(
+        runtimeCapability,
+        deleteRootOnDispose: false,
+      );
+      final afterRows = await ImportTaskRepository(
+        databaseHelper: DatabaseHelper.instance,
+      ).getAllImportTasks();
+      expect(afterRows, beforeRows);
+      await reopened.closeForRestart();
+    },
+  );
 }
 
 const _head = 'a000000000000000000000000000000000000000';
