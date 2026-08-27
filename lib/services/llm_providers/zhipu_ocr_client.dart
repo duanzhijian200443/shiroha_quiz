@@ -795,32 +795,26 @@ class ZhipuOcrClient implements OcrDocumentClient {
     String? contentType,
     List<int> bytes,
   ) {
-    final normalized = contentType?.split(';').first.trim().toLowerCase();
-    final declared = switch (normalized) {
-      'image/png' => 'image/png',
-      'image/jpeg' || 'image/jpg' => 'image/jpeg',
-      'image/webp' => 'image/webp',
-      'image/gif' => 'image/gif',
-      _ => null,
-    };
+    final declared = contentType == null
+        ? null
+        : ImageByteSignature.canonicalMime(contentType);
     final detected = ImageByteSignature.detectMime(bytes);
     if (detected == null) {
       return const _DownloadedImageMimeResolution.failure(
         OcrImageBodyFailureCategory.signatureUnrecognized,
       );
     }
-    if (normalized != null &&
-        normalized.startsWith('image/') &&
-        declared == null) {
+    if (declared == null) {
       return const _DownloadedImageMimeResolution.failure(
         OcrImageBodyFailureCategory.mimeUnsupported,
       );
     }
-    if (declared != null && declared != detected) {
-      return const _DownloadedImageMimeResolution.failure(
-        OcrImageBodyFailureCategory.mimeSignatureMismatch,
-      );
-    }
+
+    // The provider's header identifies the declared image family, while the
+    // validated byte signature identifies the bytes we are actually admitting.
+    // If both are supported but disagree, retain the bytes and canonicalize
+    // the payload to the signature authority. Unknown/non-image declarations
+    // and unknown signatures remain fail-closed above.
     return _DownloadedImageMimeResolution.success(detected);
   }
 

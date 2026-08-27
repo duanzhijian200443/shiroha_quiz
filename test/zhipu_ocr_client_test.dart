@@ -24,6 +24,8 @@ const _validCropPng = <int>[
   1,
 ];
 
+const _validCropJpeg = <int>[0xff, 0xd8, 0xff, 0xd9];
+
 Map<String, dynamic> _cropResponse({
   required int count,
   String url = 'https://cdn.example.com/crop.png',
@@ -331,9 +333,9 @@ void main() {
       AppLogger.setSink(sink);
       addTearDown(() => AppLogger.setSink(null));
 
-      Future<void> parseRemote({
+      Future<OcrDocument> parseRemote({
         required List<int> body,
-        required String contentType,
+        String? contentType,
         int? contentLength,
       }) async {
         final file = _syntheticPngFile('zhipu-ocr-body-category');
@@ -354,7 +356,7 @@ void main() {
                   Stream<List<int>>.value(body),
                   200,
                   headers: <String, String>{
-                    'content-type': contentType,
+                    if (contentType != null) 'content-type': contentType,
                   },
                   contentLength: contentLength ?? body.length,
                 );
@@ -366,7 +368,7 @@ void main() {
             InternetAddress('93.184.216.34'),
           ],
         );
-        await client.parseFile(
+        return client.parseFile(
           profile: profile,
           filePath: file.path,
           sourceName: 'fixture.png',
@@ -383,10 +385,6 @@ void main() {
         contentType: 'image/avif',
       );
       await parseRemote(
-        body: _validCropPng,
-        contentType: 'image/jpeg',
-      );
-      await parseRemote(
         body: const <int>[1],
         contentType: 'image/png',
         contentLength: ZhipuOcrClient.maxImageBytes + 1,
@@ -396,7 +394,7 @@ void main() {
       final records = sink.records
           .where((record) => record.data['stage'] == 'image_materialization')
           .toList(growable: false);
-      expect(records, hasLength(5));
+      expect(records, hasLength(4));
       expect(
         records.map((record) => record.data['category']),
         everyElement('body_or_mime_invalid'),
@@ -407,7 +405,6 @@ void main() {
           'empty_body',
           'signature_unrecognized',
           'mime_unsupported',
-          'mime_signature_mismatch',
           'body_too_large',
         ]),
       );
@@ -415,6 +412,113 @@ void main() {
         expect(record.toJson().toString(), isNot(contains('cdn.example.com')));
         expect(record.toJson().toString(), isNot(contains('data:image')));
       }
+    });
+
+    test('supported MIME mismatch is admitted using detected signature MIME',
+        () async {
+      Future<OcrImagePayload?> parseRemote({
+        required List<int> body,
+        required String contentType,
+      }) async {
+        final file = _syntheticPngFile('zhipu-ocr-mime-canonical');
+        addTearDown(() => file.deleteSync());
+        var responseIndex = 0;
+        final client = ZhipuOcrClient(
+          httpClient: _StreamedCropClient(() {
+            if (responseIndex++ == 0) {
+              return http.StreamedResponse(
+                Stream<List<int>>.value(
+                  utf8.encode(jsonEncode(_cropResponse(count: 1))),
+                ),
+                200,
+                headers: const <String, String>{
+                  'content-type': 'application/json',
+                },
+              );
+            }
+            return http.StreamedResponse(
+              Stream<List<int>>.value(body),
+              200,
+              headers: <String, String>{'content-type': contentType},
+              contentLength: body.length,
+            );
+          }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+        );
+        final document = await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+        return document.flattenedBlocks.single.imagePayload;
+      }
+
+      final pngDeclaredJpeg = await parseRemote(
+        body: _validCropJpeg,
+        contentType: 'image/png',
+      );
+      expect(pngDeclaredJpeg, isNotNull);
+      expect(pngDeclaredJpeg!.mimeType, 'image/jpeg');
+
+      final jpegDeclaredPng = await parseRemote(
+        body: _validCropPng,
+        contentType: 'image/jpeg',
+      );
+      expect(jpegDeclaredPng, isNotNull);
+      expect(jpegDeclaredPng!.mimeType, 'image/png');
+
+      final jpgDeclaredJpeg = await parseRemote(
+        body: _validCropJpeg,
+        contentType: 'image/jpg',
+      );
+      expect(jpgDeclaredJpeg, isNotNull);
+      expect(jpgDeclaredJpeg!.mimeType, 'image/jpeg');
+    });
+
+    test('missing or non-image MIME remains fail closed for valid image bytes',
+        () async {
+      Future<OcrImagePayload?> parseRemote(String? contentType) async {
+        final file = _syntheticPngFile('zhipu-ocr-mime-required');
+        addTearDown(() => file.deleteSync());
+        var responseIndex = 0;
+        final client = ZhipuOcrClient(
+          httpClient: _StreamedCropClient(() {
+            if (responseIndex++ == 0) {
+              return http.StreamedResponse(
+                Stream<List<int>>.value(
+                  utf8.encode(jsonEncode(_cropResponse(count: 1))),
+                ),
+                200,
+                headers: const <String, String>{
+                  'content-type': 'application/json',
+                },
+              );
+            }
+            return http.StreamedResponse(
+              Stream<List<int>>.value(_validCropPng),
+              200,
+              headers: <String, String>{
+                if (contentType != null) 'content-type': contentType,
+              },
+              contentLength: _validCropPng.length,
+            );
+          }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+        );
+        final document = await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+        return document.flattenedBlocks.single.imagePayload;
+      }
+
+      expect(await parseRemote(null), isNull);
+      expect(await parseRemote('text/html'), isNull);
     });
 
     test('materialization telemetry classifies policy, DNS and HTTP failures',
