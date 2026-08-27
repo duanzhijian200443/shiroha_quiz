@@ -1,3 +1,5 @@
+import '../../core/observability/app_logger.dart';
+import '../../domain/question/question_region.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -35,6 +37,49 @@ enum OcrTypedCandidateFailure {
   snapshotInvalid,
   notSingleFile,
   internalError,
+}
+
+/// Fixed, privacy-safe categories for a typed structural rejection. The
+/// original failure reason and fail-closed behavior remain unchanged.
+enum OcrTypedCandidateUnsupportedKindCategory {
+  ocrImage,
+  ocrTable,
+  ocrUnknown,
+  ocrStructuralOwnership,
+  sourceAsset,
+  sourceTable,
+  other,
+}
+
+String ocrTypedCandidateUnsupportedKindCategoryValue(String kindCode) {
+  final category = switch (kindCode) {
+    'ocr_image' => OcrTypedCandidateUnsupportedKindCategory.ocrImage,
+    'ocr_table' => OcrTypedCandidateUnsupportedKindCategory.ocrTable,
+    'ocr_unknown' => OcrTypedCandidateUnsupportedKindCategory.ocrUnknown,
+    'ocr_structural_ownership' =>
+      OcrTypedCandidateUnsupportedKindCategory.ocrStructuralOwnership,
+    'source_asset' => OcrTypedCandidateUnsupportedKindCategory.sourceAsset,
+    'source_table' => OcrTypedCandidateUnsupportedKindCategory.sourceTable,
+    _ => OcrTypedCandidateUnsupportedKindCategory.other,
+  };
+  return switch (category) {
+    OcrTypedCandidateUnsupportedKindCategory.ocrImage => 'ocr_image',
+    OcrTypedCandidateUnsupportedKindCategory.ocrTable => 'ocr_table',
+    OcrTypedCandidateUnsupportedKindCategory.ocrUnknown => 'ocr_unknown',
+    OcrTypedCandidateUnsupportedKindCategory.ocrStructuralOwnership =>
+      'ocr_structural_ownership',
+    OcrTypedCandidateUnsupportedKindCategory.sourceAsset => 'source_asset',
+    OcrTypedCandidateUnsupportedKindCategory.sourceTable => 'source_table',
+    OcrTypedCandidateUnsupportedKindCategory.other => 'other',
+  };
+}
+
+String ocrTypedCandidateFieldCategoryValue(QuestionRegionField field) {
+  return switch (field) {
+    QuestionRegionField.stem => 'stem',
+    QuestionRegionField.answer => 'answer',
+    QuestionRegionField.explanation => 'explanation',
+  };
 }
 
 /// Serializes a [OcrTypedCandidateFailure] to its fixed lower_snake_case
@@ -251,7 +296,8 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
               : const <String>[],
         ),
       );
-    } on QuestionRegionUnsupportedException {
+    } on QuestionRegionUnsupportedException catch (error) {
+      _recordTypedStructureRejection(error);
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
@@ -276,6 +322,25 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     candidates: candidates,
     candidateAssetLease: candidateAssetLease,
   );
+}
+
+void _recordTypedStructureRejection(QuestionRegionUnsupportedException error) {
+  try {
+    AppLogger.info(
+      'OCR typed candidate structure rejected',
+      module: 'Ocr',
+      data: <String, Object?>{
+        'stage': 'typed_candidate_assembly',
+        'status': 'rejected',
+        'kindCategory':
+            ocrTypedCandidateUnsupportedKindCategoryValue(error.kindCode),
+        'fieldCategory': ocrTypedCandidateFieldCategoryValue(error.field),
+        'count': 1,
+      },
+    );
+  } catch (_) {
+    // Diagnostics are strictly best effort and never alter candidate results.
+  }
 }
 
 /// The all-or-nothing storage outcome of the final parity gate.

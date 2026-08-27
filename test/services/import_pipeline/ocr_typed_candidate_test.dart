@@ -3,11 +3,14 @@
 // Provider, Replay, network, database, UI, filesystem or application call
 // site, so Provider calls are 0 by construction.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
@@ -22,6 +25,18 @@ const _questionUuidA = '22222222-2222-4222-8222-222222222222';
 const _questionUuidB = '33333333-3333-4333-8333-333333333333';
 const _reviewUuidA = '44444444-4444-4444-8444-444444444444';
 const _reviewUuidB = '55555555-5555-4555-8555-555555555555';
+
+final class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
+}
 
 const _regionizer = OcrQuestionRegionizer();
 const _assembler = OcrQuestionAssembler();
@@ -254,6 +269,70 @@ void main() {
       expect(
         batch.failure,
         OcrTypedCandidateFailure.unsupportedStructure,
+      );
+    });
+
+    test('unsupported structure telemetry uses fixed kind and field values',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      final document = _tableDocument();
+      final regionized = _regionizer.regionize(document);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+      await AppLogger.flush();
+
+      expect(batch.failure, OcrTypedCandidateFailure.unsupportedStructure);
+      final records = sink.records
+          .where(
+            (record) => record.data['stage'] == 'typed_candidate_assembly',
+          )
+          .toList(growable: false);
+      expect(records, hasLength(1));
+      final data = records.single.data;
+      expect(data['status'], 'rejected');
+      expect(data['kindCategory'], 'ocr_table');
+      expect(data['fieldCategory'], 'stem');
+      expect(data['count'], 1);
+      final serialized = records.single.toJson().toString();
+      expect(serialized, isNot(contains('Synthetic prompt marker')));
+      expect(serialized, isNot(contains('QuestionRegionUnsupportedException')));
+    });
+
+    test('unsupported kind telemetry stays within the fixed category set', () {
+      expect(
+        <String>[
+          ocrTypedCandidateUnsupportedKindCategoryValue('ocr_image'),
+          ocrTypedCandidateUnsupportedKindCategoryValue('ocr_table'),
+          ocrTypedCandidateUnsupportedKindCategoryValue('ocr_unknown'),
+          ocrTypedCandidateUnsupportedKindCategoryValue(
+            'ocr_structural_ownership',
+          ),
+          ocrTypedCandidateUnsupportedKindCategoryValue('source_asset'),
+          ocrTypedCandidateUnsupportedKindCategoryValue('source_table'),
+          ocrTypedCandidateUnsupportedKindCategoryValue(
+            'private-provider-kind',
+          ),
+        ],
+        <String>[
+          'ocr_image',
+          'ocr_table',
+          'ocr_unknown',
+          'ocr_structural_ownership',
+          'source_asset',
+          'source_table',
+          'other',
+        ],
+      );
+      expect(
+        ocrTypedCandidateFieldCategoryValue(QuestionRegionField.explanation),
+        'explanation',
       );
     });
 

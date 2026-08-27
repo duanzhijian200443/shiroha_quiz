@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
@@ -82,6 +84,18 @@ File _syntheticPngFile(String prefix) {
     '$prefix-${DateTime.now().microsecondsSinceEpoch}.png',
   )..writeAsBytesSync(const <int>[1]);
   return file;
+}
+
+final class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
 }
 
 void main() {
@@ -216,6 +230,297 @@ void main() {
       final invalid = await parseCrop(const <int>[1, 2, 3]);
       expect(invalid.flattenedBlocks.single.imagePayload, isNull);
       expect(invalid.flattenedBlocks.single.text, '[图片]');
+    });
+
+    test('image materialization categories stay fixed and unique', () {
+      final values = OcrImageMaterializationCategory.values
+          .map(ocrImageMaterializationCategoryValue)
+          .toList(growable: false);
+      expect(
+        values,
+        containsAll(<String>[
+          'inline_success',
+          'remote_success',
+          'inline_payload_invalid',
+          'provider_placeholder',
+          'locator_shape_unsupported',
+          'uri_policy_rejected',
+          'dns_resolution_failed',
+          'redirect_rejected_or_exhausted',
+          'http_non_success',
+          'timeout_or_transport',
+          'body_or_mime_invalid',
+        ]),
+      );
+      expect(values.toSet(), hasLength(values.length));
+    });
+
+    test('remote crop telemetry is fixed, bounded and hostname-free', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      final file = _syntheticPngFile('zhipu-ocr-telemetry-success');
+      addTearDown(() => file.deleteSync());
+      final client = ZhipuOcrClient(
+        httpClient: MockClient((request) async {
+          if (request.method == 'GET') {
+            return http.Response.bytes(
+              _validCropPng,
+              200,
+              headers: const <String, String>{'content-type': 'image/png'},
+            );
+          }
+          return http.Response(
+            jsonEncode(
+              _cropResponse(
+                count: 2,
+                url: 'https://cdn.example.com/private/crop.png?token=secret',
+              ),
+            ),
+            200,
+          );
+        }),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+      await AppLogger.flush();
+
+      expect(document.flattenedBlocks, hasLength(2));
+      expect(
+        document.flattenedBlocks.every((block) => block.imagePayload != null),
+        isTrue,
+      );
+      final records = sink.records
+          .where((record) => record.data['stage'] == 'image_materialization')
+          .toList(growable: false);
+      expect(records, hasLength(2));
+      expect(
+        records.map((record) => record.data['cropOrdinal']),
+        <Object?>[1, 2],
+      );
+      for (final record in records) {
+        expect(record.data['scheme'], 'https');
+        expect(record.data['phase'], 'completed');
+        expect(record.data['elapsedMs'], isA<int>());
+        expect(record.data['timeoutBudgetMs'], 30000);
+        expect(record.data['exceptionType'], isNull);
+        expect(record.data['responseStarted'], isTrue);
+        expect(record.data['httpStatus'], 200);
+        expect(record.data['bytesReceived'], greaterThan(0));
+        expect(record.data['result'], 'remote_success');
+        expect(record.data['buildSha'], isA<String>());
+        expect(record.data.containsKey('sanitizedHost'), isFalse);
+        expect(record.toJson().toString(), isNot(contains('cdn.example.com')));
+        expect(record.toJson().toString(), isNot(contains('token=secret')));
+      }
+    });
+
+    test('remote crop send timeout keeps placeholder and fixed telemetry',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      final file = _syntheticPngFile('zhipu-ocr-telemetry-timeout');
+      addTearDown(() => file.deleteSync());
+      final client = ZhipuOcrClient(
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode(_cropResponse(count: 1)),
+            200,
+          ),
+        ),
+        remoteCropClientFactory: (_, __) =>
+            _ThrowingCropClient(TimeoutException('private timeout')),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+      await AppLogger.flush();
+
+      final record = sink.records.singleWhere(
+        (item) => item.data['stage'] == 'image_materialization',
+      );
+      expect(document.flattenedBlocks.single.imagePayload, isNull);
+      expect(document.flattenedBlocks.single.text, '[图片]');
+      expect(record.data['phase'], 'send');
+      expect(record.data['timeoutBudgetMs'], 30000);
+      expect(record.data['exceptionType'], 'TimeoutException');
+      expect(record.data['responseStarted'], isFalse);
+      expect(record.data['httpStatus'], isNull);
+      expect(record.data['bytesReceived'], 0);
+      expect(record.data['result'], 'timeout_or_transport');
+      expect(record.toJson().toString(), isNot(contains('private timeout')));
+    });
+
+    test('remote crop socket failure keeps the original placeholder result',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      final file = _syntheticPngFile('zhipu-ocr-telemetry-socket');
+      addTearDown(() => file.deleteSync());
+      final client = ZhipuOcrClient(
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode(_cropResponse(count: 1)),
+            200,
+          ),
+        ),
+        remoteCropClientFactory: (_, __) => _ThrowingCropClient(
+          const SocketException('private socket'),
+        ),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+      await AppLogger.flush();
+
+      final record = sink.records.singleWhere(
+        (item) => item.data['stage'] == 'image_materialization',
+      );
+      expect(document.flattenedBlocks.single.text, '[图片]');
+      expect(record.data['phase'], 'send');
+      expect(record.data['exceptionType'], 'SocketException');
+      expect(record.data['responseStarted'], isFalse);
+      expect(record.data['httpStatus'], isNull);
+      expect(record.data['bytesReceived'], 0);
+      expect(record.data['result'], 'timeout_or_transport');
+      expect(record.toJson().toString(), isNot(contains('private socket')));
+    });
+
+    test('remote crop body interruption records response boundary', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      final file = _syntheticPngFile('zhipu-ocr-telemetry-body');
+      addTearDown(() => file.deleteSync());
+      final body = StreamController<List<int>>();
+      addTearDown(body.close);
+      final client = ZhipuOcrClient(
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode(_cropResponse(count: 1)),
+            200,
+          ),
+        ),
+        remoteCropClientFactory: (_, __) => _StreamedCropClient(() {
+          scheduleMicrotask(() {
+            body.add(_validCropPng.sublist(0, 3));
+            body.addError(const SocketException('private body'));
+            body.close();
+          });
+          return http.StreamedResponse(
+            body.stream,
+            200,
+            headers: const <String, String>{'content-type': 'image/png'},
+          );
+        }),
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+      );
+
+      final document = await client.parseFile(
+        profile: profile,
+        filePath: file.path,
+        sourceName: 'fixture.png',
+      );
+      await AppLogger.flush();
+
+      final record = sink.records.singleWhere(
+        (item) => item.data['stage'] == 'image_materialization',
+      );
+      expect(document.flattenedBlocks.single.text, '[图片]');
+      expect(record.data['phase'], 'body');
+      expect(record.data['exceptionType'], 'SocketException');
+      expect(record.data['responseStarted'], isTrue);
+      expect(record.data['httpStatus'], 200);
+      expect(record.data['bytesReceived'], 3);
+      expect(record.data['result'], 'timeout_or_transport');
+      expect(record.toJson().toString(), isNot(contains('private body')));
+    });
+
+    test('remote crop status and body validation remain observable', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      final file = _syntheticPngFile('zhipu-ocr-telemetry-validation');
+      addTearDown(() => file.deleteSync());
+
+      Future<OcrDocument> parseRemote({
+        required http.Client remoteClient,
+      }) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient(
+            (request) async => http.Response(
+              jsonEncode(_cropResponse(count: 1)),
+              200,
+            ),
+          ),
+          remoteCropClientFactory: (_, __) => remoteClient,
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+        );
+        return client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      final statusDocument = await parseRemote(
+        remoteClient: MockClient(
+          (_) async => http.Response('private response body', 500),
+        ),
+      );
+      expect(statusDocument.flattenedBlocks.single.text, '[图片]');
+      final invalidDocument = await parseRemote(
+        remoteClient: MockClient(
+          (_) async => http.Response.bytes(
+            const <int>[1, 2, 3],
+            200,
+            headers: const <String, String>{'content-type': 'image/png'},
+          ),
+        ),
+      );
+      expect(invalidDocument.flattenedBlocks.single.text, '[图片]');
+      await AppLogger.flush();
+
+      final records = sink.records
+          .where((record) => record.data['stage'] == 'image_materialization')
+          .toList(growable: false);
+      expect(records, hasLength(2));
+      expect(records[0].data['result'], 'http_non_success');
+      expect(records[0].data['responseStarted'], isTrue);
+      expect(records[0].data['httpStatus'], 500);
+      expect(records[0].data['exceptionType'], isNull);
+      expect(records[1].data['result'], 'body_or_mime_invalid');
+      expect(records[1].data['phase'], 'validation');
+      expect(records[1].data['responseStarted'], isTrue);
+      expect(records[1].data['httpStatus'], 200);
+      expect(records[1].data['bytesReceived'], 3);
+      final serialized = records.map((record) => record.toJson()).join();
+      expect(serialized, isNot(contains('private response body')));
     });
 
     test('remote crop count and byte budgets are aggregate and fail closed',
@@ -1090,6 +1395,20 @@ final class _StreamedCropClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     return _responseFactory();
+  }
+
+  @override
+  void close() {}
+}
+
+final class _ThrowingCropClient extends http.BaseClient {
+  _ThrowingCropClient(this._error);
+
+  final Object _error;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    return Future<http.StreamedResponse>.error(_error);
   }
 
   @override
