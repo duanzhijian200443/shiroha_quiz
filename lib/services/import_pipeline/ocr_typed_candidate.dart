@@ -1,8 +1,10 @@
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
@@ -35,6 +37,60 @@ enum OcrTypedCandidateFailure {
   snapshotInvalid,
   notSingleFile,
   internalError,
+}
+
+/// Fixed, privacy-safe categories for a structural rejection. The raw source
+/// part kind is never persisted or logged.
+enum OcrTypedCandidateUnsupportedKindCategory {
+  ocrImage,
+  ocrTable,
+  ocrUnknown,
+  ocrStructuralOwnership,
+  sourceAsset,
+  sourceTable,
+  other,
+}
+
+String ocrTypedCandidateUnsupportedKindCategoryValue(String? kindCode) {
+  return switch (kindCode?.trim()) {
+    'ocr_image' => 'ocr_image',
+    'ocr_table' => 'ocr_table',
+    'ocr_unknown' => 'ocr_unknown',
+    'ocr_structural_ownership' => 'ocr_structural_ownership',
+    'source_asset' => 'source_asset',
+    'source_table' => 'source_table',
+    _ => 'other',
+  };
+}
+
+enum OcrTypedCandidateFieldCategory { stem, answer, explanation, unknown }
+
+String ocrTypedCandidateFieldCategoryValue(QuestionRegionField field) {
+  return switch (field) {
+    QuestionRegionField.stem => 'stem',
+    QuestionRegionField.answer => 'answer',
+    QuestionRegionField.explanation => 'explanation',
+  };
+}
+
+/// Returns true only for the fixed typed-candidate rejection reasons owned by
+/// the R7B gate. Unknown task reasons are never treated as typed failures.
+bool isOcrTypedCandidateFailureReason(Object? reason) {
+  return switch (reason) {
+    'typed_candidate_unsupported_structure' ||
+    'typed_candidate_projection_unsupported' ||
+    'typed_candidate_repair_applied' ||
+    'typed_candidate_projection_mismatch' ||
+    'typed_candidate_count_mismatch' ||
+    'typed_candidate_identity_mismatch' ||
+    'typed_candidate_baseline_invalid' ||
+    'typed_candidate_raw_explanation_diverged' ||
+    'typed_candidate_snapshot_invalid' ||
+    'typed_candidate_not_single_file' ||
+    'typed_candidate_internal_error' =>
+      true,
+    _ => false,
+  };
 }
 
 /// Serializes a [OcrTypedCandidateFailure] to its fixed lower_snake_case
@@ -251,7 +307,8 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
               : const <String>[],
         ),
       );
-    } on QuestionRegionUnsupportedException {
+    } on QuestionRegionUnsupportedException catch (error) {
+      _recordUnsupportedStructureTelemetry(error);
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
@@ -275,6 +332,23 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   return OcrTypedCandidateBatch(
     candidates: candidates,
     candidateAssetLease: candidateAssetLease,
+  );
+}
+
+void _recordUnsupportedStructureTelemetry(
+  QuestionRegionUnsupportedException error,
+) {
+  AppLogger.warning(
+    'OCR typed candidate rejected unsupported structure',
+    module: 'ImportPipeline',
+    data: <String, Object?>{
+      'stage': 'typed_candidate_assembly',
+      'status': 'rejected',
+      'kindCategory':
+          ocrTypedCandidateUnsupportedKindCategoryValue(error.kindCode),
+      'fieldCategory': ocrTypedCandidateFieldCategoryValue(error.field),
+      'count': 1,
+    },
   );
 }
 

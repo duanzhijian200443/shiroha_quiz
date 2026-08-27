@@ -3,11 +3,14 @@
 // Provider, Replay, network, database, UI, filesystem or application call
 // site, so Provider calls are 0 by construction.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
@@ -25,6 +28,18 @@ const _reviewUuidB = '55555555-5555-4555-8555-555555555555';
 
 const _regionizer = OcrQuestionRegionizer();
 const _assembler = OcrQuestionAssembler();
+
+final class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
+}
 
 void main() {
   group('fixed reason serialization', () {
@@ -274,6 +289,65 @@ void main() {
           reason: 'block type $type',
         );
       }
+    });
+
+    test('unsupported structure telemetry uses fixed kind and field values',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      final document = _tableDocument();
+      final regionized = _regionizer.regionize(document);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: regionized.regions,
+        legacyQuestions: _legacyQuestions(regionized.regions),
+        uuidV4Factory: _uuidSequence(),
+      );
+      await AppLogger.flush();
+
+      expect(batch.failure, OcrTypedCandidateFailure.unsupportedStructure);
+      final records = sink.records
+          .where((record) => record.data['stage'] == 'typed_candidate_assembly')
+          .toList(growable: false);
+      expect(records, hasLength(1));
+      expect(records.single.data['status'], 'rejected');
+      expect(records.single.data['kindCategory'], 'ocr_table');
+      expect(records.single.data['fieldCategory'], 'stem');
+      expect(records.single.data['count'], 1);
+      expect(records.single.toJson().toString(),
+          isNot(contains('Synthetic prompt marker')));
+      expect(records.single.toJson().toString(),
+          isNot(contains('QuestionRegionUnsupportedException')));
+    });
+
+    test('unsupported kind mapping remains a bounded fixed set', () {
+      final values = <String>[
+        for (final kind in <String>[
+          'ocr_image',
+          'ocr_table',
+          'ocr_unknown',
+          'ocr_structural_ownership',
+          'source_asset',
+          'source_table',
+          'untrusted-provider-kind',
+        ])
+          ocrTypedCandidateUnsupportedKindCategoryValue(kind),
+      ];
+      expect(values, <String>[
+        'ocr_image',
+        'ocr_table',
+        'ocr_unknown',
+        'ocr_structural_ownership',
+        'source_asset',
+        'source_table',
+        'other',
+      ]);
+      expect(
+        ocrTypedCandidateFieldCategoryValue(QuestionRegionField.explanation),
+        'explanation',
+      );
     });
 
     test('unrelated unsupported blocks do not poison an owned typed region',

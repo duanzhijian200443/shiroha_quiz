@@ -28,6 +28,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.da
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/services/llm_providers/llm_provider_registry.dart';
@@ -50,6 +51,27 @@ import 'train_c_live_attempt_authority.dart';
 import 'train_c_live_entrypoint.dart';
 import 'train_c_restart_proof.dart';
 import 'train_c_runtime_evidence_source.dart';
+
+/// Classifies the P8 pending-review closure boundary without inspecting a
+/// candidate lease before the storage route has been accepted.
+///
+/// A non-typed route with a fixed typed-candidate failure is a route failure;
+/// only a typed route is allowed to proceed to candidate image closure.
+String? trainCL1BPendingReviewClosureFailureCode({
+  required ImportStorageRoute storageRoute,
+  required Object? storageReason,
+  required bool candidateAssetLeasePresent,
+}) {
+  if (storageRoute != ImportStorageRoute.typedV2 &&
+      isOcrTypedCandidateFailureReason(storageReason)) {
+    return 'TRAIN_C_TYPED_ROUTE_FAILURE';
+  }
+  if (storageRoute == ImportStorageRoute.typedV2 &&
+      !candidateAssetLeasePresent) {
+    return 'TRAIN_C_IMAGE_CLOSURE_FAILURE';
+  }
+  return null;
+}
 
 /// Real production composition used by one guarded L1B child process.
 final class TrainCL1BProductionComposition {
@@ -244,7 +266,19 @@ final class TrainCL1BProductionComposition {
         'TRAIN_C_PENDING_REVIEW_FAILURE',
       );
     }
+    final route = decodeImportStorageRoute(
+      task.diagnostics?[TaskManager.keyImportStorageRoute],
+    );
+    final reason = task.diagnostics?[TaskManager.keyImportStorageReason];
     final lease = decodeCandidateAssetLeaseFromDiagnostics(task.diagnostics);
+    final closureFailure = trainCL1BPendingReviewClosureFailureCode(
+      storageRoute: route,
+      storageReason: reason,
+      candidateAssetLeasePresent: lease != null,
+    );
+    if (closureFailure != null) {
+      throw TrainCL1BLiveRuntimeException(closureFailure);
+    }
     final parsed = task.parsedData;
     if (lease == null || parsed == null || parsed.isEmpty) {
       throw const TrainCL1BLiveRuntimeException(

@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
@@ -49,6 +51,18 @@ Map<String, dynamic> _cropResponse({
 
 String _inlineImageDataUrl() =>
     'data:image/png;base64,${base64Encode(_validCropPng)}';
+
+final class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
+}
 
 Map<String, dynamic> _mixedCropResponse({required String inlineDataUrl}) {
   return <String, dynamic>{
@@ -216,6 +230,180 @@ void main() {
       final invalid = await parseCrop(const <int>[1, 2, 3]);
       expect(invalid.flattenedBlocks.single.imagePayload, isNull);
       expect(invalid.flattenedBlocks.single.text, '[图片]');
+    });
+
+    test('image materialization categories stay fixed and complete', () {
+      final values = OcrImageMaterializationCategory.values
+          .map(ocrImageMaterializationCategoryValue)
+          .toList(growable: false);
+      expect(
+          values,
+          containsAll(<String>[
+            'inline_success',
+            'remote_success',
+            'inline_payload_invalid',
+            'provider_placeholder',
+            'locator_shape_unsupported',
+            'uri_policy_rejected',
+            'dns_resolution_failed',
+            'redirect_rejected_or_exhausted',
+            'http_non_success',
+            'timeout_or_transport',
+            'body_or_mime_invalid',
+          ]));
+      expect(values.toSet(), hasLength(values.length));
+    });
+
+    test('materialization telemetry records only safe fixed categories',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      Future<void> parseImage(String content, {bool remote = false}) async {
+        final file = _syntheticPngFile('zhipu-ocr-category');
+        addTearDown(() => file.deleteSync());
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (remote && request.method == 'GET') {
+              return http.Response.bytes(
+                _validCropPng,
+                200,
+                headers: const <String, String>{
+                  'content-type': 'image/png',
+                },
+              );
+            }
+            return http.Response(
+              jsonEncode(_cropResponse(count: 1, url: content)),
+              200,
+              headers: const <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              },
+            );
+          }),
+          dnsResolver: remote
+              ? (_) async => <InternetAddress>[InternetAddress('93.184.216.34')]
+              : null,
+        );
+        await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      await parseImage(_inlineImageDataUrl());
+      await parseImage('data:image/png;base64,AAAA');
+      await parseImage('[图片]');
+      await parseImage('https://cdn.example.com/category.png', remote: true);
+      await AppLogger.flush();
+
+      final records = sink.records
+          .where((record) => record.data['stage'] == 'image_materialization')
+          .toList(growable: false);
+      expect(
+        records.map((record) => record.data['category']),
+        containsAll(<String>[
+          'inline_success',
+          'inline_payload_invalid',
+          'provider_placeholder',
+          'remote_success',
+        ]),
+      );
+      for (final record in records) {
+        expect(
+            record.data.keys,
+            containsAll(<String>[
+              'stage',
+              'category',
+              'count',
+            ]));
+        expect(record.data['count'], 1);
+        expect(record.toJson().toString(), isNot(contains('cdn.example.com')));
+        expect(record.toJson().toString(), isNot(contains('data:image')));
+      }
+    });
+
+    test('materialization telemetry classifies policy, DNS and HTTP failures',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      Future<void> parseRemote({
+        required String content,
+        required Future<List<InternetAddress>> Function(String) dnsResolver,
+        int statusCode = 200,
+        List<int> body = _validCropPng,
+        String contentType = 'image/png',
+      }) async {
+        final file = _syntheticPngFile('zhipu-ocr-category-failure');
+        addTearDown(() => file.deleteSync());
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'GET') {
+              return http.Response.bytes(
+                body,
+                statusCode,
+                headers: <String, String>{'content-type': contentType},
+              );
+            }
+            return http.Response(
+              jsonEncode(_cropResponse(count: 1, url: content)),
+              200,
+              headers: const <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              },
+            );
+          }),
+          dnsResolver: dnsResolver,
+        );
+        await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      await parseRemote(
+        content: 'file:///private/fixture.png',
+        dnsResolver: (_) async => <InternetAddress>[],
+      );
+      await parseRemote(
+        content: 'https://cdn.example.com/dns.png',
+        dnsResolver: (_) async => <InternetAddress>[],
+      );
+      await parseRemote(
+        content: 'https://cdn.example.com/http.png',
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+        statusCode: 500,
+        body: const <int>[1, 2, 3],
+      );
+      await parseRemote(
+        content: 'https://cdn.example.com/body.png',
+        dnsResolver: (_) async => <InternetAddress>[
+          InternetAddress('93.184.216.34'),
+        ],
+        body: const <int>[1, 2, 3],
+      );
+      await AppLogger.flush();
+
+      final categories = sink.records
+          .where((record) => record.data['stage'] == 'image_materialization')
+          .map((record) => record.data['category'])
+          .toSet();
+      expect(
+        categories,
+        containsAll(<String>[
+          'uri_policy_rejected',
+          'dns_resolution_failed',
+          'http_non_success',
+          'body_or_mime_invalid',
+        ]),
+      );
     });
 
     test('remote crop count and byte budgets are aggregate and fail closed',
