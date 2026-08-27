@@ -61,6 +61,31 @@ String ocrImageMaterializationCategoryValue(
   };
 }
 
+/// Fixed, privacy-safe subcategories for a remote image body that failed
+/// validation. These values describe only the bounded admission decision;
+/// they never contain response data, MIME payloads, URLs, or exceptions.
+enum OcrImageBodyFailureCategory {
+  emptyBody,
+  bodyTooLarge,
+  signatureUnrecognized,
+  mimeUnsupported,
+  mimeSignatureMismatch,
+}
+
+String ocrImageBodyFailureCategoryValue(
+  OcrImageBodyFailureCategory category,
+) {
+  return switch (category) {
+    OcrImageBodyFailureCategory.emptyBody => 'empty_body',
+    OcrImageBodyFailureCategory.bodyTooLarge => 'body_too_large',
+    OcrImageBodyFailureCategory.signatureUnrecognized =>
+      'signature_unrecognized',
+    OcrImageBodyFailureCategory.mimeUnsupported => 'mime_unsupported',
+    OcrImageBodyFailureCategory.mimeSignatureMismatch =>
+      'mime_signature_mismatch',
+  };
+}
+
 class ZhipuOcrAuthenticationException implements Exception {
   const ZhipuOcrAuthenticationException();
 }
@@ -332,7 +357,10 @@ class ZhipuOcrClient implements OcrDocumentClient {
             } on _RemoteCropBudgetExceeded {
               throw const ZhipuOcrResponseFormatException();
             }
-            _recordImageMaterialization(materialized.category);
+            _recordImageMaterialization(
+              materialized.category,
+              failureCategory: materialized.failureCategory,
+            );
             // The URL is ephemeral provider infrastructure. It must not reach
             // OcrDocument text, replay JSON, or any Domain/persistence
             // payload.
@@ -359,16 +387,22 @@ class ZhipuOcrClient implements OcrDocumentClient {
   }
 
   void _recordImageMaterialization(
-    OcrImageMaterializationCategory category,
-  ) {
+    OcrImageMaterializationCategory category, {
+    OcrImageBodyFailureCategory? failureCategory,
+  }) {
+    final data = <String, Object?>{
+      'stage': 'image_materialization',
+      'category': ocrImageMaterializationCategoryValue(category),
+      'count': 1,
+    };
+    if (failureCategory != null) {
+      data['failureCategory'] =
+          ocrImageBodyFailureCategoryValue(failureCategory);
+    }
     AppLogger.info(
       'OCR image materialization classified',
       module: 'Ocr',
-      data: <String, Object?>{
-        'stage': 'image_materialization',
-        'category': ocrImageMaterializationCategoryValue(category),
-        'count': 1,
-      },
+      data: data,
     );
   }
 
@@ -503,6 +537,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
         if (contentLength != null && contentLength > maxImageBytes) {
           return _RemoteImageMaterializationResult.failure(
             OcrImageMaterializationCategory.bodyOrMimeInvalid,
+            failureCategory: OcrImageBodyFailureCategory.bodyTooLarge,
           );
         }
         if (contentLength != null && !budget.canReserveBytes(contentLength)) {
@@ -516,6 +551,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
           if (totalBytes > maxImageBytes) {
             return _RemoteImageMaterializationResult.failure(
               OcrImageMaterializationCategory.bodyOrMimeInvalid,
+              failureCategory: OcrImageBodyFailureCategory.bodyTooLarge,
             );
           }
           budget.reserveBytes(chunk.length);
@@ -525,19 +561,22 @@ class ZhipuOcrClient implements OcrDocumentClient {
         if (bytes.isEmpty) {
           return _RemoteImageMaterializationResult.failure(
             OcrImageMaterializationCategory.bodyOrMimeInvalid,
+            failureCategory: OcrImageBodyFailureCategory.emptyBody,
           );
         }
-        final mimeType = _resolveDownloadedImageMime(
+        final mimeResolution = _resolveDownloadedImageMime(
           response.headers['content-type'],
           bytes,
         );
-        if (mimeType == null) {
+        if (mimeResolution.mimeType == null) {
           return _RemoteImageMaterializationResult.failure(
             OcrImageMaterializationCategory.bodyOrMimeInvalid,
+            failureCategory: mimeResolution.failureCategory ??
+                OcrImageBodyFailureCategory.signatureUnrecognized,
           );
         }
         return _RemoteImageMaterializationResult.success(
-          'data:$mimeType;base64,${base64Encode(bytes)}',
+          'data:${mimeResolution.mimeType};base64,${base64Encode(bytes)}',
         );
       } on _RemoteCropBudgetExceeded {
         rethrow;
@@ -752,7 +791,10 @@ class ZhipuOcrClient implements OcrDocumentClient {
     return true;
   }
 
-  String? _resolveDownloadedImageMime(String? contentType, List<int> bytes) {
+  _DownloadedImageMimeResolution _resolveDownloadedImageMime(
+    String? contentType,
+    List<int> bytes,
+  ) {
     final normalized = contentType?.split(';').first.trim().toLowerCase();
     final declared = switch (normalized) {
       'image/png' => 'image/png',
@@ -762,14 +804,24 @@ class ZhipuOcrClient implements OcrDocumentClient {
       _ => null,
     };
     final detected = ImageByteSignature.detectMime(bytes);
-    if (detected == null) return null;
-    if (declared != null && declared != detected) return null;
+    if (detected == null) {
+      return const _DownloadedImageMimeResolution.failure(
+        OcrImageBodyFailureCategory.signatureUnrecognized,
+      );
+    }
     if (normalized != null &&
         normalized.startsWith('image/') &&
         declared == null) {
-      return null;
+      return const _DownloadedImageMimeResolution.failure(
+        OcrImageBodyFailureCategory.mimeUnsupported,
+      );
     }
-    return detected;
+    if (declared != null && declared != detected) {
+      return const _DownloadedImageMimeResolution.failure(
+        OcrImageBodyFailureCategory.mimeSignatureMismatch,
+      );
+    }
+    return _DownloadedImageMimeResolution.success(detected);
   }
 
   /// Resolves the media type for OCR admission.
@@ -874,6 +926,7 @@ final class _RemoteImageMaterializationResult {
   const _RemoteImageMaterializationResult({
     required this.category,
     this.dataUrl,
+    this.failureCategory,
   });
 
   const _RemoteImageMaterializationResult.success(String dataUrl)
@@ -883,11 +936,30 @@ final class _RemoteImageMaterializationResult {
         );
 
   const _RemoteImageMaterializationResult.failure(
-    OcrImageMaterializationCategory category,
-  ) : this(category: category);
+    OcrImageMaterializationCategory category, {
+    OcrImageBodyFailureCategory? failureCategory,
+  }) : this(category: category, failureCategory: failureCategory);
 
   final OcrImageMaterializationCategory category;
   final String? dataUrl;
+  final OcrImageBodyFailureCategory? failureCategory;
+}
+
+final class _DownloadedImageMimeResolution {
+  const _DownloadedImageMimeResolution({
+    this.mimeType,
+    this.failureCategory,
+  });
+
+  const _DownloadedImageMimeResolution.success(String mimeType)
+      : this(mimeType: mimeType);
+
+  const _DownloadedImageMimeResolution.failure(
+    OcrImageBodyFailureCategory failureCategory,
+  ) : this(failureCategory: failureCategory);
+
+  final String? mimeType;
+  final OcrImageBodyFailureCategory? failureCategory;
 }
 
 final class _RemoteImageAddressResolution {

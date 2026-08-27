@@ -325,6 +325,98 @@ void main() {
       }
     });
 
+    test('body validation telemetry records fixed rejection subcategories',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      Future<void> parseRemote({
+        required List<int> body,
+        required String contentType,
+        int? contentLength,
+      }) async {
+        final file = _syntheticPngFile('zhipu-ocr-body-category');
+        addTearDown(() => file.deleteSync());
+        var responseIndex = 0;
+        final streamedClient = _StreamedCropClient(() {
+          final response = responseIndex++ == 0
+              ? http.StreamedResponse(
+                  Stream<List<int>>.value(
+                    utf8.encode(jsonEncode(_cropResponse(count: 1))),
+                  ),
+                  200,
+                  headers: const <String, String>{
+                    'content-type': 'application/json',
+                  },
+                )
+              : http.StreamedResponse(
+                  Stream<List<int>>.value(body),
+                  200,
+                  headers: <String, String>{
+                    'content-type': contentType,
+                  },
+                  contentLength: contentLength ?? body.length,
+                );
+          return response;
+        });
+        final client = ZhipuOcrClient(
+          httpClient: streamedClient,
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+        );
+        await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      await parseRemote(body: const <int>[], contentType: 'image/png');
+      await parseRemote(
+        body: const <int>[1, 2, 3],
+        contentType: 'image/png',
+      );
+      await parseRemote(
+        body: _validCropPng,
+        contentType: 'image/avif',
+      );
+      await parseRemote(
+        body: _validCropPng,
+        contentType: 'image/jpeg',
+      );
+      await parseRemote(
+        body: const <int>[1],
+        contentType: 'image/png',
+        contentLength: ZhipuOcrClient.maxImageBytes + 1,
+      );
+      await AppLogger.flush();
+
+      final records = sink.records
+          .where((record) => record.data['stage'] == 'image_materialization')
+          .toList(growable: false);
+      expect(records, hasLength(5));
+      expect(
+        records.map((record) => record.data['category']),
+        everyElement('body_or_mime_invalid'),
+      );
+      expect(
+        records.map((record) => record.data['failureCategory']),
+        containsAll(<String>[
+          'empty_body',
+          'signature_unrecognized',
+          'mime_unsupported',
+          'mime_signature_mismatch',
+          'body_too_large',
+        ]),
+      );
+      for (final record in records) {
+        expect(record.toJson().toString(), isNot(contains('cdn.example.com')));
+        expect(record.toJson().toString(), isNot(contains('data:image')));
+      }
+    });
+
     test('materialization telemetry classifies policy, DNS and HTTP failures',
         () async {
       final sink = _MemoryLogSink();
