@@ -51,7 +51,8 @@ final class OcrTableProjectionResult {
 ///
 /// HTML is an input representation only. It is never stored in a
 /// [SourceTablePart] or used as the canonical legacy projection. Unsupported
-/// markup, merged-cell geometry, and malformed tables fail closed.
+/// markup and malformed tables fail closed; valid merged-cell geometry is
+/// admitted through the shared [TableStructure] authority.
 final class OcrTableProjector {
   const OcrTableProjector._();
 
@@ -111,6 +112,7 @@ final class OcrTableProjector {
     }
 
     final rows = <List<RichContent>>[];
+    final structureRows = <TableRow>[];
     for (final rowMatch in rowMatches) {
       final rowHtml = rowMatch.group(1) ?? '';
       final cellMatches = RegExp(
@@ -130,12 +132,11 @@ final class OcrTableProjector {
       }
 
       final row = <RichContent>[];
+      final structureCells = <TableCell>[];
       for (final cellMatch in cellMatches) {
         final attributes = cellMatch.group(1) ?? '';
-        if (RegExp(
-          r'\b(?:rowspan|colspan)\s*=',
-          caseSensitive: false,
-        ).hasMatch(attributes)) {
+        final spans = _parseCellSpans(attributes);
+        if (!spans.valid) {
           return const OcrTableProjectionResult.failure(
             OcrTableProjectionFailureCategory.mergedCells,
           );
@@ -146,13 +147,25 @@ final class OcrTableProjector {
               ? RichContent(nodes: const <ContentNode>[])
               : RichContent(nodes: <ContentNode>[TextNode(text)]),
         );
+        structureCells.add(
+          TableCell(
+            content: row.last,
+            rowSpan: spans.rowSpan,
+            columnSpan: spans.columnSpan,
+          ),
+        );
       }
       rows.add(row);
+      structureRows.add(TableRow(cells: structureCells));
     }
 
     try {
+      final structure = TableStructure(rows: structureRows);
       return OcrTableProjectionResult.success(
-        SourceTablePart(sourceRef: sourceRef, rows: rows),
+        SourceTablePart.normalized(
+          sourceRef: sourceRef,
+          structure: structure,
+        ),
       );
     } on FormatException {
       return const OcrTableProjectionResult.failure(
@@ -184,6 +197,36 @@ final class OcrTableProjector {
         .replaceAll(RegExp(r'<[^>]+>'), '');
     text = _decodeHtmlEntities(text);
     return text.replaceAll(RegExp(r'[ \t\r\n]+'), ' ').trim();
+  }
+
+  static _ParsedTableCellSpans _parseCellSpans(String attributes) {
+    var rowSpan = 1;
+    var columnSpan = 1;
+    var rowSpanSeen = false;
+    var columnSpanSeen = false;
+    for (final match in _htmlAttributePattern.allMatches(attributes)) {
+      final name = match.group(1)?.toLowerCase();
+      if (name != 'rowspan' && name != 'colspan') continue;
+
+      final value = match.group(2) ?? match.group(3) ?? match.group(4);
+      final parsed = value == null ? null : int.tryParse(value.trim());
+      if (parsed == null || parsed < 1) {
+        return const _ParsedTableCellSpans.invalid();
+      }
+      if (name == 'rowspan') {
+        if (rowSpanSeen) return const _ParsedTableCellSpans.invalid();
+        rowSpanSeen = true;
+        rowSpan = parsed;
+      } else {
+        if (columnSpanSeen) return const _ParsedTableCellSpans.invalid();
+        columnSpanSeen = true;
+        columnSpan = parsed;
+      }
+    }
+    return _ParsedTableCellSpans(
+      rowSpan: rowSpan,
+      columnSpan: columnSpan,
+    );
   }
 
   static String _decodeHtmlEntities(String text) {
@@ -243,3 +286,24 @@ final class OcrTableProjector {
     }).join();
   }
 }
+
+final class _ParsedTableCellSpans {
+  const _ParsedTableCellSpans({
+    required this.rowSpan,
+    required this.columnSpan,
+  }) : valid = true;
+
+  const _ParsedTableCellSpans.invalid()
+      : valid = false,
+        rowSpan = 1,
+        columnSpan = 1;
+
+  final bool valid;
+  final int rowSpan;
+  final int columnSpan;
+}
+
+final _htmlAttributePattern = RegExp(
+  r"""([A-Za-z][A-Za-z0-9:-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?""",
+  caseSensitive: false,
+);

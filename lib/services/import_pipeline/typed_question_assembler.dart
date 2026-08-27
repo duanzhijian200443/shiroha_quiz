@@ -284,43 +284,30 @@ final class TypedQuestionAssembler {
 }
 
 TableNode _tableNode(SourceTablePart part, QuestionRegionField field) {
-  if (part.rows.isEmpty || part.rows.any((row) => row.isEmpty)) {
+  final structure = part.structure;
+  if (structure == null) {
+    if (part.rows.isEmpty || part.rows.any((row) => row.isEmpty)) {
+      throw QuestionRegionUnsupportedException(
+        kindCode: 'source_table',
+        field: field,
+        message: 'The source table is empty and cannot be represented '
+            'losslessly.',
+      );
+    }
+
+    final columnCount = part.rows.first.length;
+    final message = part.rows.any((row) => row.length != columnCount)
+        ? 'The source table is ragged and cannot be represented losslessly.'
+        : 'The source table has no normalized geometry and cannot be '
+            'represented losslessly.';
     throw QuestionRegionUnsupportedException(
       kindCode: 'source_table',
       field: field,
-      message: 'The source table is empty and cannot be represented '
-          'losslessly.',
+      message: message,
     );
   }
 
-  final columnCount = part.rows.first.length;
-  if (part.rows.any((row) => row.length != columnCount)) {
-    throw QuestionRegionUnsupportedException(
-      kindCode: 'source_table',
-      field: field,
-      message: 'The source table is ragged and cannot be represented '
-          'losslessly.',
-    );
-  }
-
-  try {
-    return TableNode(
-      structure: TableStructure(
-        rows: part.rows.map(
-          (row) => TableRow(
-            cells: row.map((cell) => TableCell(content: cell)),
-          ),
-        ),
-      ),
-    );
-  } on FormatException {
-    throw QuestionRegionUnsupportedException(
-      kindCode: 'source_table',
-      field: field,
-      message: 'The source table contains content or geometry that cannot '
-          'be represented losslessly.',
-    );
-  }
+  return TableNode(structure: structure);
 }
 
 QuestionKind _mapKind(

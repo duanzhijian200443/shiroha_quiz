@@ -383,7 +383,7 @@ void main() {
                 '</td></tr></table>',
         'no_rows': '<table></table>',
         'invalid_cells': '<table><tr></tr></table>',
-        'merged_cells': '<table><tr><td rowspan="2">cell</td></tr></table>',
+        'merged_cells': '<table><tr><td rowspan>cell</td></tr></table>',
         'too_many_rows': '<table>${List<String>.filled(
           OcrTableProjector.maxRowCount + 1,
           '<tr><td>cell</td></tr>',
@@ -437,6 +437,41 @@ void main() {
         expect(record.toJson().toString(), isNot(contains('fixture.example')));
         expect(record.toJson().toString(), isNot(contains('<table>')));
       }
+    });
+
+    test('admits valid merged table geometry as a normalized source part', () {
+      final converted = const OcrSourceDocumentAdapter().convert(
+        const OcrDocument(
+          sourceName: 'merged-table.pdf',
+          pages: <OcrPage>[
+            OcrPage(
+              pageIndex: 1,
+              blocks: <OcrBlock>[
+                OcrBlock(
+                  blockId: 'merged_table',
+                  pageIndex: 1,
+                  type: 'table',
+                  text: '<table>'
+                      '<tr><td rowspan="2" colspan="2">A</td><td>B</td></tr>'
+                      '<tr><td>C</td></tr>'
+                      '</table>',
+                  bbox: <double>[],
+                  readingOrder: 0,
+                ),
+              ],
+            ),
+          ],
+          markdown: '',
+          rawResponses: <Map<String, dynamic>>[],
+          usage: <String, dynamic>{},
+        ),
+        sourceId: 'merged_table_source',
+      );
+
+      final table = converted.parts.single as SourceTablePart;
+      expect(table.isNormalized, isTrue);
+      expect(table.structure!.rows.first.cells.first.rowSpan, 2);
+      expect(table.structure!.rows.first.cells.first.columnSpan, 2);
     });
 
     test(

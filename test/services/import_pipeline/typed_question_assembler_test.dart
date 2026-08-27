@@ -443,6 +443,59 @@ void main() {
       );
     });
 
+    test('maps a source table with merged cells without flattening spans', () {
+      final structure = TableStructure(
+        rows: <TableRow>[
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: RichContent(
+                  nodes: <ContentNode>[const TextNode('merged')],
+                ),
+                rowSpan: 2,
+                columnSpan: 2,
+              ),
+              TableCell(
+                content: RichContent(
+                  nodes: <ContentNode>[const TextNode('right')],
+                ),
+              ),
+            ],
+          ),
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: RichContent(
+                  nodes: <ContentNode>[const TextNode('tail')],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final draft = assembler.assemble(
+        QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[
+            QuestionRegionFragment(
+              field: QuestionRegionField.stem,
+              part: SourceTablePart.normalized(
+                sourceRef: _docRef(),
+                structure: structure,
+              ),
+            ),
+          ],
+          kindHint: QuestionRegionKindHint.shortAnswer,
+        ),
+        questionId: 'q_merged_table',
+      );
+
+      final table = draft.stem.nodes.single as TableNode;
+      expect(table.structure, same(structure));
+      expect(table.structure.rows.first.cells.first.rowSpan, 2);
+      expect(table.structure.rows.first.cells.first.columnSpan, 2);
+    });
+
     test('preserves table and image encounter order in one field', () {
       final tablePart = SourceTablePart(
         sourceRef: _docRef(),
@@ -507,6 +560,32 @@ void main() {
       );
       expect(
         () => assembler.assemble(raggedRegion, questionId: 'q_1'),
+        throwsA(
+          isA<QuestionRegionUnsupportedException>()
+              .having((error) => error.kindCode, 'kindCode', 'source_table'),
+        ),
+      );
+
+      final legacyRegion = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceTablePart.legacy(
+              sourceRef: _docRef(),
+              rows: <List<RichContent>>[
+                <RichContent>[
+                  RichContent(nodes: <ContentNode>[const TextNode('a')]),
+                  RichContent(nodes: <ContentNode>[const TextNode('b')]),
+                ],
+              ],
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.unknown,
+      );
+      expect(
+        () => assembler.assemble(legacyRegion, questionId: 'q_legacy_table'),
         throwsA(
           isA<QuestionRegionUnsupportedException>()
               .having((error) => error.kindCode, 'kindCode', 'source_table'),
