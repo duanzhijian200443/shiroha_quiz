@@ -182,6 +182,55 @@ void main() {
   });
 
   group('SourceTablePart', () {
+    test('normalizes rectangular rows and preserves explicit geometry', () {
+      final sourceRef = SourceRef.document(sourceId: 'source_001');
+      final structure = TableStructure(
+        rows: <TableRow>[
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: _text('merged'),
+                rowSpan: 2,
+                columnSpan: 2,
+              ),
+              TableCell(content: _text('right')),
+            ],
+          ),
+          TableRow(cells: <TableCell>[TableCell(content: _text('tail'))]),
+        ],
+      );
+      final part = SourceTablePart.normalized(
+        sourceRef: sourceRef,
+        structure: structure,
+      );
+
+      expect(part.isNormalized, isTrue);
+      expect(part.structure, same(structure));
+      expect(part.rows, hasLength(2));
+      expect(part.rows.first, hasLength(2));
+      expect(part.rows.last, hasLength(1));
+    });
+
+    test('keeps explicit legacy carriers distinct from normalized geometry',
+        () {
+      final sourceRef = SourceRef.document(sourceId: 'source_001');
+      final rows = <List<RichContent>>[
+        <RichContent>[_text('a'), _text('b')],
+      ];
+      final legacy = SourceTablePart.legacy(
+        sourceRef: sourceRef,
+        rows: rows,
+      );
+      final normalized = SourceTablePart(
+        sourceRef: sourceRef,
+        rows: rows,
+      );
+
+      expect(legacy.structure, isNull);
+      expect(normalized.structure, isNotNull);
+      expect(legacy, isNot(normalized));
+    });
+
     test('preserves empty, ragged, and ordered rich-content cells', () {
       final firstRow = <RichContent>[_text('r1c1'), _text('')];
       final secondRow = <RichContent>[_text('r2c1')];

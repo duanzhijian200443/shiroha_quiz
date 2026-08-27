@@ -433,30 +433,35 @@ the stricter TableNode cell subset must not silently make them unreadable,
 pad/drop cells, discard fallback content, or reinterpret them as valid v0
 tables.
 
-Implementation must provide an explicit versioned backward-read and
-deterministic transition policy:
+Implementation uses an explicit versioned backward-read and deterministic
+transition policy:
 
+- `SourceDocumentCodec.schemaVersion == 2` is the current writer version and
+  accepts both v1 and v2 roots;
 - existing SourceDocument v1 payloads remain decodable as their legacy source
   meaning;
 - a non-empty rectangular v1 table whose cells satisfy the v0 allowed subset
-  may deterministically upgrade to `TableStructure` with `rowSpan = 1` and
+  deterministically upgrades to `TableStructure` with `rowSpan = 1` and
   `columnSpan = 1` without semantic loss;
-- ragged, empty, or otherwise non-representable v1 tables remain losslessly
-  preserved by an explicit compatibility carrier; an attempted v0 conversion
-  produces an explicit unsupported/review outcome rather than silently
-  normalizing them into different content;
-- lossless legacy re-encode remains available until the compatibility
-  carrier's separately authorized retirement condition is met;
+- ragged, empty, or otherwise non-representable v1 tables are losslessly
+  preserved as an explicit rows-only compatibility carrier (`structure ==
+  null`); attempting to use that carrier as a normalized v0 table remains an
+  explicit unsupported/review outcome rather than silent normalization;
+- normalized v2 tables use a `structure.rows[].cells[]` payload, with each
+  cell carrying `content`, `rowSpan`, and `columnSpan`;
+- v2 rows-only compatibility carriers use an explicit `legacyRows` payload;
+- `encodeLegacyV1` remains available for lossless legacy re-encode. It emits
+  the v1 rows shape for legacy or unit-span tables and fails closed for any
+  spanned table instead of flattening geometry;
+- the outer `ParsedArtifactPayload` envelope remains v1 while embedding the
+  versioned SourceDocument payload;
 - a ParsedArtifact rebuild may replace derived SourceDocument data only
   through the existing generation/lifecycle contract and never as a silent
   in-place rewrite or as authority to mutate confirmed Questions.
 
-If a writer emits the new spanned `TableStructure` payload rather than the
-legacy rows array, it must use an explicitly versioned SourceDocument or table
-sub-payload contract. It must not emit the new exact-key shape while continuing
-to claim the old SourceDocument v1 table schema. The concrete version number,
-carrier type, and rebuild/upgrade mechanics are deferred; backward readability
-and no-silent-loss behavior are FINAL.
+The new spanned table shape is therefore never emitted while claiming the old
+SourceDocument v1 schema. Existing v1 readability and no-silent-loss behavior
+remain FINAL.
 
 ## F. Privacy / Admission Contract
 
@@ -658,7 +663,7 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | RichContent schema version 1 | FINAL | New self-contained node discriminators fit current unknown-node preservation. |
 | SourceDocument v1 table backward-read/upgrade/rebuild policy | FINAL | Existing ragged/empty/fallback table payloads cannot become silently invalid or lossy. |
 | New spanned table payload under unchanged SourceDocument v1 shape | REJECTED | The current exact-key v1 table codec cannot safely interpret that schema change. |
-| Concrete `SourceDocumentCodec` next schemaVersion and carrier | DEFERRED | A later implementation may choose mechanics while preserving the frozen compatibility policy. |
+| Concrete `SourceDocumentCodec` v2 structure/carrier | IMPLEMENTED (bounded) | v1 and v2 are readable; normalized spans use `TableStructure`, legacy rows remain lossless, and v1 re-encode fails closed for spans. |
 | Unknown future node -> lossless fallback | FINAL | Old readers preserve data without semantic mutation. |
 | Malformed known node -> fallback | REJECTED | Claimed known schemas fail closed on invalid canonical payloads. |
 | Legacy Question rewrite/deletion | REJECTED | Existing banks and String compatibility remain supported. |
