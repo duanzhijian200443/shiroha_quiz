@@ -3,6 +3,50 @@ import '../../domain/content/rich_content.dart';
 import '../../domain/source/source_part.dart';
 import '../../domain/source/source_ref.dart';
 
+/// Fixed, privacy-safe reasons why a provider table was not admitted to the
+/// typed source model. The category never contains table markup.
+enum OcrTableProjectionFailureCategory {
+  inputTooLarge,
+  embeddedMediaOrLink,
+  noRows,
+  invalidCells,
+  mergedCells,
+  tooManyRows,
+  tooManyColumns,
+  sourceTableInvalid,
+}
+
+String ocrTableProjectionFailureCategoryValue(
+  OcrTableProjectionFailureCategory category,
+) {
+  return switch (category) {
+    OcrTableProjectionFailureCategory.inputTooLarge => 'input_too_large',
+    OcrTableProjectionFailureCategory.embeddedMediaOrLink =>
+      'embedded_media_or_link',
+    OcrTableProjectionFailureCategory.noRows => 'no_rows',
+    OcrTableProjectionFailureCategory.invalidCells => 'invalid_cells',
+    OcrTableProjectionFailureCategory.mergedCells => 'merged_cells',
+    OcrTableProjectionFailureCategory.tooManyRows => 'too_many_rows',
+    OcrTableProjectionFailureCategory.tooManyColumns => 'too_many_columns',
+    OcrTableProjectionFailureCategory.sourceTableInvalid =>
+      'source_table_invalid',
+  };
+}
+
+final class OcrTableProjectionResult {
+  const OcrTableProjectionResult({this.table, this.failureCategory});
+
+  const OcrTableProjectionResult.success(SourceTablePart table)
+      : this(table: table);
+
+  const OcrTableProjectionResult.failure(
+    OcrTableProjectionFailureCategory failureCategory,
+  ) : this(failureCategory: failureCategory);
+
+  final SourceTablePart? table;
+  final OcrTableProjectionFailureCategory? failureCategory;
+}
+
 /// Deterministic, bounded adapter for the provider's HTML table block.
 ///
 /// HTML is an input representation only. It is never stored in a
@@ -19,18 +63,35 @@ final class OcrTableProjector {
     String html, {
     required SourceRef sourceRef,
   }) {
-    if (html.length > maxInputLength) return null;
+    return analyzeHtmlTable(html, sourceRef: sourceRef).table;
+  }
+
+  static OcrTableProjectionResult analyzeHtmlTable(
+    String html, {
+    required SourceRef sourceRef,
+  }) {
+    if (html.length > maxInputLength) {
+      return const OcrTableProjectionResult.failure(
+        OcrTableProjectionFailureCategory.inputTooLarge,
+      );
+    }
     final trimmed = html.trim();
     if (!RegExp(r'<table\b', caseSensitive: false).hasMatch(trimmed) ||
         RegExp(
           r'<(?:script|style)\b',
           caseSensitive: false,
-        ).hasMatch(trimmed) ||
-        RegExp(
-          r'<\s*(?:img|a)\b|\b(?:src|href)\s*=',
-          caseSensitive: false,
         ).hasMatch(trimmed)) {
-      return null;
+      return const OcrTableProjectionResult.failure(
+        OcrTableProjectionFailureCategory.sourceTableInvalid,
+      );
+    }
+    if (RegExp(
+      r'<\s*(?:img|a)\b|\b(?:src|href)\s*=',
+      caseSensitive: false,
+    ).hasMatch(trimmed)) {
+      return const OcrTableProjectionResult.failure(
+        OcrTableProjectionFailureCategory.embeddedMediaOrLink,
+      );
     }
 
     final rowMatches = RegExp(
@@ -38,7 +99,16 @@ final class OcrTableProjector {
       caseSensitive: false,
       dotAll: true,
     ).allMatches(trimmed).toList(growable: false);
-    if (rowMatches.isEmpty || rowMatches.length > maxRowCount) return null;
+    if (rowMatches.isEmpty) {
+      return const OcrTableProjectionResult.failure(
+        OcrTableProjectionFailureCategory.noRows,
+      );
+    }
+    if (rowMatches.length > maxRowCount) {
+      return const OcrTableProjectionResult.failure(
+        OcrTableProjectionFailureCategory.tooManyRows,
+      );
+    }
 
     final rows = <List<RichContent>>[];
     for (final rowMatch in rowMatches) {
@@ -48,8 +118,15 @@ final class OcrTableProjector {
         caseSensitive: false,
         dotAll: true,
       ).allMatches(rowHtml).toList(growable: false);
-      if (cellMatches.isEmpty || cellMatches.length > maxColumnCount) {
-        return null;
+      if (cellMatches.isEmpty) {
+        return const OcrTableProjectionResult.failure(
+          OcrTableProjectionFailureCategory.invalidCells,
+        );
+      }
+      if (cellMatches.length > maxColumnCount) {
+        return const OcrTableProjectionResult.failure(
+          OcrTableProjectionFailureCategory.tooManyColumns,
+        );
       }
 
       final row = <RichContent>[];
@@ -59,7 +136,9 @@ final class OcrTableProjector {
           r'\b(?:rowspan|colspan)\s*=',
           caseSensitive: false,
         ).hasMatch(attributes)) {
-          return null;
+          return const OcrTableProjectionResult.failure(
+            OcrTableProjectionFailureCategory.mergedCells,
+          );
         }
         final text = _sanitizeCellText(cellMatch.group(2) ?? '');
         row.add(
@@ -72,9 +151,13 @@ final class OcrTableProjector {
     }
 
     try {
-      return SourceTablePart(sourceRef: sourceRef, rows: rows);
+      return OcrTableProjectionResult.success(
+        SourceTablePart(sourceRef: sourceRef, rows: rows),
+      );
     } on FormatException {
-      return null;
+      return const OcrTableProjectionResult.failure(
+        OcrTableProjectionFailureCategory.sourceTableInvalid,
+      );
     }
   }
 

@@ -1,4 +1,5 @@
 import '../../../application/content/content_asset_authority.dart';
+import '../../../core/observability/app_logger.dart';
 import '../../../domain/assets/asset_ref.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
@@ -283,12 +284,25 @@ SourceDocument _convertWithoutBlocks({
   OcrBlock block,
   SourceRef sourceRef,
 ) {
-  final table = OcrTableProjector.parseHtmlTable(
+  final projection = OcrTableProjector.analyzeHtmlTable(
     block.text,
     sourceRef: sourceRef,
   );
+  final table = projection.table;
   if (table != null) {
     return (part: table, structureUnsupported: false);
+  }
+  final failureCategory = projection.failureCategory;
+  if (failureCategory != null) {
+    AppLogger.info(
+      'OCR table projection classified',
+      module: 'ImportPipeline',
+      data: <String, Object?>{
+        'stage': 'table_projection',
+        'category': ocrTableProjectionFailureCategoryValue(failureCategory),
+        'count': 1,
+      },
+    );
   }
   return (
     part: UnsupportedSourcePart(

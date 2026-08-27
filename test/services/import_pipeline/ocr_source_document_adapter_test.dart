@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
@@ -7,6 +9,7 @@ import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_table_projection.dart';
 
 void main() {
   group('OcrSourceDocumentAdapter', () {
@@ -363,6 +366,77 @@ void main() {
         hasLength(7),
       );
       expect(_allNodes(converted).whereType<RawFallbackNode>(), isEmpty);
+    });
+
+    test('table rejection telemetry uses fixed safe categories', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+
+      final cases = <String, String>{
+        'input_too_large': '<table>${List<String>.filled(
+          OcrTableProjector.maxInputLength + 1,
+          'x',
+        ).join()}</table>',
+        'embedded_media_or_link':
+            '<table><tr><td><img src="https://fixture.example/image.png">'
+                '</td></tr></table>',
+        'no_rows': '<table></table>',
+        'invalid_cells': '<table><tr></tr></table>',
+        'merged_cells': '<table><tr><td rowspan="2">cell</td></tr></table>',
+        'too_many_rows': '<table>${List<String>.filled(
+          OcrTableProjector.maxRowCount + 1,
+          '<tr><td>cell</td></tr>',
+        ).join()}</table>',
+        'too_many_columns': '<table><tr>${List<String>.filled(
+          OcrTableProjector.maxColumnCount + 1,
+          '<td>cell</td>',
+        ).join()}</tr></table>',
+        'source_table_invalid': 'not a table',
+      };
+
+      for (final entry in cases.entries) {
+        final converted = const OcrSourceDocumentAdapter().convert(
+          OcrDocument(
+            sourceName: 'table-category.pdf',
+            pages: <OcrPage>[
+              OcrPage(
+                pageIndex: 1,
+                blocks: <OcrBlock>[
+                  OcrBlock(
+                    blockId: 'table_${entry.key}',
+                    pageIndex: 1,
+                    type: 'table',
+                    text: entry.value,
+                    bbox: const <double>[],
+                    readingOrder: 0,
+                  ),
+                ],
+              ),
+            ],
+            markdown: '',
+            rawResponses: const <Map<String, dynamic>>[],
+            usage: const <String, dynamic>{},
+          ),
+          sourceId: 'table_category_source',
+        );
+        expect(converted.parts.single, isA<UnsupportedSourcePart>());
+      }
+      await AppLogger.flush();
+
+      final records = sink.records
+          .where((record) => record.data['stage'] == 'table_projection')
+          .toList(growable: false);
+      expect(records, hasLength(cases.length));
+      expect(
+        records.map((record) => record.data['category']),
+        containsAll(cases.keys),
+      );
+      for (final record in records) {
+        expect(record.data['count'], 1);
+        expect(record.toJson().toString(), isNot(contains('fixture.example')));
+        expect(record.toJson().toString(), isNot(contains('<table>')));
+      }
     });
 
     test(
@@ -783,4 +857,16 @@ Iterable<String> _jsonStrings(Object? value) sync* {
       yield* _jsonStrings(item);
     }
   }
+}
+
+final class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
 }
