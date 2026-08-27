@@ -151,6 +151,44 @@ void main() {
     );
   });
 
+  test('read-only runtime seam rejects sqlite writes', () async {
+    final runtime = await TrainCIsolatedRuntime.create();
+    await runtime.open();
+    final runtimeCapability = await runtime.issuePersistentReattachCapability();
+    addTearDown(() async {
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      if (await runtime.root.exists()) {
+        await runtime.root.delete(recursive: true);
+      }
+    });
+    await runtime.closeForRestart();
+    final beforeEntries = await _sortedPaths(runtime.dbDirectory);
+
+    // Model the postmortem process boundary after the failed Live child exits.
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+
+    await expectLater(
+      TrainCIsolatedRuntime.inspectReadOnlyFromCapability<void>(
+        runtimeCapability,
+        (db) async {
+          await db.rawDelete('DELETE FROM import_tasks');
+        },
+      ),
+      throwsA(
+        isA<TrainCIsolationException>().having(
+          (error) => error.safeDetail,
+          'safeDetail',
+          'TRAIN_C_REATTACH_READ_ONLY_DATABASE_FAILURE',
+        ),
+      ),
+    );
+    expect(
+      DatabaseHelper.runtimeProfile,
+      DatabaseRuntimeProfile.explicitReadOnly,
+    );
+    expect(await _sortedPaths(runtime.dbDirectory), beforeEntries);
+  });
+
   test(
     'default reader preserves failed capability and durable task row',
     () async {
@@ -189,6 +227,7 @@ void main() {
         }
       });
       await runtime.closeForRestart();
+      final beforeDbEntries = await _sortedPaths(runtime.dbDirectory);
 
       // The real failed Live child has exited before postmortem starts. Reset
       // test-only singleton state to model that fresh OS process boundary.
@@ -208,6 +247,11 @@ void main() {
       expect(afterState.revision, beforeState.revision);
       expect(afterState.phase, beforeState.phase);
       expect(afterState.attemptState, beforeState.attemptState);
+      expect(
+        DatabaseHelper.runtimeProfile,
+        DatabaseRuntimeProfile.explicitReadOnly,
+      );
+      expect(await _sortedPaths(runtime.dbDirectory), beforeDbEntries);
 
       // Reopen once more in a fresh simulated process to prove the postmortem
       // itself did not mutate the durable task row or consume the capability.
@@ -271,6 +315,15 @@ _CapabilityFixture _failedCapability({required String runtimeCapability}) {
     capabilityValue: capabilityValue,
     authority: authority,
   );
+}
+
+Future<List<String>> _sortedPaths(Directory directory) async {
+  final paths = await directory
+      .list(followLinks: false)
+      .map((entity) => entity.path)
+      .toList();
+  paths.sort();
+  return paths;
 }
 
 Matcher _code(String code) => isA<TrainCEvidenceProbeException>().having(
