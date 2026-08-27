@@ -1,6 +1,6 @@
 # P2-B1T2 Phase 2B Typed / Legacy Parity Contract
 
-Status: **FINAL / FROZEN V0 CONTRACT; IMPLEMENTED BY P2B-I1.**
+Status: **FINAL / FROZEN V0 CONTRACT; IMPLEMENTED BY P2B-I1; B5 AMENDMENT.**
 
 Durable architecture truth changed by this contract: **YES**.
 
@@ -182,6 +182,9 @@ raw != '' AND final explanation == ''
 both strings non-empty, typed explanation TextNode-only, and N0(raw) == N0(final)
     -> allowed
 
+both strings non-empty and B5(raw) == final explanation
+    -> allowed
+
 supported typed structural explanation, both strings non-empty, and raw != final
     -> defer to strict final-baseline / candidate-projection parity
 
@@ -194,10 +197,34 @@ whitespace-only non-empty raw text is not allowed to normalize into a literal
 empty final explanation. This preserves fail-closed retention/quality-policy
 semantics.
 
-V0 does not treat deterministic safe-HTML cleanup, deterministic LaTeX repair,
-or general OCR line reflow as equivalent merely because they may be produced
-by finalization. Those transformations require their own evidence-backed
-contract if they remain a real first-loss boundary.
+V0 does not treat general OCR line reflow as equivalent merely because it may
+be produced by finalization. The narrowly approved B5 transformation below is
+comparison-only and does not change the finalization output or persisted value.
+
+### B5 deterministic finalization equivalence amendment
+
+A non-empty raw/final explanation difference may be admitted when the final
+explanation is exactly reproduced by a frozen deterministic production
+finalization transform approved for comparison-only use. B5 defines its
+comparison value as:
+
+```text
+B5(raw)
+    = repairLatexDeterministically(stripSafeHtmlWrappers(raw).text)
+```
+
+The HTML step is eligible only when it performs the existing safe wrapper,
+safe block/line-break, and safe entity cleanup. If its diagnostics contain
+`unsafe_html_content_removed` or `unsupported_html_tag_preserved`, B5 does not
+establish equivalence. The LaTeX step is exactly the existing
+`repairLatexDeterministically()` function; B5 adds no second repair or
+normalizer and does not include `LatexBlockEnvironmentNormalizer`.
+
+`B5(raw) == final explanation` is exact equality and is used only for
+admission comparison. It never rewrites `raw_explanation`, replaces the final
+legacy value, creates typed authority, or enters the snapshot. The strict
+final-baseline / candidate-projection parity check, exact provenance checks,
+all-or-nothing batch behavior, and the existing N0 contract remain mandatory.
 
 ## 6. Internal line wrapping, formula-role TextNodes, math, and structural content
 

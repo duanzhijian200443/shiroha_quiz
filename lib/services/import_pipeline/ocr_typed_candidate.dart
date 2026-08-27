@@ -8,8 +8,10 @@ import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
+import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_safe_html_cleanup.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -612,6 +614,9 @@ bool _rawExplanationAllowed(
   if (raw is! String) return false;
   if (raw.isEmpty || raw == finalExplanation) return true;
   if (finalExplanation.isEmpty) return false;
+  if (_deterministicFinalizationEquivalent(raw, finalExplanation)) {
+    return true;
+  }
   // A supported typed structural explanation is not independently vetoed by
   // its raw legacy string. The strict final-baseline/projected parity check
   // below remains the authority for both representation-only and semantic
@@ -620,6 +625,21 @@ bool _rawExplanationAllowed(
   if (_hasSupportedStructuralExplanation(candidate)) return true;
   return _textNodeOnlyExplanation(candidate) &&
       _n0Equals(raw, finalExplanation);
+}
+
+const _unsafeHtmlContentRemoved = 'unsafe_html_content_removed';
+const _unsupportedHtmlTagPreserved = 'unsupported_html_tag_preserved';
+
+bool _deterministicFinalizationEquivalent(
+  String raw,
+  String finalExplanation,
+) {
+  final cleaned = stripSafeHtmlWrappers(raw);
+  if (cleaned.diagnostics.contains(_unsafeHtmlContentRemoved) ||
+      cleaned.diagnostics.contains(_unsupportedHtmlTagPreserved)) {
+    return false;
+  }
+  return repairLatexDeterministically(cleaned.text) == finalExplanation;
 }
 
 bool _baselineParity(

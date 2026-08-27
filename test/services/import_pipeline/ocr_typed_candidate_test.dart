@@ -15,8 +15,10 @@ import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_safe_html_cleanup.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 
@@ -681,6 +683,127 @@ void main() {
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,
       );
+    });
+
+    test('B5 admits safe HTML wrapper equivalence', () {
+      const rawExplanation = '<div>Synthetic explanation</div>';
+      const finalExplanation = 'Synthetic explanation';
+      expect(stripSafeHtmlWrappers(rawExplanation).text, finalExplanation);
+      expect(stripSafeHtmlWrappers(rawExplanation).diagnostics, isEmpty);
+
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+      expect(result.questions.single['raw_explanation'], rawExplanation);
+      expect(result.questions.single['explanation'], finalExplanation);
+    });
+
+    test('B5 admits nested safe wrapper and line-break equivalence', () {
+      const rawExplanation = '<div><span>First</span><br><p>Second</p></div>';
+      const finalExplanation = 'First\nSecond';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(stripSafeHtmlWrappers(rawExplanation).diagnostics, isEmpty);
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+    });
+
+    test('B5 admits safe entity representation equivalence', () {
+      const rawExplanation = '<span>Synthetic &amp; explanation</span>';
+      const finalExplanation = 'Synthetic & explanation';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(stripSafeHtmlWrappers(rawExplanation).diagnostics, isEmpty);
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+    });
+
+    test('B5 does not treat dangerous HTML removal as equivalence', () {
+      const rawExplanation =
+          '<script>synthetic private marker</script><div>Synthetic '
+          'explanation</div>';
+      const finalExplanation = 'Synthetic explanation';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(
+        stripSafeHtmlWrappers(rawExplanation).diagnostics,
+        contains('unsafe_html_content_removed'),
+      );
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test('B5 does not generalize unsupported HTML tags', () {
+      const rawExplanation = '<em>Synthetic</em><div>explanation</div>';
+      const finalExplanation = '<em>Synthetic</em>\nexplanation';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(
+        stripSafeHtmlWrappers(rawExplanation).diagnostics,
+        contains('unsupported_html_tag_preserved'),
+      );
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test('B5 admits existing deterministic LaTeX repair equivalence', () {
+      const rawExplanation = r'Explanation \(\left(x + 1\)';
+      const finalExplanation = r'Explanation \((x + 1\)';
+      expect(repairLatexDeterministically(rawExplanation), finalExplanation);
+
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+    });
+
+    test('B5 keeps LaTeX semantic mutation rejected', () {
+      const rawExplanation = r'Explanation \(\left(x + 1\)';
+      const finalExplanation = r'Explanation \((x - 1\)';
+      expect(
+        repairLatexDeterministically(rawExplanation),
+        isNot(finalExplanation),
+      );
+
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test('B5 keeps projection semantic mismatch rejected', () {
+      const rawExplanation = r'Explanation \(\left(x + 1\)';
+      const finalExplanation = r'Explanation \((x + 1\)';
+      final result = _runExplanationGate(
+        rawExplanation: rawExplanation,
+        finalExplanation: finalExplanation,
+        projectedExplanation: 'Different projected explanation',
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_projection_mismatch');
     });
 
     test(
@@ -1379,6 +1502,41 @@ OcrTypedCandidate _candidate({
     projectedLegacy: projectedLegacy ?? _finalBaseline(number: questionNumber),
     sourcePageIndices: const <int>[1],
     sourceBlockIds: const <String>['q_1', 'answer_1', 'explanation_1'],
+  );
+}
+
+OcrTypedCandidateGateResult _runExplanationGate({
+  required String rawExplanation,
+  required String finalExplanation,
+  String? projectedExplanation,
+}) {
+  final projected = projectedExplanation ?? finalExplanation;
+  final question = _finalQuestion(number: 1)
+    ..['explanation'] = finalExplanation
+    ..['raw_explanation'] = rawExplanation;
+  return applyOcrTypedCandidateGate(
+    batch: OcrTypedCandidateBatch(
+      candidates: <OcrTypedCandidate>[
+        _candidate(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          reviewItemId: _reviewUuidA,
+          draft: _draftWithExplanation(
+            questionNumber: 1,
+            questionId: _questionUuidA,
+            explanation: RichContent(
+              nodes: <ContentNode>[TextNode(finalExplanation)],
+            ),
+          ),
+          projectedLegacy: _finalBaseline(
+            number: 1,
+            explanation: projected,
+          ),
+        ),
+      ],
+    ),
+    finalQuestions: <Map<String, dynamic>>[question],
+    singleFile: true,
   );
 }
 
