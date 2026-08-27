@@ -64,7 +64,10 @@ heuristic.
 - `_strictDecodeBaseline()` strictly decodes the six legacy fields;
 - `_rawExplanationAllowed()` admits `null`, the empty string, exact equality,
   or bounded N0 equality only when the typed explanation is TextNode-only and
-  both operands are non-empty;
+  both operands are non-empty. For a supported typed structural explanation,
+  a non-empty raw/final string difference is not an independent veto; the
+  strict final-baseline / candidate-projection comparison remains authoritative
+  below. Unsupported raw fallback remains outside this admission path;
 - `LegacyReviewBaseline == candidate.projectedLegacy` remains exact for all
   fields except the bounded TextNode-only explanation comparison defined in
   section 4, including exact ordered option elements and answer case;
@@ -73,11 +76,12 @@ heuristic.
 - any failed question removes every typed envelope and routes the whole batch
   to `legacyV1`.
 
-Consequently, a representation-only difference currently fails as
+Consequently, a TextNode-only representation difference fails as
 `typed_candidate_raw_explanation_diverged` when it is first observed between
-`raw_explanation` and final `explanation`, or as
-`typed_candidate_projection_mismatch` when it is first observed between the
-strict final baseline and the candidate compatibility projection.
+`raw_explanation` and final `explanation` unless it satisfies N0. For supported
+typed structural content, that raw string comparison is deferred; a mismatch
+between the strict final baseline and the candidate compatibility projection
+fails as `typed_candidate_projection_mismatch`.
 
 ## 3. Frozen field-level v0 contract
 
@@ -178,6 +182,9 @@ raw != '' AND final explanation == ''
 both strings non-empty, typed explanation TextNode-only, and N0(raw) == N0(final)
     -> allowed
 
+supported typed structural explanation, both strings non-empty, and raw != final
+    -> defer to strict final-baseline / candidate-projection parity
+
 otherwise
     -> reject typed_candidate_raw_explanation_diverged
 ```
@@ -236,11 +243,16 @@ ineligible for that relaxation.
 
 ### Math and structural content
 
-An explanation containing `InlineMathNode`, `BlockMathNode`, `ImageNode`,
-`TableNode`, or `RawFallbackNode` is ineligible for relaxed TextNode-only
-comparison. Its supported bounded compatibility representation must compare
-exactly. Current projection-unsupported content, including raw fallback at the
-question projection boundary, continues to fail closed before parity.
+An explanation containing `InlineMathNode`, `BlockMathNode`, `ImageNode`, or
+`TableNode` is ineligible for relaxed TextNode-only comparison. A non-empty
+`raw_explanation` difference for these supported typed structural nodes does
+not establish a separate failure: the final legacy baseline and the bounded
+candidate compatibility projection are compared strictly. Equal projections
+may therefore pass even when the raw structural provenance string differs;
+unequal projections fail closed as `typed_candidate_projection_mismatch`.
+`RawFallbackNode` remains outside this deferral and current
+projection-unsupported content continues to fail closed at the question
+projection boundary.
 
 At minimum, all of these remain unequal:
 
@@ -307,10 +319,15 @@ substantive mutation confined to `raw_explanation` fails earlier as
 | W | `\\(x\\)` versus `\\( x \\)` or block-math layout mutation | REJECT `typed_candidate_projection_mismatch` |
 | X | substantive text added to, removed from, or changed only in `raw_explanation` | REJECT `typed_candidate_raw_explanation_diverged` |
 | Y | formula-like/preformatted TextNode internal spacing only, e.g. `\\text{a  b}` versus `\\text{a b}` | REJECT at the active seam |
+| Z | supported typed structural explanation has `raw_explanation != explanation`, while final baseline equals candidate projection | ACCEPT `typedV2` |
+| AA | supported typed structural explanation has `raw_explanation != explanation`, and final baseline differs from candidate projection | REJECT `typed_candidate_projection_mismatch` |
 
 For rows C, E, and Y, "active seam" means a raw/final mismatch fails as
 `typed_candidate_raw_explanation_diverged`, while a strict final-baseline /
 candidate-projection mismatch fails as `typed_candidate_projection_mismatch`.
+For rows Z and AA, supported typed structural content defers the raw/final
+comparison to the strict final-baseline / candidate-projection seam; no
+normalization or semantic equivalence is added.
 
 ## 9. Compatibility projection boundary
 

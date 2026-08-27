@@ -683,6 +683,75 @@ void main() {
       );
     });
 
+    test(
+        'structural explanation defers raw provenance to strict projection parity',
+        () {
+      const projectedExplanation = 'Synthetic table cell';
+      final candidate = _candidate(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          explanation: _tableExplanation(projectedExplanation),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = projectedExplanation
+        ..['raw_explanation'] = 'raw table provenance differs';
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, 'typed_candidate_ready');
+      expect(
+        result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isTrue,
+      );
+    });
+
+    test('structural explanation still fails on a projection mismatch', () {
+      const projectedExplanation = 'Synthetic table cell';
+      const finalExplanation = 'Different table content';
+      final candidate = _candidate(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          explanation: _tableExplanation(projectedExplanation),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 1)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = 'raw table provenance differs';
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_projection_mismatch');
+    });
+
     test('TextNode-only N0 parity preserves the exact final baseline', () {
       const finalExplanation =
           '\u3000 \t\r\nSynthetic explanation 1\r \t\u3000';
@@ -1333,6 +1402,28 @@ QuestionDraftV2 _draftWithExplanation({
       ),
     ),
     explanation: explanation,
+  );
+}
+
+RichContent _tableExplanation(String cellText) {
+  return RichContent(
+    nodes: <ContentNode>[
+      TableNode(
+        structure: TableStructure(
+          rows: <TableRow>[
+            TableRow(
+              cells: <TableCell>[
+                TableCell(
+                  content: RichContent(
+                    nodes: <ContentNode>[TextNode(cellText)],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ],
   );
 }
 

@@ -612,6 +612,12 @@ bool _rawExplanationAllowed(
   if (raw is! String) return false;
   if (raw.isEmpty || raw == finalExplanation) return true;
   if (finalExplanation.isEmpty) return false;
+  // A supported typed structural explanation is not independently vetoed by
+  // its raw legacy string. The strict final-baseline/projected parity check
+  // below remains the authority for both representation-only and semantic
+  // differences. RawFallbackNode is intentionally excluded here because it
+  // is not admitted at the question projection boundary.
+  if (_hasSupportedStructuralExplanation(candidate)) return true;
   return _textNodeOnlyExplanation(candidate) &&
       _n0Equals(raw, finalExplanation);
 }
@@ -637,6 +643,21 @@ bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {
   final explanation = candidate.draft.explanation;
   return explanation != null &&
       explanation.nodes.every((node) => node is TextNode);
+}
+
+bool _hasSupportedStructuralExplanation(OcrTypedCandidate candidate) {
+  final explanation = candidate.draft.explanation;
+  if (explanation == null ||
+      explanation.nodes.any((node) => node is RawFallbackNode)) {
+    return false;
+  }
+  return explanation.nodes.any(
+    (node) =>
+        node is InlineMathNode ||
+        node is BlockMathNode ||
+        node is ImageNode ||
+        node is TableNode,
+  );
 }
 
 bool _n0Equals(String left, String right) {
