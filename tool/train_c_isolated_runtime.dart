@@ -129,42 +129,10 @@ final class TrainCIsolatedRuntime {
     bool deleteRootOnDispose = false,
   }) async {
     try {
-      late final (String, String) decoded;
-      try {
-        decoded = _decodeCapability(capability);
-      } catch (_) {
-        throw const TrainCIsolationException(
-          'TRAIN_C_REATTACH_CAPABILITY_INVALID',
-        );
-      }
-      final rootPath = decoded.$1;
-      final nonce = decoded.$2;
-      if (!p.isAbsolute(rootPath) || nonce.isEmpty) {
-        throw const TrainCIsolationException();
-      }
-      final runtime = TrainCIsolatedRuntime._(
-        root: Directory(rootPath),
+      final runtime = await _validateReattachCapability(
+        capability,
         deleteRootOnDispose: deleteRootOnDispose,
       );
-      try {
-        await runtime._validateOwnedRoot();
-      } catch (_) {
-        throw const TrainCIsolationException(
-          'TRAIN_C_REATTACH_ROOT_INVALID',
-        );
-      }
-      final capabilityFile = File(
-        _containedPath(
-          runtime.root,
-          p.join(runtime.root.path, _reattachCapabilityName),
-        ),
-      );
-      if (!await capabilityFile.exists() ||
-          await capabilityFile.readAsString() != '$nonce\n') {
-        throw const TrainCIsolationException(
-          'TRAIN_C_REATTACH_NONCE_INVALID',
-        );
-      }
       try {
         await runtime._openExistingDatabase(configureRuntimeProfile: true);
       } on TrainCIsolationException {
@@ -179,6 +147,68 @@ final class TrainCIsolatedRuntime {
       rethrow;
     } catch (_) {
       throw const TrainCIsolationException();
+    }
+  }
+
+  /// Executes a bounded inspection against an existing runtime through the
+  /// same opaque capability/root/nonce authority as normal reattach, but opens
+  /// SQLite through the existing `explicitReadOnly` profile. The callback
+  /// receives no path or capability and the durable reattach token is never
+  /// consumed.
+  static Future<T> inspectReadOnlyFromCapability<T>(
+    String capability,
+    Future<T> Function(Database database) inspect,
+  ) async {
+    var databaseOpened = false;
+    try {
+      final runtime = await _validateReattachCapability(
+        capability,
+        deleteRootOnDispose: false,
+      );
+      final dbPath = _containedPath(
+        runtime.root,
+        p.join(runtime.dbDirectory.path, DatabaseHelper.databaseFileName),
+      );
+      try {
+        _initializeTrainCDatabaseRuntime();
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_DATABASE_INIT_FAILURE',
+        );
+      }
+      try {
+        DatabaseHelper.configureRuntimeProfile(
+          DatabaseRuntimeProfile.explicitReadOnly,
+          databasePath: dbPath,
+        );
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_DATABASE_PROFILE_FAILURE',
+        );
+      }
+      try {
+        final db = await DatabaseHelper.instance.database;
+        databaseOpened = true;
+        return await inspect(db);
+      } catch (_) {
+        throw const TrainCIsolationException(
+          'TRAIN_C_REATTACH_READ_ONLY_DATABASE_FAILURE',
+        );
+      }
+    } on TrainCIsolationException {
+      rethrow;
+    } catch (_) {
+      throw const TrainCIsolationException(
+        'TRAIN_C_REATTACH_READ_ONLY_DATABASE_FAILURE',
+      );
+    } finally {
+      if (databaseOpened) {
+        try {
+          await DatabaseHelper.instance.close();
+        } catch (_) {
+          // Read-only postmortem is already fail-closed; close is best effort.
+        }
+      }
     }
   }
 
@@ -439,6 +469,49 @@ final class TrainCIsolatedRuntime {
         );
       },
     );
+  }
+
+  static Future<TrainCIsolatedRuntime> _validateReattachCapability(
+    String capability, {
+    required bool deleteRootOnDispose,
+  }) async {
+    late final (String, String) decoded;
+    try {
+      decoded = _decodeCapability(capability);
+    } catch (_) {
+      throw const TrainCIsolationException(
+        'TRAIN_C_REATTACH_CAPABILITY_INVALID',
+      );
+    }
+    final rootPath = decoded.$1;
+    final nonce = decoded.$2;
+    if (!p.isAbsolute(rootPath) || nonce.isEmpty) {
+      throw const TrainCIsolationException();
+    }
+    final runtime = TrainCIsolatedRuntime._(
+      root: Directory(rootPath),
+      deleteRootOnDispose: deleteRootOnDispose,
+    );
+    try {
+      await runtime._validateOwnedRoot();
+    } catch (_) {
+      throw const TrainCIsolationException(
+        'TRAIN_C_REATTACH_ROOT_INVALID',
+      );
+    }
+    final capabilityFile = File(
+      _containedPath(
+        runtime.root,
+        p.join(runtime.root.path, _reattachCapabilityName),
+      ),
+    );
+    if (!await capabilityFile.exists() ||
+        await capabilityFile.readAsString() != '$nonce\n') {
+      throw const TrainCIsolationException(
+        'TRAIN_C_REATTACH_NONCE_INVALID',
+      );
+    }
+    return runtime;
   }
 
   static Future<TrainCIsolatedRuntime> _reattachInOriginalProcess(
