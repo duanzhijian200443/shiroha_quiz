@@ -365,6 +365,74 @@ void main() {
       expect(_allNodes(converted).whereType<RawFallbackNode>(), isEmpty);
     });
 
+    test('admits valid merged geometry as a normalized source part', () {
+      final converted = const OcrSourceDocumentAdapter().convert(
+        const OcrDocument(
+          sourceName: 'synthetic.pdf',
+          pages: <OcrPage>[
+            OcrPage(
+              pageIndex: 1,
+              blocks: <OcrBlock>[
+                OcrBlock(
+                  blockId: 'merged_table',
+                  pageIndex: 1,
+                  type: 'table',
+                  text: '<table>'
+                      '<tr><td rowspan="2" colspan="2">A</td><td>B</td></tr>'
+                      '<tr><td>C</td></tr>'
+                      '</table>',
+                  bbox: <double>[],
+                  readingOrder: 0,
+                ),
+              ],
+            ),
+          ],
+          markdown: '',
+          rawResponses: <Map<String, dynamic>>[],
+          usage: <String, dynamic>{},
+        ),
+        sourceId: 'merged_table_source',
+      );
+
+      final table = converted.parts.single as SourceTablePart;
+      expect(table.isNormalized, isTrue);
+      expect(table.structure!.rows.first.cells.first.rowSpan, 2);
+      expect(table.structure!.rows.first.cells.first.columnSpan, 2);
+    });
+
+    test('keeps invalid tables as explicit ocr_table unsupported parts', () {
+      final converted = const OcrSourceDocumentAdapter().convert(
+        const OcrDocument(
+          sourceName: 'synthetic.pdf',
+          pages: <OcrPage>[
+            OcrPage(
+              pageIndex: 1,
+              blocks: <OcrBlock>[
+                OcrBlock(
+                  blockId: 'invalid_table',
+                  pageIndex: 1,
+                  type: 'table',
+                  text: '<table><tr><td rowspan>cell</td></tr></table>',
+                  bbox: <double>[],
+                  readingOrder: 0,
+                ),
+              ],
+            ),
+          ],
+          markdown: '',
+          rawResponses: <Map<String, dynamic>>[],
+          usage: <String, dynamic>{},
+        ),
+        sourceId: 'invalid_table_source',
+      );
+
+      expect(converted.parts.single, isA<UnsupportedSourcePart>());
+      expect(
+        (converted.parts.single as UnsupportedSourcePart).kindCode,
+        'ocr_table',
+      );
+    });
+
     test(
         'uses blocks before markdown and represents fallback states explicitly',
         () {

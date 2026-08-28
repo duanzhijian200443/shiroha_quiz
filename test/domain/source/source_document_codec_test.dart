@@ -75,7 +75,7 @@ void main() {
 
     test('distinguishes an unsupported root schema version', () {
       final copy = Map<String, Object?>.from(codec.encode(_fullDocument()))
-        ..['schemaVersion'] = 2;
+        ..['schemaVersion'] = 3;
 
       expect(() => codec.decode(copy), throwsA(isA<UnsupportedError>()));
     });
@@ -234,6 +234,144 @@ void main() {
       }
     });
   });
+
+  group('SourceDocumentCodec table versioning', () {
+    test('writes v1 for no-table and unit-span-only documents', () {
+      final noTable = SourceDocument(
+        sourceId: 'artifact_0001',
+        parts: const <SourcePart>[],
+      );
+
+      expect(
+        codec.encode(noTable)['schemaVersion'],
+        SourceDocumentCodec.legacySchemaVersion,
+      );
+      final unitSpan = codec.encode(_fullDocument());
+      expect(
+        unitSpan['schemaVersion'],
+        SourceDocumentCodec.legacySchemaVersion,
+      );
+      expect(
+        ((unitSpan['parts']! as List<Object?>)[1]! as Map<String, Object?>)
+            .keys,
+        contains('rows'),
+      );
+    });
+
+    test('upgrades rectangular v1 rows and preserves irregular v1 carriers',
+        () {
+      final rectangular = codec.decode(
+        _documentJson(
+          parts: <Object?>[
+            _legacyTablePartJson(<List<Object?>>[
+              <Object?>[_richTextJson('a'), _richTextJson('b')],
+              <Object?>[_richTextJson('c'), _richTextJson('d')],
+            ]),
+          ],
+        ),
+      );
+      final irregular = codec.decode(
+        _documentJson(
+          parts: <Object?>[
+            _legacyTablePartJson(<List<Object?>>[
+              <Object?>[_richTextJson('a'), _richTextJson('b')],
+              <Object?>[_richTextJson('c')],
+            ]),
+          ],
+        ),
+      );
+
+      final normalized = rectangular.parts.single as SourceTablePart;
+      expect(normalized.isNormalized, isTrue);
+      expect(
+        normalized.structure!.rows.expand((row) => row.cells),
+        everyElement(
+          predicate<TableCell>(
+            (cell) => cell.rowSpan == 1 && cell.columnSpan == 1,
+          ),
+        ),
+      );
+      expect((irregular.parts.single as SourceTablePart).structure, isNull);
+      expect(
+          codec.encode(irregular),
+          equals(_documentJson(
+            parts: <Object?>[
+              _legacyTablePartJson(<List<Object?>>[
+                <Object?>[_richTextJson('a'), _richTextJson('b')],
+                <Object?>[_richTextJson('c')],
+              ]),
+            ],
+          )));
+    });
+
+    test('writes and reads v2 span geometry without flattening', () {
+      final document = _spannedTableDocument();
+      final encoded = codec.encode(document);
+      final table =
+          (encoded['parts']! as List<Object?>).single! as Map<String, Object?>;
+
+      expect(encoded['schemaVersion'], SourceDocumentCodec.schemaVersion);
+      expect(table.keys, contains('structure'));
+      expect(table.keys, isNot(contains('rows')));
+      final decoded = codec.decode(encoded);
+      expect(decoded, equals(document));
+      final structure = (decoded.parts.single as SourceTablePart).structure!;
+      expect(structure.rows.first.cells.first.rowSpan, 2);
+      expect(structure.rows.first.cells.first.columnSpan, 2);
+    });
+
+    test('v2 mixes normalized spans with an irregular legacy carrier', () {
+      final spanned = _spannedTablePart();
+      final legacy = SourceTablePart.legacy(
+        sourceRef: SourceRef.document(sourceId: 'artifact_0001'),
+        rows: <List<RichContent>>[
+          <RichContent>[_richText('x'), _richText('y')],
+          <RichContent>[_richText('z')],
+        ],
+      );
+      final document = SourceDocument(
+        sourceId: 'artifact_0001',
+        parts: <SourcePart>[spanned, legacy],
+      );
+
+      final encoded = codec.encode(document);
+      final parts = encoded['parts']! as List<Object?>;
+      expect(encoded['schemaVersion'], SourceDocumentCodec.schemaVersion);
+      expect(
+          (parts.first! as Map<String, Object?>).keys, contains('structure'));
+      expect(
+          (parts.last! as Map<String, Object?>).keys, contains('legacyRows'));
+      expect(codec.decode(encoded), equals(document));
+      expect(
+        (codec.decode(encoded).parts.last as SourceTablePart).structure,
+        isNull,
+      );
+    });
+
+    test('legacy v1 re-encode is lossless and rejects spans', () {
+      final unit = codec.encodeLegacyV1(_fullDocument());
+      expect(unit['schemaVersion'], SourceDocumentCodec.legacySchemaVersion);
+      expect(codec.decode(unit), equals(_fullDocument()));
+
+      final carrier = SourceDocument(
+        sourceId: 'artifact_0001',
+        parts: <SourcePart>[
+          SourceTablePart.legacy(
+            sourceRef: SourceRef.document(sourceId: 'artifact_0001'),
+            rows: <List<RichContent>>[
+              <RichContent>[_richText('a')],
+              <RichContent>[],
+            ],
+          ),
+        ],
+      );
+      expect(codec.decode(codec.encodeLegacyV1(carrier)), equals(carrier));
+      expect(
+        () => codec.encodeLegacyV1(_spannedTableDocument()),
+        throwsFormatException,
+      );
+    });
+  });
 }
 
 SourceDocument _fullDocument() {
@@ -347,15 +485,69 @@ SourceDocument _fullDocument() {
 }
 
 Map<String, Object?> _documentJson({
+  int schemaVersion = SourceDocumentCodec.legacySchemaVersion,
   List<Object?> parts = const <Object?>[],
   List<Object?> issues = const <Object?>[],
 }) {
   return <String, Object?>{
-    'schemaVersion': 1,
+    'schemaVersion': schemaVersion,
     'sourceId': 'artifact_0001',
     'displayLabel': null,
     'parts': parts,
     'issues': issues,
+  };
+}
+
+SourceDocument _spannedTableDocument() {
+  return SourceDocument(
+    sourceId: 'artifact_0001',
+    parts: <SourcePart>[_spannedTablePart()],
+  );
+}
+
+SourceTablePart _spannedTablePart() {
+  return SourceTablePart.normalized(
+    sourceRef: SourceRef.document(sourceId: 'artifact_0001'),
+    structure: TableStructure(
+      rows: <TableRow>[
+        TableRow(
+          cells: <TableCell>[
+            TableCell(
+              content: _richText('A'),
+              rowSpan: 2,
+              columnSpan: 2,
+            ),
+            TableCell(content: _richText('B')),
+          ],
+        ),
+        TableRow(cells: <TableCell>[TableCell(content: _richText('C'))]),
+      ],
+    ),
+  );
+}
+
+Map<String, Object?> _legacyTablePartJson(List<List<Object?>> rows) {
+  return <String, Object?>{
+    'type': 'table',
+    'sourceRef': <String, Object?>{
+      'type': 'document',
+      'sourceId': 'artifact_0001',
+      'displayLabel': null,
+    },
+    'rows': rows,
+  };
+}
+
+RichContent _richText(String text) {
+  return RichContent(nodes: <ContentNode>[TextNode(text)]);
+}
+
+Map<String, Object?> _richTextJson(String text) {
+  return <String, Object?>{
+    'schemaVersion': 1,
+    'nodes': <Object?>[
+      <String, Object?>{'type': 'text', 'text': text},
+    ],
   };
 }
 

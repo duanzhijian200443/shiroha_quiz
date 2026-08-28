@@ -412,7 +412,7 @@ preserved and re-encoded by the existing v1 envelope, including:
 A new, self-contained discriminator that satisfies the existing unknown-node
 contract does not mechanically require a bump.
 
-### E.4 SourceDocument v1 table compatibility
+### E.4 SourceDocument v1/v2 table compatibility
 
 RichContent v1 extension compatibility does not automatically make a new
 Source table payload compatible. The current `SourceDocumentCodec` v1 table
@@ -433,7 +433,7 @@ the stricter TableNode cell subset must not silently make them unreadable,
 pad/drop cells, discard fallback content, or reinterpret them as valid v0
 tables.
 
-Implementation must provide an explicit versioned backward-read and
+`SourceDocumentCodec` implements the explicit versioned backward-read and
 deterministic transition policy:
 
 - existing SourceDocument v1 payloads remain decodable as their legacy source
@@ -451,12 +451,14 @@ deterministic transition policy:
   through the existing generation/lifecycle contract and never as a silent
   in-place rewrite or as authority to mutate confirmed Questions.
 
-If a writer emits the new spanned `TableStructure` payload rather than the
-legacy rows array, it must use an explicitly versioned SourceDocument or table
-sub-payload contract. It must not emit the new exact-key shape while continuing
-to claim the old SourceDocument v1 table schema. The concrete version number,
-carrier type, and rebuild/upgrade mechanics are deferred; backward readability
-and no-silent-loss behavior are FINAL.
+The reader accepts v1 and v2. The default writer remains v1 for documents with
+no table and for documents whose normalized tables contain only unit spans. It
+emits v2 only when at least one normalized table contains `rowSpan != 1` or
+`columnSpan != 1`. In v2, a normalized table is encoded under `structure`,
+while a non-normalizable compatibility carrier is encoded under `legacyRows`;
+both forms may coexist in one document. Explicit legacy-v1 re-encoding remains
+lossless for unit-span normalized tables and legacy carriers, and fails closed
+for spanned tables. The ParsedArtifact outer envelope remains unchanged.
 
 ## F. Privacy / Admission Contract
 
@@ -614,8 +616,6 @@ The following are explicitly not frozen by Phase 0:
 - table caption and header-scope semantics;
 - AI Repair provider schema and prompt;
 - provider-specific OCR/DOCX payload schemas;
-- concrete `SourceDocumentCodec` next schema version, legacy compatibility
-  carrier type, and exact irregular-table upgrade/rebuild mechanics;
 - final live-PDF acceptance of the bounded Rich Image production path.
 
 These deferred implementation choices may not weaken the FINAL identity,
@@ -658,7 +658,7 @@ durable-lifetime, backup-before-activation, or renderer-boundary invariants.
 | RichContent schema version 1 | FINAL | New self-contained node discriminators fit current unknown-node preservation. |
 | SourceDocument v1 table backward-read/upgrade/rebuild policy | FINAL | Existing ragged/empty/fallback table payloads cannot become silently invalid or lossy. |
 | New spanned table payload under unchanged SourceDocument v1 shape | REJECTED | The current exact-key v1 table codec cannot safely interpret that schema change. |
-| Concrete `SourceDocumentCodec` next schemaVersion and carrier | DEFERRED | A later implementation may choose mechanics while preserving the frozen compatibility policy. |
+| Concrete `SourceDocumentCodec` v2 and `legacyRows` carrier | IMPLEMENTED | Conditional writing preserves v1 for no-span documents; v2 carries lossless spans and mixed legacy carriers. |
 | Unknown future node -> lossless fallback | FINAL | Old readers preserve data without semantic mutation. |
 | Malformed known node -> fallback | REJECTED | Claimed known schemas fail closed on invalid canonical payloads. |
 | Legacy Question rewrite/deletion | REJECTED | Existing banks and String compatibility remain supported. |

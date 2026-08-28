@@ -62,6 +62,7 @@ class _FakeGenerationPort implements ParsedArtifactGenerationPort {
   Object? unexpectedGenerateError;
   Completer<void>? pause;
   String? overrideSourceId;
+  SourceDocument Function(String sourceId, LibraryFile file)? documentOverride;
   ParsedArtifactGenerationPlan Function(ParsedArtifactRouteSelection selection)?
       planOverride;
 
@@ -110,6 +111,8 @@ class _FakeGenerationPort implements ParsedArtifactGenerationPort {
       throw error;
     }
     final sourceId = overrideSourceId ?? artifactId;
+    final override = documentOverride;
+    if (override != null) return override(sourceId, file);
     return SourceDocument(
       sourceId: sourceId,
       displayLabel: file.displayName,
@@ -543,6 +546,65 @@ void main() {
           snapshot.artifact.artifactId);
       expect(snapshot.sourceDocument.parts.single.sourceRef.sourceId,
           snapshot.artifact.artifactId);
+    });
+
+    test('a new lifecycle instance reopens exact spanned table geometry',
+        () async {
+      await seedLibraryFile();
+      generation.documentOverride = (sourceId, file) => SourceDocument(
+            sourceId: sourceId,
+            displayLabel: file.displayName,
+            parts: <SourcePart>[
+              SourceTablePart.normalized(
+                sourceRef: SourceRef.document(sourceId: sourceId),
+                structure: TableStructure(
+                  rows: <TableRow>[
+                    TableRow(
+                      cells: <TableCell>[
+                        TableCell(
+                          content: RichContent(
+                            nodes: const <ContentNode>[TextNode('A')],
+                          ),
+                          rowSpan: 2,
+                          columnSpan: 2,
+                        ),
+                        TableCell(
+                          content: RichContent(
+                            nodes: const <ContentNode>[TextNode('B')],
+                          ),
+                        ),
+                      ],
+                    ),
+                    TableRow(
+                      cells: <TableCell>[
+                        TableCell(
+                          content: RichContent(
+                            nodes: const <ContentNode>[TextNode('C')],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+      final published = await ensure();
+      expect(published.outcome, ParsedArtifactLifecycleOutcome.published);
+      final reopenedService = ParsedArtifactLifecycleService(
+        libraryFileRepository: LibraryFileRepository(),
+        artifactRepository: ParsedArtifactRepository(),
+        artifactStorage: ManagedArtifactStorageAdapter(managedRoot: tempDir),
+        generationPort: _FakeGenerationPort(),
+      );
+      final reopened = await reopenedService.getCurrentArtifact('file-1');
+      final table = reopened.sourceDocument.parts.single as SourceTablePart;
+      final cell = table.structure!.rows.first.cells.first;
+
+      expect(cell.rowSpan, 2);
+      expect(cell.columnSpan, 2);
+      expect(cell.content.nodes.single, const TextNode('A'));
     });
 
     test('stably missing sidecar is artifactCorrupt', () async {

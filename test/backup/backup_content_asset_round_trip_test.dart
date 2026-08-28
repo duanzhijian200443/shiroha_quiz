@@ -195,6 +195,34 @@ void main() {
     );
   });
 
+  test('merged TableNode survives typed reopen and B0 backup restore',
+      () async {
+    final db = await helper.database;
+    await _replacePayload(db, _mergedTableDraft());
+
+    await helper.close();
+    var reopened = await helper.database;
+    var row = (await reopened.query('question_v2_payloads')).single;
+    var decoded = const QuestionDraftV2Codec().decode(
+      jsonDecode(row['payload_json']! as String),
+    );
+    _expectMergedTable(decoded);
+
+    final packagePath = p.join(temp.path, 'export', 'merged-table.shiroha');
+    final runtime = buildRuntime();
+    await runtime.exportTo(packagePath);
+    await runtime.prepareRestore(packagePath);
+    await runtime.commitPreparedRestore();
+
+    await helper.close();
+    reopened = await helper.database;
+    row = (await reopened.query('question_v2_payloads')).single;
+    decoded = const QuestionDraftV2Codec().decode(
+      jsonDecode(row['payload_json']! as String),
+    );
+    _expectMergedTable(decoded);
+  });
+
   test('B0 ignores valid but unreferenced inventory members', () async {
     final db = await helper.database;
     await _replacePayload(db, _imageDraftWithExtraInventory());
@@ -369,4 +397,55 @@ QuestionDraftV2 _imageDraftWithNestedClosure() {
         ),
     ],
   );
+}
+
+QuestionDraftV2 _mergedTableDraft() {
+  return QuestionDraftV2(
+    questionId: 'question_001',
+    kind: QuestionKind.shortAnswer,
+    stem: RichContent(
+      nodes: <ContentNode>[
+        TableNode(
+          structure: TableStructure(
+            rows: <TableRow>[
+              TableRow(
+                cells: <TableCell>[
+                  TableCell(
+                    content: RichContent(
+                      nodes: const <ContentNode>[TextNode('A')],
+                    ),
+                    rowSpan: 2,
+                    columnSpan: 2,
+                  ),
+                  TableCell(
+                    content: RichContent(
+                      nodes: const <ContentNode>[TextNode('B')],
+                    ),
+                  ),
+                ],
+              ),
+              TableRow(
+                cells: <TableCell>[
+                  TableCell(
+                    content: RichContent(
+                      nodes: const <ContentNode>[TextNode('C')],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+    sourceRefs: <SourceRef>[SourceRef.document(sourceId: 'source_001')],
+  );
+}
+
+void _expectMergedTable(QuestionDraftV2 draft) {
+  final table = draft.stem.nodes.single as TableNode;
+  final cell = table.structure.rows.first.cells.first;
+  expect(cell.rowSpan, 2);
+  expect(cell.columnSpan, 2);
+  expect(cell.content.nodes.single, const TextNode('A'));
 }

@@ -75,7 +75,7 @@ final class QuestionDraftV2LegacyProjector {
   }) {
     _guardProjectionBoundary(draft, region);
     final isOcr = profile is OcrLegacyProjectionProfile;
-    final draftStem = _contentText(draft.stem).trim();
+    final draftStem = _profileContentText(draft.stem, isOcr: isOcr).trim();
     // The OCR profile mirrors the authoritative OCR assembler: options are
     // split only for the complete ordered A-D sequence, and the full region
     // stem (including dropped option text) is kept for non-choice kinds.
@@ -106,15 +106,16 @@ final class QuestionDraftV2LegacyProjector {
         ? ocrExtract.options
         : <String>[
             for (final option in draft.options)
-              '${option.label}. ${_contentText(option.content)}',
+              '${option.label}. ${_profileContentText(option.content, isOcr: isOcr)}',
           ];
-    final typedAnswer = _answerText(draft.answer);
+    final typedAnswer = _answerText(draft.answer, isOcr: isOcr);
     // The text legacy assembler uppercases every answer, while the OCR legacy
     // assembler preserves non-choice answer case. Keep the typed draft
     // lossless and apply the profile-specific compatibility rule here.
     final answer = isOcr ? typedAnswer : typedAnswer.toUpperCase();
-    final rawExplanation =
-        draft.explanation == null ? '' : _contentText(draft.explanation!);
+    final rawExplanation = draft.explanation == null
+        ? ''
+        : _profileContentText(draft.explanation!, isOcr: isOcr);
 
     final diagnostics = <String>[
       for (final issue in region.issues)
@@ -217,12 +218,24 @@ String _legacyKindName(QuestionRegionKindHint hint) {
   };
 }
 
-String _answerText(QuestionAnswer? answer) {
+String _answerText(QuestionAnswer? answer, {required bool isOcr}) {
   return switch (answer) {
     null => '',
     ChoiceAnswer(:final optionIds) => optionIds.join(),
-    ContentAnswer(:final content) => _contentText(content),
+    ContentAnswer(:final content) => _profileContentText(content, isOcr: isOcr),
   };
+}
+
+String _profileContentText(RichContent content, {required bool isOcr}) {
+  final projected = _contentText(content);
+  if (!isOcr || !content.nodes.any((node) => node is TableNode)) {
+    return projected;
+  }
+  // OcrQuestionRegionizer applies this same bounded normalization to the
+  // expanded SourceTablePart projection before the legacy assembler sees it.
+  // Mirror it only for structural OCR fields so strict typed parity compares
+  // equivalent expanded geometry without broadening general text semantics.
+  return projected.replaceAll(RegExp(r'[ \t]{2,}'), ' ');
 }
 
 bool _textRepairRecommended({

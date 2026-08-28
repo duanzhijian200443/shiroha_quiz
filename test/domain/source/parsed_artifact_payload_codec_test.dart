@@ -3,6 +3,7 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/source/parsed_artifact_payload_codec.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
+import 'package:shiroha_quiz/domain/source/source_document_codec.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 
@@ -26,6 +27,20 @@ void main() {
       expect(codec.encode(payload), equals(codec.encode(payload)));
       final decoded = codec.decode(codec.encode(payload));
       expect(codec.encode(decoded), equals(codec.encode(payload)));
+    });
+
+    test('keeps outer v1 while carrying a v2 spanned source document', () {
+      final payload = _payloadWithSpannedTable();
+      final encoded = codec.encode(payload);
+      final source = encoded['sourceDocument']! as Map<String, Object?>;
+      final table =
+          (source['parts']! as List<Object?>).single! as Map<String, Object?>;
+
+      expect(
+          encoded['schemaVersion'], ParsedArtifactPayloadCodec.schemaVersion);
+      expect(source['schemaVersion'], SourceDocumentCodec.schemaVersion);
+      expect(table.keys, contains('structure'));
+      expect(codec.decode(encoded), equals(payload));
     });
   });
 
@@ -225,6 +240,51 @@ ParsedArtifactPayload _payload() {
           ),
           content: RichContent(
             nodes: const <ContentNode>[TextNode('parsed text')],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+ParsedArtifactPayload _payloadWithSpannedTable() {
+  return ParsedArtifactPayload(
+    schemaVersion: ParsedArtifactPayloadCodec.schemaVersion,
+    artifactId: 'artifact_0001',
+    fileId: 'file_0001',
+    sourceDocument: SourceDocument(
+      sourceId: 'artifact_0001',
+      parts: <SourcePart>[
+        SourceTablePart.normalized(
+          sourceRef: SourceRef.document(sourceId: 'artifact_0001'),
+          structure: TableStructure(
+            rows: <TableRow>[
+              TableRow(
+                cells: <TableCell>[
+                  TableCell(
+                    content: RichContent(
+                      nodes: const <ContentNode>[TextNode('A')],
+                    ),
+                    rowSpan: 2,
+                    columnSpan: 2,
+                  ),
+                  TableCell(
+                    content: RichContent(
+                      nodes: const <ContentNode>[TextNode('B')],
+                    ),
+                  ),
+                ],
+              ),
+              TableRow(
+                cells: <TableCell>[
+                  TableCell(
+                    content: RichContent(
+                      nodes: const <ContentNode>[TextNode('C')],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ],

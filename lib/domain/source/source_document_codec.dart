@@ -1,4 +1,6 @@
 import '../assets/asset_ref.dart';
+import '../content/content_node.dart';
+import '../content/rich_content.dart';
 import '../content/rich_content_codec.dart';
 import '../import/import_issue.dart';
 import 'source_document.dart';
@@ -13,15 +15,29 @@ import 'source_ref.dart';
 final class SourceDocumentCodec {
   const SourceDocumentCodec();
 
-  static const int schemaVersion = 1;
+  static const int legacySchemaVersion = 1;
+  static const int schemaVersion = 2;
   static const RichContentCodec _richContentCodec = RichContentCodec();
 
   Map<String, Object?> encode(SourceDocument document) {
+    return _encodeDocument(document, _documentSchemaVersion(document));
+  }
+
+  Map<String, Object?> encodeLegacyV1(SourceDocument document) {
+    return _encodeDocument(document, legacySchemaVersion);
+  }
+
+  Map<String, Object?> _encodeDocument(
+    SourceDocument document,
+    int version,
+  ) {
     return <String, Object?>{
-      'schemaVersion': schemaVersion,
+      'schemaVersion': version,
       'sourceId': document.documentRef.sourceId,
       'displayLabel': document.documentRef.displayLabel,
-      'parts': document.parts.map(_encodePart).toList(),
+      'parts': document.parts
+          .map((part) => _encodePart(part, schemaVersion: version))
+          .toList(),
       'issues': document.issues.map(_encodeIssue).toList(),
     };
   }
@@ -38,7 +54,7 @@ final class SourceDocumentCodec {
         'SourceDocument schemaVersion must be an integer.',
       );
     }
-    if (version != schemaVersion) {
+    if (version != legacySchemaVersion && version != schemaVersion) {
       throw UnsupportedError(
         'Unsupported SourceDocument schemaVersion: $version.',
       );
@@ -49,12 +65,19 @@ final class SourceDocumentCodec {
         root['displayLabel'],
         'displayLabel',
       ),
-      parts: _decodeList(root['parts'], _decodePart, 'parts'),
+      parts: _decodeList(
+        root['parts'],
+        (value) => _decodePart(value, schemaVersion: version),
+        'parts',
+      ),
       issues: _decodeList(root['issues'], _decodeIssue, 'issues'),
     );
   }
 
-  Map<String, Object?> _encodePart(SourcePart part) {
+  Map<String, Object?> _encodePart(
+    SourcePart part, {
+    required int schemaVersion,
+  }) {
     return switch (part) {
       SourceContentPart(:final sourceRef, :final content, :final role) =>
         <String, Object?>{
@@ -63,13 +86,13 @@ final class SourceDocumentCodec {
           'content': _richContentCodec.encode(content),
           'role': _encodeContentRole(role),
         },
-      SourceTablePart(:final sourceRef, :final rows) => <String, Object?>{
-          'type': 'table',
-          'sourceRef': _encodeSourceRef(sourceRef),
-          'rows': rows
-              .map((row) => row.map(_richContentCodec.encode).toList())
-              .toList(),
-        },
+      SourceTablePart(:final sourceRef, :final rows, :final structure) =>
+        _encodeTablePart(
+          sourceRef: sourceRef,
+          rows: rows,
+          structure: structure,
+          schemaVersion: schemaVersion,
+        ),
       SourceAssetPart(:final sourceRef, :final asset, :final alternativeText) =>
         <String, Object?>{
           'type': 'asset',
@@ -93,12 +116,17 @@ final class SourceDocumentCodec {
     };
   }
 
-  SourcePart _decodePart(Object? json) {
+  SourcePart _decodePart(
+    Object? json, {
+    required int schemaVersion,
+  }) {
     final part = _expectUntypedObject(json, 'Source part');
     final type = _expectString(part['type'], 'source part type');
     return switch (type) {
       'content' => _decodeContentPart(part),
-      'table' => _decodeTablePart(part),
+      'table' => schemaVersion == legacySchemaVersion
+          ? _decodeLegacyTablePart(part)
+          : _decodeTablePart(part),
       'asset' => _decodeAssetPart(part),
       'unsupported' => _decodeUnsupportedPart(part),
       _ => throw const FormatException('Source part type is unsupported.'),
@@ -114,21 +142,158 @@ final class SourceDocumentCodec {
     );
   }
 
+  SourceTablePart _decodeLegacyTablePart(Map<String, Object?> part) {
+    _requireExactKeys(part, _legacyTablePartKeys, 'Legacy table source part');
+    return SourceTablePart(
+      sourceRef: _decodeSourceRef(part['sourceRef']),
+      rows: _decodeLegacyRows(part['rows']),
+    );
+  }
+
   SourceTablePart _decodeTablePart(Map<String, Object?> part) {
-    _requireExactKeys(part, _tablePartKeys, 'Table source part');
-    final rawRows = part['rows'];
-    if (rawRows is! List) {
+    final sourceRef = _decodeSourceRef(part['sourceRef']);
+    if (part.containsKey('structure')) {
+      _requireExactKeys(part, _normalizedTablePartKeys, 'Table source part');
+      return SourceTablePart.normalized(
+        sourceRef: sourceRef,
+        structure: _decodeTableStructure(part['structure']),
+      );
+    }
+    if (part.containsKey('legacyRows')) {
+      _requireExactKeys(part, _legacyCarrierTablePartKeys, 'Table source part');
+      return SourceTablePart.legacy(
+        sourceRef: sourceRef,
+        rows: _decodeLegacyRows(part['legacyRows']),
+      );
+    }
+    throw const FormatException(
+      'Table source part must contain a normalized structure or legacy rows.',
+    );
+  }
+
+  List<List<RichContent>> _decodeLegacyRows(Object? value) {
+    if (value is! List) {
       throw const FormatException('Table rows must be a JSON array.');
     }
-    final rows = rawRows.map((rawRow) {
+    return value.map((rawRow) {
       if (rawRow is! List) {
         throw const FormatException('Table rows must contain JSON arrays.');
       }
       return rawRow.map((cell) => _richContentCodec.decode(cell)).toList();
     }).toList();
-    return SourceTablePart(
-      sourceRef: _decodeSourceRef(part['sourceRef']),
-      rows: rows,
+  }
+
+  TableStructure _decodeTableStructure(Object? json) {
+    final structure = _expectObject(
+      json,
+      expectedKeys: _tableStructureKeys,
+      label: 'Table structure',
+    );
+    final rawRows = structure['rows'];
+    if (rawRows is! List) {
+      throw const FormatException('Table structure rows must be an array.');
+    }
+    return TableStructure(
+      rows: rawRows.map((rawRow) {
+        final row = _expectObject(
+          rawRow,
+          expectedKeys: _tableRowKeys,
+          label: 'Table row',
+        );
+        final rawCells = row['cells'];
+        if (rawCells is! List) {
+          throw const FormatException('Table row cells must be an array.');
+        }
+        return TableRow(
+          cells: rawCells.map((rawCell) {
+            final cell = _expectObject(
+              rawCell,
+              expectedKeys: _tableCellKeys,
+              label: 'Table cell',
+            );
+            return TableCell(
+              content: _richContentCodec.decode(cell['content']),
+              rowSpan: _expectInt(cell['rowSpan'], 'rowSpan'),
+              columnSpan: _expectInt(cell['columnSpan'], 'columnSpan'),
+            );
+          }),
+        );
+      }),
+    );
+  }
+
+  Map<String, Object?> _encodeTablePart({
+    required SourceRef sourceRef,
+    required List<List<RichContent>> rows,
+    required TableStructure? structure,
+    required int schemaVersion,
+  }) {
+    if (schemaVersion == legacySchemaVersion) {
+      if (structure != null && _hasSpannedCell(structure)) {
+        throw const FormatException(
+          'Spanned tables cannot be encoded as SourceDocument v1.',
+        );
+      }
+      return <String, Object?>{
+        'type': 'table',
+        'sourceRef': _encodeSourceRef(sourceRef),
+        'rows': _encodeLegacyRows(rows),
+      };
+    }
+    if (structure == null) {
+      return <String, Object?>{
+        'type': 'table',
+        'sourceRef': _encodeSourceRef(sourceRef),
+        'legacyRows': _encodeLegacyRows(rows),
+      };
+    }
+    return <String, Object?>{
+      'type': 'table',
+      'sourceRef': _encodeSourceRef(sourceRef),
+      'structure': _encodeTableStructure(structure),
+    };
+  }
+
+  List<Object?> _encodeLegacyRows(List<List<RichContent>> rows) {
+    return rows
+        .map((row) => row.map<Object?>(_richContentCodec.encode).toList())
+        .toList();
+  }
+
+  Map<String, Object?> _encodeTableStructure(TableStructure structure) {
+    return <String, Object?>{
+      'rows': structure.rows
+          .map(
+            (row) => <String, Object?>{
+              'cells': row.cells.map(_encodeTableCell).toList(),
+            },
+          )
+          .toList(),
+    };
+  }
+
+  Map<String, Object?> _encodeTableCell(TableCell cell) {
+    return <String, Object?>{
+      'content': _richContentCodec.encode(cell.content),
+      'rowSpan': cell.rowSpan,
+      'columnSpan': cell.columnSpan,
+    };
+  }
+
+  int _documentSchemaVersion(SourceDocument document) {
+    return document.parts.whereType<SourceTablePart>().any(
+              (part) =>
+                  part.structure != null && _hasSpannedCell(part.structure!),
+            )
+        ? schemaVersion
+        : legacySchemaVersion;
+  }
+
+  bool _hasSpannedCell(TableStructure structure) {
+    return structure.rows.any(
+      (row) => row.cells.any(
+        (cell) => cell.rowSpan != 1 || cell.columnSpan != 1,
+      ),
     );
   }
 
@@ -414,7 +579,16 @@ const _rootKeys = <String>{
   'issues',
 };
 const _contentPartKeys = <String>{'type', 'sourceRef', 'content', 'role'};
-const _tablePartKeys = <String>{'type', 'sourceRef', 'rows'};
+const _legacyTablePartKeys = <String>{'type', 'sourceRef', 'rows'};
+const _normalizedTablePartKeys = <String>{'type', 'sourceRef', 'structure'};
+const _legacyCarrierTablePartKeys = <String>{
+  'type',
+  'sourceRef',
+  'legacyRows',
+};
+const _tableStructureKeys = <String>{'rows'};
+const _tableRowKeys = <String>{'cells'};
+const _tableCellKeys = <String>{'content', 'rowSpan', 'columnSpan'};
 const _assetPartKeys = <String>{
   'type',
   'sourceRef',

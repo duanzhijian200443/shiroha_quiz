@@ -16,6 +16,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
+import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
 const _sourceUuid = '11111111-1111-4111-8111-111111111111';
 const _questionUuidA = '22222222-2222-4222-8222-222222222222';
@@ -254,6 +255,56 @@ void main() {
       expect(
         batch.failure,
         OcrTypedCandidateFailure.unsupportedStructure,
+      );
+    });
+
+    test('merged explanation table keeps parity and reaches typedV2', () {
+      final document = _mergedExplanationTableDocument();
+      final region = _mergedExplanationTableRegion();
+      expect(
+        region.ownedSources
+            .where((source) => source.blockId == 'explanation_table')
+            .single
+            .field,
+        OcrRegionField.explanation,
+      );
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[region]);
+      expect(
+        legacyQuestions.single['explanation'],
+        'A | | B\n | | C',
+      );
+
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[region],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final table =
+          batch.candidates.single.draft.explanation!.nodes.single as TableNode;
+      expect(table.structure.rows.first.cells.first.rowSpan, 2);
+      expect(table.structure.rows.first.cells.first.columnSpan, 2);
+      expect(
+        batch.candidates.single.projectedLegacy.explanation,
+        legacyQuestions.single['explanation'],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(
+        result.route,
+        ImportStorageRoute.typedV2,
+        reason: result.reason,
+      );
+      expect(result.reason, ocrTypedCandidateReadyReason);
+      expect(
+        result.questions.single['explanation'],
+        'A | | B\n | | C',
       );
     });
 
@@ -1396,6 +1447,62 @@ OcrDocument _tableDocument() {
           _block('answer_1', 1, 2, '答案：synthetic-result-1'),
           _block('explanation_1', 1, 3, '解析：Synthetic explanation 1'),
         ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _mergedExplanationTableDocument() {
+  return _document(
+    'r7b_synthetic_merged_explanation.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
+          _block('answer_1', 1, 2, '答案：synthetic-result-1'),
+          _block(
+            'explanation_table',
+            1,
+            3,
+            '<table>'
+                '<tr><td rowspan="2" colspan="2">A</td><td>B</td></tr>'
+                '<tr><td>C</td></tr>'
+                '</table>',
+            type: 'table',
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrQuestionRegion _mergedExplanationTableRegion() {
+  return const OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['Synthetic prompt marker 1.'],
+    answerParts: <String>['synthetic-result-1'],
+    explanationParts: <String>['A | | B\n | | C'],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['q_1', 'answer_1', 'explanation_table'],
+    diagnostics: <String>['contains_table_block'],
+    declaredKind: TextQuestionKind.subjective,
+    ownedSources: <OcrQuestionRegionSource>[
+      OcrQuestionRegionSource(
+        blockId: 'q_1',
+        field: OcrRegionField.stem,
+        text: 'Synthetic prompt marker 1.',
+      ),
+      OcrQuestionRegionSource(
+        blockId: 'answer_1',
+        field: OcrRegionField.answer,
+        text: 'synthetic-result-1',
+      ),
+      OcrQuestionRegionSource(
+        blockId: 'explanation_table',
+        field: OcrRegionField.explanation,
+        text: 'A | | B\n | | C',
       ),
     ],
   );
