@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_regi
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -538,8 +539,11 @@ bool _rawExplanationAllowed(
   if (raw is! String) return false;
   if (raw.isEmpty || raw == finalExplanation) return true;
   if (finalExplanation.isEmpty) return false;
-  return _textNodeOnlyExplanation(candidate) &&
-      _n0Equals(raw, finalExplanation);
+  return _explanationParityAllowed(
+    source: raw,
+    target: finalExplanation,
+    candidate: candidate,
+  );
 }
 
 bool _baselineParity(
@@ -555,8 +559,22 @@ bool _baselineParity(
       baseline.standardAnswer != projected.standardAnswer) {
     return false;
   }
-  return _textNodeOnlyExplanation(candidate) &&
-      _n0Equals(baseline.explanation, projected.explanation);
+  return _explanationParityAllowed(
+    source: projected.explanation,
+    target: baseline.explanation,
+    candidate: candidate,
+  );
+}
+
+bool _explanationParityAllowed({
+  required String source,
+  required String target,
+  required OcrTypedCandidate candidate,
+}) {
+  if (!_textNodeOnlyExplanation(candidate)) return false;
+  if (_n0Equals(source, target)) return true;
+  final finalized = finalizeImportTextForParityComparison(source);
+  return finalized.eligible && finalized.text == target;
 }
 
 bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {
