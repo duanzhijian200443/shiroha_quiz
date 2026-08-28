@@ -45,13 +45,16 @@ final class GitTrainCExecutionStateGate implements TrainCExecutionStateGate {
 final class TrainCTrustedEvidenceCollector {
   TrainCTrustedEvidenceCollector({
     required this.reviewedIdentity,
+    this.expectedRunNumber = 1,
     this.executionStateGate = const GitTrainCExecutionStateGate(),
   }) : _probe = TrainCEvidenceProbe(
           expectedIdentity: reviewedIdentity.toExpectedCodeIdentity(),
+          expectedRunNumber: expectedRunNumber,
         );
 
   final TrainCEvidenceProbe _probe;
   final TrainCReviewedIdentity reviewedIdentity;
+  final int expectedRunNumber;
   final TrainCExecutionStateGate executionStateGate;
 
   /// Synthetic maps remain schema-test inputs only and can never authorize a
@@ -95,10 +98,18 @@ final class TrainCTrustedEvidenceCollector {
   Map<String, dynamic> _bindProductionRequestAuthority(
     Map<String, dynamic> snapshot,
   ) {
+    // Live run identity is control-plane authority. A source snapshot cannot
+    // self-report or override which reviewed attempt is being finalized.
     final attempt = snapshot['attempt'];
-    if (attempt is! Map) return snapshot;
+    if (attempt is! Map) {
+      return <String, dynamic>{
+        ...snapshot,
+        'runNumber': expectedRunNumber,
+      };
+    }
     return <String, dynamic>{
       ...snapshot,
+      'runNumber': expectedRunNumber,
       'attempt': <String, dynamic>{
         ...Map<String, dynamic>.from(attempt),
         'layoutChunkSize': trainCProductionPdfPageChunkSize,
