@@ -89,6 +89,67 @@ void main() {
     );
   });
 
+  test('Run 2 capability passes the existing live guard without launching', () {
+    final directory = Directory.systemTemp.createTempSync(
+      'train_c_run2_live_guard_test_',
+    );
+    addTearDown(() {
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+    final token = TrainCLiveAttemptAuthority.authorize(
+      stateDirectory: directory,
+      approvedHarnessHead:
+          baseEnvironment[trainCApprovedHarnessHeadEnvironment]!,
+      approvedBase: baseEnvironment[trainCL1BApprovedBaseEnvironment]!,
+      runNumber: 2,
+    );
+    final environment = Map<String, String>.from(baseEnvironment)
+      ..[trainCLiveAttemptCapabilityEnvironment] = token;
+    var gitVerified = false;
+
+    final reviewed = TrainCL1BLiveLaunchGuard.verify(
+      environment: environment,
+      verifyGit: (_) => gitVerified = true,
+    );
+
+    expect(gitVerified, isTrue);
+    expect(
+      reviewed.approvedHarnessHead,
+      environment[trainCApprovedHarnessHeadEnvironment],
+    );
+    final snapshot = TrainCLiveAttemptAuthority.fromCapability(token).snapshot;
+    expect(snapshot.runNumber, 2);
+    expect(snapshot.attemptState, TrainCLiveRunAttemptState.authorizedUnused);
+    expect(snapshot.phase, TrainCLiveRunPhase.prepared);
+    expect(snapshot.runtimeIdentity, isNull);
+  });
+
+  test('Run 2 identity mismatch fails before live launch', () {
+    final directory = Directory.systemTemp.createTempSync(
+      'train_c_run2_identity_mismatch_test_',
+    );
+    addTearDown(() {
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+    final token = TrainCLiveAttemptAuthority.authorize(
+      stateDirectory: directory,
+      approvedHarnessHead:
+          baseEnvironment[trainCApprovedHarnessHeadEnvironment]!,
+      approvedBase: 'd000000000000000000000000000000000000000',
+      runNumber: 2,
+    );
+    final environment = Map<String, String>.from(baseEnvironment)
+      ..[trainCLiveAttemptCapabilityEnvironment] = token;
+
+    expect(
+      () => TrainCL1BLiveLaunchGuard.verify(
+        environment: environment,
+        verifyGit: (_) => fail('git gate must not run after identity drift'),
+      ),
+      _code('TRAIN_C_HEAD_DRIFT'),
+    );
+  });
+
   test('missing private input authority is blocked before file access', () {
     final environment = Map<String, String>.from(baseEnvironment)
       ..remove(trainCL1BPrivateInputPathEnvironment);

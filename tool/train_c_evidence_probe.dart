@@ -299,7 +299,10 @@ final class TrainCEvidenceProbeResult {
 /// it cannot become final TRAIN C acceptance because [acceptanceAuthorized]
 /// remains false. The trusted collector is the only acceptance seam.
 final class TrainCEvidenceProbe {
-  const TrainCEvidenceProbe({required this.expectedIdentity});
+  const TrainCEvidenceProbe({
+    required this.expectedIdentity,
+    this.expectedRunNumber = 1,
+  });
 
   factory TrainCEvidenceProbe.forCurrentRepository() {
     // Schema-only CLI compatibility. The default remains bound to the frozen
@@ -310,6 +313,7 @@ final class TrainCEvidenceProbe {
   }
 
   final TrainCExpectedCodeIdentity expectedIdentity;
+  final int expectedRunNumber;
 
   TrainCEvidenceProbeResult inspect(Map<String, dynamic> input) {
     final safe = _normalize(input);
@@ -370,7 +374,9 @@ final class TrainCEvidenceProbe {
 
     final schemaVersion = _requiredInt(input, 'schemaVersion');
     final runNumber = _requiredInt(input, 'runNumber');
-    if (schemaVersion != 3 || runNumber != 1) {
+    if (schemaVersion != 3 ||
+        (expectedRunNumber != 1 && expectedRunNumber != 2) ||
+        runNumber != expectedRunNumber) {
       throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
     }
 

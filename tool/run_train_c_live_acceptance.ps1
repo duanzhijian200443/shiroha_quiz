@@ -2,6 +2,7 @@
 param(
     [switch]$Preflight,
     [switch]$AuthorizeRun1,
+    [switch]$AuthorizeRun2,
     [switch]$Live,
     [switch]$Continue,
     [switch]$Status,
@@ -12,10 +13,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if (@($Preflight, $AuthorizeRun1, $Live, $Continue, $Status).Where({ $_ }).Count -gt 1 -or
-    (($Preflight -or $AuthorizeRun1 -or $Live -or $Continue -or $Status) -and
+if (@($Preflight, $AuthorizeRun1, $AuthorizeRun2, $Live, $Continue, $Status).Where({ $_ }).Count -gt 1 -or
+    (($Preflight -or $AuthorizeRun1 -or $AuthorizeRun2 -or $Live -or $Continue -or $Status) -and
         -not [string]::IsNullOrWhiteSpace($InputJson)) -or
-    (-not $Preflight -and -not $AuthorizeRun1 -and -not $Live -and
+    (-not $Preflight -and -not $AuthorizeRun1 -and -not $AuthorizeRun2 -and -not $Live -and
         -not $Continue -and -not $Status -and [string]::IsNullOrWhiteSpace($InputJson))) {
     [Console]::Error.WriteLine('TRAIN_C_HARNESS_NOT_READY')
     exit 2
@@ -34,6 +35,13 @@ try {
         }
         $env:TRAIN_C_ATTEMPT_STATE_DIRECTORY = $AttemptStateDirectory
         & dart run tool/train_c_live_entrypoint.dart --authorize-run1
+    } elseif ($AuthorizeRun2) {
+        if ([string]::IsNullOrWhiteSpace($AttemptStateDirectory)) {
+            [Console]::Error.WriteLine('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED')
+            exit 2
+        }
+        $env:TRAIN_C_ATTEMPT_STATE_DIRECTORY = $AttemptStateDirectory
+        & dart run tool/train_c_live_entrypoint.dart --authorize-run2
     } elseif ($Live) {
         if ([string]::IsNullOrWhiteSpace($AttemptStateDirectory)) {
             [Console]::Error.WriteLine('TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED')
