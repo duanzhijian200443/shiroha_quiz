@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_regi
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -536,10 +537,16 @@ bool _rawExplanationAllowed(
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
-  if (raw.isEmpty || raw == finalExplanation) return true;
+  if (raw.isEmpty) return true;
   if (finalExplanation.isEmpty) return false;
-  return _textNodeOnlyExplanation(candidate) &&
-      _n0Equals(raw, finalExplanation);
+  if (raw == finalExplanation) {
+    return finalizeImportTextForParityComparison(raw).eligible;
+  }
+  return _explanationParityAllowed(
+    source: raw,
+    target: finalExplanation,
+    candidate: candidate,
+  );
 }
 
 bool _baselineParity(
@@ -547,7 +554,11 @@ bool _baselineParity(
   OcrTypedCandidate candidate,
 ) {
   final projected = candidate.projectedLegacy;
-  if (baseline == projected) return true;
+  if (baseline == projected) {
+    return finalizeImportTextForParityComparison(
+      projected.explanation,
+    ).eligible;
+  }
   if (baseline.type != projected.type ||
       baseline.questionNumber != projected.questionNumber ||
       baseline.content != projected.content ||
@@ -555,8 +566,23 @@ bool _baselineParity(
       baseline.standardAnswer != projected.standardAnswer) {
     return false;
   }
-  return _textNodeOnlyExplanation(candidate) &&
-      _n0Equals(baseline.explanation, projected.explanation);
+  return _explanationParityAllowed(
+    source: projected.explanation,
+    target: baseline.explanation,
+    candidate: candidate,
+  );
+}
+
+bool _explanationParityAllowed({
+  required String source,
+  required String target,
+  required OcrTypedCandidate candidate,
+}) {
+  if (!_textNodeOnlyExplanation(candidate)) return false;
+  final finalized = finalizeImportTextForParityComparison(source);
+  if (!finalized.eligible) return false;
+  if (finalized.text == target) return true;
+  return _n0Equals(source, target);
 }
 
 bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {

@@ -15,6 +15,44 @@ const Set<String> _derivedDiagnosticCodes = {
   'unsupported_html_tag_preserved',
 };
 
+const Set<String> _ineligibleFinalizationComparisonDiagnostics = {
+  'unsafe_html_content_removed',
+  'unsupported_html_tag_preserved',
+};
+
+/// The comparison-only result of the same deterministic text transformations
+/// used by the production finalization path.
+///
+/// This helper never mutates an import question or establishes persisted
+/// authority. HTML safety diagnostics remain fail-closed: a transformation
+/// that removes unsafe content or preserves an unsupported tag is not an
+/// equivalence claim.
+final class DeterministicFinalizationComparison {
+  const DeterministicFinalizationComparison({
+    required this.text,
+    required this.eligible,
+  });
+
+  final String text;
+  final bool eligible;
+}
+
+DeterministicFinalizationComparison finalizeImportTextForParityComparison(
+  String input,
+) {
+  final html = stripSafeHtmlWrappers(input);
+  final repaired = repairLatexDeterministically(html.text);
+  final normalized = const LatexBlockEnvironmentNormalizer()
+      .normalize(repaired)
+      .text;
+  return DeterministicFinalizationComparison(
+    text: normalized,
+    eligible: !html.diagnostics.any(
+      _ineligibleFinalizationComparisonDiagnostics.contains,
+    ),
+  );
+}
+
 List<String> clearDerivedImportDiagnostics(
   Iterable<String> diagnostics,
 ) {
