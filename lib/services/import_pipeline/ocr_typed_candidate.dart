@@ -537,11 +537,8 @@ bool _rawExplanationAllowed(
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
-  if (raw.isEmpty) return true;
+  if (raw.isEmpty || raw == finalExplanation) return true;
   if (finalExplanation.isEmpty) return false;
-  if (raw == finalExplanation) {
-    return finalizeImportTextForParityComparison(raw).eligible;
-  }
   return _explanationParityAllowed(
     source: raw,
     target: finalExplanation,
@@ -554,11 +551,7 @@ bool _baselineParity(
   OcrTypedCandidate candidate,
 ) {
   final projected = candidate.projectedLegacy;
-  if (baseline == projected) {
-    return finalizeImportTextForParityComparison(
-      projected.explanation,
-    ).eligible;
-  }
+  if (baseline == projected) return true;
   if (baseline.type != projected.type ||
       baseline.questionNumber != projected.questionNumber ||
       baseline.content != projected.content ||
@@ -579,10 +572,9 @@ bool _explanationParityAllowed({
   required OcrTypedCandidate candidate,
 }) {
   if (!_textNodeOnlyExplanation(candidate)) return false;
+  if (_n0Equals(source, target)) return true;
   final finalized = finalizeImportTextForParityComparison(source);
-  if (!finalized.eligible) return false;
-  if (finalized.text == target) return true;
-  return _n0Equals(source, target);
+  return finalized.eligible && finalized.text == target;
 }
 
 bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {

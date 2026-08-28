@@ -492,10 +492,26 @@ void main() {
       }
     });
 
-    test('unsafe and unsupported HTML remain fail-closed', () {
+    test('exact and N0 parity precede ineligible HTML finalization', () {
+      final exact = _gateForExplanation(
+        projectedExplanation: '<custom>synthetic</custom>',
+        baselineExplanation: '<custom>synthetic</custom>',
+      );
+      expect(exact.route, ImportStorageRoute.typedV2);
+      expect(exact.reason, ocrTypedCandidateReadyReason);
+
+      final n0 = _gateForExplanation(
+        projectedExplanation: '<custom>synthetic</custom>\t',
+        baselineExplanation: '<custom>synthetic</custom>',
+      );
+      expect(n0.route, ImportStorageRoute.typedV2);
+      expect(n0.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('ineligible HTML rejects only when finalization is required', () {
       for (final pair in const <List<String>>[
         <String>['<script>synthetic</script>safe', 'safe'],
-        <String>['<custom>synthetic</custom>', '<custom>synthetic</custom>'],
+        <String>['<custom>synthetic</custom>', 'synthetic'],
       ]) {
         final comparison = finalizeImportTextForParityComparison(pair[0]);
         expect(comparison.eligible, isFalse, reason: pair[0]);
