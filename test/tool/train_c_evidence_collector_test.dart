@@ -31,6 +31,39 @@ void main() {
     expect(result.evidence['authority'], 'schema_validator_only');
   });
 
+  test('trusted collector binds reviewed Run 2 over source self-report', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected)..['runNumber'] = 1;
+
+    final result = TrainCTrustedEvidenceCollector(
+      reviewedIdentity: _reviewed(expected),
+      expectedRunNumber: 2,
+    ).inspectSchema(snapshot);
+
+    expect(result.schemaValid, isTrue);
+    expect(result.acceptanceAuthorized, isFalse);
+    expect(result.evidence['runNumber'], 2);
+  });
+
+  test('trusted collector rejects an unsupported expected run number', () {
+    final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
+    final snapshot = _validSnapshot(expected);
+
+    expect(
+      () => TrainCTrustedEvidenceCollector(
+        reviewedIdentity: _reviewed(expected),
+        expectedRunNumber: 3,
+      ).inspectSchema(snapshot),
+      throwsA(
+        isA<TrainCEvidenceProbeException>().having(
+          (error) => error.code,
+          'code',
+          'TRAIN_C_HARNESS_NOT_READY',
+        ),
+      ),
+    );
+  });
+
   test('trusted collector recomputes request count with production chunk', () {
     final expected = TrainCExpectedCodeIdentity.forCurrentRepository();
     final snapshot = _validSnapshot(expected);
