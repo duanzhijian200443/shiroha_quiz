@@ -4,9 +4,12 @@ on:
   pull_request:
     branches:
       - master
+      - integration/train-c-package-b-final
   push:
     branches:
       - master
+      - integration/train-c-package-b-final
+      - 'fix/train-c-*'
   workflow_dispatch:
 
 permissions:
@@ -70,6 +73,59 @@ jobs:
           BASE_REF: ${{ steps.base-ref.outputs.base_ref }}
         run: |
           & git diff --check "${env:BASE_REF}...HEAD"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+  train_c_finalization_parity:
+    name: TRAIN C finalization parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Verify finalization parity scope
+        shell: pwsh
+        run: |
+          $formatTargets = @(
+            'lib/services/import_pipeline/final_question_latex_audit.dart',
+            'lib/services/import_pipeline/ocr_typed_candidate.dart',
+            'test/services/import_pipeline/ocr_typed_candidate_test.dart',
+            'test/services/import_pipeline/latex_block_environment_normalizer_test.dart'
+          )
+          & dart format --output=none --set-exit-if-changed @formatTargets
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          $analyzeTargets = @(
+            'lib/services/import_pipeline/final_question_latex_audit.dart',
+            'lib/services/import_pipeline/ocr_typed_candidate.dart'
+          )
+          & flutter analyze @analyzeTargets
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          $testTargets = @(
+            'test/services/import_pipeline/ocr_typed_candidate_test.dart',
+            'test/services/import_pipeline/latex_block_environment_normalizer_test.dart'
+          )
+          & flutter test --concurrency=1 @testTargets
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -250,6 +306,7 @@ jobs:
     name: Changed Dart and focused contracts
     needs:
       - static
+      - train_c_finalization_parity
       - contracts
     if: always()
     runs-on: ubuntu-latest
@@ -260,11 +317,15 @@ jobs:
         shell: pwsh
         run: |
           $staticResult = '${{ needs.static.result }}'
+          $parityResult = '${{ needs.train_c_finalization_parity.result }}'
           $contractsResult = '${{ needs.contracts.result }}'
 
           Write-Output "Static checks: $staticResult"
+          Write-Output "TRAIN C finalization parity: $parityResult"
           Write-Output "Contract shards: $contractsResult"
 
-          if ($staticResult -ne 'success' -or $contractsResult -ne 'success') {
+          if ($staticResult -ne 'success' -or
+              $parityResult -ne 'success' -or
+              $contractsResult -ne 'success') {
             exit 1
           }
