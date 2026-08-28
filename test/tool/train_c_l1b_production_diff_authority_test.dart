@@ -103,8 +103,7 @@ void main() {
       approvedHarnessHead: head,
       approvedBase: base,
       approvedProductionBase: base,
-      approvedProductionSeamBlobSha:
-          trainCFinalLibTreeAuthorityToken(libTree),
+      approvedProductionSeamBlobSha: trainCFinalLibTreeAuthorityToken(libTree),
       currentHeadReader: () => head,
       masterReader: () => base,
       changedPathsReader: (_) => const <String>[
