@@ -61,6 +61,27 @@ String ocrImageMaterializationCategoryValue(
   };
 }
 
+enum _OcrImageValidationSubtype {
+  emptyBody,
+  bodyTooLarge,
+  signatureUnrecognized,
+  declaredDetectedMismatch,
+  unsupportedDeclaredImageMime,
+}
+
+String _ocrImageValidationSubtypeValue(_OcrImageValidationSubtype subtype) {
+  return switch (subtype) {
+    _OcrImageValidationSubtype.emptyBody => 'empty_body',
+    _OcrImageValidationSubtype.bodyTooLarge => 'body_too_large',
+    _OcrImageValidationSubtype.signatureUnrecognized =>
+      'signature_unrecognized',
+    _OcrImageValidationSubtype.declaredDetectedMismatch =>
+      'declared_detected_mismatch',
+    _OcrImageValidationSubtype.unsupportedDeclaredImageMime =>
+      'unsupported_declared_image_mime',
+  };
+}
+
 const _shirohaBuildSha = String.fromEnvironment(
   'SHIROHA_BUILD_SHA',
   defaultValue: 'unknown',
@@ -585,6 +606,9 @@ class ZhipuOcrClient implements OcrDocumentClient {
         telemetry.enterPhase(_RemoteCropPhase.validation);
         final contentLength = response.contentLength;
         if (contentLength != null && contentLength > maxImageBytes) {
+          telemetry.validationSubtype = _ocrImageValidationSubtypeValue(
+            _OcrImageValidationSubtype.bodyTooLarge,
+          );
           return finish(
             _RemoteImageMaterializationResult.failure(
               OcrImageMaterializationCategory.bodyOrMimeInvalid,
@@ -602,6 +626,9 @@ class ZhipuOcrClient implements OcrDocumentClient {
           totalBytes += chunk.length;
           telemetry.bytesReceived += chunk.length;
           if (totalBytes > maxImageBytes) {
+            telemetry.validationSubtype = _ocrImageValidationSubtypeValue(
+              _OcrImageValidationSubtype.bodyTooLarge,
+            );
             return finish(
               _RemoteImageMaterializationResult.failure(
                 OcrImageMaterializationCategory.bodyOrMimeInvalid,
@@ -614,6 +641,9 @@ class ZhipuOcrClient implements OcrDocumentClient {
         final bytes = builder.takeBytes();
         telemetry.enterPhase(_RemoteCropPhase.validation);
         if (bytes.isEmpty) {
+          telemetry.validationSubtype = _ocrImageValidationSubtypeValue(
+            _OcrImageValidationSubtype.emptyBody,
+          );
           return finish(
             _RemoteImageMaterializationResult.failure(
               OcrImageMaterializationCategory.bodyOrMimeInvalid,
@@ -623,6 +653,12 @@ class ZhipuOcrClient implements OcrDocumentClient {
         final mimeType = _resolveDownloadedImageMime(
           response.headers['content-type'],
           bytes,
+          onRejected: (subtype, declaredClass, detectedClass) {
+            telemetry.validationSubtype =
+                _ocrImageValidationSubtypeValue(subtype);
+            telemetry.declaredMimeClass = declaredClass;
+            telemetry.detectedMimeClass = detectedClass;
+          },
         );
         if (mimeType == null) {
           return finish(
@@ -851,7 +887,15 @@ class ZhipuOcrClient implements OcrDocumentClient {
     return true;
   }
 
-  String? _resolveDownloadedImageMime(String? contentType, List<int> bytes) {
+  String? _resolveDownloadedImageMime(
+    String? contentType,
+    List<int> bytes, {
+    void Function(
+      _OcrImageValidationSubtype subtype,
+      String declaredClass,
+      String detectedClass,
+    )? onRejected,
+  }) {
     final normalized = contentType?.split(';').first.trim().toLowerCase();
     final declared = switch (normalized) {
       'image/png' => 'image/png',
@@ -860,15 +904,55 @@ class ZhipuOcrClient implements OcrDocumentClient {
       'image/gif' => 'image/gif',
       _ => null,
     };
+    final declaredClass = _declaredImageMimeClass(normalized);
     final detected = ImageByteSignature.detectMime(bytes);
-    if (detected == null) return null;
-    if (declared != null && declared != detected) return null;
+    final detectedClass = _detectedImageMimeClass(detected);
+    void recordRejection(_OcrImageValidationSubtype subtype) {
+      try {
+        onRejected?.call(subtype, declaredClass, detectedClass);
+      } on Object {
+        // Telemetry must never affect the original admission result.
+      }
+    }
+
+    if (detected == null) {
+      recordRejection(_OcrImageValidationSubtype.signatureUnrecognized);
+      return null;
+    }
+    if (declared != null && declared != detected) {
+      recordRejection(_OcrImageValidationSubtype.declaredDetectedMismatch);
+      return null;
+    }
     if (normalized != null &&
         normalized.startsWith('image/') &&
         declared == null) {
+      recordRejection(
+        _OcrImageValidationSubtype.unsupportedDeclaredImageMime,
+      );
       return null;
     }
     return detected;
+  }
+
+  String _declaredImageMimeClass(String? normalized) {
+    return switch (normalized) {
+      'image/png' => 'png',
+      'image/jpeg' || 'image/jpg' => 'jpeg',
+      'image/webp' => 'webp',
+      'image/gif' => 'gif',
+      final value? when value.startsWith('image/') => 'other_image',
+      _ => 'none_or_other',
+    };
+  }
+
+  String _detectedImageMimeClass(String? detected) {
+    return switch (detected) {
+      'image/png' => 'png',
+      'image/jpeg' => 'jpeg',
+      'image/webp' => 'webp',
+      'image/gif' => 'gif',
+      _ => 'unknown',
+    };
   }
 
   /// Resolves the media type for OCR admission.
@@ -994,6 +1078,9 @@ final class _RemoteCropTelemetry {
   int? _currentTimeoutBudgetMs;
   int? _lastTimeoutBudgetMs;
   String? exceptionType;
+  String? validationSubtype;
+  String? declaredMimeClass;
+  String? detectedMimeClass;
   var responseStarted = false;
   int? httpStatus;
   var bytesReceived = 0;
@@ -1028,6 +1115,9 @@ final class _RemoteCropTelemetry {
               ? _lastTimeoutBudgetMs
               : _currentTimeoutBudgetMs,
       'exceptionType': exceptionType,
+      if (validationSubtype != null) 'validationSubtype': validationSubtype,
+      if (declaredMimeClass != null) 'declaredMimeClass': declaredMimeClass,
+      if (detectedMimeClass != null) 'detectedMimeClass': detectedMimeClass,
       'responseStarted': responseStarted,
       'httpStatus': httpStatus,
       'bytesReceived': bytesReceived,

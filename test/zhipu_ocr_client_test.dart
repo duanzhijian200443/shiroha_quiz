@@ -24,6 +24,8 @@ const _validCropPng = <int>[
   1,
 ];
 
+const _validCropJpeg = <int>[0xff, 0xd8, 0xff];
+
 Map<String, dynamic> _cropResponse({
   required int count,
   String url = 'https://cdn.example.com/crop.png',
@@ -521,6 +523,122 @@ void main() {
       expect(records[1].data['bytesReceived'], 3);
       final serialized = records.map((record) => record.toJson()).join();
       expect(serialized, isNot(contains('private response body')));
+    });
+
+    test('remote crop validation subtypes stay fixed and preserve rejection',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      final file = _syntheticPngFile('zhipu-ocr-validation-subtypes');
+      addTearDown(() => file.deleteSync());
+
+      Future<LogRecord> parseRemote({
+        required List<int> bytes,
+        required String contentType,
+        http.Client? remoteClient,
+      }) async {
+        sink.records.clear();
+        final client = ZhipuOcrClient(
+          httpClient: MockClient(
+            (request) async => http.Response(
+              jsonEncode(_cropResponse(count: 1)),
+              200,
+            ),
+          ),
+          remoteCropClientFactory: (_, __) =>
+              remoteClient ??
+              MockClient(
+                (_) async => http.Response.bytes(
+                  bytes,
+                  200,
+                  headers: <String, String>{'content-type': contentType},
+                ),
+              ),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+        );
+
+        final document = await client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+        expect(document.flattenedBlocks.single.imagePayload, isNull);
+        expect(document.flattenedBlocks.single.text, '[图片]');
+        await AppLogger.flush();
+        final records = sink.records
+            .where((record) => record.data['stage'] == 'image_materialization')
+            .toList(growable: false);
+        expect(records, hasLength(1));
+        return records.single;
+      }
+
+      final unrecognized = await parseRemote(
+        bytes: const <int>[1, 2, 3],
+        contentType: 'image/png; private-mime-sentinel',
+      );
+      expect(unrecognized.data['result'], 'body_or_mime_invalid');
+      expect(
+        unrecognized.data['validationSubtype'],
+        'signature_unrecognized',
+      );
+      expect(unrecognized.data['declaredMimeClass'], 'png');
+      expect(unrecognized.data['detectedMimeClass'], 'unknown');
+
+      final mismatch = await parseRemote(
+        bytes: _validCropJpeg,
+        contentType: 'image/png; private-mime-sentinel',
+      );
+      expect(mismatch.data['result'], 'body_or_mime_invalid');
+      expect(
+        mismatch.data['validationSubtype'],
+        'declared_detected_mismatch',
+      );
+      expect(mismatch.data['declaredMimeClass'], 'png');
+      expect(mismatch.data['detectedMimeClass'], 'jpeg');
+
+      final unsupported = await parseRemote(
+        bytes: _validCropPng,
+        contentType: 'image/avif; private-mime-sentinel',
+      );
+      expect(unsupported.data['result'], 'body_or_mime_invalid');
+      expect(
+        unsupported.data['validationSubtype'],
+        'unsupported_declared_image_mime',
+      );
+      expect(unsupported.data['declaredMimeClass'], 'other_image');
+      expect(unsupported.data['detectedMimeClass'], 'png');
+
+      final empty = await parseRemote(
+        bytes: const <int>[],
+        contentType: 'image/png',
+      );
+      expect(empty.data['result'], 'body_or_mime_invalid');
+      expect(empty.data['validationSubtype'], 'empty_body');
+
+      final tooLarge = await parseRemote(
+        bytes: const <int>[],
+        contentType: 'image/png',
+        remoteClient: _StreamedCropClient(
+          () => http.StreamedResponse(
+            Stream<List<int>>.fromIterable(const <List<int>>[]),
+            200,
+            headers: const <String, String>{'content-type': 'image/png'},
+            contentLength: ZhipuOcrClient.maxImageBytes + 1,
+          ),
+        ),
+      );
+      expect(tooLarge.data['result'], 'body_or_mime_invalid');
+      expect(tooLarge.data['validationSubtype'], 'body_too_large');
+
+      final serialized = sink.records.map((record) => record.toJson()).join();
+      expect(serialized, isNot(contains('private MIME sentinel')));
+      expect(serialized, isNot(contains('private-mime-sentinel')));
+      expect(serialized, isNot(contains('image/avif')));
+      expect(serialized, isNot(contains('cdn.example.com')));
+      expect(serialized, isNot(contains('token=secret')));
     });
 
     test('remote crop count and byte budgets are aggregate and fail closed',

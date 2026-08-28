@@ -1,7 +1,34 @@
+import '../../core/observability/app_logger.dart';
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/source/source_part.dart';
 import '../../domain/source/source_ref.dart';
+
+enum _OcrTableProjectionSubtype {
+  inputTooLarge,
+  tableMissing,
+  unsafeMarkup,
+  rowsMissing,
+  rowLimit,
+  cellsMissing,
+  columnLimit,
+  mergedCellGeometry,
+  sourceTableInvalid,
+}
+
+String _ocrTableProjectionSubtypeValue(_OcrTableProjectionSubtype subtype) {
+  return switch (subtype) {
+    _OcrTableProjectionSubtype.inputTooLarge => 'input_too_large',
+    _OcrTableProjectionSubtype.tableMissing => 'table_missing',
+    _OcrTableProjectionSubtype.unsafeMarkup => 'unsafe_markup',
+    _OcrTableProjectionSubtype.rowsMissing => 'rows_missing',
+    _OcrTableProjectionSubtype.rowLimit => 'row_limit',
+    _OcrTableProjectionSubtype.cellsMissing => 'cells_missing',
+    _OcrTableProjectionSubtype.columnLimit => 'column_limit',
+    _OcrTableProjectionSubtype.mergedCellGeometry => 'merged_cell_geometry',
+    _OcrTableProjectionSubtype.sourceTableInvalid => 'source_table_invalid',
+  };
+}
 
 /// Deterministic, bounded adapter for the provider's HTML table block.
 ///
@@ -19,10 +46,47 @@ final class OcrTableProjector {
     String html, {
     required SourceRef sourceRef,
   }) {
-    if (html.length > maxInputLength) return null;
+    return _parseHtmlTable(
+      html,
+      sourceRef: sourceRef,
+      emitTelemetry: true,
+    );
+  }
+
+  static SourceTablePart? _parseHtmlTable(
+    String html, {
+    required SourceRef sourceRef,
+    required bool emitTelemetry,
+  }) {
+    SourceTablePart? reject(_OcrTableProjectionSubtype subtype) {
+      if (emitTelemetry) {
+        try {
+          AppLogger.info(
+            'OCR table projection rejected',
+            module: 'Ocr',
+            data: <String, Object?>{
+              'stage': 'table_projection',
+              'status': 'rejected',
+              'tableProjectionSubtype':
+                  _ocrTableProjectionSubtypeValue(subtype),
+              'count': 1,
+            },
+          );
+        } on Object {
+          // Telemetry must never affect the original projection result.
+        }
+      }
+      return null;
+    }
+
+    if (html.length > maxInputLength) {
+      return reject(_OcrTableProjectionSubtype.inputTooLarge);
+    }
     final trimmed = html.trim();
-    if (!RegExp(r'<table\b', caseSensitive: false).hasMatch(trimmed) ||
-        RegExp(
+    if (!RegExp(r'<table\b', caseSensitive: false).hasMatch(trimmed)) {
+      return reject(_OcrTableProjectionSubtype.tableMissing);
+    }
+    if (RegExp(
           r'<(?:script|style)\b',
           caseSensitive: false,
         ).hasMatch(trimmed) ||
@@ -30,7 +94,7 @@ final class OcrTableProjector {
           r'<\s*(?:img|a)\b|\b(?:src|href)\s*=',
           caseSensitive: false,
         ).hasMatch(trimmed)) {
-      return null;
+      return reject(_OcrTableProjectionSubtype.unsafeMarkup);
     }
 
     final rowMatches = RegExp(
@@ -38,7 +102,12 @@ final class OcrTableProjector {
       caseSensitive: false,
       dotAll: true,
     ).allMatches(trimmed).toList(growable: false);
-    if (rowMatches.isEmpty || rowMatches.length > maxRowCount) return null;
+    if (rowMatches.isEmpty) {
+      return reject(_OcrTableProjectionSubtype.rowsMissing);
+    }
+    if (rowMatches.length > maxRowCount) {
+      return reject(_OcrTableProjectionSubtype.rowLimit);
+    }
 
     final rows = <List<RichContent>>[];
     for (final rowMatch in rowMatches) {
@@ -48,8 +117,11 @@ final class OcrTableProjector {
         caseSensitive: false,
         dotAll: true,
       ).allMatches(rowHtml).toList(growable: false);
-      if (cellMatches.isEmpty || cellMatches.length > maxColumnCount) {
-        return null;
+      if (cellMatches.isEmpty) {
+        return reject(_OcrTableProjectionSubtype.cellsMissing);
+      }
+      if (cellMatches.length > maxColumnCount) {
+        return reject(_OcrTableProjectionSubtype.columnLimit);
       }
 
       final row = <RichContent>[];
@@ -59,7 +131,7 @@ final class OcrTableProjector {
           r'\b(?:rowspan|colspan)\s*=',
           caseSensitive: false,
         ).hasMatch(attributes)) {
-          return null;
+          return reject(_OcrTableProjectionSubtype.mergedCellGeometry);
         }
         final text = _sanitizeCellText(cellMatch.group(2) ?? '');
         row.add(
@@ -74,7 +146,7 @@ final class OcrTableProjector {
     try {
       return SourceTablePart(sourceRef: sourceRef, rows: rows);
     } on FormatException {
-      return null;
+      return reject(_OcrTableProjectionSubtype.sourceTableInvalid);
     }
   }
 
@@ -87,9 +159,10 @@ final class OcrTableProjector {
   }
 
   static String? projectHtmlToPlainText(String html) {
-    final table = parseHtmlTable(
+    final table = _parseHtmlTable(
       html,
       sourceRef: SourceRef.document(sourceId: 'ocr_table_projection'),
+      emitTelemetry: false,
     );
     return table == null ? null : projectToPlainText(table);
   }
