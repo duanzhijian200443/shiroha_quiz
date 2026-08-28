@@ -1,21 +1,20 @@
 import 'dart:io';
 
 import 'train_c_evidence_probe.dart';
+import 'train_c_production_authority_token.dart';
 import 'train_c_review_authorization.dart';
 
 const trainCL1BApprovedBaseEnvironment = 'TRAIN_C_APPROVED_BASE';
 const trainCL1BApprovedProductionSeamBlobEnvironment =
     'TRAIN_C_APPROVED_PRODUCTION_SEAM_BLOB_SHA';
 
-/// Independent out-of-band review identity for the execution-capable L1B
-/// harness.
+/// Independent out-of-band review identity for execution-capable TRAIN C.
 ///
-/// L1A used a source-frozen branch base because it was itself the first
-/// harness activation. L1B may be executed on an independently reviewed PR
-/// head before merge or on an independently reviewed merged head afterwards,
-/// so both the harness HEAD and the contemporaneous base/master identity are
-/// supplied out of band. The production baseline remains frozen at TRAIN B;
-/// therefore any `lib/**` change still fails the production-diff gate.
+/// Historical L1B continues to accept only the original exact seam blob and
+/// keeps the frozen TRAIN-B production baseline. Final Package-B closure uses
+/// an out-of-band `lib_tree:<sha>` token. In that mode the contemporaneous
+/// independently reviewed master/base becomes the production baseline and the
+/// production authority pins the complete `lib/` tree at the approved HEAD.
 final class TrainCL1BReviewAuthorization {
   const TrainCL1BReviewAuthorization._();
 
@@ -25,9 +24,14 @@ final class TrainCL1BReviewAuthorization {
     final values = environment ?? Platform.environment;
     final head = values[trainCApprovedHarnessHeadEnvironment]?.trim() ?? '';
     final base = values[trainCL1BApprovedBaseEnvironment]?.trim() ?? '';
-    final seamBlob =
+    final productionAuthority =
         values[trainCL1BApprovedProductionSeamBlobEnvironment]?.trim() ?? '';
-    if (!_isCommitSha(head) || !_isCommitSha(base) || !_isCommitSha(seamBlob)) {
+    final finalLibTree =
+        trainCFinalLibTreeShaFromAuthorityToken(productionAuthority);
+    final validHistoricalBlob = _isCommitSha(productionAuthority);
+    if (!_isCommitSha(head) ||
+        !_isCommitSha(base) ||
+        (!validHistoricalBlob && finalLibTree == null)) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
       );
@@ -35,8 +39,9 @@ final class TrainCL1BReviewAuthorization {
     return TrainCReviewedIdentity(
       approvedHarnessHead: head,
       approvedBase: base,
-      approvedProductionBase: trainCApprovedProductionBase,
-      approvedProductionSeamBlobSha: seamBlob,
+      approvedProductionBase:
+          finalLibTree == null ? trainCApprovedProductionBase : base,
+      approvedProductionSeamBlobSha: productionAuthority,
     );
   }
 
