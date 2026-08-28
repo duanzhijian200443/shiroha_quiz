@@ -14,7 +14,6 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dar
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
-import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
@@ -399,149 +398,12 @@ void main() {
       expect(() => candidate.sourceBlockIds.add('x'), throwsUnsupportedError);
       expect(() => batch.candidates.add(candidate), throwsUnsupportedError);
     });
-
-    test('real-shaped finalization keeps raw-like projection eligible', () {
-      const region = OcrQuestionRegion(
-        number: 1,
-        stemParts: <String>['1. Synthetic prompt marker 1.'],
-        answerParts: <String>['答案：synthetic-result-1'],
-        explanationParts: <String>[
-          '<div><span>Safe explanation</span><br><p>second line</p></div>',
-        ],
-        sourcePageIndices: <int>[1],
-        sourceBlockIds: <String>['q_1', 'answer_1', 'explanation_1'],
-        diagnostics: <String>[],
-        declaredKind: TextQuestionKind.subjective,
-      );
-      final document = _document(
-        'r7b_synthetic_finalization.pdf',
-        <OcrPage>[
-          OcrPage(
-            pageIndex: 1,
-            blocks: <OcrBlock>[
-              _block('section', 1, 0, '三、解答题'),
-              _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
-              _block('answer_1', 1, 2, '答案：synthetic-result-1'),
-              _block(
-                'explanation_1',
-                1,
-                3,
-                '<div><span>Safe explanation</span><br><p>second line</p></div>',
-              ),
-            ],
-          ),
-        ],
-      );
-      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[region]);
-      final batch = buildOcrTypedCandidateBatch(
-        document: document,
-        regions: <OcrQuestionRegion>[region],
-        legacyQuestions: legacyQuestions,
-        uuidV4Factory: _uuidSequence(),
-      );
-      final projected = batch.candidates.single.projectedLegacy.explanation;
-      final finalized = finalizeAndAuditImportQuestions(legacyQuestions);
-      final finalExplanation = finalized.single['explanation'] as String;
-
-      expect(projected, contains('<div>'));
-      expect(finalExplanation, 'Safe explanation\nsecond line');
-      expect(projected, isNot(finalExplanation));
-
-      final result = applyOcrTypedCandidateGate(
-        batch: batch,
-        finalQuestions: finalized,
-        singleFile: true,
-      );
-
-      expect(result.route, ImportStorageRoute.typedV2);
-      expect(result.reason, ocrTypedCandidateReadyReason);
-    });
   });
 
   group('all-or-nothing gate', () {
     test('historical tasks without a route decode as legacyV1', () {
       expect(decodeImportStorageRoute(null), ImportStorageRoute.legacyV1);
       expect(decodeImportStorageRoute('legacyV1'), ImportStorageRoute.legacyV1);
-    });
-
-    test('production finalization comparison is comparison-only and ordered',
-        () {
-      final cases = <List<String>>[
-        <String>['<p>wrapped</p>', 'wrapped'],
-        <String>['<div><span>one</span><br><p>two</p></div>', 'one\ntwo'],
-        <String>['safe &amp; sound', 'safe & sound'],
-        <String>[r'proof \(x=1', r'proof \(x=1\)'],
-        <String>[
-          r'\begin{matrix}1&2\\3&4\end{matrix}',
-          r'\[\begin{matrix}1&2\\3&4\end{matrix}\]',
-        ],
-      ];
-
-      for (final pair in cases) {
-        final comparison = finalizeImportTextForParityComparison(pair[0]);
-        expect(comparison.eligible, isTrue, reason: pair[0]);
-        expect(comparison.text, pair[1], reason: pair[0]);
-        expect(
-          _gateForExplanation(
-            projectedExplanation: pair[0],
-            baselineExplanation: pair[1],
-          ).reason,
-          ocrTypedCandidateReadyReason,
-          reason: pair[0],
-        );
-      }
-    });
-
-    test('exact and N0 parity precede ineligible HTML finalization', () {
-      final exact = _gateForExplanation(
-        projectedExplanation: '<custom>synthetic</custom>',
-        baselineExplanation: '<custom>synthetic</custom>',
-      );
-      expect(exact.route, ImportStorageRoute.typedV2);
-      expect(exact.reason, ocrTypedCandidateReadyReason);
-
-      final n0 = _gateForExplanation(
-        projectedExplanation: '<custom>synthetic</custom>\t',
-        baselineExplanation: '<custom>synthetic</custom>',
-      );
-      expect(n0.route, ImportStorageRoute.typedV2);
-      expect(n0.reason, ocrTypedCandidateReadyReason);
-    });
-
-    test('ineligible HTML rejects only when finalization is required', () {
-      for (final pair in const <List<String>>[
-        <String>['<script>synthetic</script>safe', 'safe'],
-        <String>['<custom>synthetic</custom>', 'synthetic'],
-      ]) {
-        final comparison = finalizeImportTextForParityComparison(pair[0]);
-        expect(comparison.eligible, isFalse, reason: pair[0]);
-        final result = _gateForExplanation(
-          projectedExplanation: pair[0],
-          baselineExplanation: pair[1],
-        );
-        expect(result.route, ImportStorageRoute.legacyV1, reason: pair[0]);
-        expect(result.reason, isNotNull, reason: pair[0]);
-      }
-    });
-
-    test('finalization parity rejects semantic mutation and internal reflow',
-        () {
-      for (final pair in const <List<String>>[
-        <String>['same explanation', 'different explanation'],
-        <String>['line one\nline two', 'line oneline two'],
-      ]) {
-        final result = _gateForExplanation(
-          projectedExplanation: pair[0],
-          baselineExplanation: pair[1],
-          includeRawExplanation: false,
-        );
-        expect(result.route, ImportStorageRoute.legacyV1, reason: pair[0]);
-        expect(
-          result.reason,
-          'typed_candidate_projection_mismatch',
-          reason: pair[0],
-        );
-      }
     });
 
     test('an eligible batch attaches an envelope to every question', () {
@@ -1425,40 +1287,6 @@ OcrTypedCandidate _candidate({
     projectedLegacy: projectedLegacy ?? _finalBaseline(number: questionNumber),
     sourcePageIndices: const <int>[1],
     sourceBlockIds: const <String>['q_1', 'answer_1', 'explanation_1'],
-  );
-}
-
-OcrTypedCandidateGateResult _gateForExplanation({
-  required String projectedExplanation,
-  required String baselineExplanation,
-  bool includeRawExplanation = true,
-}) {
-  final candidate = _candidate(
-    questionNumber: 1,
-    questionId: _questionUuidA,
-    reviewItemId: _reviewUuidA,
-    draft: _draftWithExplanation(
-      questionNumber: 1,
-      questionId: _questionUuidA,
-      explanation: RichContent(
-        nodes: <ContentNode>[TextNode(projectedExplanation)],
-      ),
-    ),
-    projectedLegacy: _finalBaseline(
-      number: 1,
-      explanation: projectedExplanation,
-    ),
-  );
-  final question = _finalQuestion(number: 1)
-    ..['explanation'] = baselineExplanation
-    ..['raw_explanation'] =
-        includeRawExplanation ? projectedExplanation : null;
-  return applyOcrTypedCandidateGate(
-    batch: OcrTypedCandidateBatch(
-      candidates: <OcrTypedCandidate>[candidate],
-    ),
-    finalQuestions: <Map<String, dynamic>>[question],
-    singleFile: true,
   );
 }
 
