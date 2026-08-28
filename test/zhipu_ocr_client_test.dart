@@ -7,6 +7,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/domain/source/source_part.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
+import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 
@@ -21,6 +24,8 @@ const _validCropPng = <int>[
   10,
   1,
 ];
+
+const _validCropJpeg = <int>[0xff, 0xd8, 0xff];
 
 Map<String, dynamic> _cropResponse({
   required int count,
@@ -216,6 +221,131 @@ void main() {
       final invalid = await parseCrop(const <int>[1, 2, 3]);
       expect(invalid.flattenedBlocks.single.imagePayload, isNull);
       expect(invalid.flattenedBlocks.single.text, '[图片]');
+    });
+
+    test('supported MIME mismatches use detected MIME through asset storage',
+        () async {
+      final file = _syntheticPngFile('zhipu-ocr-mime-mismatch');
+      addTearDown(() => file.deleteSync());
+      final managedRoot = await Directory.systemTemp.createTemp(
+        'zhipu-ocr-mime-mismatch-assets-',
+      );
+      addTearDown(() async {
+        if (await managedRoot.exists()) {
+          await managedRoot.delete(recursive: true);
+        }
+      });
+
+      Future<OcrDocument> parseCrop({
+        required List<int> bytes,
+        required String contentType,
+      }) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'GET') {
+              return http.Response.bytes(
+                bytes,
+                200,
+                headers: <String, String>{'content-type': contentType},
+              );
+            }
+            return http.Response(
+              jsonEncode(_cropResponse(count: 1)),
+              200,
+            );
+          }),
+          dnsResolver: (_) async => <InternetAddress>[
+            InternetAddress('93.184.216.34'),
+          ],
+        );
+        return client.parseFile(
+          profile: profile,
+          filePath: file.path,
+          sourceName: 'fixture.png',
+        );
+      }
+
+      final jpegDocument = await parseCrop(
+        bytes: _validCropJpeg,
+        contentType: 'image/png',
+      );
+      final jpegPayload = jpegDocument.flattenedBlocks.single.imagePayload;
+      expect(jpegPayload, isNotNull);
+      expect(jpegPayload!.mimeType, 'image/jpeg');
+      expect(jpegPayload.bytes, _validCropJpeg);
+
+      final pngDocument = await parseCrop(
+        bytes: _validCropPng,
+        contentType: 'image/jpeg',
+      );
+      final pngPayload = pngDocument.flattenedBlocks.single.imagePayload;
+      expect(pngPayload, isNotNull);
+      expect(pngPayload!.mimeType, 'image/png');
+      expect(pngPayload.bytes, _validCropPng);
+
+      final matchingJpegDocument = await parseCrop(
+        bytes: _validCropJpeg,
+        contentType: 'image/jpeg',
+      );
+      expect(
+        matchingJpegDocument.flattenedBlocks.single.imagePayload?.mimeType,
+        'image/jpeg',
+      );
+
+      final missingTypeDocument = await parseCrop(
+        bytes: _validCropPng,
+        contentType: '',
+      );
+      expect(
+        missingTypeDocument.flattenedBlocks.single.imagePayload?.mimeType,
+        'image/png',
+      );
+
+      final nonImageTypeDocument = await parseCrop(
+        bytes: _validCropPng,
+        contentType: 'application/octet-stream',
+      );
+      expect(
+        nonImageTypeDocument.flattenedBlocks.single.imagePayload?.mimeType,
+        'image/png',
+      );
+
+      final unsupportedTypeDocument = await parseCrop(
+        bytes: _validCropPng,
+        contentType: 'image/avif',
+      );
+      expect(
+          unsupportedTypeDocument.flattenedBlocks.single.imagePayload, isNull);
+      expect(unsupportedTypeDocument.flattenedBlocks.single.text, '[图片]');
+
+      final unknownSignatureDocument = await parseCrop(
+        bytes: const <int>[1, 2, 3],
+        contentType: 'image/png',
+      );
+      expect(
+          unknownSignatureDocument.flattenedBlocks.single.imagePayload, isNull);
+      expect(unknownSignatureDocument.flattenedBlocks.single.text, '[图片]');
+
+      final sourceId = '11111111-1111-4111-8111-111111111111';
+      final store = ManagedContentAssetStore(managedRoot: managedRoot);
+      final storedDocument = OcrSourceDocumentAdapter(
+        assetStore: store,
+      ).convert(
+        jpegDocument,
+        sourceId: sourceId,
+      );
+      expect(storedDocument.parts, hasLength(1));
+      final assetPart = storedDocument.parts.single;
+      expect(assetPart, isA<SourceAssetPart>());
+      final storedAsset = (assetPart as SourceAssetPart).asset;
+      expect(storedAsset.mimeType, 'image/jpeg');
+      expect(
+        store.readAssetBytes(
+          sourceId: sourceId,
+          localAssetId: storedAsset.assetId,
+        ),
+        _validCropJpeg,
+      );
     });
 
     test('remote crop count and byte budgets are aggregate and fail closed',

@@ -610,12 +610,15 @@ class ZhipuOcrClient implements OcrDocumentClient {
     };
     final detected = ImageByteSignature.detectMime(bytes);
     if (detected == null) return null;
-    if (declared != null && declared != detected) return null;
     if (normalized != null &&
         normalized.startsWith('image/') &&
         declared == null) {
       return null;
     }
+    // The provider declaration is a bounded consistency check for supported
+    // image types, not the canonical media type. Once the bytes have passed
+    // signature validation, the detected type is the only MIME that enters
+    // the generated data URL and downstream asset storage.
     return detected;
   }
 
