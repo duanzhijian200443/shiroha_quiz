@@ -42,9 +42,8 @@ DeterministicFinalizationComparison finalizeImportTextForParityComparison(
 ) {
   final html = stripSafeHtmlWrappers(input);
   final repaired = repairLatexDeterministically(html.text);
-  final normalized = const LatexBlockEnvironmentNormalizer()
-      .normalize(repaired)
-      .text;
+  final normalized =
+      const LatexBlockEnvironmentNormalizer().normalize(repaired).text;
   return DeterministicFinalizationComparison(
     text: normalized,
     eligible: !html.diagnostics.any(
