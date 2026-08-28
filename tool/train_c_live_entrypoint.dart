@@ -25,6 +25,8 @@ const trainCL1BVisionProviderEnvironment = 'TRAIN_C_VISION_PROVIDER_ENABLED';
 const trainCL1BAnswerRepairEnvironment =
     'TRAIN_C_ANSWER_REPAIR_PROVIDER_ENABLED';
 const trainCL1BContinuationEnvironment = 'TRAIN_C_L1B_CONTINUATION';
+const trainCAttemptStateDirectoryEnvironment =
+    'TRAIN_C_ATTEMPT_STATE_DIRECTORY';
 
 typedef TrainCL1BGitVerification = void Function(
   TrainCReviewedIdentity reviewedIdentity,
@@ -278,6 +280,44 @@ final class TrainCLiveEntrypoint {
       ...ledger.safeSummary(),
     };
   }
+
+  /// Creates only the repo-external durable capability. It does not bind a
+  /// runtime, inspect private input, consume the attempt, or invoke a provider.
+  static String? authorizeFromArgs(
+    List<String> args, {
+    Map<String, String>? environment,
+  }) {
+    if (args.length != 1) return null;
+    final runNumber = switch (args.single) {
+      '--authorize-run1' => 1,
+      '--authorize-run2' => 2,
+      _ => null,
+    };
+    if (runNumber == null) return null;
+
+    final values = environment ?? Platform.environment;
+    final head = values[trainCApprovedHarnessHeadEnvironment]?.trim() ?? '';
+    final base = values[trainCL1BApprovedBaseEnvironment]?.trim() ?? '';
+    final directoryPath =
+        values[trainCAttemptStateDirectoryEnvironment]?.trim() ?? '';
+    if (head.isEmpty || base.isEmpty || directoryPath.isEmpty) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
+      );
+    }
+    final directory = Directory(p.normalize(p.absolute(directoryPath)));
+    final capability = TrainCLiveAttemptAuthority.authorize(
+      stateDirectory: directory,
+      approvedHarnessHead: head,
+      approvedBase: base,
+      runNumber: runNumber,
+    );
+    File(p.join(directory.path, 'capability.v1')).writeAsStringSync(
+      capability,
+      flush: true,
+    );
+    return 'TRAIN_C_RUN${runNumber}_AUTHORIZED';
+  }
 }
 
 void main(List<String> args) {
@@ -306,31 +346,11 @@ void main(List<String> args) {
     return;
   }
 
-  if (args.length == 1 && args.single == '--authorize-run1') {
+  if (args.length == 1 &&
+      (args.single == '--authorize-run1' ||
+          args.single == '--authorize-run2')) {
     try {
-      final head =
-          Platform.environment[trainCApprovedHarnessHeadEnvironment]?.trim() ??
-              '';
-      final base =
-          Platform.environment[trainCL1BApprovedBaseEnvironment]?.trim() ?? '';
-      final directoryPath =
-          Platform.environment['TRAIN_C_ATTEMPT_STATE_DIRECTORY']?.trim() ?? '';
-      if (head.isEmpty || base.isEmpty || directoryPath.isEmpty) {
-        throw const TrainCEvidenceProbeException(
-          'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
-        );
-      }
-      final directory = Directory(p.normalize(p.absolute(directoryPath)));
-      final capability = TrainCLiveAttemptAuthority.authorize(
-        stateDirectory: directory,
-        approvedHarnessHead: head,
-        approvedBase: base,
-      );
-      File(p.join(directory.path, 'capability.v1')).writeAsStringSync(
-        capability,
-        flush: true,
-      );
-      stdout.writeln('TRAIN_C_RUN1_AUTHORIZED');
+      stdout.writeln(TrainCLiveEntrypoint.authorizeFromArgs(args));
     } on TrainCEvidenceProbeException catch (error) {
       stderr.writeln(error.code);
       exitCode = 1;
