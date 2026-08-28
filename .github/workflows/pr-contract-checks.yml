@@ -104,7 +104,7 @@ jobs:
           $formatTargets = @(
             'lib/services/import_pipeline/final_question_latex_audit.dart',
             'lib/services/import_pipeline/ocr_typed_candidate.dart',
-            'test/services/import_pipeline/ocr_typed_candidate_test.dart',
+            'test/services/import_pipeline/ocr_typed_candidate_finalization_parity_test.dart',
             'test/services/import_pipeline/latex_block_environment_normalizer_test.dart'
           )
           & dart format --output=none --set-exit-if-changed @formatTargets
@@ -122,7 +122,7 @@ jobs:
           }
 
           $testTargets = @(
-            'test/services/import_pipeline/ocr_typed_candidate_test.dart',
+            'test/services/import_pipeline/ocr_typed_candidate_finalization_parity_test.dart',
             'test/services/import_pipeline/latex_block_environment_normalizer_test.dart'
           )
           & flutter test --concurrency=1 @testTargets
