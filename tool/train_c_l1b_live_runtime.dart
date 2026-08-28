@@ -801,6 +801,7 @@ Future<TrainCL1BPhaseController> _runFinalizeChild(
   final reviewed = TrainCL1BLiveLaunchGuard.verifyContinuation();
   final capabilityValue = _capabilityValue();
   final authority = TrainCLiveAttemptAuthority.fromCapability(capabilityValue);
+  final runNumber = authority.snapshot.runNumber;
   final controller = TrainCL1BPhaseController.forContinuation(
     capability: authority,
     reviewedHarnessHead: reviewed.approvedHarnessHead,
@@ -843,7 +844,7 @@ Future<TrainCL1BPhaseController> _runFinalizeChild(
   }
   final packagePath = p.join(
     sourceRuntime.exportDirectory.path,
-    'train_c_run_1.shiroha',
+    'train_c_run_$runNumber.shiroha',
   );
   if (File(packagePath).existsSync()) {
     throw const TrainCL1BLiveRuntimeException('TRAIN_C_BACKUP_FAILURE');
@@ -930,6 +931,7 @@ Future<TrainCL1BPhaseController> _runFinalizeChild(
   );
   final result = await TrainCTrustedEvidenceCollector(
     reviewedIdentity: reviewed,
+    expectedRunNumber: runNumber,
   ).collect(source);
   if (!result.schemaValid ||
       !result.acceptanceAuthorized ||
@@ -1262,6 +1264,15 @@ _TrainCSafeEvidencePublication _stageSafeEvidence(
   File? stagedEvidence;
   File? stagedDigest;
   try {
+    final authority = TrainCLiveAttemptAuthority.fromCapability(
+      attemptCapability,
+    );
+    final runNumber = authority.snapshot.runNumber;
+    if (evidence['runNumber'] != runNumber) {
+      throw const TrainCL1BLiveRuntimeException(
+        'TRAIN_C_EVIDENCE_INCONSISTENT',
+      );
+    }
     final decoded = jsonDecode(
       utf8.decode(base64Url.decode(base64Url.normalize(attemptCapability))),
     );
@@ -1274,11 +1285,9 @@ _TrainCSafeEvidencePublication _stageSafeEvidence(
     }
     final encoded = '${const JsonEncoder.withIndent('  ').convert(evidence)}\n';
     final evidenceFile = File(
-      p.join(directory.path, 'train_c_run_1_evidence.json'),
+      p.join(directory.path, 'train_c_run_${runNumber}_evidence.json'),
     );
-    final digestFile = File(
-      p.join(directory.path, 'train_c_run_1_evidence.json.sha256'),
-    );
+    final digestFile = File('${evidenceFile.path}.sha256');
     stagedEvidence = File('${evidenceFile.path}.pending');
     stagedDigest = File('${digestFile.path}.pending');
     if (evidenceFile.existsSync() ||
@@ -1301,6 +1310,14 @@ _TrainCSafeEvidencePublication _stageSafeEvidence(
       stagedEvidence: stagedEvidence,
       stagedDigest: stagedDigest,
     );
+  } on TrainCL1BLiveRuntimeException {
+    _deleteFileBestEffort(stagedEvidence);
+    _deleteFileBestEffort(stagedDigest);
+    rethrow;
+  } on TrainCEvidenceProbeException catch (error) {
+    _deleteFileBestEffort(stagedEvidence);
+    _deleteFileBestEffort(stagedDigest);
+    throw TrainCL1BLiveRuntimeException(error.code);
   } catch (_) {
     _deleteFileBestEffort(stagedEvidence);
     _deleteFileBestEffort(stagedDigest);
