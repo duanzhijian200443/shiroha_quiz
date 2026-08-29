@@ -425,3 +425,18 @@ through an Application command with a durable transaction-level
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
+
+## 14. Application data path boundary (DATA-PATH P1)
+
+Durable runtime paths are owned by the application-support-based
+`AppDataPaths` authority. Normal Debug/Profile runtime uses
+`<Application Support>/Shiroha/development/`; Release runtime uses
+`<Application Support>/Shiroha/production/`. Database, managed files, content
+assets, parsed artifacts, logs, and B0 restore working state are composed from
+that authority; they must not depend on `Directory.current`, repository roots,
+or Git worktrees. Tests and isolated smoke entrypoints retain their existing
+in-memory, temporary, explicit-file, and read-only profiles.
+
+The focused current contract is
+`docs/architecture/data-path-authority.md`. Legacy worktree-local data is not
+automatically migrated by this boundary.

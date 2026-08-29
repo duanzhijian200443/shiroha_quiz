@@ -10,6 +10,7 @@ import '../../data/models/review_draft_cas.dart';
 import '../../data/persistence/ai_engine_store.dart';
 import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
+import '../app_data_paths.dart';
 import 'answer_attempt_v23_schema.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
@@ -520,6 +521,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   static DatabaseRuntimeProfile _runtimeProfile =
       DatabaseRuntimeProfile.production;
   static bool _runtimeProfileConfigured = false;
+  static AppDataPaths? _appDataPaths;
   static String? _openedDatabasePath;
   static String? _explicitReadOnlyPath;
   static String? _explicitFileDatabasePath;
@@ -558,6 +560,20 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     _runtimeProfileConfigured = true;
   }
 
+  /// Binds normal production database access to the application data
+  /// authority before the singleton database is opened.
+  static void configureAppDataPaths(AppDataPaths paths) {
+    if (_appDataPaths != null ||
+        _runtimeProfileConfigured ||
+        _database != null ||
+        _openingDatabase != null) {
+      throw StateError(
+        'Application data paths can be configured only once before opening.',
+      );
+    }
+    _appDataPaths = paths;
+  }
+
   static String _resolveExistingAbsolutePath(String? databasePath) {
     if (databasePath == null ||
         databasePath.trim().isEmpty ||
@@ -585,8 +601,20 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
 
   static DatabaseHelper get instance => _instance ??= DatabaseHelper._();
 
-  Future<String> getProductionDatabasePath() async =>
-      join(await getDatabasesPath(), _dbName);
+  Future<String> getProductionDatabasePath() async {
+    if (_runtimeProfile == DatabaseRuntimeProfile.explicitFile &&
+        _explicitFileDatabasePath != null) {
+      return _explicitFileDatabasePath!;
+    }
+    final paths = _appDataPaths;
+    if (paths != null) return paths.databasePath;
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      return join(await getDatabasesPath(), _dbName);
+    }
+    throw StateError(
+      'Application data paths must be configured before production access.',
+    );
+  }
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -701,9 +729,12 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
     final useInMemory = isTest ||
         _runtimeProfile == DatabaseRuntimeProfile.isolatedSmokeInMemory;
-    final path = useInMemory
-        ? inMemoryDatabasePath
-        : join(await getDatabasesPath(), _dbName);
+    final path =
+        useInMemory ? inMemoryDatabasePath : await getProductionDatabasePath();
+
+    if (!useInMemory) {
+      await Directory(dirname(path)).create(recursive: true);
+    }
 
     final database = await openDatabase(
       path,
@@ -2175,8 +2206,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
       return;
     }
     await instance.close();
-    final String dbPath = await getDatabasesPath();
-    final String path = join(dbPath, _dbName);
+    final path = await instance.getProductionDatabasePath();
     await databaseFactory.deleteDatabase(path);
   }
 
@@ -2187,6 +2217,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     _openedDatabasePath = null;
     _runtimeProfile = DatabaseRuntimeProfile.production;
     _runtimeProfileConfigured = false;
+    _appDataPaths = null;
     _explicitReadOnlyPath = null;
     _explicitFileDatabasePath = null;
   }
