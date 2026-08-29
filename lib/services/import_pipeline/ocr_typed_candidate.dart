@@ -1,6 +1,7 @@
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
@@ -9,6 +10,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_docume
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -307,6 +309,8 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   required OcrTypedCandidateBatch batch,
   required List<Map<String, dynamic>> finalQuestions,
   required bool singleFile,
+  ExplanationRetentionMode explanationRetentionMode =
+      ExplanationRetentionMode.subjectiveOnly,
 }) {
   if (!singleFile) {
     return _ineligible(
@@ -404,6 +408,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       question,
       baselines[number]!.explanation,
       candidate,
+      explanationRetentionMode,
     )) {
       return _ineligible(
         finalQuestions,
@@ -417,7 +422,11 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
-    if (!_baselineParity(baselines[number]!, candidate) ||
+    if (!_baselineParity(
+          baselines[number]!,
+          candidate,
+          explanationRetentionMode,
+        ) ||
         !_provenanceParity(candidate, question)) {
       return _ineligible(
         finalQuestions,
@@ -533,11 +542,22 @@ bool _rawExplanationAllowed(
   Map<String, dynamic> question,
   String finalExplanation,
   OcrTypedCandidate candidate,
+  ExplanationRetentionMode explanationRetentionMode,
 ) {
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
   if (raw.isEmpty || raw == finalExplanation) return true;
+  final type = question['type'];
+  final intentionalDiscard = type is int &&
+      !const ImportQuestionFieldPolicy().shouldRetainExplanation(
+        type: type,
+        mode: explanationRetentionMode,
+        override: QuestionExplanationOverride.inherit,
+      );
+  if (intentionalDiscard && finalExplanation.isEmpty) {
+    return _preRetentionExplanationParity(raw, candidate);
+  }
   if (finalExplanation.isEmpty) return false;
   return _explanationParityAllowed(
     source: raw,
@@ -549,6 +569,7 @@ bool _rawExplanationAllowed(
 bool _baselineParity(
   LegacyReviewBaseline baseline,
   OcrTypedCandidate candidate,
+  ExplanationRetentionMode explanationRetentionMode,
 ) {
   final projected = candidate.projectedLegacy;
   if (baseline == projected) return true;
@@ -558,6 +579,19 @@ bool _baselineParity(
       !_sameOrderedStrings(baseline.options, projected.options) ||
       baseline.standardAnswer != projected.standardAnswer) {
     return false;
+  }
+  final intentionalDiscard =
+      !const ImportQuestionFieldPolicy().shouldRetainExplanation(
+    type: baseline.type,
+    mode: explanationRetentionMode,
+    override: QuestionExplanationOverride.inherit,
+  );
+  if (intentionalDiscard && baseline.explanation.isEmpty) {
+    return projected.explanation.isEmpty ||
+        _preRetentionExplanationParity(
+          projected.explanation,
+          candidate,
+        );
   }
   return _explanationParityAllowed(
     source: projected.explanation,
@@ -575,6 +609,21 @@ bool _explanationParityAllowed({
   if (_n0Equals(source, target)) return true;
   final finalized = finalizeImportTextForParityComparison(source);
   return finalized.eligible && finalized.text == target;
+}
+
+bool _preRetentionExplanationParity(
+  String raw,
+  OcrTypedCandidate candidate,
+) {
+  final explanation = candidate.draft.explanation;
+  if (explanation == null) return false;
+  try {
+    final projected = const RichContentTextProjection().project(explanation);
+    if (_n0Scalars(raw)?.isEmpty ?? true) return false;
+    return _n0Equals(raw, projected);
+  } on FormatException {
+    return false;
+  }
 }
 
 bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {

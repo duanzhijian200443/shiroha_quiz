@@ -116,7 +116,7 @@ List<ImportIssue> _issues() {
   ];
 }
 
-QuestionDraftV2 _choiceDraft() {
+QuestionDraftV2 _choiceDraft({RichContent? explanation}) {
   return QuestionDraftV2(
     questionId: _questionId,
     kind: QuestionKind.singleChoice,
@@ -129,7 +129,7 @@ QuestionDraftV2 _choiceDraft() {
     ),
     options: _options(),
     answer: ChoiceAnswer(optionIds: const <String>['A']),
-    explanation: null,
+    explanation: explanation,
     sourceRefs: _sourceRefs(),
     assetRefs: <SourcedAssetRef>[
       SourcedAssetRef(
@@ -371,6 +371,28 @@ void main() {
         result.acceptedDrafts.single.explanation!.nodes[1],
         isA<BlockMathNode>(),
       );
+    });
+
+    test('subjectiveOnly clears an intentionally discarded typed explanation',
+        () {
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: _choiceDraft(
+          explanation: RichContent(
+            nodes: <ContentNode>[TextNode('Objective explanation')],
+          ),
+        ),
+        baselineLegacy: _choiceSnapshot().baselineLegacy,
+      );
+      final result = _build(<TypedReviewCommitInput>[
+        _input(
+          envelope: _codec.encode(snapshot),
+          currentDraft: _choiceCurrent(explanation: ''),
+        ),
+      ]);
+
+      expect(result.acceptedDrafts.single.explanation, isNull);
     });
 
     test('source refs are preserved', () {

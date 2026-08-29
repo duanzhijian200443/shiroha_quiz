@@ -573,6 +573,7 @@ class ImportPipelineService {
       batch: batch,
       finalQuestions: finalized,
       singleFile: request.filePaths.length == 1,
+      explanationRetentionMode: request.explanationRetentionMode,
     );
     return (
       questions: gate.questions,

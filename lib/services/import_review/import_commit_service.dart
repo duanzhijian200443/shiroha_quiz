@@ -523,6 +523,7 @@ class ImportCommitService {
         taskId: taskId,
         attemptToken: attemptToken,
         attemptNumber: attemptNumber,
+        explanationRetentionMode: explanationRetentionMode,
       );
       if (built.acceptedDrafts.isEmpty) {
         throw const TypedReviewCommitException(

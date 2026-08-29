@@ -8,6 +8,8 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:uuid/uuid.dart';
 
+import '../import_pipeline/import_question_field_policy.dart';
+
 /// One typed commit input: the R7A persisted review marker identity, the
 /// `_typed_review_v1` envelope, and the commit-time finalized legacy draft.
 ///
@@ -131,6 +133,8 @@ final class TypedReviewResultBuilder {
     required String taskId,
     required String attemptToken,
     required int attemptNumber,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) {
     if (inputs.isEmpty) {
       throw const TypedReviewCommitException(
@@ -186,7 +190,11 @@ final class TypedReviewResultBuilder {
     try {
       var working = session;
       for (var index = 0; index < inputs.length; index++) {
-        final edit = _buildEdit(snapshots[index], inputs[index].currentDraft);
+        final edit = _buildEdit(
+          snapshots[index],
+          inputs[index].currentDraft,
+          explanationRetentionMode,
+        );
         if (edit.isUnchanged) continue;
         working = working.edit(
           itemId: inputs[index].reviewItemId,
@@ -313,6 +321,7 @@ final class TypedReviewResultBuilder {
   ReviewEdit _buildEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ExplanationRetentionMode explanationRetentionMode,
   ) {
     final baseline = snapshot.baselineLegacy;
     final kindEdit =
@@ -331,6 +340,13 @@ final class TypedReviewResultBuilder {
     final explanationEdit = _explanationEdit(
       current.explanation,
       baseline.explanation,
+      discardByPolicy:
+          !const ImportQuestionFieldPolicy().shouldRetainExplanation(
+        type: current.type.code,
+        mode: explanationRetentionMode,
+        override: QuestionExplanationOverride.inherit,
+      ),
+      typedExplanationPresent: snapshot.draft.explanation != null,
     );
     final optionsEdit = _optionsEdit(snapshot, current);
     final answerEdit = _answerEdit(snapshot, current);
@@ -346,8 +362,16 @@ final class TypedReviewResultBuilder {
 
   ReviewFieldEdit<RichContent?> _explanationEdit(
     String current,
-    String baseline,
-  ) {
+    String baseline, {
+    required bool discardByPolicy,
+    required bool typedExplanationPresent,
+  }) {
+    if (discardByPolicy && current.isEmpty && baseline.isEmpty) {
+      if (typedExplanationPresent) {
+        return const ReviewFieldEdit<RichContent?>.clear();
+      }
+      return const ReviewFieldEdit<RichContent?>.unchanged();
+    }
     if (current == baseline) {
       return const ReviewFieldEdit<RichContent?>.unchanged();
     }

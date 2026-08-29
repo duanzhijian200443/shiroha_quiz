@@ -14,6 +14,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dar
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
@@ -808,6 +809,75 @@ void main() {
       expect(result.reason, 'typed_candidate_raw_explanation_diverged');
     });
 
+    test('subjectiveOnly allows an objective intentional explanation discard',
+        () {
+      final result = _retentionGate(
+        type: 0,
+        kind: QuestionKind.singleChoice,
+        rawExplanation: 'Objective explanation 1',
+        finalExplanation: '',
+        mode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('subjectiveOnly allows a fillBlank intentional explanation discard',
+        () {
+      final result = _retentionGate(
+        type: 2,
+        kind: QuestionKind.fillBlank,
+        rawExplanation: 'Fill blank explanation 1',
+        finalExplanation: '',
+        mode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('subjectiveOnly keeps subjective empty-final divergence fail-closed',
+        () {
+      final result = _retentionGate(
+        type: 3,
+        kind: QuestionKind.shortAnswer,
+        rawExplanation: 'Subjective explanation 1',
+        finalExplanation: '',
+        mode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test('allQuestionTypes rejects an objective empty-final divergence', () {
+      final result = _retentionGate(
+        type: 0,
+        kind: QuestionKind.singleChoice,
+        rawExplanation: 'Objective explanation 1',
+        finalExplanation: '',
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test('intentional discard still requires raw provenance parity', () {
+      final result = _retentionGate(
+        type: 0,
+        kind: QuestionKind.singleChoice,
+        rawExplanation: 'Different raw explanation',
+        candidateExplanation: 'Objective explanation 1',
+        finalExplanation: '',
+        mode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
     test('formula-like TextNode internal spacing remains strict', () {
       final finalExplanation = r'\text{a b}';
       final projectedExplanation = r'\text{a  b}';
@@ -1287,6 +1357,87 @@ OcrTypedCandidate _candidate({
     projectedLegacy: projectedLegacy ?? _finalBaseline(number: questionNumber),
     sourcePageIndices: const <int>[1],
     sourceBlockIds: const <String>['q_1', 'answer_1', 'explanation_1'],
+  );
+}
+
+OcrTypedCandidateGateResult _retentionGate({
+  required int type,
+  required QuestionKind kind,
+  required String rawExplanation,
+  String? candidateExplanation,
+  required String finalExplanation,
+  required ExplanationRetentionMode mode,
+}) {
+  final questionId = _questionUuidA;
+  final options = kind == QuestionKind.singleChoice
+      ? <QuestionOption>[
+          QuestionOption(
+            optionId: 'A',
+            label: 'A',
+            content: RichContent(nodes: <ContentNode>[TextNode('Option A')]),
+          ),
+          QuestionOption(
+            optionId: 'B',
+            label: 'B',
+            content: RichContent(nodes: <ContentNode>[TextNode('Option B')]),
+          ),
+        ]
+      : const <QuestionOption>[];
+  final answer = kind == QuestionKind.singleChoice
+      ? ChoiceAnswer(optionIds: const <String>['A'])
+      : ContentAnswer(
+          content: RichContent(
+            nodes: <ContentNode>[TextNode('synthetic-result-1')],
+          ),
+        );
+  final draft = QuestionDraftV2(
+    questionId: questionId,
+    kind: kind,
+    questionNumber: 1,
+    stem: RichContent(
+      nodes: <ContentNode>[TextNode('Synthetic prompt marker 1.')],
+    ),
+    options: options,
+    answer: answer,
+    explanation: RichContent(
+      nodes: <ContentNode>[TextNode(candidateExplanation ?? rawExplanation)],
+    ),
+  );
+  final candidate = _candidate(
+    questionNumber: 1,
+    questionId: questionId,
+    reviewItemId: _reviewUuidA,
+    draft: draft,
+    projectedLegacy: LegacyReviewBaseline(
+      type: type,
+      questionNumber: 1,
+      content: 'Synthetic prompt marker 1.',
+      options: kind == QuestionKind.singleChoice
+          ? const <String>['A. Option A', 'B. Option B']
+          : const <String>[],
+      standardAnswer:
+          kind == QuestionKind.singleChoice ? 'A' : 'synthetic-result-1',
+      explanation: '',
+    ),
+  );
+  final question = <String, dynamic>{
+    ..._finalQuestion(number: 1),
+    'type': type,
+    'options': kind == QuestionKind.singleChoice
+        ? <String>['A. Option A', 'B. Option B']
+        : <String>[],
+    'standard_answer':
+        kind == QuestionKind.singleChoice ? 'A' : 'synthetic-result-1',
+    'explanation': finalExplanation,
+    'raw_explanation': rawExplanation,
+  };
+  return applyOcrTypedCandidateGate(
+    batch: OcrTypedCandidateBatch(
+      candidates: <OcrTypedCandidate>[candidate],
+    ),
+    finalQuestions: <Map<String, dynamic>>[question],
+    singleFile: true,
+    explanationRetentionMode: mode,
   );
 }
 
