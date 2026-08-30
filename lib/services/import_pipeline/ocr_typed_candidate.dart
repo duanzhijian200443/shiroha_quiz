@@ -432,6 +432,12 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
+    _emitProjectionParityTelemetryForGate(
+      questionNumber: number,
+      question: question,
+      baseline: baselines[number]!,
+      candidate: candidate,
+    );
     if (!_baselineParity(baselines[number]!, candidate) ||
         !_provenanceParity(candidate, question)) {
       return _ineligible(
@@ -572,6 +578,322 @@ void _emitRawExplanationTelemetry(Map<String, Object?> telemetry) {
     module: 'ImportGate',
     data: telemetry,
   );
+}
+
+/// Handler used by tests to capture the redacted baseline/provenance
+/// diagnostic emitted at the projection gate.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    projectionParityTelemetryHandlerForTesting;
+
+/// Emits projection diagnostics without becoming part of gate semantics.
+/// Telemetry is best-effort: a logger or test observer failure must not change
+/// the existing candidate admission result.
+void _emitProjectionParityTelemetryForGate({
+  required int questionNumber,
+  required Map<String, dynamic> question,
+  required LegacyReviewBaseline baseline,
+  required OcrTypedCandidate candidate,
+}) {
+  try {
+    final telemetry = _collectProjectionParityTelemetry(
+      questionNumber: questionNumber,
+      question: question,
+      baseline: baseline,
+      candidate: candidate,
+    );
+    projectionParityTelemetryHandlerForTesting?.call(telemetry);
+    AppLogger.info(
+      'Typed candidate projection parity telemetry',
+      module: 'ImportGate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+Map<String, Object?> _collectProjectionParityTelemetry({
+  required int questionNumber,
+  required Map<String, dynamic> question,
+  required LegacyReviewBaseline baseline,
+  required OcrTypedCandidate candidate,
+}) {
+  final baselineEvaluation = _evaluateBaselineParity(baseline, candidate);
+  final provenanceEvaluation = _evaluateProvenanceParity(candidate, question);
+  final baselineParity = _baselineParity(baseline, candidate);
+  final provenanceParity = _provenanceParity(candidate, question);
+  final firstMismatchField = !baselineParity
+      ? baselineEvaluation.firstMismatchField
+      : !provenanceParity
+          ? provenanceEvaluation.firstMismatchField
+          : 'none';
+
+  return <String, Object?>{
+    'questionNumber': questionNumber,
+    'baselineParity': baselineParity,
+    'provenanceParity': provenanceParity,
+    'typeEqual': baselineEvaluation.typeEqual,
+    'questionNumberEqual': baselineEvaluation.questionNumberEqual,
+    'contentEqual': baselineEvaluation.content.equal,
+    'contentN0Equal': baselineEvaluation.content.n0Equal,
+    'contentFinalizerEligible': baselineEvaluation.content.finalizerEligible,
+    'contentFinalizerMatched': baselineEvaluation.content.finalizerMatched,
+    'baselineContentLength': baselineEvaluation.content.baselineLength,
+    'projectedContentLength': baselineEvaluation.content.projectedLength,
+    'optionsEqual': baselineEvaluation.optionsEqual,
+    'optionCountEqual': baselineEvaluation.optionCountEqual,
+    'firstMismatchedOptionIndex': baselineEvaluation.firstMismatchedOptionIndex,
+    'baselineOptionCount': baseline.options.length,
+    'projectedOptionCount': candidate.projectedLegacy.options.length,
+    'baselineOptionsTotalLength': _totalStringLength(baseline.options),
+    'projectedOptionsTotalLength':
+        _totalStringLength(candidate.projectedLegacy.options),
+    'standardAnswerEqual': baselineEvaluation.standardAnswer.equal,
+    'standardAnswerN0Equal': baselineEvaluation.standardAnswer.n0Equal,
+    'standardAnswerFinalizerEligible':
+        baselineEvaluation.standardAnswer.finalizerEligible,
+    'standardAnswerFinalizerMatched':
+        baselineEvaluation.standardAnswer.finalizerMatched,
+    'baselineAnswerLength': baselineEvaluation.standardAnswer.baselineLength,
+    'projectedAnswerLength': baselineEvaluation.standardAnswer.projectedLength,
+    'explanationEqual': baselineEvaluation.explanation.text.equal,
+    'explanationN0Equal': baselineEvaluation.explanation.text.n0Equal,
+    'explanationParityAllowed': baselineEvaluation.explanation.parityAllowed,
+    'explanationFinalizerEligible':
+        baselineEvaluation.explanation.text.finalizerEligible,
+    'explanationFinalizerMatched':
+        baselineEvaluation.explanation.text.finalizerMatched,
+    'baselineExplanationLength':
+        baselineEvaluation.explanation.text.baselineLength,
+    'projectedExplanationLength':
+        baselineEvaluation.explanation.text.projectedLength,
+    'pageCountEqual': provenanceEvaluation.pageCountEqual,
+    'pageOrderEqual': provenanceEvaluation.pageOrderEqual,
+    'finalPageCount': provenanceEvaluation.finalPageCount,
+    'candidatePageCount': provenanceEvaluation.candidatePageCount,
+    'blockCountEqual': provenanceEvaluation.blockCountEqual,
+    'blockOrderEqual': provenanceEvaluation.blockOrderEqual,
+    'finalBlockCount': provenanceEvaluation.finalBlockCount,
+    'candidateBlockCount': provenanceEvaluation.candidateBlockCount,
+    'firstMismatchField': firstMismatchField,
+  };
+}
+
+int _totalStringLength(Iterable<String> values) {
+  var total = 0;
+  for (final value in values) {
+    total += value.length;
+  }
+  return total;
+}
+
+final class _TextParityEvaluation {
+  const _TextParityEvaluation({
+    required this.equal,
+    required this.n0Equal,
+    required this.finalizerEligible,
+    required this.finalizerMatched,
+    required this.baselineLength,
+    required this.projectedLength,
+  });
+
+  final bool equal;
+  final bool n0Equal;
+  final bool finalizerEligible;
+  final bool finalizerMatched;
+  final int baselineLength;
+  final int projectedLength;
+}
+
+final class _ExplanationParityEvaluation {
+  const _ExplanationParityEvaluation({
+    required this.text,
+    required this.parityAllowed,
+  });
+
+  final _TextParityEvaluation text;
+  final bool parityAllowed;
+}
+
+final class _BaselineParityEvaluation {
+  const _BaselineParityEvaluation({
+    required this.typeEqual,
+    required this.questionNumberEqual,
+    required this.content,
+    required this.optionsEqual,
+    required this.optionCountEqual,
+    required this.firstMismatchedOptionIndex,
+    required this.standardAnswer,
+    required this.explanation,
+  });
+
+  final bool typeEqual;
+  final bool questionNumberEqual;
+  final _TextParityEvaluation content;
+  final bool optionsEqual;
+  final bool optionCountEqual;
+  final int? firstMismatchedOptionIndex;
+  final _TextParityEvaluation standardAnswer;
+  final _ExplanationParityEvaluation explanation;
+
+  bool get parity =>
+      typeEqual &&
+      questionNumberEqual &&
+      content.equal &&
+      optionsEqual &&
+      standardAnswer.equal &&
+      (explanation.text.equal || explanation.parityAllowed);
+
+  String get firstMismatchField {
+    if (!typeEqual) return 'type';
+    if (!questionNumberEqual) return 'questionNumber';
+    if (!content.equal) return 'content';
+    if (!optionsEqual) return 'options';
+    if (!standardAnswer.equal) return 'standardAnswer';
+    if (!explanation.text.equal && !explanation.parityAllowed) {
+      return 'explanation';
+    }
+    return 'none';
+  }
+}
+
+final class _ProvenanceParityEvaluation {
+  const _ProvenanceParityEvaluation({
+    required this.pageCountEqual,
+    required this.pageOrderEqual,
+    required this.finalPageCount,
+    required this.candidatePageCount,
+    required this.blockCountEqual,
+    required this.blockOrderEqual,
+    required this.finalBlockCount,
+    required this.candidateBlockCount,
+  });
+
+  final bool pageCountEqual;
+  final bool pageOrderEqual;
+  final int? finalPageCount;
+  final int candidatePageCount;
+  final bool blockCountEqual;
+  final bool blockOrderEqual;
+  final int? finalBlockCount;
+  final int candidateBlockCount;
+
+  String get firstMismatchField {
+    if (!pageCountEqual || !pageOrderEqual) return 'pageIndices';
+    if (!blockCountEqual || !blockOrderEqual) return 'blockIds';
+    return 'none';
+  }
+}
+
+_BaselineParityEvaluation _evaluateBaselineParity(
+  LegacyReviewBaseline baseline,
+  OcrTypedCandidate candidate,
+) {
+  final projected = candidate.projectedLegacy;
+  final content = _compareParityText(
+    projected: projected.content,
+    baseline: baseline.content,
+  );
+  final standardAnswer = _compareParityText(
+    projected: projected.standardAnswer,
+    baseline: baseline.standardAnswer,
+  );
+  final explanationText = _compareParityText(
+    projected: projected.explanation,
+    baseline: baseline.explanation,
+  );
+  final explanation = _ExplanationParityEvaluation(
+    text: explanationText,
+    parityAllowed: _explanationParityAllowed(
+      source: projected.explanation,
+      target: baseline.explanation,
+      candidate: candidate,
+    ),
+  );
+  final optionsEqual = _sameOrderedStrings(baseline.options, projected.options);
+  return _BaselineParityEvaluation(
+    typeEqual: baseline.type == projected.type,
+    questionNumberEqual: baseline.questionNumber == projected.questionNumber,
+    content: content,
+    optionsEqual: optionsEqual,
+    optionCountEqual: baseline.options.length == projected.options.length,
+    firstMismatchedOptionIndex: _firstMismatchedOptionIndex(
+      baseline.options,
+      projected.options,
+    ),
+    standardAnswer: standardAnswer,
+    explanation: explanation,
+  );
+}
+
+_TextParityEvaluation _compareParityText({
+  required String projected,
+  required String baseline,
+}) {
+  final finalized = finalizeImportTextForParityComparison(projected);
+  return _TextParityEvaluation(
+    equal: projected == baseline,
+    n0Equal: _n0Equals(projected, baseline),
+    finalizerEligible: finalized.eligible,
+    finalizerMatched: finalized.eligible && finalized.text == baseline,
+    baselineLength: baseline.length,
+    projectedLength: projected.length,
+  );
+}
+
+int? _firstMismatchedOptionIndex(
+  List<String> baseline,
+  List<String> projected,
+) {
+  final commonLength =
+      baseline.length < projected.length ? baseline.length : projected.length;
+  for (var index = 0; index < commonLength; index++) {
+    if (baseline[index] != projected[index]) return index;
+  }
+  return null;
+}
+
+_ProvenanceParityEvaluation _evaluateProvenanceParity(
+  OcrTypedCandidate candidate,
+  Map<String, dynamic> question,
+) {
+  final pages = question['source_page_indices'];
+  final blocks = question['source_block_ids'];
+  final finalPageCount = pages is List ? pages.length : null;
+  final finalBlockCount = blocks is List ? blocks.length : null;
+  final pageCountEqual =
+      pages is List && pages.length == candidate.sourcePageIndices.length;
+  final blockCountEqual =
+      blocks is List && blocks.length == candidate.sourceBlockIds.length;
+  return _ProvenanceParityEvaluation(
+    pageCountEqual: pageCountEqual,
+    pageOrderEqual: pageCountEqual &&
+        _sameOrderedPageIndices(pages, candidate.sourcePageIndices),
+    finalPageCount: finalPageCount,
+    candidatePageCount: candidate.sourcePageIndices.length,
+    blockCountEqual: blockCountEqual,
+    blockOrderEqual: blockCountEqual &&
+        _sameOrderedBlockIds(blocks, candidate.sourceBlockIds),
+    finalBlockCount: finalBlockCount,
+    candidateBlockCount: candidate.sourceBlockIds.length,
+  );
+}
+
+bool _sameOrderedPageIndices(Object? value, List<int> expected) {
+  if (value is! List || value.length != expected.length) return false;
+  for (var index = 0; index < expected.length; index++) {
+    if (value[index] != expected[index]) return false;
+  }
+  return true;
+}
+
+bool _sameOrderedBlockIds(Object? value, List<String> expected) {
+  if (value is! List || value.length != expected.length) return false;
+  for (var index = 0; index < expected.length; index++) {
+    if (value[index] != expected[index]) return false;
+  }
+  return true;
 }
 
 Map<String, Object?> _collectRawExplanationTelemetry({
