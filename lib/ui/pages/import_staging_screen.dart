@@ -172,7 +172,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
-    _explanationRetentionMode = widget.initialExplanationRetentionMode;
+    _explanationRetentionMode = _readReviewExplanationRetentionMode();
     final messages = ImportDiagnosticFormatter.format(
       warnings: widget.warnings,
       diagnostics: widget.diagnostics,
@@ -213,6 +213,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         unawaited(_persistReviewDraft());
       });
     }
+  }
+
+  ExplanationRetentionMode _readReviewExplanationRetentionMode() {
+    final diagnostics = widget.diagnostics;
+    final value = diagnostics?[TaskManager.keyReviewExplanationRetentionMode] ??
+        diagnostics?[TaskManager.keyExplanationRetentionMode];
+    if (value == null) return widget.initialExplanationRetentionMode;
+    return parseExplanationRetentionMode(value);
   }
 
   @override

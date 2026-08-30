@@ -40,6 +40,12 @@ abstract final class ReviewDraftCasPersistence {
   static const String keyAttemptNumber = '_attemptNumber';
   static const String keyTraceId = '_traceId';
   static const String keyReviewDraftRevision = '_reviewDraftRevision';
+  static const String keyParseExplanationRetentionMode =
+      '_parseExplanationRetentionMode';
+  static const String keyReviewExplanationRetentionMode =
+      '_reviewExplanationRetentionMode';
+  // Legacy/current compatibility key. New code must use the lifecycle-
+  // specific keys above for authority decisions.
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
   static const int pendingReviewStatusCode = 1;
 }

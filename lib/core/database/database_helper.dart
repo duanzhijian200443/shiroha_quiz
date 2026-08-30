@@ -3282,6 +3282,8 @@ SELECT
       final nextRevision = durableRevision + 1;
       final nextDiagnostics = <String, Object?>{
         ...diagnostics,
+        ReviewDraftCasPersistence.keyReviewExplanationRetentionMode:
+            explanationRetentionMode,
         ReviewDraftCasPersistence.keyExplanationRetentionMode:
             explanationRetentionMode,
         ReviewDraftCasPersistence.keyReviewDraftRevision: nextRevision,

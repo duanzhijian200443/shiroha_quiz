@@ -23,6 +23,18 @@ extension TaskStatusX on TaskStatus {
       this == TaskStatus.completed || this == TaskStatus.error;
 }
 
+ExplanationRetentionMode _readRetentionMode(
+  Map<String, dynamic>? diagnostics,
+  List<String> keys,
+) {
+  for (final key in keys) {
+    if (diagnostics?.containsKey(key) == true) {
+      return parseExplanationRetentionMode(diagnostics![key]);
+    }
+  }
+  return ExplanationRetentionMode.subjectiveOnly;
+}
+
 /// Durable outcome of an ImportTask-only cleanup operation.
 ///
 /// Cleanup never implies deletion of a Question or any confirmed learning
@@ -121,10 +133,29 @@ class ImportTask {
     return value is num ? value.toInt() : null;
   }
 
-  ExplanationRetentionMode get explanationRetentionMode =>
-      parseExplanationRetentionMode(
-        diagnostics?[TaskManager.keyExplanationRetentionMode],
+  ExplanationRetentionMode get parseExplanationRetentionMode =>
+      _readRetentionMode(
+        diagnostics,
+        const <String>[
+          TaskManager.keyParseExplanationRetentionMode,
+          TaskManager.keyExplanationRetentionMode,
+        ],
       );
+
+  ExplanationRetentionMode get reviewExplanationRetentionMode =>
+      _readRetentionMode(
+        diagnostics,
+        const <String>[
+          TaskManager.keyReviewExplanationRetentionMode,
+          TaskManager.keyExplanationRetentionMode,
+          TaskManager.keyParseExplanationRetentionMode,
+        ],
+      );
+
+  /// Compatibility getter. Parse-time retention is the immutable task
+  /// authority; review-time state is exposed separately above.
+  ExplanationRetentionMode get explanationRetentionMode =>
+      parseExplanationRetentionMode;
   Duration get elapsed {
     if (status == TaskStatus.processing) {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -400,7 +431,12 @@ class TaskManager extends ChangeNotifier {
       TypedImportCommitPersistence.keyAttemptToken;
   static const String keyAttemptState =
       TypedImportCommitPersistence.keyAttemptState;
-  static const String keyExplanationRetentionMode = '_explanationRetentionMode';
+  static const String keyParseExplanationRetentionMode =
+      ReviewDraftCasPersistence.keyParseExplanationRetentionMode;
+  static const String keyReviewExplanationRetentionMode =
+      ReviewDraftCasPersistence.keyReviewExplanationRetentionMode;
+  static const String keyExplanationRetentionMode =
+      ReviewDraftCasPersistence.keyExplanationRetentionMode;
   static const String keyReviewDraftRevision =
       TypedImportCommitPersistence.keyReviewDraftRevision;
   static const String keyReviewItemId = '_reviewItemId';
@@ -1207,6 +1243,8 @@ class TaskManager extends ChangeNotifier {
           if (previousTraceId != null) keyParentTraceId: previousTraceId,
           keyTraceId: nextAttempt.traceId,
           keyParseMode: parseMode,
+          keyParseExplanationRetentionMode: explanationRetentionMode.name,
+          keyReviewExplanationRetentionMode: explanationRetentionMode.name,
           keyExplanationRetentionMode: explanationRetentionMode.name,
           keyAttemptNumber: nextAttempt.attemptNumber,
           keyAttemptToken: nextAttempt.attemptToken,
@@ -1427,6 +1465,8 @@ class TaskManager extends ChangeNotifier {
       keyParseMode,
       keyBatchId,
       keySelectionIndex,
+      keyParseExplanationRetentionMode,
+      keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
       keyAttemptNumber,
       keyAttemptToken,
@@ -1519,6 +1559,9 @@ class TaskManager extends ChangeNotifier {
       keyParseMode,
       keyBatchId,
       keySelectionIndex,
+      keyParseExplanationRetentionMode,
+      keyReviewExplanationRetentionMode,
+      keyExplanationRetentionMode,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
@@ -1531,12 +1574,6 @@ class TaskManager extends ChangeNotifier {
       final value = existing?[key];
       if (value != null) {
         next[key] = value;
-      }
-    }
-    if (!next.containsKey(keyExplanationRetentionMode)) {
-      final retentionMode = existing?[keyExplanationRetentionMode];
-      if (retentionMode != null) {
-        next[keyExplanationRetentionMode] = retentionMode;
       }
     }
     return next;
@@ -1691,7 +1728,7 @@ class TaskManager extends ChangeNotifier {
       return _saveReviewDraftNow(
         id,
         questions: questions,
-        explanationRetentionMode: task.explanationRetentionMode,
+        explanationRetentionMode: task.reviewExplanationRetentionMode,
         expectedRevision: expectedRevision,
       );
     });
@@ -1769,6 +1806,7 @@ class TaskManager extends ChangeNotifier {
     task.parsedData = sanitizedQuestions;
     task.diagnostics = <String, dynamic>{
       ...?task.diagnostics,
+      keyReviewExplanationRetentionMode: explanationRetentionMode.name,
       keyExplanationRetentionMode: explanationRetentionMode.name,
       keyReviewDraftRevision: durableRevision,
     };
@@ -1808,6 +1846,7 @@ class TaskManager extends ChangeNotifier {
       next.parsedData = questions;
       next.diagnostics = <String, dynamic>{
         ...?next.diagnostics,
+        keyReviewExplanationRetentionMode: explanationRetentionMode,
         keyExplanationRetentionMode: explanationRetentionMode,
         keyReviewDraftRevision: expectedRevision + 1,
       };
