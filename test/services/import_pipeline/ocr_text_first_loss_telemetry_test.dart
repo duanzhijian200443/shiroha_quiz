@@ -21,7 +21,7 @@ void main() {
   });
 
   group('OCR text first-loss telemetry', () {
-    test('diagnostic normalization identifies a raw ownership divergence', () {
+    test('raw ownership divergence closes at the projector boundary', () {
       final eventA = <Map<String, Object?>>[];
       final eventB = <Map<String, Object?>>[];
       typedCandidateConstructionTelemetryHandlerForTesting = eventA.add;
@@ -59,12 +59,12 @@ void main() {
       final projection = eventB.single;
       expect(projection['ocrRawOptionCount'], 0);
       expect(projection['keepOcrOptions'], isFalse);
-      expect(projection['draftStemVsOcrRegionStemExactEqual'], isFalse);
+      expect(projection['draftStemVsOcrRegionStemExactEqual'], isTrue);
       expect(
         projection['draftStemVsOcrRegionStemDiagnosticNormalizedEqual'],
         isTrue,
       );
-      expect(projection['draftStemVsOcrContentExactEqual'], isFalse);
+      expect(projection['draftStemVsOcrContentExactEqual'], isTrue);
       expect(
         projection['draftStemVsOcrContentDiagnosticNormalizedEqual'],
         isTrue,

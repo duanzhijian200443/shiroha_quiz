@@ -1,5 +1,6 @@
 import 'ocr_document.dart';
 import 'ocr_table_projection.dart';
+import 'ocr_text_normalization.dart';
 import 'reference_answer_section.dart';
 import 'text_question_region.dart';
 
@@ -1328,12 +1329,7 @@ class OcrQuestionRegionizer {
   }
 
   String _normalizeText(String text) {
-    return text
-        .replaceAll('\r\n', '\n')
-        .replaceAll('\r', '\n')
-        .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        .trim();
+    return normalizeOcrText(text);
   }
 
   String _normalizeQuestionCandidateText(String text) {

@@ -12,6 +12,7 @@ import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
 import 'ocr_table_projection.dart';
+import 'ocr_text_normalization.dart';
 
 /// Explicit, stable projection profile selecting the legacy map shape,
 /// provenance fields, and source tag of one authoritative legacy assembler.
@@ -509,7 +510,9 @@ bool _orderedEquals<T>(List<T> left, List<T> right) {
 }
 
 String _ocrRegionStem(QuestionRegion region) {
-  final text = _fragmentText(region, QuestionRegionField.stem);
+  final text = normalizeOcrText(
+    _fragmentText(region, QuestionRegionField.stem),
+  );
   final withoutNumber = text.replaceFirst(
     RegExp('^\\s*(?:第\\s*)?${region.questionNumber}\\s*(?:题|[\\.、．])?\\s*'),
     '',

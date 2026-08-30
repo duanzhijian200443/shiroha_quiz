@@ -6,6 +6,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
+import 'ocr_text_normalization.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
 /// [QuestionDraftV2] without changing the frozen domain models or inventing an
@@ -381,12 +382,7 @@ String _stripFieldLabels(String text) {
   String? inlineAnswer,
   String? inlineExplanation
 }) _extractLegacyFields(String text) {
-  var working = text
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '\n')
-      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
-      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-      .trim();
+  var working = normalizeOcrText(text);
 
   final inlineAnswer = _extractInlineAnswer(working);
   working = inlineAnswer.remainingText;
