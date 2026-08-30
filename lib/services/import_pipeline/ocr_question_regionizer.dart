@@ -197,6 +197,15 @@ class OcrQuestionRegionizer {
     caseSensitive: false,
   );
 
+  // Keep this grammar aligned with LocalQuestionAssembler's deterministic
+  // inline explanation boundary. It is used only to assign text slices; the
+  // surrounding source/block order remains the structural ownership authority.
+  static final RegExp _inlineExplanationLabelRegex = RegExp(
+    r'(?:^|[\n。；;]|[\.．]\s+)\s*(?:答案解析|解析|分析)\s*[:：]?\s*',
+    caseSensitive: false,
+    multiLine: true,
+  );
+
   static final RegExp _numberedFieldRegex = RegExp(
     r'^\s*(?:第\s*)?(\d{1,3})\s*(?:题|[\.、．])?\s*(答案解析|标准答案|参考答案|答案|解析|分析|详解|解|证明)\s*[:：]?\s*([\s\S]*)$',
     caseSensitive: false,
@@ -388,14 +397,36 @@ class OcrQuestionRegionizer {
       currentField = OcrRegionField.stem;
       current!.addSource(unit.block);
       if (remainingText.isNotEmpty && remainingText != number.toString()) {
-        current!.addPart(
-          currentField,
-          remainingText,
-          sourceBlockId: unit.sourceBlockId,
-          sourceText: unit.text,
-          sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
-          sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
-        );
+        final inlineTransition = _supportsFieldTransition(unit.block)
+            ? _readInlineExplanationTransition(remainingText)
+            : null;
+        final remainingStart = unit.text.indexOf(remainingText);
+        if (inlineTransition != null && remainingStart >= 0) {
+          _addUnitRange(
+            current!,
+            currentField,
+            unit,
+            remainingStart,
+            remainingStart + inlineTransition.matchStart,
+          );
+          currentField = OcrRegionField.explanation;
+          _addUnitRange(
+            current!,
+            currentField,
+            unit,
+            remainingStart + inlineTransition.matchEnd,
+            remainingStart + remainingText.length,
+          );
+        } else {
+          current!.addPart(
+            currentField,
+            remainingText,
+            sourceBlockId: unit.sourceBlockId,
+            sourceText: unit.text,
+            sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+            sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+          );
+        }
       }
       addTrace(
         number: number,
@@ -753,7 +784,9 @@ class OcrQuestionRegionizer {
       }
 
       current!.addSource(unit.block);
-      final transition = _readFieldTransition(text);
+      final supportsFieldTransition = _supportsFieldTransition(unit.block);
+      final transition =
+          supportsFieldTransition ? _readFieldTransition(text) : null;
       if (transition != null) {
         currentField = transition.field;
         if (transition.remainingText.isNotEmpty) {
@@ -767,14 +800,35 @@ class OcrQuestionRegionizer {
           );
         }
       } else {
-        current!.addPart(
-          currentField,
-          text,
-          sourceBlockId: unit.sourceBlockId,
-          sourceText: unit.text,
-          sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
-          sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
-        );
+        final inlineTransition = supportsFieldTransition
+            ? _readInlineExplanationTransition(text)
+            : null;
+        if (inlineTransition != null) {
+          _addUnitRange(
+            current!,
+            currentField,
+            unit,
+            0,
+            inlineTransition.matchStart,
+          );
+          currentField = OcrRegionField.explanation;
+          _addUnitRange(
+            current!,
+            currentField,
+            unit,
+            inlineTransition.matchEnd,
+            text.length,
+          );
+        } else {
+          current!.addPart(
+            currentField,
+            text,
+            sourceBlockId: unit.sourceBlockId,
+            sourceText: unit.text,
+            sourceStartCodeUnitOffset: unit.sourceStartCodeUnitOffset,
+            sourceEndCodeUnitOffset: unit.sourceEndCodeUnitOffset,
+          );
+        }
       }
     }
 
@@ -1088,6 +1142,51 @@ class OcrQuestionRegionizer {
     }
 
     return null;
+  }
+
+  _InlineExplanationTransition? _readInlineExplanationTransition(
+    String text,
+  ) {
+    final match = _inlineExplanationLabelRegex.firstMatch(text);
+    if (match == null || match.start == 0) return null;
+    return _InlineExplanationTransition(
+      matchStart: match.start,
+      matchEnd: match.end,
+    );
+  }
+
+  bool _supportsFieldTransition(OcrBlock block) {
+    return switch (block.type.trim().toLowerCase()) {
+      'image' || 'figure' || 'table' => false,
+      _ => true,
+    };
+  }
+
+  void _addUnitRange(
+    _MutableRegion region,
+    OcrRegionField field,
+    _OcrTextUnit unit,
+    int start,
+    int end,
+  ) {
+    if (start < 0 || end < start || end > unit.text.length) return;
+    final raw = unit.text.substring(start, end);
+    final normalized = raw.trim();
+    if (normalized.isEmpty) return;
+
+    final leadingTrim = raw.length - raw.trimLeft().length;
+    final trailingTrim = raw.length - raw.trimRight().length;
+    final sourceStart = unit.sourceStartCodeUnitOffset;
+    region.addPart(
+      field,
+      normalized,
+      sourceBlockId: unit.sourceBlockId,
+      sourceText: normalized,
+      sourceStartCodeUnitOffset:
+          sourceStart == null ? null : sourceStart + start + leadingTrim,
+      sourceEndCodeUnitOffset:
+          sourceStart == null ? null : sourceStart + end - trailingTrim,
+    );
   }
 
   _NumberedFieldTransition? _readNumberedFieldTransition(String text) {
@@ -1626,6 +1725,16 @@ class _FieldTransition {
 
   final OcrRegionField field;
   final String remainingText;
+}
+
+class _InlineExplanationTransition {
+  const _InlineExplanationTransition({
+    required this.matchStart,
+    required this.matchEnd,
+  });
+
+  final int matchStart;
+  final int matchEnd;
 }
 
 class _NumberedFieldTransition {

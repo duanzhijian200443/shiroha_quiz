@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/text_question_region_bridge.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
@@ -125,6 +126,31 @@ void main() {
       expect(projected.repairRecommended, isTrue);
       expect(projected.repairRecommended, expected.repairRecommended);
       expect(projected.rejected, expected.rejected);
+    });
+
+    test('allQuestionTypes explicitly retains an OCR choice explanation', () {
+      final legacy = OcrQuestionRegion(
+        number: 1,
+        stemParts: <String>['1. 题干\nA. 甲\nB. 乙\nC. 丙\nD. 丁'],
+        answerParts: <String>['A'],
+        explanationParts: <String>['解析：因为题干。'],
+        sourcePageIndices: <int>[1],
+        sourceBlockIds: <String>['b1', 'b2', 'b3'],
+        diagnostics: const <String>[],
+        declaredKind: TextQuestionKind.choice,
+      );
+      final projected = _projectOcr(
+        legacy,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(projected.question['type'], 0);
+      expect(projected.question['explanation'], '因为题干。');
+      expect(projected.question['raw_explanation'], '因为题干。');
+      expect(
+        projected.diagnostics,
+        isNot(contains('dropped_non_subjective_explanation')),
+      );
     });
 
     test('drops options for non-choice kinds with the legacy diagnostics', () {
@@ -1002,7 +1028,11 @@ LocalAssemblyResult _projectText(TextQuestionRegion legacy) {
   );
 }
 
-LocalAssemblyResult _projectOcr(OcrQuestionRegion legacy) {
+LocalAssemblyResult _projectOcr(
+  OcrQuestionRegion legacy, {
+  ExplanationRetentionMode explanationRetentionMode =
+      ExplanationRetentionMode.subjectiveOnly,
+}) {
   final parts = <SourcePart>[];
   for (var index = 0; index < legacy.stemParts.length; index++) {
     parts.add(
@@ -1034,6 +1064,7 @@ LocalAssemblyResult _projectOcr(OcrQuestionRegion legacy) {
     draft: draft,
     region: region,
     profile: const OcrLegacyProjectionProfile(),
+    explanationRetentionMode: explanationRetentionMode,
   );
 }
 

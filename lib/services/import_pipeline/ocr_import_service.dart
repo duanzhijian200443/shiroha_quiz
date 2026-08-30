@@ -411,6 +411,7 @@ class OcrImportService {
           for (final candidate in assembled) candidate.region,
         ],
         questions,
+        explanationRetentionMode: explanationRetentionMode,
       );
 
       return OcrImportResult(
@@ -519,8 +520,9 @@ class OcrImportService {
   OcrTypedCandidateBatch _buildTypedCandidateBatch(
     OcrDocument document,
     List<OcrQuestionRegion> regions,
-    List<Map<String, dynamic>> legacyQuestions,
-  ) {
+    List<Map<String, dynamic>> legacyQuestions, {
+    required ExplanationRetentionMode explanationRetentionMode,
+  }) {
     try {
       return buildOcrTypedCandidateBatch(
         document: document,
@@ -528,6 +530,7 @@ class OcrImportService {
         legacyQuestions: legacyQuestions,
         uuidV4Factory: _uuidV4Factory,
         assetStore: _contentAssetStore,
+        explanationRetentionMode: explanationRetentionMode,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(

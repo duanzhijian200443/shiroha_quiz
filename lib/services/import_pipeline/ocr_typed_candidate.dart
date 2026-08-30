@@ -1,5 +1,6 @@
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -9,6 +10,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_docume
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
 
@@ -157,6 +159,8 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   required List<Map<String, dynamic>> legacyQuestions,
   required String Function() uuidV4Factory,
   ContentAssetStore? assetStore,
+  ExplanationRetentionMode explanationRetentionMode =
+      ExplanationRetentionMode.subjectiveOnly,
 }) {
   if (regions.length != legacyQuestions.length) {
     return OcrTypedCandidateBatch(
@@ -220,6 +224,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
         draft: draft,
         region: typedRegion,
         profile: const OcrLegacyProjectionProfile(),
+        explanationRetentionMode: explanationRetentionMode,
       );
       final reviewItemId = uuidV4Factory();
       final projectedQuestion = projected.question;
@@ -307,6 +312,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   required OcrTypedCandidateBatch batch,
   required List<Map<String, dynamic>> finalQuestions,
   required bool singleFile,
+  ContentAssetAuthority? contentAssetAuthority,
 }) {
   if (!singleFile) {
     return _ineligible(
@@ -424,6 +430,22 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
         ocrTypedCandidateFailureReason(
           OcrTypedCandidateFailure.projectionMismatch,
         ),
+      );
+    }
+  }
+
+  // Preserve the existing first-failure order through provenance. Asset
+  // admission is the final pre-snapshot gate and remains batch-wide.
+  for (final candidate in candidates) {
+    final failure = _candidateStructureFailure(
+      candidate: candidate,
+      candidateAssetLease: batch.candidateAssetLease,
+      contentAssetAuthority: contentAssetAuthority,
+    );
+    if (failure != null) {
+      return _ineligible(
+        finalQuestions,
+        ocrTypedCandidateFailureReason(failure),
       );
     }
   }
@@ -571,16 +593,91 @@ bool _explanationParityAllowed({
   required String target,
   required OcrTypedCandidate candidate,
 }) {
-  if (!_textNodeOnlyExplanation(candidate)) return false;
+  if (!_boundedExplanationParityAllowed(candidate)) return false;
   if (_n0Equals(source, target)) return true;
   final finalized = finalizeImportTextForParityComparison(source);
   return finalized.eligible && finalized.text == target;
 }
 
-bool _textNodeOnlyExplanation(OcrTypedCandidate candidate) {
+bool _boundedExplanationParityAllowed(OcrTypedCandidate candidate) {
   final explanation = candidate.draft.explanation;
   return explanation != null &&
-      explanation.nodes.every((node) => node is TextNode);
+      _boundedExplanationNodesAllowed(explanation.nodes);
+}
+
+bool _boundedExplanationNodesAllowed(Iterable<ContentNode> nodes) {
+  for (final node in nodes) {
+    switch (node) {
+      case TextNode():
+      case InlineMathNode():
+      case BlockMathNode():
+        break;
+      case ImageNode(:final alternativeText):
+        if (alternativeText != null &&
+            !_boundedExplanationNodesAllowed(alternativeText.nodes)) {
+          return false;
+        }
+      case TableNode(:final structure):
+        for (final row in structure.rows) {
+          for (final cell in row.cells) {
+            if (!_boundedExplanationNodesAllowed(cell.content.nodes)) {
+              return false;
+            }
+          }
+        }
+      case RawFallbackNode():
+        return false;
+    }
+  }
+  return true;
+}
+
+OcrTypedCandidateFailure? _candidateStructureFailure({
+  required OcrTypedCandidate candidate,
+  required ContentAssetCandidateLease? candidateAssetLease,
+  required ContentAssetAuthority? contentAssetAuthority,
+}) {
+  final explanation = candidate.draft.explanation;
+  if (explanation != null &&
+      !_boundedExplanationNodesAllowed(explanation.nodes)) {
+    return OcrTypedCandidateFailure.unsupportedStructure;
+  }
+
+  final images = <ImageNode>[
+    ...reachableImageNodes(candidate.draft.stem),
+    for (final option in candidate.draft.options)
+      ...reachableImageNodes(option.content),
+    if (candidate.draft.answer case ContentAnswer(:final content))
+      ...reachableImageNodes(content),
+    if (explanation != null) ...reachableImageNodes(explanation),
+  ];
+  if (images.isEmpty) return null;
+
+  final lease = candidateAssetLease;
+  if (lease == null) return OcrTypedCandidateFailure.identityMismatch;
+  final leasedAssetIds = lease.localAssetIds.toSet();
+  final assetsByIdentity = <(String, String), SourcedAssetRef>{
+    for (final asset in candidate.draft.assetRefs)
+      (asset.sourceId, asset.localAssetId): asset,
+  };
+  for (final image in images) {
+    if (image.sourceId != lease.sourceId ||
+        !leasedAssetIds.contains(image.localAssetId)) {
+      return OcrTypedCandidateFailure.identityMismatch;
+    }
+    final asset = assetsByIdentity[(image.sourceId, image.localAssetId)];
+    if (asset == null || contentAssetAuthority == null) {
+      return OcrTypedCandidateFailure.unsupportedStructure;
+    }
+    try {
+      if (!contentAssetAuthority.isDurableAssetReady(asset)) {
+        return OcrTypedCandidateFailure.unsupportedStructure;
+      }
+    } catch (_) {
+      return OcrTypedCandidateFailure.unsupportedStructure;
+    }
+  }
+  return null;
 }
 
 bool _n0Equals(String left, String right) {

@@ -1,5 +1,6 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_limits.dart';
 import '../../domain/import/import_issue.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
@@ -61,8 +62,9 @@ final class TypedQuestionAssembler {
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
           final plainText = _isPlainTextFragment(nodes);
           if (target.isNotEmpty &&
-              lastFragmentWasPlainText[fragment.field] == true &&
-              plainText) {
+              (fragment.field == QuestionRegionField.explanation ||
+                  (lastFragmentWasPlainText[fragment.field] == true &&
+                      plainText))) {
             // Preserve the stable legacy fragment boundary.
             target.add(const TextNode('\n'));
           }
@@ -74,6 +76,10 @@ final class TypedQuestionAssembler {
           ):
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty &&
+              fragment.field == QuestionRegionField.explanation) {
+            target.add(const TextNode('\n'));
+          }
           try {
             target.add(
               ImageNode(
@@ -93,6 +99,10 @@ final class TypedQuestionAssembler {
         case SourceTablePart():
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty &&
+              fragment.field == QuestionRegionField.explanation) {
+            target.add(const TextNode('\n'));
+          }
           target.add(
             _tableNode(fragment.part as SourceTablePart, fragment.field),
           );
@@ -158,15 +168,17 @@ final class TypedQuestionAssembler {
     RichContent? explanationContent;
     if (explanationText != null && explanationText.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: <ContentNode>[TextNode(_stripFieldLabels(explanationText))],
+        nodes: _boundedTextNodes(_stripFieldLabels(explanationText)),
       );
     } else if (inlineExplanation != null &&
         inlineExplanation.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: <ContentNode>[TextNode(inlineExplanation.trim())],
+        nodes: _boundedTextNodes(inlineExplanation.trim()),
       );
     } else if (explanationNodes.isNotEmpty && explanationText == null) {
-      explanationContent = RichContent(nodes: explanationNodes);
+      explanationContent = RichContent(
+        nodes: _boundedContentTextNodes(explanationNodes),
+      );
     }
     final effectiveExplanation =
         explanationContent == null ? '' : _searchText(explanationContent.nodes);
@@ -482,6 +494,31 @@ String? _joinedText(List<ContentNode> nodes) {
     buffer.write(node.text);
   }
   return buffer.toString();
+}
+
+List<ContentNode> _boundedContentTextNodes(Iterable<ContentNode> nodes) {
+  return <ContentNode>[
+    for (final node in nodes)
+      if (node case TextNode(:final text)) ..._boundedTextNodes(text) else node,
+  ];
+}
+
+List<TextNode> _boundedTextNodes(String text) {
+  final scalars = text.runes.toList(growable: false);
+  if (scalars.length <= RichContentLimits.maxNodeScalars) {
+    return <TextNode>[TextNode(text)];
+  }
+
+  return <TextNode>[
+    for (var start = 0;
+        start < scalars.length;
+        start += RichContentLimits.maxNodeScalars)
+      TextNode(
+        String.fromCharCodes(
+          scalars.skip(start).take(RichContentLimits.maxNodeScalars),
+        ),
+      ),
+  ];
 }
 
 /// Lossless textual projection used for search and diagnostics; raw fallback

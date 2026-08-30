@@ -72,6 +72,8 @@ final class QuestionDraftV2LegacyProjector {
     required QuestionDraftV2 draft,
     required QuestionRegion region,
     required LegacyProjectionProfile profile,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) {
     _guardProjectionBoundary(draft, region);
     final isOcr = profile is OcrLegacyProjectionProfile;
@@ -126,7 +128,9 @@ final class QuestionDraftV2LegacyProjector {
     if (!isOcr && rawExplanation.isEmpty) {
       diagnostics.add('info_missing_explanation');
     }
-    if (type != 3 && rawExplanation.isNotEmpty) {
+    if (type != 3 &&
+        rawExplanation.isNotEmpty &&
+        explanationRetentionMode == ExplanationRetentionMode.subjectiveOnly) {
       diagnostics.add('dropped_non_subjective_explanation');
     }
     if (isOcr && region.kindHint != QuestionRegionKindHint.unknown) {
@@ -161,6 +165,7 @@ final class QuestionDraftV2LegacyProjector {
           'source_block_ids': _blockIds(region),
         },
       },
+      mode: explanationRetentionMode,
     );
     if (_hasDanglingLatexInFinalFields(question)) {
       diagnostics.add('dangling_latex');

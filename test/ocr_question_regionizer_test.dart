@@ -74,6 +74,141 @@ void main() {
       expect(result.diagnostics['regionCount'], 1);
     });
 
+    test(
+        'splits inline explanation ownership before following structural blocks',
+        () {
+      const questionText = '1. Valid stem (A) one (B) two (C) three (D) four '
+          '答案：A。解析：Synthetic explanation';
+      final document = OcrDocument(
+        sourceName: 'inline-structural.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: const [
+              OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '一、选择题（共 1 题）',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'text',
+                text: questionText,
+                bbox: [],
+                readingOrder: 1,
+              ),
+              OcrBlock(
+                blockId: 'image',
+                pageIndex: 1,
+                type: 'image',
+                text: 'data:image/png;base64,synthetic',
+                bbox: [],
+                readingOrder: 2,
+              ),
+              OcrBlock(
+                blockId: 'table',
+                pageIndex: 1,
+                type: 'table',
+                text: '<table><tr><td>A</td><td>B</td></tr></table>',
+                bbox: [],
+                readingOrder: 3,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final region =
+          const OcrQuestionRegionizer().regionize(document).regions.single;
+
+      expect(region.stemText, isNot(contains('解析')));
+      expect(region.explanationText, contains('Synthetic explanation'));
+      expect(region.explanationText, contains('[图片]'));
+      expect(
+        region.ownedSources.map((source) => source.blockId),
+        ['question', 'question', 'image', 'table'],
+      );
+      expect(
+        region.ownedSources.map((source) => source.field),
+        [
+          OcrRegionField.stem,
+          OcrRegionField.explanation,
+          OcrRegionField.explanation,
+          OcrRegionField.explanation,
+        ],
+      );
+      final explanationSource = region.ownedSources[1];
+      expect(
+        explanationSource.startCodeUnitOffset,
+        questionText.indexOf('Synthetic explanation'),
+      );
+      expect(explanationSource.endCodeUnitOffset, questionText.length);
+    });
+
+    test('does not infer explanation ownership from table projection text', () {
+      final document = OcrDocument(
+        sourceName: 'table-marker.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: const [
+              OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '一、选择题（共 1 题）',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'text',
+                text: '1. Valid stem (A) one (B) two',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              OcrBlock(
+                blockId: 'table',
+                pageIndex: 1,
+                type: 'table',
+                text: '<table><tr><td>解析：cell text</td></tr></table>',
+                bbox: [],
+                readingOrder: 2,
+              ),
+              OcrBlock(
+                blockId: 'answer',
+                pageIndex: 1,
+                type: 'text',
+                text: '答案：A',
+                bbox: [],
+                readingOrder: 3,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final region =
+          const OcrQuestionRegionizer().regionize(document).regions.single;
+      final tableSource = region.ownedSources.singleWhere(
+        (source) => source.blockId == 'table',
+      );
+
+      expect(tableSource.field, OcrRegionField.stem);
+      expect(region.explanationText, isEmpty);
+    });
+
     test('treats section headings as hard boundaries', () {
       final document = OcrDocument(
         sourceName: 'sample.pdf',

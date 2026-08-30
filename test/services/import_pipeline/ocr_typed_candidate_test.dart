@@ -434,6 +434,114 @@ void main() {
       );
     });
 
+    test('text-only parity remains eligible for every persisted type', () {
+      final cases = <({
+        QuestionKind kind,
+        int type,
+        List<QuestionOption> options,
+        QuestionAnswer answer,
+        List<String> legacyOptions,
+        String legacyAnswer,
+      })>[
+        (
+          kind: QuestionKind.singleChoice,
+          type: 0,
+          options: <QuestionOption>[
+            QuestionOption(
+              optionId: 'A',
+              label: 'A',
+              content: RichContent(
+                nodes: <ContentNode>[const TextNode('Alpha')],
+              ),
+            ),
+            QuestionOption(
+              optionId: 'B',
+              label: 'B',
+              content: RichContent(
+                nodes: <ContentNode>[const TextNode('Beta')],
+              ),
+            ),
+          ],
+          answer: ChoiceAnswer(optionIds: const <String>['A']),
+          legacyOptions: <String>['A. Alpha', 'B. Beta'],
+          legacyAnswer: 'A',
+        ),
+        (
+          kind: QuestionKind.fillBlank,
+          type: 2,
+          options: <QuestionOption>[],
+          answer: ContentAnswer(
+            content: RichContent(
+              nodes: <ContentNode>[const TextNode('synthetic-result-1')],
+            ),
+          ),
+          legacyOptions: <String>[],
+          legacyAnswer: 'synthetic-result-1',
+        ),
+        (
+          kind: QuestionKind.shortAnswer,
+          type: 3,
+          options: <QuestionOption>[],
+          answer: ContentAnswer(
+            content: RichContent(
+              nodes: <ContentNode>[const TextNode('synthetic-result-1')],
+            ),
+          ),
+          legacyOptions: <String>[],
+          legacyAnswer: 'synthetic-result-1',
+        ),
+      ];
+
+      for (final fixture in cases) {
+        final draft = QuestionDraftV2(
+          questionId: _questionUuidA,
+          kind: fixture.kind,
+          questionNumber: 1,
+          stem: RichContent(
+            nodes: <ContentNode>[
+              const TextNode('Synthetic prompt marker 1.'),
+            ],
+          ),
+          options: fixture.options,
+          answer: fixture.answer,
+          explanation: RichContent(
+            nodes: <ContentNode>[const TextNode('Synthetic explanation 1')],
+          ),
+        );
+        final baseline = LegacyReviewBaseline(
+          type: fixture.type,
+          questionNumber: 1,
+          content: 'Synthetic prompt marker 1.',
+          options: fixture.legacyOptions,
+          standardAnswer: fixture.legacyAnswer,
+          explanation: 'Synthetic explanation 1',
+        );
+        final question = _finalQuestion(number: 1)
+          ..['type'] = fixture.type
+          ..['options'] = fixture.legacyOptions
+          ..['standard_answer'] = fixture.legacyAnswer;
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              _candidate(
+                questionNumber: 1,
+                questionId: _questionUuidA,
+                reviewItemId: _reviewUuidA,
+                draft: draft,
+                projectedLegacy: baseline,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(result.route, ImportStorageRoute.typedV2,
+            reason: 'persisted type ${fixture.type}');
+        expect(result.reason, ocrTypedCandidateReadyReason);
+      }
+    });
+
     test('multi-file requests never attach envelopes', () {
       final result = applyOcrTypedCandidateGate(
         batch: OcrTypedCandidateBatch(
@@ -842,9 +950,9 @@ void main() {
       expect(result.reason, 'typed_candidate_projection_mismatch');
     });
 
-    test('non-TextNode explanation cannot use N0 for a boundary difference',
-        () {
-      final finalExplanation = '\tSynthetic explanation 1\n';
+    test('bounded math explanation can use N0 for a boundary difference', () {
+      const projectedExplanation = 'x';
+      final finalExplanation = '\t$projectedExplanation\n';
       final candidate = _candidate(
         questionNumber: 1,
         questionId: _questionUuidA,
@@ -853,13 +961,17 @@ void main() {
           questionNumber: 1,
           questionId: _questionUuidA,
           explanation: RichContent(
-            nodes: <ContentNode>[InlineMathNode('x')],
+            nodes: <ContentNode>[InlineMathNode(projectedExplanation)],
           ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: projectedExplanation,
         ),
       );
       final question = _finalQuestion(number: 1)
         ..['explanation'] = finalExplanation
-        ..['raw_explanation'] = null;
+        ..['raw_explanation'] = projectedExplanation;
       final result = applyOcrTypedCandidateGate(
         batch: OcrTypedCandidateBatch(
           candidates: <OcrTypedCandidate>[candidate],
@@ -868,8 +980,9 @@ void main() {
         singleFile: true,
       );
 
-      expect(result.route, ImportStorageRoute.legacyV1);
-      expect(result.reason, 'typed_candidate_projection_mismatch');
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+      expect(result.questions.single['explanation'], finalExplanation);
     });
 
     test('over-limit explanation pairs do not enter N0 comparison', () {
@@ -991,6 +1104,42 @@ void main() {
       );
 
       expect(result.reason, 'typed_candidate_snapshot_invalid');
+      expect(
+        result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isFalse,
+      );
+    });
+
+    test('RawFallback explanation fails closed before envelope attachment', () {
+      final unsafeDraft = _draftWithExplanation(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        explanation: RichContent(
+          nodes: <ContentNode>[
+            RawFallbackNode(<Object?, Object?>{
+              'type': 'raw_fallback',
+              'payload': <Object?, Object?>{'marker': 'synthetic'},
+            }),
+          ],
+        ),
+      );
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[
+            _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: unsafeDraft,
+            ),
+          ],
+        ),
+        finalQuestions: <Map<String, dynamic>>[_finalQuestion(number: 1)],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_unsupported_structure');
       expect(
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,

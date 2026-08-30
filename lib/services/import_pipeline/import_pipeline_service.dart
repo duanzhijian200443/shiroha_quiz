@@ -569,10 +569,14 @@ class ImportPipelineService {
         candidateAssetLease: null,
       );
     }
+    final contentAssetStore = _contentAssetStore;
     final gate = applyOcrTypedCandidateGate(
       batch: batch,
       finalQuestions: finalized,
       singleFile: request.filePaths.length == 1,
+      contentAssetAuthority: contentAssetStore is ContentAssetAuthority
+          ? contentAssetStore as ContentAssetAuthority
+          : null,
     );
     return (
       questions: gate.questions,
