@@ -108,6 +108,90 @@ void main() {
   });
 
   group('OCR profile parity with OcrQuestionAssembler', () {
+    test('projects ASCII parenthesized options with authoritative parity', () {
+      final legacy = OcrQuestionRegion(
+        number: 1,
+        stemParts: <String>['1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'],
+        answerParts: <String>['A'],
+        explanationParts: const <String>[],
+        sourcePageIndices: <int>[1],
+        sourceBlockIds: <String>['b1', 'b2'],
+        diagnostics: const <String>[],
+        declaredKind: TextQuestionKind.choice,
+      );
+      final region = _bridgeOcr(legacy);
+      final draft = assembler.assemble(region, questionId: 'task_q1');
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const OcrLegacyProjectionProfile(),
+      );
+      final authoritative = const OcrQuestionAssembler().assemble(legacy);
+      final authoritativeOptions =
+          (authoritative.question['options'] as List?) ?? const <dynamic>[];
+      final projectedOptions =
+          (projected.question['options'] as List?) ?? const <dynamic>[];
+      final projectedContent = projected.question['content'] as String? ?? '';
+
+      expect(
+        <Object?>[
+          authoritativeOptions.length,
+          draft.options.length,
+          projectedOptions.length,
+          projectedContent.contains('(A)'),
+        ],
+        <Object?>[4, 4, 4, false],
+        reason: 'RED evidence: authoritative=${authoritativeOptions.length}, '
+            'typed=${draft.options.length}, projector=${projectedOptions.length}, '
+            'projectorContentContainsAsciiMarker=${projectedContent.contains('(A)')}',
+      );
+      expect(projected.question['content'], authoritative.question['content']);
+      expect(projected.question['options'], authoritative.question['options']);
+    });
+
+    test('supports the authoritative option marker variants', () {
+      const variants = <String, String>{
+        'ASCII parentheses': '(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁',
+        'full-width parentheses': '（A） 甲\n（B） 乙\n（C） 丙\n（D） 丁',
+        'ASCII dots': 'A. 甲\nB. 乙\nC. 丙\nD. 丁',
+        'full-width dots': 'A．甲\nB．乙\nC．丙\nD．丁',
+        'Chinese commas': 'A、甲\nB、乙\nC、丙\nD、丁',
+      };
+
+      for (final entry in variants.entries) {
+        final legacy = _ocrChoiceRegion(entry.value);
+        final projected = _projectOcr(legacy);
+        final expected = const OcrQuestionAssembler().assemble(legacy);
+
+        expect(
+          projected.question['content'],
+          expected.question['content'],
+          reason: entry.key,
+        );
+        expect(
+          projected.question['options'],
+          <String>['A. 甲', 'B. 乙', 'C. 丙', 'D. 丁'],
+          reason: entry.key,
+        );
+      }
+    });
+
+    test('keeps incomplete and empty options fail-closed', () {
+      for (final optionText in <String>[
+        '(A) 甲\n(B) 乙\n(D) 丁',
+        '(A) 甲\n(B)\n(C) 丙\n(D) 丁',
+      ]) {
+        final projected = _projectOcr(_ocrChoiceRegion(optionText));
+
+        expect(projected.question['options'], isEmpty, reason: optionText);
+        expect(
+          projected.question['content'],
+          contains('(A)'),
+          reason: 'option text must remain in content after fail-closed parse',
+        );
+      }
+    });
+
     test('projects a cross-page choice region to the identical legacy map', () {
       final legacy = OcrQuestionRegion(
         number: 1,
@@ -1033,6 +1117,18 @@ LocalAssemblyResult _projectOcr(
   ExplanationRetentionMode explanationRetentionMode =
       ExplanationRetentionMode.subjectiveOnly,
 }) {
+  final region = _bridgeOcr(legacy);
+  final draft =
+      assembler.assemble(region, questionId: 'task_q${legacy.number}');
+  return projector.project(
+    draft: draft,
+    region: region,
+    profile: const OcrLegacyProjectionProfile(),
+    explanationRetentionMode: explanationRetentionMode,
+  );
+}
+
+QuestionRegion _bridgeOcr(OcrQuestionRegion legacy) {
   final parts = <SourcePart>[];
   for (var index = 0; index < legacy.stemParts.length; index++) {
     parts.add(
@@ -1058,13 +1154,19 @@ LocalAssemblyResult _projectOcr(
     legacy,
     sourceDocument: sourceDocument,
   );
-  final draft =
-      assembler.assemble(region, questionId: 'task_q${legacy.number}');
-  return projector.project(
-    draft: draft,
-    region: region,
-    profile: const OcrLegacyProjectionProfile(),
-    explanationRetentionMode: explanationRetentionMode,
+  return region;
+}
+
+OcrQuestionRegion _ocrChoiceRegion(String optionText) {
+  return OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['1. 题干\n$optionText'],
+    answerParts: <String>['A'],
+    explanationParts: const <String>[],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['b1', 'b2'],
+    diagnostics: const <String>[],
+    declaredKind: TextQuestionKind.choice,
   );
 }
 

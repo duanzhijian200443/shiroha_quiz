@@ -17,6 +17,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dar
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
@@ -205,6 +206,50 @@ void main() {
       );
       expect(candidate.draft.sourceRefs, hasLength(3),
           reason: 'typed source refs are preserved on the candidate draft');
+    });
+
+    test('ASCII choice production chain reaches typedV2 under allQuestionTypes',
+        () {
+      final document = _asciiChoiceDocument();
+      final region = _asciiChoiceRegion();
+      final finalQuestion = const ImportQuestionFieldPolicy().applyToMap(
+        _assembler.assemble(region).question,
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+      final finalQuestions = <Map<String, dynamic>>[finalQuestion];
+
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[region],
+        legacyQuestions: finalQuestions,
+        uuidV4Factory: _uuidSequence(),
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(finalQuestion['raw_explanation'], isNotEmpty);
+      expect(finalQuestion['explanation'], isNotEmpty);
+      expect(candidate.draft.options, hasLength(4));
+      expect(candidate.draft.explanation, isNotNull);
+      expect(candidate.projectedLegacy.options, <String>[
+        'A. 甲',
+        'B. 乙',
+        'C. 丙',
+        'D. 丁',
+      ]);
+      expect(candidate.projectedLegacy.content, finalQuestion['content']);
+      expect(candidate.projectedLegacy.explanation, isNotEmpty);
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: finalQuestions,
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
     });
 
     test('ai_repair_applied makes the whole batch ineligible', () {
@@ -1669,6 +1714,35 @@ OcrDocument _shortAnswerDocument() {
           _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
           _block('answer_1', 1, 2, '答案：synthetic-result-1'),
           _block('explanation_1', 1, 3, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrQuestionRegion _asciiChoiceRegion() {
+  return const OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'],
+    answerParts: <String>['A'],
+    explanationParts: <String>['解析：保留解析'],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['q_1', 'answer_1', 'explanation_1'],
+    diagnostics: <String>[],
+    declaredKind: TextQuestionKind.choice,
+  );
+}
+
+OcrDocument _asciiChoiceDocument() {
+  return _document(
+    'r7b_synthetic_ascii_choice.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('q_1', 1, 0, '1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'),
+          _block('answer_1', 1, 1, '答案：A'),
+          _block('explanation_1', 1, 2, '解析：保留解析'),
         ],
       ),
     ],

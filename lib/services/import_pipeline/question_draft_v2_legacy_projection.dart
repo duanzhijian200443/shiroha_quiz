@@ -418,7 +418,7 @@ String _ocrRegionStem(QuestionRegion region) {
 /// sequence with non-empty values is extracted.
 _OcrOptionExtract _ocrExtractOptions(String text) {
   final markerRegex = RegExp(
-    r'(?:（\s*([A-D])\s*）|(?:^|\n)[ \t]*([A-D])\s*[.．、])[ \t\r\n]*',
+    r'(?:[（(]\s*([A-D])\s*[）)]|(?:^|\n)[ \t]*([A-D])\s*[.．、])[ \t\r\n]*',
     multiLine: true,
   );
   final matches = markerRegex.allMatches(text).toList();
