@@ -3,7 +3,10 @@
 // Provider, Replay, network, database, UI, filesystem or application call
 // site, so Provider calls are 0 by construction.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
@@ -1380,6 +1383,136 @@ void main() {
         expect(validated.reason, reason);
       }
     });
+
+    group('raw explanation parity telemetry', () {
+      tearDown(() {
+        rawExplanationTelemetryHandlerForTesting = null;
+      });
+
+      test(
+          'emits complete redacted per-question telemetry during gate evaluation',
+          () {
+        final telemetryEvents = <Map<String, Object?>>[];
+        rawExplanationTelemetryHandlerForTesting = telemetryEvents.add;
+
+        final candidate = _candidate(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          reviewItemId: _reviewUuidA,
+          draft: _draftWithExplanation(
+            questionNumber: 1,
+            questionId: _questionUuidA,
+            explanation: RichContent(
+              nodes: <ContentNode>[
+                const TextNode('Synthetic explanation 1'),
+                ImageNode(
+                  sourceId: _sourceUuid,
+                  localAssetId: 'img_01',
+                  alternativeText: RichContent(
+                    nodes: const <ContentNode>[TextNode('fig')],
+                  ),
+                ),
+              ],
+            ),
+            assetRefs: <SourcedAssetRef>[
+              SourcedAssetRef(
+                sourceId: _sourceUuid,
+                asset: AssetRef(
+                  assetId: 'img_01',
+                  kind: AssetKind.image,
+                ),
+              ),
+            ],
+          ),
+          projectedLegacy: _finalBaseline(
+            number: 1,
+            explanation: 'Synthetic explanation 1\n[图片]',
+          ),
+        );
+
+        final question = _finalQuestion(number: 1)
+          ..['raw_explanation'] = '<p>Synthetic explanation 1</p>[图片]'
+          ..['explanation'] = 'Synthetic explanation 1\n[图片]';
+
+        applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[candidate],
+            candidateAssetLease: ContentAssetCandidateLease(
+              sourceId: _sourceUuid,
+              localAssetIds: const <String>['img_01'],
+            ),
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(telemetryEvents, hasLength(1));
+        final event = telemetryEvents.single;
+        expect(event['questionNumber'], 1);
+        expect(event['rawPresent'], isTrue);
+        expect(event['rawTypeValid'], isTrue);
+        expect(event['rawEmpty'], isFalse);
+        expect(event['rawEqualsFinal'], isFalse);
+        expect(event['finalEmpty'], isFalse);
+        expect(event['candidateExplanationPresent'], isTrue);
+        expect(event['topLevelNodeKinds'], <String>['text', 'image']);
+        expect(event['containsRawFallback'], isFalse);
+        expect(event['rawFallbackLocation'], isNull);
+        expect(event['boundedAllowed'], isTrue);
+        expect(event['n0Equal'], isFalse);
+        expect(event['finalizerEligible'], isTrue);
+        expect(event['finalizerMatched'], isTrue);
+      });
+
+      test(
+          'identifies rawFallback and its location at top-level and in table-cell',
+          () {
+        final telemetryEvents = <Map<String, Object?>>[];
+        rawExplanationTelemetryHandlerForTesting = telemetryEvents.add;
+
+        final candidateFallback = _candidate(
+          questionNumber: 2,
+          questionId: _questionUuidB,
+          reviewItemId: _reviewUuidB,
+          draft: _draftWithExplanation(
+            questionNumber: 2,
+            questionId: _questionUuidB,
+            explanation: RichContent(
+              nodes: <ContentNode>[
+                const TextNode('Explanation'),
+                RawFallbackNode(
+                  const <Object?, Object?>{'type': 'unsupported_tag'},
+                ),
+              ],
+            ),
+          ),
+          projectedLegacy: _finalBaseline(
+            number: 2,
+            explanation: 'Explanation',
+          ),
+        );
+
+        final question = _finalQuestion(number: 2)
+          ..['raw_explanation'] = 'Explanation'
+          ..['explanation'] = 'Explanation';
+
+        applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[candidateFallback],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(telemetryEvents, hasLength(1));
+        final event = telemetryEvents.single;
+        expect(event['questionNumber'], 2);
+        expect(event['topLevelNodeKinds'], <String>['text', 'rawFallback']);
+        expect(event['containsRawFallback'], isTrue);
+        expect(event['rawFallbackLocation'], 'top-level');
+        expect(event['boundedAllowed'], isFalse);
+      });
+    });
   });
 }
 
@@ -1443,6 +1576,8 @@ QuestionDraftV2 _draftWithExplanation({
   required int questionNumber,
   required String questionId,
   required RichContent explanation,
+  Iterable<SourceRef>? sourceRefs,
+  Iterable<SourcedAssetRef> assetRefs = const <SourcedAssetRef>[],
 }) {
   return QuestionDraftV2(
     questionId: questionId,
@@ -1459,6 +1594,9 @@ QuestionDraftV2 _draftWithExplanation({
       ),
     ),
     explanation: explanation,
+    sourceRefs:
+        sourceRefs ?? <SourceRef>[SourceRef.document(sourceId: _sourceUuid)],
+    assetRefs: assetRefs,
   );
 }
 

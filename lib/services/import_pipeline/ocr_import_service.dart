@@ -405,6 +405,17 @@ class OcrImportService {
         'rejectedRegionCount': rejectedCount,
       });
 
+      // The final list below is the exact legacy collection from which the
+      // shadow candidate batch is built and returned to ImportPipelineService.
+      // Keep this summary bounded so a later product trace can distinguish an
+      // OCR-service loss from a downstream handoff loss.
+      emitImportExplanationLifecycleTelemetryForProduction(
+        stage: 'ocr_service_output',
+        sourceCollectionName: 'ocr_service_questions',
+        questions: questions,
+        retentionMode: explanationRetentionMode,
+      );
+
       final typedCandidateBatch = _buildTypedCandidateBatch(
         document,
         <OcrQuestionRegion>[

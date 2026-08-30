@@ -1,7 +1,10 @@
+import 'package:meta/meta.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
@@ -162,6 +165,12 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   ExplanationRetentionMode explanationRetentionMode =
       ExplanationRetentionMode.subjectiveOnly,
 }) {
+  emitImportExplanationLifecycleTelemetryForProduction(
+    stage: 'typed_batch_input',
+    sourceCollectionName: 'ocr_typed_batch_legacy_questions',
+    questions: legacyQuestions,
+    retentionMode: explanationRetentionMode,
+  );
   if (regions.length != legacyQuestions.length) {
     return OcrTypedCandidateBatch(
       candidates: <OcrTypedCandidate>[],
@@ -551,11 +560,157 @@ LegacyReviewBaseline? _strictDecodeBaseline(Map<String, dynamic> question) {
   }
 }
 
+/// Handler used by tests to capture telemetry emitted during gate evaluation.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    rawExplanationTelemetryHandlerForTesting;
+
+void _emitRawExplanationTelemetry(Map<String, Object?> telemetry) {
+  rawExplanationTelemetryHandlerForTesting?.call(telemetry);
+  AppLogger.info(
+    'Raw explanation parity telemetry',
+    module: 'ImportGate',
+    data: telemetry,
+  );
+}
+
+Map<String, Object?> _collectRawExplanationTelemetry({
+  required Map<String, dynamic> question,
+  required String finalExplanation,
+  required OcrTypedCandidate candidate,
+}) {
+  final rawPresent = question.containsKey('raw_explanation') &&
+      question['raw_explanation'] != null;
+  final raw = question['raw_explanation'];
+  final rawTypeValid = raw is String;
+  final rawEmpty = rawTypeValid ? raw.isEmpty : false;
+  final rawEqualsFinal = rawTypeValid ? raw == finalExplanation : false;
+  final finalEmpty = finalExplanation.isEmpty;
+  final candidateExplanation = candidate.draft.explanation;
+  final candidateExplanationPresent = candidateExplanation != null;
+  final topLevelNodeKinds = _topLevelNodeKinds(candidateExplanation);
+  final rawFallbackLocation =
+      _rawFallbackLocationForExplanation(candidateExplanation);
+  final containsRawFallback = rawFallbackLocation != null;
+  final boundedAllowed = _boundedExplanationParityAllowed(candidate);
+
+  var n0Equal = false;
+  var finalizerEligible = false;
+  var finalizerMatched = false;
+  if (rawTypeValid) {
+    n0Equal = _n0Equals(raw, finalExplanation);
+    final finalized = finalizeImportTextForParityComparison(raw);
+    finalizerEligible = finalized.eligible;
+    finalizerMatched = finalized.eligible && finalized.text == finalExplanation;
+  }
+
+  final rawNumber = question['question_number'];
+  final questionNumber = switch (rawNumber) {
+    final int number when number > 0 => number,
+    final num number when number > 0 => number.toInt(),
+    _ => candidate.questionNumber,
+  };
+
+  return <String, Object?>{
+    'questionNumber': questionNumber,
+    'rawPresent': rawPresent,
+    'rawTypeValid': rawTypeValid,
+    'rawEmpty': rawEmpty,
+    'rawEqualsFinal': rawEqualsFinal,
+    'finalEmpty': finalEmpty,
+    'candidateExplanationPresent': candidateExplanationPresent,
+    'topLevelNodeKinds': topLevelNodeKinds,
+    'containsRawFallback': containsRawFallback,
+    'rawFallbackLocation': rawFallbackLocation,
+    'boundedAllowed': boundedAllowed,
+    'n0Equal': n0Equal,
+    'finalizerEligible': finalizerEligible,
+    'finalizerMatched': finalizerMatched,
+  };
+}
+
+List<String> _topLevelNodeKinds(RichContent? explanation) {
+  if (explanation == null) return const <String>[];
+  return explanation.nodes
+      .map((node) => switch (node) {
+            TextNode() => 'text',
+            InlineMathNode() => 'inlineMath',
+            BlockMathNode() => 'blockMath',
+            ImageNode() => 'image',
+            TableNode() => 'table',
+            RawFallbackNode() => 'rawFallback',
+          })
+      .toList(growable: false);
+}
+
+String? _rawFallbackLocationForExplanation(RichContent? explanation) {
+  if (explanation == null) return null;
+  for (final node in explanation.nodes) {
+    if (node is RawFallbackNode) {
+      return 'top-level';
+    }
+  }
+  for (final node in explanation.nodes) {
+    if (node is ImageNode) {
+      final alt = node.alternativeText;
+      if (alt != null && _containsRawFallbackNodes(alt.nodes)) {
+        return 'image-alt';
+      }
+    }
+  }
+  for (final node in explanation.nodes) {
+    if (node is TableNode) {
+      for (final row in node.structure.rows) {
+        for (final cell in row.cells) {
+          if (_containsRawFallbackNodes(cell.content.nodes)) {
+            return 'table-cell';
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+bool _containsRawFallbackNodes(Iterable<ContentNode> nodes) {
+  for (final node in nodes) {
+    switch (node) {
+      case RawFallbackNode():
+        return true;
+      case ImageNode(:final alternativeText):
+        if (alternativeText != null &&
+            _containsRawFallbackNodes(alternativeText.nodes)) {
+          return true;
+        }
+      case TableNode(:final structure):
+        for (final row in structure.rows) {
+          for (final cell in row.cells) {
+            if (_containsRawFallbackNodes(cell.content.nodes)) {
+              return true;
+            }
+          }
+        }
+      case TextNode():
+      case InlineMathNode():
+      case BlockMathNode():
+        break;
+    }
+  }
+  return false;
+}
+
 bool _rawExplanationAllowed(
   Map<String, dynamic> question,
   String finalExplanation,
   OcrTypedCandidate candidate,
 ) {
+  final telemetry = _collectRawExplanationTelemetry(
+    question: question,
+    finalExplanation: finalExplanation,
+    candidate: candidate,
+  );
+  _emitRawExplanationTelemetry(telemetry);
+
   final raw = question['raw_explanation'];
   if (raw == null) return true;
   if (raw is! String) return false;
