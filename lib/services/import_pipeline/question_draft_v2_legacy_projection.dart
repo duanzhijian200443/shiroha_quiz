@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/content/rich_content_text_projection.dart';
@@ -38,6 +41,12 @@ final class OcrLegacyProjectionProfile extends LegacyProjectionProfile {
   @override
   String get sourceTag => sourceTagValue;
 }
+
+/// Handler used by tests to capture redacted OCR projection construction
+/// boundaries without exposing any projected field values.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    ocrCompatibilityProjectionTelemetryHandlerForTesting;
 
 /// Raised when a [QuestionRegion] or its assembled [QuestionDraftV2] cannot be
 /// represented by the bounded legacy compatibility projection, such as raw
@@ -92,6 +101,17 @@ final class QuestionDraftV2LegacyProjector {
         : _OcrOptionExtract(stem: ocrStem.trim(), options: const <String>[]);
     final ocrContent =
         ocrExtract.stem.trim().isEmpty ? ocrStem : ocrExtract.stem.trim();
+    if (isOcr) {
+      _emitOcrCompatibilityProjectionTelemetry(
+        questionNumber: region.questionNumber,
+        draftStem: draftStem,
+        ocrStem: ocrStem,
+        ocrRawExtract: ocrRawExtract,
+        keepOcrOptions: keepOcrOptions,
+        ocrExtract: ocrExtract,
+        ocrContent: ocrContent,
+      );
+    }
 
     final type = isOcr
         ? _ocrClassifyType(
@@ -202,6 +222,91 @@ final class QuestionDraftV2LegacyProjector {
       rejected: rejected,
     );
   }
+}
+
+/// Emits private projector intermediates as aggregate-only diagnostics.
+/// Telemetry is best-effort and cannot alter the returned legacy projection.
+void _emitOcrCompatibilityProjectionTelemetry({
+  required int questionNumber,
+  required String draftStem,
+  required String ocrStem,
+  required _OcrOptionExtract ocrRawExtract,
+  required bool keepOcrOptions,
+  required _OcrOptionExtract ocrExtract,
+  required String ocrContent,
+}) {
+  try {
+    final ocrStemMetrics = _diagnosticCharacterMetrics(ocrStem);
+    final telemetry = <String, Object?>{
+      'questionNumber': questionNumber,
+      'draftStemLength': draftStem.length,
+      'ocrRegionStemPreExtractLength': ocrStem.length,
+      'ocrRegionStemPreExtractSpaceCount': ocrStemMetrics.spaceCount,
+      'ocrRegionStemPreExtractTabCount': ocrStemMetrics.tabCount,
+      'ocrRegionStemPreExtractCrCount': ocrStemMetrics.crCount,
+      'ocrRegionStemPreExtractLfCount': ocrStemMetrics.lfCount,
+      'ocrRegionStemDiagnosticNormalizedLength':
+          _diagnosticOcrNormalization(ocrStem).length,
+      'ocrRawOptionCount': ocrRawExtract.options.length,
+      'keepOcrOptions': keepOcrOptions,
+      'ocrRawExtractStemLength': ocrRawExtract.stem.length,
+      'ocrPostPolicyStemLength': ocrExtract.stem.length,
+      'ocrContentLength': ocrContent.length,
+      'draftStemVsOcrRegionStemExactEqual': draftStem == ocrStem,
+      'draftStemVsOcrRegionStemDiagnosticNormalizedEqual':
+          _diagnosticOcrNormalization(draftStem) ==
+              _diagnosticOcrNormalization(ocrStem),
+      'draftStemVsOcrContentExactEqual': draftStem == ocrContent,
+      'draftStemVsOcrContentDiagnosticNormalizedEqual':
+          _diagnosticOcrNormalization(draftStem) ==
+              _diagnosticOcrNormalization(ocrContent),
+    };
+    ocrCompatibilityProjectionTelemetryHandlerForTesting?.call(telemetry);
+    AppLogger.info(
+      'OCR compatibility projection construction telemetry',
+      module: 'ImportTypedCandidate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+({int spaceCount, int tabCount, int crCount, int lfCount})
+    _diagnosticCharacterMetrics(String input) {
+  var spaceCount = 0;
+  var tabCount = 0;
+  var crCount = 0;
+  var lfCount = 0;
+  for (final codeUnit in input.codeUnits) {
+    switch (codeUnit) {
+      case 0x20:
+        spaceCount++;
+      case 0x09:
+        tabCount++;
+      case 0x0d:
+        crCount++;
+      case 0x0a:
+        lfCount++;
+    }
+  }
+  return (
+    spaceCount: spaceCount,
+    tabCount: tabCount,
+    crCount: crCount,
+    lfCount: lfCount,
+  );
+}
+
+/// Diagnostic mirror only; this is not a semantic normalization authority and
+/// must never feed a candidate, projection, or gate decision.
+String _diagnosticOcrNormalization(String input) {
+  return input
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
 }
 
 int _legacyTypeCode(QuestionKind kind) {

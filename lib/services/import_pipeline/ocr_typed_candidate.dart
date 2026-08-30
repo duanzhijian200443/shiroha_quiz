@@ -6,8 +6,11 @@ import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
+import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
@@ -235,6 +238,11 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
         profile: const OcrLegacyProjectionProfile(),
         explanationRetentionMode: explanationRetentionMode,
       );
+      _emitTypedCandidateConstructionTelemetry(
+        region: region,
+        typedRegion: typedRegion,
+        draft: draft,
+      );
       final reviewItemId = uuidV4Factory();
       final projectedQuestion = projected.question;
       final baseline = LegacyReviewBaseline(
@@ -291,6 +299,217 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     candidates: candidates,
     candidateAssetLease: candidateAssetLease,
   );
+}
+
+/// Handler used by tests to capture the redacted construction boundary between
+/// the OCR region, typed region, and assembled draft.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    typedCandidateConstructionTelemetryHandlerForTesting;
+
+/// Emits construction diagnostics without becoming part of candidate
+/// semantics. Collection, observation, and logging are all best-effort so a
+/// telemetry failure cannot change the candidate or projection result.
+void _emitTypedCandidateConstructionTelemetry({
+  required OcrQuestionRegion region,
+  required QuestionRegion typedRegion,
+  required QuestionDraftV2 draft,
+}) {
+  try {
+    final telemetry = _collectTypedCandidateConstructionTelemetry(
+      region: region,
+      typedRegion: typedRegion,
+      draft: draft,
+    );
+    typedCandidateConstructionTelemetryHandlerForTesting?.call(telemetry);
+    AppLogger.info(
+      'Typed candidate construction telemetry',
+      module: 'ImportTypedCandidate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+Map<String, Object?> _collectTypedCandidateConstructionTelemetry({
+  required OcrQuestionRegion region,
+  required QuestionRegion typedRegion,
+  required QuestionDraftV2 draft,
+}) {
+  final ocrRegionStem = region.stemText;
+  final stemOwnedSources = region.ownedSources
+      .where((owned) => owned.field == OcrRegionField.stem)
+      .toList(growable: false);
+  final stemFragments = typedRegion.fragmentsFor(QuestionRegionField.stem);
+  final typedMaterializedStem =
+      _diagnosticMaterializedTypedRegionStem(stemFragments);
+  final draftStem =
+      const RichContentTextProjection().project(draft.stem).trim();
+  final ocrMetrics = _diagnosticCharacterMetrics(ocrRegionStem);
+  final materializedMetrics =
+      _diagnosticCharacterMetrics(typedMaterializedStem);
+  final draftMetrics = _diagnosticCharacterMetrics(draftStem);
+
+  var sourceContentCount = 0;
+  var sourceAssetCount = 0;
+  var sourceTableCount = 0;
+  var unsupportedCount = 0;
+  for (final fragment in stemFragments) {
+    switch (fragment.part) {
+      case SourceContentPart():
+        sourceContentCount++;
+      case SourceAssetPart():
+        sourceAssetCount++;
+      case SourceTablePart():
+        sourceTableCount++;
+      case UnsupportedSourcePart():
+        unsupportedCount++;
+    }
+  }
+
+  return <String, Object?>{
+    'questionNumber': region.number,
+    'ocrRegionStemPartCount': region.stemParts.length,
+    'ocrRegionStemTextLength': ocrRegionStem.length,
+    'ocrRegionStemSpaceCount': ocrMetrics.spaceCount,
+    'ocrRegionStemTabCount': ocrMetrics.tabCount,
+    'ocrRegionStemCrCount': ocrMetrics.crCount,
+    'ocrRegionStemLfCount': ocrMetrics.lfCount,
+    'ocrRegionStemRepeatedHorizontalWhitespaceRuns':
+        ocrMetrics.repeatedHorizontalWhitespaceRuns,
+    'ocrRegionStemTripleNewlineRuns': ocrMetrics.tripleNewlineRuns,
+    'ownedSourceCount': stemOwnedSources.length,
+    'ownedSourceWithExplicitStartCount': stemOwnedSources
+        .where((owned) => owned.startCodeUnitOffset != null)
+        .length,
+    'ownedSourceWithExplicitEndCount': stemOwnedSources
+        .where((owned) => owned.endCodeUnitOffset != null)
+        .length,
+    'ownedSourceWithBothOffsetsCount': stemOwnedSources
+        .where(
+          (owned) =>
+              owned.startCodeUnitOffset != null &&
+              owned.endCodeUnitOffset != null,
+        )
+        .length,
+    'typedRegionStemFragmentCount': stemFragments.length,
+    'typedRegionStemFragmentWithSliceCount':
+        stemFragments.where((fragment) => fragment.slice != null).length,
+    'typedRegionStemFragmentWithoutSliceCount':
+        stemFragments.where((fragment) => fragment.slice == null).length,
+    'typedRegionStemSourceContentCount': sourceContentCount,
+    'typedRegionStemSourceAssetCount': sourceAssetCount,
+    'typedRegionStemSourceTableCount': sourceTableCount,
+    'typedRegionStemUnsupportedCount': unsupportedCount,
+    'typedRegionMaterializedStemLength': typedMaterializedStem.length,
+    'typedRegionMaterializedStemSpaceCount': materializedMetrics.spaceCount,
+    'typedRegionMaterializedStemTabCount': materializedMetrics.tabCount,
+    'typedRegionMaterializedStemCrCount': materializedMetrics.crCount,
+    'typedRegionMaterializedStemLfCount': materializedMetrics.lfCount,
+    'draftStemProjectedLength': draftStem.length,
+    'draftStemSpaceCount': draftMetrics.spaceCount,
+    'draftStemTabCount': draftMetrics.tabCount,
+    'draftStemCrCount': draftMetrics.crCount,
+    'draftStemLfCount': draftMetrics.lfCount,
+    'ocrRegionVsTypedMaterializedExactEqual':
+        ocrRegionStem == typedMaterializedStem,
+    'ocrRegionVsTypedMaterializedDiagnosticNormalizedEqual':
+        _diagnosticOcrNormalization(ocrRegionStem) ==
+            _diagnosticOcrNormalization(typedMaterializedStem),
+    'typedMaterializedVsDraftExactEqual': typedMaterializedStem == draftStem,
+    'typedMaterializedVsDraftDiagnosticNormalizedEqual':
+        _diagnosticOcrNormalization(typedMaterializedStem) ==
+            _diagnosticOcrNormalization(draftStem),
+  };
+}
+
+String _diagnosticMaterializedTypedRegionStem(
+  List<QuestionRegionFragment> fragments,
+) {
+  final nodes = <ContentNode>[];
+  var lastFragmentWasPlainText = false;
+  for (final fragment in fragments) {
+    switch (fragment.part) {
+      case SourceContentPart(:final content):
+        final materialized = materializeQuestionRegionContent(
+          content,
+          fragment.slice,
+        );
+        final plainText = materialized.isNotEmpty &&
+            materialized.every((node) => node is TextNode);
+        if (nodes.isNotEmpty && lastFragmentWasPlainText && plainText) {
+          nodes.add(const TextNode('\n'));
+        }
+        nodes.addAll(materialized);
+        lastFragmentWasPlainText = plainText;
+      case SourceAssetPart(:final asset, :final alternativeText):
+        nodes.add(
+          ImageNode(
+            sourceId: fragment.part.sourceRef.sourceId,
+            localAssetId: asset.assetId,
+            alternativeText: alternativeText,
+          ),
+        );
+        lastFragmentWasPlainText = false;
+      case SourceTablePart(:final structure):
+        if (structure == null) {
+          throw StateError(
+              'Diagnostic materialization requires table geometry.');
+        }
+        nodes.add(TableNode(structure: structure));
+        lastFragmentWasPlainText = false;
+      case UnsupportedSourcePart():
+        throw StateError('Unsupported diagnostic stem fragment.');
+    }
+  }
+  return const RichContentTextProjection().project(RichContent(nodes: nodes));
+}
+
+({
+  int spaceCount,
+  int tabCount,
+  int crCount,
+  int lfCount,
+  int repeatedHorizontalWhitespaceRuns,
+  int tripleNewlineRuns,
+}) _diagnosticCharacterMetrics(String input) {
+  var spaceCount = 0;
+  var tabCount = 0;
+  var crCount = 0;
+  var lfCount = 0;
+  for (final codeUnit in input.codeUnits) {
+    switch (codeUnit) {
+      case 0x20:
+        spaceCount++;
+      case 0x09:
+        tabCount++;
+      case 0x0d:
+        crCount++;
+      case 0x0a:
+        lfCount++;
+    }
+  }
+  return (
+    spaceCount: spaceCount,
+    tabCount: tabCount,
+    crCount: crCount,
+    lfCount: lfCount,
+    repeatedHorizontalWhitespaceRuns:
+        RegExp(r'[ \t]{2,}').allMatches(input).length,
+    tripleNewlineRuns: RegExp(r'\n{3,}').allMatches(input).length,
+  );
+}
+
+/// Diagnostic mirror only; this is not a semantic normalization authority and
+/// must never feed a candidate, projection, or gate decision.
+String _diagnosticOcrNormalization(String input) {
+  return input
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
 }
 
 /// The all-or-nothing storage outcome of the final parity gate.
