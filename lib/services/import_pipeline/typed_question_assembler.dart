@@ -169,7 +169,9 @@ final class TypedQuestionAssembler {
     RichContent? explanationContent;
     if (explanationText != null && explanationText.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: _boundedTextNodes(_stripFieldLabels(explanationText)),
+        nodes: _boundedTextNodes(
+          _stripFieldLabels(normalizeOcrText(explanationText)),
+        ),
       );
     } else if (inlineExplanation != null &&
         inlineExplanation.trim().isNotEmpty) {
