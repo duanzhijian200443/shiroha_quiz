@@ -112,6 +112,62 @@ void main() {
       expect(event['ocrRegionVsTypedMaterializedExactEqual'], isTrue);
     });
 
+    test('answer boundary telemetry preserves deterministic separators', () {
+      final events = <Map<String, Object?>>[];
+      typedCandidateConstructionTelemetryHandlerForTesting = events.add;
+
+      final fixture = _answerBoundaryFixture(explicitAnswerSlices: false);
+      final batch = _build(fixture);
+
+      expect(batch.failure, isNull);
+      final event = events.single;
+      final expectedLength = 'ANSWER_FRAGMENT_A'.length +
+          'ANSWER_FRAGMENT_B'.length +
+          'ANSWER_FRAGMENT_C'.length +
+          2;
+      expect(event['regionAnswerPartCount'], 3);
+      expect(event['regionAnswerLength'], expectedLength);
+      expect(event['bridgeMaterializedAnswerLength'], expectedLength);
+      expect(event['regionVsBridgeExactEqual'], isTrue);
+      expect(event['answerFragmentCount'], 3);
+      expect(event['answerFragmentsWithSlice'], 0);
+      expect(event['answerFragmentsWithoutSlice'], 3);
+      expect(event['ownedAnswerSourceCount'], 3);
+      expect(event['draftAnswerKind'], 'content');
+      expect(event['draftAnswerProjectedLength'], expectedLength);
+    });
+
+    test('choice answer telemetry reports the selected option length', () {
+      final events = <Map<String, Object?>>[];
+      typedCandidateConstructionTelemetryHandlerForTesting = events.add;
+
+      final batch = _build(_choiceAnswerFixture());
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(batch.candidates.single.draft.answer, isA<ChoiceAnswer>());
+      final event = events.single;
+      expect(event['draftAnswerKind'], 'choice');
+      expect(event['draftAnswerProjectedLength'], 1);
+    });
+
+    test('answer boundary telemetry records explicit SourceSlice ownership',
+        () {
+      final events = <Map<String, Object?>>[];
+      typedCandidateConstructionTelemetryHandlerForTesting = events.add;
+
+      final fixture = _answerBoundaryFixture(explicitAnswerSlices: true);
+      final batch = _build(fixture);
+
+      expect(batch.failure, isNull);
+      final event = events.single;
+      expect(event['answerFragmentCount'], 3);
+      expect(event['answerFragmentsWithSlice'], 3);
+      expect(event['answerFragmentsWithoutSlice'], 0);
+      expect(event['ownedAnswerSourceCount'], 3);
+      expect(event['regionVsBridgeExactEqual'], isTrue);
+    });
+
     test('construction and projector telemetry are aggregate-only', () {
       final eventA = <Map<String, Object?>>[];
       final eventB = <Map<String, Object?>>[];
@@ -227,6 +283,110 @@ void main() {
           endCodeUnitOffset: explicitOffsets ? start + selected.length : null,
         ),
       ],
+    ),
+  );
+}
+
+({OcrDocument document, OcrQuestionRegion region}) _answerBoundaryFixture({
+  required bool explicitAnswerSlices,
+}) {
+  const stemBlock = 'answer_boundary_stem_block';
+  const answerBlockA = 'answer_boundary_a_block';
+  const answerBlockB = 'answer_boundary_b_block';
+  const answerBlockC = 'answer_boundary_c_block';
+  const stem = '1. Answer boundary prompt';
+  const answerA = 'ANSWER_FRAGMENT_A';
+  const answerB = 'ANSWER_FRAGMENT_B';
+  const answerC = 'ANSWER_FRAGMENT_C';
+
+  String sourceFor(String selected) {
+    return explicitAnswerSlices ? 'prefix::$selected::suffix' : selected;
+  }
+
+  final sourceA = sourceFor(answerA);
+  final sourceB = sourceFor(answerB);
+  final sourceC = sourceFor(answerC);
+
+  OcrQuestionRegionSource ownedAnswer(
+    String blockId,
+    String selected,
+    String source,
+  ) {
+    final start = source.indexOf(selected);
+    return OcrQuestionRegionSource(
+      blockId: blockId,
+      field: OcrRegionField.answer,
+      text: selected,
+      startCodeUnitOffset: explicitAnswerSlices ? start : null,
+      endCodeUnitOffset: explicitAnswerSlices ? start + selected.length : null,
+    );
+  }
+
+  return (
+    document: _document(
+      sourceName: 'answer_boundary_fixture.pdf',
+      blocks: <OcrBlock>[
+        _block(stemBlock, 0, stem),
+        _block(answerBlockA, 1, sourceA),
+        _block(answerBlockB, 2, sourceB),
+        _block(answerBlockC, 3, sourceC),
+      ],
+    ),
+    region: OcrQuestionRegion(
+      number: 1,
+      stemParts: const <String>[stem],
+      answerParts: const <String>[answerA, answerB, answerC],
+      explanationParts: const <String>[],
+      sourcePageIndices: const <int>[1],
+      sourceBlockIds: const <String>[
+        stemBlock,
+        answerBlockA,
+        answerBlockB,
+        answerBlockC,
+      ],
+      diagnostics: const <String>[],
+      declaredKind: TextQuestionKind.subjective,
+      ownedSources: <OcrQuestionRegionSource>[
+        const OcrQuestionRegionSource(
+          blockId: stemBlock,
+          field: OcrRegionField.stem,
+          text: stem,
+        ),
+        ownedAnswer(answerBlockA, answerA, sourceA),
+        ownedAnswer(answerBlockB, answerB, sourceB),
+        ownedAnswer(answerBlockC, answerC, sourceC),
+      ],
+    ),
+  );
+}
+
+({OcrDocument document, OcrQuestionRegion region}) _choiceAnswerFixture() {
+  const stemBlock = 'choice_telemetry_stem_block';
+  const answerBlock = 'choice_telemetry_answer_block';
+  const explanationBlock = 'choice_telemetry_explanation_block';
+  const stem = '1. Choice prompt\n'
+      '(A) Alpha\n'
+      '(B) Beta\n'
+      '(C) Gamma\n'
+      '(D) Delta';
+  return (
+    document: _document(
+      sourceName: 'choice_answer_telemetry_fixture.pdf',
+      blocks: <OcrBlock>[
+        _block(stemBlock, 0, stem),
+        _block(answerBlock, 1, '答案：A'),
+        _block(explanationBlock, 2, '解析：Retained explanation'),
+      ],
+    ),
+    region: const OcrQuestionRegion(
+      number: 1,
+      stemParts: <String>[stem],
+      answerParts: <String>['A'],
+      explanationParts: <String>['Retained explanation'],
+      sourcePageIndices: <int>[1],
+      sourceBlockIds: <String>[stemBlock, answerBlock, explanationBlock],
+      diagnostics: <String>[],
+      declaredKind: TextQuestionKind.choice,
     ),
   );
 }
@@ -399,7 +559,16 @@ String Function() _uuidSequence() {
 }
 
 void _expectTelemetryRedacted(Map<String, Object?> event) {
-  expect(event.values.every((entry) => entry is num || entry is bool), isTrue);
+  expect(
+    event.values.every(
+      (entry) => entry is num || entry is bool || entry is String,
+    ),
+    isTrue,
+  );
+  for (final entry in event.entries.where((entry) => entry.value is String)) {
+    expect(entry.key, 'draftAnswerKind');
+    expect(const <String>{'none', 'choice', 'content'}, contains(entry.value));
+  }
   for (final forbiddenKey in const <String>[
     'text',
     'content',
@@ -475,6 +644,16 @@ const _eventAKeys = <String>{
   'ocrRegionVsTypedMaterializedDiagnosticNormalizedEqual',
   'typedMaterializedVsDraftExactEqual',
   'typedMaterializedVsDraftDiagnosticNormalizedEqual',
+  'regionAnswerPartCount',
+  'regionAnswerLength',
+  'bridgeMaterializedAnswerLength',
+  'regionVsBridgeExactEqual',
+  'answerFragmentCount',
+  'answerFragmentsWithSlice',
+  'answerFragmentsWithoutSlice',
+  'ownedAnswerSourceCount',
+  'draftAnswerKind',
+  'draftAnswerProjectedLength',
 };
 
 const _eventBKeys = <String>{

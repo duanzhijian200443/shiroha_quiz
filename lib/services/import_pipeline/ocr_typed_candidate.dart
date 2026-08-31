@@ -343,9 +343,17 @@ Map<String, Object?> _collectTypedCandidateConstructionTelemetry({
       .toList(growable: false);
   final stemFragments = typedRegion.fragmentsFor(QuestionRegionField.stem);
   final typedMaterializedStem =
-      _diagnosticMaterializedTypedRegionStem(stemFragments);
+      _diagnosticMaterializedTypedRegionContent(stemFragments);
   final draftStem =
       const RichContentTextProjection().project(draft.stem).trim();
+  final ocrRegionAnswer = region.answerText;
+  final answerOwnedSources = region.ownedSources
+      .where((owned) => owned.field == OcrRegionField.answer)
+      .toList(growable: false);
+  final answerFragments = typedRegion.fragmentsFor(QuestionRegionField.answer);
+  final bridgeMaterializedAnswer =
+      _diagnosticMaterializedTypedRegionContent(answerFragments);
+  final draftAnswerProjection = _diagnosticAnswerProjection(draft.answer);
   final ocrMetrics = _diagnosticCharacterMetrics(ocrRegionStem);
   final materializedMetrics =
       _diagnosticCharacterMetrics(typedMaterializedStem);
@@ -421,10 +429,22 @@ Map<String, Object?> _collectTypedCandidateConstructionTelemetry({
     'typedMaterializedVsDraftDiagnosticNormalizedEqual':
         _diagnosticOcrNormalization(typedMaterializedStem) ==
             _diagnosticOcrNormalization(draftStem),
+    'regionAnswerPartCount': region.answerParts.length,
+    'regionAnswerLength': ocrRegionAnswer.length,
+    'bridgeMaterializedAnswerLength': bridgeMaterializedAnswer.length,
+    'regionVsBridgeExactEqual': ocrRegionAnswer == bridgeMaterializedAnswer,
+    'answerFragmentCount': answerFragments.length,
+    'answerFragmentsWithSlice':
+        answerFragments.where((fragment) => fragment.slice != null).length,
+    'answerFragmentsWithoutSlice':
+        answerFragments.where((fragment) => fragment.slice == null).length,
+    'ownedAnswerSourceCount': answerOwnedSources.length,
+    'draftAnswerKind': _diagnosticAnswerKind(draft.answer),
+    'draftAnswerProjectedLength': draftAnswerProjection.length,
   };
 }
 
-String _diagnosticMaterializedTypedRegionStem(
+String _diagnosticMaterializedTypedRegionContent(
   List<QuestionRegionFragment> fragments,
 ) {
   final nodes = <ContentNode>[];
@@ -436,6 +456,9 @@ String _diagnosticMaterializedTypedRegionStem(
           content,
           fragment.slice,
         );
+        if (_diagnosticStructurallyEmpty(materialized)) {
+          continue;
+        }
         final plainText = materialized.isNotEmpty &&
             materialized.every((node) => node is TextNode);
         if (nodes.isNotEmpty && lastFragmentWasPlainText && plainText) {
@@ -460,10 +483,32 @@ String _diagnosticMaterializedTypedRegionStem(
         nodes.add(TableNode(structure: structure));
         lastFragmentWasPlainText = false;
       case UnsupportedSourcePart():
-        throw StateError('Unsupported diagnostic stem fragment.');
+        throw StateError('Unsupported diagnostic region fragment.');
     }
   }
   return const RichContentTextProjection().project(RichContent(nodes: nodes));
+}
+
+bool _diagnosticStructurallyEmpty(List<ContentNode> nodes) {
+  return nodes.isEmpty ||
+      nodes.every((node) => node is TextNode && node.text.trim().isEmpty);
+}
+
+String _diagnosticAnswerKind(QuestionAnswer? answer) {
+  return switch (answer) {
+    null => 'none',
+    ChoiceAnswer() => 'choice',
+    ContentAnswer() => 'content',
+  };
+}
+
+String _diagnosticAnswerProjection(QuestionAnswer? answer) {
+  return switch (answer) {
+    null => '',
+    ChoiceAnswer(:final optionIds) => optionIds.join(),
+    ContentAnswer(:final content) =>
+      const RichContentTextProjection().project(content),
+  };
 }
 
 ({
