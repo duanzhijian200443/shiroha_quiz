@@ -136,7 +136,14 @@ foreach ($path in $TestPath) {
     $validatedTestPaths += $normalizedPath
 }
 $validatedTestPaths = @($validatedTestPaths | Sort-Object -Unique)
-$testTargets = @($validatedTestPaths)
+$changedTestPaths = @(
+    $changedDartFiles |
+        Where-Object { $_ -match '^test/.+_test\.dart$' }
+)
+$testTargets = @(
+    $changedTestPaths + $validatedTestPaths |
+        Sort-Object -Unique
+)
 
 Write-Section -Name 'Format check'
 if ($changeCollectionFailed) {
