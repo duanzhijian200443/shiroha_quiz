@@ -6,6 +6,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
+import 'ocr_choice_answer_marker.dart';
 import 'ocr_text_normalization.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
@@ -192,13 +193,25 @@ final class TypedQuestionAssembler {
       sourceAnswerText ?? '',
       isChoice: isChoice,
     );
+    final compactChoiceIds =
+        isChoice ? _choiceOptionIds(normalizedAnswer) : null;
+    final extractedChoiceMarker = isChoice && compactChoiceIds == null
+        ? extractOcrChoiceAnswerMarker(
+            answerText: normalizedAnswer,
+            explanationText: answerText == null && answerNodes.isNotEmpty
+                ? ''
+                : effectiveExplanation,
+          )
+        : null;
     QuestionAnswer? answer;
-    if (normalizedAnswer.isNotEmpty) {
+    if (isChoice &&
+        (compactChoiceIds != null || extractedChoiceMarker != null)) {
+      answer = ChoiceAnswer(
+        optionIds: compactChoiceIds ?? <String>[extractedChoiceMarker!],
+      );
+    } else if (normalizedAnswer.isNotEmpty) {
       if (isChoice) {
-        final ids = _choiceOptionIds(normalizedAnswer);
-        if (ids != null) {
-          answer = ChoiceAnswer(optionIds: ids);
-        } else if (answerText != null || sourceAnswerText != null) {
+        if (answerText != null || sourceAnswerText != null) {
           answer = ContentAnswer(
             content: RichContent(
               nodes: <ContentNode>[TextNode(normalizedAnswer)],
@@ -224,15 +237,6 @@ final class TypedQuestionAssembler {
       }
     } else if (answerNodes.isNotEmpty && answerText == null) {
       answer = ContentAnswer(content: RichContent(nodes: answerNodes));
-    }
-    if (answer == null && isChoice) {
-      final fromExplanation = RegExp(r'(?:应选|故选|答案为?)\s*([A-D])')
-          .firstMatch(effectiveExplanation)
-          ?.group(1);
-      if (fromExplanation != null) {
-        answer =
-            ChoiceAnswer(optionIds: <String>[fromExplanation.toUpperCase()]);
-      }
     }
 
     final issues = <ImportIssue>[...region.issues];
