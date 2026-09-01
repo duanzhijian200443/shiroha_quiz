@@ -18,6 +18,8 @@ import 'home_page.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../assistant/assistant_workspace_shell.dart';
+import '../assistant/workspace_controller.dart';
+import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
 
 class MainScreen extends StatefulWidget {
@@ -83,6 +85,15 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  void _openFileLibrary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _ProfileFileLibraryRoute(facade: widget.u1WorkspaceFacade),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dependencies = AiDependenciesScope.of(context);
@@ -114,13 +125,11 @@ class _MainScreenState extends State<MainScreen> {
         agentSettingsService: widget.agentSettingsService,
         backupRestore: widget.backupRestore,
         onRestoreCompleted: widget.onRestoreCompleted,
+        onOpenFileLibrary: _openFileLibrary,
       ), // Tab 2 — 我的
     ];
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: pages,
-      ),
+      body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: _handleNavigation,
@@ -159,10 +168,7 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 class _SelectedNavigationIcon extends StatelessWidget {
-  const _SelectedNavigationIcon({
-    required this.icon,
-    required this.itemKey,
-  });
+  const _SelectedNavigationIcon({required this.icon, required this.itemKey});
 
   final IconData icon;
   final Key itemKey;
@@ -177,10 +183,41 @@ class _SelectedNavigationIcon extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark
             ? theme.colorScheme.primary.withValues(alpha: 0.16)
-            : const Color(0xFFEAF1FF),
+            : theme.colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Icon(icon, color: theme.colorScheme.primary),
     );
+  }
+}
+
+class _ProfileFileLibraryRoute extends StatefulWidget {
+  const _ProfileFileLibraryRoute({required this.facade});
+
+  final U1WorkspaceFacade facade;
+
+  @override
+  State<_ProfileFileLibraryRoute> createState() =>
+      _ProfileFileLibraryRouteState();
+}
+
+class _ProfileFileLibraryRouteState extends State<_ProfileFileLibraryRoute> {
+  late final FileLibraryController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = FileLibraryController(widget.facade)..load();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FileLibraryWorkspace(controller: _controller);
   }
 }

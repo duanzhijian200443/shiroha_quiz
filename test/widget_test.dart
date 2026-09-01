@@ -257,18 +257,17 @@ void main() {
       find.byKey(const ValueKey<String>('main-nav-selected-profile')),
     );
     final decoration = selectedProfileIcon.decoration! as BoxDecoration;
-    expect(decoration.color, const Color(0xFFEAF1FF));
+    final selectedTheme = Theme.of(tester.element(
+      find.byKey(const ValueKey<String>('main-nav-selected-profile')),
+    ));
+    expect(decoration.color, selectedTheme.colorScheme.primaryContainer);
     expect(decoration.borderRadius, BorderRadius.circular(12));
 
     // Profile key settings entries remain reachable after the 3-tab
     // migration.
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-    );
-    expect(
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-      findsOneWidget,
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
     );
     expect(
       find.byKey(const ValueKey<String>('profile-ai-service-row')),
@@ -277,23 +276,21 @@ void main() {
 
     // Profile routes remain navigable without touching provider/config/
     // network: open each settings screen and return.
-    await tester.tap(
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-    );
-    await pumpUntilFound(tester, find.byType(AgentSettingsScreen));
-    expect(find.byType(AgentSettingsScreen), findsOneWidget);
-    await tester.pageBack();
-    await tester.pump();
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-    );
-
     final aiServiceRow =
         find.byKey(const ValueKey<String>('profile-ai-service-row'));
     await tester.tap(aiServiceRow);
     await pumpUntilFound(tester, find.byType(AiSettingsScreen));
     expect(find.byType(AiSettingsScreen), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('ai-service-agent-settings-row')),
+    );
+    await pumpUntilFound(tester, find.byType(AgentSettingsScreen));
+    expect(find.byType(AgentSettingsScreen), findsOneWidget);
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pump();
+    await pumpUntilFound(tester, find.byType(AiSettingsScreen));
+    await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pump();
 
@@ -495,10 +492,10 @@ Future<void> expectResponsiveNavigation(
   );
   await pumpUntilFound(
     tester,
-    find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    find.byKey(const ValueKey<String>('profile-wrong-book-row')),
   );
   expect(
-    find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    find.byKey(const ValueKey<String>('profile-wrong-book-row')),
     findsOneWidget,
   );
   if (expectProfileAiServiceRow) {
