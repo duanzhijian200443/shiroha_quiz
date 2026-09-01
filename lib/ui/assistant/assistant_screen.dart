@@ -30,21 +30,40 @@ class AssistantComposerPrefillScope extends InheritedWidget {
   const AssistantComposerPrefillScope({
     super.key,
     required this.request,
+    required this.onConsumed,
     required super.child,
   });
 
   final AssistantComposerPrefillRequest? request;
+  final ValueChanged<int> onConsumed;
 
-  static AssistantComposerPrefillRequest? maybeOf(BuildContext context) {
+  static AssistantComposerPrefillScope? maybeOf(BuildContext context) {
     return context
-        .dependOnInheritedWidgetOfExactType<AssistantComposerPrefillScope>()
-        ?.request;
+        .dependOnInheritedWidgetOfExactType<AssistantComposerPrefillScope>();
   }
 
   @override
   bool updateShouldNotify(AssistantComposerPrefillScope oldWidget) {
     return request?.epoch != oldWidget.request?.epoch;
   }
+}
+
+class AssistantGlobalDrawerScope extends InheritedWidget {
+  const AssistantGlobalDrawerScope({
+    super.key,
+    required this.openDrawer,
+    required super.child,
+  });
+
+  final ValueChanged<Widget> openDrawer;
+
+  static AssistantGlobalDrawerScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<AssistantGlobalDrawerScope>();
+  }
+
+  @override
+  bool updateShouldNotify(AssistantGlobalDrawerScope oldWidget) => false;
 }
 
 /// Shiroha conversation presentation backed by the C0 application boundary.
@@ -100,9 +119,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final request = AssistantComposerPrefillScope.maybeOf(context);
+    final prefillScope = AssistantComposerPrefillScope.maybeOf(context);
+    final request = prefillScope?.request;
     if (request == null || request.epoch <= _lastComposerPrefillEpoch) return;
     _lastComposerPrefillEpoch = request.epoch;
+    final onConsumed = prefillScope!.onConsumed;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      onConsumed(request.epoch);
+    });
     if (_composerController.text.trim().isNotEmpty) return;
     _composerController
       ..text = request.text
@@ -439,10 +463,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final conversations = widget.conversationController;
+    final globalDrawer = AssistantGlobalDrawerScope.maybeOf(context);
     return Scaffold(
       key: const ValueKey<String>('u1-ux0-assistant-shell'),
       backgroundColor: theme.scaffoldBackgroundColor,
-      drawer: _buildDrawer(),
+      drawer: globalDrawer == null ? _buildDrawer() : null,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         toolbarHeight: 76,
@@ -452,7 +477,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   key: const ValueKey<String>('u1-ux0-open-drawer'),
                   tooltip: '打开菜单',
                   icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(drawerContext).openDrawer(),
+                  onPressed: () {
+                    final drawer = _buildDrawer();
+                    if (globalDrawer != null && drawer != null) {
+                      globalDrawer.openDrawer(drawer);
+                      return;
+                    }
+                    Scaffold.of(drawerContext).openDrawer();
+                  },
                 ),
               )
             : null,

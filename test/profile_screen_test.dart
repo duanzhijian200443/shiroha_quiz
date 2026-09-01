@@ -329,6 +329,13 @@ void _verifySemanticPalette(ThemeData theme) {
       ),
       greaterThanOrEqualTo(4.5),
     );
+    expect(
+      _contrastRatio(
+        theme.bottomNavigationBarTheme.selectedItemColor!,
+        theme.colorScheme.surface,
+      ),
+      greaterThanOrEqualTo(4.5),
+    );
   }
 }
 

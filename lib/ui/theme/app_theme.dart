@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   static const Color shirohaCyan = Color(0xFF08B9E8);
+  static const Color shirohaCyanForeground = Color(0xFF006A85);
   static const Color irisPurple = Color(0xFF7C5CFC);
   static const Color warningAmber = Color(0xFFF4A621);
   static const Color dangerRed = Color(0xFFE5484D);
@@ -70,7 +71,7 @@ class AppTheme {
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: _lightSurface,
-        selectedItemColor: shirohaCyan,
+        selectedItemColor: shirohaCyanForeground,
         unselectedItemColor: _lightSecondaryText,
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,

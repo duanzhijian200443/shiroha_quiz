@@ -22,6 +22,7 @@ import '../assistant/assistant_screen.dart';
 import '../assistant/workspace_controller.dart';
 import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
+import '../theme/app_theme.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({
@@ -69,9 +70,11 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  final GlobalKey<ScaffoldState> _mainScaffoldKey = GlobalKey<ScaffoldState>();
   int _currentIndex = 0;
   int _assistantPrefillEpoch = 0;
   String? _assistantPrefillText;
+  Widget? _assistantDrawer;
 
   /// Today-activation signal (SPL-1-U0): incremented whenever bottom
   /// navigation transitions INTO Today. HomePage observes it and refreshes
@@ -105,6 +108,22 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  void _consumeAssistantPrefill(int epoch) {
+    if (!mounted ||
+        epoch != _assistantPrefillEpoch ||
+        _assistantPrefillText == null) {
+      return;
+    }
+    setState(() => _assistantPrefillText = null);
+  }
+
+  void _openAssistantDrawer(Widget drawer) {
+    setState(() => _assistantDrawer = drawer);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mainScaffoldKey.currentState?.openDrawer();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final dependencies = AiDependenciesScope.of(context);
@@ -129,7 +148,9 @@ class _MainScreenState extends State<MainScreen> {
                 epoch: _assistantPrefillEpoch,
                 text: _assistantPrefillText!,
               ),
+        onConsumed: _consumeAssistantPrefill,
         child: AssistantWorkspaceShell(
+          key: ValueKey<int>(_assistantPrefillEpoch),
           facade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
           agentSettingsService: widget.agentSettingsService,
@@ -148,40 +169,49 @@ class _MainScreenState extends State<MainScreen> {
         onOpenFileLibrary: _openFileLibrary,
       ), // Tab 2 — 我的
     ];
-    return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: pages),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: _handleNavigation,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.psychology_outlined),
-            activeIcon: _SelectedNavigationIcon(
-              icon: Icons.psychology_outlined,
-              itemKey: ValueKey<String>('main-nav-selected-home'),
+    final theme = Theme.of(context);
+    final selectedNavigationColor = theme.brightness == Brightness.light
+        ? AppTheme.shirohaCyanForeground
+        : theme.colorScheme.primary;
+    return AssistantGlobalDrawerScope(
+      openDrawer: _openAssistantDrawer,
+      child: Scaffold(
+        key: _mainScaffoldKey,
+        drawer: _assistantDrawer,
+        body: IndexedStack(index: _currentIndex, children: pages),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: _handleNavigation,
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: selectedNavigationColor,
+          unselectedItemColor: theme.colorScheme.onSurfaceVariant,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.psychology_outlined),
+              activeIcon: _SelectedNavigationIcon(
+                icon: Icons.psychology_outlined,
+                itemKey: ValueKey<String>('main-nav-selected-home'),
+              ),
+              label: '今日',
             ),
-            label: '今日',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.auto_awesome_outlined),
-            activeIcon: _SelectedNavigationIcon(
-              icon: Icons.auto_awesome_outlined,
-              itemKey: ValueKey<String>('main-nav-selected-assistant'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_awesome_outlined),
+              activeIcon: _SelectedNavigationIcon(
+                icon: Icons.auto_awesome_outlined,
+                itemKey: ValueKey<String>('main-nav-selected-assistant'),
+              ),
+              label: '助手',
             ),
-            label: '助手',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.school_outlined),
-            activeIcon: _SelectedNavigationIcon(
-              icon: Icons.school_outlined,
-              itemKey: ValueKey<String>('main-nav-selected-profile'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.school_outlined),
+              activeIcon: _SelectedNavigationIcon(
+                icon: Icons.school_outlined,
+                itemKey: ValueKey<String>('main-nav-selected-profile'),
+              ),
+              label: '我的',
             ),
-            label: '我的',
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -206,7 +236,11 @@ class _SelectedNavigationIcon extends StatelessWidget {
             : theme.colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Icon(icon, color: theme.colorScheme.primary),
+      child: Icon(
+        icon,
+        color:
+            isDark ? theme.colorScheme.primary : AppTheme.shirohaCyanForeground,
+      ),
     );
   }
 }

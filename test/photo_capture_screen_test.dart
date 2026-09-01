@@ -112,6 +112,16 @@ void main() {
     expect(find.text('OCR'), findsOneWidget);
     expect(find.text('多模态'), findsOneWidget);
     expect(dispatchCalls, 0);
+    final preview = tester.widget<Image>(
+      find.descendant(
+        of: find.byType(PhotoRecognitionConfirmationScreen),
+        matching: find.byType(Image),
+      ),
+    );
+    final resizedPreview = preview.image as ResizeImage;
+    expect(resizedPreview.width, 1440);
+    expect(resizedPreview.height, 1440);
+    expect(resizedPreview.policy, ResizeImagePolicy.fit);
 
     await tester.tap(
       find.byKey(

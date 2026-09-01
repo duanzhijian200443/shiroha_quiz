@@ -251,6 +251,8 @@ class PhotoRecognitionConfirmationScreen extends StatefulWidget {
 
 class _PhotoRecognitionConfirmationScreenState
     extends State<PhotoRecognitionConfirmationScreen> {
+  static const int _previewMaxDecodeDimension = 1440;
+
   ImportParseMode _selectedMode = ImportParseMode.ocr;
   late final Future<Uint8List> _imageBytes;
   bool _isSubmitting = false;
@@ -299,8 +301,13 @@ class _PhotoRecognitionConfirmationScreenState
                         future: _imageBytes,
                         builder: (context, snapshot) {
                           if (snapshot.hasData) {
-                            return Image.memory(
-                              snapshot.data!,
+                            return Image(
+                              image: ResizeImage(
+                                MemoryImage(snapshot.data!),
+                                width: _previewMaxDecodeDimension,
+                                height: _previewMaxDecodeDimension,
+                                policy: ResizeImagePolicy.fit,
+                              ),
                               fit: BoxFit.contain,
                               gaplessPlayback: true,
                             );

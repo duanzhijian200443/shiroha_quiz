@@ -54,6 +54,7 @@ import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
+import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -229,6 +230,12 @@ void main() {
         .map((item) => item.label)
         .toList();
     expect(navLabels, <String>['今日', '助手', '我的']);
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .selectedItemColor,
+      AppTheme.shirohaCyanForeground,
+    );
 
     await tester.tap(find.text('助手'));
     await tester.pump();
@@ -298,47 +305,134 @@ void main() {
     await drainBackgroundWork(tester);
   });
 
-  testWidgets('Today suggestion prefills Assistant without auto-sending', (
+  testWidgets(
+    'Today handoff selects conversation, consumes prefill, and never auto-sends',
+    (WidgetTester tester) async {
+      await pumpApp(tester, const Size(1024, 1200));
+
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('home-bank-card')),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomNavigationBar),
+          matching: find.text('助手'),
+        ),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomNavigationBar),
+          matching: find.text('今日'),
+        ),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('home-bank-card')),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+
+      expect(
+        tester
+            .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+            .currentIndex,
+        1,
+      );
+      final composer = tester.widget<TextField>(
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+      expect(composer.controller!.text, contains('今天可以开始新题'));
+      expect(
+        find.byKey(const ValueKey<String>('u1-ux0-send')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('a0-agent-cancel')),
+        findsNothing,
+      );
+
+      composer.controller!.clear();
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('u1-ux01-new-conversation')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey<String>('u1-ux0-composer')),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+
+      expect(tester.takeException(), isNull);
+      await drainBackgroundWork(tester);
+    },
+  );
+
+  testWidgets('mobile Assistant drawer is owned by the global Scaffold', (
     WidgetTester tester,
   ) async {
-    await pumpApp(tester, const Size(800, 2000));
-
+    await pumpApp(tester, const Size(360, 720));
     await pumpUntilFound(
       tester,
       find.byKey(const ValueKey<String>('home-bank-card')),
     );
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey<String>('home-ask-assistant')),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
     await tester.tap(
-      find.byKey(const ValueKey<String>('home-ask-assistant')),
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
     );
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
     );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
-    expect(
-      tester
-          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
-          .currentIndex,
-      1,
-    );
-    final composer = tester.widget<TextField>(
-      find.byKey(const ValueKey<String>('u1-ux0-composer')),
-    );
-    expect(composer.controller!.text, contains('今天可以开始新题'));
-    expect(
-      find.byKey(const ValueKey<String>('u1-ux0-send')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('a0-agent-cancel')),
-      findsNothing,
-    );
-
+    final drawerScaffold = find
+        .ancestor(of: find.byType(Drawer), matching: find.byType(Scaffold))
+        .first;
+    final navigationScaffold = find
+        .ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Scaffold),
+        )
+        .first;
+    expect(tester.element(drawerScaffold),
+        same(tester.element(navigationScaffold)));
     expect(tester.takeException(), isNull);
     await drainBackgroundWork(tester);
   });
