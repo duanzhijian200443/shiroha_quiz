@@ -24,6 +24,7 @@ import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/conversation_controller.dart';
 import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart';
+import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 final class _AgentConfigStore implements AgentConfigStorePort {
   String? encoded = const AgentConfigCodec().encode(
@@ -270,14 +271,53 @@ void main() {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('全局对话'), findsOneWidget);
+    expect(find.text('全部资料'), findsOneWidget);
+    expect(find.text('今天想学什么？'), findsOneWidget);
+    expect(find.text('分析我最近的错题'), findsOneWidget);
+    expect(find.text('帮我规划今天的复习'), findsOneWidget);
+    final wrongQuestionStarter = find.byKey(
+      const ValueKey<String>('assistant-starter-wrong-questions'),
+    );
+    final reviewPlanStarter = find.byKey(
+      const ValueKey<String>('assistant-starter-review-plan'),
+    );
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(
+              of: wrongQuestionStarter,
+              matching: find.byIcon(Icons.insights_outlined),
+            ),
+          )
+          .color,
+      AppTheme.shirohaCyan,
+    );
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(
+              of: reviewPlanStarter,
+              matching: find.byIcon(Icons.event_note_outlined),
+            ),
+          )
+          .color,
+      AppTheme.warningAmber,
+    );
 
     // Tap space selector
     await tester
         .tap(find.byKey(const ValueKey<String>('u1-ux0-space-selector')));
     await tester.pumpAndSettle();
 
-    expect(find.text('选择对话范围'), findsOneWidget);
+    expect(find.text('选择资料范围'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-space-search')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('assistant-manage-all-spaces')),
+      findsOneWidget,
+    );
     expect(find.text('Math Project'), findsOneWidget);
 
     // Select Math Project
@@ -336,7 +376,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Persisted header
-    expect(find.text('全局对话'), findsOneWidget);
+    expect(find.text('全部资料'), findsOneWidget);
 
     // Tap space selector
     await tester
@@ -344,8 +384,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('移动对话'), findsOneWidget);
-    expect(find.text('全局对话'), findsWidgets);
+    expect(find.text('全部资料'), findsWidgets);
     expect(find.text('Math Space'), findsOneWidget);
+    expect(find.text('Physics Space'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('assistant-space-search')),
+      'Physics',
+    );
+    await tester.pump();
+    expect(find.text('Math Space'), findsNothing);
     expect(find.text('Physics Space'), findsOneWidget);
   });
 
@@ -519,7 +567,7 @@ void main() {
     expect(find.text('原学习空间已删除'), findsWidgets);
 
     // Select Global
-    await tester.tap(find.widgetWithText(ListTile, '全局对话'));
+    await tester.tap(find.widgetWithText(ListTile, '全部资料'));
     await tester.pumpAndSettle();
 
     expect(find.text('移动对话？'), findsOneWidget);
@@ -529,7 +577,7 @@ void main() {
 
     expect(convRepo.moveCalls, 1);
     expect(convController.currentScope, ConversationScope.global());
-    expect(find.text('已移动到「全局对话」'), findsOneWidget);
+    expect(find.text('已移动到「全部资料」'), findsOneWidget);
   });
 
   testWidgets('active turn blocks move picker with feedback "请先停止当前生成"',
