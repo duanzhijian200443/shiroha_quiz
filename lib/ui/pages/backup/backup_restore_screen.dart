@@ -111,7 +111,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
       builder: (context) => AlertDialog(
         title: const Text('恢复备份？'),
         content: Text(
-          '恢复将替换当前本机 Shiroha 数据。\n\n'
+          '恢复将覆盖当前本机 Shiroha 数据，不会自动合并。\n\n'
           '包版本：${preview.packageVersion}\n'
           '数据版本：${preview.schemaVersion}\n'
           '创建时间：${preview.createdAtUtc.toLocal()}\n'
@@ -217,73 +217,249 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final busy = _state != _BackupUiState.idle &&
         _state != _BackupUiState.readyToConfirm &&
         _state != _BackupUiState.failed &&
         _state != _BackupUiState.success;
     return Scaffold(
-      appBar: AppBar(title: const Text('备份与恢复')),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: AppBar(title: const Text('备份与数据管理')),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: <Widget>[
-            Text(
-              'Shiroha 备份',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            const Text('导出为 .shiroha 文件；恢复会替换当前本机数据，不会上传或合并。'),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: busy ? null : _export,
-              icon: const Icon(Icons.save_alt),
-              label: const Text('导出备份'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: busy || _prepared ? null : _pickRestore,
-              icon: const Icon(Icons.settings_backup_restore),
-              label: const Text('恢复备份'),
-            ),
-            if (_preview != null &&
-                _state == _BackupUiState.readyToConfirm) ...<Widget>[
-              const SizedBox(height: 20),
-              const Divider(),
-              Text('备份信息', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              Text('包版本：${_preview!.packageVersion}'),
-              Text('数据版本：${_preview!.schemaVersion}'),
-              Text('文件数：${_preview!.fileCount}'),
-              Text('大小：${_formatBytes(_preview!.totalSizeBytes)}'),
-              const SizedBox(height: 16),
-              if (!_prepared)
-                FilledButton.icon(
-                  onPressed: _confirmRestore,
-                  icon: const Icon(Icons.verified_outlined),
-                  label: const Text('验证并准备恢复'),
-                )
-              else
-                FilledButton.icon(
-                  onPressed: _commitRestore,
-                  icon: const Icon(Icons.swap_horiz),
-                  label: const Text('开始恢复'),
+        top: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              children: <Widget>[
+                const _BackupSectionTitle('全量备份与迁移'),
+                const SizedBox(height: 8),
+                _BackupSurface(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: colors.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(13),
+                              ),
+                              child: Icon(
+                                Icons.cloud_upload_outlined,
+                                color: colors.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Shiroha 全量备份',
+                                    style: TextStyle(
+                                      color: colors.onSurface,
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '备份全部本地学习数据与设置',
+                                    style: TextStyle(
+                                      color: colors.onSurfaceVariant,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              key: const ValueKey<String>(
+                                'backup-restore-picker',
+                              ),
+                              onPressed:
+                                  busy || _prepared ? null : _pickRestore,
+                              child: const Text('从备份恢复'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          '恢复会覆盖现有本机数据，不会上传或自动合并。',
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          key: const ValueKey<String>('backup-export-button'),
+                          onPressed: busy ? null : _export,
+                          icon: const Icon(Icons.save_alt_outlined),
+                          label: const Text('导出全量备份 (.shiroha)'),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _commitStarted ? null : _cancelStaged,
-                child: const Text('取消'),
-              ),
-            ],
-            if (busy) ...<Widget>[
-              const SizedBox(height: 24),
-              const Center(child: CircularProgressIndicator()),
-            ],
-            if (_message != null) ...<Widget>[
-              const SizedBox(height: 20),
-              Text(_message!, textAlign: TextAlign.center),
-            ],
-          ],
+                if (_preview != null &&
+                    _state == _BackupUiState.readyToConfirm) ...<Widget>[
+                  const SizedBox(height: 24),
+                  const _BackupSectionTitle('恢复预检查'),
+                  const SizedBox(height: 8),
+                  _BackupSurface(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            '备份信息',
+                            style: TextStyle(
+                              color: colors.onSurface,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          _BackupDetailRow(
+                            label: '包版本',
+                            value: '${_preview!.packageVersion}',
+                          ),
+                          _BackupDetailRow(
+                            label: '数据版本',
+                            value: '${_preview!.schemaVersion}',
+                          ),
+                          _BackupDetailRow(
+                            label: '文件数',
+                            value: '${_preview!.fileCount}',
+                          ),
+                          _BackupDetailRow(
+                            label: '大小',
+                            value: _formatBytes(_preview!.totalSizeBytes),
+                          ),
+                          const SizedBox(height: 16),
+                          if (!_prepared)
+                            FilledButton.icon(
+                              onPressed: _confirmRestore,
+                              icon: const Icon(Icons.verified_outlined),
+                              label: const Text('验证并准备恢复'),
+                            )
+                          else
+                            FilledButton.icon(
+                              onPressed: _commitRestore,
+                              icon: const Icon(Icons.swap_horiz),
+                              label: const Text('开始恢复'),
+                            ),
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: _commitStarted ? null : _cancelStaged,
+                            child: const Text('取消'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                if (busy) ...<Widget>[
+                  const SizedBox(height: 24),
+                  const Center(child: CircularProgressIndicator()),
+                ],
+                if (_message != null) ...<Widget>[
+                  const SizedBox(height: 20),
+                  Text(
+                    _message!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _state == _BackupUiState.failed
+                          ? colors.error
+                          : colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _BackupSectionTitle extends StatelessWidget {
+  const _BackupSectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _BackupSurface extends StatelessWidget {
+  const _BackupSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: theme.brightness == Brightness.dark
+            ? const []
+            : [
+                BoxShadow(
+                  color: const Color(0xFF375078).withValues(alpha: 0.06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _BackupDetailRow extends StatelessWidget {
+  const _BackupDetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Text('$label：', style: TextStyle(color: colors.onSurfaceVariant)),
+          const Spacer(),
+          Text(value, style: TextStyle(color: colors.onSurface)),
+        ],
       ),
     );
   }
