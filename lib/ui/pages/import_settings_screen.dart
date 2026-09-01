@@ -25,6 +25,7 @@ class ImportSettingsScreen extends StatefulWidget {
     this.pickImage,
     this.taskDispatcher,
     this.requestParser,
+    this.showImageSourceActions = true,
     this.retainObjectiveExplanations = false,
     this.onRetainObjectiveExplanationsChanged,
   }) : super(key: key);
@@ -33,6 +34,7 @@ class ImportSettingsScreen extends StatefulWidget {
   final ImportImagePicker? pickImage;
   final ImportTaskDispatcher? taskDispatcher;
   final ImportRequestParser? requestParser;
+  final bool showImageSourceActions;
   final bool retainObjectiveExplanations;
   final ValueChanged<bool>? onRetainObjectiveExplanationsChanged;
 
@@ -444,54 +446,56 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                 ),
               ),
             const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                    child: ElevatedButton.icon(
-                        key: const ValueKey<String>('import-camera-button'),
-                        style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: theme.primaryColor,
-                            foregroundColor: Colors.white,
-                            disabledBackgroundColor:
-                                theme.colorScheme.surfaceContainerHighest,
-                            disabledForegroundColor:
-                                theme.colorScheme.onSurfaceVariant,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            elevation: 0),
-                        icon: const Icon(Icons.camera_alt_rounded),
-                        label: const Text('拍照识别',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                        onPressed: imageEntriesEnabled
-                            ? () => _pickImage(ImageSource.camera)
-                            : null)),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: ElevatedButton.icon(
-                        key: const ValueKey<String>('import-gallery-button'),
-                        style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: theme.primaryColor,
-                            foregroundColor: Colors.white,
-                            disabledBackgroundColor:
-                                theme.colorScheme.surfaceContainerHighest,
-                            disabledForegroundColor:
-                                theme.colorScheme.onSurfaceVariant,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            elevation: 0),
-                        icon: const Icon(Icons.photo_library_rounded),
-                        label: const Text('相册选图',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                        onPressed: imageEntriesEnabled
-                            ? () => _pickImage(ImageSource.gallery)
-                            : null)),
-              ],
-            ),
-            const SizedBox(height: 12),
+            if (widget.showImageSourceActions) ...[
+              Row(
+                children: [
+                  Expanded(
+                      child: ElevatedButton.icon(
+                          key: const ValueKey<String>('import-camera-button'),
+                          style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: theme.primaryColor,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                                  theme.colorScheme.surfaceContainerHighest,
+                              disabledForegroundColor:
+                                  theme.colorScheme.onSurfaceVariant,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              elevation: 0),
+                          icon: const Icon(Icons.camera_alt_rounded),
+                          label: const Text('拍照识别',
+                              style: TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.bold)),
+                          onPressed: imageEntriesEnabled
+                              ? () => _pickImage(ImageSource.camera)
+                              : null)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                      child: ElevatedButton.icon(
+                          key: const ValueKey<String>('import-gallery-button'),
+                          style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: theme.primaryColor,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                                  theme.colorScheme.surfaceContainerHighest,
+                              disabledForegroundColor:
+                                  theme.colorScheme.onSurfaceVariant,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              elevation: 0),
+                          icon: const Icon(Icons.photo_library_rounded),
+                          label: const Text('相册选图',
+                              style: TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.bold)),
+                          onPressed: imageEntriesEnabled
+                              ? () => _pickImage(ImageSource.gallery)
+                              : null)),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
             OutlinedButton.icon(
               key: const ValueKey<String>('import-file-button'),
               style: OutlinedButton.styleFrom(

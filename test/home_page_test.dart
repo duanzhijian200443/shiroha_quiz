@@ -237,6 +237,7 @@ void main() {
     VoidCallback? onSwitchBank,
     VoidCallback? onPracticeRequested,
     VoidCallback? onImportRequested,
+    VoidCallback? onPhotoImportRequested,
     StudyPlanSelectionService? studyPlanSelectionService,
     StudyPlanCommandService? studyPlanCommandService,
     StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher,
@@ -261,6 +262,7 @@ void main() {
             onSwitchBank: onSwitchBank,
             onPracticeRequested: onPracticeRequested,
             onImportRequested: onImportRequested,
+            onPhotoImportRequested: onPhotoImportRequested,
             studyPlanSelectionService: studyPlanSelectionService,
             studyPlanCommandService: studyPlanCommandService,
             studyPlanSessionLauncher: studyPlanSessionLauncher,
@@ -294,23 +296,27 @@ void main() {
     await pumpHome(tester, textScale: 1.3);
 
     expect(find.byKey(const ValueKey('home-brand-title')), findsOneWidget);
-    expect(find.byIcon(Icons.swap_vert_rounded), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('home-parse-action')),
+      findsOneWidget,
+    );
+    expect(find.text('解析'), findsOneWidget);
     expect(find.byIcon(Icons.settings_outlined), findsNothing);
     expect(find.text('请选择题库'), findsOneWidget);
     expect(find.text('今日训练'), findsOneWidget);
     expect(find.text('开始今日训练'), findsOneWidget);
-    expect(find.text('新题挑战'), findsOneWidget);
-    expect(find.text('0 道新题'), findsOneWidget);
-    expect(find.text('复习巩固'), findsOneWidget);
+    expect(find.text('新题'), findsOneWidget);
+    expect(find.text('0 道待学习'), findsOneWidget);
+    expect(find.text('今日复习'), findsOneWidget);
     expect(find.text('0 道待复习'), findsOneWidget);
-    expect(find.text('暂无待复习题目'), findsOneWidget);
+    expect(find.text('Shiroha 学习建议'), findsOneWidget);
+    expect(find.text('今天可以开始新题'), findsOneWidget);
     expect(
-      find.text('完成新题或产生错题后，将自动生成复习任务'),
+      find.text('完成新题或产生错题后，这里会根据本地学习记录更新建议。'),
       findsOneWidget,
     );
 
     expect(find.text('今日新学'), findsNothing);
-    expect(find.text('今日复习'), findsNothing);
     expect(find.textContaining('个知识点'), findsNothing);
     expect(find.textContaining('个待复习'), findsNothing);
     expect(find.text('暂无复习数据'), findsNothing);
@@ -359,10 +365,11 @@ void main() {
     );
 
     expect(find.text(bankName), findsOneWidget);
-    expect(find.text('1 道新题'), findsOneWidget);
+    expect(find.text('1 道待学习'), findsOneWidget);
     expect(find.text('1 道待复习'), findsOneWidget);
     expect(find.text('已掌握 0 / 2'), findsOneWidget);
-    expect(find.text('暂无待复习题目'), findsNothing);
+    expect(find.text('先完成今日复习'), findsOneWidget);
+    expect(find.text('今天可以开始新题'), findsNothing);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byKey(const ValueKey('home-switch-bank')));
@@ -432,7 +439,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('today-mode-ordinary')));
     await tester.pump();
     expect(find.text(bankName), findsOneWidget);
-    expect(find.text('1 道新题'), findsOneWidget);
+    expect(find.text('1 道待学习'), findsOneWidget);
     expect(find.text('开始今日训练'), findsOneWidget);
 
     // 考试: the existing Mock/Exam capability is reachable from Today.
@@ -1185,22 +1192,27 @@ void main() {
 
     group('UX-IMPORT global manual import entry', () {
       testWidgets(
-          'Today AppBar has + import action with correct tooltip and key',
+          'Today AppBar has parse and + import actions with frozen order',
           (tester) async {
         await pumpHome(tester);
 
+        expect(
+          find.byKey(const ValueKey<String>('home-parse-action')),
+          findsOneWidget,
+        );
+        expect(find.text('解析'), findsOneWidget);
         final actionFinder =
             find.byKey(const ValueKey<String>('home-import-action'));
         expect(actionFinder, findsOneWidget);
         expect(find.byIcon(Icons.add_rounded), findsOneWidget);
 
         final iconButton = tester.widget<IconButton>(actionFinder);
-        expect(iconButton.tooltip, '导入题库');
+        expect(iconButton.tooltip, '创建 / 导入');
         expect(tester.takeException(), isNull);
       });
 
       testWidgets(
-          'tapping + import action invokes onImportRequested callback seam',
+          'file option invokes the existing onImportRequested callback seam',
           (tester) async {
         var importCalls = 0;
         await pumpHome(
@@ -1212,23 +1224,76 @@ void main() {
             find.byKey(const ValueKey<String>('home-import-action'));
         await tester.tap(actionFinder);
         await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+
+        expect(find.text('创建 / 导入'), findsOneWidget);
+        expect(find.text('文件导入'), findsOneWidget);
+        expect(find.text('拍照识题'), findsOneWidget);
+        expect(find.textContaining('OCR'), findsNothing);
+        expect(importCalls, 0);
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('create-import-file-option')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
 
         expect(importCalls, 1);
         expect(tester.takeException(), isNull);
       });
 
       testWidgets(
-          'tapping + import action without callback pushes ImportSettingsScreen',
+          'file option without callback pushes the existing import screen',
           (tester) async {
         await pumpHome(tester);
 
         final actionFinder =
             find.byKey(const ValueKey<String>('home-import-action'));
         await tester.tap(actionFinder);
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('create-import-file-option')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
 
         expect(find.byType(ImportSettingsScreen), findsOneWidget);
         expect(find.text('导入题目'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('import-camera-button')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('import-gallery-button')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('photo option invokes the dedicated capture callback seam',
+          (tester) async {
+        var photoCalls = 0;
+        await pumpHome(
+          tester,
+          onPhotoImportRequested: () => photoCalls++,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('home-import-action')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(photoCalls, 0);
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('create-import-photo-option')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+
+        expect(photoCalls, 1);
         expect(tester.takeException(), isNull);
       });
 

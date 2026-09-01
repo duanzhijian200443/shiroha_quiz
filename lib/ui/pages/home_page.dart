@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
+import 'photo_capture_screen.dart';
 import 'mock_center_screen.dart';
 import 'plan_config_screen.dart';
 import 'practice_page.dart';
@@ -28,6 +29,8 @@ enum _TodayMode { ordinary, focused, exam }
 /// Focused plan-surface status derived from the typed focused state.
 enum _FocusedPlanStatus { ready, noCandidates, unavailable }
 
+enum _CreateImportAction { file, photo }
+
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
@@ -35,6 +38,7 @@ class HomePage extends StatefulWidget {
     this.onSwitchBank,
     this.onPracticeRequested,
     this.onImportRequested,
+    this.onPhotoImportRequested,
     this.questionListQuery,
     this.questionMutationPersistence,
     this.typedAnswerPersistence,
@@ -51,6 +55,7 @@ class HomePage extends StatefulWidget {
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
+  final VoidCallback? onPhotoImportRequested;
   final QuestionListQueryPort? questionListQuery;
   final QuestionMutationPersistencePort? questionMutationPersistence;
   final TypedAnswerPersistencePort? typedAnswerPersistence;
@@ -162,7 +167,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _openImport() {
+  Future<void> _openImport() async {
+    final action = await showModalBottomSheet<_CreateImportAction>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => const _CreateImportSheet(),
+    );
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case _CreateImportAction.file:
+        _openFileImport();
+        return;
+      case _CreateImportAction.photo:
+        await _openPhotoImport();
+        return;
+    }
+  }
+
+  void _openFileImport() {
     if (widget.onImportRequested != null) {
       widget.onImportRequested!();
       return;
@@ -170,22 +194,39 @@ class _HomePageState extends State<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const ImportSettingsScreen(),
+        builder: (_) =>
+            const ImportSettingsScreen(showImageSourceActions: false),
       ),
     ).then((_) {
       if (mounted) _loadContext();
     });
   }
 
+  Future<void> _openPhotoImport() async {
+    if (widget.onPhotoImportRequested != null) {
+      widget.onPhotoImportRequested!();
+      return;
+    }
+
+    final dispatched = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute<bool>(builder: (_) => const PhotoCaptureScreen()),
+    );
+    if (!mounted || dispatched != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('识别任务已开始，可在解析任务中查看进度。')),
+    );
+    await _loadContext();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final bgColor =
-        isDark ? theme.scaffoldBackgroundColor : const Color(0xFFF4F6FC);
-    final cardColor = theme.cardTheme.color ?? theme.colorScheme.surface;
-    final textColor = isDark ? Colors.white : const Color(0xFF18213A);
-    final subTextColor = isDark ? Colors.white60 : const Color(0xFF78839A);
+    final colors = theme.colorScheme;
+    final bgColor = theme.scaffoldBackgroundColor;
+    final cardColor = colors.surface;
+    final textColor = colors.onSurface;
+    final subTextColor = colors.onSurfaceVariant;
     final primaryColor = theme.colorScheme.primary;
     final taskManager = widget.taskManager ?? TaskManager.instance;
 
@@ -212,64 +253,68 @@ class _HomePageState extends State<HomePage> {
             letterSpacing: 0.2,
           ),
         ),
-        centerTitle: true,
+        centerTitle: false,
+        titleSpacing: 20,
         elevation: 0,
         backgroundColor: bgColor,
         surfaceTintColor: Colors.transparent,
-        leading: AnimatedBuilder(
-          animation: taskManager,
-          builder: (context, child) {
-            final count = taskManager.processingCount;
-            return IconButton(
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(Icons.swap_vert_rounded, color: textColor, size: 28),
-                  if (count > 0)
-                    Positioned(
-                      right: -2,
-                      top: -2,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Colors.redAccent,
-                          shape: BoxShape.circle,
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 16,
-                          minHeight: 16,
-                        ),
-                        child: Text(
-                          '$count',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+        actions: [
+          AnimatedBuilder(
+            animation: taskManager,
+            builder: (context, child) {
+              final count = taskManager.processingCount;
+              return TextButton.icon(
+                key: const ValueKey<String>('home-parse-action'),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TaskCenterScreen(
+                        onOpenBank: _openBankDetail,
+                        folderQuery: widget.folderQuery,
+                        commitService: widget.importCommitService,
+                      ),
+                    ),
+                  );
+                },
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Icons.task_outlined, size: 21),
+                    if (count > 0)
+                      Positioned(
+                        right: -7,
+                        top: -7,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: colors.error,
+                            shape: BoxShape.circle,
                           ),
-                          textAlign: TextAlign.center,
+                          constraints: const BoxConstraints(
+                            minWidth: 15,
+                            minHeight: 15,
+                          ),
+                          child: Text(
+                            '$count',
+                            style: TextStyle(
+                              color: colors.onError,
+                              fontSize: 8,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
-                    )
-                ],
-              ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TaskCenterScreen(
-                      folderQuery: widget.folderQuery,
-                      commitService: widget.importCommitService,
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        actions: [
+                  ],
+                ),
+                label: const Text('解析'),
+              );
+            },
+          ),
           IconButton(
             key: const ValueKey<String>('home-import-action'),
-            tooltip: '导入题库',
+            tooltip: '创建 / 导入',
             icon: Icon(Icons.add_rounded, color: textColor, size: 28),
             onPressed: _openImport,
           ),
@@ -397,7 +442,6 @@ class _HomePageState extends State<HomePage> {
             child: _buildReviewState(
               textColor,
               subTextColor,
-              primaryColor,
             ),
           ),
         ),
@@ -917,16 +961,16 @@ class _HomePageState extends State<HomePage> {
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: primaryColor.withValues(alpha: 0.08),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withValues(alpha: 0.08),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        boxShadow: Theme.of(context).brightness == Brightness.dark
+            ? const []
+            : [
+                BoxShadow(
+                  color: const Color(0xFF375078).withValues(alpha: 0.06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1068,16 +1112,16 @@ class _HomePageState extends State<HomePage> {
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: primaryColor.withValues(alpha: 0.07),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withValues(alpha: 0.07),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        boxShadow: Theme.of(context).brightness == Brightness.dark
+            ? const []
+            : [
+                BoxShadow(
+                  color: const Color(0xFF375078).withValues(alpha: 0.06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1150,11 +1194,13 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: _buildTaskEntry(
                     key: const ValueKey<String>('home-new-task'),
-                    title: '新题挑战',
-                    countText: '$_newCount 道新题',
+                    title: '新题',
+                    countText: '$_newCount 道待学习',
                     icon: Icons.auto_stories_rounded,
-                    accentColor: const Color(0xFF4CAFC8),
-                    accentBackground: const Color(0xFFE8F8FC),
+                    accentColor: Theme.of(context).colorScheme.primary,
+                    accentBackground: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.1),
                     textColor: textColor,
                     subTextColor: subTextColor,
                     onTap: _handlePracticeRequest,
@@ -1168,11 +1214,13 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: _buildTaskEntry(
                     key: const ValueKey<String>('home-review-task'),
-                    title: '复习巩固',
+                    title: '今日复习',
                     countText: '$_reviewCount 道待复习',
                     icon: Icons.fact_check_outlined,
-                    accentColor: const Color(0xFFE99042),
-                    accentBackground: const Color(0xFFFFF1E5),
+                    accentColor: Theme.of(context).colorScheme.tertiary,
+                    accentBackground: Theme.of(
+                      context,
+                    ).colorScheme.tertiary.withValues(alpha: 0.1),
                     textColor: textColor,
                     subTextColor: subTextColor,
                     onTap: _handlePracticeRequest,
@@ -1262,88 +1310,55 @@ class _HomePageState extends State<HomePage> {
   Widget _buildReviewState(
     Color textColor,
     Color subTextColor,
-    Color primaryColor,
   ) {
-    if (_reviewCount > 0) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.auto_awesome_rounded,
-              size: 62,
-              color: primaryColor.withValues(alpha: 0.48),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              '继续保持学习！',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '今日有 $_reviewCount 道题等待复习',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: subTextColor, fontSize: 13),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Center(
+    final colors = Theme.of(context).colorScheme;
+    final hasReview = _reviewCount > 0;
+    return Container(
+      key: const ValueKey<String>('home-learning-suggestion'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.outlineVariant),
+      ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 100,
-            height: 84,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Icon(
-                  Icons.menu_book_rounded,
-                  size: 68,
-                  color: primaryColor.withValues(alpha: 0.28),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: colors.secondary,
+                  shape: BoxShape.circle,
                 ),
-                Positioned(
-                  right: 7,
-                  top: 5,
-                  child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: primaryColor.withValues(alpha: 0.26),
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.schedule_rounded,
-                      size: 24,
-                      color: primaryColor.withValues(alpha: 0.62),
-                    ),
-                  ),
+              ),
+              const SizedBox(width: 9),
+              Text(
+                'Shiroha 学习建议',
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Text(
-            '暂无待复习题目',
+            hasReview ? '先完成今日复习' : '今天可以开始新题',
             style: TextStyle(
               color: textColor,
-              fontSize: 17,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: 6),
           Text(
-            '完成新题或产生错题后，将自动生成复习任务',
-            textAlign: TextAlign.center,
+            hasReview
+                ? '今日有 $_reviewCount 道题等待复习，建议完成后再继续新题。'
+                : '完成新题或产生错题后，这里会根据本地学习记录更新建议。',
             style: TextStyle(
               color: subTextColor,
               fontSize: 13,
@@ -1383,6 +1398,22 @@ class _HomePageState extends State<HomePage> {
     _gotoPractice();
   }
 
+  void _openBankDetail(String bankName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BankDetailScreen(
+          bankName: bankName,
+          questionListQuery: widget.questionListQuery,
+          questionMutationPersistence: widget.questionMutationPersistence,
+          typedAnswerPersistence: widget.typedAnswerPersistence,
+          questionBankMutationPersistence:
+              widget.questionBankMutationPersistence,
+        ),
+      ),
+    ).then((_) => _loadContext());
+  }
+
   Color themeSafeLerp(Color from, Color to, double amount) {
     return Color.lerp(from, to, amount) ?? from;
   }
@@ -1405,5 +1436,127 @@ class _HomePageState extends State<HomePage> {
                     widget.questionBankMutationPersistence,
               )),
     ).then((_) => _loadContext());
+  }
+}
+
+class _CreateImportSheet extends StatelessWidget {
+  const _CreateImportSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '创建 / 导入',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 18),
+          _CreateImportOption(
+            key: const ValueKey<String>('create-import-file-option'),
+            icon: Icons.description_outlined,
+            iconColor: colors.primary,
+            title: '文件导入',
+            subtitle: 'PDF、DOCX、Markdown、TXT 或已有图片',
+            onTap: () => Navigator.pop(context, _CreateImportAction.file),
+          ),
+          const SizedBox(height: 12),
+          _CreateImportOption(
+            key: const ValueKey<String>('create-import-photo-option'),
+            icon: Icons.photo_camera_outlined,
+            iconColor: colors.primary,
+            title: '拍照识题',
+            subtitle: '拍摄照片，或从相册选择',
+            onTap: () => Navigator.pop(context, _CreateImportAction.photo),
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            key: const ValueKey<String>('create-import-cancel'),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CreateImportOption extends StatelessWidget {
+  const _CreateImportOption({
+    super.key,
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Material(
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(icon, color: iconColor),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
