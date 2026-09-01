@@ -39,6 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _totalReviewed = 0;
   int _learningDays = 0;
   bool _isLoading = true;
+  String? _loadErrorMessage;
 
   @override
   void initState() {
@@ -47,6 +48,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadData() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _loadErrorMessage = null;
+      });
+    }
     try {
       final heatmap = await (widget.heatmapLoader?.call() ??
           QuestionRepository.instance.getHeatmapData());
@@ -59,11 +66,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _totalReviewed = total;
         _learningDays = learningDays;
         _isLoading = false;
+        _loadErrorMessage = null;
       });
     } catch (error) {
       debugPrint('Profile data load failed: ${error.runtimeType}');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _loadErrorMessage = '暂时无法读取学习记录';
+        });
       }
     }
   }
@@ -226,102 +237,165 @@ class _ProfileScreenState extends State<ProfileScreen> {
         top: false,
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                children: [
-                  _buildOverviewCard(theme),
-                  const SizedBox(height: 24),
-                  const _SectionTitle('学习记录'),
-                  const SizedBox(height: 8),
-                  _SettingsCard(
+            : _loadErrorMessage != null
+                ? _ProfileLoadError(
+                    message: _loadErrorMessage!,
+                    onRetry: _loadData,
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
                     children: [
-                      _SettingsRow(
-                        key: const ValueKey<String>('profile-wrong-book-row'),
-                        icon: Icons.assignment_late_outlined,
-                        title: '错题记录',
-                        subtitle: '集中查看练习与考试中的错题',
-                        onTap: () => _push(const WrongBookPage()),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  const _SectionTitle('AI 与知识库'),
-                  const SizedBox(height: 8),
-                  _SettingsCard(
-                    children: [
-                      _SettingsRow(
-                        key: const ValueKey<String>('profile-ai-service-row'),
-                        icon: Icons.auto_awesome_outlined,
-                        title: 'AI 服务',
-                        subtitle: '探索 AI 模型与文档 AI 能力管理',
-                        accentColor: theme.colorScheme.secondary,
-                        onTap: () => _push(
-                          AiSettingsScreen(
-                            engineRepository: widget.engineRepository,
-                            agentSettingsService: widget.agentSettingsService,
-                          ),
-                        ),
-                      ),
-                      _SettingsRow(
-                        key: const ValueKey<String>('profile-file-library-row'),
-                        icon: Icons.auto_stories_outlined,
-                        title: '资料库',
-                        subtitle: '管理个人笔记与学习资料（与助手共享）',
-                        onTap: widget.onOpenFileLibrary ??
-                            () => ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('资料库暂不可用')),
-                                ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  const _SectionTitle('设置与数据'),
-                  const SizedBox(height: 8),
-                  ValueListenableBuilder<String>(
-                    valueListenable: globalThemeNotifier,
-                    builder: (context, currentTheme, _) {
-                      final isDarkTheme = currentTheme == 'dark';
-                      return _SettingsCard(
+                      _buildOverviewCard(theme),
+                      const SizedBox(height: 24),
+                      const _SectionTitle('学习记录'),
+                      const SizedBox(height: 8),
+                      _SettingsCard(
                         children: [
-                          if (widget.backupRestore != null)
-                            _SettingsRow(
-                              key: const ValueKey<String>('profile-backup-row'),
-                              icon: Icons.settings_backup_restore,
-                              title: '备份与数据管理',
-                              subtitle: '导出备份、恢复与清理数据',
-                              onTap: () => _push(
-                                BackupRestoreScreen(
-                                  backupRestore: widget.backupRestore!,
-                                  onRestoreCompleted:
-                                      widget.onRestoreCompleted ?? () {},
-                                ),
-                              ),
-                            ),
                           _SettingsRow(
                             key: const ValueKey<String>(
-                              'profile-appearance-row',
-                            ),
-                            icon: Icons.palette_outlined,
-                            title: '外观设置',
-                            subtitle: isDarkTheme ? '深色模式' : '浅色模式',
-                            trailing: Switch(
-                              key: const ValueKey<String>(
-                                'profile-appearance-switch',
-                              ),
-                              value: isDarkTheme,
-                              activeTrackColor: theme.colorScheme.primary,
-                              onChanged: (value) =>
-                                  _setTheme(value ? 'dark' : 'light'),
-                            ),
-                            onTap: () =>
-                                _setTheme(isDarkTheme ? 'light' : 'dark'),
+                                'profile-wrong-book-row'),
+                            icon: Icons.assignment_late_outlined,
+                            title: '错题记录',
+                            subtitle: '集中查看练习与考试中的错题',
+                            onTap: () => _push(const WrongBookPage()),
                           ),
                         ],
-                      );
-                    },
+                      ),
+                      const SizedBox(height: 24),
+                      const _SectionTitle('AI 与知识库'),
+                      const SizedBox(height: 8),
+                      _SettingsCard(
+                        children: [
+                          _SettingsRow(
+                            key: const ValueKey<String>(
+                                'profile-ai-service-row'),
+                            icon: Icons.auto_awesome_outlined,
+                            title: 'AI 服务',
+                            subtitle: '探索 AI 模型与文档 AI 能力管理',
+                            accentColor: theme.colorScheme.secondary,
+                            onTap: () => _push(
+                              AiSettingsScreen(
+                                engineRepository: widget.engineRepository,
+                                agentSettingsService:
+                                    widget.agentSettingsService,
+                              ),
+                            ),
+                          ),
+                          _SettingsRow(
+                            key: const ValueKey<String>(
+                                'profile-file-library-row'),
+                            icon: Icons.auto_stories_outlined,
+                            title: '资料库',
+                            subtitle: '管理个人笔记与学习资料（与助手共享）',
+                            onTap: widget.onOpenFileLibrary ??
+                                () =>
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('资料库暂不可用')),
+                                    ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      const _SectionTitle('设置与数据'),
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<String>(
+                        valueListenable: globalThemeNotifier,
+                        builder: (context, currentTheme, _) {
+                          final isDarkTheme = currentTheme == 'dark';
+                          return _SettingsCard(
+                            children: [
+                              if (widget.backupRestore != null)
+                                _SettingsRow(
+                                  key: const ValueKey<String>(
+                                      'profile-backup-row'),
+                                  icon: Icons.settings_backup_restore,
+                                  title: '备份与数据管理',
+                                  subtitle: '导出备份、恢复与清理数据',
+                                  onTap: () => _push(
+                                    BackupRestoreScreen(
+                                      backupRestore: widget.backupRestore!,
+                                      onRestoreCompleted:
+                                          widget.onRestoreCompleted ?? () {},
+                                    ),
+                                  ),
+                                ),
+                              _SettingsRow(
+                                key: const ValueKey<String>(
+                                  'profile-appearance-row',
+                                ),
+                                icon: Icons.palette_outlined,
+                                title: '外观设置',
+                                subtitle: isDarkTheme ? '深色模式' : '浅色模式',
+                                trailing: Switch(
+                                  key: const ValueKey<String>(
+                                    'profile-appearance-switch',
+                                  ),
+                                  value: isDarkTheme,
+                                  activeTrackColor: theme.colorScheme.primary,
+                                  onChanged: (value) =>
+                                      _setTheme(value ? 'dark' : 'light'),
+                                ),
+                                onTap: () =>
+                                    _setTheme(isDarkTheme ? 'light' : 'dark'),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                   ),
-                ],
+      ),
+    );
+  }
+}
+
+class _ProfileLoadError extends StatelessWidget {
+  const _ProfileLoadError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 52,
+              color: colors.onSurfaceVariant,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              message,
+              key: const ValueKey<String>('profile-load-error'),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '请稍后重试，现有学习数据不会改变。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              key: const ValueKey<String>('profile-load-retry'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
       ),
     );
   }

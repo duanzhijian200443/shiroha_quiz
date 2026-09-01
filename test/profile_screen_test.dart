@@ -30,6 +30,7 @@ void main() {
     TextScaler textScaler = TextScaler.noScaling,
     ThemeData? theme,
     Map<DateTime, int> heatmap = const {},
+    ProfileHeatmapLoader? heatmapLoader,
     VoidCallback? onOpenFileLibrary,
   }) async {
     tester.view.physicalSize = size;
@@ -50,7 +51,7 @@ void main() {
             configStore: _ProfileAgentConfigStore(),
             profileCatalog: _ProfileAgentCatalog(),
           ),
-          heatmapLoader: () async => heatmap,
+          heatmapLoader: heatmapLoader ?? () async => heatmap,
           onOpenFileLibrary: onOpenFileLibrary,
         ),
       ),
@@ -134,6 +135,32 @@ void main() {
     );
 
     expect(find.text('累计完成 5 题 · 学习 2 天'), findsOneWidget);
+  });
+
+  testWidgets('load failure shows a safe retry state instead of false zeros', (
+    tester,
+  ) async {
+    var shouldFail = true;
+    await pumpProfile(
+      tester,
+      heatmapLoader: () async {
+        if (shouldFail) throw StateError('PRIVATE_PROFILE_FAILURE');
+        return <DateTime, int>{DateTime(2026, 8, 31): 3};
+      },
+    );
+
+    expect(find.text('暂时无法读取学习记录'), findsOneWidget);
+    expect(find.textContaining('PRIVATE_PROFILE_FAILURE'), findsNothing);
+    expect(find.textContaining('累计完成 0 题'), findsNothing);
+
+    shouldFail = false;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('profile-load-retry')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('累计完成 3 题 · 学习 1 天'), findsOneWidget);
+    expect(find.text('暂时无法读取学习记录'), findsNothing);
   });
 
   testWidgets('opens the shared File Library shortcut authority', (
