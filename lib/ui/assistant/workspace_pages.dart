@@ -226,10 +226,21 @@ class _FileFilters extends StatelessWidget {
   }
 }
 
-class _FileLibraryContent extends StatelessWidget {
+enum _FileLibraryLayout { list, grid }
+
+class _FileLibraryContent extends StatefulWidget {
   const _FileLibraryContent({required this.controller});
 
   final FileLibraryController controller;
+
+  @override
+  State<_FileLibraryContent> createState() => _FileLibraryContentState();
+}
+
+class _FileLibraryContentState extends State<_FileLibraryContent> {
+  _FileLibraryLayout _layout = _FileLibraryLayout.list;
+
+  FileLibraryController get controller => widget.controller;
 
   @override
   Widget build(BuildContext context) {
@@ -240,13 +251,46 @@ class _FileLibraryContent extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-          child: TextField(
-            key: const ValueKey<String>('u1-ux01-file-search'),
-            onChanged: controller.setQuery,
-            decoration: const InputDecoration(
-              hintText: '搜索文件、文件夹…',
-              prefixIcon: Icon(Icons.search_rounded),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const ValueKey<String>('u1-ux01-file-search'),
+                  onChanged: controller.setQuery,
+                  decoration: const InputDecoration(
+                    hintText: '搜索文件、文件夹…',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SegmentedButton<_FileLibraryLayout>(
+                key: const ValueKey<String>('u1-file-layout-selector'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment<_FileLibraryLayout>(
+                    value: _FileLibraryLayout.list,
+                    tooltip: '列表视图',
+                    icon: Icon(
+                      Icons.view_list_rounded,
+                      key: ValueKey<String>('u1-file-layout-list'),
+                    ),
+                  ),
+                  ButtonSegment<_FileLibraryLayout>(
+                    value: _FileLibraryLayout.grid,
+                    tooltip: '网格视图',
+                    icon: Icon(
+                      Icons.grid_view_rounded,
+                      key: ValueKey<String>('u1-file-layout-grid'),
+                    ),
+                  ),
+                ],
+                selected: {_layout},
+                onSelectionChanged: (selection) {
+                  setState(() => _layout = selection.single);
+                },
+              ),
+            ],
           ),
         ),
         if (controller.errorMessage case final error?)
@@ -260,55 +304,143 @@ class _FileLibraryContent extends StatelessWidget {
           ),
         Expanded(
           child: controller.visibleFiles.isEmpty
-              ? const Center(child: Text('这里还没有文件'))
-              : ListView.builder(
-                  key: const ValueKey<String>('u1-ux01-file-list'),
-                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
-                  itemCount: controller.visibleFiles.length,
-                  itemBuilder: (context, index) {
-                    final file = controller.visibleFiles[index];
-                    return Card(
-                      child: ListTile(
-                        key: ValueKey<String>('u1-ux01-file-${file.fileId}'),
-                        leading: Icon(_fileIcon(file.mimeType)),
-                        title: Text(file.displayName),
-                        subtitle: Text(
-                          '${_fileTypeLabel(file.mimeType)} · ${_size(file.sizeBytes)} · ${_date(file.createdAt)}',
-                        ),
-                        trailing: IconButton(
-                          key: ValueKey<String>(
-                            'f0-1-move-file-${file.fileId}',
-                          ),
-                          tooltip: '移动到文件夹',
-                          onPressed: () => _moveFile(
-                            context,
-                            controller,
-                            file.fileId,
-                          ),
-                          icon: const Icon(Icons.drive_file_move_outlined),
-                        ),
-                        onTap: () async {
-                          await controller.select(file.fileId);
-                          if (!context.mounted ||
-                              (controller.selectedDetail == null &&
-                                  controller.errorMessage == null)) {
-                            return;
-                          }
-                          await Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => _FileDetailScreen(
-                                controller: controller,
-                                fileId: file.fileId,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
+              ? Center(child: Text(_emptyMessage()))
+              : _layout == _FileLibraryLayout.list
+                  ? _buildList(context)
+                  : _buildGrid(context),
         ),
       ],
+    );
+  }
+
+  Widget _buildList(BuildContext context) {
+    return ListView.builder(
+      key: const ValueKey<String>('u1-ux01-file-list'),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
+      itemCount: controller.visibleFiles.length,
+      itemBuilder: (context, index) {
+        final file = controller.visibleFiles[index];
+        return Card(
+          child: ListTile(
+            key: ValueKey<String>('u1-ux01-file-${file.fileId}'),
+            leading: Icon(_fileIcon(file.mimeType)),
+            title: Text(file.displayName),
+            subtitle: Text(_fileMetadata(file)),
+            trailing: IconButton(
+              key: ValueKey<String>('f0-1-move-file-${file.fileId}'),
+              tooltip: '移动到文件夹',
+              onPressed: () => _moveFile(context, controller, file.fileId),
+              icon: const Icon(Icons.drive_file_move_outlined),
+            ),
+            onTap: () => _openFile(context, file.fileId),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGrid(BuildContext context) {
+    return GridView.builder(
+      key: const ValueKey<String>('u1-ux01-file-grid'),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisExtent: 178,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: controller.visibleFiles.length,
+      itemBuilder: (context, index) {
+        final file = controller.visibleFiles[index];
+        return Card(
+          key: ValueKey<String>('u1-ux01-file-${file.fileId}'),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _openFile(context, file.fileId),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: Icon(
+                          _fileIcon(file.mimeType),
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        key: ValueKey<String>(
+                          'f0-1-move-file-${file.fileId}',
+                        ),
+                        tooltip: '移动到文件夹',
+                        onPressed: () =>
+                            _moveFile(context, controller, file.fileId),
+                        icon: const Icon(Icons.more_horiz_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    file.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _fileMetadata(file),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _fileMetadata(LibraryFileSummary file) =>
+      '${_fileTypeLabel(file.mimeType)} · ${_size(file.sizeBytes)} · ${_date(file.createdAt)}';
+
+  String _emptyMessage() {
+    if (controller.query.trim().isNotEmpty) return '没有匹配的文件';
+    if (controller.selectedFolderId != null) return '这个文件夹还没有文件';
+    return switch (controller.view) {
+      FileLibraryView.all => '资料库还没有文件',
+      FileLibraryView.recent => '最近还没有添加文件',
+      FileLibraryView.unclassified => '没有未分类文件',
+    };
+  }
+
+  Future<void> _openFile(BuildContext context, String fileId) async {
+    await controller.select(fileId);
+    if (!context.mounted ||
+        (controller.selectedDetail == null &&
+            controller.errorMessage == null)) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _FileDetailScreen(controller: controller, fileId: fileId),
+      ),
     );
   }
 }

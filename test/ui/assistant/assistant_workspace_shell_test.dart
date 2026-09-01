@@ -942,6 +942,21 @@ void main() {
     expect(find.textContaining('Markdown · 1.0 KB'), findsOneWidget);
     expect(find.textContaining('text/markdown'), findsNothing);
     expect(find.text('论文'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-file-list')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-file-layout-grid')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-file-grid')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Markdown · 1.0 KB'), findsOneWidget);
+    expect(find.textContaining('text/markdown'), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('u1-ux01-file-file-notes')),
@@ -1214,6 +1229,7 @@ void main() {
       find.byKey(const ValueKey<String>('f0-1-folder-folder-papers')),
       findsNothing,
     );
+    expect(find.text('没有匹配的文件'), findsOneWidget);
     await tester.enterText(
       find.byKey(const ValueKey<String>('u1-ux01-file-search')),
       '',
