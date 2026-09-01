@@ -122,6 +122,41 @@ void main() {
     expect(find.text('文档 OCR 解析引擎'), findsNothing);
   });
 
+  testWidgets('AI service load failure stays explicit and can retry safely', (
+    tester,
+  ) async {
+    final store = _ProfileAiEngineStore()..failActiveReads = true;
+    engineRepository = AiEngineRepository(
+      store: store,
+      credentialStore: MemoryEngineCredentialStore(),
+    );
+    await pumpProfile(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂时无法读取 AI 服务状态'), findsOneWidget);
+    expect(find.textContaining('PRIVATE_AI_FAILURE'), findsNothing);
+    expect(find.text('点击配置'), findsNothing);
+    expect(find.text('Shiroha Agent 设置'), findsOneWidget);
+
+    store.failActiveReads = false;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('ai-service-summary-retry')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂时无法读取 AI 服务状态'), findsNothing);
+    expect(find.text('DeepSeek'), findsOneWidget);
+    expect(find.text('智谱视觉'), findsOneWidget);
+    expect(find.text('智谱 OCR'), findsOneWidget);
+  });
+
   testWidgets('shows total learning days from real heatmap activity', (
     tester,
   ) async {
@@ -260,6 +295,8 @@ final class _ProfileAgentCatalog implements AgentProfileCatalogPort {
 }
 
 class _ProfileAiEngineStore implements AiEngineStore {
+  bool failActiveReads = false;
+
   static const Map<AiEngineType, AiEngineProfile> _profiles = {
     AiEngineType.text: AiEngineProfile(
       id: 'text',
@@ -300,8 +337,10 @@ class _ProfileAiEngineStore implements AiEngineStore {
   Future<void> deleteAiEngine(String id) async {}
 
   @override
-  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async =>
-      _profiles[type];
+  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
+    if (failActiveReads) throw StateError('PRIVATE_AI_FAILURE');
+    return _profiles[type];
+  }
 
   @override
   Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async =>

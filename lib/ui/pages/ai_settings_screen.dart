@@ -23,6 +23,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   String _textEngineName = '未配置';
   String _visionEngineName = '未配置';
   String _ocrEngineName = '未配置';
+  bool _isSummaryLoading = true;
+  String? _summaryLoadError;
 
   @override
   void initState() {
@@ -31,15 +33,35 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _loadActiveSummary() async {
-    final textEngine = await widget.engineRepository.getActiveTextEngine();
-    final visionEngine = await widget.engineRepository.getActiveVisionEngine();
-    final ocrEngine = await widget.engineRepository.getActiveOcrEngine();
-    if (!mounted) return;
+    try {
+      final textEngine = await widget.engineRepository.getActiveTextEngine();
+      final visionEngine =
+          await widget.engineRepository.getActiveVisionEngine();
+      final ocrEngine = await widget.engineRepository.getActiveOcrEngine();
+      if (!mounted) return;
+      setState(() {
+        _textEngineName = textEngine?.name ?? '点击配置';
+        _visionEngineName = visionEngine?.name ?? '点击配置';
+        _ocrEngineName = ocrEngine?.name ?? '点击配置';
+        _isSummaryLoading = false;
+        _summaryLoadError = null;
+      });
+    } catch (error) {
+      debugPrint('AI service summary load failed: ${error.runtimeType}');
+      if (!mounted) return;
+      setState(() {
+        _isSummaryLoading = false;
+        _summaryLoadError = '暂时无法读取 AI 服务状态';
+      });
+    }
+  }
+
+  void _retryActiveSummary() {
     setState(() {
-      _textEngineName = textEngine?.name ?? '点击配置';
-      _visionEngineName = visionEngine?.name ?? '点击配置';
-      _ocrEngineName = ocrEngine?.name ?? '点击配置';
+      _isSummaryLoading = true;
+      _summaryLoadError = null;
     });
+    _loadActiveSummary();
   }
 
   void _openEngine(String engineType) {
@@ -125,29 +147,70 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
           children: [
             const _AiSectionLabel('能力配置'),
             const SizedBox(height: 8),
-            _buildCard([
-              _AiServiceRow(
-                icon: Icons.text_fields_rounded,
-                title: '文本模型',
-                subtitle: _textEngineName,
-                accentColor: theme.colorScheme.primary,
-                onTap: () => _openEngine('text'),
-              ),
-              _AiServiceRow(
-                icon: Icons.image_outlined,
-                title: '图片理解',
-                subtitle: _visionEngineName,
-                accentColor: theme.colorScheme.secondary,
-                onTap: () => _openEngine('vision'),
-              ),
-              _AiServiceRow(
-                icon: Icons.document_scanner_outlined,
-                title: '文档识别',
-                subtitle: _ocrEngineName,
-                accentColor: theme.colorScheme.secondary,
-                onTap: () => _openEngine('ocr'),
-              ),
-            ]),
+            if (_isSummaryLoading)
+              _buildCard([
+                const Padding(
+                  key: ValueKey<String>('ai-service-summary-loading'),
+                  padding: EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('正在读取 AI 服务状态…'),
+                    ],
+                  ),
+                ),
+              ])
+            else if (_summaryLoadError case final message?)
+              _buildCard([
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline_rounded,
+                        color: theme.colorScheme.error,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(message)),
+                      TextButton(
+                        key: const ValueKey<String>(
+                          'ai-service-summary-retry',
+                        ),
+                        onPressed: _retryActiveSummary,
+                        child: const Text('重试'),
+                      ),
+                    ],
+                  ),
+                ),
+              ])
+            else
+              _buildCard([
+                _AiServiceRow(
+                  icon: Icons.text_fields_rounded,
+                  title: '文本模型',
+                  subtitle: _textEngineName,
+                  accentColor: theme.colorScheme.primary,
+                  onTap: () => _openEngine('text'),
+                ),
+                _AiServiceRow(
+                  icon: Icons.image_outlined,
+                  title: '图片理解',
+                  subtitle: _visionEngineName,
+                  accentColor: theme.colorScheme.secondary,
+                  onTap: () => _openEngine('vision'),
+                ),
+                _AiServiceRow(
+                  icon: Icons.document_scanner_outlined,
+                  title: '文档识别',
+                  subtitle: _ocrEngineName,
+                  accentColor: theme.colorScheme.secondary,
+                  onTap: () => _openEngine('ocr'),
+                ),
+              ]),
             if (widget.agentSettingsService != null) ...[
               const SizedBox(height: 24),
               const _AiSectionLabel('Agent'),
