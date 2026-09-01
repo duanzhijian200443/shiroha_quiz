@@ -20,11 +20,10 @@ class AiSettingsScreen extends StatefulWidget {
 }
 
 class _AiSettingsScreenState extends State<AiSettingsScreen> {
-  String _textEngineName = '未配置';
-  String _visionEngineName = '未配置';
-  String _ocrEngineName = '未配置';
-  bool _isSummaryLoading = true;
-  String? _summaryLoadError;
+  final Map<_AiCapability, _AiCapabilitySummary> _summaries = {
+    for (final capability in _AiCapability.values)
+      capability: const _AiCapabilitySummary.loading(),
+  };
 
   @override
   void initState() {
@@ -33,35 +32,33 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _loadActiveSummary() async {
-    try {
-      final textEngine = await widget.engineRepository.getActiveTextEngine();
-      final visionEngine =
-          await widget.engineRepository.getActiveVisionEngine();
-      final ocrEngine = await widget.engineRepository.getActiveOcrEngine();
-      if (!mounted) return;
-      setState(() {
-        _textEngineName = textEngine?.name ?? '点击配置';
-        _visionEngineName = visionEngine?.name ?? '点击配置';
-        _ocrEngineName = ocrEngine?.name ?? '点击配置';
-        _isSummaryLoading = false;
-        _summaryLoadError = null;
-      });
-    } catch (error) {
-      debugPrint('AI service summary load failed: ${error.runtimeType}');
-      if (!mounted) return;
-      setState(() {
-        _isSummaryLoading = false;
-        _summaryLoadError = '暂时无法读取 AI 服务状态';
-      });
-    }
+    await Future.wait(
+      _AiCapability.values.map(_loadCapabilitySummary),
+    );
   }
 
-  void _retryActiveSummary() {
-    setState(() {
-      _isSummaryLoading = true;
-      _summaryLoadError = null;
-    });
-    _loadActiveSummary();
+  Future<void> _loadCapabilitySummary(_AiCapability capability) async {
+    try {
+      final engine = switch (capability) {
+        _AiCapability.text =>
+          await widget.engineRepository.getActiveTextEngine(),
+        _AiCapability.vision =>
+          await widget.engineRepository.getActiveVisionEngine(),
+        _AiCapability.ocr => await widget.engineRepository.getActiveOcrEngine(),
+      };
+      if (!mounted) return;
+      setState(() {
+        _summaries[capability] = _AiCapabilitySummary.loaded(engine?.name);
+      });
+    } catch (error) {
+      debugPrint(
+        'AI ${capability.name} summary load failed: ${error.runtimeType}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _summaries[capability] = const _AiCapabilitySummary.failed();
+      });
+    }
   }
 
   void _openEngine(String engineType) {
@@ -147,70 +144,32 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
           children: [
             const _AiSectionLabel('能力配置'),
             const SizedBox(height: 8),
-            if (_isSummaryLoading)
-              _buildCard([
-                const Padding(
-                  key: ValueKey<String>('ai-service-summary-loading'),
-                  padding: EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 12),
-                      Text('正在读取 AI 服务状态…'),
-                    ],
-                  ),
-                ),
-              ])
-            else if (_summaryLoadError case final message?)
-              _buildCard([
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline_rounded,
-                        color: theme.colorScheme.error,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text(message)),
-                      TextButton(
-                        key: const ValueKey<String>(
-                          'ai-service-summary-retry',
-                        ),
-                        onPressed: _retryActiveSummary,
-                        child: const Text('重试'),
-                      ),
-                    ],
-                  ),
-                ),
-              ])
-            else
-              _buildCard([
-                _AiServiceRow(
-                  icon: Icons.text_fields_rounded,
-                  title: '文本模型',
-                  subtitle: _textEngineName,
-                  accentColor: theme.colorScheme.primary,
-                  onTap: () => _openEngine('text'),
-                ),
-                _AiServiceRow(
-                  icon: Icons.image_outlined,
-                  title: '图片理解',
-                  subtitle: _visionEngineName,
-                  accentColor: theme.colorScheme.secondary,
-                  onTap: () => _openEngine('vision'),
-                ),
-                _AiServiceRow(
-                  icon: Icons.document_scanner_outlined,
-                  title: '文档识别',
-                  subtitle: _ocrEngineName,
-                  accentColor: theme.colorScheme.secondary,
-                  onTap: () => _openEngine('ocr'),
-                ),
-              ]),
+            _buildCard([
+              _AiServiceRow(
+                key: const ValueKey<String>('ai-service-text-row'),
+                icon: Icons.text_fields_rounded,
+                title: '文本模型',
+                subtitle: _summaries[_AiCapability.text]!.subtitle,
+                accentColor: theme.colorScheme.primary,
+                onTap: () => _openEngine('text'),
+              ),
+              _AiServiceRow(
+                key: const ValueKey<String>('ai-service-vision-row'),
+                icon: Icons.image_outlined,
+                title: '图片理解',
+                subtitle: _summaries[_AiCapability.vision]!.subtitle,
+                accentColor: theme.colorScheme.secondary,
+                onTap: () => _openEngine('vision'),
+              ),
+              _AiServiceRow(
+                key: const ValueKey<String>('ai-service-ocr-row'),
+                icon: Icons.document_scanner_outlined,
+                title: '文档识别',
+                subtitle: _summaries[_AiCapability.ocr]!.subtitle,
+                accentColor: theme.colorScheme.secondary,
+                onTap: () => _openEngine('ocr'),
+              ),
+            ]),
             if (widget.agentSettingsService != null) ...[
               const SizedBox(height: 24),
               const _AiSectionLabel('Agent'),
@@ -230,6 +189,34 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
         ),
       ),
     );
+  }
+}
+
+enum _AiCapability { text, vision, ocr }
+
+class _AiCapabilitySummary {
+  const _AiCapabilitySummary.loading()
+      : name = null,
+        failed = false,
+        loading = true;
+
+  const _AiCapabilitySummary.loaded(this.name)
+      : failed = false,
+        loading = false;
+
+  const _AiCapabilitySummary.failed()
+      : name = null,
+        failed = true,
+        loading = false;
+
+  final String? name;
+  final bool failed;
+  final bool loading;
+
+  String get subtitle {
+    if (loading) return '正在读取…';
+    if (failed) return '暂时无法读取 · 点击配置';
+    return name ?? '点击配置';
   }
 }
 

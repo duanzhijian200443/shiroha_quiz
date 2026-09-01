@@ -122,10 +122,11 @@ void main() {
     expect(find.text('文档 OCR 解析引擎'), findsNothing);
   });
 
-  testWidgets('AI service load failure stays explicit and can retry safely', (
+  testWidgets('AI service isolates one failed summary and keeps every entry', (
     tester,
   ) async {
-    final store = _ProfileAiEngineStore()..failActiveReads = true;
+    final store = _ProfileAiEngineStore()
+      ..failedActiveTypes.add(AiEngineType.vision);
     engineRepository = AiEngineRepository(
       store: store,
       credentialStore: MemoryEngineCredentialStore(),
@@ -140,21 +141,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('暂时无法读取 AI 服务状态'), findsOneWidget);
+    expect(find.text('暂时无法读取 · 点击配置'), findsOneWidget);
     expect(find.textContaining('PRIVATE_AI_FAILURE'), findsNothing);
-    expect(find.text('点击配置'), findsNothing);
-    expect(find.text('Shiroha Agent 设置'), findsOneWidget);
-
-    store.failActiveReads = false;
-    await tester.tap(
-      find.byKey(const ValueKey<String>('ai-service-summary-retry')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('暂时无法读取 AI 服务状态'), findsNothing);
     expect(find.text('DeepSeek'), findsOneWidget);
-    expect(find.text('智谱视觉'), findsOneWidget);
     expect(find.text('智谱 OCR'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('ai-service-vision-row')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ListTile>(
+            find.descendant(
+              of: find.byKey(
+                const ValueKey<String>('ai-service-vision-row'),
+              ),
+              matching: find.byType(ListTile),
+            ),
+          )
+          .onTap,
+      isNotNull,
+    );
+    expect(find.text('Shiroha Agent 设置'), findsOneWidget);
   });
 
   testWidgets('shows total learning days from real heatmap activity', (
@@ -187,6 +195,18 @@ void main() {
     expect(find.text('暂时无法读取学习记录'), findsOneWidget);
     expect(find.textContaining('PRIVATE_PROFILE_FAILURE'), findsNothing);
     expect(find.textContaining('累计完成 0 题'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('profile-file-library-row')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('profile-appearance-row')),
+      findsOneWidget,
+    );
 
     shouldFail = false;
     await tester.tap(
@@ -279,6 +299,47 @@ void _verifySemanticPalette(ThemeData theme) {
   expect(theme.colorScheme.secondary, AppTheme.irisPurple);
   expect(theme.colorScheme.tertiary, AppTheme.warningAmber);
   expect(theme.colorScheme.error, AppTheme.dangerRed);
+  if (theme.brightness == Brightness.light) {
+    expect(
+      _contrastRatio(theme.colorScheme.primary, theme.colorScheme.onPrimary),
+      greaterThanOrEqualTo(4.5),
+    );
+    expect(
+      _contrastRatio(
+        theme.colorScheme.secondary,
+        theme.colorScheme.onSecondary,
+      ),
+      greaterThanOrEqualTo(4.5),
+    );
+    expect(
+      _contrastRatio(theme.colorScheme.error, theme.colorScheme.onError),
+      greaterThanOrEqualTo(4.5),
+    );
+    expect(
+      _contrastRatio(
+        theme.colorScheme.onSurfaceVariant,
+        theme.colorScheme.surface,
+      ),
+      greaterThanOrEqualTo(4.5),
+    );
+    expect(
+      _contrastRatio(
+        theme.colorScheme.onSurfaceVariant,
+        theme.scaffoldBackgroundColor,
+      ),
+      greaterThanOrEqualTo(4.5),
+    );
+  }
+}
+
+double _contrastRatio(Color first, Color second) {
+  final firstLuminance = first.computeLuminance();
+  final secondLuminance = second.computeLuminance();
+  final lighter =
+      firstLuminance > secondLuminance ? firstLuminance : secondLuminance;
+  final darker =
+      firstLuminance > secondLuminance ? secondLuminance : firstLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 final class _ProfileAgentConfigStore implements AgentConfigStorePort {
@@ -295,7 +356,7 @@ final class _ProfileAgentCatalog implements AgentProfileCatalogPort {
 }
 
 class _ProfileAiEngineStore implements AiEngineStore {
-  bool failActiveReads = false;
+  final Set<AiEngineType> failedActiveTypes = <AiEngineType>{};
 
   static const Map<AiEngineType, AiEngineProfile> _profiles = {
     AiEngineType.text: AiEngineProfile(
@@ -338,7 +399,9 @@ class _ProfileAiEngineStore implements AiEngineStore {
 
   @override
   Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
-    if (failActiveReads) throw StateError('PRIVATE_AI_FAILURE');
+    if (failedActiveTypes.contains(type)) {
+      throw StateError('PRIVATE_AI_FAILURE');
+    }
     return _profiles[type];
   }
 

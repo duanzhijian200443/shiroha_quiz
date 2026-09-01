@@ -39,6 +39,7 @@ class HomePage extends StatefulWidget {
     this.onPracticeRequested,
     this.onImportRequested,
     this.onPhotoImportRequested,
+    this.onAskAssistant,
     this.questionListQuery,
     this.questionMutationPersistence,
     this.typedAnswerPersistence,
@@ -56,6 +57,7 @@ class HomePage extends StatefulWidget {
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
   final VoidCallback? onPhotoImportRequested;
+  final ValueChanged<String>? onAskAssistant;
   final QuestionListQueryPort? questionListQuery;
   final QuestionMutationPersistencePort? questionMutationPersistence;
   final TypedAnswerPersistencePort? typedAnswerPersistence;
@@ -1364,6 +1366,19 @@ class _HomePageState extends State<HomePage> {
               fontSize: 13,
               height: 1.45,
             ),
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            key: const ValueKey<String>('home-ask-assistant'),
+            onPressed: widget.onAskAssistant == null
+                ? null
+                : () => widget.onAskAssistant!(
+                      hasReview
+                          ? '请结合当前学习建议，帮我规划下一步：今日有 $_reviewCount 道题等待复习。'
+                          : '请结合当前学习建议，帮我规划下一步：今天可以开始新题。',
+                    ),
+            icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+            label: const Text('向助手提问 →'),
           ),
         ],
       ),

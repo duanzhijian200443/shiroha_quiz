@@ -15,6 +15,38 @@ import 'learning_spaces_screen.dart';
 import 'workspace_controller.dart';
 import 'workspace_pages.dart';
 
+@immutable
+class AssistantComposerPrefillRequest {
+  const AssistantComposerPrefillRequest({
+    required this.epoch,
+    required this.text,
+  });
+
+  final int epoch;
+  final String text;
+}
+
+class AssistantComposerPrefillScope extends InheritedWidget {
+  const AssistantComposerPrefillScope({
+    super.key,
+    required this.request,
+    required super.child,
+  });
+
+  final AssistantComposerPrefillRequest? request;
+
+  static AssistantComposerPrefillRequest? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<AssistantComposerPrefillScope>()
+        ?.request;
+  }
+
+  @override
+  bool updateShouldNotify(AssistantComposerPrefillScope oldWidget) {
+    return request?.epoch != oldWidget.request?.epoch;
+  }
+}
+
 /// Shiroha conversation presentation backed by the C0 application boundary.
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({
@@ -42,6 +74,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final ScrollController _messageScrollController = ScrollController();
   bool _followLatest = true;
   bool _scrollScheduled = false;
+  int _lastComposerPrefillEpoch = 0;
 
   @override
   void initState() {
@@ -62,6 +95,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
     widget.conversationController.addListener(_handleConversationChanged);
     _followLatest = true;
     _scheduleScrollToLatest();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final request = AssistantComposerPrefillScope.maybeOf(context);
+    if (request == null || request.epoch <= _lastComposerPrefillEpoch) return;
+    _lastComposerPrefillEpoch = request.epoch;
+    if (_composerController.text.trim().isNotEmpty) return;
+    _composerController
+      ..text = request.text
+      ..selection = TextSelection.collapsed(offset: request.text.length);
   }
 
   String get _currentSpace {

@@ -298,6 +298,51 @@ void main() {
     await drainBackgroundWork(tester);
   });
 
+  testWidgets('Today suggestion prefills Assistant without auto-sending', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, const Size(800, 2000));
+
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('home-ask-assistant')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('home-ask-assistant')),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+    );
+
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .currentIndex,
+      1,
+    );
+    final composer = tester.widget<TextField>(
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+    );
+    expect(composer.controller!.text, contains('今天可以开始新题'));
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux0-send')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-cancel')),
+      findsNothing,
+    );
+
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
+  });
+
   testWidgets('full responsive primary navigation is reachable at 360x720',
       (WidgetTester tester) async {
     await pumpApp(tester, const Size(360, 720));

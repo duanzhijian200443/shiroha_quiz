@@ -238,6 +238,7 @@ void main() {
     VoidCallback? onPracticeRequested,
     VoidCallback? onImportRequested,
     VoidCallback? onPhotoImportRequested,
+    ValueChanged<String>? onAskAssistant,
     StudyPlanSelectionService? studyPlanSelectionService,
     StudyPlanCommandService? studyPlanCommandService,
     StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher,
@@ -263,6 +264,7 @@ void main() {
             onPracticeRequested: onPracticeRequested,
             onImportRequested: onImportRequested,
             onPhotoImportRequested: onPhotoImportRequested,
+            onAskAssistant: onAskAssistant,
             studyPlanSelectionService: studyPlanSelectionService,
             studyPlanCommandService: studyPlanCommandService,
             studyPlanSessionLauncher: studyPlanSessionLauncher,
@@ -321,6 +323,24 @@ void main() {
     expect(find.textContaining('个待复习'), findsNothing);
     expect(find.text('暂无复习数据'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('learning suggestion hands context to Assistant without sending',
+      (
+    tester,
+  ) async {
+    String? assistantContext;
+    await pumpHome(
+      tester,
+      onAskAssistant: (value) => assistantContext = value,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('home-ask-assistant')),
+    );
+
+    expect(assistantContext, contains('今天可以开始新题'));
+    expect(assistantContext, contains('帮我规划下一步'));
   });
 
   testWidgets('real counts and existing home actions remain available',

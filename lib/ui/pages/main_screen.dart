@@ -18,6 +18,7 @@ import 'home_page.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../assistant/assistant_workspace_shell.dart';
+import '../assistant/assistant_screen.dart';
 import '../assistant/workspace_controller.dart';
 import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
@@ -69,6 +70,8 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  int _assistantPrefillEpoch = 0;
+  String? _assistantPrefillText;
 
   /// Today-activation signal (SPL-1-U0): incremented whenever bottom
   /// navigation transitions INTO Today. HomePage observes it and refreshes
@@ -94,6 +97,14 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _openAssistantWithContext(String text) {
+    setState(() {
+      _assistantPrefillEpoch++;
+      _assistantPrefillText = text;
+      _currentIndex = 1;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final dependencies = AiDependenciesScope.of(context);
@@ -109,16 +120,25 @@ class _MainScreenState extends State<MainScreen> {
         studyPlanCommandService: widget.studyPlanCommandService,
         studyPlanSessionLauncher: widget.studyPlanSessionLauncher,
         todayActivationEpoch: _todayActivationEpoch,
+        onAskAssistant: _openAssistantWithContext,
       ), // Tab 0 — 今日 (Today: 普通 / 特训 / 考试)
-      AssistantWorkspaceShell(
-        facade: widget.u1WorkspaceFacade,
-        conversationService: widget.conversationService,
-        agentSettingsService: widget.agentSettingsService,
-        startAgentTurn: widget.startAgentTurn,
-        startRetrievalTurn: widget.startRetrievalTurn,
-        proposalService: widget.proposalService,
-        studyPlanDraftService: widget.studyPlanDraftService,
-        studyPlanCommandService: widget.studyPlanCommandService,
+      AssistantComposerPrefillScope(
+        request: _assistantPrefillText == null
+            ? null
+            : AssistantComposerPrefillRequest(
+                epoch: _assistantPrefillEpoch,
+                text: _assistantPrefillText!,
+              ),
+        child: AssistantWorkspaceShell(
+          facade: widget.u1WorkspaceFacade,
+          conversationService: widget.conversationService,
+          agentSettingsService: widget.agentSettingsService,
+          startAgentTurn: widget.startAgentTurn,
+          startRetrievalTurn: widget.startRetrievalTurn,
+          proposalService: widget.proposalService,
+          studyPlanDraftService: widget.studyPlanDraftService,
+          studyPlanCommandService: widget.studyPlanCommandService,
+        ),
       ), // Tab 1 — 助手
       ProfileScreen(
         engineRepository: dependencies.engineRepository,

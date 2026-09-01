@@ -9,7 +9,7 @@ class AppTheme {
   static const Color _lightCanvas = Color(0xFFF4F8FC);
   static const Color _lightSurface = Color(0xFFFFFFFF);
   static const Color _lightPrimaryText = Color(0xFF102033);
-  static const Color _lightSecondaryText = Color(0xFF708096);
+  static const Color _lightSecondaryText = Color(0xFF5E6F83);
   static const Color _lightOutline = Color(0xFFDCE6EF);
 
   static const Color _darkCanvas = Color(0xFF071827);
@@ -39,17 +39,17 @@ class AppTheme {
       primaryColor: shirohaCyan,
       colorScheme: const ColorScheme.light(
         primary: shirohaCyan,
-        onPrimary: Colors.white,
+        onPrimary: Color(0xFF003642),
         primaryContainer: Color(0xFFDFF7FC),
         onPrimaryContainer: Color(0xFF054A60),
         secondary: irisPurple,
-        onSecondary: Colors.white,
+        onSecondary: Colors.black,
         secondaryContainer: Color(0xFFEDE8FF),
         onSecondaryContainer: Color(0xFF35236F),
         tertiary: warningAmber,
         onTertiary: Color(0xFF3D2A00),
         error: dangerRed,
-        onError: Colors.white,
+        onError: Colors.black,
         surface: _lightSurface,
         onSurface: _lightPrimaryText,
         onSurfaceVariant: _lightSecondaryText,
