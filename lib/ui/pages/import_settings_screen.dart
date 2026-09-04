@@ -20,7 +20,7 @@ typedef ImportTaskDispatcher = void Function(
 
 class ImportSettingsScreen extends StatefulWidget {
   const ImportSettingsScreen({
-    Key? key,
+    super.key,
     this.pickFiles,
     this.pickImage,
     this.taskDispatcher,
@@ -28,7 +28,7 @@ class ImportSettingsScreen extends StatefulWidget {
     this.showImageSourceActions = true,
     this.retainObjectiveExplanations = false,
     this.onRetainObjectiveExplanationsChanged,
-  }) : super(key: key);
+  });
 
   final ImportFilePicker? pickFiles;
   final ImportImagePicker? pickImage;
@@ -322,8 +322,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             ExpansionTile(
               title: const Text('查看标准 JSON 导入格式',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              collapsedBackgroundColor: theme.primaryColor.withOpacity(0.05),
-              backgroundColor: theme.primaryColor.withOpacity(0.05),
+              collapsedBackgroundColor:
+                  theme.primaryColor.withValues(alpha: 0.05),
+              backgroundColor: theme.primaryColor.withValues(alpha: 0.05),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
               collapsedShape: RoundedRectangleBorder(
@@ -399,7 +400,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                     Divider(
                       height: 1,
                       thickness: 1,
-                      color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.7,
+                      ),
                     ),
                     _ObjectiveExplanationRetentionSetting(
                       value: _explanationRetentionMode ==
@@ -501,7 +504,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   foregroundColor: theme.primaryColor,
-                  side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+                  side: BorderSide(
+                    color: theme.primaryColor.withValues(alpha: 0.3),
+                  ),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12))),
               icon: const Icon(Icons.folder_open_rounded),
@@ -518,7 +523,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                   disabledForegroundColor: theme.colorScheme.onSurfaceVariant,
                   side: BorderSide(
                     color: clipboardEnabled
-                        ? theme.primaryColor.withOpacity(0.3)
+                        ? theme.primaryColor.withValues(alpha: 0.3)
                         : theme.colorScheme.outlineVariant,
                   ),
                   shape: RoundedRectangleBorder(
@@ -588,7 +593,7 @@ class _ObjectiveExplanationRetentionSetting extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: colorScheme.primary.withOpacity(0.08),
+                            color: colorScheme.primary.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
