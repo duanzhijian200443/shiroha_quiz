@@ -1004,6 +1004,56 @@ void main() {
   });
 
   testWidgets(
+      'conversation focus epoch reuses shell owner and returns to conversation',
+      (tester) async {
+    final facade = _facade();
+    final conversationService = _conversationService();
+    final agentSettingsService = _agentSettingsService();
+    var focusEpoch = 0;
+    late StateSetter setHostState;
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            setHostState = setState;
+            return AssistantWorkspaceShell(
+              facade: facade,
+              conversationService: conversationService,
+              agentSettingsService: agentSettingsService,
+              startAgentTurn: _failedAgentTurn,
+              conversationFocusEpoch: focusEpoch,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final originalController = tester
+        .widget<AssistantScreen>(find.byType(AssistantScreen))
+        .conversationController;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(FileLibraryWorkspace), findsOneWidget);
+
+    setHostState(() => focusEpoch++);
+    await tester.pump();
+
+    expect(find.byType(AssistantScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<AssistantScreen>(find.byType(AssistantScreen))
+          .conversationController,
+      same(originalController),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'DM-D5 LibraryFile confirmation calls Controller to Facade authority',
       (tester) async {
     final files = _Files();

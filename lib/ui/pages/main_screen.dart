@@ -74,7 +74,8 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
   int _assistantPrefillEpoch = 0;
   String? _assistantPrefillText;
-  Widget? _assistantDrawer;
+  Object? _assistantDrawerOwner;
+  WidgetBuilder? _assistantDrawerBuilder;
 
   /// Today-activation signal (SPL-1-U0): incremented whenever bottom
   /// navigation transitions INTO Today. HomePage observes it and refreshes
@@ -83,6 +84,9 @@ class _MainScreenState extends State<MainScreen> {
   int _todayActivationEpoch = 0;
 
   void _handleNavigation(int index) {
+    if (index != 1) {
+      _mainScaffoldKey.currentState?.closeDrawer();
+    }
     setState(() {
       if (index == 0 && _currentIndex != 0) {
         _todayActivationEpoch++;
@@ -117,9 +121,30 @@ class _MainScreenState extends State<MainScreen> {
     setState(() => _assistantPrefillText = null);
   }
 
-  void _openAssistantDrawer(Widget drawer) {
-    setState(() => _assistantDrawer = drawer);
+  void _registerAssistantDrawer(Object owner, WidgetBuilder drawerBuilder) {
+    if (!mounted ||
+        (identical(owner, _assistantDrawerOwner) &&
+            drawerBuilder == _assistantDrawerBuilder)) {
+      return;
+    }
+    setState(() {
+      _assistantDrawerOwner = owner;
+      _assistantDrawerBuilder = drawerBuilder;
+    });
+  }
+
+  void _unregisterAssistantDrawer(Object owner) {
+    if (!mounted || !identical(owner, _assistantDrawerOwner)) return;
+    setState(() {
+      _assistantDrawerOwner = null;
+      _assistantDrawerBuilder = null;
+    });
+  }
+
+  void _openAssistantDrawer() {
+    if (_currentIndex != 1) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _currentIndex != 1) return;
       _mainScaffoldKey.currentState?.openDrawer();
     });
   }
@@ -150,7 +175,6 @@ class _MainScreenState extends State<MainScreen> {
               ),
         onConsumed: _consumeAssistantPrefill,
         child: AssistantWorkspaceShell(
-          key: ValueKey<int>(_assistantPrefillEpoch),
           facade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
           agentSettingsService: widget.agentSettingsService,
@@ -159,6 +183,7 @@ class _MainScreenState extends State<MainScreen> {
           proposalService: widget.proposalService,
           studyPlanDraftService: widget.studyPlanDraftService,
           studyPlanCommandService: widget.studyPlanCommandService,
+          conversationFocusEpoch: _assistantPrefillEpoch,
         ),
       ), // Tab 1 — 助手
       ProfileScreen(
@@ -173,11 +198,19 @@ class _MainScreenState extends State<MainScreen> {
     final selectedNavigationColor = theme.brightness == Brightness.light
         ? AppTheme.shirohaCyanForeground
         : theme.colorScheme.primary;
+    final assistantDrawerEnabled = _currentIndex == 1 &&
+        MediaQuery.sizeOf(context).width < 900 &&
+        _assistantDrawerBuilder != null;
     return AssistantGlobalDrawerScope(
+      registerDrawer: _registerAssistantDrawer,
+      unregisterDrawer: _unregisterAssistantDrawer,
       openDrawer: _openAssistantDrawer,
       child: Scaffold(
         key: _mainScaffoldKey,
-        drawer: _assistantDrawer,
+        drawer: assistantDrawerEnabled
+            ? _assistantDrawerBuilder!.call(context)
+            : null,
+        drawerEnableOpenDragGesture: assistantDrawerEnabled,
         body: IndexedStack(index: _currentIndex, children: pages),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,

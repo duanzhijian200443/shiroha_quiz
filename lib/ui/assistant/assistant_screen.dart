@@ -51,11 +51,15 @@ class AssistantComposerPrefillScope extends InheritedWidget {
 class AssistantGlobalDrawerScope extends InheritedWidget {
   const AssistantGlobalDrawerScope({
     super.key,
+    required this.registerDrawer,
+    required this.unregisterDrawer,
     required this.openDrawer,
     required super.child,
   });
 
-  final ValueChanged<Widget> openDrawer;
+  final void Function(Object owner, WidgetBuilder drawerBuilder) registerDrawer;
+  final ValueChanged<Object> unregisterDrawer;
+  final VoidCallback openDrawer;
 
   static AssistantGlobalDrawerScope? maybeOf(BuildContext context) {
     return context
@@ -94,6 +98,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   bool _followLatest = true;
   bool _scrollScheduled = false;
   int _lastComposerPrefillEpoch = 0;
+  AssistantGlobalDrawerScope? _globalDrawer;
 
   @override
   void initState() {
@@ -105,6 +110,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   void didUpdateWidget(covariant AssistantScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.showGlobalMenu != widget.showGlobalMenu ||
+        oldWidget.spacesController != widget.spacesController ||
+        oldWidget.fileController != widget.fileController ||
+        oldWidget.conversationController != widget.conversationController) {
+      _scheduleGlobalDrawerRegistration(_globalDrawer);
+    }
     if (oldWidget.conversationController == widget.conversationController) {
       return;
     }
@@ -120,6 +131,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final prefillScope = AssistantComposerPrefillScope.maybeOf(context);
+    final globalDrawer = AssistantGlobalDrawerScope.maybeOf(context);
+    if (!identical(globalDrawer, _globalDrawer)) {
+      _globalDrawer = globalDrawer;
+      _scheduleGlobalDrawerRegistration(globalDrawer);
+    }
     final request = prefillScope?.request;
     if (request == null || request.epoch <= _lastComposerPrefillEpoch) return;
     _lastComposerPrefillEpoch = request.epoch;
@@ -132,6 +148,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
       ..text = request.text
       ..selection = TextSelection.collapsed(offset: request.text.length);
   }
+
+  void _scheduleGlobalDrawerRegistration(
+    AssistantGlobalDrawerScope? globalDrawer,
+  ) {
+    if (globalDrawer == null || !widget.showGlobalMenu) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !identical(_globalDrawer, globalDrawer)) return;
+      globalDrawer.registerDrawer(this, _buildGlobalDrawer);
+    });
+  }
+
+  Widget _buildGlobalDrawer(BuildContext _) => _buildDrawer()!;
 
   String get _currentSpace {
     final scope = widget.conversationController.currentScope;
@@ -146,6 +174,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   @override
   void dispose() {
+    final globalDrawer = _globalDrawer;
+    if (globalDrawer != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        globalDrawer.unregisterDrawer(this);
+      });
+    }
     widget.conversationController.removeListener(_handleConversationChanged);
     _messageScrollController.dispose();
     _composerController.dispose();
@@ -480,7 +514,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   onPressed: () {
                     final drawer = _buildDrawer();
                     if (globalDrawer != null && drawer != null) {
-                      globalDrawer.openDrawer(drawer);
+                      globalDrawer.registerDrawer(this, _buildGlobalDrawer);
+                      globalDrawer.openDrawer();
                       return;
                     }
                     Scaffold.of(drawerContext).openDrawer();

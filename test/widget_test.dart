@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
@@ -43,6 +44,7 @@ import 'support/memory_engine_credential_store.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/main.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
@@ -123,6 +125,21 @@ final class _EmptyMetrics extends Fake implements StudyMetricsQueryPort {}
 final class _EmptyConversations extends Fake
     implements ConversationRepositoryPort {
   @override
+  Future<ConversationThreadSlice> createWithFirstMessage({
+    required Conversation conversation,
+    required ConversationMessage firstMessage,
+    required List<String> fileIds,
+    required DateTime attachedAt,
+  }) async =>
+      ConversationThreadSlice(
+        conversation: conversation,
+        messages: <ConversationMessage>[firstMessage],
+        files: const <ConversationFileRef>[],
+        hasMoreBefore: false,
+        nextBeforeSequence: null,
+      );
+
+  @override
   Future<List<ConversationFileRef>> listAttachableFiles(
           {required int limit}) async =>
       const <ConversationFileRef>[];
@@ -144,6 +161,35 @@ final class _EmptyAgentConfigStore implements AgentConfigStorePort {
 final class _EmptyAgentProfiles implements AgentProfileCatalogPort {
   @override
   Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
+}
+
+final class _ConfiguredAgentConfigStore implements AgentConfigStorePort {
+  String? encoded = const AgentConfigCodec().encode(
+    AgentConfig(
+      providerKind: AgentProviderKind.deepSeekResponses,
+      mainProfileId: 'profile-test',
+    ),
+  );
+
+  @override
+  Future<String?> readAgentConfig() async => encoded;
+
+  @override
+  Future<void> writeAgentConfig(String encodedConfig) async {
+    encoded = encodedConfig;
+  }
+}
+
+final class _ConfiguredAgentProfiles implements AgentProfileCatalogPort {
+  @override
+  Future<List<AgentProfileSummary>> listMainProfiles() async =>
+      <AgentProfileSummary>[
+        AgentProfileSummary(
+          profileId: 'profile-test',
+          displayName: 'Test model',
+          modelName: 'deepseek-v4-flash',
+        ),
+      ];
 }
 
 final class _EmptyExamMutationPersistence extends Fake
@@ -172,8 +218,46 @@ AgentTurnSession _unusedAgentTurn({
       cancel: () {},
     );
 
-ConversationService _emptyConversationService() => ConversationService(
-      repository: _EmptyConversations(),
+final class _PendingAgentTurn {
+  final StreamController<AgentTurnEvent> events =
+      StreamController<AgentTurnEvent>.broadcast();
+  final Completer<AgentTurnResult> result = Completer<AgentTurnResult>();
+  bool cancelled = false;
+  int starts = 0;
+
+  late final AgentTurnSession session = AgentTurnSession(
+    events: events.stream,
+    result: result.future,
+    cancel: _cancel,
+  );
+
+  AgentTurnSession start({
+    required String conversationId,
+    required String userMessageId,
+  }) {
+    starts++;
+    return session;
+  }
+
+  void complete() {
+    if (result.isCompleted) return;
+    result.complete(
+      const AgentTurnFailed(AgentTurnFailure.temporarilyUnavailable),
+    );
+    unawaited(events.close());
+  }
+
+  void _cancel() {
+    cancelled = true;
+    complete();
+  }
+}
+
+ConversationService _emptyConversationService({
+  ConversationRepositoryPort? repository,
+}) =>
+    ConversationService(
+      repository: repository ?? _EmptyConversations(),
       conversationIdFactory: () => 'conversation-empty',
       messageIdFactory: () => 'message-empty',
       clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
@@ -370,7 +454,48 @@ void main() {
         findsNothing,
       );
 
-      composer.controller!.clear();
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+        '保留中的草稿',
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomNavigationBar),
+          matching: find.text('今日'),
+        ),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('home-bank-card')),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey<String>('u1-ux0-composer')),
+            )
+            .controller!
+            .text,
+        '保留中的草稿',
+      );
+
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey<String>('u1-ux0-composer')),
+          )
+          .controller!
+          .clear();
       await tester.pump();
       await tester.tap(
         find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
@@ -398,7 +523,86 @@ void main() {
     },
   );
 
-  testWidgets('mobile Assistant drawer is owned by the global Scaffold', (
+  testWidgets('Today handoff preserves an active Agent turn', (
+    WidgetTester tester,
+  ) async {
+    final turn = _PendingAgentTurn();
+    addTearDown(turn.complete);
+    await pumpApp(
+      tester,
+      const Size(1024, 1200),
+      conversationService: _emptyConversationService(),
+      agentSettingsService: AgentSettingsService(
+        configStore: _ConfiguredAgentConfigStore(),
+        profileCatalog: _ConfiguredAgentProfiles(),
+      ),
+      startAgentTurn: turn.start,
+    );
+
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      '保持当前生成',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('u1-ux0-send')));
+    await tester.pump();
+    await tester.pump();
+    expect(turn.starts, 1);
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-cancel')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('今日'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    expect(turn.cancelled, isFalse);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('home-ask-assistant')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('home-ask-assistant')));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('a0-agent-cancel')),
+    );
+
+    expect(turn.cancelled, isFalse);
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .currentIndex,
+      1,
+    );
+    expect(tester.takeException(), isNull);
+
+    turn.complete();
+    await tester.pump();
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('mobile Assistant drawer and edge gesture stay tab-scoped', (
     WidgetTester tester,
   ) async {
     await pumpApp(tester, const Size(360, 720));
@@ -416,10 +620,10 @@ void main() {
       tester,
       find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
     );
-    await tester.tap(
-      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
     );
-    await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
     final drawerScaffold = find
@@ -433,6 +637,157 @@ void main() {
         .first;
     expect(tester.element(drawerScaffold),
         same(tester.element(navigationScaffold)));
+    final navigationScaffoldState =
+        tester.state<ScaffoldState>(navigationScaffold);
+    expect(navigationScaffoldState.isDrawerOpen, isTrue);
+
+    navigationScaffoldState.closeDrawer();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .onTap!(0);
+    await tester.pump(const Duration(milliseconds: 500));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .onTap!(1);
+    await tester.pump();
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isTrue);
+    navigationScaffoldState.closeDrawer();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .onTap!(2);
+    await tester.pump();
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('mobile Assistant menu opens the global drawer', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, const Size(360, 720));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+
+    final menuButton = find.byKey(
+      const ValueKey<String>('u1-ux0-open-drawer'),
+    );
+    expect(menuButton.hitTestable(), findsOneWidget);
+    await tester.tap(menuButton);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final navigationScaffold = find
+        .ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Scaffold),
+        )
+        .first;
+    expect(
+      tester.state<ScaffoldState>(navigationScaffold).isDrawerOpen,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('Assistant drawer owner follows responsive layout changes', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, const Size(360, 720));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+
+    final navigationScaffold = find
+        .ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Scaffold),
+        )
+        .first;
+    final navigationScaffoldState =
+        tester.state<ScaffoldState>(navigationScaffold);
+
+    tester.view.physicalSize = const Size(1024, 768);
+    await tester.pump();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux01-workspace-shell')),
+    );
+    final desktopScaffold = tester.widget<Scaffold>(navigationScaffold);
+    expect(desktopScaffold.drawer, isNull);
+    expect(desktopScaffold.drawerEnableOpenDragGesture, isFalse);
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+
+    tester.view.physicalSize = const Size(360, 720);
+    await tester.pump();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isTrue);
+
+    navigationScaffoldState.closeDrawer();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(tester.takeException(), isNull);
     await drainBackgroundWork(tester);
   });
@@ -509,6 +864,9 @@ void main() {
 Widget _buildTestApp({
   QuestionRepository? questionRepository,
   ContentAssetResolver? contentAssetResolver,
+  ConversationService? conversationService,
+  AgentSettingsService? agentSettingsService,
+  AgentTurnStarter? startAgentTurn,
 }) {
   final engineRepository = AiEngineRepository(
     store: DatabaseHelper.instance,
@@ -565,23 +923,36 @@ Widget _buildTestApp({
     folderQuery: configuredQuestionRepository,
     contentAssetResolver: contentAssetResolver,
     u1WorkspaceFacade: _emptyWorkspaceFacade(),
-    conversationService: _emptyConversationService(),
-    agentSettingsService: AgentSettingsService(
-      configStore: _EmptyAgentConfigStore(),
-      profileCatalog: _EmptyAgentProfiles(),
-    ),
-    startAgentTurn: _unusedAgentTurn,
+    conversationService: conversationService ?? _emptyConversationService(),
+    agentSettingsService: agentSettingsService ??
+        AgentSettingsService(
+          configStore: _EmptyAgentConfigStore(),
+          profileCatalog: _EmptyAgentProfiles(),
+        ),
+    startAgentTurn: startAgentTurn ?? _unusedAgentTurn,
     proposalService: AgentWriteProposalService(_EmptyWritePersistence()),
   );
 }
 
 /// Pumps the full app at [size] and registers viewport teardown.
-Future<void> pumpApp(WidgetTester tester, Size size) async {
+Future<void> pumpApp(
+  WidgetTester tester,
+  Size size, {
+  ConversationService? conversationService,
+  AgentSettingsService? agentSettingsService,
+  AgentTurnStarter? startAgentTurn,
+}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(_buildTestApp());
+  await tester.pumpWidget(
+    _buildTestApp(
+      conversationService: conversationService,
+      agentSettingsService: agentSettingsService,
+      startAgentTurn: startAgentTurn,
+    ),
+  );
 }
 
 /// Proves every final primary destination is reachable at the current
