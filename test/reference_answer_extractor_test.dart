@@ -51,14 +51,30 @@ void main() {
     test(
         'starts from a supported heading embedded in the final compound block without question stem',
         () {
+      final document = _document([
+        _block('q1', 0, '1. Official question'),
+        _block(
+          'compound',
+          1,
+          'Tail explanation\r\n'
+              '第二行说明\r\n'
+              '2022 模拟试卷参考答案汇总\r\n'
+              '安全说明',
+        ),
+        _block('a1', 2, '(1) First answer'),
+      ]);
+      final regionized = const OcrQuestionRegionizer().regionize(document);
+      final boundary = regionized.referenceAnswerSectionBoundary;
+
+      expect(boundary, isNotNull);
+      expect(boundary!.blockId, 'compound');
+      expect(boundary.pageIndex, 1);
+      expect(boundary.headingLineIndex, 2);
+
       final result = extractor.extract(
-        _document([
-          _block('q1', 0, '1. Official question'),
-          _block(
-              'compound', 1, 'Tail explanation\n第二行说明\n2022 模拟试卷参考答案汇总\n安全说明'),
-          _block('a1', 2, '(1) First answer'),
-        ]),
-        _regions(1, lastBlockId: 'compound'),
+        document,
+        regionized.regions,
+        referenceSectionBoundary: boundary,
       );
 
       expect(result.diagnostics['referenceSectionDetected'], isTrue);
@@ -87,6 +103,55 @@ void main() {
           _block('answer_like', 1, '1.A 2.B'),
         ]),
         _regions(2, lastBlockId: 'q1'),
+      );
+
+      expect(result.entries, isEmpty);
+      expect(result.diagnostics['referenceSectionDetected'], isFalse);
+    });
+
+    test('fails closed when a declared boundary is stale or invalid', () {
+      final result = extractor.extract(
+        _document([
+          _block('q1', 0, '1. Official question'),
+          _block('title', 1, '参考答案'),
+          _block('answer_like', 2, '(1) A'),
+        ]),
+        _regions(1, lastBlockId: 'q1'),
+        referenceSectionBoundary: const OcrReferenceAnswerSectionBoundary(
+          blockId: 'q1',
+          pageIndex: 1,
+          headingLineIndex: 0,
+        ),
+      );
+
+      expect(result.entries, isEmpty);
+      expect(result.diagnostics['referenceSectionDetected'], isFalse);
+    });
+
+    test(
+        'does not infer a reference boundary inside the final official continuation block',
+        () {
+      final result = extractor.extract(
+        _document([
+          _block('q1_start', 0, '1. Official question'),
+          _block(
+            'q1_continuation',
+            1,
+            'Continuation derivation\n参考答案\n(1) Answer-like continuation',
+          ),
+        ]),
+        [
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: const ['Official question'],
+            answerParts: const [],
+            explanationParts: const ['Continuation derivation'],
+            sourcePageIndices: const [1],
+            sourceBlockIds: const ['q1_start', 'q1_continuation'],
+            diagnostics: const [],
+            declaredKind: TextQuestionKind.subjective,
+          ),
+        ],
       );
 
       expect(result.entries, isEmpty);

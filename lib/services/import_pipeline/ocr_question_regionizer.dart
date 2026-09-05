@@ -29,6 +29,22 @@ final class OcrQuestionRegionSource {
   final int? endCodeUnitOffset;
 }
 
+/// Authoritative reference-answer heading boundary produced by the Regionizer.
+///
+/// [headingLineIndex] is zero-based after CR/LF canonicalization. The boundary
+/// carries only source identity and position; it never carries OCR text.
+final class OcrReferenceAnswerSectionBoundary {
+  const OcrReferenceAnswerSectionBoundary({
+    required this.blockId,
+    required this.pageIndex,
+    required this.headingLineIndex,
+  });
+
+  final String blockId;
+  final int pageIndex;
+  final int headingLineIndex;
+}
+
 class OcrQuestionNumberKindRange {
   const OcrQuestionNumberKindRange({
     required this.start,
@@ -49,10 +65,12 @@ class OcrQuestionRegionizerResult {
   const OcrQuestionRegionizerResult({
     required this.regions,
     required this.diagnostics,
+    this.referenceAnswerSectionBoundary,
   });
 
   final List<OcrQuestionRegion> regions;
   final Map<String, dynamic> diagnostics;
+  final OcrReferenceAnswerSectionBoundary? referenceAnswerSectionBoundary;
 }
 
 class OcrQuestionRegion {
@@ -260,6 +278,7 @@ class OcrQuestionRegionizer {
     var currentSectionIsReference = false;
     var referenceSectionDetected = false;
     var referenceSectionCandidateCount = 0;
+    OcrReferenceAnswerSectionBoundary? referenceAnswerSectionBoundary;
 
     final questionCandidateTrace = <Map<String, dynamic>>[];
     var questionCandidateTraceTruncated = false;
@@ -493,6 +512,11 @@ class OcrQuestionRegionizer {
         finishCurrent();
         currentSectionIsReference = true;
         referenceSectionDetected = true;
+        referenceAnswerSectionBoundary ??= OcrReferenceAnswerSectionBoundary(
+          blockId: unit.sourceBlockId,
+          pageIndex: unit.block.pageIndex,
+          headingLineIndex: unit.sourceStartLineIndex,
+        );
         ignoredBlocks.add(unit.block.blockId);
         continue;
       }
@@ -862,6 +886,7 @@ class OcrQuestionRegionizer {
 
     return OcrQuestionRegionizerResult(
       regions: patchedRegions,
+      referenceAnswerSectionBoundary: referenceAnswerSectionBoundary,
       diagnostics: {
         'sourceName': document.sourceName,
         'unitCount': units.length,
@@ -940,6 +965,7 @@ class OcrQuestionRegionizer {
           text: text,
           wasSplit: false,
           startsAtBlockStart: true,
+          sourceStartLineIndex: 0,
           sourceStartCodeUnitOffset: block.text == text ? 0 : null,
           sourceEndCodeUnitOffset: block.text == text ? text.length : null,
         ),
@@ -967,6 +993,7 @@ class OcrQuestionRegionizer {
             text: part,
             wasSplit: true,
             startsAtBlockStart: start == 0,
+            sourceStartLineIndex: _lineIndexAtOffset(text, start),
             sourceStartCodeUnitOffset: block.text == text ? sourceStart : null,
             sourceEndCodeUnitOffset: block.text == text ? sourceEnd : null,
           ),
@@ -975,6 +1002,14 @@ class OcrQuestionRegionizer {
     }
 
     return units;
+  }
+
+  int _lineIndexAtOffset(String text, int offset) {
+    var lineIndex = 0;
+    for (var index = 0; index < offset; index++) {
+      if (text.codeUnitAt(index) == 0x0A) lineIndex++;
+    }
+    return lineIndex;
   }
 
   String _legacyRegionText(OcrBlock block) {
@@ -1710,6 +1745,7 @@ class _OcrTextUnit {
     required this.text,
     required this.wasSplit,
     required this.startsAtBlockStart,
+    required this.sourceStartLineIndex,
     required this.sourceStartCodeUnitOffset,
     required this.sourceEndCodeUnitOffset,
   });
@@ -1719,6 +1755,7 @@ class _OcrTextUnit {
   final String text;
   final bool wasSplit;
   final bool startsAtBlockStart;
+  final int sourceStartLineIndex;
   final int? sourceStartCodeUnitOffset;
   final int? sourceEndCodeUnitOffset;
 }
