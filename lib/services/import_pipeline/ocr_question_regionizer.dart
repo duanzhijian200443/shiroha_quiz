@@ -6,11 +6,13 @@ import 'text_question_region.dart';
 
 enum OcrRegionField { stem, answer, explanation }
 
-/// Structural OCR ownership for one source block occurrence.
+/// Product-content ownership for one OCR source block occurrence.
 ///
 /// The legacy text arrays remain available to the existing text assembler, but
 /// typed bridging uses this identity-bearing sequence instead of recovering a
-/// source part from rendered text.
+/// source part from rendered text. A source consulted only as evidence or
+/// provenance must not be added here unless its materialized content belongs
+/// to the declared question field.
 final class OcrQuestionRegionSource {
   const OcrQuestionRegionSource({
     required this.blockId,
@@ -64,6 +66,7 @@ class OcrQuestionRegion {
     required this.diagnostics,
     this.declaredKind = TextQuestionKind.unknown,
     this.ownedSources = const <OcrQuestionRegionSource>[],
+    this.evidenceOnlySourceBlockIds = const <String>[],
   });
 
   final int number;
@@ -75,6 +78,9 @@ class OcrQuestionRegion {
   final List<String> diagnostics;
   final TextQuestionKind declaredKind;
   final List<OcrQuestionRegionSource> ownedSources;
+
+  /// Question-level provenance consulted without product-field ownership.
+  final List<String> evidenceOnlySourceBlockIds;
 
   String get stemText => _joinParts(stemParts);
   String get answerText => _joinParts(answerParts);

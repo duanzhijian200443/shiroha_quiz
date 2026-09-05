@@ -939,8 +939,7 @@ void main() {
   });
 
   group('Projector provenance degradation contract', () {
-    test('locks the three-block range degradation with the coarse diagnostic',
-        () {
+    test('keeps exact question provenance while content binding is coarse', () {
       final legacy = OcrQuestionRegion(
         number: 1,
         stemParts: const <String>['q1'],
@@ -971,7 +970,14 @@ void main() {
         profile: const OcrLegacyProjectionProfile(),
       );
 
-      expect(projected.question['source_block_ids'], <String>['b1', 'b3']);
+      expect(
+        region.issues.map((issue) => issue.code),
+        contains('legacy_provenance_coarse'),
+      );
+      expect(
+        projected.question['source_block_ids'],
+        <String>['b1', 'b2', 'b3'],
+      );
       expect(projected.question['source_page_indices'], <int>[1, 2]);
     });
 

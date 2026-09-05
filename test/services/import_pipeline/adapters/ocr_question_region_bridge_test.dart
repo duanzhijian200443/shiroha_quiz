@@ -3,6 +3,7 @@ import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
@@ -316,6 +317,34 @@ void main() {
           endCodeUnitOffset: 11,
         ),
       );
+    });
+
+    test('keeps legitimate whole-part ownership with a null SourceSlice', () {
+      final part = _blockPart(
+        blockId: 'whole_part',
+        page: 1,
+        readingOrder: 0,
+        text: 'whole owned stem',
+      );
+      final result = bridge.convert(
+        _region(
+          stemParts: const <String>['whole owned stem'],
+          sourceBlockIds: const <String>['whole_part'],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'whole_part',
+              field: OcrRegionField.stem,
+              startCodeUnitOffset: 0,
+              endCodeUnitOffset: 16,
+            ),
+          ],
+        ),
+        sourceDocument: _document(<SourcePart>[part]),
+      );
+
+      expect(result.fragments.single.part, same(part));
+      expect(result.fragments.single.slice, isNull);
+      expect(_singleText(result.fragments.single), 'whole owned stem');
     });
 
     test('excludes unrelated structural blocks from the region', () {
@@ -769,6 +798,273 @@ void main() {
         result.issues
             .where((issue) => issue.code == 'legacy_provenance_coarse'),
         hasLength(1),
+      );
+    });
+  });
+
+  group('OcrQuestionRegionBridge reference evidence ownership', () {
+    test('confirmed multi-block evidence does not duplicate local answer', () {
+      final merged = const ReferenceAnswerMerger().merge(
+        <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: <String>['synthetic stem'],
+            answerParts: <String>['local answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question', 'local_answer'],
+            diagnostics: <String>[],
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question',
+                field: OcrRegionField.stem,
+                text: 'synthetic stem',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'local answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            1: ReferenceAnswerEntry(
+              questionNumber: 1,
+              answerText: 'local   answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_1',
+                'reference_2',
+                'reference_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final result = bridge.convert(
+        merged,
+        sourceDocument: _document(<SourcePart>[
+          _blockPart(
+            blockId: 'question',
+            page: 1,
+            readingOrder: 0,
+            text: 'synthetic stem',
+          ),
+          _blockPart(
+            blockId: 'local_answer',
+            page: 1,
+            readingOrder: 1,
+            text: 'local answer',
+          ),
+          _blockPart(
+            blockId: 'reference_1',
+            page: 2,
+            readingOrder: 0,
+            text: 'reference evidence one',
+          ),
+          _blockPart(
+            blockId: 'reference_2',
+            page: 2,
+            readingOrder: 1,
+            text: 'reference evidence two',
+          ),
+          _blockPart(
+            blockId: 'reference_3',
+            page: 2,
+            readingOrder: 2,
+            text: 'reference evidence three',
+          ),
+        ]),
+      );
+
+      final answers = result.fragmentsFor(QuestionRegionField.answer);
+      expect(answers, hasLength(1));
+      expect(_singleText(answers.single), 'local answer');
+      expect(
+        result.sourceRefs.map((ref) => ref.start?.blockId).whereType<String>(),
+        const <String>[
+          'question',
+          'local_answer',
+          'reference_1',
+          'reference_2',
+          'reference_3',
+        ],
+      );
+    });
+
+    test('attached multi-block evidence creates one synthetic answer', () {
+      final merged = const ReferenceAnswerMerger().merge(
+        <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: <String>['synthetic stem'],
+            answerParts: <String>[],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question'],
+            diagnostics: <String>['missing_answer'],
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question',
+                field: OcrRegionField.stem,
+                text: 'synthetic stem',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            1: ReferenceAnswerEntry(
+              questionNumber: 1,
+              answerText: 'authoritative reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_1',
+                'reference_2',
+                'reference_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final result = bridge.convert(
+        merged,
+        sourceDocument: _document(<SourcePart>[
+          _blockPart(
+            blockId: 'question',
+            page: 1,
+            readingOrder: 0,
+            text: 'synthetic stem',
+          ),
+          _blockPart(
+            blockId: 'reference_1',
+            page: 2,
+            readingOrder: 0,
+            text: 'reference evidence one',
+          ),
+          _blockPart(
+            blockId: 'reference_2',
+            page: 2,
+            readingOrder: 1,
+            text: 'reference evidence two',
+          ),
+          _blockPart(
+            blockId: 'reference_3',
+            page: 2,
+            readingOrder: 2,
+            text: 'reference evidence three',
+          ),
+        ]),
+      );
+
+      final answers = result.fragmentsFor(QuestionRegionField.answer);
+      expect(answers, hasLength(1));
+      expect(_singleText(answers.single), 'authoritative reference answer');
+      expect(answers.single.sourceRef.start, isNull,
+          reason: 'synthetic answer is not attributed to an evidence block');
+      final draft = const TypedQuestionAssembler().assemble(
+        result,
+        questionId: 'question_1',
+      );
+      final answer = draft.answer as ContentAnswer;
+      expect((answer.content.nodes.single as TextNode).text,
+          'authoritative reference answer');
+      expect(
+        result.sourceRefs.map((ref) => ref.start?.blockId).whereType<String>(),
+        const <String>[
+          'question',
+          'reference_1',
+          'reference_2',
+          'reference_3',
+        ],
+      );
+    });
+
+    test('reference-only structural evidence is not product content', () {
+      final merged = const ReferenceAnswerMerger().merge(
+        <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: <String>['synthetic stem'],
+            answerParts: <String>['local answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question', 'local_answer'],
+            diagnostics: <String>[],
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question',
+                field: OcrRegionField.stem,
+                text: 'synthetic stem',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'local answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            1: ReferenceAnswerEntry(
+              questionNumber: 1,
+              answerText: 'different reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>['reference_asset'],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final result = bridge.convert(
+        merged,
+        sourceDocument: _document(<SourcePart>[
+          _blockPart(
+            blockId: 'question',
+            page: 1,
+            readingOrder: 0,
+            text: 'synthetic stem',
+          ),
+          _blockPart(
+            blockId: 'local_answer',
+            page: 1,
+            readingOrder: 1,
+            text: 'local answer',
+          ),
+          SourceAssetPart(
+            sourceRef: _blockRef(
+              blockId: 'reference_asset',
+              page: 2,
+              readingOrder: 0,
+            ),
+            asset: AssetRef(
+              assetId: 'reference_asset',
+              kind: AssetKind.image,
+            ),
+          ),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(2));
+      expect(
+        result.fragments.map((fragment) => fragment.part),
+        everyElement(isA<SourceContentPart>()),
+      );
+      expect(result.assetRefs, isEmpty);
+      expect(
+        result.sourceRefs.map((ref) => ref.start?.blockId),
+        const <String>['question', 'local_answer', 'reference_asset'],
       );
     });
   });

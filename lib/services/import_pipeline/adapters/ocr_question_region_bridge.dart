@@ -121,6 +121,7 @@ final class OcrQuestionRegionBridge {
       fragments: fragments,
       kindHint: _mapKind(region.effectiveKind),
       issues: issues,
+      sourceRefs: provenance.questionSourceRefs,
       sourceAssetRefs: sourceDocument.assetRefs,
     );
   }
@@ -204,14 +205,22 @@ final class OcrQuestionRegionBridge {
       final remaining = syntheticCounts[entry.field] ?? 0;
       if (remaining == 0) continue;
       syntheticCounts[entry.field] = remaining - 1;
-      fragments.add(_fragment(entry.field, entry.text, provenance.ref));
+      fragments.add(
+        _fragment(
+          entry.field,
+          entry.text,
+          _syntheticRefForEntry(region, entry.field, provenance),
+        ),
+      );
     }
 
     return (typedDegraded: typedDegraded, fragments: fragments);
   }
 
-  final canPairByEncounter = provenance.canBindLegacyParts &&
-      provenance.matchedParts.length == entries.length;
+  final canPairByEncounter =
+      !region.diagnostics.contains('reference_answer_attached') &&
+          provenance.canBindLegacyParts &&
+          provenance.matchedParts.length == entries.length;
   if (canPairByEncounter) {
     // This compatibility branch is reachable only for pure-text regions;
     // structural parts were rejected above unless block-native ownership was
@@ -236,9 +245,25 @@ final class OcrQuestionRegionBridge {
     typedDegraded: provenance.ambiguousBlockIds.isNotEmpty,
     fragments: [
       for (final entry in entries)
-        _fragment(entry.field, entry.text, provenance.ref),
+        _fragment(
+          entry.field,
+          entry.text,
+          _syntheticRefForEntry(region, entry.field, provenance),
+        ),
     ],
   );
+}
+
+SourceRef _syntheticRefForEntry(
+  OcrQuestionRegion region,
+  QuestionRegionField field,
+  _Provenance provenance,
+) {
+  if (field == QuestionRegionField.answer &&
+      region.diagnostics.contains('reference_answer_attached')) {
+    return provenance.documentRef;
+  }
+  return provenance.ref;
 }
 
 QuestionRegionFragment _ownedTextFragment({
@@ -352,6 +377,8 @@ QuestionRegionFragment _fragment(
 final class _Provenance {
   const _Provenance({
     required this.ref,
+    required this.documentRef,
+    required this.questionSourceRefs,
     required this.isCoarse,
     required this.matchedParts,
     required this.declaredParts,
@@ -361,6 +388,8 @@ final class _Provenance {
   });
 
   final SourceRef ref;
+  final SourceRef documentRef;
+  final List<SourceRef> questionSourceRefs;
   final bool isCoarse;
   final List<SourcePart> matchedParts;
   final List<SourcePart> declaredParts;
@@ -378,14 +407,21 @@ _Provenance _resolveProvenance(
   final ownedBlockIds = region.ownedSources
       .map((source) => source.blockId)
       .toList(growable: false);
-  final regionBlockIds = ownedBlockIds.isNotEmpty
-      ? ownedBlockIds
-      : List<String>.unmodifiable(region.sourceBlockIds);
-  final requested = regionBlockIds.toSet();
-  final declaredBlockIds = <String>{
+  final ownedBlockIdSet = ownedBlockIds.toSet();
+  final evidenceBlockIdSet = region.evidenceOnlySourceBlockIds.toSet();
+  final contentBlockIds = <String>[
+    for (final blockId in region.sourceBlockIds)
+      if (!evidenceBlockIdSet.contains(blockId) ||
+          ownedBlockIdSet.contains(blockId))
+        blockId,
+    for (final blockId in ownedBlockIds)
+      if (!region.sourceBlockIds.contains(blockId)) blockId,
+  ];
+  final requested = <String>{
     ...region.sourceBlockIds,
     ...ownedBlockIds,
   };
+  final contentBlockIdSet = contentBlockIds.toSet();
   final partsByBlockId = <String, List<SourcePart>>{};
   final declaredParts = <SourcePart>[];
 
@@ -395,7 +431,7 @@ _Provenance _resolveProvenance(
     if (requested.contains(blockId)) {
       partsByBlockId.putIfAbsent(blockId, () => <SourcePart>[]).add(part);
     }
-    if (declaredBlockIds.contains(blockId)) declaredParts.add(part);
+    if (contentBlockIdSet.contains(blockId)) declaredParts.add(part);
   }
 
   final uniquePartByBlockId = <String, SourcePart>{};
@@ -416,7 +452,7 @@ _Provenance _resolveProvenance(
       if (part != null) matchedParts.add(part);
     }
   } else {
-    final orderedIds = [...regionBlockIds];
+    final orderedIds = [...contentBlockIds];
     orderedIds.sort((left, right) {
       final leftPart = uniquePartByBlockId[left];
       final rightPart = uniquePartByBlockId[right];
@@ -433,12 +469,12 @@ _Provenance _resolveProvenance(
 
   var isCoarse = ambiguousBlockIds.isNotEmpty;
   if (region.ownedSources.isEmpty &&
-      regionBlockIds.toSet().length != regionBlockIds.length) {
+      contentBlockIds.toSet().length != contentBlockIds.length) {
     isCoarse = true;
   }
 
   final refsByBlockId = <String, SourceRef>{};
-  for (final blockId in regionBlockIds) {
+  for (final blockId in requested) {
     final part = uniquePartByBlockId[blockId];
     if (part == null) {
       isCoarse = true;
@@ -447,15 +483,37 @@ _Provenance _resolveProvenance(
     refsByBlockId[blockId] = part.sourceRef;
   }
 
+  final questionSourceRefs = <SourceRef>[];
+  final seenQuestionRefs = <SourceRef>{};
+  for (final blockId in region.sourceBlockIds) {
+    final ref = refsByBlockId[blockId];
+    if (ref != null && seenQuestionRefs.add(ref)) {
+      questionSourceRefs.add(ref);
+    }
+  }
+  if (questionSourceRefs.isEmpty) {
+    questionSourceRefs.add(documentRef);
+    isCoarse = true;
+  }
+
+  final declaredPages = regionPageIndices.toSet();
+  final questionPages = questionSourceRefs
+      .map((sourceRef) => sourceRef.start?.pageNumber)
+      .whereType<int>()
+      .toSet();
+  if (!_setEquals(declaredPages, questionPages)) isCoarse = true;
+
   final encounterOrder = <SourceRef>[];
   final seenRefs = <SourceRef>{};
-  for (final blockId in regionBlockIds) {
+  for (final blockId in contentBlockIds) {
     final ref = refsByBlockId[blockId];
     if (ref != null && seenRefs.add(ref)) encounterOrder.add(ref);
   }
   if (encounterOrder.isEmpty) {
     return _Provenance(
       ref: documentRef,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -465,14 +523,11 @@ _Provenance _resolveProvenance(
     );
   }
 
-  final declaredPages = regionPageIndices.toSet();
-  final matchedPages =
-      encounterOrder.map((sourceRef) => sourceRef.start!.pageNumber).toSet();
-  if (!_setEquals(declaredPages, matchedPages)) isCoarse = true;
-
   if (encounterOrder.length == 1) {
     return _Provenance(
       ref: isCoarse ? documentRef : encounterOrder.single,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: isCoarse,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -491,6 +546,8 @@ _Provenance _resolveProvenance(
   if (isCoarse) {
     return _Provenance(
       ref: documentRef,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -509,6 +566,8 @@ _Provenance _resolveProvenance(
     );
     return _Provenance(
       ref: range,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -519,6 +578,8 @@ _Provenance _resolveProvenance(
   } on FormatException {
     return _Provenance(
       ref: documentRef,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,

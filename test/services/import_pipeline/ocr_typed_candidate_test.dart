@@ -19,6 +19,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_entry.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
@@ -206,6 +207,202 @@ void main() {
       );
       expect(candidate.draft.sourceRefs, hasLength(3),
           reason: 'typed source refs are preserved on the candidate draft');
+    });
+
+    test(
+        'conflicting multi-block reference evidence preserves local answer '
+        'and reaches typedV2', () {
+      final document = _document(
+        'q21_reference_ownership.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block('question_block', 1, 0, 'Synthetic prompt marker 21.'),
+              _block('local_answer', 1, 1, 'Local authoritative answer'),
+            ],
+          ),
+          OcrPage(
+            pageIndex: 2,
+            blocks: <OcrBlock>[
+              _block('reference_block_1', 2, 0, 'Reference evidence one'),
+              _block('reference_block_2', 2, 1, 'Reference evidence two'),
+              _block('reference_block_3', 2, 2, 'Reference evidence three'),
+            ],
+          ),
+        ],
+      );
+      final merged = const ReferenceAnswerMerger().merge(
+        const <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 21,
+            stemParts: <String>['Synthetic prompt marker 21.'],
+            answerParts: <String>['Local authoritative answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question_block', 'local_answer'],
+            diagnostics: <String>[],
+            declaredKind: TextQuestionKind.subjective,
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question_block',
+                field: OcrRegionField.stem,
+                text: 'Synthetic prompt marker 21.',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'Local authoritative answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            21: ReferenceAnswerEntry(
+              questionNumber: 21,
+              answerText: 'Different reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_block_1',
+                'reference_block_2',
+                'reference_block_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[merged]);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[merged],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        legacyQuestions.single['standard_answer'],
+      );
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        const <String>[
+          'question_block',
+          'local_answer',
+          'reference_block_1',
+          'reference_block_2',
+          'reference_block_3',
+        ],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('attached multi-block reference answer is materialized exactly once',
+        () {
+      final document = _document(
+        'attached_reference_ownership.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block('question_block', 1, 0, 'Synthetic prompt marker 22.'),
+            ],
+          ),
+          OcrPage(
+            pageIndex: 2,
+            blocks: <OcrBlock>[
+              _block('reference_block_1', 2, 0, 'Reference evidence one'),
+              _block('reference_block_2', 2, 1, 'Reference evidence two'),
+              _block('reference_block_3', 2, 2, 'Reference evidence three'),
+            ],
+          ),
+        ],
+      );
+      final merged = const ReferenceAnswerMerger().merge(
+        const <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 22,
+            stemParts: <String>['Synthetic prompt marker 22.'],
+            answerParts: <String>[],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question_block'],
+            diagnostics: <String>['missing_answer'],
+            declaredKind: TextQuestionKind.subjective,
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question_block',
+                field: OcrRegionField.stem,
+                text: 'Synthetic prompt marker 22.',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            22: ReferenceAnswerEntry(
+              questionNumber: 22,
+              answerText: 'Authoritative reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_block_1',
+                'reference_block_2',
+                'reference_block_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[merged]);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[merged],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        'Authoritative reference answer',
+      );
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        legacyQuestions.single['standard_answer'],
+      );
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        const <String>[
+          'question_block',
+          'reference_block_1',
+          'reference_block_2',
+          'reference_block_3',
+        ],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
     });
 
     test('ASCII choice production chain reaches typedV2 under allQuestionTypes',
