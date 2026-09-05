@@ -402,7 +402,7 @@ class OcrQuestionRegionizer {
         initialDiagnostics: kindInfo.diagnostics,
       );
       currentField = OcrRegionField.stem;
-      current!.addSource(unit.block);
+      current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
       if (remainingText.isNotEmpty && remainingText != number.toString()) {
         final inlineTransition = _supportsFieldTransition(unit.block)
             ? _readInlineExplanationTransition(remainingText)
@@ -469,7 +469,7 @@ class OcrQuestionRegionizer {
       if (current == null) {
         ignoredBlocks.add(unit.block.blockId);
       } else {
-        current!.addSource(unit.block);
+        current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
         current!.addPart(
           currentField,
           text,
@@ -527,7 +527,7 @@ class OcrQuestionRegionizer {
       final numberedField = _readNumberedFieldTransition(text);
       if (numberedField != null) {
         if (current != null && current!.number == numberedField.number) {
-          current!.addSource(unit.block);
+          current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
           current!.addPart(
             numberedField.field,
             numberedField.remainingText,
@@ -544,6 +544,7 @@ class OcrQuestionRegionizer {
               field: numberedField.field,
               text: numberedField.remainingText,
               block: unit.block,
+              sourceBlockId: unit.sourceBlockId,
             ),
           );
         }
@@ -790,7 +791,7 @@ class OcrQuestionRegionizer {
         continue;
       }
 
-      current!.addSource(unit.block);
+      current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
       final supportsFieldTransition = _supportsFieldTransition(unit.block);
       final transition =
           supportsFieldTransition ? _readFieldTransition(text) : null;
@@ -1593,10 +1594,10 @@ class OcrQuestionRegionizer {
           explanationParts.add(candidate.text);
         }
         pageIndices.add(candidate.block.pageIndex);
-        blockIds.add(candidate.block.blockId);
+        blockIds.add(candidate.sourceBlockId);
         ownedSources.add(
           OcrQuestionRegionSource(
-            blockId: candidate.block.blockId,
+            blockId: candidate.sourceBlockId,
             field: candidate.field,
             text: candidate.text.trim(),
           ),
@@ -1639,9 +1640,9 @@ class _MutableRegion {
   final ownedSources = <OcrQuestionRegionSource>[];
   final diagnostics = <String>[];
 
-  void addSource(OcrBlock block) {
+  void addSource(OcrBlock block, {String? sourceBlockId}) {
     sourcePageIndices.add(block.pageIndex);
-    sourceBlockIds.add(block.blockId);
+    sourceBlockIds.add(sourceBlockId ?? block.blockId);
     if (block.type == 'formula') {
       diagnostics.add('contains_formula_block');
     }
@@ -1757,12 +1758,14 @@ class _NumberedFieldCandidate {
     required this.field,
     required this.text,
     required this.block,
+    required this.sourceBlockId,
   });
 
   final int number;
   final OcrRegionField field;
   final String text;
   final OcrBlock block;
+  final String sourceBlockId;
 }
 
 class _KindInfo {
