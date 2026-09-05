@@ -48,6 +48,24 @@ void main() {
       expect(result.entries[18]!.answerText, 'Second answer');
     });
 
+    test(
+        'starts from a supported heading embedded in the final compound block without question stem',
+        () {
+      final result = extractor.extract(
+        _document([
+          _block('q1', 0, '1. Official question'),
+          _block(
+              'compound', 1, 'Tail explanation\n第二行说明\n2022 模拟试卷参考答案汇总\n安全说明'),
+          _block('a1', 2, '(1) First answer'),
+        ]),
+        _regions(1, lastBlockId: 'compound'),
+      );
+
+      expect(result.diagnostics['referenceSectionDetected'], isTrue);
+      expect(result.entries.keys, [1]);
+      expect(result.entries[1]!.answerText, 'First answer');
+    });
+
     test('does not start from a supported heading followed by prose', () {
       final result = extractor.extract(
         _document([

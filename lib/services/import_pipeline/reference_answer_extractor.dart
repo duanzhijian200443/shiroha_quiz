@@ -26,6 +26,10 @@ class ReferenceAnswerExtractor {
     caseSensitive: false,
   );
 
+  static final RegExp _questionStartPattern = RegExp(
+    r'^\s*(?:第\s*)?([0-9０-９]{1,3})\s*(?:[.．、题]|\s+)',
+  );
+
   ReferenceAnswerIndex extract(
     OcrDocument document,
     List<OcrQuestionRegion> officialRegions,
@@ -58,7 +62,23 @@ class ReferenceAnswerExtractor {
     var sectionDetected = false;
     var stopped = false;
 
-    for (var blockIndex = lastOfficialBlockIndex + 1;
+    final lastBlock = blocks[lastOfficialBlockIndex];
+    final lastBlockHasHeading = lastBlock.text
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n')
+        .any(hasReferenceAnswerSectionHeadingSuffix);
+
+    final startBlockIndex = (lastBlockHasHeading &&
+            !_blockContainsOfficialQuestionStartBeforeHeading(
+              lastBlock,
+              officialNumbers,
+              officialRegions,
+            ))
+        ? lastOfficialBlockIndex
+        : lastOfficialBlockIndex + 1;
+
+    for (var blockIndex = startBlockIndex;
         blockIndex < blocks.length && !stopped;
         blockIndex++) {
       final block = blocks[blockIndex];
@@ -422,6 +442,59 @@ class ReferenceAnswerExtractor {
     final normalized = answer.trim().replaceAll(RegExp(r'\s+'), '');
     if (normalized == '略' || normalized == '证明略') return false;
     return isMeaningfulAnswer(answer);
+  }
+
+  bool _blockContainsOfficialQuestionStartBeforeHeading(
+    OcrBlock block,
+    Set<int> officialNumbers,
+    List<OcrQuestionRegion> officialRegions,
+  ) {
+    final lines =
+        block.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+    for (final line in lines) {
+      if (hasReferenceAnswerSectionHeadingSuffix(line)) {
+        break;
+      }
+      if (_isOfficialQuestionStartLine(
+          line, officialNumbers, officialRegions)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isOfficialQuestionStartLine(
+    String line,
+    Set<int> officialNumbers,
+    List<OcrQuestionRegion> officialRegions,
+  ) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) return false;
+    final match = _questionStartPattern.firstMatch(trimmed);
+    if (match != null) {
+      final number = _parseDigits(match.group(1)!);
+      if (number != null && officialNumbers.contains(number)) {
+        return true;
+      }
+    }
+    final parenMatch = _parenthesizedMarkerPattern.firstMatch(trimmed);
+    if (parenMatch != null && parenMatch.start == 0) {
+      final number = _parseDigits(parenMatch.group(1)!);
+      if (number != null && officialNumbers.contains(number)) {
+        return true;
+      }
+    }
+    for (final region in officialRegions) {
+      for (final stem in region.stemParts) {
+        final stemTrimmed = stem.trim();
+        if (stemTrimmed.isNotEmpty &&
+            (trimmed.startsWith(stemTrimmed) ||
+                stemTrimmed.startsWith(trimmed))) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   int? _parseDigits(String value) {
