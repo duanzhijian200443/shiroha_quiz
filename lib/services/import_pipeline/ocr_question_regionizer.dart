@@ -508,7 +508,7 @@ class OcrQuestionRegionizer {
       if (text.isEmpty) continue;
 
       if (confirmedAcceptedNumbers.isNotEmpty &&
-          _isReferenceSummaryHeading(text)) {
+          _isAuthoritativeReferenceSummaryBoundary(unit, text)) {
         finishCurrent();
         currentSectionIsReference = true;
         referenceSectionDetected = true;
@@ -1403,6 +1403,15 @@ class OcrQuestionRegionizer {
 
   bool _isReferenceSummaryHeading(String text) {
     return hasReferenceAnswerSectionHeadingSuffix(text);
+  }
+
+  bool _isAuthoritativeReferenceSummaryBoundary(
+    _OcrTextUnit unit,
+    String text,
+  ) {
+    if (!_isReferenceSummaryHeading(text)) return false;
+    if (unit.startsAtBlockStart) return true;
+    return isDocumentTitledReferenceAnswerSectionHeading(text);
   }
 
   _SectionHeadingInfo? _readSectionHeading(String text) {

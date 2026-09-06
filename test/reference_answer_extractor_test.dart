@@ -158,6 +158,35 @@ void main() {
       expect(result.diagnostics['referenceSectionDetected'], isFalse);
     });
 
+    test(
+        'production chain does not certify a bare heading inside an official continuation block',
+        () {
+      final document = _document([
+        _block('q1_start', 0, '1. Official question'),
+        _block(
+          'q1_continuation',
+          1,
+          'Continuation derivation\n参考答案\n(1) Answer-like continuation',
+        ),
+      ]);
+
+      final regionized = const OcrQuestionRegionizer().regionize(document);
+      final result = extractor.extract(
+        document,
+        regionized.regions,
+        referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
+      );
+
+      expect(regionized.regions, hasLength(1));
+      expect(
+        regionized.regions.single.sourceBlockIds,
+        containsAllInOrder(['q1_start', 'q1_continuation']),
+      );
+      expect(regionized.referenceAnswerSectionBoundary, isNull);
+      expect(regionized.diagnostics['referenceSectionDetected'], isFalse);
+      expect(result.entries, isEmpty);
+    });
+
     test('does not start before the final official region', () {
       final result = extractor.extract(
         _document([

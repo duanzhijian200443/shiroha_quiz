@@ -19,6 +19,12 @@ const _referenceAnswerStopHeadings = <String>{
   '附录',
 };
 
+const _referenceAnswerDocumentTitleEndings = <String>{
+  '试卷',
+  '试题',
+  '考试',
+};
+
 bool isReferenceAnswerSectionHeading(String text) {
   return _referenceAnswerSectionHeadings.contains(
     normalizeReferenceAnswerHeading(text),
@@ -28,6 +34,22 @@ bool isReferenceAnswerSectionHeading(String text) {
 bool hasReferenceAnswerSectionHeadingSuffix(String text) {
   final normalized = normalizeReferenceAnswerHeading(text);
   return _referenceAnswerSectionHeadings.any(normalized.endsWith);
+}
+
+/// Whether a supported answer heading is qualified by a document title.
+///
+/// This stronger signal is used only when a heading appears after other text
+/// in the same physical OCR block. A bare label there may still belong to the
+/// current question and is not sufficient to end official content ownership.
+bool isDocumentTitledReferenceAnswerSectionHeading(String text) {
+  final normalized = normalizeReferenceAnswerHeading(text);
+  for (final heading in _referenceAnswerSectionHeadings) {
+    if (!normalized.endsWith(heading)) continue;
+    final title = normalized.substring(0, normalized.length - heading.length);
+    if (title.isEmpty) return false;
+    return _referenceAnswerDocumentTitleEndings.any(title.endsWith);
+  }
+  return false;
 }
 
 bool isReferenceAnswerStopHeading(String text) {
