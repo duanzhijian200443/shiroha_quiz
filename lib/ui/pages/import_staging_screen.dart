@@ -2663,6 +2663,14 @@ class _QuestionCard extends StatelessWidget {
             ],
             const SizedBox(height: 12),
             _buildMarkdown(context, question.content),
+            if (question.options.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              for (final option in question.options)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: _buildMarkdown(context, option),
+                ),
+            ],
             const Divider(height: 24),
             if (!question.hasAnswerOrExplanation)
               const _MissingAnswerNotice()
