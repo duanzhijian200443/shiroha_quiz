@@ -314,6 +314,64 @@ void main() {
       }
     });
 
+    test('legacy compatibility retention is frozen before review overwrite',
+        () async {
+      final saved = <Map<String, dynamic>>[];
+      final taskManager = TaskManager.forTesting(
+        saveTask: (taskMap) async {
+          saved.add(Map<String, dynamic>.from(taskMap));
+        },
+      );
+      taskManager.addTask(
+        ImportTask(
+          id: 'legacy-retention-authority',
+          title: 'Synthetic legacy retention authority task',
+          status: TaskStatus.pendingReview,
+          parsedData: <Map<String, dynamic>>[
+            _questionWithEnvelope(),
+          ],
+          diagnostics: <String, dynamic>{
+            TaskManager.keyExplanationRetentionMode:
+                ExplanationRetentionMode.allQuestionTypes.name,
+          },
+        ),
+      );
+
+      final result = await taskManager.saveReviewDraft(
+        'legacy-retention-authority',
+        questions: <Map<String, dynamic>>[
+          _questionWithEnvelope(),
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.saved, isTrue);
+      final current = taskManager.tasks.single;
+      final restored = ImportTask.fromMap(saved.last);
+      for (final task in <ImportTask>[current, restored]) {
+        expect(
+          task.parseExplanationRetentionMode,
+          ExplanationRetentionMode.allQuestionTypes,
+        );
+        expect(
+          task.reviewExplanationRetentionMode,
+          ExplanationRetentionMode.subjectiveOnly,
+        );
+        expect(
+          task.diagnostics?[TaskManager.keyParseExplanationRetentionMode],
+          ExplanationRetentionMode.allQuestionTypes.name,
+        );
+        expect(
+          task.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+          ExplanationRetentionMode.subjectiveOnly.name,
+        );
+        expect(
+          task.diagnostics?[TaskManager.keyExplanationRetentionMode],
+          ExplanationRetentionMode.subjectiveOnly.name,
+        );
+      }
+    });
+
     test('answer distillation state update preserves the envelope', () async {
       final saved = <Map<String, dynamic>>[];
       final taskManager = TaskManager.forTesting(

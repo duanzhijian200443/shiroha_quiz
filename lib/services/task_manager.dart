@@ -1804,12 +1804,13 @@ class TaskManager extends ChangeNotifier {
     if (casResult.status != ReviewDraftCasStatus.saved) return mapped;
     final durableRevision = casResult.durableRevision!;
     task.parsedData = sanitizedQuestions;
-    task.diagnostics = <String, dynamic>{
-      ...?task.diagnostics,
-      keyReviewExplanationRetentionMode: explanationRetentionMode.name,
-      keyExplanationRetentionMode: explanationRetentionMode.name,
-      keyReviewDraftRevision: durableRevision,
-    };
+    task.diagnostics = Map<String, dynamic>.from(
+      ReviewDraftCasPersistence.diagnosticsAfterReviewSave(
+        diagnostics: <String, Object?>{...?task.diagnostics},
+        reviewExplanationRetentionMode: explanationRetentionMode.name,
+        reviewDraftRevision: durableRevision,
+      ),
+    );
     notifyListeners();
     return mapped;
   }
@@ -1844,12 +1845,13 @@ class TaskManager extends ChangeNotifier {
       final task = tasks.singleWhere((candidate) => candidate.id == taskId);
       final next = ImportTask.fromMap(task.toMap());
       next.parsedData = questions;
-      next.diagnostics = <String, dynamic>{
-        ...?next.diagnostics,
-        keyReviewExplanationRetentionMode: explanationRetentionMode,
-        keyExplanationRetentionMode: explanationRetentionMode,
-        keyReviewDraftRevision: expectedRevision + 1,
-      };
+      next.diagnostics = Map<String, dynamic>.from(
+        ReviewDraftCasPersistence.diagnosticsAfterReviewSave(
+          diagnostics: <String, Object?>{...?next.diagnostics},
+          reviewExplanationRetentionMode: explanationRetentionMode,
+          reviewDraftRevision: expectedRevision + 1,
+        ),
+      );
       await saveOverride(next.toMap());
       return ReviewDraftCasResult(
         ReviewDraftCasStatus.saved,

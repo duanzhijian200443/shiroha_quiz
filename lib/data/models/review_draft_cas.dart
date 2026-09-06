@@ -48,4 +48,27 @@ abstract final class ReviewDraftCasPersistence {
   // specific keys above for authority decisions.
   static const String keyExplanationRetentionMode = '_explanationRetentionMode';
   static const int pendingReviewStatusCode = 1;
+
+  /// Builds the diagnostics written by a successful ReviewDraft save.
+  ///
+  /// Legacy tasks may carry only [keyExplanationRetentionMode]. Before that
+  /// compatibility value is updated to the new review choice, freeze it into
+  /// the parse-specific key so immutable parse-time provenance survives the
+  /// metadata upgrade.
+  static Map<String, Object?> diagnosticsAfterReviewSave({
+    required Map<String, Object?> diagnostics,
+    required String reviewExplanationRetentionMode,
+    required int reviewDraftRevision,
+  }) {
+    final next = <String, Object?>{...diagnostics};
+    if (!next.containsKey(keyParseExplanationRetentionMode) &&
+        next.containsKey(keyExplanationRetentionMode)) {
+      next[keyParseExplanationRetentionMode] =
+          next[keyExplanationRetentionMode];
+    }
+    next[keyReviewExplanationRetentionMode] = reviewExplanationRetentionMode;
+    next[keyExplanationRetentionMode] = reviewExplanationRetentionMode;
+    next[keyReviewDraftRevision] = reviewDraftRevision;
+    return next;
+  }
 }
