@@ -461,6 +461,72 @@ void main() {
       }
     });
 
+    test(
+        'rejects year-led prose with non-qualifier phrases following document tokens',
+        () {
+      for (final prose in const <String>[
+        '2024年考试中说明参考答案',
+        '2022年试卷中可参考答案',
+        '2023年考试中关于答案汇总',
+      ]) {
+        expect(
+          isDocumentTitledReferenceAnswerSectionHeading(prose),
+          isFalse,
+          reason: prose,
+        );
+        expect(
+          hasReferenceAnswerSectionHeadingSuffix(prose),
+          isFalse,
+          reason: prose,
+        );
+      }
+    });
+
+    test(
+        'production chain rejects year-led prose following document tokens before an answer heading',
+        () {
+      for (final prose in const <String>[
+        '2024年考试中说明参考答案',
+        '2022年试卷中可参考答案',
+        '2023年考试中关于答案汇总',
+      ]) {
+        final document = _document([
+          _block('q1_start', 0, '1. Official question'),
+          _block(
+            'q1_continuation',
+            1,
+            'Continuation derivation\n$prose\n'
+                '(1) Answer-like continuation',
+          ),
+        ]);
+
+        final regionized = const OcrQuestionRegionizer().regionize(document);
+        final result = extractor.extract(
+          document,
+          regionized.regions,
+          referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
+        );
+
+        expect(regionized.regions, hasLength(1), reason: prose);
+        expect(
+          regionized.regions.single.sourceBlockIds,
+          containsAllInOrder(['q1_start', 'q1_continuation']),
+          reason: prose,
+        );
+        expect(
+          regionized.referenceAnswerSectionBoundary,
+          isNull,
+          reason: prose,
+        );
+        expect(
+          regionized.diagnostics['referenceSectionDetected'],
+          isFalse,
+          reason: prose,
+        );
+        expect(result.entries, isEmpty, reason: prose);
+      }
+    });
+
     test('does not start before the final official region', () {
       final result = extractor.extract(
         _document([

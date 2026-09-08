@@ -29,8 +29,26 @@ const _referenceAnswerScoringSuffixes = <String>{
 
 final _referenceAnswerYearLedDocumentTitle = RegExp(r'^(?:19|20)\d{2}(?:年)?');
 final _referenceAnswerDocumentTokenRegex = RegExp(r'(?:试卷|试题|考试)');
-final _referenceAnswerSubjectQualifierRegex =
-    RegExp(r'^[A-Za-z0-9\u4e00-\u9fa5（）()·\-]+$');
+final _referenceAnswerSubjectQualifierRegex = RegExp(
+  r'^(?:'
+  r'[（(]?(?:[文理工医]科|[甲乙丙]卷|[A-Da-d]卷|[一二三四五1-5I|A-D])[）)]?'
+  r'|'
+  r'(?:（[文理工医]科?）|\([文理工医]科?\)|文科|理科)?'
+  r'(?:'
+  r'数学|语文|英语|外语|外国语|俄语|日语|法语|德语|'
+  r'物理|化学|生物|历史|地理|政治|思想政治理论|'
+  r'文科数学|理科数学|文科综合|理科综合|文综|理综|综合能力|'
+  r'专业基础|专业综合|业务课|专业课|'
+  r'计算机(?:学科)?(?:专业基础)?|'
+  r'管理类(?:联考)?综合能力|经济类(?:联考)?综合能力|'
+  r'教育学(?:专业基础)?|心理学(?:专业基础)?|历史学(?:基础)?|'
+  r'临床医学综合能力|西医综合|中医综合|西医|中医|'
+  r'高等数学|线性代数|概率论(?:与数理统计)?|'
+  r'[\u4e00-\u9fa5]{2,8}(?:学|论|原理|技术|工程|基础|综合|结构)'
+  r')'
+  r'(?:[（(]?(?:[一二三四五1-5I|A-Da-d]+(?:卷)?|[甲乙丙]卷|[文理]科)[）)]?|[一二三四五1-5]|[A-Da-d])?'
+  r')$',
+);
 
 bool isReferenceAnswerSectionHeading(String text) {
   return _referenceAnswerSectionHeadings.contains(
