@@ -324,15 +324,74 @@ bool _hasCompleteStructuralOwnership(
       } on FormatException {
         return false;
       }
-    } else if (previousField != null && previousField != field) {
-      return false;
+    } else {
+      final hasNonTextNode = part is SourceContentPart &&
+          part.content.nodes.any((node) => node is! TextNode);
+      if (hasNonTextNode) {
+        if (previousField != null || !_isWholePartOwnership(part, owned)) {
+          return false;
+        }
+      } else if (previousField != null && previousField != field) {
+        return false;
+      }
     }
     fieldByStructuralId[owned.blockId] = field;
     ownedStructuralIds.add(owned.blockId);
   }
 
-  return ownedStructuralIds.length == declaredStructuralIds.length &&
-      ownedStructuralIds.containsAll(declaredStructuralIds);
+  if (ownedStructuralIds.length != declaredStructuralIds.length ||
+      !ownedStructuralIds.containsAll(declaredStructuralIds)) {
+    return false;
+  }
+
+  for (final part in structuralParts) {
+    if (part is! SourceContentPart) continue;
+    final parsed = mathSourceMap?.parsed(part.content);
+    if (parsed == null) continue;
+    final blockId = part.sourceRef.start?.blockId;
+    final blockIntervals = intervals[blockId] ?? const [];
+    for (var i = 0; i < parsed.content.nodes.length; i++) {
+      final node = parsed.content.nodes[i];
+      if (node is! TextNode) {
+        final nodeRange = parsed.ranges[i];
+        var coveringCount = 0;
+        for (final interval in blockIntervals) {
+          if (interval.start <= nodeRange.start &&
+              interval.end >= nodeRange.end) {
+            coveringCount++;
+          }
+        }
+        if (coveringCount != 1) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+bool _isWholePartOwnership(
+  SourceContentPart part,
+  OcrQuestionRegionSource owned,
+) {
+  final noOffsets =
+      owned.startCodeUnitOffset == null && owned.endCodeUnitOffset == null;
+  final noText = owned.text == null || owned.text!.trim().isEmpty;
+  if (noOffsets && noText) {
+    return true;
+  }
+  if (part.content.nodes.length == 1 &&
+      part.content.nodes.single is BlockMathNode) {
+    final latex = (part.content.nodes.single as BlockMathNode).latex;
+    final isExactOffsets = owned.startCodeUnitOffset == 0 &&
+        owned.endCodeUnitOffset == latex.length;
+    final isExactText = owned.text != null && owned.text!.trim() == latex;
+    if (isExactOffsets && (noText || isExactText)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 ({int start, int end, SourceSlice slice}) _mathOwnership(

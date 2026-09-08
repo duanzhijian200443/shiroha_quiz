@@ -12,6 +12,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_docume
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_entry.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
@@ -1402,6 +1403,207 @@ void main() {
       expect(identical(region.sourceBlockIds, sourceBlockIds), isTrue);
       expect(identical(region.diagnostics, diagnostics), isTrue);
       expect(second, first);
+    });
+  });
+
+  group('OcrQuestionRegionBridge structural math ownership completeness', () {
+    test('uncovered MathNode fails closed without silent drop (Regression A)',
+        () {
+      const raw = r'A $x$ B';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      expect(parsed.nodes, [
+        const TextNode('A '),
+        const InlineMathNode('x'),
+        const TextNode(' B'),
+      ]);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      final region = _region(
+        stemParts: const <String>['A '],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 2,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+      expect(
+        () => const TypedQuestionAssembler().assemble(
+          result,
+          questionId: '22222222-2222-4222-8222-222222222222',
+          mathSourceMap: map,
+        ),
+        throwsA(
+          isA<QuestionRegionUnsupportedException>().having(
+            (error) => error.kindCode,
+            'kindCode',
+            'ocr_structural_ownership',
+          ),
+        ),
+      );
+    });
+
+    test(
+        'complete non-overlapping ownership covering all math nodes remains valid across fields (Regression B)',
+        () {
+      const raw = r'1. $x$ 答案：$y$';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      final boundary = raw.indexOf('答案');
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      final region = _region(
+        stemParts: <String>[raw.substring(0, boundary)],
+        answerParts: <String>[raw.substring(boundary)],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: boundary,
+          ),
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.answer,
+            startCodeUnitOffset: boundary,
+            endCodeUnitOffset: raw.length,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(2));
+      final stemFragment = result.fragments[0];
+      final answerFragment = result.fragments[1];
+      expect(stemFragment.field, QuestionRegionField.stem);
+      expect(answerFragment.field, QuestionRegionField.answer);
+      final stemNodes = materializeQuestionRegionContent(
+        (stemFragment.part as SourceContentPart).content,
+        stemFragment.slice,
+      );
+      final answerNodes = materializeQuestionRegionContent(
+        (answerFragment.part as SourceContentPart).content,
+        answerFragment.slice,
+      );
+      expect(stemNodes.whereType<InlineMathNode>().single.latex, 'x');
+      expect(answerNodes.whereType<InlineMathNode>().single.latex, 'y');
+      final originalMath = parsed.nodes.whereType<InlineMathNode>().toList();
+      expect(
+        identical(
+            stemNodes.whereType<InlineMathNode>().single, originalMath[0]),
+        isTrue,
+      );
+      expect(
+        identical(
+            answerNodes.whereType<InlineMathNode>().single, originalMath[1]),
+        isTrue,
+      );
+    });
+
+    test(
+        'missing map with partial mixed-math ownership fails closed (Regression C)',
+        () {
+      final mixedContent = RichContent(nodes: <ContentNode>[
+        const TextNode('A '),
+        const InlineMathNode('x'),
+        const TextNode(' B'),
+      ]);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: mixedContent,
+        ),
+      ]);
+      final region = _region(
+        stemParts: const <String>['A '],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 2,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: null,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+    });
+
+    test(
+        'missing map with proven whole-part formula ownership remains valid (Regression D)',
+        () {
+      final formulaPart = SourceContentPart(
+        sourceRef: _blockRef(blockId: 'formula', page: 1, readingOrder: 0),
+        content: RichContent(nodes: <ContentNode>[const BlockMathNode('x^2')]),
+        role: SourceContentRole.formula,
+      );
+      final document = _document(<SourcePart>[formulaPart]);
+      final region = _region(
+        stemParts: const <String>['x^2'],
+        sourceBlockIds: const <String>['formula'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'formula',
+            field: OcrRegionField.stem,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: null,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.part, same(formulaPart));
+      expect(result.fragments.single.slice, isNull);
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [const BlockMathNode('x^2')]);
     });
   });
 }
