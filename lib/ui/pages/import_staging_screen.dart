@@ -213,9 +213,23 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     for (final entry in _snapshotProvenance.entries) {
       if (!snapshotCodec.containsEnvelope(entry.value)) continue;
       try {
-        _presentationSnapshots[entry.key] = snapshotCodec.decodeRequired(
+        final snapshot = snapshotCodec.decodeRequired(
           entry.value[TypedReviewSnapshotCodec.mapKey],
         );
+        // Mirror TypedReviewResultBuilder's static identity/baseline checks.
+        // Compare the frozen baseline, not the user's editable current type.
+        final baselineType = switch (snapshot.draft.kind) {
+          QuestionKind.singleChoice => 0,
+          QuestionKind.fillBlank => 2,
+          QuestionKind.shortAnswer => 3,
+        };
+        if (_reviewItemIds[entry.key] != snapshot.reviewItemId ||
+            snapshot.baselineLegacy.questionNumber !=
+                snapshot.draft.questionNumber ||
+            snapshot.baselineLegacy.type != baselineType) {
+          continue;
+        }
+        _presentationSnapshots[entry.key] = snapshot;
       } on TypedReviewSnapshotException {
         // Keep the original envelope for the existing fail-closed commit gate.
       }

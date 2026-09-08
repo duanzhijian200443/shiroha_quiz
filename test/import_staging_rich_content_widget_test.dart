@@ -11,6 +11,8 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
@@ -50,14 +52,19 @@ class _Resolver implements ContentAssetResolver {
 
 RichContent _text(String value) => RichContent(nodes: [TextNode(value)]);
 
-Map<String, dynamic> _question() {
+Map<String, dynamic> _question({
+  String itemId = _itemId,
+  String questionId = _questionId,
+  String sourceId = _sourceId,
+  String localAssetId = 'image_1',
+}) {
   final draft = QuestionDraftV2(
-    questionId: _questionId,
+    questionId: questionId,
     kind: QuestionKind.fillBlank,
     questionNumber: 1,
     stem: RichContent(nodes: [
       const TextNode('Synthetic stem'),
-      ImageNode(sourceId: _sourceId, localAssetId: 'image_1'),
+      ImageNode(sourceId: sourceId, localAssetId: localAssetId),
       TableNode(
           structure: TableStructure(rows: [
         TableRow(cells: [
@@ -72,12 +79,14 @@ Map<String, dynamic> _question() {
     ],
     answer: ContentAnswer(content: _text('**answer**')),
     explanation: _text('**explanation**'),
-    sourceRefs: [SourceRef.document(sourceId: _sourceId)],
+    sourceRefs: [SourceRef.document(sourceId: sourceId)],
     assetRefs: [
       SourcedAssetRef(
-        sourceId: _sourceId,
+        sourceId: sourceId,
         asset: AssetRef(
-            assetId: 'image_1', kind: AssetKind.image, mimeType: 'image/png'),
+            assetId: localAssetId,
+            kind: AssetKind.image,
+            mimeType: 'image/png'),
       ),
     ],
   );
@@ -98,11 +107,11 @@ Map<String, dynamic> _question() {
     'standard_answer': baseline.standardAnswer,
     'explanation': baseline.explanation,
     'raw_explanation': baseline.explanation,
-    TaskManager.keyReviewItemId: _itemId,
+    TaskManager.keyReviewItemId: itemId,
     TypedReviewSnapshotCodec.mapKey: const TypedReviewSnapshotCodec().encode(
       TypedReviewSnapshot(
-          reviewItemId: _itemId,
-          questionId: _questionId,
+          reviewItemId: itemId,
+          questionId: questionId,
           draft: draft,
           baselineLegacy: baseline),
     ),
@@ -132,6 +141,71 @@ Finder _typedText(String text) => find.byWidgetPredicate(
     (widget) => widget is RichContentRenderer && widget.content == _text(text));
 
 void main() {
+  for (final defect in ['identity', 'questionNumber', 'type']) {
+    testWidgets(
+        'static snapshot $defect mismatch keeps legacy without asset reads',
+        (tester) async {
+      final question = _question();
+      if (defect == 'identity') {
+        // Both valid envelopes have identical lossy legacy image projections.
+        final other = _question(
+          itemId: '44444444-4444-4444-8444-000000000002',
+          questionId: '22222222-2222-4222-8222-000000000002',
+          sourceId: '11111111-1111-4111-8111-000000000002',
+          localAssetId: 'image_2',
+        );
+        const codec = TypedReviewSnapshotCodec();
+        final original =
+            codec.decodeRequired(question[TypedReviewSnapshotCodec.mapKey]);
+        final swapped =
+            codec.decodeRequired(other[TypedReviewSnapshotCodec.mapKey]);
+        expect(original.baselineLegacy, swapped.baselineLegacy);
+        expect(original.draft.assetRefs, isNot(swapped.draft.assetRefs));
+        question[TypedReviewSnapshotCodec.mapKey] =
+            other[TypedReviewSnapshotCodec.mapKey];
+      } else {
+        final envelope = question[TypedReviewSnapshotCodec.mapKey] as Map;
+        final baseline = envelope['baselineLegacy'] as Map;
+        baseline[defect] = defect == 'questionNumber' ? 2 : 3;
+      }
+      final envelope = question[TypedReviewSnapshotCodec.mapKey];
+      // A strict decode succeeds; failure belongs to static binding checks.
+      const TypedReviewSnapshotCodec().decodeRequired(envelope);
+      final before = jsonEncode(question);
+      expect(
+        () => TypedReviewResultBuilder().build(
+          inputs: [
+            TypedReviewCommitInput(
+              reviewItemId: question[TaskManager.keyReviewItemId] as String,
+              envelope: envelope,
+              currentDraft: QuestionDraft.fromMap(question),
+            )
+          ],
+          taskId: 'synthetic-task',
+          attemptToken: 'synthetic-attempt',
+          attemptNumber: 1,
+        ),
+        throwsA(isA<TypedReviewCommitException>().having(
+          (error) => error.failure,
+          'failure',
+          defect == 'identity'
+              ? TypedReviewCommitFailure.identityMismatch
+              : TypedReviewCommitFailure.baselineMismatch,
+        )),
+      );
+      final resolver = _Resolver();
+      await _open(tester, question, resolver);
+      expect(find.byType(RichContentRenderer), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(resolver.calls, isEmpty);
+      expect(find.textContaining('Synthetic stem', findRichText: true),
+          findsOneWidget);
+      expect(find.textContaining('[图片]', findRichText: true), findsOneWidget);
+      expect(jsonEncode(question), before);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('typed staging resolves image and renders table and all fields',
       (tester) async {
     final resolver = _Resolver();
