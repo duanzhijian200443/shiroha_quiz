@@ -1,0 +1,235 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart' hide TableRow, TableCell;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
+import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
+import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
+
+const _sourceId = '11111111-1111-4111-8111-000000000001';
+const _questionId = '22222222-2222-4222-8222-000000000001';
+const _itemId = '44444444-4444-4444-8444-000000000001';
+
+class _Folders implements FolderQueryPort {
+  @override
+  Future<List<String>> listAvailableFolders() async => [];
+}
+
+class _Resolver implements ContentAssetResolver {
+  final calls = <(String, String)>[];
+
+  @override
+  List<int>? resolveAssetBytes({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      throw StateError('Synchronous resolution is forbidden');
+
+  @override
+  Future<List<int>?> resolveAssetBytesAsync({
+    required String sourceId,
+    required String localAssetId,
+  }) async {
+    calls.add((sourceId, localAssetId));
+    return base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+      '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    );
+  }
+}
+
+RichContent _text(String value) => RichContent(nodes: [TextNode(value)]);
+
+Map<String, dynamic> _question() {
+  final draft = QuestionDraftV2(
+    questionId: _questionId,
+    kind: QuestionKind.fillBlank,
+    questionNumber: 1,
+    stem: RichContent(nodes: [
+      const TextNode('Synthetic stem'),
+      ImageNode(sourceId: _sourceId, localAssetId: 'image_1'),
+      TableNode(
+          structure: TableStructure(rows: [
+        TableRow(cells: [
+          TableCell(content: _text('cell left')),
+          TableCell(content: _text('cell right')),
+        ]),
+      ])),
+    ]),
+    options: [
+      QuestionOption(optionId: 'a', label: 'A', content: _text('**option A**')),
+      QuestionOption(optionId: 'b', label: 'B', content: _text('**option B**')),
+    ],
+    answer: ContentAnswer(content: _text('**answer**')),
+    explanation: _text('**explanation**'),
+    sourceRefs: [SourceRef.document(sourceId: _sourceId)],
+    assetRefs: [
+      SourcedAssetRef(
+        sourceId: _sourceId,
+        asset: AssetRef(
+            assetId: 'image_1', kind: AssetKind.image, mimeType: 'image/png'),
+      ),
+    ],
+  );
+  final baseline = LegacyReviewBaseline(
+    type: 2,
+    questionNumber: 1,
+    content: 'Synthetic stem\n[图片]\n<table><tr><td>cell left</td>'
+        '<td>cell right</td></tr></table>',
+    options: ['A. **option A**', 'B. **option B**'],
+    standardAnswer: '**answer**',
+    explanation: '**explanation**',
+  );
+  return {
+    'type': baseline.type,
+    'question_number': 1,
+    'content': baseline.content,
+    'options': baseline.options,
+    'standard_answer': baseline.standardAnswer,
+    'explanation': baseline.explanation,
+    'raw_explanation': baseline.explanation,
+    TaskManager.keyReviewItemId: _itemId,
+    TypedReviewSnapshotCodec.mapKey: const TypedReviewSnapshotCodec().encode(
+      TypedReviewSnapshot(
+          reviewItemId: _itemId,
+          questionId: _questionId,
+          draft: draft,
+          baselineLegacy: baseline),
+    ),
+  };
+}
+
+Future<void> _open(WidgetTester tester, Map<String, dynamic> question,
+    _Resolver resolver) async {
+  await tester.binding.setSurfaceSize(const Size(1000, 2200));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(MaterialApp(
+    home: ContentAssetResolverScope(
+      resolver: resolver,
+      child: ImportStagingScreen(
+        parsedQuestions: [question],
+        folderQuery: _Folders(),
+        taskManager: TaskManager.forTesting(),
+        initialExplanationRetentionMode:
+            ExplanationRetentionMode.allQuestionTypes,
+      ),
+    ),
+  ));
+  await tester.pumpAndSettle();
+}
+
+Finder _typedText(String text) => find.byWidgetPredicate(
+    (widget) => widget is RichContentRenderer && widget.content == _text(text));
+
+void main() {
+  testWidgets('typed staging resolves image and renders table and all fields',
+      (tester) async {
+    final resolver = _Resolver();
+    await _open(tester, _question(), resolver);
+    expect(find.byType(Image), findsOneWidget);
+    expect(resolver.calls, [(_sourceId, 'image_1')]);
+    expect(find.text('[图片]'), findsNothing);
+    expect(find.byKey(const ValueKey('rich-table-anchor-0-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('rich-table-anchor-0-1')), findsOneWidget);
+    expect(find.textContaining('<table>', findRichText: true), findsNothing);
+    for (final text in [
+      '**option A**',
+      '**option B**',
+      '**answer**',
+      '**explanation**'
+    ]) {
+      expect(_typedText(text), findsOneWidget);
+      expect(find.textContaining(text, findRichText: true), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final field in [
+    'content',
+    'options',
+    'standard_answer',
+    'explanation'
+  ]) {
+    testWidgets(
+        'saved $field edit displays current value and preserves other fields',
+        (tester) async {
+      final question = _question();
+      question[field] = field == 'options'
+          ? ['A. current edit', 'B. **option B**']
+          : 'current edit';
+      await _open(tester, question, _Resolver());
+      expect(find.textContaining('current edit', findRichText: true),
+          findsOneWidget);
+      expect(find.byType(Image),
+          field == 'content' ? findsNothing : findsOneWidget);
+      expect(_typedText('**option A**'),
+          field == 'options' ? findsNothing : findsOneWidget);
+      expect(_typedText('**option B**'), findsOneWidget);
+      expect(_typedText('**answer**'),
+          field == 'standard_answer' ? findsNothing : findsOneWidget);
+      expect(_typedText('**explanation**'),
+          field == 'explanation' ? findsNothing : findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('live explanation discard and restore respects current field',
+      (tester) async {
+    await _open(tester, _question(), _Resolver());
+    await tester
+        .tap(find.byKey(const ValueKey('question-explanation-discard-0')));
+    await tester.pumpAndSettle();
+    expect(_typedText('**explanation**'), findsNothing);
+    expect(find.textContaining('**explanation**', findRichText: true),
+        findsNothing);
+    expect(find.byType(Image), findsOneWidget);
+    expect(_typedText('**answer**'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('question-explanation-keep-0')));
+    await tester.pumpAndSettle();
+    expect(_typedText('**explanation**'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('legacy-only task retains markdown display', (tester) async {
+    final question = _question()..remove(TypedReviewSnapshotCodec.mapKey);
+    question['content'] = '**legacy stem**';
+    final resolver = _Resolver();
+    await _open(tester, question, resolver);
+    expect(find.byType(RichContentRenderer), findsNothing);
+    expect(
+        find.textContaining('legacy stem', findRichText: true), findsOneWidget);
+    expect(find.textContaining('**legacy stem**', findRichText: true),
+        findsNothing);
+    expect(resolver.calls, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('invalid snapshot falls back without mutating its envelope',
+      (tester) async {
+    final question = _question();
+    final envelope = question[TypedReviewSnapshotCodec.mapKey] as Map;
+    envelope['schemaVersion'] = 999;
+    question['content'] = 'safe current stem';
+    final before = jsonEncode(question);
+    final resolver = _Resolver();
+    await _open(tester, question, resolver);
+    expect(find.byType(RichContentRenderer), findsNothing);
+    expect(find.textContaining('safe current stem', findRichText: true),
+        findsOneWidget);
+    expect(jsonEncode(question), before);
+    expect(resolver.calls, isEmpty);
+    expect(() => const TypedReviewSnapshotCodec().decodeRequired(envelope),
+        throwsA(isA<TypedReviewSnapshotException>()));
+    expect(tester.takeException(), isNull);
+  });
+}

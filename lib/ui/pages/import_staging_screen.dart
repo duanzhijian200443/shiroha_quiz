@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../domain/content/rich_content.dart';
+import '../../domain/question/question_draft_v2.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../services/task_manager.dart';
@@ -34,6 +36,7 @@ import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
+import '../widgets/structured_content_renderer.dart';
 
 class ImportStagingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> parsedQuestions;
@@ -101,6 +104,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   final Map<int, String> _answerDistillationReasons = {};
   final Map<int, String> _reviewItemIds = {};
   final Map<int, Map<String, dynamic>> _snapshotProvenance = {};
+  final Map<int, TypedReviewSnapshot> _presentationSnapshots = {};
   Future<void> _reviewDraftOperationTail = Future<void>.value();
   final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
       const SubjectiveAnswerDistillationPolicy();
@@ -204,6 +208,18 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         .toList();
     final snapshotNormalizationNeeded =
         _restoreReviewDraftMarkers(widget.parsedQuestions);
+    // Presentation decoding never repairs metadata or changes commit routing.
+    const snapshotCodec = TypedReviewSnapshotCodec();
+    for (final entry in _snapshotProvenance.entries) {
+      if (!snapshotCodec.containsEnvelope(entry.value)) continue;
+      try {
+        _presentationSnapshots[entry.key] = snapshotCodec.decodeRequired(
+          entry.value[TypedReviewSnapshotCodec.mapKey],
+        );
+      } on TypedReviewSnapshotException {
+        // Keep the original envelope for the existing fail-closed commit gate.
+      }
+    }
     final extractedLocally = _applyLocalSubjectiveAnswers();
     _reapplyExplanationPolicy();
     _refreshReviewState();
@@ -1993,6 +2009,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                         : null,
                                     child: _QuestionCard(
                                       item: item,
+                                      snapshot: _presentationSnapshots[
+                                          item.originalIndex],
                                       index: visibleItem.canonicalIndex,
                                       issues: visibleItem.issues,
                                       explanationRetained:
@@ -2444,6 +2462,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 class _QuestionCard extends StatelessWidget {
   const _QuestionCard({
     required this.item,
+    this.snapshot,
     required this.index,
     required this.issues,
     required this.explanationRetained,
@@ -2456,6 +2475,7 @@ class _QuestionCard extends StatelessWidget {
   });
 
   final ImportReviewItem item;
+  final TypedReviewSnapshot? snapshot;
   final int index;
   final List<ImportReviewIssue> issues;
   final bool explanationRetained;
@@ -2472,6 +2492,15 @@ class _QuestionCard extends StatelessWidget {
     final question = item.draft;
     final standardAnswer = question.standardAnswer.trim();
     final explanation = question.explanation.trim();
+    final baseline = snapshot?.baselineLegacy;
+    final typed = snapshot?.draft;
+    final typedAnswer = question.standardAnswer == baseline?.standardAnswer &&
+            typed?.answer is ContentAnswer
+        ? (typed!.answer as ContentAnswer).content
+        : null;
+    final typedExplanation = question.explanation == baseline?.explanation
+        ? typed?.explanation
+        : null;
     final metadataAvailable = item.metadataProjectionState ==
         ImportReviewMetadataProjectionState.available;
     final metadataUnavailable = item.metadataProjectionState ==
@@ -2662,27 +2691,57 @@ class _QuestionCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _buildMarkdown(context, question.content),
+            _buildContent(
+              context,
+              question.content,
+              question.content == baseline?.content ? typed?.stem : null,
+            ),
             if (question.options.isNotEmpty) ...[
               const SizedBox(height: 8),
-              for (final option in question.options)
+              for (var i = 0; i < question.options.length; i++)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: _buildMarkdown(context, option),
+                  child: baseline != null &&
+                          typed != null &&
+                          question.options.length == baseline.options.length &&
+                          question.options.length == typed.options.length &&
+                          question.options[i] == baseline.options[i]
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${typed.options[i].label}. '),
+                            Expanded(
+                              child: _buildContent(context, question.options[i],
+                                  typed.options[i].content),
+                            ),
+                          ],
+                        )
+                      : _buildMarkdown(context, question.options[i]),
                 ),
             ],
             const Divider(height: 24),
-            if (!question.hasAnswerOrExplanation)
+            if (!question.hasAnswerOrExplanation &&
+                typedAnswer == null &&
+                typedExplanation == null)
               const _MissingAnswerNotice()
             else
               _AnswerBlock(
                 standardAnswer: standardAnswer,
                 explanation: explanation,
+                typedAnswer: typedAnswer,
+                typedExplanation: typedExplanation,
               ),
           ],
         ),
       ),
     );
+  }
+
+  static Widget _buildContent(
+      BuildContext context, String text, RichContent? content) {
+    return content == null
+        ? _buildMarkdown(context, text)
+        : RichContentRenderer(content: content, fontSize: 14);
   }
 
   static Widget _buildMarkdown(BuildContext context, String text) {
@@ -2843,10 +2902,14 @@ class _AnswerBlock extends StatelessWidget {
   const _AnswerBlock({
     required this.standardAnswer,
     required this.explanation,
+    this.typedAnswer,
+    this.typedExplanation,
   });
 
   final String standardAnswer;
   final String explanation;
+  final RichContent? typedAnswer;
+  final RichContent? typedExplanation;
 
   @override
   Widget build(BuildContext context) {
@@ -2858,18 +2921,19 @@ class _AnswerBlock extends StatelessWidget {
           style: TextStyle(fontSize: 12, color: Colors.grey),
         ),
         const SizedBox(height: 4),
-        _QuestionCard._buildMarkdown(
+        _QuestionCard._buildContent(
           context,
           standardAnswer.isEmpty ? '无' : standardAnswer,
+          typedAnswer,
         ),
-        if (explanation.isNotEmpty) ...[
+        if (explanation.isNotEmpty || typedExplanation != null) ...[
           const SizedBox(height: 12),
           const Text(
             '解析：',
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
           const SizedBox(height: 4),
-          _QuestionCard._buildMarkdown(context, explanation),
+          _QuestionCard._buildContent(context, explanation, typedExplanation),
         ],
       ],
     );
