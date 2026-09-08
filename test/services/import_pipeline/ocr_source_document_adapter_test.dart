@@ -62,9 +62,11 @@ void main() {
       expect(converted.documentRef.displayLabel, 'synthetic.pdf');
       expect(converted.parts.map(_formalText), <String?>[
         '  合成正文\n保持换行与 Unicode：甲  ',
-        r'\[x^2 + y^2 = 1\]',
+        null,
         '第二页标题',
       ]);
+      expect((converted.parts[1] as SourceContentPart).content.nodes,
+          [const BlockMathNode('x^2 + y^2 = 1')]);
       expect(
         converted.parts.map((part) => (part as SourceContentPart).role),
         <SourceContentRole>[
@@ -353,9 +355,13 @@ void main() {
         converted.parts.map(_formalText),
         <String?>[
           for (var index = 0; index < labels.length; index++)
-            'formal-text-$index',
+            if (index == 4 || index == 5) null else 'formal-text-$index',
         ],
       );
+      for (final index in [4, 5]) {
+        expect((converted.parts[index] as SourceContentPart).content.nodes,
+            [BlockMathNode('formal-text-$index')]);
+      }
       expect(
         converted.issues.where(
           (issue) => issue.code == 'ocr_structure_unsupported',

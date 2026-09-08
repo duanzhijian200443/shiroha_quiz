@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart' hide TableRow, TableCell;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
@@ -17,6 +18,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_field_poli
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
+import 'services/import_pipeline/ocr_math_production_test.dart' as production;
 
 const _sourceId = '11111111-1111-4111-8111-000000000001';
 const _questionId = '22222222-2222-4222-8222-000000000001';
@@ -141,6 +143,17 @@ Finder _typedText(String text) => find.byWidgetPredicate(
     (widget) => widget is RichContentRenderer && widget.content == _text(text));
 
 void main() {
+  testWidgets('OCR production snapshot renders math in staging',
+      (tester) async {
+    final question = production.buildMathFixture().questions.single;
+    final before = jsonEncode(question);
+    await _open(tester, question, _Resolver());
+    expect(find.byType(RichContentRenderer), findsWidgets);
+    expect(find.byType(Math), findsWidgets);
+    expect(find.textContaining(r'$x_n$'), findsNothing);
+    expect(tester.takeException(), isNull);
+    expect(jsonEncode(question), before);
+  });
   for (final defect in ['identity', 'questionNumber', 'type']) {
     testWidgets(
         'static snapshot $defect mismatch keeps legacy without asset reads',

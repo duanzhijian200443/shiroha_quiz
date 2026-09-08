@@ -6,6 +6,7 @@ import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
 import '../ocr_question_regionizer.dart';
+import '../ocr_rich_content_parser.dart';
 import '../text_question_region.dart';
 
 const _ocrKnownDiagnostics = <String>{
@@ -30,6 +31,7 @@ final class OcrQuestionRegionBridge {
   QuestionRegion convert(
     OcrQuestionRegion region, {
     required SourceDocument sourceDocument,
+    OcrMathSourceMap? mathSourceMap,
   }) {
     final provenance = _resolveProvenance(
       sourceDocument,
@@ -37,7 +39,7 @@ final class OcrQuestionRegionBridge {
       region.sourcePageIndices,
     );
     final ref = provenance.ref;
-    final builtFragments = _buildFragments(region, provenance);
+    final builtFragments = _buildFragments(region, provenance, mathSourceMap);
     final fragments = builtFragments.fragments;
     final issues = <ImportIssue>{};
 
@@ -130,6 +132,7 @@ final class OcrQuestionRegionBridge {
 ({List<QuestionRegionFragment> fragments, bool typedDegraded}) _buildFragments(
   OcrQuestionRegion region,
   _Provenance provenance,
+  OcrMathSourceMap? mathSourceMap,
 ) {
   final entries = <({QuestionRegionField field, String text})>[];
 
@@ -146,7 +149,7 @@ final class OcrQuestionRegionBridge {
 
   final hasStructuralPart = provenance.declaredParts.any(_hasTypedStructure);
   if (hasStructuralPart &&
-      !_hasCompleteStructuralOwnership(region, provenance)) {
+      !_hasCompleteStructuralOwnership(region, provenance, mathSourceMap)) {
     return (
       typedDegraded: true,
       fragments: [
@@ -185,7 +188,12 @@ final class OcrQuestionRegionBridge {
         QuestionRegionFragment(
           field: field,
           part: part,
-          slice: _sliceForOwnership(part, owned),
+          slice: part is SourceContentPart &&
+                  mathSourceMap?.parsed(part.content) != null &&
+                  part.content.nodes.any((node) => node is! TextNode)
+              ? _mathOwnership(mathSourceMap!.parsed(part.content)!, owned)
+                  .slice
+              : _sliceForOwnership(part, owned),
         ),
       );
     }
@@ -210,6 +218,7 @@ final class OcrQuestionRegionBridge {
           entry.field,
           entry.text,
           _syntheticRefForEntry(region, entry.field, provenance),
+          mathSourceMap,
         ),
       );
     }
@@ -249,6 +258,7 @@ final class OcrQuestionRegionBridge {
           entry.field,
           entry.text,
           _syntheticRefForEntry(region, entry.field, provenance),
+          mathSourceMap,
         ),
     ],
   );
@@ -276,6 +286,7 @@ QuestionRegionFragment _ownedTextFragment({
 bool _hasCompleteStructuralOwnership(
   OcrQuestionRegion region,
   _Provenance provenance,
+  OcrMathSourceMap? mathSourceMap,
 ) {
   final structuralParts = provenance.declaredParts
       .where(_hasTypedStructure)
@@ -293,18 +304,56 @@ bool _hasCompleteStructuralOwnership(
 
   final ownedStructuralIds = <String>{};
   final fieldByStructuralId = <String, QuestionRegionField>{};
+  final intervals = <String, List<({int start, int end})>>{};
   for (final owned in region.ownedSources) {
     final part = provenance.uniquePartByBlockId[owned.blockId];
     if (part == null || !_hasTypedStructure(part)) continue;
     final field = _mapField(owned.field);
     final previousField = fieldByStructuralId[owned.blockId];
-    if (previousField != null && previousField != field) return false;
+    final parsed =
+        part is SourceContentPart ? mathSourceMap?.parsed(part.content) : null;
+    if (parsed != null) {
+      try {
+        final interval = _mathOwnership(parsed, owned);
+        final previous = intervals.putIfAbsent(owned.blockId, () => []);
+        if (previous.any((other) =>
+            interval.start < other.end && other.start < interval.end)) {
+          return false;
+        }
+        previous.add((start: interval.start, end: interval.end));
+      } on FormatException {
+        return false;
+      }
+    } else if (previousField != null && previousField != field) {
+      return false;
+    }
     fieldByStructuralId[owned.blockId] = field;
     ownedStructuralIds.add(owned.blockId);
   }
 
   return ownedStructuralIds.length == declaredStructuralIds.length &&
       ownedStructuralIds.containsAll(declaredStructuralIds);
+}
+
+({int start, int end, SourceSlice slice}) _mathOwnership(
+  OcrParsedContent parsed,
+  OcrQuestionRegionSource owned,
+) {
+  var start = owned.startCodeUnitOffset;
+  var end = owned.endCodeUnitOffset;
+  if (start == null || end == null) {
+    final text = owned.text;
+    if (text == null || text.isEmpty) {
+      throw const FormatException('Missing OCR math ownership.');
+    }
+    final matches = RegExp(RegExp.escape(text)).allMatches(parsed.original);
+    if (matches.length != 1) {
+      throw const FormatException('Ambiguous OCR math ownership.');
+    }
+    start = matches.single.start;
+    end = matches.single.end;
+  }
+  return (start: start, end: end, slice: parsed.slice(start, end));
 }
 
 bool _hasTypedStructure(SourcePart part) {
@@ -364,12 +413,14 @@ QuestionRegionFragment _fragment(
   QuestionRegionField field,
   String text,
   SourceRef ref,
+  OcrMathSourceMap? mathSourceMap,
 ) {
   return QuestionRegionFragment(
     field: field,
     part: SourceContentPart(
       sourceRef: ref,
-      content: RichContent(nodes: <ContentNode>[TextNode(text)]),
+      content: mathSourceMap?.parse(text) ??
+          RichContent(nodes: <ContentNode>[TextNode(text)]),
     ),
   );
 }

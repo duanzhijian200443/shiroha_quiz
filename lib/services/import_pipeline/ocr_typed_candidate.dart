@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_regi
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
@@ -193,6 +194,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
 
   String? sourceId;
   final SourceDocument sourceDocument;
+  final mathSourceMap = OcrMathSourceMap();
   final createdAssetIds = <String>{};
   ContentAssetCandidateLease? candidateAssetLease;
   try {
@@ -201,7 +203,10 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     sourceDocument = OcrSourceDocumentAdapter(
       assetStore: assetStore,
       onAssetCreated: createdAssetIds.add,
-    ).convert(document, sourceId: generatedSourceId, displayLabel: null);
+    ).convert(document,
+        sourceId: generatedSourceId,
+        displayLabel: null,
+        mathSourceMap: mathSourceMap);
     candidateAssetLease = ContentAssetCandidateLease(
       sourceId: generatedSourceId,
       localAssetIds: createdAssetIds,
@@ -226,16 +231,19 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
       final typedRegion = const OcrQuestionRegionBridge().convert(
         region,
         sourceDocument: sourceDocument,
+        mathSourceMap: mathSourceMap,
       );
       final questionId = uuidV4Factory();
       final draft = const TypedQuestionAssembler().assemble(
         typedRegion,
         questionId: questionId,
+        mathSourceMap: mathSourceMap,
       );
       final projected = const QuestionDraftV2LegacyProjector().project(
         draft: draft,
         region: typedRegion,
         profile: const OcrLegacyProjectionProfile(),
+        mathSourceMap: mathSourceMap,
         explanationRetentionMode: explanationRetentionMode,
       );
       _emitTypedCandidateConstructionTelemetry(

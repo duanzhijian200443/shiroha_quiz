@@ -7,6 +7,7 @@ import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
 import 'ocr_choice_answer_marker.dart';
+import 'ocr_rich_content_parser.dart';
 import 'ocr_text_normalization.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
@@ -37,14 +38,15 @@ final class QuestionRegionUnsupportedException implements Exception {
 /// deterministic policy that mirrors the authoritative legacy assemblers:
 /// inline answer/explanation labels are removed, `A`-`D` options are split
 /// off, and the leading question number is stripped. When the stem contains
-/// non-text nodes (math or raw fallback), extraction is skipped entirely so
-/// the content is preserved verbatim.
+/// non-text nodes without an OCR source mapping, extraction is skipped. OCR
+/// math is atomic in the extraction view and restored by node identity.
 final class TypedQuestionAssembler {
   const TypedQuestionAssembler();
 
   QuestionDraftV2 assemble(
     QuestionRegion region, {
     required String questionId,
+    OcrMathSourceMap? mathSourceMap,
   }) {
     final nodesByField = <QuestionRegionField, List<ContentNode>>{};
     final lastFragmentWasPlainText = <QuestionRegionField, bool>{};
@@ -62,7 +64,10 @@ final class TypedQuestionAssembler {
           }
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
-          final plainText = _isPlainTextFragment(nodes);
+          final plainText = _isPlainTextFragment(nodes) ||
+              (mathSourceMap != null &&
+                  nodes.every((node) =>
+                      node is TextNode || mathSourceMap.rawMath(node) != null));
           if (target.isNotEmpty &&
               (fragment.field == QuestionRegionField.explanation ||
                   (lastFragmentWasPlainText[fragment.field] == true &&
@@ -126,9 +131,17 @@ final class TypedQuestionAssembler {
     final explanationNodes =
         nodesByField[QuestionRegionField.explanation] ?? const <ContentNode>[];
 
-    final stemText = _joinedText(stemNodes);
-    final answerText = _joinedText(answerNodes);
-    final explanationText = _joinedText(explanationNodes);
+    final view = mathSourceMap == null
+        ? null
+        : OcrMathExtractionView(
+            [...stemNodes, ...answerNodes, ...explanationNodes], mathSourceMap);
+    String? text(List<ContentNode> nodes) =>
+        view == null ? _joinedText(nodes) : view.text(nodes);
+    List<ContentNode> restore(String value) =>
+        view == null ? <ContentNode>[TextNode(value)] : view.restore(value);
+    final stemText = text(stemNodes);
+    final answerText = text(answerNodes);
+    final explanationText = text(explanationNodes);
 
     var stemContent = RichContent(nodes: stemNodes);
     var extractedOptions = const <_ExtractedOption>[];
@@ -142,10 +155,9 @@ final class TypedQuestionAssembler {
         final fallback = stemText.trim();
         stemContent = fallback.isEmpty
             ? RichContent(nodes: const <ContentNode>[])
-            : RichContent(nodes: <ContentNode>[TextNode(fallback)]);
+            : RichContent(nodes: restore(fallback));
       } else if (extraction.stem != stemText) {
-        stemContent =
-            RichContent(nodes: <ContentNode>[TextNode(extraction.stem)]);
+        stemContent = RichContent(nodes: restore(extraction.stem));
       }
       extractedOptions = extraction.options;
       inlineAnswer = extraction.inlineAnswer;
@@ -157,7 +169,7 @@ final class TypedQuestionAssembler {
         QuestionOption(
           optionId: option.key,
           label: option.key,
-          content: RichContent(nodes: <ContentNode>[TextNode(option.value)]),
+          content: RichContent(nodes: restore(option.value)),
         ),
     ];
 
@@ -170,14 +182,14 @@ final class TypedQuestionAssembler {
     RichContent? explanationContent;
     if (explanationText != null && explanationText.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: _boundedTextNodes(
+        nodes: _boundedContentTextNodes(restore(
           _stripFieldLabels(normalizeOcrText(explanationText)),
-        ),
+        )),
       );
     } else if (inlineExplanation != null &&
         inlineExplanation.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: _boundedTextNodes(inlineExplanation.trim()),
+        nodes: _boundedContentTextNodes(restore(inlineExplanation.trim())),
       );
     } else if (explanationNodes.isNotEmpty && explanationText == null) {
       explanationContent = RichContent(
@@ -214,7 +226,7 @@ final class TypedQuestionAssembler {
         if (answerText != null || sourceAnswerText != null) {
           answer = ContentAnswer(
             content: RichContent(
-              nodes: <ContentNode>[TextNode(normalizedAnswer)],
+              nodes: restore(normalizedAnswer),
             ),
           );
         } else {
@@ -224,14 +236,14 @@ final class TypedQuestionAssembler {
         answer = answerText != null
             ? ContentAnswer(
                 content: RichContent(
-                  nodes: <ContentNode>[TextNode(normalizedAnswer)],
+                  nodes: restore(normalizedAnswer),
                 ),
               )
             : answerNodes.isNotEmpty
                 ? ContentAnswer(content: RichContent(nodes: answerNodes))
                 : ContentAnswer(
                     content: RichContent(
-                      nodes: <ContentNode>[TextNode(normalizedAnswer)],
+                      nodes: restore(normalizedAnswer),
                     ),
                   );
       }
