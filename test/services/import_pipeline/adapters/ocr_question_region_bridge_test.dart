@@ -1407,7 +1407,131 @@ void main() {
   });
 
   group('OcrQuestionRegionBridge structural math ownership completeness', () {
-    test('uncovered MathNode fails closed without silent drop (Regression A)',
+    test(
+        'real Q1 geometry with multi-block sourceIds and partial math ownership (Regression 1)',
+        () {
+      final map = OcrMathSourceMap();
+      final blocks = <({String id, int order, String text})>[
+        (
+          id: 'p001_b0002',
+          order: 2,
+          text: r'1. 设 $ \lim_{x\rightarrow 1}\frac{f(x)}{\ln x}=1 $ ，则（ ）',
+        ),
+        (
+          id: 'p001_b0003',
+          order: 3,
+          text: r'A. $ f(1)=0. $',
+        ),
+        (
+          id: 'p001_b0004',
+          order: 4,
+          text: r'B. $ \lim_{x\rightarrow 1}f(x)=0. $',
+        ),
+        (
+          id: 'p001_b0005',
+          order: 5,
+          text: r'C. $ f^{\prime}(1)=1. $',
+        ),
+        (
+          id: 'p001_b0006',
+          order: 6,
+          text: r'D. $ \lim_{x\rightarrow 1}f^{\prime}(x)=1. $',
+        ),
+        (
+          id: 'p001_b0007',
+          order: 7,
+          text: '本题主要考查极限与导数的概念.',
+        ),
+        (
+          id: 'p001_b0008',
+          order: 8,
+          text:
+              r'本题中关于 f(x)的条件相当有限，仅有 $ \lim_{x\to 1}\frac{f(x)}{\ln x}=1 $这一个条件.',
+        ),
+        (
+          id: 'p001_b0009',
+          order: 9,
+          text:
+              r'当 $ x\to 1 $时， $ \lim_{x\to 1}\ln x=0 $ ，故分子 f(x)满足 $ \lim_{x\to 1}f(x)=0 $ .应选B.',
+        ),
+        (
+          id: 'p001_b0010',
+          order: 10,
+          text: r'洛必达法则：$$\lim _ {x \rightarrow 1} \frac {f (x)}{\ln x} = 1$$',
+        ),
+        (
+          id: 'p001_b0011',
+          order: 11,
+          text: r'考虑分段函数 $ f ( x ) $ 在 $ x=1 $ 处不可导.',
+        ),
+        (
+          id: 'p001_b0012',
+          order: 12,
+          text: r'不难发现， $ x=1 $ 是间断点， $ \lim_{x\to 1}f^{\prime}(x) $ 不存在.',
+        ),
+      ];
+
+      final parts = <SourcePart>[
+        for (final b in blocks)
+          SourceContentPart(
+            sourceRef: _blockRef(blockId: b.id, page: 1, readingOrder: b.order),
+            content: map.parse(b.text),
+          ),
+      ];
+
+      final stemText = r'设 $ \lim_{x\rightarrow 1}\frac{f(x)}{\ln x}=1 $ ，则（ ）';
+      final region = OcrQuestionRegion(
+        number: 1,
+        stemParts: <String>[stemText],
+        answerParts: const <String>[],
+        explanationParts: const <String>[],
+        sourcePageIndices: const <int>[1],
+        sourceBlockIds: blocks.map((b) => b.id).toList(growable: false),
+        diagnostics: const <String>['contains_formula_block'],
+        ownedSources: <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'p001_b0002',
+            field: OcrRegionField.stem,
+            text: stemText,
+          ),
+        ],
+      );
+
+      final result = bridge.convert(
+        region,
+        sourceDocument: _document(parts),
+        mathSourceMap: map,
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+      expect(result.fragments.single.part, same(parts.first));
+      expect(result.fragments.single.slice, isNotNull);
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      final inlineMath = materialized.whereType<InlineMathNode>().toList();
+      expect(inlineMath, hasLength(1));
+      expect(inlineMath.single.latex,
+          r' \lim_{x\rightarrow 1}\frac{f(x)}{\ln x}=1 ');
+      expect(
+        identical(
+          inlineMath.single,
+          (parts.first as SourceContentPart)
+              .content
+              .nodes
+              .whereType<InlineMathNode>()
+              .single,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+        'unowned inline math outside slice is legal for sliceable paragraph (Regression 2)',
         () {
       const raw = r'A $x$ B';
       final map = OcrMathSourceMap();
@@ -1441,26 +1565,95 @@ void main() {
         mathSourceMap: map,
       );
       expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+      expect(result.fragments.single.part, same(document.parts.single));
+      expect(result.fragments.single.slice, isNotNull);
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [const TextNode('A ')]);
+    });
+
+    test('owned math remains atomic and preserves identity (Regression 3)', () {
+      const raw = r'A $x$ B';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      final region = _region(
+        stemParts: const <String>[r'A $x$'],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 5,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [const TextNode('A '), const InlineMathNode('x')]);
+      expect(
+        identical(materialized[1], parsed.nodes[1]),
+        isTrue,
+      );
+    });
+
+    test('math interior slice must fail closed (Regression 4)', () {
+      const raw = r'A $x$ B';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      // MathNode 'x' is at [2, 5). Offset 3 is interior.
+      final region = _region(
+        stemParts: const <String>[r'A $'],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 3,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
       expect(
         result.fragments.single.part,
         isA<UnsupportedSourcePart>().having(
           (part) => part.kindCode,
           'kindCode',
           'ocr_structural_ownership',
-        ),
-      );
-      expect(
-        () => const TypedQuestionAssembler().assemble(
-          result,
-          questionId: '22222222-2222-4222-8222-222222222222',
-          mathSourceMap: map,
-        ),
-        throwsA(
-          isA<QuestionRegionUnsupportedException>().having(
-            (error) => error.kindCode,
-            'kindCode',
-            'ocr_structural_ownership',
-          ),
         ),
       );
     });

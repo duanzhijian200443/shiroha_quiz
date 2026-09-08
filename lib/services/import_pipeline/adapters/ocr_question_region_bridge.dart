@@ -294,25 +294,60 @@ bool _hasCompleteStructuralOwnership(
   if (structuralParts.isEmpty) return true;
   if (region.ownedSources.isEmpty) return false;
 
-  final declaredStructuralIds = <String>{};
-  for (final part in structuralParts) {
-    final blockId = part.sourceRef.start?.blockId;
-    if (blockId == null || !declaredStructuralIds.add(blockId)) {
+  final atomicParts = provenance.declaredParts
+      .where(_isAtomicStructuralPart)
+      .toList(growable: false);
+  if (atomicParts.isNotEmpty) {
+    final declaredAtomicIds = <String>{};
+    for (final part in atomicParts) {
+      final blockId = part.sourceRef.start?.blockId;
+      if (blockId == null || !declaredAtomicIds.add(blockId)) {
+        return false;
+      }
+    }
+
+    final ownedAtomicIds = <String>{};
+    final fieldByAtomicId = <String, QuestionRegionField>{};
+    for (final owned in region.ownedSources) {
+      final part = provenance.uniquePartByBlockId[owned.blockId];
+      if (part == null || !_isAtomicStructuralPart(part)) continue;
+      final field = _mapField(owned.field);
+      final previousField = fieldByAtomicId[owned.blockId];
+      if (part is SourceContentPart) {
+        if (previousField != null || !_isWholePartOwnership(part, owned)) {
+          return false;
+        }
+      } else if (previousField != null && previousField != field) {
+        return false;
+      }
+      fieldByAtomicId[owned.blockId] = field;
+      ownedAtomicIds.add(owned.blockId);
+    }
+
+    if (ownedAtomicIds.length != declaredAtomicIds.length ||
+        !ownedAtomicIds.containsAll(declaredAtomicIds)) {
       return false;
     }
   }
 
-  final ownedStructuralIds = <String>{};
-  final fieldByStructuralId = <String, QuestionRegionField>{};
   final intervals = <String, List<({int start, int end})>>{};
+  final fieldByTextualId = <String, QuestionRegionField>{};
   for (final owned in region.ownedSources) {
     final part = provenance.uniquePartByBlockId[owned.blockId];
-    if (part == null || !_hasTypedStructure(part)) continue;
-    final field = _mapField(owned.field);
-    final previousField = fieldByStructuralId[owned.blockId];
-    final parsed =
-        part is SourceContentPart ? mathSourceMap?.parsed(part.content) : null;
-    if (parsed != null) {
+    if (part == null || _isAtomicStructuralPart(part)) continue;
+    if (part is! SourceContentPart) continue;
+    final hasMath = part.content.nodes.any((node) => node is! TextNode);
+    if (!hasMath) continue;
+
+    final parsed = mathSourceMap?.parsed(part.content);
+    if (parsed == null) {
+      final field = _mapField(owned.field);
+      final previousField = fieldByTextualId[owned.blockId];
+      if (previousField != null || !_isWholePartOwnership(part, owned)) {
+        return false;
+      }
+      fieldByTextualId[owned.blockId] = field;
+    } else {
       try {
         final interval = _mathOwnership(parsed, owned);
         final previous = intervals.putIfAbsent(owned.blockId, () => []);
@@ -324,44 +359,31 @@ bool _hasCompleteStructuralOwnership(
       } on FormatException {
         return false;
       }
-    } else {
-      final hasNonTextNode = part is SourceContentPart &&
-          part.content.nodes.any((node) => node is! TextNode);
-      if (hasNonTextNode) {
-        if (previousField != null || !_isWholePartOwnership(part, owned)) {
-          return false;
-        }
-      } else if (previousField != null && previousField != field) {
-        return false;
-      }
     }
-    fieldByStructuralId[owned.blockId] = field;
-    ownedStructuralIds.add(owned.blockId);
   }
 
-  if (ownedStructuralIds.length != declaredStructuralIds.length ||
-      !ownedStructuralIds.containsAll(declaredStructuralIds)) {
-    return false;
-  }
-
-  for (final part in structuralParts) {
-    if (part is! SourceContentPart) continue;
-    final parsed = mathSourceMap?.parsed(part.content);
-    if (parsed == null) continue;
-    final blockId = part.sourceRef.start?.blockId;
-    final blockIntervals = intervals[blockId] ?? const [];
+  for (final blockId in intervals.keys) {
+    final part = provenance.uniquePartByBlockId[blockId] as SourceContentPart;
+    final parsed = mathSourceMap!.parsed(part.content)!;
+    final blockIntervals = intervals[blockId]!;
     for (var i = 0; i < parsed.content.nodes.length; i++) {
       final node = parsed.content.nodes[i];
       if (node is! TextNode) {
         final nodeRange = parsed.ranges[i];
         var coveringCount = 0;
         for (final interval in blockIntervals) {
-          if (interval.start <= nodeRange.start &&
-              interval.end >= nodeRange.end) {
-            coveringCount++;
+          final intersects =
+              interval.start < nodeRange.end && nodeRange.start < interval.end;
+          if (intersects) {
+            if (interval.start <= nodeRange.start &&
+                nodeRange.end <= interval.end) {
+              coveringCount++;
+            } else {
+              return false;
+            }
           }
         }
-        if (coveringCount != 1) {
+        if (coveringCount > 1) {
           return false;
         }
       }
@@ -369,6 +391,13 @@ bool _hasCompleteStructuralOwnership(
   }
 
   return true;
+}
+
+bool _isAtomicStructuralPart(SourcePart part) {
+  return switch (part) {
+    SourceAssetPart() || SourceTablePart() || UnsupportedSourcePart() => true,
+    SourceContentPart(:final role) => role == SourceContentRole.formula,
+  };
 }
 
 bool _isWholePartOwnership(
