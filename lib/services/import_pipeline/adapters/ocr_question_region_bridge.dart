@@ -396,7 +396,7 @@ bool _hasCompleteStructuralOwnership(
 bool _isAtomicStructuralPart(SourcePart part) {
   return switch (part) {
     SourceAssetPart() || SourceTablePart() || UnsupportedSourcePart() => true,
-    SourceContentPart(:final role) => role == SourceContentRole.formula,
+    SourceContentPart() => false,
   };
 }
 

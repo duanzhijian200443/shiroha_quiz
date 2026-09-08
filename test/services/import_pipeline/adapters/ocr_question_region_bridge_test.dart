@@ -1798,6 +1798,51 @@ void main() {
       );
       expect(materialized, [const BlockMathNode('x^2')]);
     });
+
+    test(
+        'formula role content part with text prefix preserves structural ownership (Regression E)',
+        () {
+      const raw = r'洛必达法则：$$\lim_{x\to 1}f(x)=1$$';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw, formula: true);
+      final formulaPart = SourceContentPart(
+        sourceRef: _blockRef(blockId: 'p001_b0010', page: 1, readingOrder: 10),
+        content: parsed,
+        role: SourceContentRole.formula,
+      );
+      final document = _document(<SourcePart>[formulaPart]);
+      final region = _region(
+        stemParts: const <String>[raw],
+        sourceBlockIds: const <String>['p001_b0010'],
+        diagnostics: const <String>['contains_formula_block'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'p001_b0010',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 29,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+      expect(result.fragments.single.part, same(formulaPart));
+      expect(result.fragments.single.slice, isNotNull);
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [
+        const TextNode('洛必达法则：'),
+        const BlockMathNode(r'\lim_{x\to 1}f(x)=1'),
+      ]);
+    });
   });
 }
 
