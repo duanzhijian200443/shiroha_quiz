@@ -282,19 +282,35 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
               : const <String>[],
         ),
       );
-    } on QuestionRegionUnsupportedException {
+    } on QuestionRegionUnsupportedException catch (e) {
+      _emitTypedCandidateRejection(
+        questionNumber: region.number,
+        kindCode: e.kindCode,
+        failure: 'unsupportedStructure',
+        field: e.field.name,
+      );
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
         candidateAssetLease: candidateAssetLease,
       );
-    } on LegacyProjectionUnsupportedException {
+    } on LegacyProjectionUnsupportedException catch (_) {
+      _emitTypedCandidateRejection(
+        questionNumber: region.number,
+        kindCode: 'legacy_projection_unsupported',
+        failure: 'projectionUnsupported',
+      );
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.projectionUnsupported,
         candidateAssetLease: candidateAssetLease,
       );
     } catch (_) {
+      _emitTypedCandidateRejection(
+        questionNumber: region.number,
+        kindCode: 'internal_error',
+        failure: 'internalError',
+      );
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.internalError,
@@ -307,6 +323,38 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     candidates: candidates,
     candidateAssetLease: candidateAssetLease,
   );
+}
+
+/// Handler used by tests to capture typed candidate rejection telemetry.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    typedCandidateRejectionHandlerForTesting;
+
+void _emitTypedCandidateRejection({
+  required int questionNumber,
+  required String kindCode,
+  required String failure,
+  String? field,
+}) {
+  try {
+    final telemetry = <String, Object?>{
+      'question': questionNumber,
+      'questionNumber': questionNumber,
+      'kind': kindCode,
+      'kindCode': kindCode,
+      'failure': failure,
+      if (field != null) 'field': field,
+    };
+    typedCandidateRejectionHandlerForTesting?.call(telemetry);
+    final fieldSuffix = field != null ? ' field=$field' : '';
+    AppLogger.warning(
+      'Typed candidate question rejected: question=$questionNumber kind=$kindCode failure=$failure$fieldSuffix',
+      module: 'ImportTypedCandidate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
 }
 
 /// Handler used by tests to capture the redacted construction boundary between
@@ -730,6 +778,11 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       contentAssetAuthority: contentAssetAuthority,
     );
     if (failure != null) {
+      _emitTypedCandidateRejection(
+        questionNumber: candidate.questionNumber,
+        kindCode: 'candidate_structure_failure',
+        failure: failure.name,
+      );
       return _ineligible(
         finalQuestions,
         ocrTypedCandidateFailureReason(failure),

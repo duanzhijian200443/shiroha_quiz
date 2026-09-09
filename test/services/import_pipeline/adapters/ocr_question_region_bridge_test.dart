@@ -1844,6 +1844,50 @@ void main() {
       ]);
     });
   });
+
+  group('structural ownership diagnostic telemetry', () {
+    test('emits diagnostic reason code and block details on failure (Test A)',
+        () {
+      final emitted = <Map<String, Object?>>[];
+      structuralOwnershipRejectionHandlerForTesting = emitted.add;
+      addTearDown(() {
+        structuralOwnershipRejectionHandlerForTesting = null;
+      });
+
+      final assetPart = SourceAssetPart(
+        sourceRef: _blockRef(blockId: 'p003_b0142', page: 1, readingOrder: 0),
+        asset: AssetRef(
+          assetId: 'asset_1',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+        ),
+      );
+      final region = bridge.convert(
+        _region(
+          stemParts: const <String>['figure'],
+          sourceBlockIds: const <String>['p003_b0142'],
+        ),
+        sourceDocument: _document(<SourcePart>[assetPart]),
+      );
+
+      expect(region.fragments, hasLength(1));
+      expect(
+        region.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+
+      expect(emitted, hasLength(1));
+      final record = emitted.single;
+      expect(record['reasonCode'], 'atomic_declared_not_owned');
+      expect(record['questionNumber'], 1);
+      expect(record['blockId'], 'p003_b0142');
+      expect(record['partType'], 'SourceAssetPart');
+    });
+  });
 }
 
 OcrQuestionRegion _region({

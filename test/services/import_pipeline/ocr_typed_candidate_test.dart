@@ -1755,6 +1755,81 @@ void main() {
         expect(event['boundedAllowed'], isFalse);
       });
     });
+
+    group('unsupported structure diagnostic telemetry', () {
+      test(
+          'records questionNumber and kindCode when candidate construction throws (Test B)',
+          () {
+        final emitted = <Map<String, Object?>>[];
+        typedCandidateRejectionHandlerForTesting = emitted.add;
+        addTearDown(() {
+          typedCandidateRejectionHandlerForTesting = null;
+        });
+
+        final document = _tableDocument();
+        final regionized = _regionizer.regionize(document);
+        expect(regionized.regions, hasLength(1));
+        final batch = buildOcrTypedCandidateBatch(
+          document: document,
+          regions: regionized.regions,
+          legacyQuestions: _legacyQuestions(regionized.regions),
+          uuidV4Factory: _uuidSequence(),
+        );
+
+        expect(batch.candidates, isEmpty);
+        expect(
+          batch.failure,
+          OcrTypedCandidateFailure.unsupportedStructure,
+        );
+        expect(emitted, hasLength(1));
+        final record = emitted.single;
+        expect(record['questionNumber'], regionized.regions.single.number);
+        expect(record['kindCode'], 'ocr_table');
+        expect(record['failure'], 'unsupportedStructure');
+      });
+
+      test(
+          'records questionNumber and ocr_structural_ownership when structural part is not owned',
+          () {
+        final emitted = <Map<String, Object?>>[];
+        typedCandidateRejectionHandlerForTesting = emitted.add;
+        addTearDown(() {
+          typedCandidateRejectionHandlerForTesting = null;
+        });
+
+        final document = _mergedExplanationTableDocument();
+        final regionized = _regionizer.regionize(document);
+        expect(regionized.regions, hasLength(1));
+        final unownedRegion = OcrQuestionRegion(
+          number: regionized.regions.single.number,
+          stemParts: regionized.regions.single.stemParts,
+          answerParts: regionized.regions.single.answerParts,
+          explanationParts: regionized.regions.single.explanationParts,
+          sourcePageIndices: regionized.regions.single.sourcePageIndices,
+          sourceBlockIds: regionized.regions.single.sourceBlockIds,
+          diagnostics: regionized.regions.single.diagnostics,
+          declaredKind: regionized.regions.single.declaredKind,
+          ownedSources: const <OcrQuestionRegionSource>[],
+        );
+        final batch = buildOcrTypedCandidateBatch(
+          document: document,
+          regions: <OcrQuestionRegion>[unownedRegion],
+          legacyQuestions: _legacyQuestions(<OcrQuestionRegion>[unownedRegion]),
+          uuidV4Factory: _uuidSequence(),
+        );
+
+        expect(batch.candidates, isEmpty);
+        expect(
+          batch.failure,
+          OcrTypedCandidateFailure.unsupportedStructure,
+        );
+        expect(emitted, hasLength(1));
+        final record = emitted.single;
+        expect(record['questionNumber'], unownedRegion.number);
+        expect(record['kindCode'], 'ocr_structural_ownership');
+        expect(record['failure'], 'unsupportedStructure');
+      });
+    });
   });
 }
 

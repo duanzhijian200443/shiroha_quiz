@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+import '../../../core/observability/app_logger.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
 import '../../../domain/import/import_issue.dart';
@@ -24,6 +27,52 @@ const _ocrKnownDiagnostics = <String>{
 };
 
 const _structuralOwnershipUnsupportedKind = 'ocr_structural_ownership';
+
+/// Handler used by tests to capture structural ownership rejection telemetry.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    structuralOwnershipRejectionHandlerForTesting;
+
+void _emitStructuralOwnershipRejection({
+  required String reasonCode,
+  required int questionNumber,
+  String? blockId,
+  String? partType,
+  String? role,
+  String? field,
+  int? startCodeUnitOffset,
+  int? endCodeUnitOffset,
+  bool? ownedTextPresent,
+}) {
+  try {
+    final telemetry = <String, Object?>{
+      'reasonCode': reasonCode,
+      'reason': reasonCode,
+      'questionNumber': questionNumber,
+      if (blockId != null) 'blockId': blockId,
+      if (partType != null) 'partType': partType,
+      if (role != null) 'role': role,
+      if (field != null) 'field': field,
+      'startCodeUnitOffset': startCodeUnitOffset,
+      'endCodeUnitOffset': endCodeUnitOffset,
+      'ownedTextPresent': ownedTextPresent ?? false,
+    };
+    structuralOwnershipRejectionHandlerForTesting?.call(telemetry);
+    final buffer = StringBuffer('OCR structural ownership rejected: ')
+      ..write('reason=$reasonCode');
+    if (blockId != null) buffer.write(' block=$blockId');
+    if (partType != null) buffer.write(' part=$partType');
+    if (field != null) buffer.write(' field=$field');
+    buffer.write(' start=$startCodeUnitOffset end=$endCodeUnitOffset');
+    AppLogger.warning(
+      buffer.toString(),
+      module: 'ImportStructuralOwnership',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
 
 final class OcrQuestionRegionBridge {
   const OcrQuestionRegionBridge();
@@ -292,7 +341,20 @@ bool _hasCompleteStructuralOwnership(
       .where(_hasTypedStructure)
       .toList(growable: false);
   if (structuralParts.isEmpty) return true;
-  if (region.ownedSources.isEmpty) return false;
+  if (region.ownedSources.isEmpty) {
+    final first = structuralParts.first;
+    _emitStructuralOwnershipRejection(
+      reasonCode: _isAtomicStructuralPart(first)
+          ? 'atomic_declared_not_owned'
+          : 'structural_declared_not_owned',
+      questionNumber: region.number,
+      blockId: first.sourceRef.start?.blockId,
+      partType: first.runtimeType.toString(),
+      role: first is SourceContentPart ? first.role.name : null,
+      ownedTextPresent: false,
+    );
+    return false;
+  }
 
   final atomicParts = provenance.declaredParts
       .where(_isAtomicStructuralPart)
@@ -301,7 +363,25 @@ bool _hasCompleteStructuralOwnership(
     final declaredAtomicIds = <String>{};
     for (final part in atomicParts) {
       final blockId = part.sourceRef.start?.blockId;
-      if (blockId == null || !declaredAtomicIds.add(blockId)) {
+      if (blockId == null) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'atomic_missing_block_id',
+          questionNumber: region.number,
+          partType: part.runtimeType.toString(),
+          role: part is SourceContentPart ? part.role.name : null,
+          ownedTextPresent: false,
+        );
+        return false;
+      }
+      if (!declaredAtomicIds.add(blockId)) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'atomic_duplicate_declared_block',
+          questionNumber: region.number,
+          blockId: blockId,
+          partType: part.runtimeType.toString(),
+          role: part is SourceContentPart ? part.role.name : null,
+          ownedTextPresent: false,
+        );
         return false;
       }
     }
@@ -314,10 +394,45 @@ bool _hasCompleteStructuralOwnership(
       final field = _mapField(owned.field);
       final previousField = fieldByAtomicId[owned.blockId];
       if (part is SourceContentPart) {
-        if (previousField != null || !_isWholePartOwnership(part, owned)) {
+        if (previousField != null) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'atomic_multiple_owner',
+            questionNumber: region.number,
+            blockId: owned.blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            field: field.name,
+            startCodeUnitOffset: owned.startCodeUnitOffset,
+            endCodeUnitOffset: owned.endCodeUnitOffset,
+            ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+          );
+          return false;
+        }
+        if (!_isWholePartOwnership(part, owned)) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'atomic_partial_owner',
+            questionNumber: region.number,
+            blockId: owned.blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            field: field.name,
+            startCodeUnitOffset: owned.startCodeUnitOffset,
+            endCodeUnitOffset: owned.endCodeUnitOffset,
+            ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+          );
           return false;
         }
       } else if (previousField != null && previousField != field) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'atomic_multiple_owner',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          field: field.name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
         return false;
       }
       fieldByAtomicId[owned.blockId] = field;
@@ -326,6 +441,24 @@ bool _hasCompleteStructuralOwnership(
 
     if (ownedAtomicIds.length != declaredAtomicIds.length ||
         !ownedAtomicIds.containsAll(declaredAtomicIds)) {
+      final missingBlockId = declaredAtomicIds
+          .firstWhere((id) => !ownedAtomicIds.contains(id), orElse: () => '');
+      final isAmbiguous = provenance.ambiguousBlockIds.contains(missingBlockId);
+      final missingPart = provenance.uniquePartByBlockId[missingBlockId] ??
+          (atomicParts.any((p) => p.sourceRef.start?.blockId == missingBlockId)
+              ? atomicParts.firstWhere(
+                  (p) => p.sourceRef.start?.blockId == missingBlockId)
+              : null);
+      _emitStructuralOwnershipRejection(
+        reasonCode: isAmbiguous
+            ? 'structural_ambiguous_block'
+            : 'atomic_declared_not_owned',
+        questionNumber: region.number,
+        blockId: missingBlockId.isEmpty ? null : missingBlockId,
+        partType: missingPart?.runtimeType.toString(),
+        role: missingPart is SourceContentPart ? missingPart.role.name : null,
+        ownedTextPresent: false,
+      );
       return false;
     }
   }
@@ -343,7 +476,32 @@ bool _hasCompleteStructuralOwnership(
     if (parsed == null) {
       final field = _mapField(owned.field);
       final previousField = fieldByTextualId[owned.blockId];
-      if (previousField != null || !_isWholePartOwnership(part, owned)) {
+      if (previousField != null) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'math_multiple_owner_without_map',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          role: part.role.name,
+          field: field.name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
+        return false;
+      }
+      if (!_isWholePartOwnership(part, owned)) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'math_missing_map_partial',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          role: part.role.name,
+          field: field.name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
         return false;
       }
       fieldByTextualId[owned.blockId] = field;
@@ -353,10 +511,34 @@ bool _hasCompleteStructuralOwnership(
         final previous = intervals.putIfAbsent(owned.blockId, () => []);
         if (previous.any((other) =>
             interval.start < other.end && other.start < interval.end)) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'math_interval_overlap',
+            questionNumber: region.number,
+            blockId: owned.blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            field: _mapField(owned.field).name,
+            startCodeUnitOffset: interval.start,
+            endCodeUnitOffset: interval.end,
+            ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+          );
           return false;
         }
         previous.add((start: interval.start, end: interval.end));
-      } on FormatException {
+      } on FormatException catch (e) {
+        final isAmbiguous = e.message.contains('Ambiguous');
+        _emitStructuralOwnershipRejection(
+          reasonCode:
+              isAmbiguous ? 'math_ambiguous_text_match' : 'math_invalid_slice',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          role: part.role.name,
+          field: _mapField(owned.field).name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
         return false;
       }
     }
@@ -379,11 +561,29 @@ bool _hasCompleteStructuralOwnership(
                 nodeRange.end <= interval.end) {
               coveringCount++;
             } else {
+              _emitStructuralOwnershipRejection(
+                reasonCode: 'math_interior_boundary',
+                questionNumber: region.number,
+                blockId: blockId,
+                partType: part.runtimeType.toString(),
+                role: part.role.name,
+                startCodeUnitOffset: interval.start,
+                endCodeUnitOffset: interval.end,
+                ownedTextPresent: true,
+              );
               return false;
             }
           }
         }
         if (coveringCount > 1) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'math_multiple_coverage',
+            questionNumber: region.number,
+            blockId: blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            ownedTextPresent: true,
+          );
           return false;
         }
       }
