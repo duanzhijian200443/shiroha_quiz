@@ -1009,6 +1009,140 @@ void main() {
       );
     });
   });
+
+  group('TypedQuestionAssembler safe HTML wrapper cleanup', () {
+    test('A. strips safe div wrapper from stem text', () {
+      final region = _region(
+        stemText: '<div align="center">正文</div>',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_a');
+      expect(draft.stem.nodes.length, 1);
+      final textNode = draft.stem.nodes.single as TextNode;
+      expect(textNode.text, '正文');
+      expect(textNode.text, isNot(contains('<div')));
+      expect(textNode.text, isNot(contains('</div>')));
+      expect(
+        draft.issues.any((issue) => issue.code == 'raw_html_tag'),
+        isFalse,
+      );
+    });
+
+    test(
+        'B. removes wrapper TextNodes around MathNode and preserves math identity',
+        () {
+      const mathNode = InlineMathNode(r'x^2');
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceContentPart(
+              sourceRef: _docRef(),
+              content: RichContent(nodes: <ContentNode>[
+                const TextNode('<div align="center">'),
+                mathNode,
+                const TextNode('</div>'),
+              ]),
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_b');
+      expect(draft.stem.nodes.length, 1);
+      expect(identical(draft.stem.nodes.single, mathNode), isTrue);
+      expect(draft.stem.nodes.whereType<TextNode>(), isEmpty);
+      expect(
+        draft.issues.any((issue) => issue.code == 'raw_html_tag'),
+        isFalse,
+      );
+    });
+
+    test('C. preserves mixed text when stripping safe wrappers', () {
+      final region = _region(
+        stemText: '前文<div align="center">正文</div>后文',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_c');
+      final text = (draft.stem.nodes.single as TextNode).text;
+      expect(text, contains('前文'));
+      expect(text, contains('正文'));
+      expect(text, contains('后文'));
+      expect(text, isNot(contains('<div')));
+      expect(text, isNot(contains('</div>')));
+    });
+
+    test(
+        'D. preserves unknown HTML tags fail-closed with diagnostics and raw_html_tag issue',
+        () {
+      final region = _region(
+        stemText: '<custom-tag>正文</custom-tag>',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_d');
+      final text = (draft.stem.nodes.single as TextNode).text;
+      expect(text, contains('<custom-tag>正文</custom-tag>'));
+      expect(
+        draft.issues
+            .any((issue) => issue.code == 'unsupported_html_tag_preserved'),
+        isTrue,
+      );
+      expect(
+        draft.issues.any((issue) => issue.code == 'raw_html_tag'),
+        isTrue,
+      );
+    });
+
+    test(
+        'E. review warning freshness: clears stale raw_html_tag when safe wrappers are cleaned, but keeps warning for unsupported HTML',
+        () {
+      // With safe wrapper only: stale raw_html_tag in region.issues is cleared and not re-emitted
+      final safeRegion = _region(
+        stemText: '<div align="center">正文</div>',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+        issues: <ImportIssue>[
+          ImportIssue(
+            code: 'raw_html_tag',
+            severity: ImportIssueSeverity.warning,
+          ),
+        ],
+      );
+      final safeDraft = assembler.assemble(safeRegion, questionId: 'q_e1');
+      expect(
+        safeDraft.issues.any((issue) => issue.code == 'raw_html_tag'),
+        isFalse,
+      );
+
+      // With unsupported HTML: raw_html_tag is emitted
+      final unsafeRegion = _region(
+        stemText: '<custom-tag>正文</custom-tag>',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final unsafeDraft = assembler.assemble(unsafeRegion, questionId: 'q_e2');
+      expect(
+        unsafeDraft.issues.any((issue) => issue.code == 'raw_html_tag'),
+        isTrue,
+      );
+    });
+
+    test('removes dangerous containers and records unsafe_html_content_removed',
+        () {
+      final region = _region(
+        stemText: '安全正文<script>alert(1)</script>结尾',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_danger');
+      final text = (draft.stem.nodes.single as TextNode).text;
+      expect(text, '安全正文结尾');
+      expect(text, isNot(contains('script')));
+      expect(
+        draft.issues
+            .any((issue) => issue.code == 'unsafe_html_content_removed'),
+        isTrue,
+      );
+    });
+  });
 }
 
 QuestionRegion _region({
