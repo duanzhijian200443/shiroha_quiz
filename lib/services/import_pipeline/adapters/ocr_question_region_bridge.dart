@@ -10,6 +10,7 @@ import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
 import '../ocr_question_regionizer.dart';
 import '../ocr_rich_content_parser.dart';
+import '../ocr_text_normalization.dart';
 import '../text_question_region.dart';
 
 const _ocrKnownDiagnostics = <String>{
@@ -635,13 +636,76 @@ bool _isWholePartOwnership(
       throw const FormatException('Missing OCR math ownership.');
     }
     final matches = RegExp(RegExp.escape(text)).allMatches(parsed.original);
-    if (matches.length != 1) {
-      throw const FormatException('Ambiguous OCR math ownership.');
+    if (matches.isEmpty) {
+      final aligned = _normalizedRawOwnership(parsed.original, text);
+      start = aligned.start;
+      end = aligned.end;
+    } else {
+      if (matches.length != 1) {
+        throw const FormatException('Ambiguous OCR math ownership.');
+      }
+      start = matches.single.start;
+      end = matches.single.end;
     }
-    start = matches.single.start;
-    end = matches.single.end;
   }
   return (start: start, end: end, slice: parsed.slice(start, end));
+}
+
+/// Transient UTF-16 source alignment for ownership whose producer normalized
+/// whitespace. Each replacement retains its entire raw coverage. Boundaries
+/// inside a multi-character replacement are deliberately not admissible.
+({int start, int end}) _normalizedRawOwnership(String raw, String owned) {
+  var value = raw;
+  var ranges = [for (var i = 0; i < raw.length; i++) (start: i, end: i + 1)];
+
+  void replace(Pattern pattern, String replacement) {
+    final output = StringBuffer();
+    final mapped = <({int start, int end})>[];
+    var cursor = 0;
+    for (final match in pattern.allMatches(value)) {
+      output.write(value.substring(cursor, match.start));
+      mapped.addAll(ranges.sublist(cursor, match.start));
+      output.write(replacement);
+      for (var i = 0; i < replacement.length; i++) {
+        mapped.add(
+            (start: ranges[match.start].start, end: ranges[match.end - 1].end));
+      }
+      cursor = match.end;
+    }
+    output.write(value.substring(cursor));
+    mapped.addAll(ranges.sublist(cursor));
+    value = output.toString();
+    ranges = mapped;
+  }
+
+  // Mirror only the canonical whitespace transformations, with a conformance
+  // check so future normalizer changes cannot silently yield wrong offsets.
+  replace('\r\n', '\n');
+  replace('\r', '\n');
+  replace(RegExp(r'[ \t]{2,}'), ' ');
+  replace(RegExp(r'\n{3,}'), '\n\n');
+  final left = value.length - value.trimLeft().length;
+  final trimmed = value.trim();
+  ranges = ranges.sublist(left, left + trimmed.length);
+  value = trimmed;
+  final target = normalizeOcrText(owned);
+  if (value != normalizeOcrText(raw) || target.isEmpty) {
+    throw const FormatException('Invalid OCR normalized ownership.');
+  }
+  // Lookahead also detects overlapping occurrences; never select first match.
+  final matches = RegExp('(?=${RegExp.escape(target)})')
+      .allMatches(value)
+      .toList(growable: false);
+  if (matches.length != 1) {
+    throw const FormatException('Ambiguous OCR math ownership.');
+  }
+  final start = matches.single.start;
+  final end = start + target.length;
+  if ((start > 0 && ranges[start - 1].end > ranges[start].start) ||
+      (end < ranges.length && ranges[end - 1].end > ranges[end].start)) {
+    throw const FormatException('Invalid OCR normalized ownership boundary.');
+  }
+  return (start: ranges[start].start, end: ranges[end - 1].end);
 }
 
 bool _hasTypedStructure(SourcePart part) {

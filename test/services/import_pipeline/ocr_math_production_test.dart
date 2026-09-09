@@ -232,6 +232,85 @@ void main() {
         [const InlineMathNode('x')]);
   });
 
+  test('normalized ownership recovers raw ranges and original math nodes', () {
+    for (final fixture in <(String, String, int)>[
+      (r'1. 设    $x$  满足条件', r'设 $x$ 满足条件', 3),
+      (r'A    $x$    B', r'A $x$ B', 0),
+      (r'1. A $x$ B', r'A $x$ B', 3),
+      ('1. 😀 A\t\t\$x\$\r\nB', '😀 A \$x\$\nB', 3),
+      ('1. A \$x\$\n\n\nB', 'A \$x\$\n\nB', 3),
+    ]) {
+      final map = OcrMathSourceMap();
+      final region = _bridge(fixture.$1, map, [
+        OcrQuestionRegionSource(
+            blockId: 'mixed', field: OcrRegionField.stem, text: fixture.$2),
+      ]);
+      final fragment = region.fragments.single;
+      expect(fragment.part, isA<SourceContentPart>());
+      final content = (fragment.part as SourceContentPart).content;
+      final nodes = materializeQuestionRegionContent(content, fragment.slice);
+      expect(
+          identical(nodes.whereType<InlineMathNode>().single,
+              content.nodes.whereType<InlineMathNode>().single),
+          isTrue);
+      expect(fragment.slice!.startCodeUnitOffset, fixture.$3);
+      expect((nodes.first as TextNode).text,
+          fixture.$1.substring(fixture.$3, fixture.$1.indexOf(r'$x$')));
+      expect((nodes.last as TextNode).text,
+          fixture.$1.substring(fixture.$1.indexOf(r'$x$') + 3));
+    }
+  });
+
+  test(
+      'normalized alignment rejects duplicates, missing text and math interior',
+      () {
+    for (final fixture in <(String, String)>[
+      (r'A    $x$ B / A  $x$ B', r'A $x$ B'),
+      (r'A    $x$ B', r'absent $x$'),
+      (r'A    $x + y$ B', r'A $x'),
+    ]) {
+      final region = _bridge(fixture.$1, OcrMathSourceMap(), [
+        OcrQuestionRegionSource(
+            blockId: 'mixed', field: OcrRegionField.stem, text: fixture.$2),
+      ]);
+      expect(region.fragments.single.part, isA<UnsupportedSourcePart>());
+    }
+  });
+
+  test('explicit raw offsets bypass normalized fallback', () {
+    final region = _bridge(r'1. A    $x$ B', OcrMathSourceMap(), [
+      const OcrQuestionRegionSource(
+          blockId: 'mixed',
+          field: OcrRegionField.stem,
+          text: 'not a source match',
+          startCodeUnitOffset: 3,
+          endCodeUnitOffset: 13),
+    ]);
+    expect(region.fragments.single.part, isA<SourceContentPart>());
+    expect(region.fragments.single.slice!.startCodeUnitOffset, 3);
+  });
+
+  test('normalized prefix-stripped production ownership passes strict gate',
+      () {
+    final result = buildMathFixture(lines: [
+      '一、选择题',
+      r'1. 设    $x_n$  满足条件，则（ ）',
+      r'A. $x_n=1$',
+      r'B. $x_n=2$',
+      r'C. $x_n=3$',
+      r'D. $x_n=4$',
+      '答案：A',
+      r'解析：由    $x_n=1$  可得结论。',
+    ]);
+    expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        result.questions.single[TypedReviewSnapshotCodec.mapKey]);
+    expect(snapshot.draft.stem.nodes.whereType<InlineMathNode>().single.latex,
+        'x_n');
+    expect(snapshot.draft.explanation!.nodes.whereType<InlineMathNode>(),
+        hasLength(1));
+  });
+
   test('production math remains typed through strict gate and snapshot', () {
     final result = buildMathFixture();
     expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
