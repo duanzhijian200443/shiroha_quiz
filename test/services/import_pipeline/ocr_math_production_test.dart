@@ -311,6 +311,42 @@ void main() {
         hasLength(1));
   });
 
+  test('137-node math explanation survives snapshot with image and table batch',
+      () {
+    final parts = <String>[];
+    for (var part = 0; part < 4; part++) {
+      final explanation = StringBuffer(part == 0 ? '解析：' : '');
+      for (var i = part * 17; i < (part + 1) * 17; i++) {
+        explanation.write('推' * 80);
+        explanation.write(i < 61 ? r'$x$' : r'$$x$$');
+      }
+      if (part == 3) explanation.write('推' * 125);
+      parts.add(explanation.toString());
+    }
+    final result = buildMathFixture(assets: true, lines: [
+      '三、解答题',
+      '1. 求值。',
+      '答案：1',
+      ...parts,
+    ]);
+    expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        result.questions.single[TypedReviewSnapshotCodec.mapKey]);
+    final nodes = snapshot.draft.explanation!.nodes;
+    expect(nodes.whereType<InlineMathNode>(), hasLength(61));
+    expect(nodes.whereType<BlockMathNode>(), hasLength(7));
+    expect(nodes.whereType<ImageNode>(), hasLength(5));
+    expect(nodes.whereType<TableNode>(), hasLength(3));
+    expect(
+        nodes
+            .whereType<TextNode>()
+            .map((n) => n.text)
+            .join()
+            .replaceAll('\n', '')
+            .length,
+        5565);
+  });
+
   test('production math remains typed through strict gate and snapshot', () {
     final result = buildMathFixture();
     expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);

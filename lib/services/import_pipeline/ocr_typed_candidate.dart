@@ -5,6 +5,8 @@ import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_codec.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_privacy_admission.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -796,6 +798,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
     final baseline = baselines[number]!;
+    var snapshotStage = 'encode';
     try {
       final snapshot = TypedReviewSnapshot(
         reviewItemId: candidate.reviewItemId,
@@ -804,11 +807,24 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
         baselineLegacy: baseline,
       );
       final envelope = codec.encode(snapshot);
+      snapshotStage = 'decode';
       final decoded = codec.decodeRequired(envelope);
       if (decoded.reviewItemId != snapshot.reviewItemId ||
           decoded.questionId != snapshot.questionId ||
           decoded.baselineLegacy != baseline ||
           decoded.draft != candidate.draft) {
+        _emitTypedCandidateRejection(
+          questionNumber: number,
+          kindCode: 'snapshot_round_trip_mismatch',
+          failure: OcrTypedCandidateFailure.snapshotInvalid.name,
+          field: decoded.reviewItemId != snapshot.reviewItemId
+              ? 'reviewItemId'
+              : decoded.questionId != snapshot.questionId
+                  ? 'questionId'
+                  : decoded.baselineLegacy != baseline
+                      ? 'baselineLegacy'
+                      : 'draft',
+        );
         return _ineligible(
           finalQuestions,
           ocrTypedCandidateFailureReason(
@@ -820,7 +836,13 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
         ...question,
         TypedReviewSnapshotCodec.mapKey: envelope,
       });
-    } on TypedReviewSnapshotException {
+    } on TypedReviewSnapshotException catch (error) {
+      _emitTypedCandidateRejection(
+        questionNumber: number,
+        kindCode: 'snapshot_${snapshotStage}_${error.failure.name}',
+        failure: OcrTypedCandidateFailure.snapshotInvalid.name,
+        field: _snapshotRejectedField(candidate.draft),
+      );
       return _ineligible(
         finalQuestions,
         ocrTypedCandidateFailureReason(
@@ -836,6 +858,32 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     reason: ocrTypedCandidateReadyReason,
     candidateAssetLease: batch.candidateAssetLease,
   );
+}
+
+/// Failure-only, best-effort localization using the existing admission/codecs.
+/// Never exposes content or exceptions and never changes the gate decision.
+String _snapshotRejectedField(QuestionDraftV2 draft) {
+  try {
+    final fields = <(String, RichContent)>[
+      ('stem', draft.stem),
+      for (var i = 0; i < draft.options.length; i++)
+        ('options[$i]', draft.options[i].content),
+      if (draft.answer case ContentAnswer(:final content)) ('answer', content),
+      if (draft.explanation != null) ('explanation', draft.explanation!),
+    ];
+    for (final (field, content) in fields) {
+      try {
+        const RichContentPrivacyAdmission().validate(content);
+        const codec = RichContentCodec();
+        if (codec.decode(codec.encode(content)) != content) return field;
+      } catch (_) {
+        return field;
+      }
+    }
+  } catch (_) {
+    // Diagnostic failures must not hide the original snapshot rejection.
+  }
+  return 'unknown';
 }
 
 OcrTypedCandidateGateResult _ineligible(

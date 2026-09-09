@@ -1320,6 +1320,9 @@ void main() {
 
     test('snapshot encode/decode self-check failures remove every envelope',
         () {
+      final events = <Map<String, Object?>>[];
+      typedCandidateRejectionHandlerForTesting = events.add;
+      addTearDown(() => typedCandidateRejectionHandlerForTesting = null);
       final unsafeDraft = QuestionDraftV2(
         questionId: _questionUuidA,
         kind: QuestionKind.shortAnswer,
@@ -1349,6 +1352,32 @@ void main() {
       );
 
       expect(result.reason, 'typed_candidate_snapshot_invalid');
+      expect(events.single, <String, Object?>{
+        'question': 1,
+        'questionNumber': 1,
+        'kind': 'snapshot_encode_unsafePayload',
+        'kindCode': 'snapshot_encode_unsafePayload',
+        'failure': 'snapshotInvalid',
+        'field': 'stem',
+      });
+      typedCandidateRejectionHandlerForTesting =
+          (_) => throw StateError('observer');
+      final observedFailure = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(candidates: [
+          _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: unsafeDraft),
+        ]),
+        finalQuestions: [_finalQuestion(number: 1)],
+        singleFile: true,
+      );
+      expect(observedFailure.reason, result.reason);
+      expect(
+          observedFailure.questions.single
+              .containsKey(TypedReviewSnapshotCodec.mapKey),
+          isFalse);
       expect(
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,

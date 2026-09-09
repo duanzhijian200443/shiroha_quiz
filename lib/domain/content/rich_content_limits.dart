@@ -2,7 +2,9 @@
 /// admission. These are runtime safety limits, not persisted schema values.
 abstract final class RichContentLimits {
   static const int maxDepth = 8;
-  static const int maxNodes = 128;
+  // A multi-block math explanation can exceed 128 nodes while remaining well
+  // below the scalar budget. Keep AST expansion bounded without flattening it.
+  static const int maxNodes = 256;
   static const int maxScalars = 8192;
   static const int maxNodeScalars = 4096;
   static const int maxRawCollectionEntries = 256;
