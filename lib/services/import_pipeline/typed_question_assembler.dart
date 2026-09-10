@@ -6,6 +6,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
+import 'ocr_bare_math_segmenter.dart';
 import 'ocr_choice_answer_marker.dart';
 import 'ocr_rich_content_parser.dart';
 import 'ocr_text_normalization.dart';
@@ -338,28 +339,59 @@ TableNode _tableNode(SourceTablePart part, QuestionRegionField field,
           TableCell(
             rowSpan: cell.rowSpan,
             columnSpan: cell.columnSpan,
-            content: RichContent(nodes: [
-              for (final node in cell.content.nodes)
-                if (node is TextNode)
-                  ...mathSourceMap
-                      .parse(node.text, formula: _isBareTableMath(node.text))
-                      .nodes
-                else
-                  node,
-            ]),
+            content: RichContent(
+              nodes: _tableCellNodes(cell.content.nodes, mathSourceMap),
+            ),
           ),
       ]),
   ]));
 }
 
-// Delimited math always uses the OCR tokenizer. Bare cells require a TeX
-// command and an equation, and exclude prose; ambiguous cells stay literal.
-bool _isBareTableMath(String text) {
-  if (!text.contains('=') || !RegExp(r'\\[A-Za-z]+').hasMatch(text)) {
-    return false;
+/// Structuralizes the text nodes of one table cell.
+///
+/// Delimited math keeps the [OcrMathSourceMap.parse] tokenizer path. A cell
+/// whose text carries no delimiter is segmented into prose and expression runs
+/// by [OcrBareMathSegmenter], so a mixed cell renders as
+/// `TextNode -> math -> TextNode` instead of being forced into all-math or
+/// all-text. Non-text nodes are opaque and keep their identity.
+List<ContentNode> _tableCellNodes(
+  List<ContentNode> nodes,
+  OcrMathSourceMap mathSourceMap,
+) {
+  return <ContentNode>[
+    for (final node in nodes)
+      if (node is TextNode)
+        ..._tableCellTextNodes(node.text, mathSourceMap)
+      else
+        node,
+  ];
+}
+
+List<ContentNode> _tableCellTextNodes(
+  String text,
+  OcrMathSourceMap mathSourceMap,
+) {
+  if (text.isEmpty) return const <ContentNode>[];
+  final runs = OcrBareMathSegmenter.segment(text);
+  final mathRuns = runs.where((run) => run.isMath).toList(growable: false);
+  if (mathRuns.isEmpty) return mathSourceMap.parse(text).nodes;
+
+  final trimmed = text.trim();
+  if (mathRuns.length == 1 &&
+      trimmed ==
+          text.substring(mathRuns.single.start, mathRuns.single.end).trim()) {
+    // The whole cell is one bare expression: keep the frozen single-node
+    // behavior, including its source-map registration.
+    return mathSourceMap.parse(text, formula: true).nodes;
   }
-  final withoutCommands = text.replaceAll(RegExp(r'\\[A-Za-z]+'), '');
-  return !RegExp(r'[^\x20-\x7e]|[A-Za-z]{3,}').hasMatch(withoutCommands);
+
+  return <ContentNode>[
+    for (final run in runs)
+      if (run.isMath)
+        mathSourceMap.bareInlineMath(text.substring(run.start, run.end))
+      else
+        TextNode(text.substring(run.start, run.end)),
+  ];
 }
 
 QuestionKind _mapKind(

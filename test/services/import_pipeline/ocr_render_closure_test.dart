@@ -24,8 +24,19 @@ void main() {
             .readAsStringSync()) as Map;
     final cells =
         (fixture['cells'] as List).map((v) => v['text'] as String).toList();
-    cells.addAll(
-        [r'ordinary \frac label = prose', r'价格=\frac{1}{p}', r'cost $5']);
+    cells.addAll([
+      r'ordinary \frac label = prose',
+      r'价格=\frac{1}{p}',
+      r'cost $5',
+      // Real cells from the same document that carry no math delimiter: a
+      // command-free distribution law and a law that mixes its expression
+      // with natural language.
+      r'P{X=k}=p^{k}(1-p)^{1-k},k=0,1',
+      r'P{X=k}=\frac{C_{M}^{k}C_{N-M}^{n-k}}{C_{N}^{n}},k=0,1,\cdots,l,'
+          '其中'
+          r'l=\min\{n,M\},n\leqslant N',
+    ]);
+    const mixedCellIndex = 8;
     final bytes = base64Decode(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
     final root = Directory.systemTemp.createTempSync('ocr_render_closure_');
@@ -95,9 +106,33 @@ void main() {
     expect(typedCells[1].content.nodes.single, isA<c.BlockMathNode>());
     expect(typedCells[2].content.nodes.single, isA<c.InlineMathNode>());
     expect(typedCells[3].content.nodes.single, isA<c.InlineMathNode>());
-    for (var i = 4; i < cells.length; i++) {
+    for (var i = 4; i < mixedCellIndex - 1; i++) {
       expect((typedCells[i].content.nodes.single as c.TextNode).text, cells[i]);
     }
+    // A bare cell carries math without any LaTeX command.
+    expect(typedCells[7].content.nodes.single, isA<c.BlockMathNode>());
+    expect(
+      (typedCells[7].content.nodes.single as c.BlockMathNode).latex,
+      cells[7],
+    );
+    // A mixed cell keeps expressions and prose in order and stays lossless.
+    final mixedNodes = typedCells[mixedCellIndex].content.nodes;
+    expect(mixedNodes, hasLength(3));
+    expect(mixedNodes[0], isA<c.InlineMathNode>());
+    expect(mixedNodes[1], isA<c.TextNode>());
+    expect(mixedNodes[2], isA<c.InlineMathNode>());
+    expect((mixedNodes[1] as c.TextNode).text.trim(), '其中');
+    expect(
+      mixedNodes
+          .map((node) => switch (node) {
+                c.TextNode(:final text) => text,
+                c.InlineMathNode(:final latex) => latex,
+                c.BlockMathNode(:final latex) => latex,
+                _ => '',
+              })
+          .join(),
+      cells[mixedCellIndex],
+    );
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SingleChildScrollView(
@@ -108,7 +143,9 @@ void main() {
                         content: content, assetResolver: _Resolver(bytes)))))));
     await tester.pumpAndSettle();
     expect(find.byType(Image), findsOneWidget);
-    expect(find.byType(Math), findsNWidgets(3));
+    // 3 delimited cells, the whole-cell bare law, and the 2 expressions of the
+    // mixed cell.
+    expect(find.byType(Math), findsNWidgets(6));
     expect(find.textContaining('<div', findRichText: true), findsNothing);
     expect(find.textContaining('</div>', findRichText: true), findsNothing);
     expect(tester.takeException(), isNull);

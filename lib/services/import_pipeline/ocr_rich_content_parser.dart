@@ -14,6 +14,18 @@ final class OcrMathSourceMap {
   OcrParsedContent? parsed(RichContent content) => _contents[content];
   String? rawMath(ContentNode node) => _rawMath[node];
 
+  /// Creates an inline math node for a bare (undelimited) expression that the
+  /// structural table-cell segmenter admitted.
+  ///
+  /// The raw span is registered exactly like delimited OCR math, so text
+  /// projections and extraction views keep their node-identity semantics and
+  /// never re-parse a flattened payload into math.
+  InlineMathNode bareInlineMath(String raw) {
+    final node = InlineMathNode(raw);
+    _rawMath[node] = raw;
+    return node;
+  }
+
   RichContent parse(String text, {bool formula = false}) {
     final spans = ContentTokenizer.tokenizeMathSpans(text);
     final nodes = <ContentNode>[];
