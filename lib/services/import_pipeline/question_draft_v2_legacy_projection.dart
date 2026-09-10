@@ -400,7 +400,24 @@ String _contentText(RichContent content, [OcrMathSourceMap? math]) {
   if (math == null) return const RichContentTextProjection().project(content);
   return const RichContentTextProjection().project(RichContent(nodes: [
     for (final node in content.nodes)
-      if (math.rawMath(node) case final String raw) TextNode(raw) else node,
+      if (math.rawMath(node) case final String raw)
+        TextNode(raw)
+      else if (node is TableNode)
+        TableNode(
+            structure: TableStructure(rows: [
+          for (final row in node.structure.rows)
+            TableRow(cells: [
+              for (final cell in row.cells)
+                TableCell(
+                  rowSpan: cell.rowSpan,
+                  columnSpan: cell.columnSpan,
+                  content: RichContent(
+                      nodes: [TextNode(_contentText(cell.content, math))]),
+                ),
+            ]),
+        ]))
+      else
+        node,
   ]));
 }
 

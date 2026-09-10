@@ -1,0 +1,30 @@
+{
+  "pdfSha256": "e583c1e10f9718e9f9ecdc8f0dd4b8599b2c4d94456507cd6b9a356feb6901fe",
+  "replaySha256": "b3f60b6a1f80478f7e27e3abe4f3d05ada492444db9877cb19d87b10ad82d5ff",
+  "cells": [
+    {
+      "blockId": "p008_b0019",
+      "cellIndex": 0,
+      "kind": "ordinary",
+      "text": "分布"
+    },
+    {
+      "blockId": "p008_b0019",
+      "cellIndex": 13,
+      "kind": "bare",
+      "text": "P{X=k}=\\frac{\\lambda^{k}}{k!}e^{-\\lambda},k=0,1,2,\\cdots"
+    },
+    {
+      "blockId": "p008_b0019",
+      "cellIndex": 18,
+      "kind": "explicit",
+      "text": "$\\frac{1}{p}$"
+    },
+    {
+      "blockId": "p008_b0019",
+      "cellIndex": 19,
+      "kind": "explicit",
+      "text": "$\\frac{1-p}{p^{2}}$"
+    }
+  ]
+}

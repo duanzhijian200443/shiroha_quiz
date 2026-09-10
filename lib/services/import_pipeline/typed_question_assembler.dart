@@ -111,7 +111,8 @@ final class TypedQuestionAssembler {
             target.add(const TextNode('\n'));
           }
           target.add(
-            _tableNode(fragment.part as SourceTablePart, fragment.field),
+            _tableNode(fragment.part as SourceTablePart, fragment.field,
+                mathSourceMap),
           );
           lastFragmentWasPlainText[fragment.field] = false;
         case UnsupportedSourcePart(:final kindCode):
@@ -314,7 +315,8 @@ final class TypedQuestionAssembler {
   }
 }
 
-TableNode _tableNode(SourceTablePart part, QuestionRegionField field) {
+TableNode _tableNode(SourceTablePart part, QuestionRegionField field,
+    OcrMathSourceMap? mathSourceMap) {
   final structure = part.structure;
   if (structure == null) {
     final message = part.rows.isEmpty || part.rows.any((row) => row.isEmpty)
@@ -327,7 +329,37 @@ TableNode _tableNode(SourceTablePart part, QuestionRegionField field) {
       message: message,
     );
   }
-  return TableNode(structure: structure);
+  if (mathSourceMap == null) return TableNode(structure: structure);
+  return TableNode(
+      structure: TableStructure(rows: [
+    for (final row in structure.rows)
+      TableRow(cells: [
+        for (final cell in row.cells)
+          TableCell(
+            rowSpan: cell.rowSpan,
+            columnSpan: cell.columnSpan,
+            content: RichContent(nodes: [
+              for (final node in cell.content.nodes)
+                if (node is TextNode)
+                  ...mathSourceMap
+                      .parse(node.text, formula: _isBareTableMath(node.text))
+                      .nodes
+                else
+                  node,
+            ]),
+          ),
+      ]),
+  ]));
+}
+
+// Delimited math always uses the OCR tokenizer. Bare cells require a TeX
+// command and an equation, and exclude prose; ambiguous cells stay literal.
+bool _isBareTableMath(String text) {
+  if (!text.contains('=') || !RegExp(r'\\[A-Za-z]+').hasMatch(text)) {
+    return false;
+  }
+  final withoutCommands = text.replaceAll(RegExp(r'\\[A-Za-z]+'), '');
+  return !RegExp(r'[^\x20-\x7e]|[A-Za-z]{3,}').hasMatch(withoutCommands);
 }
 
 QuestionKind _mapKind(

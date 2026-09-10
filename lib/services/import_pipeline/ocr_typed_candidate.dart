@@ -22,6 +22,7 @@ import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
+import 'ocr_typed_content_cleanup.dart';
 
 /// Fixed task-level storage reason for a successful shadow candidate batch.
 const String ocrTypedCandidateShadowReadyReason =
@@ -236,18 +237,22 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
         mathSourceMap: mathSourceMap,
       );
       final questionId = uuidV4Factory();
-      final draft = const TypedQuestionAssembler().assemble(
+      final assembledDraft = const TypedQuestionAssembler().assemble(
         typedRegion,
         questionId: questionId,
         mathSourceMap: mathSourceMap,
       );
       final projected = const QuestionDraftV2LegacyProjector().project(
-        draft: draft,
+        draft: assembledDraft,
         region: typedRegion,
         profile: const OcrLegacyProjectionProfile(),
         mathSourceMap: mathSourceMap,
         explanationRetentionMode: explanationRetentionMode,
       );
+      // Freeze the original compatibility projection before display cleanup.
+      // The legacy finalizer's whitespace rules depend on the original HTML;
+      // projecting already-cleaned content would lose that source context.
+      final draft = cleanupOcrTypedDraft(assembledDraft);
       _emitTypedCandidateConstructionTelemetry(
         region: region,
         typedRegion: typedRegion,
