@@ -1142,6 +1142,79 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+        'P2-2: removes dangerous container crossing MathNode without exposing inner content',
+        () {
+      const mathNode = InlineMathNode('x');
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceContentPart(
+              sourceRef: _docRef(),
+              content: RichContent(nodes: <ContentNode>[
+                const TextNode('前文<script>'),
+                mathNode,
+                const TextNode('</script>后文'),
+              ]),
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.shortAnswer,
+      );
+      final draft = assembler.assemble(region, questionId: 'q_danger_math');
+      // The dangerous container and its inner math content must both be removed
+      expect(draft.stem.nodes.whereType<InlineMathNode>(), isEmpty);
+      expect(
+        draft.issues
+            .any((issue) => issue.code == 'unsafe_html_content_removed'),
+        isTrue,
+      );
+      final text = draft.stem.nodes.map((n) => (n as TextNode).text).join();
+      expect(text, contains('前文'));
+      expect(text, contains('后文'));
+      expect(text, isNot(contains('script')));
+    });
+
+    test(
+        'P2-1: preserves latex_unrenderable and dangling_latex from region issues',
+        () {
+      final region = _region(
+        stemText: '<div align="center">正文</div>',
+        kindHint: QuestionRegionKindHint.shortAnswer,
+        issues: <ImportIssue>[
+          ImportIssue(
+            code: 'latex_unrenderable',
+            severity: ImportIssueSeverity.warning,
+          ),
+          ImportIssue(
+            code: 'dangling_latex',
+            severity: ImportIssueSeverity.warning,
+          ),
+          ImportIssue(
+            code: 'raw_html_tag',
+            severity: ImportIssueSeverity.warning,
+          ),
+        ],
+      );
+      final draft = assembler.assemble(region, questionId: 'q_latex_preserve');
+      // latex_unrenderable and dangling_latex must be preserved
+      expect(
+        draft.issues.any((issue) => issue.code == 'latex_unrenderable'),
+        isTrue,
+      );
+      expect(
+        draft.issues.any((issue) => issue.code == 'dangling_latex'),
+        isTrue,
+      );
+      // stale raw_html_tag must still be cleared because the safe wrapper was stripped
+      expect(
+        draft.issues.any((issue) => issue.code == 'raw_html_tag'),
+        isFalse,
+      );
+    });
   });
 }
 

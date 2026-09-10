@@ -51,7 +51,7 @@ final class TypedQuestionAssembler {
   }) {
     final issues = <ImportIssue>[
       for (final issue in region.issues)
-        if (!_derivedIssueCodes.contains(issue.code)) issue,
+        if (!_htmlDerivedIssueCodes.contains(issue.code)) issue,
     ];
     void addIssue(
       String code,
@@ -637,10 +637,8 @@ final class _OptionExtract {
   final List<_ExtractedOption> options;
 }
 
-const Set<String> _derivedIssueCodes = {
-  'latex_unrenderable',
+const Set<String> _htmlDerivedIssueCodes = {
   'raw_html_tag',
-  'dangling_latex',
   'unsafe_html_content_removed',
   'unsupported_html_tag_preserved',
 };
@@ -649,19 +647,86 @@ List<ContentNode> _cleanSafeHtmlNodes(
   List<ContentNode> nodes, {
   required void Function(String code) onDiagnostic,
 }) {
-  final cleaned = <ContentNode>[];
+  if (nodes.isEmpty) return const <ContentNode>[];
+
+  // Fast-path: if no TextNode contains markup trigger characters '<' or '&',
+  // safe HTML cleanup is a guaranteed no-op and nodes can be returned as-is.
+  if (!nodes.any(
+      (n) => n is TextNode && (n.text.contains('<') || n.text.contains('&')))) {
+    return nodes;
+  }
+
+  // Find collision-free PUA code units for non-text placeholders.
+  var puaBase = 0xE000;
+  while (nodes.any((n) =>
+      n is TextNode &&
+      (n.text.contains(String.fromCharCode(puaBase)) ||
+          n.text.contains(String.fromCharCode(puaBase + 1))))) {
+    puaBase += 2;
+  }
+  final prefix = String.fromCharCode(puaBase);
+  final suffix = String.fromCharCode(puaBase + 1);
+
+  final nonTextNodes = <int, ContentNode>{};
+  final buffer = StringBuffer();
+  var placeholderIndex = 0;
+
   for (final node in nodes) {
     if (node is TextNode) {
-      final result = stripSafeHtmlWrappers(node.text);
-      for (final diagnostic in result.diagnostics) {
-        onDiagnostic(diagnostic);
-      }
-      if (result.text.isNotEmpty) {
-        cleaned.add(result.text == node.text ? node : TextNode(result.text));
-      }
+      buffer.write(node.text);
     } else {
-      cleaned.add(node);
+      buffer.write('$prefix$placeholderIndex$suffix');
+      nonTextNodes[placeholderIndex] = node;
+      placeholderIndex++;
     }
   }
+
+  final result = stripSafeHtmlWrappers(buffer.toString());
+  for (final diagnostic in result.diagnostics) {
+    onDiagnostic(diagnostic);
+  }
+
+  final cleanedText = result.text;
+  if (cleanedText.isEmpty) {
+    return const <ContentNode>[];
+  }
+
+  // If there were no non-text nodes, return a single TextNode or the original node.
+  if (nonTextNodes.isEmpty) {
+    if (nodes.length == 1 &&
+        nodes.single is TextNode &&
+        (nodes.single as TextNode).text == cleanedText) {
+      return nodes;
+    }
+    return <ContentNode>[TextNode(cleanedText)];
+  }
+
+  final placeholderPattern =
+      RegExp('${RegExp.escape(prefix)}(\\d+)${RegExp.escape(suffix)}');
+  final cleaned = <ContentNode>[];
+  var cursor = 0;
+
+  for (final match in placeholderPattern.allMatches(cleanedText)) {
+    if (match.start > cursor) {
+      final textSlice = cleanedText.substring(cursor, match.start);
+      if (textSlice.isNotEmpty) {
+        cleaned.add(TextNode(textSlice));
+      }
+    }
+    final idx = int.parse(match.group(1)!);
+    final node = nonTextNodes[idx];
+    if (node != null) {
+      cleaned.add(node);
+    }
+    cursor = match.end;
+  }
+
+  if (cursor < cleanedText.length) {
+    final textSlice = cleanedText.substring(cursor);
+    if (textSlice.isNotEmpty) {
+      cleaned.add(TextNode(textSlice));
+    }
+  }
+
   return cleaned;
 }
