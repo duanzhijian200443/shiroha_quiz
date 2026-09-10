@@ -239,8 +239,14 @@ void main() {
         'latexInvalidFields': ['content'],
       },
     });
+    // An unrenderable LaTeX field is review-repairable on demand, so it shows
+    // the AI repair entry point instead of the review-only notice.
     expect(
       find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('review-ai-repair-0')),
       findsOneWidget,
     );
   });

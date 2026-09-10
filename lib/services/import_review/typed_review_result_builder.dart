@@ -8,8 +8,15 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:uuid/uuid.dart';
 
+import 'review_legacy_field_content.dart';
+import 'review_repair_edit.dart';
+
 /// One typed commit input: the R7A persisted review marker identity, the
 /// `_typed_review_v1` envelope, and the commit-time finalized legacy draft.
+///
+/// [repairEdit] is the accepted AI repair marker for this item, if any. It is
+/// the only way a changed legacy field may keep a structural representation;
+/// without it a changed field keeps the frozen exact literal text.
 ///
 /// Collections are defensively copied. No arbitrary provenance map,
 /// diagnostics, file path or Provider content is ever carried here.
@@ -18,6 +25,7 @@ final class TypedReviewCommitInput {
     required this.reviewItemId,
     required this.envelope,
     required QuestionDraft currentDraft,
+    this.repairEdit,
   }) : currentDraft = QuestionDraft(
           type: currentDraft.type,
           content: currentDraft.content,
@@ -30,6 +38,7 @@ final class TypedReviewCommitInput {
   final String reviewItemId;
   final Object? envelope;
   final QuestionDraft currentDraft;
+  final ReviewRepairEdit? repairEdit;
 }
 
 /// Pure outcome of a typed review build: the completed [ReviewResult] and
@@ -186,7 +195,11 @@ final class TypedReviewResultBuilder {
     try {
       var working = session;
       for (var index = 0; index < inputs.length; index++) {
-        final edit = _buildEdit(snapshots[index], inputs[index].currentDraft);
+        final edit = _buildEdit(
+          snapshots[index],
+          inputs[index].currentDraft,
+          inputs[index].repairEdit,
+        );
         if (edit.isUnchanged) continue;
         working = working.edit(
           itemId: inputs[index].reviewItemId,
@@ -313,6 +326,7 @@ final class TypedReviewResultBuilder {
   ReviewEdit _buildEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ReviewRepairEdit? repairEdit,
   ) {
     final baseline = snapshot.baselineLegacy;
     final kindEdit =
@@ -325,15 +339,20 @@ final class TypedReviewResultBuilder {
     final stemEdit = current.content == baseline.content
         ? const ReviewFieldEdit<RichContent>.unchanged()
         : ReviewFieldEdit<RichContent>.replace(
-            RichContent(nodes: <ContentNode>[TextNode(current.content)]),
+            _editedFieldContent(
+              ReviewRepairField.content,
+              current.content,
+              repairEdit,
+            ),
           );
 
     final explanationEdit = _explanationEdit(
       current.explanation,
       baseline.explanation,
+      repairEdit,
     );
-    final optionsEdit = _optionsEdit(snapshot, current);
-    final answerEdit = _answerEdit(snapshot, current);
+    final optionsEdit = _optionsEdit(snapshot, current, repairEdit);
+    final answerEdit = _answerEdit(snapshot, current, repairEdit);
 
     return ReviewEdit(
       kind: kindEdit,
@@ -344,9 +363,32 @@ final class TypedReviewResultBuilder {
     );
   }
 
+  /// Content for one changed legacy field.
+  ///
+  /// A changed field is normally represented as the exact literal text it now
+  /// holds: review text is never reparsed as markup. The single exception is a
+  /// field that an accepted AI repair produced and that still matches its
+  /// recorded digest *and* whose text really carries structural math. Only then
+  /// is the structural representation rebuilt, so repaired math survives the
+  /// typed commit instead of degrading to literal source.
+  RichContent _editedFieldContent(
+    ReviewRepairField field,
+    String currentText,
+    ReviewRepairEdit? repairEdit,
+  ) {
+    if (repairEdit != null && repairEdit.isSatisfiedBy(field, currentText)) {
+      final rebuilt = reviewFieldContentFromLegacyText(currentText);
+      if (rebuilt != null && rebuilt.nodes.any((node) => node is! TextNode)) {
+        return rebuilt;
+      }
+    }
+    return RichContent(nodes: <ContentNode>[TextNode(currentText)]);
+  }
+
   ReviewFieldEdit<RichContent?> _explanationEdit(
     String current,
     String baseline,
+    ReviewRepairEdit? repairEdit,
   ) {
     if (current == baseline) {
       return const ReviewFieldEdit<RichContent?>.unchanged();
@@ -355,13 +397,14 @@ final class TypedReviewResultBuilder {
       return const ReviewFieldEdit<RichContent?>.clear();
     }
     return ReviewFieldEdit<RichContent?>.replace(
-      RichContent(nodes: <ContentNode>[TextNode(current)]),
+      _editedFieldContent(ReviewRepairField.explanation, current, repairEdit),
     );
   }
 
   ReviewFieldEdit<List<QuestionOption>> _optionsEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ReviewRepairEdit? repairEdit,
   ) {
     final typedOptions = snapshot.draft.options;
     final baselineOptions = snapshot.baselineLegacy.options;
@@ -394,8 +437,10 @@ final class TypedReviewResultBuilder {
           QuestionOption(
             optionId: original.optionId,
             label: original.label,
-            content: RichContent(
-              nodes: <ContentNode>[TextNode(currentOption.body)],
+            content: _editedFieldContent(
+              ReviewRepairField.options,
+              currentOption.body,
+              repairEdit,
             ),
             sourceRef: original.sourceRef,
           ),
@@ -413,6 +458,7 @@ final class TypedReviewResultBuilder {
   ReviewFieldEdit<QuestionAnswer?> _answerEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ReviewRepairEdit? repairEdit,
   ) {
     final baseline = snapshot.baselineLegacy.standardAnswer;
     final currentAnswer = current.standardAnswer;
@@ -427,6 +473,7 @@ final class TypedReviewResultBuilder {
         currentAnswer,
         _kindForQuestionType(current.type),
         snapshot.draft,
+        repairEdit,
       ),
     );
   }
@@ -435,6 +482,7 @@ final class TypedReviewResultBuilder {
     String text,
     QuestionKind currentKind,
     QuestionDraftV2 typedDraft,
+    ReviewRepairEdit? repairEdit,
   ) {
     if (currentKind == QuestionKind.singleChoice) {
       final parsed = parseChoiceAnswerLabels(text);
@@ -466,7 +514,11 @@ final class TypedReviewResultBuilder {
       }
     }
     return ContentAnswer(
-      content: RichContent(nodes: <ContentNode>[TextNode(text)]),
+      content: _editedFieldContent(
+        ReviewRepairField.standardAnswer,
+        text,
+        repairEdit,
+      ),
     );
   }
 

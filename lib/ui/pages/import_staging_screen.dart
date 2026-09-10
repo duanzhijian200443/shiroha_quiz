@@ -31,11 +31,15 @@ import '../../services/import_review/import_review_report_builder.dart';
 import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_review_metadata.dart';
 import '../../services/import_review/import_commit_service.dart';
+import '../../services/import_review/review_repair_edit.dart';
+import '../../services/import_review/review_repair_policy.dart';
+import '../../services/import_review/review_repair_service.dart';
 import '../../services/import_review/typed_review_result_builder.dart';
 import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../widgets/markdown_extensions.dart';
+import '../widgets/review_repair_proposal_dialog.dart';
 import '../widgets/structured_content_renderer.dart';
 
 class ImportStagingScreen extends StatefulWidget {
@@ -46,6 +50,7 @@ class ImportStagingScreen extends StatefulWidget {
   final FolderQueryPort? folderQuery;
   final ImportCommitService? commitService;
   final SubjectiveAnswerDistiller? answerDistiller;
+  final ReviewRepairGenerator? reviewRepairGenerator;
   final TaskManager? taskManager;
   final ExplanationRetentionMode initialExplanationRetentionMode;
 
@@ -58,6 +63,7 @@ class ImportStagingScreen extends StatefulWidget {
     this.folderQuery,
     this.commitService,
     this.answerDistiller,
+    this.reviewRepairGenerator,
     this.taskManager,
     this.initialExplanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
@@ -75,6 +81,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _invalidStorageRouteText = '当前任务的存储路线无效，无法入库';
   static const _reviewDraftUnsafeText = '校对结果尚未安全保存，无法入库，请重试';
   static const _answerDistillationInProgressText = '答案仍在生成中，请等待完成后再入库';
+  static const _reviewRepairInProgressText = '仍有题目正在生成 AI 修补建议，请等待完成后再入库';
+  static const _reviewRepairStaleText = '题目已发生变化，请重新执行 AI 修补';
+  static const _reviewRepairSaveFailedText = 'AI 修补已生成，但校对结果保存失败，请重试';
   static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
   static const _legacyCommitFailedText = '题库入库失败，题目保持待审状态，请检查后重试';
@@ -115,6 +124,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   int _answerDistillationCompletedCount = 0;
   int _answerDistillationTotalCount = 0;
   int? _activeAnswerDistillationIndex;
+  final ReviewRepairPolicy _reviewRepairPolicy = const ReviewRepairPolicy();
+  final Map<int, ReviewRepairEdit> _repairEdits = {};
+  ReviewRepairGenerator? _repairGenerator;
+  int? _activeRepairIndex;
+  int _repairOperationId = 0;
 
   String? get _traceId {
     final value =
@@ -140,6 +154,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   SubjectiveAnswerDistiller get _resolvedAnswerDistiller {
     return _answerDistiller ??= widget.answerDistiller ??
         SubjectiveAnswerDistillationService(
+          engineRepository: AiDependenciesScope.of(context).engineRepository,
+        );
+  }
+
+  ReviewRepairGenerator get _resolvedRepairGenerator {
+    return _repairGenerator ??= widget.reviewRepairGenerator ??
+        ReviewRepairService(
           engineRepository: AiDependenciesScope.of(context).engineRepository,
         );
   }
@@ -780,6 +801,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       _showFixedError(_answerDistillationInProgressText);
       return;
     }
+    if (_isRepairingAnyItem) {
+      _showFixedError(_reviewRepairInProgressText);
+      return;
+    }
 
     final taskId = widget.taskId?.trim() ?? '';
     final attemptToken =
@@ -858,6 +883,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           reviewItemId: marker,
           envelope: provenance[TypedReviewSnapshotCodec.mapKey],
           currentDraft: item.draft,
+          repairEdit: _repairEdits[item.originalIndex],
         ),
       );
     }
@@ -1021,6 +1047,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       if (status != null) {
         _answerDistillationStatuses[index] = status;
       }
+      final repairEdit = ReviewRepairEdit.fromMap(
+        questions[index][TaskManager.keyReviewRepairEdit],
+      );
+      if (repairEdit != null) {
+        _repairEdits[index] = repairEdit;
+      } else {
+        _repairEdits.remove(index);
+      }
       final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
         status: status,
         value: questions[index][TaskManager.keyAnswerDistillationReason],
@@ -1122,6 +1156,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         );
         if (reason != null) {
           question[TaskManager.keyAnswerDistillationReason] = reason;
+        }
+        final repairEdit = _repairEdits[item.originalIndex];
+        if (repairEdit != null && repairEdit.isNotEmpty) {
+          question[TaskManager.keyReviewRepairEdit] = repairEdit.toMap();
         }
         return question;
       }).toList(growable: false);
@@ -1409,37 +1447,233 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  /// Finalizes one review item under the current retention policy.
+  ///
+  /// This is the single finalization path shared by the document retention
+  /// toggle and the AI repair apply step, so an applied repair produces exactly
+  /// the values that a policy re-apply would produce.
+  ImportReviewItem _finalizeReviewItem(ImportReviewItem item) {
+    final question = <String, dynamic>{
+      ...item.draft.toMap(),
+    };
+    final persistedMetadata = item.toPersistedMetadata();
+    if (persistedMetadata != null) {
+      question[ImportReviewMetadata.key] = persistedMetadata;
+    }
+    final finalized = finalizeAndAuditImportQuestion(
+      question,
+      mode: _explanationRetentionMode,
+      override: _explanationOverrides[item.originalIndex] ??
+          QuestionExplanationOverride.inherit,
+    );
+    final finalizedItem =
+        ImportReviewItem.fromMap(finalized, item.originalIndex);
+    final projectionState = switch (item.metadataProjectionState) {
+      ImportReviewMetadataProjectionState.unavailable =>
+        ImportReviewMetadataProjectionState.unavailable,
+      ImportReviewMetadataProjectionState.available =>
+        finalizedItem.metadataProjectionState,
+      ImportReviewMetadataProjectionState.notProvided =>
+        finalizedItem.metadata.hasMeaningfulReviewMetadata
+            ? ImportReviewMetadataProjectionState.available
+            : ImportReviewMetadataProjectionState.notProvided,
+    };
+    return finalizedItem.copyWith(metadataProjectionState: projectionState);
+  }
+
   void _reapplyExplanationPolicy() {
-    _allItems = _allItems.map((item) {
-      final question = <String, dynamic>{
-        ...item.draft.toMap(),
-      };
-      final persistedMetadata = item.toPersistedMetadata();
-      if (persistedMetadata != null) {
-        question[ImportReviewMetadata.key] = persistedMetadata;
+    _allItems = _allItems.map(_finalizeReviewItem).toList();
+  }
+
+  int _reviewItemPosition(ImportReviewItem item) {
+    return _allItems.indexWhere((candidate) => identical(candidate, item));
+  }
+
+  ReviewRepairTarget? _reviewRepairTargetFor(ImportReviewItem item) {
+    final position = _reviewItemPosition(item);
+    if (position < 0) return null;
+    return _reviewRepairPolicy.targetFor(
+      originalIndex: item.originalIndex,
+      questionNumber: item.originalIndex + 1,
+      draft: item.draft,
+      metadata: item.metadata,
+      metadataProjectionState: item.metadataProjectionState,
+      issues: _reviewResult.issues
+          .where((issue) => issue.questionIndex == position)
+          .toList(growable: false),
+    );
+  }
+
+  bool _isReviewRepairEligible(ImportReviewItem item) =>
+      _reviewRepairTargetFor(item) != null;
+
+  bool get _isRepairingAnyItem => _activeRepairIndex != null;
+
+  /// Generates a proposal for one eligible item.
+  ///
+  /// Generating never mutates the review items: the item is only replaced after
+  /// the user accepts a proposal.
+  Future<void> _requestReviewRepair(ImportReviewItem item) async {
+    if (_isSaving || _isRepairingAnyItem || _isDistillingAnswers) return;
+    final target = _reviewRepairTargetFor(item);
+    if (target == null) return;
+
+    setState(() => _activeRepairIndex = item.originalIndex);
+    final operationId = ++_repairOperationId;
+    try {
+      // Durability anchor: the CAS revision must be captured before the model
+      // is called so a stale proposal can never be applied silently.
+      final baseSnapshot = await _persistReviewDraft(showFailurePrompt: false);
+      if (widget.taskId != null && baseSnapshot?.saved != true) {
+        if (!mounted || operationId != _repairOperationId) return;
+        _showFixedError(_reviewDraftUnsafeText);
+        return;
       }
-      final finalized = finalizeAndAuditImportQuestion(
-        question,
-        mode: _explanationRetentionMode,
-        override: _explanationOverrides[item.originalIndex] ??
-            QuestionExplanationOverride.inherit,
+      final reviewItemId = _reviewItemIds[item.originalIndex];
+      if (reviewItemId == null) {
+        if (!mounted || operationId != _repairOperationId) return;
+        _showFixedError(_typedCommitBlockedText);
+        return;
+      }
+
+      final result = await _resolvedRepairGenerator.generateProposal(
+        request: ReviewRepairRequest(
+          target: target,
+          reviewItemId: reviewItemId,
+          inputDraft: item.draft,
+          expectedRevision: baseSnapshot?.revision,
+        ),
+        snapshot: _presentationSnapshots[item.originalIndex],
       );
-      final finalizedItem =
-          ImportReviewItem.fromMap(finalized, item.originalIndex);
-      final projectionState = switch (item.metadataProjectionState) {
-        ImportReviewMetadataProjectionState.unavailable =>
-          ImportReviewMetadataProjectionState.unavailable,
-        ImportReviewMetadataProjectionState.available =>
-          finalizedItem.metadataProjectionState,
-        ImportReviewMetadataProjectionState.notProvided =>
-          finalizedItem.metadata.hasMeaningfulReviewMetadata
-              ? ImportReviewMetadataProjectionState.available
-              : ImportReviewMetadataProjectionState.notProvided,
-      };
-      return finalizedItem.copyWith(
-        metadataProjectionState: projectionState,
+      if (!mounted || operationId != _repairOperationId) return;
+      final proposal = result.proposal;
+      if (!result.hasProposal || proposal == null || !proposal.applicable) {
+        _showFixedError(_reviewRepairFailureText(result.outcome));
+        return;
+      }
+      // Generation is finished: the card leaves its loading state before the
+      // proposal is reviewed. The modal dialog owns the interaction from here.
+      setState(() => _activeRepairIndex = null);
+      final apply = await showDialog<bool>(
+        context: context,
+        builder: (context) => ReviewRepairProposalDialog(proposal: proposal),
       );
-    }).toList();
+      if (!mounted || operationId != _repairOperationId) return;
+      if (apply != true) return;
+      await _applyReviewRepairProposal(item, proposal);
+    } finally {
+      if (mounted && operationId == _repairOperationId) {
+        setState(() => _activeRepairIndex = null);
+      }
+    }
+  }
+
+  /// Applies an accepted proposal through the existing review draft CAS.
+  ///
+  /// Any staleness, missing item or failed save performs zero mutation and
+  /// reports a fixed failure instead of a success state.
+  Future<void> _applyReviewRepairProposal(
+    ImportReviewItem item,
+    ReviewRepairProposal proposal,
+  ) async {
+    final position = _reviewItemPosition(item);
+    if (position < 0) {
+      _showFixedError(_reviewRepairStaleText);
+      return;
+    }
+    final current = _allItems[position];
+    if (proposal.isStaleFor(current.draft)) {
+      _showFixedError(_reviewRepairStaleText);
+      return;
+    }
+
+    final repaired = _finalizeReviewItem(
+      current.copyWith(draft: proposal.proposedDraft),
+    );
+    final ReviewRepairEdit repairEdit;
+    try {
+      repairEdit = ReviewRepairEdit.applied(
+        before: current.draft,
+        after: repaired.draft,
+        fields: proposal.changedFields,
+      );
+    } on FormatException {
+      _showFixedError(_reviewRepairSaveFailedText);
+      return;
+    }
+
+    final taskId = widget.taskId?.trim() ?? '';
+    final expectedRevision = proposal.request.expectedRevision;
+    if (taskId.isEmpty) {
+      setState(() {
+        _allItems[position] = repaired;
+        _repairEdits[item.originalIndex] = repairEdit;
+      });
+      _refreshReviewState();
+      _showReviewRepairApplied();
+      return;
+    }
+    if (expectedRevision == null) {
+      _showFixedError(_reviewRepairSaveFailedText);
+      return;
+    }
+
+    final saveResult = await _enqueueReviewDraftOperation(
+      () => _taskManager.mergeReviewDraftRepair(
+        taskId,
+        reviewItemId: proposal.request.reviewItemId,
+        expectedRevision: expectedRevision,
+        content: repaired.draft.content,
+        options: repaired.draft.options,
+        standardAnswer: repaired.draft.standardAnswer,
+        explanation: repaired.draft.explanation,
+        reviewMetadata: repaired.toPersistedMetadata(),
+        repairEdit: repairEdit,
+      ),
+    );
+    if (!mounted) return;
+    if (saveResult.status == ReviewDraftSaveStatus.stale ||
+        saveResult.status == ReviewDraftSaveStatus.itemMissing ||
+        saveResult.status == ReviewDraftSaveStatus.taskMissing) {
+      _showFixedError(_reviewRepairStaleText);
+      return;
+    }
+    if (!saveResult.saved) {
+      _showFixedError(_reviewRepairSaveFailedText);
+      return;
+    }
+    setState(() {
+      _allItems[position] = repaired;
+      _repairEdits[item.originalIndex] = repairEdit;
+    });
+    _refreshReviewState();
+    _showReviewRepairApplied();
+  }
+
+  void _showReviewRepairApplied() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('AI 修补已应用，请复核后入库')),
+    );
+  }
+
+  String _reviewRepairFailureText(ReviewRepairOutcome outcome) {
+    return switch (outcome) {
+      ReviewRepairOutcome.proposalReady => 'AI 修补未生成有效结果',
+      ReviewRepairOutcome.notEligible => '本题当前不支持 AI 修补',
+      ReviewRepairOutcome.noActiveEngine => '未配置可用的文本模型，无法执行 AI 修补',
+      ReviewRepairOutcome.providerFailure => 'AI 修补请求失败，请稍后重试',
+      ReviewRepairOutcome.invalidJson => 'AI 返回格式不符合要求，未生成修补建议',
+      ReviewRepairOutcome.questionIdentityChanged => 'AI 返回的题号与原题不一致，已拒绝',
+      ReviewRepairOutcome.unexpectedFieldChange => 'AI 修改了不允许修改的字段，已拒绝',
+      ReviewRepairOutcome.unsupportedOptionChange => 'AI 改动了选项数量或标签，已拒绝',
+      ReviewRepairOutcome.emptyResult => 'AI 未提出有效修改',
+      ReviewRepairOutcome.structuralInvalid => 'AI 修补未通过结构校验，已拒绝',
+      ReviewRepairOutcome.latexStillInvalid => 'LaTeX 仍无法可靠渲染，已拒绝',
+      ReviewRepairOutcome.unsupportedTargetField =>
+        '本题字段包含无法安全重建的内容，暂不支持 AI 修补',
+      ReviewRepairOutcome.staleInput => _reviewRepairStaleText,
+    };
   }
 
   void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {
@@ -2051,9 +2285,21 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                               item.originalIndex,
                                       onAnswerDistillation: _selectionMode ||
                                               _isSaving ||
+                                              _isRepairingAnyItem ||
                                               _isDistillingAnswers
                                           ? null
                                           : () => _distillSingleAnswer(item),
+                                      reviewRepairEligible:
+                                          _isReviewRepairEligible(item),
+                                      reviewRepairInProgress:
+                                          _activeRepairIndex ==
+                                              item.originalIndex,
+                                      onReviewRepair: _selectionMode ||
+                                              _isSaving ||
+                                              _isDistillingAnswers ||
+                                              _isRepairingAnyItem
+                                          ? null
+                                          : () => _requestReviewRepair(item),
                                     ),
                                   ),
                                 ),
@@ -2486,6 +2732,9 @@ class _QuestionCard extends StatelessWidget {
     required this.proofExplanationRecognized,
     required this.answerDistillationInProgress,
     required this.onAnswerDistillation,
+    required this.reviewRepairEligible,
+    required this.reviewRepairInProgress,
+    required this.onReviewRepair,
   });
 
   final ImportReviewItem item;
@@ -2499,6 +2748,9 @@ class _QuestionCard extends StatelessWidget {
   final bool proofExplanationRecognized;
   final bool answerDistillationInProgress;
   final VoidCallback? onAnswerDistillation;
+  final bool reviewRepairEligible;
+  final bool reviewRepairInProgress;
+  final VoidCallback? onReviewRepair;
 
   @override
   Widget build(BuildContext context) {
@@ -2525,6 +2777,7 @@ class _QuestionCard extends StatelessWidget {
           issue.severity == ImportReviewSeverity.error,
     );
     final reviewOnly = metadataAvailable &&
+        !reviewRepairEligible &&
         item.metadata.repairCandidateCodes.isEmpty &&
         hasWarningOrError;
 
@@ -2672,6 +2925,23 @@ class _QuestionCard extends StatelessWidget {
               const Chip(
                 avatar: Icon(Icons.verified_outlined, size: 16),
                 label: Text('证明过程已识别'),
+              ),
+            ],
+            if (reviewRepairEligible) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                key: ValueKey(
+                  'review-ai-repair-${item.originalIndex}',
+                ),
+                onPressed: onReviewRepair,
+                icon: reviewRepairInProgress
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_fix_high_outlined, size: 16),
+                label: Text(reviewRepairInProgress ? '正在生成修补建议' : 'AI 修补'),
               ),
             ],
             if ((question.type == QuestionType.singleChoice ||
