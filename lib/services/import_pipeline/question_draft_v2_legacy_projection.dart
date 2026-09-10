@@ -398,10 +398,57 @@ bool _hasDanglingLatexInFinalFields(Map<String, dynamic> question) {
 
 String _contentText(RichContent content, [OcrMathSourceMap? math]) {
   if (math == null) return const RichContentTextProjection().project(content);
-  return const RichContentTextProjection().project(RichContent(nodes: [
-    for (final node in content.nodes)
-      if (math.rawMath(node) case final String raw) TextNode(raw) else node,
-  ]));
+  return const RichContentTextProjection()
+      .project(_restoreRawMath(content, math));
+}
+
+RichContent _restoreRawMath(RichContent content, OcrMathSourceMap math) {
+  final nodes = <ContentNode>[];
+  for (final node in content.nodes) {
+    switch (node) {
+      case InlineMathNode() || BlockMathNode():
+        final raw = math.rawMath(node);
+        nodes.add(raw != null ? TextNode(raw) : node);
+      case TableNode(:final structure):
+        nodes.add(
+          TableNode(
+            structure: TableStructure(
+              rows: [
+                for (final row in structure.rows)
+                  TableRow(
+                    cells: [
+                      for (final cell in row.cells)
+                        TableCell(
+                          content: _restoreRawMath(cell.content, math),
+                          rowSpan: cell.rowSpan,
+                          columnSpan: cell.columnSpan,
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        );
+      case ImageNode(
+          :final sourceId,
+          :final localAssetId,
+          :final alternativeText
+        ):
+        nodes.add(
+          ImageNode(
+            sourceId: sourceId,
+            localAssetId: localAssetId,
+            alternativeText: alternativeText == null
+                ? null
+                : _restoreRawMath(alternativeText, math),
+          ),
+        );
+      case TextNode():
+      case RawFallbackNode():
+        nodes.add(node);
+    }
+  }
+  return RichContent(nodes: nodes);
 }
 
 String _searchText(List<ContentNode> nodes, [OcrMathSourceMap? math]) {
@@ -422,7 +469,9 @@ String _fragmentText(QuestionRegion region, QuestionRegionField field,
     } else if (part is SourceAssetPart) {
       parts.add('[图片]');
     } else if (part is SourceTablePart) {
-      final text = OcrTableProjector.projectToPlainText(part).trim();
+      final text =
+          OcrTableProjector.projectToPlainText(part, mathSourceMap: math)
+              .trim();
       if (text.isNotEmpty) parts.add(text);
     }
   }

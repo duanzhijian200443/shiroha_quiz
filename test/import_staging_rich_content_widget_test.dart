@@ -319,4 +319,35 @@ void main() {
         throwsA(isA<TypedReviewSnapshotException>()));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'renders TableNode cell with Math widget instead of raw math syntax',
+      (tester) async {
+    final content = RichContent(nodes: [
+      TableNode(
+        structure: TableStructure(rows: [
+          TableRow(cells: [
+            TableCell(
+              content: RichContent(nodes: const [
+                TextNode('概率为 '),
+                InlineMathNode(r'\frac{1}{p}'),
+              ]),
+            ),
+          ]),
+        ]),
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RichContentRenderer(content: content),
+        ),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.text(r'$\frac{1}{p}$'), findsNothing);
+    expect(find.textContaining(r'$\frac{1}{p}$'), findsNothing);
+  });
 }

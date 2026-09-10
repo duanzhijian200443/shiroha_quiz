@@ -2,6 +2,8 @@ import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/source/source_part.dart';
 import '../../domain/source/source_ref.dart';
+import 'latex_renderability_checker.dart';
+import 'ocr_rich_content_parser.dart';
 
 /// Deterministic, bounded adapter for the provider's HTML table block.
 ///
@@ -19,6 +21,7 @@ final class OcrTableProjector {
   static SourceTablePart? parseHtmlTable(
     String html, {
     required SourceRef sourceRef,
+    OcrMathSourceMap? mathSourceMap,
   }) {
     if (html.length > maxInputLength) return null;
     final trimmed = html.trim();
@@ -67,9 +70,20 @@ final class OcrTableProjector {
         final spans = _parseCellSpans(cellMatch.group(2) ?? '');
         if (!spans.valid) return null;
         final text = _sanitizeCellText(cellMatch.group(3) ?? '');
-        final content = text.isEmpty
-            ? RichContent(nodes: const <ContentNode>[])
-            : RichContent(nodes: <ContentNode>[TextNode(text)]);
+        final RichContent content;
+        if (text.isEmpty) {
+          content = RichContent(nodes: const <ContentNode>[]);
+        } else if (mathSourceMap != null) {
+          if (_hasExplicitMathDelimiters(text)) {
+            content = mathSourceMap.parse(text);
+          } else if (_isBareMathCandidate(text)) {
+            content = mathSourceMap.parse(text, formula: true);
+          } else {
+            content = RichContent(nodes: <ContentNode>[TextNode(text)]);
+          }
+        } else {
+          content = RichContent(nodes: <ContentNode>[TextNode(text)]);
+        }
         cells.add(
           TableCell(
             content: content,
@@ -91,20 +105,29 @@ final class OcrTableProjector {
     }
   }
 
-  static String projectToPlainText(SourceTablePart table) {
+  static String projectToPlainText(
+    SourceTablePart table, {
+    OcrMathSourceMap? mathSourceMap,
+  }) {
     final rows = <String>[];
     final structure = table.structure;
     if (structure != null) {
       for (final row in structure.expandedCells) {
         rows.add(
           row
-              .map((cell) => cell == null ? '' : _projectCell(cell.content))
+              .map((cell) => cell == null
+                  ? ''
+                  : _projectCell(cell.content, mathSourceMap: mathSourceMap))
               .join(' | '),
         );
       }
     } else {
       for (final row in table.rows) {
-        rows.add(row.map(_projectCell).join(' | '));
+        rows.add(
+          row
+              .map((cell) => _projectCell(cell, mathSourceMap: mathSourceMap))
+              .join(' | '),
+        );
       }
     }
     return rows.join('\n');
@@ -210,19 +233,24 @@ final class OcrTableProjector {
     });
   }
 
-  static String _projectCell(RichContent content) {
+  static String _projectCell(
+    RichContent content, {
+    OcrMathSourceMap? mathSourceMap,
+  }) {
     final buffer = StringBuffer();
     for (final node in content.nodes) {
       switch (node) {
         case TextNode(:final text):
           buffer.write(text);
         case InlineMathNode(:final latex):
-          buffer.write(latex);
+          buffer.write(mathSourceMap?.rawMath(node) ?? latex);
         case BlockMathNode(:final latex):
-          buffer.write(latex);
+          buffer.write(mathSourceMap?.rawMath(node) ?? latex);
         case ImageNode(:final alternativeText):
           buffer.write(
-            alternativeText == null ? '[图片]' : _projectRich(alternativeText),
+            alternativeText == null
+                ? '[图片]'
+                : _projectRich(alternativeText, mathSourceMap: mathSourceMap),
           );
         case TableNode():
         case RawFallbackNode():
@@ -232,17 +260,51 @@ final class OcrTableProjector {
     return buffer.toString().trim();
   }
 
-  static String _projectRich(RichContent content) {
+  static String _projectRich(
+    RichContent content, {
+    OcrMathSourceMap? mathSourceMap,
+  }) {
     return content.nodes.map((node) {
       return switch (node) {
         TextNode(:final text) => text,
-        InlineMathNode(:final latex) => latex,
-        BlockMathNode(:final latex) => latex,
+        InlineMathNode(:final latex) => mathSourceMap?.rawMath(node) ?? latex,
+        BlockMathNode(:final latex) => mathSourceMap?.rawMath(node) ?? latex,
         ImageNode() => '[图片]',
         TableNode() => '[表格]',
         RawFallbackNode() => '',
       };
     }).join();
+  }
+
+  static bool _hasExplicitMathDelimiters(String text) {
+    return text.contains(r'$') || text.contains(r'\(') || text.contains(r'\[');
+  }
+
+  static bool _isBareMathCandidate(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    if (RegExp(r'[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]')
+        .hasMatch(trimmed)) {
+      return false;
+    }
+    if (RegExp(
+      r'\b(?:the|and|or|for|if|with|in|of|to|is|are|let|where|when|definition|note|table|row|column)\b',
+      caseSensitive: false,
+    ).hasMatch(trimmed)) {
+      return false;
+    }
+    final hasLatexCommand = RegExp(r'\\[a-zA-Z]+').hasMatch(trimmed);
+    final hasMathStructure = (trimmed.contains('=') ||
+            trimmed.contains(r'\leqslant') ||
+            trimmed.contains(r'\geqslant')) &&
+        (trimmed.contains('^') ||
+            trimmed.contains('_') ||
+            trimmed.contains('{'));
+    if (!hasLatexCommand && !hasMathStructure) {
+      return false;
+    }
+    const checker = LatexRenderabilityChecker();
+    return checker.check(trimmed, assumeMathContext: true).isRenderable;
   }
 }
 
