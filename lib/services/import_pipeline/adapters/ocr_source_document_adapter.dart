@@ -264,11 +264,7 @@ SourceDocument _convertWithoutBlocks({
         ),
         structureUnsupported: false,
       ),
-    'table' => _mapTableBlock(
-        block,
-        sourceRef,
-        mathSourceMap: mathSourceMap,
-      ),
+    'table' => _mapTableBlock(block, sourceRef),
     'image' || 'figure' => _mapImageBlock(
         block,
         sourceRef,
@@ -290,13 +286,11 @@ SourceDocument _convertWithoutBlocks({
 
 ({SourcePart part, bool structureUnsupported}) _mapTableBlock(
   OcrBlock block,
-  SourceRef sourceRef, {
-  OcrMathSourceMap? mathSourceMap,
-}) {
+  SourceRef sourceRef,
+) {
   final table = OcrTableProjector.parseHtmlTable(
     block.text,
     sourceRef: sourceRef,
-    mathSourceMap: mathSourceMap,
   );
   if (table != null) {
     return (part: table, structureUnsupported: false);

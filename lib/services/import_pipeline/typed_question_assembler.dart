@@ -8,7 +8,6 @@ import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
 import 'ocr_choice_answer_marker.dart';
 import 'ocr_rich_content_parser.dart';
-import 'ocr_safe_html_cleanup.dart';
 import 'ocr_text_normalization.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
@@ -49,32 +48,14 @@ final class TypedQuestionAssembler {
     required String questionId,
     OcrMathSourceMap? mathSourceMap,
   }) {
-    final issues = <ImportIssue>[
-      for (final issue in region.issues)
-        if (!_htmlDerivedIssueCodes.contains(issue.code)) issue,
-    ];
-    void addIssue(
-      String code,
-      ImportIssueSeverity severity,
-      ImportIssueField? field,
-    ) {
-      if (issues.any((issue) => issue.code == code)) return;
-      issues.add(ImportIssue(code: code, severity: severity, field: field));
-    }
-
-    final cleanDiagnostics = <String>{};
     final nodesByField = <QuestionRegionField, List<ContentNode>>{};
     final lastFragmentWasPlainText = <QuestionRegionField, bool>{};
     for (final fragment in region.fragments) {
       switch (fragment.part) {
         case SourceContentPart(:final content):
-          final rawNodes = materializeQuestionRegionContent(
+          final nodes = materializeQuestionRegionContent(
             content,
             fragment.slice,
-          );
-          final nodes = _cleanSafeHtmlNodes(
-            rawNodes,
-            onDiagnostic: cleanDiagnostics.add,
           );
           if (_isStructurallyEmpty(nodes)) {
             // Mirrors the legacy OCR join: fragments that contain only blank
@@ -270,6 +251,16 @@ final class TypedQuestionAssembler {
       answer = ContentAnswer(content: RichContent(nodes: answerNodes));
     }
 
+    final issues = <ImportIssue>[...region.issues];
+    void addIssue(
+      String code,
+      ImportIssueSeverity severity,
+      ImportIssueField? field,
+    ) {
+      if (issues.any((issue) => issue.code == code)) return;
+      issues.add(ImportIssue(code: code, severity: severity, field: field));
+    }
+
     if (cleanedStemEmpty) {
       addIssue(
         'empty_content',
@@ -306,30 +297,6 @@ final class TypedQuestionAssembler {
     ];
     if (finalTexts.any(_hasDanglingLatex)) {
       addIssue('dangling_latex', ImportIssueSeverity.warning, null);
-    }
-    final allNodes = <ContentNode>[
-      ...stemContent.nodes,
-      for (final option in options) ...option.content.nodes,
-      if (answer is ContentAnswer) ...answer.content.nodes,
-      if (explanationContent != null) ...explanationContent.nodes,
-    ];
-    if (allNodes
-        .any((node) => node is TextNode && containsRawHtmlTag(node.text))) {
-      addIssue('raw_html_tag', ImportIssueSeverity.warning, null);
-    }
-    if (cleanDiagnostics.contains('unsafe_html_content_removed')) {
-      addIssue(
-        'unsafe_html_content_removed',
-        ImportIssueSeverity.warning,
-        null,
-      );
-    }
-    if (cleanDiagnostics.contains('unsupported_html_tag_preserved')) {
-      addIssue(
-        'unsupported_html_tag_preserved',
-        ImportIssueSeverity.warning,
-        null,
-      );
     }
 
     return QuestionDraftV2(
@@ -635,98 +602,4 @@ final class _OptionExtract {
 
   final String stem;
   final List<_ExtractedOption> options;
-}
-
-const Set<String> _htmlDerivedIssueCodes = {
-  'raw_html_tag',
-  'unsafe_html_content_removed',
-  'unsupported_html_tag_preserved',
-};
-
-List<ContentNode> _cleanSafeHtmlNodes(
-  List<ContentNode> nodes, {
-  required void Function(String code) onDiagnostic,
-}) {
-  if (nodes.isEmpty) return const <ContentNode>[];
-
-  // Fast-path: if no TextNode contains markup trigger characters '<' or '&',
-  // safe HTML cleanup is a guaranteed no-op and nodes can be returned as-is.
-  if (!nodes.any(
-      (n) => n is TextNode && (n.text.contains('<') || n.text.contains('&')))) {
-    return nodes;
-  }
-
-  // Find collision-free PUA code units for non-text placeholders.
-  var puaBase = 0xE000;
-  while (nodes.any((n) =>
-      n is TextNode &&
-      (n.text.contains(String.fromCharCode(puaBase)) ||
-          n.text.contains(String.fromCharCode(puaBase + 1))))) {
-    puaBase += 2;
-  }
-  final prefix = String.fromCharCode(puaBase);
-  final suffix = String.fromCharCode(puaBase + 1);
-
-  final nonTextNodes = <int, ContentNode>{};
-  final buffer = StringBuffer();
-  var placeholderIndex = 0;
-
-  for (final node in nodes) {
-    if (node is TextNode) {
-      buffer.write(node.text);
-    } else {
-      buffer.write('$prefix$placeholderIndex$suffix');
-      nonTextNodes[placeholderIndex] = node;
-      placeholderIndex++;
-    }
-  }
-
-  final result = stripSafeHtmlWrappers(buffer.toString());
-  for (final diagnostic in result.diagnostics) {
-    onDiagnostic(diagnostic);
-  }
-
-  final cleanedText = result.text;
-  if (cleanedText.isEmpty) {
-    return const <ContentNode>[];
-  }
-
-  // If there were no non-text nodes, return a single TextNode or the original node.
-  if (nonTextNodes.isEmpty) {
-    if (nodes.length == 1 &&
-        nodes.single is TextNode &&
-        (nodes.single as TextNode).text == cleanedText) {
-      return nodes;
-    }
-    return <ContentNode>[TextNode(cleanedText)];
-  }
-
-  final placeholderPattern =
-      RegExp('${RegExp.escape(prefix)}(\\d+)${RegExp.escape(suffix)}');
-  final cleaned = <ContentNode>[];
-  var cursor = 0;
-
-  for (final match in placeholderPattern.allMatches(cleanedText)) {
-    if (match.start > cursor) {
-      final textSlice = cleanedText.substring(cursor, match.start);
-      if (textSlice.isNotEmpty) {
-        cleaned.add(TextNode(textSlice));
-      }
-    }
-    final idx = int.parse(match.group(1)!);
-    final node = nonTextNodes[idx];
-    if (node != null) {
-      cleaned.add(node);
-    }
-    cursor = match.end;
-  }
-
-  if (cursor < cleanedText.length) {
-    final textSlice = cleanedText.substring(cursor);
-    if (textSlice.isNotEmpty) {
-      cleaned.add(TextNode(textSlice));
-    }
-  }
-
-  return cleaned;
 }
