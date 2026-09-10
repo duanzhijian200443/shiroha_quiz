@@ -1890,7 +1890,7 @@ void main() {
         );
         expect(
           candidate.projectedLegacy.explanation,
-          parsed.questions.single['raw_explanation'],
+          parsed.questions.single['explanation'],
         );
         final gate = applyOcrTypedCandidateGate(
           batch: batch,
@@ -1985,8 +1985,8 @@ void main() {
         question['standard_answer'],
         reason: 'answer',
       );
-      expect(candidate.projectedLegacy.explanation, question['raw_explanation'],
-          reason: 'raw explanation');
+      expect(candidate.projectedLegacy.explanation, question['explanation'],
+          reason: 'explanation');
       expect(candidate.sourcePageIndices, question['source_page_indices'],
           reason: 'pages');
       expect(candidate.sourceBlockIds, question['source_block_ids'],
