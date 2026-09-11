@@ -180,7 +180,7 @@ final class LatexFragmentRepairProviderAdapter
         },
       };
     }
-    return <String, Object?>{
+    final body = <String, Object?>{
       'model': profile.modelName,
       'messages': <Object?>[
         <String, Object?>{
@@ -192,6 +192,14 @@ final class LatexFragmentRepairProviderAdapter
       'max_tokens': maxOutputTokens,
       'temperature': 0,
     };
+    if (_isOfficialDeepSeek(profile.baseUrl)) {
+      body['thinking'] = <String, Object?>{'type': 'disabled'};
+    }
+    return body;
+  }
+
+  bool _isOfficialDeepSeek(String baseUrl) {
+    return Uri.tryParse(baseUrl)?.host.toLowerCase() == 'api.deepseek.com';
   }
 
   String _buildPrompt(LatexFragmentProviderRequest request) {

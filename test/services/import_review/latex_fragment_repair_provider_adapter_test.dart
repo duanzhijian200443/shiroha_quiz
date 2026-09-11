@@ -43,6 +43,7 @@ class _MemoryLogSink implements LogSink {
 
 AiEngineProfile _profile({
   String baseUrl = 'https://provider.invalid/v1',
+  String modelName = 'model-safe-id',
 }) {
   return AiEngineProfile(
     id: 'engine_1',
@@ -50,7 +51,7 @@ AiEngineProfile _profile({
     name: 'test',
     apiKey: _secret,
     baseUrl: baseUrl,
-    modelName: 'model-safe-id',
+    modelName: modelName,
     temperature: 0.8,
     reasoningEffort: '',
     isActive: true,
@@ -114,11 +115,75 @@ void main() {
     expect(result.providerProfileId, 'engine_1');
     expect(body['max_tokens'], 1024);
     expect(body['temperature'], 0);
+    expect(body.containsKey('thinking'), isFalse);
     expect(body.containsKey('response_format'), isFalse);
     final serialized = jsonEncode(body);
     expect(serialized, contains(_fragment));
     expect(serialized, contains('前文哨兵'));
     expect(serialized, contains('后文哨兵'));
+  });
+
+  test('official DeepSeek disables thinking without changing output bounds',
+      () async {
+    late Map<String, dynamic> body;
+    final client = MockClient((request) async {
+      expect(request.url.host, 'api.deepseek.com');
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(
+        jsonEncode(<String, Object?>{
+          'choices': <Object?>[
+            <String, Object?>{
+              'finish_reason': 'stop',
+              'message': <String, Object?>{'content': _corrected},
+            },
+          ],
+        }),
+        200,
+      );
+    });
+
+    await _adapter(
+      client: client,
+      profile: _profile(
+        baseUrl: 'https://api.deepseek.com',
+        modelName: 'deepseek-v4-flash',
+      ),
+    ).repair(_request());
+
+    expect(body['thinking'], <String, Object?>{'type': 'disabled'});
+    expect(body['max_tokens'], 1024);
+    expect(body.containsKey('response_format'), isFalse);
+  });
+
+  test('other OpenAI-compatible endpoints receive no DeepSeek thinking field',
+      () async {
+    late Map<String, dynamic> body;
+    final client = MockClient((request) async {
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(
+        jsonEncode(<String, Object?>{
+          'choices': <Object?>[
+            <String, Object?>{
+              'finish_reason': 'stop',
+              'message': <String, Object?>{'content': _corrected},
+            },
+          ],
+        }),
+        200,
+      );
+    });
+
+    await _adapter(
+      client: client,
+      profile: _profile(
+        baseUrl: 'https://api.deepseek.com.proxy.invalid/v1',
+        modelName: 'deepseek-v4-flash',
+      ),
+    ).repair(_request());
+
+    expect(body.containsKey('thinking'), isFalse);
+    expect(body['max_tokens'], 1024);
+    expect(body.containsKey('response_format'), isFalse);
   });
 
   test('Gemini final text succeeds and thought text is never selected',
