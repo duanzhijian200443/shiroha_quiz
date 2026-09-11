@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../application/import_review/typed_review_snapshot.dart';
+import '../../core/observability/app_logger.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/models/import_question_validation.dart';
 import '../../data/models/question_draft.dart';
@@ -10,6 +11,7 @@ import '../../domain/question/question_draft_v2.dart';
 import '../import_pipeline/final_question_latex_audit.dart';
 import '../import_pipeline/latex_sanity_checker.dart';
 import '../llm_api_client.dart';
+import '../llm_providers/llm_provider_registry.dart';
 import 'import_review_analyzer.dart';
 import 'import_review_item.dart';
 import 'import_review_metadata.dart';
@@ -35,6 +37,56 @@ enum ReviewRepairOutcome {
   latexStillInvalid,
   unsupportedTargetField,
   staleInput,
+}
+
+enum _ReviewRepairResponseClassification {
+  validContent,
+  jsonDecodeFailed,
+  nonObject,
+  extraKeys,
+  parseFailure,
+}
+
+extension on _ReviewRepairResponseClassification {
+  String get wireName => switch (this) {
+        _ReviewRepairResponseClassification.validContent =>
+          'repair_content_valid',
+        _ReviewRepairResponseClassification.jsonDecodeFailed =>
+          'repair_json_decode_failed',
+        _ReviewRepairResponseClassification.nonObject => 'repair_non_object',
+        _ReviewRepairResponseClassification.extraKeys => 'repair_extra_keys',
+        _ReviewRepairResponseClassification.parseFailure =>
+          'repair_parse_failure',
+      };
+}
+
+final class _ReviewRepairResponseInspection {
+  const _ReviewRepairResponseInspection({
+    required this.decoded,
+    required this.jsonDecodeSucceeded,
+    required this.decodedTopLevelType,
+    required this.extraKeyCount,
+    required this.missingKeyCount,
+    required this.classification,
+  });
+
+  final Map<String, dynamic>? decoded;
+  final bool jsonDecodeSucceeded;
+  final String decodedTopLevelType;
+  final int extraKeyCount;
+  final int missingKeyCount;
+  final _ReviewRepairResponseClassification classification;
+
+  bool get isValid =>
+      classification == _ReviewRepairResponseClassification.validContent;
+
+  Map<String, Object?> get diagnosticData => <String, Object?>{
+        'repairContentJsonDecodeSucceeded': jsonDecodeSucceeded,
+        'decodedTopLevelType': decodedTopLevelType,
+        'contractExtraKeyCount': extraKeyCount,
+        'contractMissingKeyCount': missingKeyCount,
+        'failureClassification': classification.wireName,
+      };
 }
 
 /// One repair request captured at user click time.
@@ -238,14 +290,37 @@ class ReviewRepairService implements ReviewRepairGenerator {
       );
     }
 
-    final Map<String, dynamic> decoded;
+    final _ReviewRepairResponseInspection responseInspection;
     try {
-      decoded = _parseResponse(response);
+      responseInspection = _inspectResponse(response);
     } catch (_) {
+      _recordResponseInspection(
+        profile: profile,
+        inspection: _ReviewRepairResponseInspection(
+          decoded: null,
+          jsonDecodeSucceeded: false,
+          decodedTopLevelType: 'unavailable',
+          extraKeyCount: 0,
+          missingKeyCount: _contractKeys.length,
+          classification: _ReviewRepairResponseClassification.parseFailure,
+        ),
+      );
       return const ReviewRepairResult.rejected(
         ReviewRepairOutcome.invalidJson,
+        diagnostics: <String>['repair_parse_failure'],
       );
     }
+    _recordResponseInspection(
+      profile: profile,
+      inspection: responseInspection,
+    );
+    if (!responseInspection.isValid) {
+      return ReviewRepairResult.rejected(
+        ReviewRepairOutcome.invalidJson,
+        diagnostics: <String>[responseInspection.classification.wireName],
+      );
+    }
+    final decoded = responseInspection.decoded!;
 
     if (_readQuestionNumber(decoded['question_number']) !=
         target.questionNumber) {
@@ -404,23 +479,77 @@ $sourceBlock
 ''';
   }
 
-  Map<String, dynamic> _parseResponse(String response) {
+  _ReviewRepairResponseInspection _inspectResponse(String response) {
     final trimmed = response.trim();
     dynamic decoded;
     try {
       decoded = jsonDecode(trimmed);
     } catch (_) {
-      decoded = jsonDecode(_extractJsonObject(trimmed));
+      try {
+        decoded = jsonDecode(_extractJsonObject(trimmed));
+      } catch (_) {
+        return _ReviewRepairResponseInspection(
+          decoded: null,
+          jsonDecodeSucceeded: false,
+          decodedTopLevelType: 'unavailable',
+          extraKeyCount: 0,
+          missingKeyCount: _contractKeys.length,
+          classification: _ReviewRepairResponseClassification.jsonDecodeFailed,
+        );
+      }
     }
     if (decoded is! Map) {
-      throw const FormatException('review repair response is not an object');
+      return _ReviewRepairResponseInspection(
+        decoded: null,
+        jsonDecodeSucceeded: true,
+        decodedTopLevelType: _topLevelType(decoded),
+        extraKeyCount: 0,
+        missingKeyCount: _contractKeys.length,
+        classification: _ReviewRepairResponseClassification.nonObject,
+      );
     }
     final result = <String, dynamic>{};
     decoded.forEach((key, value) => result[key.toString()] = value);
-    if (result.keys.any((key) => !_contractKeys.contains(key))) {
-      throw const FormatException('review repair response has extra keys');
-    }
-    return result;
+    final extraKeyCount =
+        result.keys.where((key) => !_contractKeys.contains(key)).length;
+    final missingKeyCount =
+        _contractKeys.where((key) => !result.containsKey(key)).length;
+    return _ReviewRepairResponseInspection(
+      decoded: extraKeyCount == 0 ? result : null,
+      jsonDecodeSucceeded: true,
+      decodedTopLevelType: 'object',
+      extraKeyCount: extraKeyCount,
+      missingKeyCount: missingKeyCount,
+      classification: extraKeyCount == 0
+          ? _ReviewRepairResponseClassification.validContent
+          : _ReviewRepairResponseClassification.extraKeys,
+    );
+  }
+
+  String _topLevelType(Object? value) => switch (value) {
+        null => 'null',
+        Map() => 'object',
+        List() => 'array',
+        String() => 'string',
+        num() => 'number',
+        bool() => 'boolean',
+        _ => 'other',
+      };
+
+  void _recordResponseInspection({
+    required AiEngineProfile profile,
+    required _ReviewRepairResponseInspection inspection,
+  }) {
+    AppLogger.info(
+      'Review repair response inspected',
+      module: 'ReviewRepair',
+      data: <String, Object?>{
+        'providerKind':
+            LlmProviderRegistry.kindForBaseUrl(profile.baseUrl).name,
+        'modelId': profile.modelName,
+        ...inspection.diagnosticData,
+      },
+    );
   }
 
   String _extractJsonObject(String text) {

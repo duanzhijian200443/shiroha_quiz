@@ -5,6 +5,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -21,6 +23,18 @@ import 'package:shiroha_quiz/services/llm_api_client.dart';
 import '../../support/unsupported_ai_engine_store.dart';
 
 const String _brokenExplanation = r'理解 \(\begin{matrix}1 的推导';
+
+class _MemoryLogSink implements LogSink {
+  final List<LogRecord> records = <LogRecord>[];
+
+  @override
+  Future<void> write(LogRecord record) async {
+    records.add(record);
+  }
+
+  @override
+  Future<void> flush() async {}
+}
 
 class _FakeEngineRepository extends AiEngineRepository {
   _FakeEngineRepository(this.profile)
@@ -137,6 +151,10 @@ String _response({
 }
 
 void main() {
+  tearDown(() {
+    AppLogger.setSink(null);
+  });
+
   group('ReviewRepairService outcomes', () {
     Future<ReviewRepairResult> run({
       required String response,
@@ -234,23 +252,88 @@ void main() {
     });
 
     test('rejects invalid JSON and unexpected contract keys', () async {
-      expect(
-        (await run(response: 'not json at all')).outcome,
-        ReviewRepairOutcome.invalidJson,
+      final malformed = await run(response: 'not json at all');
+      final extraKey = await run(
+        response: '{"question_number":21,"content":"Stem",'
+            '"options":[],"standard_answer":"Answer",'
+            '"explanation":"x","reasoning":"because"}',
       );
-      expect(
-        (await run(
-          response: '{"question_number":21,"content":"Stem",'
-              '"options":[],"standard_answer":"Answer",'
-              '"explanation":"x","reasoning":"because"}',
-        ))
-            .outcome,
-        ReviewRepairOutcome.invalidJson,
+      final nonObject = await run(response: '[{"question_number":21}]');
+
+      expect(malformed.outcome, ReviewRepairOutcome.invalidJson);
+      expect(malformed.diagnostics, <String>['repair_json_decode_failed']);
+      expect(extraKey.outcome, ReviewRepairOutcome.invalidJson);
+      expect(extraKey.diagnostics, <String>['repair_extra_keys']);
+      expect(nonObject.outcome, ReviewRepairOutcome.invalidJson);
+      expect(nonObject.diagnostics, <String>['repair_non_object']);
+    });
+
+    test('logs only bounded metadata for repair response parsing', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      const promptSentinel = 'PRIVATE_Q21_PROMPT_BODY';
+      const responseSentinel = 'PRIVATE_PROVIDER_RESPONSE_BODY';
+      const latexSentinel = r'PRIVATE_LATEX_\(\begin{matrix}';
+      const apiKeySentinel = 'PRIVATE_API_KEY_VALUE';
+      const baseUrlSentinel = 'https://private-provider.invalid/v1';
+      const privateProfile = AiEngineProfile(
+        id: 'private-test',
+        engineType: AiEngineType.text,
+        name: 'private-test',
+        apiKey: apiKeySentinel,
+        baseUrl: baseUrlSentinel,
+        modelName: 'model',
+        temperature: 0,
+        reasoningEffort: '',
+        isActive: true,
       );
-      expect(
-        (await run(response: '[{"question_number":21}]')).outcome,
-        ReviewRepairOutcome.invalidJson,
+
+      final result = await run(
+        engineRepository: _FakeEngineRepository(privateProfile),
+        request: _request(
+          content: promptSentinel,
+          explanation: latexSentinel,
+        ),
+        response: _response(
+          questionNumber: 21,
+          content: promptSentinel,
+          explanation: responseSentinel,
+          extra: const <String, Object?>{'unexpected': 'private-extra-value'},
+        ),
       );
+      await AppLogger.flush();
+
+      expect(result.outcome, ReviewRepairOutcome.invalidJson);
+      expect(result.diagnostics, <String>['repair_extra_keys']);
+      expect(sink.records, hasLength(1));
+      final record = sink.records.single;
+      expect(record.module, 'ReviewRepair');
+      expect(record.data, containsPair('providerKind', 'openAiCompatible'));
+      expect(record.data, containsPair('modelId', 'model'));
+      expect(
+        record.data,
+        containsPair('repairContentJsonDecodeSucceeded', true),
+      );
+      expect(record.data, containsPair('decodedTopLevelType', 'object'));
+      expect(record.data, containsPair('contractExtraKeyCount', 1));
+      expect(record.data, containsPair('contractMissingKeyCount', 0));
+      expect(
+        record.data,
+        containsPair('failureClassification', 'repair_extra_keys'),
+      );
+
+      final encoded = jsonEncode(record.toJson());
+      for (final forbidden in <String>[
+        promptSentinel,
+        responseSentinel,
+        latexSentinel,
+        'private-extra-value',
+        apiKeySentinel,
+        baseUrlSentinel,
+      ]) {
+        expect(encoded, isNot(contains(forbidden)),
+            reason: 'Leaked: $forbidden');
+      }
     });
 
     test('rejects a changed question number', () async {
