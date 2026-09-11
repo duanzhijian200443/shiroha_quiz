@@ -55,13 +55,7 @@ class ReviewRepairProposalDialog extends StatelessWidget {
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
               ),
               const SizedBox(height: 12),
-              for (final field in proposal.changedFields)
-                _FieldDiff(
-                  key: fieldKey(field),
-                  field: field,
-                  original: _originalText(field),
-                  proposed: _proposedText(field),
-                ),
+              for (final field in proposal.changedFields) _proposalDiff(field),
               const SizedBox(height: 12),
               Text(
                 '验证',
@@ -118,6 +112,24 @@ class ReviewRepairProposalDialog extends StatelessWidget {
   String _proposedText(ReviewRepairField field) =>
       _textFor(field, proposal.proposedDraft);
 
+  Widget _proposalDiff(ReviewRepairField field) {
+    final fragment = proposal.fragment;
+    if (fragment != null) {
+      return _FragmentDiff(
+        key: fieldKey(field),
+        field: field,
+        original: fragment.target.originalLatex,
+        proposed: fragment.correctedLatex,
+      );
+    }
+    return _FieldDiff(
+      key: fieldKey(field),
+      field: field,
+      original: _originalText(field),
+      proposed: _proposedText(field),
+    );
+  }
+
   String _textFor(ReviewRepairField field, QuestionDraft draft) {
     return switch (field) {
       ReviewRepairField.content => draft.content,
@@ -125,6 +137,43 @@ class ReviewRepairProposalDialog extends StatelessWidget {
       ReviewRepairField.standardAnswer => draft.standardAnswer,
       ReviewRepairField.explanation => draft.explanation,
     };
+  }
+}
+
+class _FragmentDiff extends StatelessWidget {
+  const _FragmentDiff({
+    super.key,
+    required this.field,
+    required this.original,
+    required this.proposed,
+  });
+
+  final ReviewRepairField field;
+  final String original;
+  final String proposed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${reviewRepairFieldLabel(field)} · LaTeX 片段',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          _DiffBlock(label: '原公式', text: original, color: Colors.grey),
+          const SizedBox(height: 6),
+          _DiffBlock(
+            label: '修补建议',
+            text: proposed,
+            color: Theme.of(context).primaryColor,
+          ),
+        ],
+      ),
+    );
   }
 }
 

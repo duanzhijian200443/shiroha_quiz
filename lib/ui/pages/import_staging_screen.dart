@@ -1501,6 +1501,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       issues: _reviewResult.issues
           .where((issue) => issue.questionIndex == position)
           .toList(growable: false),
+      hasTypedSnapshot: _presentationSnapshots.containsKey(item.originalIndex),
     );
   }
 
@@ -1592,11 +1593,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
     final ReviewRepairEdit repairEdit;
     try {
-      repairEdit = ReviewRepairEdit.applied(
-        before: current.draft,
-        after: repaired.draft,
-        fields: proposal.changedFields,
-      );
+      final fragment = proposal.fragment;
+      repairEdit = fragment == null
+          ? ReviewRepairEdit.applied(
+              before: current.draft,
+              after: repaired.draft,
+              fields: proposal.changedFields,
+            )
+          : ReviewRepairEdit.latexFragment(
+              before: current.draft,
+              after: repaired.draft,
+              target: fragment.target,
+              replacementLatex: fragment.correctedLatex,
+            );
     } on FormatException {
       _showFixedError(_reviewRepairSaveFailedText);
       return;
@@ -1673,6 +1682,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       ReviewRepairOutcome.unsupportedTargetField =>
         '本题字段包含无法安全重建的内容，暂不支持 AI 修补',
       ReviewRepairOutcome.staleInput => _reviewRepairStaleText,
+      ReviewRepairOutcome.fragmentTargetUnavailable =>
+        '未能唯一定位需要修补的 LaTeX，请继续人工审核',
+      ReviewRepairOutcome.invalidFragmentOutput => 'AI 未返回有效的 LaTeX 修补建议',
+      ReviewRepairOutcome.fragmentRenderabilityFailed =>
+        'AI 返回的 LaTeX 仍无法可靠渲染，已拒绝',
+      ReviewRepairOutcome.fieldReauditFailed => 'LaTeX 修补未通过完整字段校验，已拒绝',
     };
   }
 

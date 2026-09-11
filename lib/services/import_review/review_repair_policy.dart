@@ -4,6 +4,8 @@ import 'import_review_issue.dart';
 import 'import_review_metadata.dart';
 import 'review_repair_edit.dart';
 
+enum ReviewRepairStrategy { structuralQuestion, latexFragment }
+
 /// One eligible review question together with the fields an AI repair may
 /// rewrite.
 ///
@@ -16,6 +18,7 @@ final class ReviewRepairTarget {
     required int questionNumber,
     required List<String> triggerCodes,
     required List<ReviewRepairField> fields,
+    ReviewRepairStrategy strategy = ReviewRepairStrategy.structuralQuestion,
   }) {
     if (fields.isEmpty) {
       throw const FormatException('review repair target requires a field');
@@ -25,6 +28,7 @@ final class ReviewRepairTarget {
       questionNumber: questionNumber,
       triggerCodes: List<String>.unmodifiable(triggerCodes),
       fields: List<ReviewRepairField>.unmodifiable(fields),
+      strategy: strategy,
     );
   }
 
@@ -33,12 +37,14 @@ final class ReviewRepairTarget {
     required this.questionNumber,
     required this.triggerCodes,
     required this.fields,
+    required this.strategy,
   });
 
   final int originalIndex;
   final int questionNumber;
   final List<String> triggerCodes;
   final List<ReviewRepairField> fields;
+  final ReviewRepairStrategy strategy;
 
   bool allows(ReviewRepairField field) => fields.contains(field);
 }
@@ -78,40 +84,54 @@ final class ReviewRepairPolicy {
     required ImportReviewMetadata metadata,
     required ImportReviewMetadataProjectionState metadataProjectionState,
     required List<ImportReviewIssue> issues,
+    bool hasTypedSnapshot = true,
   }) {
     if (metadataProjectionState !=
         ImportReviewMetadataProjectionState.available) {
       return null;
     }
 
-    final triggers = <String>[];
-    final fields = <ReviewRepairField>{};
-
-    for (final issue in issues) {
-      if (issue.code != ImportReviewIssueCode.latexUnrenderable) continue;
-      final invalidFields = _latexFields(metadata);
-      if (invalidFields.isEmpty) continue;
-      triggers.add(latexUnrenderableCode);
-      fields.addAll(invalidFields);
-    }
+    final structuralTriggers = <String>[];
+    final structuralFields = <ReviewRepairField>{};
 
     for (final code in metadata.repairCandidateCodes) {
       if (!_repairableCandidateCodes.contains(code)) continue;
       final mapped = _fieldsForCandidateCode(code, draft);
       if (mapped.isEmpty) continue;
-      triggers.add(code);
-      fields.addAll(mapped);
+      structuralTriggers.add(code);
+      structuralFields.addAll(mapped);
     }
 
-    if (fields.isEmpty) return null;
+    // Structural issues always run first. A mixed item is re-audited after the
+    // structural proposal is applied before a later fragment attempt.
+    if (structuralFields.isNotEmpty) {
+      return ReviewRepairTarget(
+        originalIndex: originalIndex,
+        questionNumber: questionNumber,
+        triggerCodes: structuralTriggers.toSet().toList()..sort(),
+        fields: ReviewRepairField.values
+            .where(structuralFields.contains)
+            .toList(growable: false),
+      );
+    }
+
+    if (!hasTypedSnapshot ||
+        !issues.any(
+          (issue) => issue.code == ImportReviewIssueCode.latexUnrenderable,
+        )) {
+      return null;
+    }
+    final latexFields = _latexFields(metadata);
+    if (latexFields.isEmpty) return null;
 
     return ReviewRepairTarget(
       originalIndex: originalIndex,
       questionNumber: questionNumber,
-      triggerCodes: triggers.toSet().toList()..sort(),
+      triggerCodes: const <String>[latexUnrenderableCode],
       fields: ReviewRepairField.values
-          .where(fields.contains)
+          .where(latexFields.contains)
           .toList(growable: false),
+      strategy: ReviewRepairStrategy.latexFragment,
     );
   }
 

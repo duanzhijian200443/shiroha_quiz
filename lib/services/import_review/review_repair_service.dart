@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../../application/import_review/latex_fragment_repair.dart';
+import '../../application/import_review/latex_fragment_repair_provider.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../data/models/ai_engine_profile.dart';
@@ -10,12 +12,14 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../import_pipeline/final_question_latex_audit.dart';
 import '../import_pipeline/latex_sanity_checker.dart';
+import '../import_pipeline/latex_renderability_checker.dart';
 import '../llm_api_client.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import 'import_review_analyzer.dart';
 import 'import_review_item.dart';
 import 'import_review_metadata.dart';
 import 'review_legacy_field_content.dart';
+import 'latex_fragment_repair_provider_adapter.dart';
 import 'review_repair_edit.dart';
 import 'review_repair_policy.dart';
 
@@ -37,6 +41,10 @@ enum ReviewRepairOutcome {
   latexStillInvalid,
   unsupportedTargetField,
   staleInput,
+  fragmentTargetUnavailable,
+  invalidFragmentOutput,
+  fragmentRenderabilityFailed,
+  fieldReauditFailed,
 }
 
 enum _ReviewRepairResponseClassification {
@@ -147,6 +155,7 @@ final class ReviewRepairProposal {
     required QuestionDraft proposedDraft,
     required List<ReviewRepairField> changedFields,
     required this.validation,
+    this.fragment,
   })  : proposedDraft = freezeReviewDraft(proposedDraft),
         changedFields = List<ReviewRepairField>.unmodifiable(changedFields);
 
@@ -154,6 +163,7 @@ final class ReviewRepairProposal {
   final QuestionDraft proposedDraft;
   final List<ReviewRepairField> changedFields;
   final ReviewRepairValidation validation;
+  final LatexFragmentProposal? fragment;
 
   /// The review question as it was when the proposal was generated.
   QuestionDraft get originalDraft => request.inputDraft;
@@ -176,6 +186,17 @@ final class ReviewRepairProposal {
         current.explanation != input.explanation ||
         !_sameList(current.options, input.options);
   }
+}
+
+/// Transient fragment diff carried only between generation and confirmation.
+final class LatexFragmentProposal {
+  const LatexFragmentProposal({
+    required this.target,
+    required this.correctedLatex,
+  });
+
+  final LatexFragmentTarget target;
+  final String correctedLatex;
 }
 
 /// Explicit result of a repair attempt.
@@ -218,11 +239,16 @@ abstract interface class ReviewRepairGenerator {
 /// mutates a review item, never writes storage and never touches the typed
 /// review envelope.
 class ReviewRepairService implements ReviewRepairGenerator {
-  const ReviewRepairService({
+  ReviewRepairService({
     required AiEngineRepository engineRepository,
     LlmApiClient apiClient = const LlmApiClient(),
+    LatexFragmentRepairProviderPort? fragmentProvider,
   })  : _engineRepository = engineRepository,
-        _apiClient = apiClient;
+        _apiClient = apiClient,
+        _fragmentProvider = fragmentProvider ??
+            LatexFragmentRepairProviderAdapter(
+              engineRepository: engineRepository,
+            );
 
   static const Duration _maximumTimeout = Duration(seconds: 90);
   static const int _maximumContentCharacters = 2000;
@@ -240,6 +266,7 @@ class ReviewRepairService implements ReviewRepairGenerator {
 
   final AiEngineRepository _engineRepository;
   final LlmApiClient _apiClient;
+  final LatexFragmentRepairProviderPort _fragmentProvider;
 
   @override
   Future<ReviewRepairResult> generateProposal({
@@ -250,6 +277,14 @@ class ReviewRepairService implements ReviewRepairGenerator {
     final target = request.target;
     if (target.fields.isEmpty) {
       return const ReviewRepairResult.rejected(ReviewRepairOutcome.notEligible);
+    }
+
+    if (target.strategy == ReviewRepairStrategy.latexFragment) {
+      return _generateLatexFragment(
+        request: request,
+        snapshot: snapshot,
+        timeout: timeout,
+      );
     }
 
     final unrebuildable = _unrebuildableField(request, snapshot);
@@ -411,6 +446,253 @@ class ReviewRepairService implements ReviewRepairGenerator {
       );
     }
     return ReviewRepairResult.ready(proposal);
+  }
+
+  Future<ReviewRepairResult> _generateLatexFragment({
+    required ReviewRepairRequest request,
+    required TypedReviewSnapshot? snapshot,
+    required Duration timeout,
+  }) async {
+    if (snapshot == null) return _fragmentTargetUnavailable();
+    final fields = <LatexFragmentField>{};
+    for (final field in request.target.fields) {
+      fields.add(switch (field) {
+        ReviewRepairField.content => LatexFragmentField.stem,
+        ReviewRepairField.options => LatexFragmentField.options,
+        ReviewRepairField.standardAnswer => LatexFragmentField.contentAnswer,
+        ReviewRepairField.explanation => LatexFragmentField.explanation,
+      });
+    }
+    const checker = LatexRenderabilityChecker();
+    final target = const LatexFragmentLocator().locate(
+      reviewItemId: request.reviewItemId,
+      expectedRevision: request.expectedRevision,
+      snapshot: snapshot,
+      current: LatexFragmentLegacyView(
+        content: request.inputDraft.content,
+        options: request.inputDraft.options,
+        standardAnswer: request.inputDraft.standardAnswer,
+        explanation: request.inputDraft.explanation,
+      ),
+      fields: fields,
+      isRenderable: (latex) => checker
+          .check(
+            latex,
+            requireMathContext: false,
+            assumeMathContext: true,
+          )
+          .isRenderable,
+      digest: fieldDigest,
+    );
+    if (target == null || target.originalLatex.runes.length > 4096) {
+      return _fragmentTargetUnavailable();
+    }
+
+    final LatexFragmentProviderResult providerResult;
+    try {
+      providerResult = await _fragmentProvider.repair(
+        LatexFragmentProviderRequest(
+          nodeKind: target.nodeKind,
+          originalLatex: target.originalLatex,
+          precedingContext: target.precedingContext,
+          followingContext: target.followingContext,
+        ),
+        timeout: _effectiveTimeout(timeout),
+      );
+    } on LatexFragmentProviderException catch (error) {
+      return _fragmentProviderFailure(error.failure);
+    } catch (_) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.providerFailure,
+        diagnostics: <String>['provider_internal_error'],
+      );
+    }
+
+    final corrected = providerResult.correctedLatex.trim();
+    if (corrected.isEmpty) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.invalidFragmentOutput,
+        diagnostics: <String>['provider_output_invalid'],
+      );
+    }
+    if (corrected == target.originalLatex) {
+      return const ReviewRepairResult.rejected(ReviewRepairOutcome.emptyResult);
+    }
+    if (!checker
+        .check(
+          corrected,
+          requireMathContext: false,
+          assumeMathContext: true,
+        )
+        .isRenderable) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.fragmentRenderabilityFailed,
+        diagnostics: <String>['fragment_renderability_failed'],
+      );
+    }
+
+    final QuestionDraft patched;
+    try {
+      patched = _patchLegacyFragment(
+        request.inputDraft,
+        snapshot,
+        target,
+        corrected,
+      );
+    } on FormatException {
+      return _fragmentTargetUnavailable();
+    }
+    final beforeAudit = auditFinalQuestionLatex(request.inputDraft.toMap());
+    final afterAudit = auditFinalQuestionLatex(patched.toMap());
+    final audited = _withAuditedText(patched, afterAudit.question);
+    final repairField = _reviewFieldFor(target.field);
+    if (ReviewRepairField.values.any(
+      (field) =>
+          ReviewRepairEdit.digestSourceFor(field, audited) !=
+          ReviewRepairEdit.digestSourceFor(field, patched),
+    )) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.fieldReauditFailed,
+        diagnostics: <String>['field_reaudit_failed'],
+      );
+    }
+    final newInvalid = afterAudit.invalidFields
+        .where((field) => !beforeAudit.invalidFields.contains(field))
+        .toList(growable: false);
+    if (afterAudit.invalidFields.contains(repairField.wireKey) ||
+        newInvalid.isNotEmpty) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.fieldReauditFailed,
+        diagnostics: <String>['field_reaudit_failed'],
+      );
+    }
+    if (!_validateStructure(request, audited)) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.structuralInvalid,
+      );
+    }
+
+    final proposal = ReviewRepairProposal(
+      request: request,
+      proposedDraft: audited,
+      changedFields: <ReviewRepairField>[repairField],
+      validation: ReviewRepairValidation(
+        structuralValid: true,
+        latexValid: true,
+        fieldsInScope: true,
+        remainingDiagnostics: <String>[
+          for (final field in afterAudit.invalidFields)
+            '${ReviewRepairPolicy.latexUnrenderableCode}:$field',
+        ],
+      ),
+      fragment: LatexFragmentProposal(
+        target: target,
+        correctedLatex: corrected,
+      ),
+    );
+    return ReviewRepairResult.ready(proposal);
+  }
+
+  ReviewRepairResult _fragmentTargetUnavailable() {
+    AppLogger.info(
+      'Review repair fragment target unavailable',
+      module: 'ReviewRepair',
+      data: const <String, Object?>{
+        'failureClassification': 'target_unavailable',
+      },
+    );
+    return const ReviewRepairResult.rejected(
+      ReviewRepairOutcome.fragmentTargetUnavailable,
+      diagnostics: <String>['target_unavailable'],
+    );
+  }
+
+  ReviewRepairResult _fragmentProviderFailure(
+    LatexFragmentProviderFailure failure,
+  ) {
+    final outcome = switch (failure) {
+      LatexFragmentProviderFailure.providerUnconfigured =>
+        ReviewRepairOutcome.noActiveEngine,
+      LatexFragmentProviderFailure.providerEmptyContent ||
+      LatexFragmentProviderFailure.providerReasoningOnly ||
+      LatexFragmentProviderFailure.providerFinishLength ||
+      LatexFragmentProviderFailure.providerInvalidEnvelope ||
+      LatexFragmentProviderFailure.providerOutputInvalid =>
+        ReviewRepairOutcome.invalidFragmentOutput,
+      _ => ReviewRepairOutcome.providerFailure,
+    };
+    return ReviewRepairResult.rejected(
+      outcome,
+      diagnostics: <String>[failure.wireName],
+    );
+  }
+
+  QuestionDraft _patchLegacyFragment(
+    QuestionDraft draft,
+    TypedReviewSnapshot snapshot,
+    LatexFragmentTarget target,
+    String corrected,
+  ) {
+    String splice(String value) {
+      if (target.legacyStart > value.length ||
+          target.legacyEnd > value.length ||
+          value.substring(target.legacyStart, target.legacyEnd) !=
+              target.originalLatex) {
+        throw const FormatException('Stale LaTeX fragment span.');
+      }
+      return value.replaceRange(
+          target.legacyStart, target.legacyEnd, corrected);
+    }
+
+    return switch (target.field) {
+      LatexFragmentField.stem => draft.copyWith(content: splice(draft.content)),
+      LatexFragmentField.explanation =>
+        draft.copyWith(explanation: splice(draft.explanation)),
+      LatexFragmentField.contentAnswer =>
+        draft.copyWith(standardAnswer: splice(draft.standardAnswer)),
+      LatexFragmentField.options => _patchLegacyOption(
+          draft,
+          snapshot,
+          target,
+          corrected,
+        ),
+    };
+  }
+
+  QuestionDraft _patchLegacyOption(
+    QuestionDraft draft,
+    TypedReviewSnapshot snapshot,
+    LatexFragmentTarget target,
+    String corrected,
+  ) {
+    final index = snapshot.draft.options.indexWhere(
+      (option) => option.optionId == target.optionId,
+    );
+    if (index < 0 || index >= draft.options.length) {
+      throw const FormatException('Stale LaTeX option target.');
+    }
+    final option = draft.options[index];
+    final match = _optionPattern.firstMatch(option);
+    if (match == null) throw const FormatException('Invalid legacy option.');
+    final bodyStart = option.length - match.group(2)!.length;
+    final start = bodyStart + target.legacyStart;
+    final end = bodyStart + target.legacyEnd;
+    if (end > option.length ||
+        option.substring(start, end) != target.originalLatex) {
+      throw const FormatException('Stale LaTeX option span.');
+    }
+    final options = List<String>.from(draft.options);
+    options[index] = option.replaceRange(start, end, corrected);
+    return draft.copyWith(options: options);
+  }
+
+  ReviewRepairField _reviewFieldFor(LatexFragmentField field) {
+    return switch (field) {
+      LatexFragmentField.stem => ReviewRepairField.content,
+      LatexFragmentField.options => ReviewRepairField.options,
+      LatexFragmentField.contentAnswer => ReviewRepairField.standardAnswer,
+      LatexFragmentField.explanation => ReviewRepairField.explanation,
+    };
   }
 
   Duration _effectiveTimeout(Duration timeout) =>
@@ -595,7 +877,12 @@ $sourceBlock
     return QuestionDraft(
       type: draft.type,
       content: _readString(audited['content'], fallback: draft.content),
-      options: draft.options,
+      options: audited['options'] is List
+          ? <String>[
+              for (final option in audited['options'] as List)
+                option.toString(),
+            ]
+          : draft.options,
       standardAnswer: _readString(
         audited['standard_answer'],
         fallback: draft.standardAnswer,

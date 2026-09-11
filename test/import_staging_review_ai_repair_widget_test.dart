@@ -7,10 +7,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_review/review_legacy_field_content.dart';
 import 'package:shiroha_quiz/services/import_review/review_repair_edit.dart';
+import 'package:shiroha_quiz/services/import_review/review_repair_policy.dart';
 import 'package:shiroha_quiz/services/import_review/review_repair_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
@@ -21,6 +27,8 @@ const String _reviewItemId = '44444444-4444-4444-8444-000000000021';
 const String _brokenExplanation = r'推导 $$\begin{array}{l}x_1=1\\x_2=2$$';
 const String _repairedExplanation =
     r'推导 $$\begin{array}{l}x_1=1\\x_2=2\end{array}$$';
+const String _brokenFragment = r'\begin{array}{l}x_1=1\\x_2=2';
+const String _repairedFragment = r'\begin{array}{l}x_1=1\\x_2=2\end{array}';
 
 class _FakeRepairGenerator implements ReviewRepairGenerator {
   _FakeRepairGenerator({this.respond});
@@ -44,6 +52,9 @@ class _FakeRepairGenerator implements ReviewRepairGenerator {
 }
 
 ReviewRepairResult _ready(ReviewRepairRequest request, String explanation) {
+  final isFragment =
+      request.target.strategy == ReviewRepairStrategy.latexFragment;
+  final start = request.inputDraft.explanation.indexOf(_brokenFragment);
   return ReviewRepairResult.ready(
     ReviewRepairProposal(
       request: request,
@@ -54,6 +65,27 @@ ReviewRepairResult _ready(ReviewRepairRequest request, String explanation) {
         latexValid: true,
         fieldsInScope: true,
       ),
+      fragment: isFragment
+          ? LatexFragmentProposal(
+              target: LatexFragmentTarget(
+                reviewItemId: request.reviewItemId,
+                expectedRevision: request.expectedRevision,
+                field: LatexFragmentField.explanation,
+                optionId: null,
+                nodeIndex: 1,
+                nodeKind: LatexFragmentNodeKind.blockMath,
+                originalFieldDigest:
+                    fieldDigest(request.inputDraft.explanation),
+                originalLatexDigest: fieldDigest(_brokenFragment),
+                legacyStart: start,
+                legacyEnd: start + _brokenFragment.length,
+                originalLatex: _brokenFragment,
+                precedingContext: '推导 ',
+                followingContext: '',
+              ),
+              correctedLatex: _repairedFragment,
+            )
+          : null,
     ),
   );
 }
@@ -103,8 +135,9 @@ Map<String, dynamic> _question({
   String? rawExplanation = _brokenExplanation,
   List<String> riskHints = const <String>['latex_unrenderable'],
   List<String> latexInvalidFields = const <String>['explanation'],
+  bool withTypedSnapshot = true,
 }) {
-  return <String, dynamic>{
+  final question = <String, dynamic>{
     'q_num': 21,
     'question_number': 21,
     'type': type,
@@ -123,6 +156,49 @@ Map<String, dynamic> _question({
       'latexInvalidFields': latexInvalidFields,
     },
   };
+  if (withTypedSnapshot) {
+    question[TypedReviewSnapshotCodec.mapKey] =
+        const TypedReviewSnapshotCodec().encode(
+      TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: '22222222-2222-4222-8222-000000000021',
+        draft: QuestionDraftV2(
+          questionId: '22222222-2222-4222-8222-000000000021',
+          kind: switch (type) {
+            0 => QuestionKind.singleChoice,
+            2 => QuestionKind.fillBlank,
+            _ => QuestionKind.shortAnswer,
+          },
+          questionNumber: 21,
+          stem: _contentFor(content),
+          options: <QuestionOption>[
+            for (var index = 0; index < options.length; index++)
+              QuestionOption(
+                optionId: <Object>['option_', index + 1].join(),
+                label: optionLabel(options[index]),
+                content: _contentFor(optionBody(options[index])),
+              ),
+          ],
+          answer: ContentAnswer(content: _contentFor(standardAnswer)),
+          explanation: explanation.isEmpty ? null : _contentFor(explanation),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: type,
+          questionNumber: 21,
+          content: content,
+          options: options,
+          standardAnswer: standardAnswer,
+          explanation: explanation,
+        ),
+      ),
+    );
+  }
+  return question;
+}
+
+RichContent _contentFor(String value) {
+  return reviewFieldContentFromLegacyText(value) ??
+      RichContent(nodes: <ContentNode>[TextNode(value)]);
 }
 
 ImportTask _task(Map<String, dynamic> question) {
@@ -191,6 +267,29 @@ void main() {
     );
   });
 
+  testWidgets('pure LaTeX issue without typed snapshot stays review-only',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question(withTypedSnapshot: false);
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('review-ai-repair-0')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('question-repair-review-only-0')),
+      findsOneWidget,
+    );
+    expect(generator.calls, 0);
+  });
+
   testWidgets('a non-repairable risk keeps the review-only notice',
       (tester) async {
     final recorder = _RecordingTaskManager();
@@ -237,6 +336,9 @@ void main() {
     expect(generator.calls, 1);
     expect(find.byKey(ReviewRepairProposalDialog.dialogKey), findsOneWidget);
     expect(find.textContaining('修改字段：解析'), findsOneWidget);
+    expect(find.text('解析 · LaTeX 片段'), findsOneWidget);
+    expect(find.text(_brokenFragment), findsAtLeastNWidgets(1));
+    expect(find.text(_repairedFragment), findsOneWidget);
 
     await tester.tap(find.byKey(ReviewRepairProposalDialog.cancelKey));
     await tester.pumpAndSettle();
@@ -305,8 +407,9 @@ void main() {
       recorder.lastQuestion[TaskManager.keyReviewRepairEdit],
     );
     expect(marker, isNotNull);
+    expect(marker!.isLatexFragment, isTrue);
     expect(
-      marker!.digests.keys,
+      marker.digests.keys,
       <ReviewRepairField>[ReviewRepairField.explanation],
     );
     expect(

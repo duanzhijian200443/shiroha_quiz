@@ -8,6 +8,9 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../application/import_review/latex_fragment_repair.dart';
+import '../../utils/content_tokenizer.dart';
+import '../import_pipeline/latex_renderability_checker.dart';
 import 'review_legacy_field_content.dart';
 import 'review_repair_edit.dart';
 
@@ -67,6 +70,7 @@ enum TypedReviewCommitFailure {
   reviewCompletionFailed,
   unsafePayload,
   persistenceFailed,
+  invalidRepairEdit,
 }
 
 /// Safe fixed typed commit exception.
@@ -106,6 +110,8 @@ final class TypedReviewCommitException implements Exception {
         'Typed commit payload is unsafe.',
       TypedReviewCommitFailure.persistenceFailed =>
         'Typed commit persistence failed.',
+      TypedReviewCommitFailure.invalidRepairEdit =>
+        'Typed commit repair marker no longer matches its exact target.',
     };
   }
 }
@@ -343,10 +349,14 @@ final class TypedReviewResultBuilder {
               ReviewRepairField.content,
               current.content,
               repairEdit,
+              originalContent: snapshot.draft.stem,
+              originalFieldSource: baseline.content,
+              currentFieldSource: current.content,
             ),
           );
 
     final explanationEdit = _explanationEdit(
+      snapshot,
       current.explanation,
       baseline.explanation,
       repairEdit,
@@ -374,8 +384,30 @@ final class TypedReviewResultBuilder {
   RichContent _editedFieldContent(
     ReviewRepairField field,
     String currentText,
-    ReviewRepairEdit? repairEdit,
-  ) {
+    ReviewRepairEdit? repairEdit, {
+    RichContent? originalContent,
+    String? originalFieldSource,
+    String? currentFieldSource,
+    String? optionId,
+  }) {
+    final fragment = repairEdit?.fragment;
+    if (fragment != null && fragment.field == field) {
+      if (originalContent == null ||
+          originalFieldSource == null ||
+          currentFieldSource == null ||
+          fragment.optionId != optionId) {
+        throw const TypedReviewCommitException(
+          TypedReviewCommitFailure.invalidRepairEdit,
+        );
+      }
+      return _applyFragmentRepairMarker(
+        originalContent: originalContent,
+        currentText: currentText,
+        originalFieldSource: originalFieldSource,
+        currentFieldSource: currentFieldSource,
+        marker: fragment,
+      );
+    }
     if (repairEdit != null && repairEdit.isSatisfiedBy(field, currentText)) {
       final rebuilt = reviewFieldContentFromLegacyText(currentText);
       if (rebuilt != null && rebuilt.nodes.any((node) => node is! TextNode)) {
@@ -385,7 +417,100 @@ final class TypedReviewResultBuilder {
     return RichContent(nodes: <ContentNode>[TextNode(currentText)]);
   }
 
+  RichContent _applyFragmentRepairMarker({
+    required RichContent originalContent,
+    required String currentText,
+    required String originalFieldSource,
+    required String currentFieldSource,
+    required LatexFragmentRepairMarker marker,
+  }) {
+    if (fieldDigest(originalFieldSource) != marker.originalFieldDigest ||
+        fieldDigest(currentFieldSource) != marker.resultFieldDigest ||
+        marker.nodeIndex >= originalContent.nodes.length) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+    final originalNode = originalContent.nodes[marker.nodeIndex];
+    final originalLatex = switch (originalNode) {
+      InlineMathNode(:final latex)
+          when marker.nodeKind.wireName == 'inline_math' =>
+        latex,
+      BlockMathNode(:final latex)
+          when marker.nodeKind.wireName == 'block_math' =>
+        latex,
+      _ => null,
+    };
+    if (originalLatex == null ||
+        fieldDigest(originalLatex) != marker.originalLatexDigest) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+
+    final spans = ContentTokenizer.tokenizeMathSpans(currentText);
+    if (spans.length != originalContent.nodes.length) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+    String? replacement;
+    for (var index = 0; index < originalContent.nodes.length; index++) {
+      final node = originalContent.nodes[index];
+      final token = spans[index].token;
+      if (index == marker.nodeIndex) {
+        replacement = switch ((marker.nodeKind, token)) {
+          (LatexFragmentNodeKind.inlineMath, InlineMathToken(:final tex)) =>
+            tex,
+          (LatexFragmentNodeKind.blockMath, BlockMathToken(:final tex)) => tex,
+          _ => null,
+        };
+        if (replacement == null ||
+            fieldDigest(replacement) != marker.replacementLatexDigest) {
+          throw const TypedReviewCommitException(
+            TypedReviewCommitFailure.invalidRepairEdit,
+          );
+        }
+        continue;
+      }
+      final matches = switch ((node, token)) {
+        (TextNode(:final text), TextToken(text: final tokenText)) =>
+          text == tokenText,
+        (InlineMathNode(:final latex), InlineMathToken(:final tex)) =>
+          latex == tex,
+        (BlockMathNode(:final latex), BlockMathToken(:final tex)) =>
+          latex == tex,
+        _ => false,
+      };
+      if (!matches) {
+        throw const TypedReviewCommitException(
+          TypedReviewCommitFailure.invalidRepairEdit,
+        );
+      }
+    }
+    const checker = LatexRenderabilityChecker();
+    if (replacement == null ||
+        !checker
+            .check(
+              replacement,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+    final nodes = List<ContentNode>.from(originalContent.nodes);
+    nodes[marker.nodeIndex] =
+        marker.nodeKind == LatexFragmentNodeKind.inlineMath
+            ? InlineMathNode(replacement)
+            : BlockMathNode(replacement);
+    return RichContent(nodes: nodes);
+  }
+
   ReviewFieldEdit<RichContent?> _explanationEdit(
+    TypedReviewSnapshot snapshot,
     String current,
     String baseline,
     ReviewRepairEdit? repairEdit,
@@ -397,7 +522,14 @@ final class TypedReviewResultBuilder {
       return const ReviewFieldEdit<RichContent?>.clear();
     }
     return ReviewFieldEdit<RichContent?>.replace(
-      _editedFieldContent(ReviewRepairField.explanation, current, repairEdit),
+      _editedFieldContent(
+        ReviewRepairField.explanation,
+        current,
+        repairEdit,
+        originalContent: snapshot.draft.explanation,
+        originalFieldSource: baseline,
+        currentFieldSource: current,
+      ),
     );
   }
 
@@ -441,6 +573,10 @@ final class TypedReviewResultBuilder {
               ReviewRepairField.options,
               currentOption.body,
               repairEdit,
+              originalContent: original.content,
+              originalFieldSource: baselineOptions.join('\u0000'),
+              currentFieldSource: currentOptions.join('\u0000'),
+              optionId: original.optionId,
             ),
             sourceRef: original.sourceRef,
           ),
@@ -474,6 +610,7 @@ final class TypedReviewResultBuilder {
         _kindForQuestionType(current.type),
         snapshot.draft,
         repairEdit,
+        baseline,
       ),
     );
   }
@@ -483,6 +620,7 @@ final class TypedReviewResultBuilder {
     QuestionKind currentKind,
     QuestionDraftV2 typedDraft,
     ReviewRepairEdit? repairEdit,
+    String baseline,
   ) {
     if (currentKind == QuestionKind.singleChoice) {
       final parsed = parseChoiceAnswerLabels(text);
@@ -518,6 +656,11 @@ final class TypedReviewResultBuilder {
         ReviewRepairField.standardAnswer,
         text,
         repairEdit,
+        originalContent: typedDraft.answer is ContentAnswer
+            ? (typedDraft.answer as ContentAnswer).content
+            : null,
+        originalFieldSource: baseline,
+        currentFieldSource: text,
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -123,6 +124,87 @@ void main() {
       expect(
         edit.isSatisfiedByDraft(ReviewRepairField.options, before),
         isFalse,
+      );
+    });
+
+    test('schema v2 round-trips only locator and digest metadata', () {
+      const originalLatex = r'\begin{matrix}1';
+      const replacementLatex = r'\begin{matrix}1\end{matrix}';
+      final before = draft(
+        explanation: r'前 \(\begin{matrix}1\) 后',
+      );
+      final after = draft(
+        explanation: r'前 \(\begin{matrix}1\end{matrix}\) 后',
+      );
+      final start = before.explanation.indexOf(originalLatex);
+      final target = LatexFragmentTarget(
+        reviewItemId: 'review_21',
+        expectedRevision: 4,
+        field: LatexFragmentField.explanation,
+        optionId: null,
+        nodeIndex: 1,
+        nodeKind: LatexFragmentNodeKind.inlineMath,
+        originalFieldDigest: fieldDigest(before.explanation),
+        originalLatexDigest: fieldDigest(originalLatex),
+        legacyStart: start,
+        legacyEnd: start + originalLatex.length,
+        originalLatex: originalLatex,
+        precedingContext: '前 ',
+        followingContext: ' 后',
+      );
+
+      final edit = ReviewRepairEdit.latexFragment(
+        before: before,
+        after: after,
+        target: target,
+        replacementLatex: replacementLatex,
+      );
+      final encoded = edit.toMap();
+      final restored = ReviewRepairEdit.fromMap(encoded);
+
+      expect(encoded['schemaVersion'], 2);
+      expect(encoded['kind'], 'latex_fragment');
+      expect(encoded['field'], 'explanation');
+      expect(encoded.containsKey('optionId'), isFalse);
+      expect(encoded.toString(), isNot(contains(originalLatex)));
+      expect(encoded.toString(), isNot(contains(replacementLatex)));
+      expect(restored, isNotNull);
+      expect(restored!.isLatexFragment, isTrue);
+      expect(restored.fragment!.nodeIndex, 1);
+      expect(restored.fragment!.nodeKind, LatexFragmentNodeKind.inlineMath);
+      expect(
+        restored.isSatisfiedByDraft(ReviewRepairField.explanation, after),
+        isTrue,
+      );
+    });
+
+    test('schema v2 rejects extra keys and malformed option identity', () {
+      final digest = 'a' * 64;
+      final valid = <String, Object?>{
+        'schemaVersion': 2,
+        'kind': 'latex_fragment',
+        'field': 'explanation',
+        'nodeIndex': 1,
+        'nodeKind': 'inline_math',
+        'originalFieldDigest': digest,
+        'resultFieldDigest': digest,
+        'originalLatexDigest': digest,
+        'replacementLatexDigest': digest,
+      };
+
+      expect(
+        ReviewRepairEdit.fromMap(<String, Object?>{
+          ...valid,
+          'extra': true,
+        }),
+        isNull,
+      );
+      expect(
+        ReviewRepairEdit.fromMap(<String, Object?>{
+          ...valid,
+          'field': 'options',
+        }),
+        isNull,
       );
     });
   });

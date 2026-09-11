@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../application/import_review/latex_fragment_repair.dart';
 import '../../data/models/question_draft.dart';
 import '../backup/sha256.dart';
 
@@ -46,21 +47,25 @@ final class ReviewRepairEdit {
       }
     }
     return ReviewRepairEdit._(
-      Map<ReviewRepairField, String>.unmodifiable(
+      digests: Map<ReviewRepairField, String>.unmodifiable(
         Map<ReviewRepairField, String>.from(digests),
       ),
+      fragment: null,
     );
   }
 
-  const ReviewRepairEdit._(this.digests);
+  const ReviewRepairEdit._({required this.digests, required this.fragment});
 
   static const int schemaVersion = 1;
+  static const int fragmentSchemaVersion = 2;
   static final RegExp _digestPattern = RegExp(r'^[0-9a-f]{64}$');
 
   final Map<ReviewRepairField, String> digests;
+  final LatexFragmentRepairMarker? fragment;
 
   bool get isEmpty => digests.isEmpty;
   bool get isNotEmpty => digests.isNotEmpty;
+  bool get isLatexFragment => fragment != null;
 
   /// Builds the marker for the fields that changed in [after] relative to
   /// [before]. Digests are taken from [after], which must already hold the
@@ -80,6 +85,45 @@ final class ReviewRepairEdit {
         for (final field in changed)
           field: fieldDigest(digestSourceFor(field, after)),
       },
+    );
+  }
+
+  factory ReviewRepairEdit.latexFragment({
+    required QuestionDraft before,
+    required QuestionDraft after,
+    required LatexFragmentTarget target,
+    required String replacementLatex,
+  }) {
+    final field = switch (target.field) {
+      LatexFragmentField.stem => ReviewRepairField.content,
+      LatexFragmentField.options => ReviewRepairField.options,
+      LatexFragmentField.contentAnswer => ReviewRepairField.standardAnswer,
+      LatexFragmentField.explanation => ReviewRepairField.explanation,
+    };
+    final originalSource = digestSourceFor(field, before);
+    final resultSource = digestSourceFor(field, after);
+    if (target.originalFieldDigest != fieldDigest(originalSource) ||
+        target.originalLatexDigest != fieldDigest(target.originalLatex) ||
+        replacementLatex.trim().isEmpty ||
+        originalSource == resultSource) {
+      throw const FormatException('invalid LaTeX fragment repair marker');
+    }
+    final resultDigest = fieldDigest(resultSource);
+    final marker = LatexFragmentRepairMarker(
+      field: field,
+      optionId: target.optionId,
+      nodeIndex: target.nodeIndex,
+      nodeKind: target.nodeKind,
+      originalFieldDigest: target.originalFieldDigest,
+      resultFieldDigest: resultDigest,
+      originalLatexDigest: target.originalLatexDigest,
+      replacementLatexDigest: fieldDigest(replacementLatex),
+    );
+    return ReviewRepairEdit._(
+      digests: Map<ReviewRepairField, String>.unmodifiable(
+        <ReviewRepairField, String>{field: resultDigest},
+      ),
+      fragment: marker,
     );
   }
 
@@ -111,6 +155,9 @@ final class ReviewRepairEdit {
   /// an unrecognized or corrupt marker never grants structural treatment.
   static ReviewRepairEdit? fromMap(Object? value) {
     if (value is! Map) return null;
+    if (value['schemaVersion'] == fragmentSchemaVersion) {
+      return _fragmentFromMap(value);
+    }
     if (value['schemaVersion'] != schemaVersion) return null;
     final rawFields = value['fields'];
     if (rawFields is! Map || rawFields.isEmpty) return null;
@@ -123,10 +170,89 @@ final class ReviewRepairEdit {
       digests[field] = digest;
     }
     if (digests.isEmpty) return null;
-    return ReviewRepairEdit._(digests);
+    return ReviewRepairEdit._(
+      digests: Map<ReviewRepairField, String>.unmodifiable(digests),
+      fragment: null,
+    );
+  }
+
+  static ReviewRepairEdit? _fragmentFromMap(Map<dynamic, dynamic> value) {
+    final field = ReviewRepairField.fromWireKey(value['field']);
+    final nodeKind = LatexFragmentNodeKind.fromWireName(value['nodeKind']);
+    final optionId = value['optionId'];
+    final expectedKeys = <String>{
+      'schemaVersion',
+      'kind',
+      'field',
+      'nodeIndex',
+      'nodeKind',
+      'originalFieldDigest',
+      'resultFieldDigest',
+      'originalLatexDigest',
+      'replacementLatexDigest',
+      if (field == ReviewRepairField.options) 'optionId',
+    };
+    if (value.keys.any((key) => key is! String) ||
+        value.keys.toSet().difference(expectedKeys).isNotEmpty ||
+        expectedKeys.difference(value.keys.toSet()).isNotEmpty ||
+        value['kind'] != 'latex_fragment' ||
+        field == null ||
+        nodeKind == null ||
+        value['nodeIndex'] is! int ||
+        (value['nodeIndex'] as int) < 0 ||
+        (field == ReviewRepairField.options
+            ? optionId is! String || optionId.isEmpty
+            : optionId != null)) {
+      return null;
+    }
+    final originalFieldDigest = value['originalFieldDigest'];
+    final resultFieldDigest = value['resultFieldDigest'];
+    final originalLatexDigest = value['originalLatexDigest'];
+    final replacementLatexDigest = value['replacementLatexDigest'];
+    if (originalFieldDigest is! String ||
+        resultFieldDigest is! String ||
+        originalLatexDigest is! String ||
+        replacementLatexDigest is! String ||
+        !_digestPattern.hasMatch(originalFieldDigest) ||
+        !_digestPattern.hasMatch(resultFieldDigest) ||
+        !_digestPattern.hasMatch(originalLatexDigest) ||
+        !_digestPattern.hasMatch(replacementLatexDigest)) {
+      return null;
+    }
+    final marker = LatexFragmentRepairMarker(
+      field: field,
+      optionId: optionId as String?,
+      nodeIndex: value['nodeIndex'] as int,
+      nodeKind: nodeKind,
+      originalFieldDigest: originalFieldDigest,
+      resultFieldDigest: resultFieldDigest,
+      originalLatexDigest: originalLatexDigest,
+      replacementLatexDigest: replacementLatexDigest,
+    );
+    return ReviewRepairEdit._(
+      digests: Map<ReviewRepairField, String>.unmodifiable(
+        <ReviewRepairField, String>{field: resultFieldDigest},
+      ),
+      fragment: marker,
+    );
   }
 
   Map<String, Object?> toMap() {
+    final fragment = this.fragment;
+    if (fragment != null) {
+      return <String, Object?>{
+        'schemaVersion': fragmentSchemaVersion,
+        'kind': 'latex_fragment',
+        'field': fragment.field.wireKey,
+        if (fragment.optionId != null) 'optionId': fragment.optionId,
+        'nodeIndex': fragment.nodeIndex,
+        'nodeKind': fragment.nodeKind.wireName,
+        'originalFieldDigest': fragment.originalFieldDigest,
+        'resultFieldDigest': fragment.resultFieldDigest,
+        'originalLatexDigest': fragment.originalLatexDigest,
+        'replacementLatexDigest': fragment.replacementLatexDigest,
+      };
+    }
     return <String, Object?>{
       'schemaVersion': schemaVersion,
       'fields': <String, String>{
@@ -134,6 +260,28 @@ final class ReviewRepairEdit {
       },
     };
   }
+}
+
+final class LatexFragmentRepairMarker {
+  const LatexFragmentRepairMarker({
+    required this.field,
+    required this.optionId,
+    required this.nodeIndex,
+    required this.nodeKind,
+    required this.originalFieldDigest,
+    required this.resultFieldDigest,
+    required this.originalLatexDigest,
+    required this.replacementLatexDigest,
+  });
+
+  final ReviewRepairField field;
+  final String? optionId;
+  final int nodeIndex;
+  final LatexFragmentNodeKind nodeKind;
+  final String originalFieldDigest;
+  final String resultFieldDigest;
+  final String originalLatexDigest;
+  final String replacementLatexDigest;
 }
 
 /// Lowercase hex SHA-256 of [value].

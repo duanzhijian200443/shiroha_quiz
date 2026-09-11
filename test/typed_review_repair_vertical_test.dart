@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
@@ -118,6 +119,7 @@ TypedReviewBuildResult _build({
   required QuestionDraft current,
   ReviewRepairEdit? repairEdit,
   bool withStemImage = false,
+  TypedReviewSnapshot? snapshot,
 }) {
   return TypedReviewResultBuilder(
     sessionIdFactory: () => 'review_vertical_session',
@@ -126,7 +128,7 @@ TypedReviewBuildResult _build({
       TypedReviewCommitInput(
         reviewItemId: _reviewItemId,
         envelope: const TypedReviewSnapshotCodec()
-            .encode(_snapshot(withStemImage: withStemImage)),
+            .encode(snapshot ?? _snapshot(withStemImage: withStemImage)),
         currentDraft: current,
         repairEdit: repairEdit,
       ),
@@ -208,6 +210,158 @@ void main() {
       expect(
         (stem.nodes.whereType<InlineMathNode>().single).latex,
         'a^2+b^2',
+      );
+    });
+
+    test('schema v2 replaces only the selected math node', () {
+      const legacy = r'前 \(a\) 中 \(\begin{matrix}1\) 后 \(c\)';
+      const repaired = r'前 \(a\) 中 \(\begin{matrix}1\end{matrix}\) 后 \(c\)';
+      const originalLatex = r'\begin{matrix}1';
+      const replacementLatex = r'\begin{matrix}1\end{matrix}';
+      final typedExplanation = RichContent(nodes: const <ContentNode>[
+        TextNode('前 '),
+        InlineMathNode('a'),
+        TextNode(' 中 '),
+        InlineMathNode(originalLatex),
+        TextNode(' 后 '),
+        InlineMathNode('c'),
+      ]);
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: QuestionDraftV2(
+          questionId: _questionId,
+          kind: QuestionKind.shortAnswer,
+          questionNumber: 21,
+          stem: RichContent(
+            nodes: const <ContentNode>[
+              TextNode('Stem '),
+              InlineMathNode('x+1'),
+            ],
+          ),
+          answer: ContentAnswer(
+            content: RichContent(
+              nodes: const <ContentNode>[TextNode('Answer')],
+            ),
+          ),
+          explanation: typedExplanation,
+          sourceRefs: _sourceRefs(),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 3,
+          questionNumber: 21,
+          content: 'Stem x+1',
+          options: const <String>[],
+          standardAnswer: 'Answer',
+          explanation: legacy,
+        ),
+      );
+      final before = _currentDraft(explanation: legacy);
+      final after = _currentDraft(explanation: repaired);
+      final start = legacy.indexOf(originalLatex);
+      final marker = ReviewRepairEdit.latexFragment(
+        before: before,
+        after: after,
+        target: LatexFragmentTarget(
+          reviewItemId: _reviewItemId,
+          expectedRevision: 3,
+          field: LatexFragmentField.explanation,
+          optionId: null,
+          nodeIndex: 3,
+          nodeKind: LatexFragmentNodeKind.inlineMath,
+          originalFieldDigest: fieldDigest(legacy),
+          originalLatexDigest: fieldDigest(originalLatex),
+          legacyStart: start,
+          legacyEnd: start + originalLatex.length,
+          originalLatex: originalLatex,
+          precedingContext: ' 中 ',
+          followingContext: ' 后 ',
+        ),
+        replacementLatex: replacementLatex,
+      );
+
+      final result = _build(
+        current: after,
+        repairEdit: ReviewRepairEdit.fromMap(marker.toMap()),
+        snapshot: snapshot,
+      );
+
+      final nodes = result.acceptedDrafts.single.explanation!.nodes;
+      expect(nodes, hasLength(6));
+      expect(nodes[1], const InlineMathNode('a'));
+      expect(nodes[3], const InlineMathNode(replacementLatex));
+      expect(nodes[5], const InlineMathNode('c'));
+      expect(
+          result.acceptedDrafts.single.sourceRefs, snapshot.draft.sourceRefs);
+      expect(result.acceptedDrafts.single.issues, snapshot.draft.issues);
+    });
+
+    test('schema v2 stale result digest blocks the typed commit', () {
+      const legacy = r'前 \(\begin{matrix}1\) 后';
+      const repaired = r'前 \(\begin{matrix}1\end{matrix}\) 后';
+      const originalLatex = r'\begin{matrix}1';
+      const replacementLatex = r'\begin{matrix}1\end{matrix}';
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: QuestionDraftV2(
+          questionId: _questionId,
+          kind: QuestionKind.shortAnswer,
+          questionNumber: 21,
+          stem: RichContent(nodes: const <ContentNode>[TextNode('Stem x+1')]),
+          explanation: RichContent(nodes: const <ContentNode>[
+            TextNode('前 '),
+            InlineMathNode(originalLatex),
+            TextNode(' 后'),
+          ]),
+          sourceRefs: _sourceRefs(),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 3,
+          questionNumber: 21,
+          content: 'Stem x+1',
+          options: const <String>[],
+          standardAnswer: 'Answer',
+          explanation: legacy,
+        ),
+      );
+      final before = _currentDraft(explanation: legacy);
+      final after = _currentDraft(explanation: repaired);
+      final start = legacy.indexOf(originalLatex);
+      final marker = ReviewRepairEdit.latexFragment(
+        before: before,
+        after: after,
+        target: LatexFragmentTarget(
+          reviewItemId: _reviewItemId,
+          expectedRevision: 3,
+          field: LatexFragmentField.explanation,
+          optionId: null,
+          nodeIndex: 1,
+          nodeKind: LatexFragmentNodeKind.inlineMath,
+          originalFieldDigest: fieldDigest(legacy),
+          originalLatexDigest: fieldDigest(originalLatex),
+          legacyStart: start,
+          legacyEnd: start + originalLatex.length,
+          originalLatex: originalLatex,
+          precedingContext: '前 ',
+          followingContext: ' 后',
+        ),
+        replacementLatex: replacementLatex,
+      );
+
+      expect(
+        () => _build(
+          current: after.copyWith(explanation: '$repaired '),
+          repairEdit: marker,
+          snapshot: snapshot,
+        ),
+        throwsA(
+          isA<TypedReviewCommitException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitFailure.invalidRepairEdit,
+          ),
+        ),
       );
     });
   });

@@ -53,6 +53,7 @@ void main() {
         ImportReviewMetadataProjectionState.available,
     List<ImportReviewIssue> issues = const <ImportReviewIssue>[],
     int originalIndex = 20,
+    bool hasTypedSnapshot = true,
   }) {
     return policy.targetFor(
       originalIndex: originalIndex,
@@ -69,6 +70,7 @@ void main() {
       metadata: metadata ?? _latexMetadata,
       metadataProjectionState: state,
       issues: issues,
+      hasTypedSnapshot: hasTypedSnapshot,
     );
   }
 
@@ -83,7 +85,42 @@ void main() {
         ReviewRepairField.explanation,
       ]);
       expect(target.triggerCodes, <String>['latex_unrenderable']);
+      expect(target.strategy, ReviewRepairStrategy.latexFragment);
       expect(target.questionNumber, 21);
+    });
+
+    test('pure LaTeX repair requires a typed snapshot', () {
+      expect(
+        targetFor(
+          hasTypedSnapshot: false,
+          issues: <ImportReviewIssue>[
+            _issue(ImportReviewIssueCode.latexUnrenderable),
+          ],
+        ),
+        isNull,
+      );
+    });
+
+    test('mixed issues route only the structural repair first', () {
+      final target = targetFor(
+        explanation: r'Broken \(x',
+        metadata: _metadata(
+          riskHints: const <String>['latex_unrenderable'],
+          repairCandidateCodes: const <String>['dangling_latex'],
+          latexInvalidFields: const <String>['explanation'],
+        ),
+        issues: <ImportReviewIssue>[
+          _issue(ImportReviewIssueCode.latexUnrenderable),
+        ],
+      );
+
+      expect(target, isNotNull);
+      expect(target!.strategy, ReviewRepairStrategy.structuralQuestion);
+      expect(target.triggerCodes, <String>['dangling_latex']);
+      expect(
+        target.fields,
+        <ReviewRepairField>[ReviewRepairField.explanation],
+      );
     });
 
     test('allows every safe invalid field name the audit records', () {
@@ -174,6 +211,7 @@ void main() {
     test('maps the repairable candidate codes to their fields', () {
       final dangling = targetFor(
         explanation: r'Broken \(x',
+        hasTypedSnapshot: false,
         metadata: _metadata(
           repairCandidateCodes: const <String>['dangling_latex'],
         ),

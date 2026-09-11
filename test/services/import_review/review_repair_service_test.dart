@@ -5,6 +5,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/latex_fragment_repair_provider.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
@@ -23,6 +24,8 @@ import 'package:shiroha_quiz/services/llm_api_client.dart';
 import '../../support/unsupported_ai_engine_store.dart';
 
 const String _brokenExplanation = r'理解 \(\begin{matrix}1 的推导';
+const String _fragmentLegacy = r'前 \(a\) 中 \(\begin{matrix}1\) 后 \(c\)';
+const String _fragmentReplacement = r'\begin{matrix}1\end{matrix}';
 
 class _MemoryLogSink implements LogSink {
   final List<LogRecord> records = <LogRecord>[];
@@ -88,6 +91,33 @@ class _ScriptedLlmApiClient extends LlmApiClient {
   }
 }
 
+class _FakeFragmentProvider implements LatexFragmentRepairProviderPort {
+  _FakeFragmentProvider({
+    this.result,
+    this.failure,
+  });
+
+  final String? result;
+  final LatexFragmentProviderFailure? failure;
+  int calls = 0;
+  LatexFragmentProviderRequest? lastRequest;
+
+  @override
+  Future<LatexFragmentProviderResult> repair(
+    LatexFragmentProviderRequest request, {
+    Duration timeout = const Duration(seconds: 90),
+  }) async {
+    calls++;
+    lastRequest = request;
+    final failure = this.failure;
+    if (failure != null) throw LatexFragmentProviderException(failure);
+    return LatexFragmentProviderResult(
+      correctedLatex: result ?? _fragmentReplacement,
+      providerProfileId: 'fragment-engine',
+    );
+  }
+}
+
 const AiEngineProfile _profile = AiEngineProfile(
   id: 'test',
   engineType: AiEngineType.text,
@@ -129,6 +159,67 @@ ReviewRepairRequest _request({
       explanation: explanation,
     ),
     expectedRevision: expectedRevision,
+  );
+}
+
+ReviewRepairRequest _fragmentRequest({
+  String explanation = _fragmentLegacy,
+}) {
+  return ReviewRepairRequest(
+    target: ReviewRepairTarget(
+      originalIndex: 20,
+      questionNumber: 21,
+      triggerCodes: const <String>['latex_unrenderable'],
+      fields: const <ReviewRepairField>[ReviewRepairField.explanation],
+      strategy: ReviewRepairStrategy.latexFragment,
+    ),
+    reviewItemId: '44444444-4444-4444-8444-000000000021',
+    inputDraft: QuestionDraft(
+      type: QuestionType.shortAnswer,
+      content: 'Stem',
+      options: const <String>[],
+      standardAnswer: 'Answer',
+      explanation: explanation,
+    ),
+    expectedRevision: 7,
+  );
+}
+
+TypedReviewSnapshot _fragmentSnapshot({
+  String legacy = _fragmentLegacy,
+  List<ContentNode>? explanationNodes,
+}) {
+  return TypedReviewSnapshot(
+    reviewItemId: '44444444-4444-4444-8444-000000000021',
+    questionId: '22222222-2222-4222-8222-000000000021',
+    draft: QuestionDraftV2(
+      questionId: '22222222-2222-4222-8222-000000000021',
+      kind: QuestionKind.shortAnswer,
+      questionNumber: 21,
+      stem: RichContent(nodes: const <ContentNode>[TextNode('Stem')]),
+      answer: ContentAnswer(
+        content: RichContent(nodes: const <ContentNode>[TextNode('Answer')]),
+      ),
+      explanation: RichContent(
+        nodes: explanationNodes ??
+            const <ContentNode>[
+              TextNode('前 '),
+              InlineMathNode('a'),
+              TextNode(' 中 '),
+              InlineMathNode(r'\begin{matrix}1'),
+              TextNode(' 后 '),
+              InlineMathNode('c'),
+            ],
+      ),
+    ),
+    baselineLegacy: LegacyReviewBaseline(
+      type: 3,
+      questionNumber: 21,
+      content: 'Stem',
+      options: const <String>[],
+      standardAnswer: 'Answer',
+      explanation: legacy,
+    ),
   );
 }
 
@@ -521,6 +612,159 @@ void main() {
         '44444444-4444-4444-8444-000000000021',
       );
       expect(result.proposal!.request.expectedRevision, 3);
+    });
+  });
+
+  group('LaTeX fragment strategy', () {
+    test('repairs only the unique invalid node with adjacent context',
+        () async {
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(),
+        snapshot: _fragmentSnapshot(),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.proposalReady);
+      expect(provider.calls, 1);
+      expect(provider.lastRequest!.originalLatex, r'\begin{matrix}1');
+      expect(provider.lastRequest!.precedingContext, ' 中 ');
+      expect(provider.lastRequest!.followingContext, ' 后 ');
+      expect(
+        result.proposal!.proposedDraft.explanation,
+        r'前 \(a\) 中 \(\begin{matrix}1\end{matrix}\) 后 \(c\)',
+      );
+      expect(result.proposal!.fragment, isNotNull);
+      expect(result.proposal!.fragment!.target.nodeIndex, 3);
+      expect(
+        result.proposal!.changedFields,
+        const <ReviewRepairField>[ReviewRepairField.explanation],
+      );
+    });
+
+    test('missing snapshot and baseline drift make zero provider calls',
+        () async {
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final missing = await service.generateProposal(
+        request: _fragmentRequest(),
+      );
+      final drifted = await service.generateProposal(
+        request: _fragmentRequest(explanation: 'changed'),
+        snapshot: _fragmentSnapshot(),
+      );
+
+      expect(
+        missing.outcome,
+        ReviewRepairOutcome.fragmentTargetUnavailable,
+      );
+      expect(
+        drifted.outcome,
+        ReviewRepairOutcome.fragmentTargetUnavailable,
+      );
+      expect(provider.calls, 0);
+    });
+
+    test('multiple invalid nodes make zero provider calls', () async {
+      const legacy = r'前 \(\begin{matrix}1\) 后 \(\begin{array}2\)';
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(explanation: legacy),
+        snapshot: _fragmentSnapshot(
+          legacy: legacy,
+          explanationNodes: const <ContentNode>[
+            TextNode('前 '),
+            InlineMathNode(r'\begin{matrix}1'),
+            TextNode(' 后 '),
+            InlineMathNode(r'\begin{array}2'),
+          ],
+        ),
+      );
+
+      expect(
+        result.outcome,
+        ReviewRepairOutcome.fragmentTargetUnavailable,
+      );
+      expect(provider.calls, 0);
+    });
+
+    test('typed provider failures keep their diagnostic classification',
+        () async {
+      final provider = _FakeFragmentProvider(
+        failure: LatexFragmentProviderFailure.providerFinishLength,
+      );
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(),
+        snapshot: _fragmentSnapshot(),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.invalidFragmentOutput);
+      expect(result.diagnostics, <String>['provider_finish_length']);
+      expect(provider.calls, 1);
+    });
+
+    test('malformed replacement is rejected by the local fragment checker',
+        () async {
+      final provider = _FakeFragmentProvider(result: r'\begin{array}');
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(),
+        snapshot: _fragmentSnapshot(),
+      );
+
+      expect(
+        result.outcome,
+        ReviewRepairOutcome.fragmentRenderabilityFailed,
+      );
+      expect(result.hasProposal, isFalse);
+    });
+
+    test('a fragment fix that leaves the full field invalid is rejected',
+        () async {
+      const legacy = r'前 \left \(\begin{matrix}1\) 后';
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(explanation: legacy),
+        snapshot: _fragmentSnapshot(
+          legacy: legacy,
+          explanationNodes: const <ContentNode>[
+            TextNode(r'前 \left '),
+            InlineMathNode(r'\begin{matrix}1'),
+            TextNode(' 后'),
+          ],
+        ),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.fieldReauditFailed);
+      expect(result.hasProposal, isFalse);
+      expect(provider.calls, 1);
     });
   });
 
