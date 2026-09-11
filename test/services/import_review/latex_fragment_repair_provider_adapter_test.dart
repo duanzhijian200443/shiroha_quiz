@@ -242,8 +242,7 @@ void main() {
     );
   });
 
-  test('rejects Markdown fences, outer delimiters and oversized output',
-      () async {
+  test('rejects fences, any math delimiters and oversized output', () async {
     Future<void> verify(String output, {String original = _fragment}) async {
       final client = MockClient(
         (_) async => http.Response(
@@ -267,7 +266,29 @@ void main() {
     final fence = String.fromCharCode(96) * 3;
     await verify('$fence latex\n$_corrected\n$fence');
     await verify(r'\(' + _corrected + r'\)');
+    await verify(r'x + \(y\)');
+    await verify(r'x + $y$');
     await verify('x' * 300, original: 'x');
+  });
+
+  test('allows an escaped literal dollar inside a fragment body', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        jsonEncode(<String, Object?>{
+          'choices': <Object?>[
+            <String, Object?>{
+              'finish_reason': 'stop',
+              'message': <String, Object?>{'content': r'x + \$1'},
+            },
+          ],
+        }),
+        200,
+      ),
+    );
+
+    final result = await _adapter(client: client).repair(_request());
+
+    expect(result.correctedLatex, r'x + \$1');
   });
 
   test('bounded transport rejects an oversized raw response', () async {

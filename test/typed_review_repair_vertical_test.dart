@@ -296,6 +296,72 @@ void main() {
       expect(result.acceptedDrafts.single.issues, snapshot.draft.issues);
     });
 
+    test('schema v2 preserves frozen non-target normalization differences', () {
+      const legacy = r'前 \(alpha\) 中 \(\begin{matrix}1\) 后';
+      const repaired = r'前 \(alpha\) 中 \(\begin{matrix}1\end{matrix}\) 后';
+      const originalLatex = r'\begin{matrix}1';
+      const replacementLatex = r'\begin{matrix}1\end{matrix}';
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: QuestionDraftV2(
+          questionId: _questionId,
+          kind: QuestionKind.shortAnswer,
+          questionNumber: 21,
+          stem: RichContent(nodes: const <ContentNode>[TextNode('Stem x+1')]),
+          explanation: RichContent(nodes: const <ContentNode>[
+            TextNode('前 '),
+            InlineMathNode('a'),
+            TextNode(' 中 '),
+            InlineMathNode(originalLatex),
+            TextNode(' 后'),
+          ]),
+          sourceRefs: _sourceRefs(),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 3,
+          questionNumber: 21,
+          content: 'Stem x+1',
+          options: const <String>[],
+          standardAnswer: 'Answer',
+          explanation: legacy,
+        ),
+      );
+      final before = _currentDraft(explanation: legacy);
+      final after = _currentDraft(explanation: repaired);
+      final start = legacy.indexOf(originalLatex);
+      final marker = ReviewRepairEdit.latexFragment(
+        before: before,
+        after: after,
+        target: LatexFragmentTarget(
+          reviewItemId: _reviewItemId,
+          expectedRevision: 3,
+          field: LatexFragmentField.explanation,
+          optionId: null,
+          nodeIndex: 3,
+          nodeKind: LatexFragmentNodeKind.inlineMath,
+          originalFieldDigest: fieldDigest(legacy),
+          originalLatexDigest: fieldDigest(originalLatex),
+          legacyStart: start,
+          legacyEnd: start + originalLatex.length,
+          originalLatex: originalLatex,
+          precedingContext: ' 中 ',
+          followingContext: ' 后',
+        ),
+        replacementLatex: replacementLatex,
+      );
+
+      final result = _build(
+        current: after,
+        repairEdit: ReviewRepairEdit.fromMap(marker.toMap()),
+        snapshot: snapshot,
+      );
+
+      final nodes = result.acceptedDrafts.single.explanation!.nodes;
+      expect(nodes[1], const InlineMathNode('a'));
+      expect(nodes[3], const InlineMathNode(replacementLatex));
+    });
+
     test('schema v2 stale result digest blocks the typed commit', () {
       const legacy = r'前 \(\begin{matrix}1\) 后';
       const repaired = r'前 \(\begin{matrix}1\end{matrix}\) 后';

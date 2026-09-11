@@ -670,11 +670,95 @@ void main() {
         drifted.outcome,
         ReviewRepairOutcome.fragmentTargetUnavailable,
       );
+      expect(missing.diagnostics, <String>['snapshot_missing']);
+      expect(drifted.diagnostics, <String>['baseline_drift']);
+      expect(provider.calls, 0);
+    });
+
+    test('target diagnostics expose only bounded shape metadata', () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(
+          explanation: r'PRIVATE_SENTINEL \(changed\)',
+        ),
+        snapshot: _fragmentSnapshot(),
+      );
+      await AppLogger.flush();
+      final logs = jsonEncode(
+        sink.records.map((record) => record.toJson()).toList(),
+      );
+
+      expect(result.diagnostics, <String>['baseline_drift']);
+      expect(logs, contains('baseline_drift'));
+      expect(logs, contains('typedNodeCount'));
+      expect(logs, contains('candidateCount'));
+      expect(logs, isNot(contains('PRIVATE_SENTINEL')));
+      expect(logs, isNot(contains(_fragmentLegacy)));
+      expect(logs, isNot(contains(_fragmentReplacement)));
+      expect(provider.calls, 0);
+    });
+
+    test('non-target normalization mismatch still repairs the unique bad node',
+        () async {
+      const legacy = r'前 \(alpha\) 中 \(\begin{matrix}1\) 后 \(c\)';
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(explanation: legacy),
+        snapshot: _fragmentSnapshot(legacy: legacy),
+      );
+      await AppLogger.flush();
+      final logs = jsonEncode(
+        sink.records.map((record) => record.toJson()).toList(),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.proposalReady);
+      expect(result.hasProposal, isTrue);
+      expect(provider.calls, 1);
+      expect(provider.lastRequest!.originalLatex, r'\begin{matrix}1');
+      expect(logs, isNot(contains(r'\begin{matrix}')));
+      expect(logs, isNot(contains('alpha')));
+    });
+
+    test('typed bad but legacy-valid target makes zero provider calls',
+        () async {
+      const legacy = r'前 \(a\) 中 \(x^2\) 后 \(c\)';
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(explanation: legacy),
+        snapshot: _fragmentSnapshot(legacy: legacy),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.fragmentTargetUnavailable);
+      expect(
+        result.diagnostics,
+        <String>['target_legacy_renderability_mismatch'],
+      );
       expect(provider.calls, 0);
     });
 
     test('multiple invalid nodes make zero provider calls', () async {
       const legacy = r'前 \(\begin{matrix}1\) 后 \(\begin{array}2\)';
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
       final provider = _FakeFragmentProvider();
       final service = ReviewRepairService(
         engineRepository: _FakeEngineRepository(_profile),
@@ -693,11 +777,21 @@ void main() {
           ],
         ),
       );
+      await AppLogger.flush();
+      final logs = jsonEncode(
+        sink.records.map((record) => record.toJson()).toList(),
+      );
 
       expect(
         result.outcome,
         ReviewRepairOutcome.fragmentTargetUnavailable,
       );
+      expect(result.diagnostics, <String>['candidate_multiple']);
+      expect(logs, contains('candidate_multiple'));
+      expect(logs, contains('"candidateCount":2'));
+      expect(logs, contains('"nodeKind":"inline_math"'));
+      expect(logs, isNot(contains(r'\begin{matrix}')));
+      expect(logs, isNot(contains(r'\begin{array}')));
       expect(provider.calls, 0);
     });
 
@@ -739,6 +833,25 @@ void main() {
         ReviewRepairOutcome.fragmentRenderabilityFailed,
       );
       expect(result.hasProposal, isFalse);
+    });
+
+    test('a replacement that changes token topology cannot become a proposal',
+        () async {
+      final provider = _FakeFragmentProvider(result: r'x + \(y\)');
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(),
+        snapshot: _fragmentSnapshot(),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.invalidFragmentOutput);
+      expect(result.diagnostics, <String>['fragment_topology_changed']);
+      expect(result.hasProposal, isFalse);
+      expect(provider.calls, 1);
     });
 
     test('a fragment fix that leaves the full field invalid is rejected',

@@ -350,6 +350,7 @@ final class TypedReviewResultBuilder {
               current.content,
               repairEdit,
               originalContent: snapshot.draft.stem,
+              originalText: baseline.content,
               originalFieldSource: baseline.content,
               currentFieldSource: current.content,
             ),
@@ -386,6 +387,7 @@ final class TypedReviewResultBuilder {
     String currentText,
     ReviewRepairEdit? repairEdit, {
     RichContent? originalContent,
+    String? originalText,
     String? originalFieldSource,
     String? currentFieldSource,
     String? optionId,
@@ -393,6 +395,7 @@ final class TypedReviewResultBuilder {
     final fragment = repairEdit?.fragment;
     if (fragment != null && fragment.field == field) {
       if (originalContent == null ||
+          originalText == null ||
           originalFieldSource == null ||
           currentFieldSource == null ||
           fragment.optionId != optionId) {
@@ -402,6 +405,7 @@ final class TypedReviewResultBuilder {
       }
       return _applyFragmentRepairMarker(
         originalContent: originalContent,
+        originalText: originalText,
         currentText: currentText,
         originalFieldSource: originalFieldSource,
         currentFieldSource: currentFieldSource,
@@ -419,6 +423,7 @@ final class TypedReviewResultBuilder {
 
   RichContent _applyFragmentRepairMarker({
     required RichContent originalContent,
+    required String originalText,
     required String currentText,
     required String originalFieldSource,
     required String currentFieldSource,
@@ -431,25 +436,10 @@ final class TypedReviewResultBuilder {
         TypedReviewCommitFailure.invalidRepairEdit,
       );
     }
-    final originalNode = originalContent.nodes[marker.nodeIndex];
-    final originalLatex = switch (originalNode) {
-      InlineMathNode(:final latex)
-          when marker.nodeKind.wireName == 'inline_math' =>
-        latex,
-      BlockMathNode(:final latex)
-          when marker.nodeKind.wireName == 'block_math' =>
-        latex,
-      _ => null,
-    };
-    if (originalLatex == null ||
-        fieldDigest(originalLatex) != marker.originalLatexDigest) {
-      throw const TypedReviewCommitException(
-        TypedReviewCommitFailure.invalidRepairEdit,
-      );
-    }
-
-    final spans = ContentTokenizer.tokenizeMathSpans(currentText);
-    if (spans.length != originalContent.nodes.length) {
+    final originalSpans = ContentTokenizer.tokenizeMathSpans(originalText);
+    final currentSpans = ContentTokenizer.tokenizeMathSpans(currentText);
+    if (originalSpans.length != originalContent.nodes.length ||
+        currentSpans.length != originalSpans.length) {
       throw const TypedReviewCommitException(
         TypedReviewCommitFailure.invalidRepairEdit,
       );
@@ -457,15 +447,35 @@ final class TypedReviewResultBuilder {
     String? replacement;
     for (var index = 0; index < originalContent.nodes.length; index++) {
       final node = originalContent.nodes[index];
-      final token = spans[index].token;
+      final originalToken = originalSpans[index].token;
+      final currentToken = currentSpans[index].token;
+      final kindMatches = switch ((node, originalToken)) {
+        (TextNode(), TextToken()) => true,
+        (InlineMathNode(), InlineMathToken()) => true,
+        (BlockMathNode(), BlockMathToken()) => true,
+        _ => false,
+      };
+      if (!kindMatches) {
+        throw const TypedReviewCommitException(
+          TypedReviewCommitFailure.invalidRepairEdit,
+        );
+      }
       if (index == marker.nodeIndex) {
-        replacement = switch ((marker.nodeKind, token)) {
+        final originalLatex = switch ((marker.nodeKind, originalToken)) {
           (LatexFragmentNodeKind.inlineMath, InlineMathToken(:final tex)) =>
             tex,
           (LatexFragmentNodeKind.blockMath, BlockMathToken(:final tex)) => tex,
           _ => null,
         };
-        if (replacement == null ||
+        replacement = switch ((marker.nodeKind, currentToken)) {
+          (LatexFragmentNodeKind.inlineMath, InlineMathToken(:final tex)) =>
+            tex,
+          (LatexFragmentNodeKind.blockMath, BlockMathToken(:final tex)) => tex,
+          _ => null,
+        };
+        if (originalLatex == null ||
+            fieldDigest(originalLatex) != marker.originalLatexDigest ||
+            replacement == null ||
             fieldDigest(replacement) != marker.replacementLatexDigest) {
           throw const TypedReviewCommitException(
             TypedReviewCommitFailure.invalidRepairEdit,
@@ -473,13 +483,16 @@ final class TypedReviewResultBuilder {
         }
         continue;
       }
-      final matches = switch ((node, token)) {
-        (TextNode(:final text), TextToken(text: final tokenText)) =>
-          text == tokenText,
-        (InlineMathNode(:final latex), InlineMathToken(:final tex)) =>
-          latex == tex,
-        (BlockMathNode(:final latex), BlockMathToken(:final tex)) =>
-          latex == tex,
+      final matches = switch ((originalToken, currentToken)) {
+        (TextToken(text: final before), TextToken(text: final after)) =>
+          before == after,
+        (
+          InlineMathToken(tex: final before),
+          InlineMathToken(tex: final after)
+        ) =>
+          before == after,
+        (BlockMathToken(tex: final before), BlockMathToken(tex: final after)) =>
+          before == after,
         _ => false,
       };
       if (!matches) {
@@ -527,6 +540,7 @@ final class TypedReviewResultBuilder {
         current,
         repairEdit,
         originalContent: snapshot.draft.explanation,
+        originalText: baseline,
         originalFieldSource: baseline,
         currentFieldSource: current,
       ),
@@ -574,6 +588,7 @@ final class TypedReviewResultBuilder {
               currentOption.body,
               repairEdit,
               originalContent: original.content,
+              originalText: baselineOption.body,
               originalFieldSource: baselineOptions.join('\u0000'),
               currentFieldSource: currentOptions.join('\u0000'),
               optionId: original.optionId,
@@ -659,6 +674,7 @@ final class TypedReviewResultBuilder {
         originalContent: typedDraft.answer is ContentAnswer
             ? (typedDraft.answer as ContentAnswer).content
             : null,
+        originalText: baseline,
         originalFieldSource: baseline,
         currentFieldSource: text,
       ),

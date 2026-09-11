@@ -453,7 +453,22 @@ class ReviewRepairService implements ReviewRepairGenerator {
     required TypedReviewSnapshot? snapshot,
     required Duration timeout,
   }) async {
-    if (snapshot == null) return _fragmentTargetUnavailable();
+    if (snapshot == null) {
+      return _fragmentTargetUnavailable(
+        classification: 'snapshot_missing',
+        diagnosticData: <String, Object?>{
+          'requestedFieldCount': request.target.fields.length,
+          'typedNodeCount': 0,
+          'legacySpanCount': 0,
+          'mathNodeCount': 0,
+          'unrenderableMathNodeCount': 0,
+          'unsupportedNodeCount': 0,
+          'candidateCount': 0,
+          'nodeShapes': <Object?>[],
+          'nodeShapesTruncated': false,
+        },
+      );
+    }
     final fields = <LatexFragmentField>{};
     for (final field in request.target.fields) {
       fields.add(switch (field) {
@@ -464,7 +479,7 @@ class ReviewRepairService implements ReviewRepairGenerator {
       });
     }
     const checker = LatexRenderabilityChecker();
-    final target = const LatexFragmentLocator().locate(
+    final locateResult = const LatexFragmentLocator().inspect(
       reviewItemId: request.reviewItemId,
       expectedRevision: request.expectedRevision,
       snapshot: snapshot,
@@ -484,8 +499,21 @@ class ReviewRepairService implements ReviewRepairGenerator {
           .isRenderable,
       digest: fieldDigest,
     );
-    if (target == null || target.originalLatex.runes.length > 4096) {
-      return _fragmentTargetUnavailable();
+    final target = locateResult.target;
+    if (target == null) {
+      return _fragmentTargetUnavailable(
+        classification: locateResult.diagnostic.classification.wireName,
+        diagnosticData: locateResult.diagnostic.diagnosticData,
+      );
+    }
+    if (target.originalLatex.runes.length > 4096) {
+      return _fragmentTargetUnavailable(
+        classification: 'fragment_too_large',
+        diagnosticData: <String, Object?>{
+          ...locateResult.diagnostic.diagnosticData,
+          'fragmentCharacterLength': target.originalLatex.runes.length,
+        },
+      );
     }
 
     final LatexFragmentProviderResult providerResult;
@@ -540,7 +568,26 @@ class ReviewRepairService implements ReviewRepairGenerator {
         corrected,
       );
     } on FormatException {
-      return _fragmentTargetUnavailable();
+      return _fragmentTargetUnavailable(
+        classification: 'stale_target',
+        diagnosticData: locateResult.diagnostic.diagnosticData,
+      );
+    }
+    final baselineLegacy =
+        _fragmentTargetLegacy(request.inputDraft, snapshot, target);
+    final patchedLegacy = _fragmentTargetLegacy(patched, snapshot, target);
+    if (baselineLegacy == null ||
+        patchedLegacy == null ||
+        !const LatexFragmentLocator().replacementPreservesTopology(
+          baselineLegacy: baselineLegacy,
+          patchedLegacy: patchedLegacy,
+          target: target,
+          replacement: corrected,
+        )) {
+      return const ReviewRepairResult.rejected(
+        ReviewRepairOutcome.invalidFragmentOutput,
+        diagnostics: <String>['fragment_topology_changed'],
+      );
     }
     final beforeAudit = auditFinalQuestionLatex(request.inputDraft.toMap());
     final afterAudit = auditFinalQuestionLatex(patched.toMap());
@@ -593,17 +640,21 @@ class ReviewRepairService implements ReviewRepairGenerator {
     return ReviewRepairResult.ready(proposal);
   }
 
-  ReviewRepairResult _fragmentTargetUnavailable() {
+  ReviewRepairResult _fragmentTargetUnavailable({
+    required String classification,
+    required Map<String, Object?> diagnosticData,
+  }) {
     AppLogger.info(
       'Review repair fragment target unavailable',
       module: 'ReviewRepair',
-      data: const <String, Object?>{
-        'failureClassification': 'target_unavailable',
+      data: <String, Object?>{
+        ...diagnosticData,
+        'failureClassification': classification,
       },
     );
-    return const ReviewRepairResult.rejected(
+    return ReviewRepairResult.rejected(
       ReviewRepairOutcome.fragmentTargetUnavailable,
-      diagnostics: <String>['target_unavailable'],
+      diagnostics: <String>[classification],
     );
   }
 
@@ -684,6 +735,32 @@ class ReviewRepairService implements ReviewRepairGenerator {
     final options = List<String>.from(draft.options);
     options[index] = option.replaceRange(start, end, corrected);
     return draft.copyWith(options: options);
+  }
+
+  String? _fragmentTargetLegacy(
+    QuestionDraft draft,
+    TypedReviewSnapshot snapshot,
+    LatexFragmentTarget target,
+  ) {
+    return switch (target.field) {
+      LatexFragmentField.stem => draft.content,
+      LatexFragmentField.explanation => draft.explanation,
+      LatexFragmentField.contentAnswer => draft.standardAnswer,
+      LatexFragmentField.options =>
+        _fragmentOptionBody(draft, snapshot, target),
+    };
+  }
+
+  String? _fragmentOptionBody(
+    QuestionDraft draft,
+    TypedReviewSnapshot snapshot,
+    LatexFragmentTarget target,
+  ) {
+    final index = snapshot.draft.options.indexWhere(
+      (option) => option.optionId == target.optionId,
+    );
+    if (index < 0 || index >= draft.options.length) return null;
+    return _optionPattern.firstMatch(draft.options[index])?.group(2);
   }
 
   ReviewRepairField _reviewFieldFor(LatexFragmentField field) {

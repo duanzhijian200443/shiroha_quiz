@@ -439,14 +439,29 @@ final class LatexFragmentRepairProviderAdapter
     if (RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]').hasMatch(value)) {
       return false;
     }
-    return !_hasOuterDelimiter(value);
+    return !_containsMathDelimiter(value);
   }
 
-  bool _hasOuterDelimiter(String value) {
-    if (value.startsWith(r'$$') && value.endsWith(r'$$')) return true;
-    if (value.startsWith(r'\(') && value.endsWith(r'\)')) return true;
-    if (value.startsWith(r'\[') && value.endsWith(r'\]')) return true;
-    return value.length >= 2 && value.startsWith(r'$') && value.endsWith(r'$');
+  bool _containsMathDelimiter(String value) {
+    for (var index = 0; index < value.length; index++) {
+      if (_isEscaped(value, index)) continue;
+      if (value[index] == r'$') return true;
+      if (value.codeUnitAt(index) != 92 || index + 1 >= value.length) continue;
+      if (const <String>{'(', ')', '[', ']'}.contains(value[index + 1])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isEscaped(String value, int offset) {
+    var slashCount = 0;
+    for (var index = offset - 1;
+        index >= 0 && value.codeUnitAt(index) == 92;
+        index--) {
+      slashCount++;
+    }
+    return slashCount.isOdd;
   }
 
   LatexFragmentProviderFailure _statusFailure(int statusCode) {
