@@ -395,7 +395,7 @@ void main() {
   const stemBlock = 'PRIVACY_STEM_BLOCK_SENTINEL';
   const answerBlock = 'PRIVACY_ANSWER_BLOCK_SENTINEL';
   const explanationBlock = 'PRIVACY_EXPLANATION_BLOCK_SENTINEL';
-  const stem = '1. STEM_SENTINEL \$LATEX_BODY_SENTINEL\$\n'
+  const stem = '1. STEM_SENTINEL LATEX_BODY_SENTINEL\n'
       '(A) OPTION_A_SENTINEL\n'
       '(B) OPTION_B_SENTINEL\n'
       '(C) OPTION_C_SENTINEL\n'

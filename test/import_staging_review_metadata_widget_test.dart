@@ -239,15 +239,15 @@ void main() {
         'latexInvalidFields': ['content'],
       },
     });
-    // An unrenderable LaTeX field is review-repairable on demand, so it shows
-    // the AI repair entry point instead of the review-only notice.
+    // Fragment repair requires a frozen typed snapshot. Legacy-only metadata
+    // therefore stays review-only instead of exposing an unusable repair action.
     expect(
       find.byKey(const ValueKey('question-repair-review-only-0')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('review-ai-repair-0')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 

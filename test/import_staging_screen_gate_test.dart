@@ -392,15 +392,15 @@ void main() {
 
     expect(find.textContaining('警告: 1'), findsOneWidget);
     expect(find.text('LaTeX 异常'), findsOneWidget);
-    // LaTeX 异常 is review-repairable on demand: the card exposes the AI repair
-    // entry point instead of the review-only notice.
+    // This legacy-only fixture has no frozen typed snapshot, so fragment repair
+    // remains unavailable and the warning stays review-only.
     expect(
       find.byKey(const ValueKey('review-ai-repair-0')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.text('本题存在解析风险，需要人工核对；当前不支持 AI 自动修补。'),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('question-repair-candidate-0')),
