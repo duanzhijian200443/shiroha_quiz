@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
+import 'package:shiroha_quiz/application/import_review/latex_math_span_scanner.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -55,6 +56,36 @@ bool _isRenderable(String latex) => const LatexRenderabilityChecker()
 
 void main() {
   const locator = LatexFragmentLocator();
+
+  test('math span scanner preserves delimiters, offsets, and node kinds', () {
+    const input = r'A \(x\) B \[y\] C $z$ D $$w$$ E';
+    final spans = LatexMathSpanScanner.scan(input);
+
+    expect(spans, hasLength(9));
+    expect(
+      spans.map((span) => input.substring(span.start, span.end)).join(),
+      input,
+    );
+    expect(spans[1].token, isA<LatexInlineMathSpanToken>());
+    expect(spans[3].token, isA<LatexBlockMathSpanToken>());
+    expect(spans[5].token, isA<LatexInlineMathSpanToken>());
+    expect(spans[7].token, isA<LatexBlockMathSpanToken>());
+    expect(
+      (spans[1].token as LatexInlineMathSpanToken).latex,
+      'x',
+    );
+    expect(
+      (spans[7].token as LatexBlockMathSpanToken).raw,
+      r'$$w$$',
+    );
+
+    const unclosed = r'A \$5 B \(x';
+    final unclosedSpans = LatexMathSpanScanner.scan(unclosed);
+    expect(unclosedSpans, hasLength(1));
+    expect(unclosedSpans.single.start, 0);
+    expect(unclosedSpans.single.end, unclosed.length);
+    expect(unclosedSpans.single.token, isA<LatexTextSpanToken>());
+  });
 
   test('locates exactly one invalid typed math node and exact inner span', () {
     final target = locator.locate(

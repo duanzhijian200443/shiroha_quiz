@@ -1,7 +1,7 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/question/question_draft_v2.dart';
-import '../../utils/content_tokenizer.dart';
+import 'latex_math_span_scanner.dart';
 import 'typed_review_snapshot.dart';
 
 enum LatexFragmentField { stem, options, contentAnswer, explanation }
@@ -420,7 +420,7 @@ final class LatexFragmentLocator {
     required _LocateMetrics metrics,
     int? optionIndex,
   }) {
-    final spans = ContentTokenizer.tokenizeMathSpans(legacy);
+    final spans = LatexMathSpanScanner.scan(legacy);
     metrics.typedNodeCount += content.nodes.length;
     metrics.legacySpanCount += spans.length;
     for (var index = 0; index < content.nodes.length; index++) {
@@ -480,7 +480,7 @@ final class LatexFragmentLocator {
       final node = content.nodes[index];
       final span = spans[index];
       switch ((node, span.token)) {
-        case (TextNode(:final text), TextToken(text: final tokenText)):
+        case (TextNode(:final text), LatexTextSpanToken(text: final tokenText)):
           if (text != tokenText) {
             metrics.recordMismatch(
               field: field,
@@ -494,7 +494,7 @@ final class LatexFragmentLocator {
           }
         case (
             InlineMathNode(:final latex),
-            InlineMathToken(:final tex, :final raw)
+            LatexInlineMathSpanToken(latex: final tex, :final raw)
           ):
           if (latex != tex) {
             metrics.recordMismatch(
@@ -531,7 +531,7 @@ final class LatexFragmentLocator {
           }
         case (
             BlockMathNode(:final latex),
-            BlockMathToken(:final tex, :final raw)
+            LatexBlockMathSpanToken(latex: final tex, :final raw)
           ):
           if (latex != tex) {
             metrics.recordMismatch(
@@ -595,8 +595,8 @@ final class LatexFragmentLocator {
     required LatexFragmentTarget target,
     required String replacement,
   }) {
-    final baselineSpans = ContentTokenizer.tokenizeMathSpans(baselineLegacy);
-    final patchedSpans = ContentTokenizer.tokenizeMathSpans(patchedLegacy);
+    final baselineSpans = LatexMathSpanScanner.scan(baselineLegacy);
+    final patchedSpans = LatexMathSpanScanner.scan(patchedLegacy);
     if (target.nodeIndex >= baselineSpans.length ||
         patchedSpans.length != baselineSpans.length) {
       return false;
@@ -609,14 +609,14 @@ final class LatexFragmentLocator {
             switch ((target.nodeKind, baselineToken, patchedToken)) {
           (
             LatexFragmentNodeKind.inlineMath,
-            InlineMathToken(tex: final original),
-            InlineMathToken(tex: final patched),
+            LatexInlineMathSpanToken(latex: final original),
+            LatexInlineMathSpanToken(latex: final patched),
           ) =>
             original == target.originalLatex && patched == replacement,
           (
             LatexFragmentNodeKind.blockMath,
-            BlockMathToken(tex: final original),
-            BlockMathToken(tex: final patched),
+            LatexBlockMathSpanToken(latex: final original),
+            LatexBlockMathSpanToken(latex: final patched),
           ) =>
             original == target.originalLatex && patched == replacement,
           _ => false,
@@ -625,14 +625,20 @@ final class LatexFragmentLocator {
         continue;
       }
       final unchanged = switch ((baselineToken, patchedToken)) {
-        (TextToken(text: final before), TextToken(text: final after)) =>
-          before == after,
         (
-          InlineMathToken(tex: final before),
-          InlineMathToken(tex: final after)
+          LatexTextSpanToken(text: final before),
+          LatexTextSpanToken(text: final after)
         ) =>
           before == after,
-        (BlockMathToken(tex: final before), BlockMathToken(tex: final after)) =>
+        (
+          LatexInlineMathSpanToken(latex: final before),
+          LatexInlineMathSpanToken(latex: final after)
+        ) =>
+          before == after,
+        (
+          LatexBlockMathSpanToken(latex: final before),
+          LatexBlockMathSpanToken(latex: final after)
+        ) =>
           before == after,
         _ => false,
       };
@@ -880,11 +886,10 @@ String _contentNodeKind(ContentNode node) => switch (node) {
       _ => 'unsupported',
     };
 
-String _contentTokenKind(ContentToken token) => switch (token) {
-      TextToken() => 'text',
-      InlineMathToken() => LatexFragmentNodeKind.inlineMath.wireName,
-      BlockMathToken() => LatexFragmentNodeKind.blockMath.wireName,
-      _ => 'unsupported',
+String _contentTokenKind(LatexMathSpanToken token) => switch (token) {
+      LatexTextSpanToken() => 'text',
+      LatexInlineMathSpanToken() => LatexFragmentNodeKind.inlineMath.wireName,
+      LatexBlockMathSpanToken() => LatexFragmentNodeKind.blockMath.wireName,
     };
 
 int _contentNodeCharacterLength(ContentNode node) => switch (node) {
@@ -894,9 +899,8 @@ int _contentNodeCharacterLength(ContentNode node) => switch (node) {
       _ => 0,
     };
 
-int _contentTokenCharacterLength(ContentToken token) => switch (token) {
-      TextToken(:final text) => text.runes.length,
-      InlineMathToken(:final tex) => tex.runes.length,
-      BlockMathToken(:final tex) => tex.runes.length,
-      _ => 0,
+int _contentTokenCharacterLength(LatexMathSpanToken token) => switch (token) {
+      LatexTextSpanToken(:final text) => text.runes.length,
+      LatexInlineMathSpanToken(:final latex) => latex.runes.length,
+      LatexBlockMathSpanToken(:final latex) => latex.runes.length,
     };
