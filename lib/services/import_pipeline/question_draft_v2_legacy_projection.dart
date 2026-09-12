@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
 import '../../domain/content/rich_content_text_projection.dart';
@@ -9,6 +12,8 @@ import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
 import 'ocr_table_projection.dart';
+import 'ocr_rich_content_parser.dart';
+import 'ocr_text_normalization.dart';
 
 /// Explicit, stable projection profile selecting the legacy map shape,
 /// provenance fields, and source tag of one authoritative legacy assembler.
@@ -38,6 +43,12 @@ final class OcrLegacyProjectionProfile extends LegacyProjectionProfile {
   @override
   String get sourceTag => sourceTagValue;
 }
+
+/// Handler used by tests to capture redacted OCR projection construction
+/// boundaries without exposing any projected field values.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    ocrCompatibilityProjectionTelemetryHandlerForTesting;
 
 /// Raised when a [QuestionRegion] or its assembled [QuestionDraftV2] cannot be
 /// represented by the bounded legacy compatibility projection, such as raw
@@ -72,14 +83,19 @@ final class QuestionDraftV2LegacyProjector {
     required QuestionDraftV2 draft,
     required QuestionRegion region,
     required LegacyProjectionProfile profile,
+    OcrMathSourceMap? mathSourceMap,
+    ExplanationRetentionMode explanationRetentionMode =
+        ExplanationRetentionMode.subjectiveOnly,
   }) {
     _guardProjectionBoundary(draft, region);
     final isOcr = profile is OcrLegacyProjectionProfile;
-    final draftStem = _profileContentText(draft.stem, isOcr: isOcr).trim();
+    final math = isOcr ? mathSourceMap : null;
+    final draftStem =
+        _profileContentText(draft.stem, isOcr: isOcr, math: math).trim();
     // The OCR profile mirrors the authoritative OCR assembler: options are
     // split only for the complete ordered A-D sequence, and the full region
     // stem (including dropped option text) is kept for non-choice kinds.
-    final ocrStem = isOcr ? _ocrRegionStem(region) : '';
+    final ocrStem = isOcr ? _ocrRegionStem(region, math) : '';
     final ocrRawExtract = isOcr
         ? _ocrExtractOptions(ocrStem)
         : const _OcrOptionExtract(stem: '', options: <String>[]);
@@ -90,6 +106,17 @@ final class QuestionDraftV2LegacyProjector {
         : _OcrOptionExtract(stem: ocrStem.trim(), options: const <String>[]);
     final ocrContent =
         ocrExtract.stem.trim().isEmpty ? ocrStem : ocrExtract.stem.trim();
+    if (isOcr) {
+      _emitOcrCompatibilityProjectionTelemetry(
+        questionNumber: region.questionNumber,
+        draftStem: draftStem,
+        ocrStem: ocrStem,
+        ocrRawExtract: ocrRawExtract,
+        keepOcrOptions: keepOcrOptions,
+        ocrExtract: ocrExtract,
+        ocrContent: ocrContent,
+      );
+    }
 
     final type = isOcr
         ? _ocrClassifyType(
@@ -100,22 +127,22 @@ final class QuestionDraftV2LegacyProjector {
         : _legacyTypeCode(draft.kind);
     final rawContent = isOcr ? ocrContent : draftStem;
     final content = rawContent.trim().isEmpty && isOcr
-        ? _composeRawText(region)
+        ? _composeRawText(region, math)
         : rawContent.trim();
     final options = isOcr
         ? ocrExtract.options
         : <String>[
             for (final option in draft.options)
-              '${option.label}. ${_profileContentText(option.content, isOcr: isOcr)}',
+              '${option.label}. ${_profileContentText(option.content, isOcr: isOcr, math: math)}',
           ];
-    final typedAnswer = _answerText(draft.answer, isOcr: isOcr);
+    final typedAnswer = _answerText(draft.answer, isOcr: isOcr, math: math);
     // The text legacy assembler uppercases every answer, while the OCR legacy
     // assembler preserves non-choice answer case. Keep the typed draft
     // lossless and apply the profile-specific compatibility rule here.
     final answer = isOcr ? typedAnswer : typedAnswer.toUpperCase();
     final rawExplanation = draft.explanation == null
         ? ''
-        : _profileContentText(draft.explanation!, isOcr: isOcr);
+        : _profileContentText(draft.explanation!, isOcr: isOcr, math: math);
 
     final diagnostics = <String>[
       for (final issue in region.issues)
@@ -126,7 +153,9 @@ final class QuestionDraftV2LegacyProjector {
     if (!isOcr && rawExplanation.isEmpty) {
       diagnostics.add('info_missing_explanation');
     }
-    if (type != 3 && rawExplanation.isNotEmpty) {
+    if (type != 3 &&
+        rawExplanation.isNotEmpty &&
+        explanationRetentionMode == ExplanationRetentionMode.subjectiveOnly) {
       diagnostics.add('dropped_non_subjective_explanation');
     }
     if (isOcr && region.kindHint != QuestionRegionKindHint.unknown) {
@@ -161,6 +190,7 @@ final class QuestionDraftV2LegacyProjector {
           'source_block_ids': _blockIds(region),
         },
       },
+      mode: explanationRetentionMode,
     );
     if (_hasDanglingLatexInFinalFields(question)) {
       diagnostics.add('dangling_latex');
@@ -185,8 +215,8 @@ final class QuestionDraftV2LegacyProjector {
               QuestionRegionField.stem,
             ),
           );
-    final rejected =
-        rawContent.trim().isEmpty && _rawTextLength(region, isOcr: isOcr) < 8;
+    final rejected = rawContent.trim().isEmpty &&
+        _rawTextLength(region, isOcr: isOcr, math: math) < 8;
     final finalDiagnostics = <String>[...diagnostics.toSet()];
     question = <String, dynamic>{...question, 'diagnostics': finalDiagnostics};
 
@@ -197,6 +227,91 @@ final class QuestionDraftV2LegacyProjector {
       rejected: rejected,
     );
   }
+}
+
+/// Emits private projector intermediates as aggregate-only diagnostics.
+/// Telemetry is best-effort and cannot alter the returned legacy projection.
+void _emitOcrCompatibilityProjectionTelemetry({
+  required int questionNumber,
+  required String draftStem,
+  required String ocrStem,
+  required _OcrOptionExtract ocrRawExtract,
+  required bool keepOcrOptions,
+  required _OcrOptionExtract ocrExtract,
+  required String ocrContent,
+}) {
+  try {
+    final ocrStemMetrics = _diagnosticCharacterMetrics(ocrStem);
+    final telemetry = <String, Object?>{
+      'questionNumber': questionNumber,
+      'draftStemLength': draftStem.length,
+      'ocrRegionStemPreExtractLength': ocrStem.length,
+      'ocrRegionStemPreExtractSpaceCount': ocrStemMetrics.spaceCount,
+      'ocrRegionStemPreExtractTabCount': ocrStemMetrics.tabCount,
+      'ocrRegionStemPreExtractCrCount': ocrStemMetrics.crCount,
+      'ocrRegionStemPreExtractLfCount': ocrStemMetrics.lfCount,
+      'ocrRegionStemDiagnosticNormalizedLength':
+          _diagnosticOcrNormalization(ocrStem).length,
+      'ocrRawOptionCount': ocrRawExtract.options.length,
+      'keepOcrOptions': keepOcrOptions,
+      'ocrRawExtractStemLength': ocrRawExtract.stem.length,
+      'ocrPostPolicyStemLength': ocrExtract.stem.length,
+      'ocrContentLength': ocrContent.length,
+      'draftStemVsOcrRegionStemExactEqual': draftStem == ocrStem,
+      'draftStemVsOcrRegionStemDiagnosticNormalizedEqual':
+          _diagnosticOcrNormalization(draftStem) ==
+              _diagnosticOcrNormalization(ocrStem),
+      'draftStemVsOcrContentExactEqual': draftStem == ocrContent,
+      'draftStemVsOcrContentDiagnosticNormalizedEqual':
+          _diagnosticOcrNormalization(draftStem) ==
+              _diagnosticOcrNormalization(ocrContent),
+    };
+    ocrCompatibilityProjectionTelemetryHandlerForTesting?.call(telemetry);
+    AppLogger.info(
+      'OCR compatibility projection construction telemetry',
+      module: 'ImportTypedCandidate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+({int spaceCount, int tabCount, int crCount, int lfCount})
+    _diagnosticCharacterMetrics(String input) {
+  var spaceCount = 0;
+  var tabCount = 0;
+  var crCount = 0;
+  var lfCount = 0;
+  for (final codeUnit in input.codeUnits) {
+    switch (codeUnit) {
+      case 0x20:
+        spaceCount++;
+      case 0x09:
+        tabCount++;
+      case 0x0d:
+        crCount++;
+      case 0x0a:
+        lfCount++;
+    }
+  }
+  return (
+    spaceCount: spaceCount,
+    tabCount: tabCount,
+    crCount: crCount,
+    lfCount: lfCount,
+  );
+}
+
+/// Diagnostic mirror only; this is not a semantic normalization authority and
+/// must never feed a candidate, projection, or gate decision.
+String _diagnosticOcrNormalization(String input) {
+  return input
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
 }
 
 int _legacyTypeCode(QuestionKind kind) {
@@ -218,16 +333,19 @@ String _legacyKindName(QuestionRegionKindHint hint) {
   };
 }
 
-String _answerText(QuestionAnswer? answer, {required bool isOcr}) {
+String _answerText(QuestionAnswer? answer,
+    {required bool isOcr, OcrMathSourceMap? math}) {
   return switch (answer) {
     null => '',
     ChoiceAnswer(:final optionIds) => optionIds.join(),
-    ContentAnswer(:final content) => _profileContentText(content, isOcr: isOcr),
+    ContentAnswer(:final content) =>
+      _profileContentText(content, isOcr: isOcr, math: math),
   };
 }
 
-String _profileContentText(RichContent content, {required bool isOcr}) {
-  final projected = _contentText(content);
+String _profileContentText(RichContent content,
+    {required bool isOcr, OcrMathSourceMap? math}) {
+  final projected = _contentText(content, math);
   if (!isOcr || !content.nodes.any((node) => node is TableNode)) {
     return projected;
   }
@@ -278,21 +396,44 @@ bool _hasDanglingLatexInFinalFields(Map<String, dynamic> question) {
       options.whereType<String>().any(checker.hasDanglingDelimiters);
 }
 
-String _contentText(RichContent content) {
-  return const RichContentTextProjection().project(content);
+String _contentText(RichContent content, [OcrMathSourceMap? math]) {
+  if (math == null) return const RichContentTextProjection().project(content);
+  return const RichContentTextProjection().project(RichContent(nodes: [
+    for (final node in content.nodes)
+      if (math.rawMath(node) case final String raw)
+        TextNode(raw)
+      else if (node is TableNode)
+        TableNode(
+            structure: TableStructure(rows: [
+          for (final row in node.structure.rows)
+            TableRow(cells: [
+              for (final cell in row.cells)
+                TableCell(
+                  rowSpan: cell.rowSpan,
+                  columnSpan: cell.columnSpan,
+                  content: RichContent(
+                      nodes: [TextNode(_contentText(cell.content, math))]),
+                ),
+            ]),
+        ]))
+      else
+        node,
+  ]));
 }
 
-String _searchText(List<ContentNode> nodes) {
-  return _contentText(RichContent(nodes: nodes));
+String _searchText(List<ContentNode> nodes, [OcrMathSourceMap? math]) {
+  return _contentText(RichContent(nodes: nodes), math);
 }
 
-String _fragmentText(QuestionRegion region, QuestionRegionField field) {
+String _fragmentText(QuestionRegion region, QuestionRegionField field,
+    [OcrMathSourceMap? math]) {
   final parts = <String>[];
   for (final fragment in region.fragmentsFor(field)) {
     final part = fragment.part;
     if (part is SourceContentPart) {
       final text = _searchText(
         _materializeContentNodes(part.content, fragment.slice),
+        math,
       ).trim();
       if (text.isNotEmpty) parts.add(text);
     } else if (part is SourceAssetPart) {
@@ -398,8 +539,10 @@ bool _orderedEquals<T>(List<T> left, List<T> right) {
   return true;
 }
 
-String _ocrRegionStem(QuestionRegion region) {
-  final text = _fragmentText(region, QuestionRegionField.stem);
+String _ocrRegionStem(QuestionRegion region, OcrMathSourceMap? math) {
+  final text = normalizeOcrText(
+    _fragmentText(region, QuestionRegionField.stem, math),
+  );
   final withoutNumber = text.replaceFirst(
     RegExp('^\\s*(?:第\\s*)?${region.questionNumber}\\s*(?:题|[\\.、．])?\\s*'),
     '',
@@ -413,7 +556,7 @@ String _ocrRegionStem(QuestionRegion region) {
 /// sequence with non-empty values is extracted.
 _OcrOptionExtract _ocrExtractOptions(String text) {
   final markerRegex = RegExp(
-    r'(?:（\s*([A-D])\s*）|(?:^|\n)[ \t]*([A-D])\s*[.．、])[ \t\r\n]*',
+    r'(?:[（(]\s*([A-D])\s*[）)]|(?:^|\n)[ \t]*([A-D])\s*[.．、])[ \t\r\n]*',
     multiLine: true,
   );
   final matches = markerRegex.allMatches(text).toList();
@@ -543,26 +686,28 @@ final class _OcrOptionExtract {
   final List<String> options;
 }
 
-String _composeRawText(QuestionRegion region) {
+String _composeRawText(QuestionRegion region, OcrMathSourceMap? math) {
   final buffer = StringBuffer();
   buffer.writeln(
     '${region.questionNumber} '
-    '${_fragmentText(region, QuestionRegionField.stem).trim()}',
+    '${_fragmentText(region, QuestionRegionField.stem, math).trim()}',
   );
-  final answer = _fragmentText(region, QuestionRegionField.answer).trim();
+  final answer = _fragmentText(region, QuestionRegionField.answer, math).trim();
   if (answer.isNotEmpty) buffer.writeln('答案: $answer');
   final explanation = _fragmentText(
     region,
     QuestionRegionField.explanation,
+    math,
   ).trim();
   if (explanation.isNotEmpty) buffer.writeln('解析: $explanation');
   return buffer.toString().trim();
 }
 
-int _rawTextLength(QuestionRegion region, {required bool isOcr}) {
+int _rawTextLength(QuestionRegion region,
+    {required bool isOcr, OcrMathSourceMap? math}) {
   return isOcr
-      ? _composeRawText(region).length
-      : _fragmentText(region, QuestionRegionField.stem).length;
+      ? _composeRawText(region, math).length
+      : _fragmentText(region, QuestionRegionField.stem, math).length;
 }
 
 List<int> _pageNumbers(QuestionRegion region) {

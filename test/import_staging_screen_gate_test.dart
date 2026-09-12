@@ -90,6 +90,42 @@ void main() {
     expect(find.text('Retained explanation'), findsOneWidget);
   });
 
+  testWidgets(
+      'review screen uses review retention without changing parse authority',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: const <String, dynamic>{
+          TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
+          TaskManager.keyReviewExplanationRetentionMode: 'subjectiveOnly',
+          TaskManager.keyExplanationRetentionMode: 'subjectiveOnly',
+        },
+        initialExplanationRetentionMode:
+            ExplanationRetentionMode.allQuestionTypes,
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Review mode hides this explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final control = tester.widget<SwitchListTile>(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+    );
+    expect(control.value, isFalse);
+    expect(find.text('Review mode hides this explanation'), findsNothing);
+  });
+
   testWidgets('document retention switch defaults to subjective only',
       (WidgetTester tester) async {
     await tester.pumpWidget(
@@ -356,6 +392,12 @@ void main() {
 
     expect(find.textContaining('警告: 1'), findsOneWidget);
     expect(find.text('LaTeX 异常'), findsOneWidget);
+    // This legacy-only fixture has no frozen typed snapshot, so fragment repair
+    // remains unavailable and the warning stays review-only.
+    expect(
+      find.byKey(const ValueKey('review-ai-repair-0')),
+      findsNothing,
+    );
     expect(
       find.text('本题存在解析风险，需要人工核对；当前不支持 AI 自动修补。'),
       findsOneWidget,

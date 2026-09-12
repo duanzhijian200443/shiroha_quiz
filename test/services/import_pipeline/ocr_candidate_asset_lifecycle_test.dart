@@ -7,11 +7,15 @@ import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
@@ -105,6 +109,64 @@ void main() {
       store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
       isNull,
     );
+  });
+
+  test(
+      'allQuestionTypes keeps an objective explanation through the production chain',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    const mode = ExplanationRetentionMode.allQuestionTypes;
+    final fixture = _objectiveFixture();
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final assembled = const OcrQuestionAssembler().assemble(regions.single);
+    final sourceQuestion = const ImportQuestionFieldPolicy().applyToMap(
+      assembled.question,
+      mode: mode,
+    );
+    final sourceRawExplanation = sourceQuestion['raw_explanation'];
+    expect(sourceQuestion['type'], 0);
+    expect(sourceRawExplanation, isA<String>());
+    expect((sourceRawExplanation as String).isNotEmpty, isTrue);
+    expect(sourceQuestion['explanation'], isNotEmpty);
+
+    final batch = buildOcrTypedCandidateBatch(
+      document: fixture,
+      regions: regions,
+      legacyQuestions: <Map<String, dynamic>>[sourceQuestion],
+      uuidV4Factory: _uuidSequence(),
+      assetStore: store,
+      explanationRetentionMode: mode,
+    );
+    expect(batch.failure, isNull);
+    final candidate = batch.candidates.single;
+    expect(candidate.draft.explanation, isNotNull);
+    expect(candidate.projectedLegacy.explanation, isNotEmpty);
+
+    final result = await _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[sourceQuestion],
+    ).parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['all-question-types.png'],
+        fileNames: <String>['all-question-types.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'a2-all-question-types',
+        explanationRetentionMode: mode,
+      ),
+    );
+
+    final projectedLegacy = result.questions.single;
+    expect(projectedLegacy['type'], 0);
+    expect(projectedLegacy['raw_explanation'], isNotEmpty);
+    expect(projectedLegacy['explanation'], isNotEmpty);
+    expect(result.storageRoute, ImportStorageRoute.typedV2);
+    expect(result.storageReason, ocrTypedCandidateReadyReason);
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+      projectedLegacy[TypedReviewSnapshotCodec.mapKey],
+    );
+    expect(snapshot.draft.explanation, isNotNull);
   });
 
   test('multi-file OCR rolls back every candidate lease on legacy fallback',
@@ -396,7 +458,165 @@ void main() {
     );
   });
 
-  test('typed pruning never removes a pre-existing asset', () async {
+  test('typed success retains a finalized explanation image', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture();
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final originalBatch = _buildBatch(fixture, legacyQuestion, store);
+    final original = originalBatch.candidates.single;
+    final image = reachableImageNodes(original.draft.stem).single;
+    final projectedContent =
+        original.projectedLegacy.content.replaceAll('[图片]', '').trim();
+    const projectedExplanation = '<p>Synthetic explanation 1</p>[图片]';
+    const finalizedExplanation = 'Synthetic explanation 1\n[图片]';
+    final explanation = RichContent(
+      nodes: <ContentNode>[
+        const TextNode('<p>Synthetic explanation 1</p>'),
+        image,
+      ],
+    );
+    final candidate = OcrTypedCandidate(
+      questionNumber: original.questionNumber,
+      reviewItemId: original.reviewItemId,
+      questionId: original.questionId,
+      draft: QuestionDraftV2(
+        questionId: original.draft.questionId,
+        kind: original.draft.kind,
+        questionNumber: original.draft.questionNumber,
+        stem: RichContent(
+          nodes: <ContentNode>[TextNode(projectedContent)],
+        ),
+        options: original.draft.options,
+        answer: original.draft.answer,
+        explanation: explanation,
+        sourceRefs: original.draft.sourceRefs,
+        assetRefs: original.draft.assetRefs,
+        issues: original.draft.issues,
+      ),
+      projectedLegacy: LegacyReviewBaseline(
+        type: original.projectedLegacy.type,
+        questionNumber: original.projectedLegacy.questionNumber,
+        content: projectedContent,
+        options: original.projectedLegacy.options,
+        standardAnswer: original.projectedLegacy.standardAnswer,
+        explanation: projectedExplanation,
+      ),
+      sourcePageIndices: original.sourcePageIndices,
+      sourceBlockIds: original.sourceBlockIds,
+    );
+    final question = <String, dynamic>{
+      ...legacyQuestion,
+      'content': projectedContent,
+      'explanation': projectedExplanation,
+      'raw_explanation': projectedExplanation,
+    };
+
+    final result = await _pipelineForSingleBatch(
+      store: store,
+      batch: OcrTypedCandidateBatch(
+        candidates: <OcrTypedCandidate>[candidate],
+        candidateAssetLease: originalBatch.candidateAssetLease,
+      ),
+      questions: <Map<String, dynamic>>[question],
+    ).parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['explanation-image.png'],
+        fileNames: <String>['explanation-image.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-explanation-image',
+      ),
+    );
+
+    expect(result.storageRoute, ImportStorageRoute.typedV2,
+        reason: 'storageReason=${result.storageReason}');
+    expect(result.storageReason, ocrTypedCandidateReadyReason);
+    expect(result.questions.single['explanation'], finalizedExplanation);
+    expect(result.questions.single['raw_explanation'], projectedExplanation);
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+      result.questions.single[TypedReviewSnapshotCodec.mapKey],
+    );
+    expect(reachableImageNodes(snapshot.draft.explanation!), hasLength(1));
+    expect(result.candidateAssetLease?.localAssetIds, <String>['img_001']);
+  });
+
+  test('typed gate fails closed when leased image bytes are unavailable',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture();
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final batch = _buildBatch(fixture, legacyQuestion, store);
+    final lease = batch.candidateAssetLease!;
+    expect(lease.localAssetIds, <String>['img_001']);
+    final deletion = await store.deleteCandidateAssets(lease);
+    expect(deletion.isComplete, isTrue);
+
+    final result = await _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[legacyQuestion],
+    ).parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['missing-image.png'],
+        fileNames: <String>['missing-image.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-missing-image',
+      ),
+    );
+
+    expect(result.storageRoute, ImportStorageRoute.legacyV1);
+    expect(result.storageReason, 'typed_candidate_unsupported_structure');
+    expect(
+      result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+      isFalse,
+    );
+  });
+
+  test('baseline failure precedes unavailable leased asset', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture();
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(regions.single).question;
+    final batch = _buildBatch(fixture, legacyQuestion, store);
+    final lease = batch.candidateAssetLease!;
+    final deletion = await store.deleteCandidateAssets(lease);
+    expect(deletion.isComplete, isTrue);
+
+    final malformedBaseline = <String, dynamic>{
+      ...legacyQuestion,
+      'content': 42,
+    };
+    final result = await _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[malformedBaseline],
+    ).parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['malformed-baseline.png'],
+        fileNames: <String>['malformed-baseline.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'lifecycle-baseline-before-asset',
+      ),
+    );
+
+    expect(result.storageRoute, ImportStorageRoute.legacyV1);
+    expect(result.storageReason, 'typed_candidate_baseline_invalid');
+    expect(result.candidateAssetLease, isNull);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+  });
+
+  test('typed gate rejects a reachable asset outside the candidate lease',
+      () async {
     final store = ManagedContentAssetStore(managedRoot: temp);
     final bytes = OcrImagePayload.fromDataUrl(_pngDataUrl)!.bytes;
     store.storeBytesSync(
@@ -431,9 +651,9 @@ void main() {
 
     expect(
       result.storageRoute,
-      ImportStorageRoute.typedV2,
-      reason: 'storageReason=${result.storageReason}',
+      ImportStorageRoute.legacyV1,
     );
+    expect(result.storageReason, 'typed_candidate_identity_mismatch');
     expect(result.candidateAssetLease, isNull);
     expect(
       store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
@@ -901,6 +1121,37 @@ OcrDocument _fixture({
     sourceName: 'synthetic.pdf',
     pages: <OcrPage>[
       OcrPage(pageIndex: 1, blocks: blocks),
+    ],
+    markdown: '',
+    rawResponses: const <Map<String, dynamic>>[],
+    usage: const <String, dynamic>{},
+  );
+}
+
+OcrDocument _objectiveFixture() {
+  return OcrDocument(
+    sourceName: 'synthetic-objective.pdf',
+    pages: <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 'text', '一、选择题', 0),
+          _block(
+            'q_1',
+            'text',
+            '1. Prompt before image\n'
+                'A. Alpha\n'
+                'B. Beta\n'
+                'C. Gamma\n'
+                'D. Delta',
+            1,
+          ),
+          _block('img_001', 'image', _pngDataUrl, 2),
+          _block('answer_1', 'text', '答案：A', 3),
+          _block(
+              'explanation_1', 'text', '解析：Synthetic objective explanation', 4),
+        ],
+      ),
     ],
     markdown: '',
     rawResponses: const <Map<String, dynamic>>[],

@@ -134,6 +134,7 @@ final class QuestionRegion {
     required Iterable<QuestionRegionFragment> fragments,
     QuestionRegionKindHint kindHint = QuestionRegionKindHint.unknown,
     Iterable<ImportIssue> issues = const <ImportIssue>[],
+    Iterable<SourceRef>? sourceRefs,
     Iterable<SourcedAssetRef> sourceAssetRefs = const <SourcedAssetRef>[],
   }) {
     if (questionNumber <= 0) {
@@ -148,12 +149,16 @@ final class QuestionRegion {
       );
     }
     final copiedIssues = List<ImportIssue>.unmodifiable(issues);
+    final copiedSourceRefs = _copyQuestionSourceRefs(
+      copiedFragments,
+      sourceRefs,
+    );
     final copiedSourceAssetRefs = List<SourcedAssetRef>.unmodifiable(
       sourceAssetRefs,
     );
 
     _deriveAssetRefs(copiedFragments, copiedSourceAssetRefs);
-    _validateIssueSources(copiedFragments, copiedIssues);
+    _validateIssueSources(copiedSourceRefs, copiedIssues);
     _validateStemEvidence(copiedFragments, copiedIssues);
 
     return QuestionRegion._(
@@ -161,6 +166,7 @@ final class QuestionRegion {
       fragments: copiedFragments,
       kindHint: kindHint,
       issues: copiedIssues,
+      sourceRefs: copiedSourceRefs,
       sourceAssetRefs: copiedSourceAssetRefs,
     );
   }
@@ -170,6 +176,7 @@ final class QuestionRegion {
     required this.fragments,
     required this.kindHint,
     required this.issues,
+    required this.sourceRefs,
     required this.sourceAssetRefs,
   });
 
@@ -177,6 +184,7 @@ final class QuestionRegion {
   final List<QuestionRegionFragment> fragments;
   final QuestionRegionKindHint kindHint;
   final List<ImportIssue> issues;
+  final List<SourceRef> sourceRefs;
   final List<SourcedAssetRef> sourceAssetRefs;
 
   QuestionRegionReadiness get readiness {
@@ -195,18 +203,6 @@ final class QuestionRegion {
     );
   }
 
-  List<SourceRef> get sourceRefs {
-    final seen = <SourceRef>{};
-    final derived = <SourceRef>[];
-    for (final fragment in fragments) {
-      final sourceRef = fragment.part.sourceRef;
-      if (seen.add(sourceRef)) {
-        derived.add(sourceRef);
-      }
-    }
-    return List<SourceRef>.unmodifiable(derived);
-  }
-
   List<SourcedAssetRef> get assetRefs =>
       _deriveAssetRefs(fragments, sourceAssetRefs);
 
@@ -218,6 +214,7 @@ final class QuestionRegion {
             kindHint == other.kindHint &&
             _listEquals(fragments, other.fragments) &&
             _listEquals(issues, other.issues) &&
+            _listEquals(sourceRefs, other.sourceRefs) &&
             _listEquals(sourceAssetRefs, other.sourceAssetRefs);
   }
 
@@ -227,8 +224,37 @@ final class QuestionRegion {
         kindHint,
         Object.hashAll(fragments),
         Object.hashAll(issues),
+        Object.hashAll(sourceRefs),
         Object.hashAll(sourceAssetRefs),
       );
+}
+
+List<SourceRef> _copyQuestionSourceRefs(
+  List<QuestionRegionFragment> fragments,
+  Iterable<SourceRef>? explicitSourceRefs,
+) {
+  final seen = <SourceRef>{};
+  final copied = <SourceRef>[];
+  final candidates = explicitSourceRefs ??
+      fragments.map((fragment) => fragment.part.sourceRef);
+  for (final sourceRef in candidates) {
+    if (seen.add(sourceRef)) copied.add(sourceRef);
+  }
+  if (copied.isEmpty) {
+    throw const FormatException(
+      'Question regions require at least one source reference.',
+    );
+  }
+
+  final declaredSourceIds = copied.map((ref) => ref.sourceId).toSet();
+  for (final fragment in fragments) {
+    if (!declaredSourceIds.contains(fragment.part.sourceRef.sourceId)) {
+      throw const FormatException(
+        'Fragment source IDs must belong to question-level provenance.',
+      );
+    }
+  }
+  return List<SourceRef>.unmodifiable(copied);
 }
 
 void _validateSlice(SourceContentPart part, SourceSlice slice) {
@@ -426,11 +452,10 @@ List<SourcedAssetRef> _deriveAssetRefs(
 }
 
 void _validateIssueSources(
-  List<QuestionRegionFragment> fragments,
+  List<SourceRef> sourceRefs,
   List<ImportIssue> issues,
 ) {
-  final sourceIds =
-      fragments.map((fragment) => fragment.part.sourceRef.sourceId).toSet();
+  final sourceIds = sourceRefs.map((sourceRef) => sourceRef.sourceId).toSet();
   for (final issue in issues) {
     final issueSourceRef = issue.sourceRef;
     if (issueSourceRef != null &&

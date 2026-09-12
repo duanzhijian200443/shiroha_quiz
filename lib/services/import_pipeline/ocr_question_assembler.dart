@@ -1,6 +1,7 @@
 import 'import_question_field_policy.dart';
 import 'latex_sanity_checker.dart';
 import 'local_question_assembler.dart';
+import 'ocr_choice_answer_marker.dart';
 import 'ocr_question_regionizer.dart';
 import 'text_question_region.dart';
 
@@ -190,14 +191,11 @@ class OcrQuestionAssembler {
   }) {
     final raw = _stripFieldLabels(answerText).trim();
     if (type == 0) {
-      final choice = RegExp(r'(?:^|答案|应选|选)\s*([A-D])(?:\b|[。．.、，,；;])')
-          .firstMatch(raw)
-          ?.group(1);
-      if (choice != null) return choice.toUpperCase();
-
-      final explanationChoice =
-          RegExp(r'(?:应选|故选|答案为?)\s*([A-D])').firstMatch(explanation)?.group(1);
-      if (explanationChoice != null) return explanationChoice.toUpperCase();
+      final choice = extractOcrChoiceAnswerMarker(
+        answerText: raw,
+        explanationText: explanation,
+      );
+      if (choice != null) return choice;
     }
 
     return raw.replaceFirst(RegExp(r'^\s*(?:应填|填|答案为?)\s*[:：]?\s*'), '').trim();

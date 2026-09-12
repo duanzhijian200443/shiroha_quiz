@@ -142,26 +142,101 @@ _HtmlTag? _readHtmlTag(String input, int start) {
     return null;
   }
 
-  String? quote;
-  while (index < input.length) {
-    final char = input[index];
-    if (quote != null) {
-      if (char == quote) quote = null;
-    } else if (char == '"' || char == "'") {
-      quote = char;
-    } else if (char == '>') {
-      final end = index + 1;
-      return _HtmlTag(
-        name: name,
-        isClosing: isClosing,
-        start: start,
-        end: end,
-        raw: input.substring(start, end),
-      );
+  final bodyEnd = _readTagBodyEnd(input, index);
+  if (bodyEnd < 0) return null;
+  return _HtmlTag(
+    name: name,
+    isClosing: isClosing,
+    start: start,
+    end: bodyEnd,
+    raw: input.substring(start, bodyEnd),
+  );
+}
+
+/// Reads a tag body starting at [index] (just past the tag name) and returns
+/// the offset just past its closing `>`, or -1 when the region is not a
+/// well-formed tag body.
+///
+/// The scan is structural. After the tag name only an attribute list, an
+/// optional `/`, and `>` are accepted, and every attribute must be a name with
+/// an optional quoted or unquoted value. OCR prose such as `1<x` followed much
+/// later by `y > 0` can therefore never be read as one phantom tag, while real
+/// unsupported markup (`<table>`, `<td colspan="2">`, `<img src=…>`,
+/// `</div >`, `<br/>`) is still recognized.
+int _readTagBodyEnd(String input, int index) {
+  var cursor = index;
+  while (cursor < input.length) {
+    final codeUnit = input.codeUnitAt(cursor);
+    if (_isHtmlSpace(codeUnit)) {
+      cursor++;
+      continue;
     }
-    index++;
+    if (codeUnit == 62) return cursor + 1;
+    if (codeUnit == 47) {
+      cursor++;
+      while (cursor < input.length && _isHtmlSpace(input.codeUnitAt(cursor))) {
+        cursor++;
+      }
+      return cursor < input.length && input.codeUnitAt(cursor) == 62
+          ? cursor + 1
+          : -1;
+    }
+    final attributeEnd = _readAttribute(input, cursor);
+    if (attributeEnd < 0) return -1;
+    cursor = attributeEnd;
   }
-  return null;
+  return -1;
+}
+
+/// Reads one attribute at [index] and returns the offset just past it, or -1
+/// when the region is not an attribute.
+int _readAttribute(String input, int index) {
+  final first = input.codeUnitAt(index);
+  if (!_isAsciiLetter(first) && first != 95 /* _ */ && first != 58 /* : */) {
+    return -1;
+  }
+
+  var cursor = index + 1;
+  while (cursor < input.length &&
+      _isAttributeNameCodeUnit(input.codeUnitAt(cursor))) {
+    cursor++;
+  }
+  final nameEnd = cursor;
+
+  while (cursor < input.length && _isHtmlSpace(input.codeUnitAt(cursor))) {
+    cursor++;
+  }
+  if (cursor >= input.length || input.codeUnitAt(cursor) != 61 /* = */) {
+    return nameEnd;
+  }
+
+  cursor++;
+  while (cursor < input.length && _isHtmlSpace(input.codeUnitAt(cursor))) {
+    cursor++;
+  }
+  if (cursor >= input.length) return -1;
+
+  final quoteUnit = input.codeUnitAt(cursor);
+  if (quoteUnit == 34 /* " */ || quoteUnit == 39 /* ' */) {
+    final closing = input.indexOf(input[cursor], cursor + 1);
+    return closing < 0 ? -1 : closing + 1;
+  }
+
+  final valueStart = cursor;
+  while (cursor < input.length) {
+    final codeUnit = input.codeUnitAt(cursor);
+    if (_isHtmlSpace(codeUnit) ||
+        codeUnit == 62 /* > */ ||
+        codeUnit == 34 /* " */ ||
+        codeUnit == 39 /* ' */ ||
+        codeUnit == 60 /* < */ ||
+        codeUnit == 61 /* = */ ||
+        codeUnit == 96 /* ` */) {
+      break;
+    }
+    cursor++;
+  }
+  return cursor == valueStart ? -1 : cursor;
 }
 
 int _findDangerousContainerEnd(String input, _HtmlTag openingTag) {
@@ -185,6 +260,21 @@ int _findDangerousContainerEnd(String input, _HtmlTag openingTag) {
 
 bool _isAsciiLetter(int codeUnit) =>
     (codeUnit >= 65 && codeUnit <= 90) || (codeUnit >= 97 && codeUnit <= 122);
+
+bool _isHtmlSpace(int codeUnit) =>
+    codeUnit == 32 ||
+    codeUnit == 9 ||
+    codeUnit == 10 ||
+    codeUnit == 13 ||
+    codeUnit == 12;
+
+bool _isAttributeNameCodeUnit(int codeUnit) =>
+    _isAsciiLetter(codeUnit) ||
+    (codeUnit >= 48 && codeUnit <= 57) ||
+    codeUnit == 45 ||
+    codeUnit == 46 ||
+    codeUnit == 95 ||
+    codeUnit == 58;
 
 bool _isTagNameCodeUnit(int codeUnit) =>
     _isAsciiLetter(codeUnit) ||

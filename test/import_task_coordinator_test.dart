@@ -267,6 +267,22 @@ void main() {
       ExplanationRetentionMode.allQuestionTypes,
     );
     expect(
+      task.parseExplanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      task.reviewExplanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      task.diagnostics?[TaskManager.keyParseExplanationRetentionMode],
+      ExplanationRetentionMode.allQuestionTypes.name,
+    );
+    expect(
+      task.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+      ExplanationRetentionMode.allQuestionTypes.name,
+    );
+    expect(
       task.diagnostics?[TaskManager.keyExplanationRetentionMode],
       ExplanationRetentionMode.allQuestionTypes.name,
     );

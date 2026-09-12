@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_repair_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/latex_sanity_checker.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_analyzer.dart';
@@ -280,6 +281,48 @@ $$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
     });
   });
 
+  group('raw_html_tag freshness', () {
+    test('a LaTeX inequality never raises a phantom raw_html_tag risk', () {
+      // The explanation mixes `<` comparisons that are followed much later by
+      // an unrelated `>`. Only a well-formed tag body may raise the risk.
+      const explanation = r'当 0<x 时, \frac{2x}{1+\sin x} > x, 故应选 A.';
+      final question = _question(
+        questionNumber: 4,
+        explanation: explanation,
+        riskHints: const [rawHtmlTagIssue],
+      );
+      question['type'] = 0;
+      question['options'] = const ['A', 'B'];
+      question['standard_answer'] = 'A';
+      question['raw_explanation'] = explanation;
+
+      final result = finalizeAndAuditImportQuestion(
+        question,
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(result['explanation'], explanation);
+      expect(_riskHints(result), isEmpty);
+      expect(result['diagnostics'], isNot(contains(rawHtmlTagIssue)));
+    });
+
+    test('unsupported markup still raises raw_html_tag on final fields', () {
+      final question = _question(
+        questionNumber: 4,
+        explanation: '正文 <table>单元格</table> 结尾',
+        riskHints: const [rawHtmlTagIssue],
+      );
+
+      final result = finalizeAndAuditImportQuestion(
+        question,
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(result['explanation'], contains('<table>'));
+      expect(_riskHints(result), [rawHtmlTagIssue]);
+    });
+  });
+
   test('latex issue reaches analyzer score and warning filter', () {
     final audited = auditFinalQuestionLatex(_question(
       explanation: r'Explanation \(\begin{matrix}1\end{pmatrix}\)',
@@ -302,6 +345,44 @@ $$\begin{array}{l}y_1=3\\y_2=4\end{array}$$''';
     );
     expect(warnings, hasLength(1));
     expect(warnings.single.canonicalIndex, 0);
+  });
+
+  test('explanation lifecycle telemetry stays redacted and identifies Q1', () {
+    final events = <Map<String, Object?>>[];
+    explanationLifecycleTelemetryHandlerForTesting = events.add;
+    try {
+      final finalized = finalizeAndAuditImportQuestions(
+        [
+          {
+            ..._question(
+              options: const ['A. one', 'B. two'],
+              explanation: 'Choice explanation',
+            ),
+            'type': 0,
+            'raw_explanation': '<p>Choice explanation</p>',
+          },
+        ],
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(finalized.single['explanation'], 'Choice explanation');
+      expect(events, hasLength(2));
+      expect(events.map((event) => event['stage']), [
+        'pre_finalizer',
+        'post_finalizer',
+      ]);
+      expect(events.every((event) => event['questionNumber'] == 1), isTrue);
+      expect(
+          events.every((event) => event['retentionMode'] == 'allQuestionTypes'),
+          isTrue);
+      expect(
+          events.singleWhere((event) => event['stage'] == 'post_finalizer')[
+              'explanationLength'],
+          greaterThan(0));
+      expect(events.toString(), isNot(contains('Choice explanation')));
+    } finally {
+      explanationLifecycleTelemetryHandlerForTesting = null;
+    }
   });
 }
 

@@ -425,3 +425,34 @@ through an Application command with a durable transaction-level
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
+
+## 14. Application data path boundary (DATA-PATH P1)
+
+Durable runtime paths are owned by the application-support-based
+`AppDataPaths` authority. Normal Debug/Profile runtime uses
+`<Application Support>/Shiroha/development/`; Release runtime uses
+`<Application Support>/Shiroha/production/`. Database, managed files, content
+assets, parsed artifacts, logs, and B0 restore working state are composed from
+that authority; they must not depend on `Directory.current`, repository roots,
+or Git worktrees. Tests and isolated smoke entrypoints retain their existing
+in-memory, temporary, explicit-file, and read-only profiles.
+
+The focused current contract is
+`docs/architecture/data-path-authority.md`. Legacy worktree-local data is not
+automatically migrated by this boundary.
+
+## 15. Review repair boundary
+
+Review-time AI repair has two explicit strategies. Structural question issues
+retain the bounded question-level JSON proposal flow. A pure
+`latex_unrenderable` issue uses the fragment-level flow frozen in
+`docs/architecture/review-repair-v1.md`: Application-owned snapshot alignment
+identifies one exact typed math node, a dedicated bounded provider port returns
+only a replacement LaTeX fragment, and local validation plus the existing
+review CAS remain authoritative.
+
+Presentation and renderers never own fragment identity. Fragment repair never
+falls back to question-level rewriting, provider reasoning, retry, or expanded
+context. The accepted fragment is persisted only as bounded digests and a
+typed node locator; no prompt, LaTeX source, provider body, or reasoning is
+stored. This boundary adds no database schema or dependency change.

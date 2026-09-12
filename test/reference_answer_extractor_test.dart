@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_section.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
 void main() {
@@ -48,6 +50,241 @@ void main() {
       expect(result.entries[18]!.answerText, 'Second answer');
     });
 
+    test(
+        'starts from a supported heading embedded in the final compound block without question stem',
+        () {
+      final document = _document([
+        _block('q1', 0, '1. Official question'),
+        _block(
+          'compound',
+          1,
+          'Tail explanation\r\n'
+              '第二行说明\r\n'
+              '2022 模拟试卷参考答案汇总\r\n'
+              '安全说明',
+        ),
+        _block('a1', 2, '(1) First answer'),
+      ]);
+      final regionized = const OcrQuestionRegionizer().regionize(document);
+      final boundary = regionized.referenceAnswerSectionBoundary;
+
+      expect(boundary, isNotNull);
+      expect(boundary!.blockId, 'compound');
+      expect(boundary.pageIndex, 1);
+      expect(boundary.headingLineIndex, 2);
+
+      final result = extractor.extract(
+        document,
+        regionized.regions,
+        referenceSectionBoundary: boundary,
+      );
+
+      expect(result.diagnostics['referenceSectionDetected'], isTrue);
+      expect(result.entries.keys, [1]);
+      expect(result.entries[1]!.answerText, 'First answer');
+    });
+
+    test('accepts year-led exam titles with bounded subject descriptors', () {
+      for (final title in const <String>[
+        '# 2022年全国硕士研究生招生考试数学（一）答案速查',
+        '2024年全国硕士研究生招生考试英语（二）参考答案',
+        '2021年普通高等学校招生全国统一考试文科数学答案汇总',
+        '2020年高三第二次模拟考试（理科）试题答案及评分参考',
+        '2020年高考真题数学试卷参考答案',
+        '2022年试题参考答案',
+      ]) {
+        expect(
+          hasReferenceAnswerSectionHeadingSuffix(title),
+          isTrue,
+          reason: title,
+        );
+      }
+    });
+
+    test(
+        'certifies a year-led composite title qualified by subject name in the final physical block',
+        () {
+      final blocks = <OcrBlock>[];
+      var order = 0;
+
+      void add(String id, String text) {
+        blocks.add(_block(id, order++, text));
+      }
+
+      add('official_choice', '一、选择题');
+      for (var number = 1; number <= 10; number++) {
+        add('q$number', '$number. Choice prompt $number.');
+      }
+      add('official_fill', '二、填空题');
+      for (var number = 11; number <= 16; number++) {
+        add('q$number', '$number. Fill prompt $number.');
+      }
+      add('official_subjective', '三、解答题');
+      for (var number = 17; number <= 22; number++) {
+        add('q$number', '$number. Subjective prompt $number.');
+        if (number == 21) {
+          add('q21_answer', '答案：Local answer 21');
+        }
+      }
+      add(
+        'compound',
+        '解析：Continuation for the final question.\r\n'
+            '# 2022年全国硕士研究生招生考试数学（一）答案速查\r\n'
+            '(17) Reference answer 17\r\n'
+            '(18) Reference answer 18\r\n'
+            '(19) Reference answer 19\r\n'
+            '(20) Reference answer 20\r\n'
+            '(21) Local answer 21\r\n'
+            '(22) Reference answer 22',
+      );
+
+      final document = _document(blocks);
+      final regionized = const OcrQuestionRegionizer().regionize(document);
+      final boundary = regionized.referenceAnswerSectionBoundary;
+
+      expect(boundary, isNotNull);
+      expect(boundary!.blockId, 'compound');
+      expect(boundary.headingLineIndex, 1);
+
+      final extracted = extractor.extract(
+        document,
+        regionized.regions,
+        referenceSectionBoundary: boundary,
+      );
+
+      expect(extracted.diagnostics['referenceSectionDetected'], isTrue);
+      expect(extracted.entries.keys.toList(), [17, 18, 19, 20, 21, 22]);
+
+      final merged = const ReferenceAnswerMerger().merge(
+        regionized.regions,
+        extracted,
+      );
+      for (final number in [17, 18, 19, 20, 22]) {
+        final region = merged.singleWhere((item) => item.number == number);
+        expect(region.answerText, 'Reference answer $number');
+        expect(region.diagnostics, contains('reference_answer_attached'));
+      }
+      final q21 = merged.singleWhere((region) => region.number == 21);
+      expect(q21.answerText, 'Local answer 21');
+      expect(q21.diagnostics, contains('reference_answer_confirmed'));
+    });
+
+    test(
+        'certifies a bounded answer and scoring heading in the final physical block',
+        () {
+      final blocks = <OcrBlock>[];
+      var order = 0;
+
+      void add(String id, String text) {
+        blocks.add(_block(id, order++, text));
+      }
+
+      add('official_choice', '一、选择题');
+      for (var number = 1; number <= 10; number++) {
+        add('q$number', '$number. Synthetic choice prompt $number.');
+      }
+      add('official_fill', '二、填空题');
+      for (var number = 11; number <= 16; number++) {
+        add('q$number', '$number. Synthetic fill prompt $number.');
+      }
+      add('official_subjective', '三、解答题');
+      for (var number = 17; number <= 22; number++) {
+        add('q$number', '$number. Synthetic subjective prompt $number.');
+        if (number == 21) {
+          add('q21_answer', '答案：Synthetic local answer 21');
+        }
+      }
+      add(
+        'compound',
+        '解析：Synthetic continuation for the final question.\r\n'
+            '<div align="center">\r\n'
+            '# 2024 合成试卷参考答案及评分参考\r\n'
+            '(17) Synthetic reference answer 17\r\n'
+            '(18) Synthetic reference answer 18\r\n'
+            '(19) Synthetic reference answer 19\r\n'
+            '(20) Synthetic reference answer 20\r\n'
+            '(21) Synthetic local answer 21\r\n'
+            '(22) Synthetic reference answer 22\r\n'
+            '详细解析',
+      );
+      add('reference_choice', '一、选择题');
+      add('reference_choice_entry', '（1）A');
+      add('reference_fill', '二、填空题');
+      add('reference_fill_entry', '（11）Synthetic fill reference');
+      add('reference_subjective', '三、解答题');
+      add('reference_subjective_entry', '（17）Synthetic detail');
+
+      final document = _document(blocks);
+      final regionized = const OcrQuestionRegionizer().regionize(document);
+      final q22 = regionized.regions.singleWhere(
+        (region) => region.number == 22,
+      );
+      final boundary = regionized.referenceAnswerSectionBoundary;
+      final extracted = extractor.extract(
+        document,
+        regionized.regions,
+        referenceSectionBoundary: boundary,
+      );
+
+      expect(
+        <String, Object?>{
+          'acceptedQuestions': regionized.diagnostics['acceptedNumbers'],
+          'genericReferenceMode':
+              regionized.diagnostics['referenceSectionDetected'],
+          'boundaryCertified': boundary != null,
+          'extractorSectionDetected':
+              extracted.diagnostics['referenceSectionDetected'],
+          'acceptedReferenceNumbers': extracted.entries.keys.toList(),
+          'q22UsesPhysicalBlock': q22.sourceBlockIds.contains('compound'),
+          'syntheticSplitIdentityLeaked':
+              q22.sourceBlockIds.any((id) => id.contains('#')),
+        },
+        <String, Object?>{
+          'acceptedQuestions': List<int>.generate(22, (index) => index + 1),
+          'genericReferenceMode': true,
+          'boundaryCertified': true,
+          'extractorSectionDetected': true,
+          'acceptedReferenceNumbers': const <int>[17, 18, 19, 20, 21, 22],
+          'q22UsesPhysicalBlock': true,
+          'syntheticSplitIdentityLeaked': false,
+        },
+      );
+
+      expect(boundary!.blockId, 'compound');
+      expect(boundary.pageIndex, 1);
+      expect(boundary.headingLineIndex, 2);
+      for (final number in const <int>[17, 18, 19, 20, 21, 22]) {
+        expect(extracted.entries[number]!.sourceBlockIds, <String>['compound']);
+      }
+
+      final merged = const ReferenceAnswerMerger().merge(
+        regionized.regions,
+        extracted,
+      );
+      for (final number in const <int>[17, 18, 19, 20, 22]) {
+        final region = merged.singleWhere((item) => item.number == number);
+        expect(region.answerText, 'Synthetic reference answer $number');
+        expect(region.diagnostics, contains('reference_answer_attached'));
+        expect(
+          region.ownedSources.where(
+            (source) => source.field == OcrRegionField.answer,
+          ),
+          isEmpty,
+        );
+      }
+
+      final q21 = merged.singleWhere((region) => region.number == 21);
+      expect(q21.answerText, 'Synthetic local answer 21');
+      expect(q21.diagnostics, contains('reference_answer_confirmed'));
+      expect(q21.diagnostics, isNot(contains('reference_answer_attached')));
+      expect(
+        q21.ownedSources
+            .where((source) => source.field == OcrRegionField.answer)
+            .map((source) => source.blockId),
+        <String>['q21_answer'],
+      );
+    });
+
     test('does not start from a supported heading followed by prose', () {
       final result = extractor.extract(
         _document([
@@ -62,6 +299,31 @@ void main() {
       expect(result.entries, isEmpty);
     });
 
+    test('rejects free-text prefixes and suffixes around an answer core', () {
+      for (final prose in const <String>[
+        '正文中提到参考答案',
+        '这里可参考答案',
+        '参考答案用于解释正文',
+        '参考答案见前文',
+      ]) {
+        final result = extractor.extract(
+          _document([
+            _block('q1', 0, '1. Official question'),
+            _block('prose', 1, prose),
+            _block('answer_like', 2, '(1) A'),
+          ]),
+          _regions(1, lastBlockId: 'q1'),
+        );
+
+        expect(
+          result.diagnostics['referenceSectionDetected'],
+          isFalse,
+          reason: prose,
+        );
+        expect(result.entries, isEmpty, reason: prose);
+      }
+    });
+
     test('does not start from a heading inside an official region', () {
       final result = extractor.extract(
         _document([
@@ -73,6 +335,196 @@ void main() {
 
       expect(result.entries, isEmpty);
       expect(result.diagnostics['referenceSectionDetected'], isFalse);
+    });
+
+    test('fails closed when a declared boundary is stale or invalid', () {
+      final result = extractor.extract(
+        _document([
+          _block('q1', 0, '1. Official question'),
+          _block('title', 1, '参考答案'),
+          _block('answer_like', 2, '(1) A'),
+        ]),
+        _regions(1, lastBlockId: 'q1'),
+        referenceSectionBoundary: const OcrReferenceAnswerSectionBoundary(
+          blockId: 'q1',
+          pageIndex: 1,
+          headingLineIndex: 0,
+        ),
+      );
+
+      expect(result.entries, isEmpty);
+      expect(result.diagnostics['referenceSectionDetected'], isFalse);
+    });
+
+    test(
+        'does not infer a reference boundary inside the final official continuation block',
+        () {
+      final result = extractor.extract(
+        _document([
+          _block('q1_start', 0, '1. Official question'),
+          _block(
+            'q1_continuation',
+            1,
+            'Continuation derivation\n参考答案\n(1) Answer-like continuation',
+          ),
+        ]),
+        [
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: const ['Official question'],
+            answerParts: const [],
+            explanationParts: const ['Continuation derivation'],
+            sourcePageIndices: const [1],
+            sourceBlockIds: const ['q1_start', 'q1_continuation'],
+            diagnostics: const [],
+            declaredKind: TextQuestionKind.subjective,
+          ),
+        ],
+      );
+
+      expect(result.entries, isEmpty);
+      expect(result.diagnostics['referenceSectionDetected'], isFalse);
+    });
+
+    test(
+        'production chain does not certify a bare heading inside an official continuation block',
+        () {
+      final document = _document([
+        _block('q1_start', 0, '1. Official question'),
+        _block(
+          'q1_continuation',
+          1,
+          'Continuation derivation\n参考答案\n(1) Answer-like continuation',
+        ),
+      ]);
+
+      final regionized = const OcrQuestionRegionizer().regionize(document);
+      final result = extractor.extract(
+        document,
+        regionized.regions,
+        referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
+      );
+
+      expect(regionized.regions, hasLength(1));
+      expect(
+        regionized.regions.single.sourceBlockIds,
+        containsAllInOrder(['q1_start', 'q1_continuation']),
+      );
+      expect(regionized.referenceAnswerSectionBoundary, isNull);
+      expect(regionized.diagnostics['referenceSectionDetected'], isFalse);
+      expect(result.entries, isEmpty);
+    });
+
+    test(
+        'production chain rejects prose ending in a document-title token before an answer heading',
+        () {
+      for (final prose in const <String>[
+        '证明中不能直接照抄考试参考答案',
+        '# 证明中不能直接照抄考试参考答案',
+        '本段复核试卷答案汇总',
+        '推导中引用试题参考答案及评分参考',
+      ]) {
+        final document = _document([
+          _block('q1_start', 0, '1. Official question'),
+          _block(
+            'q1_continuation',
+            1,
+            'Continuation derivation\n$prose\n'
+                '(1) Answer-like continuation',
+          ),
+        ]);
+
+        final regionized = const OcrQuestionRegionizer().regionize(document);
+        final result = extractor.extract(
+          document,
+          regionized.regions,
+          referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
+        );
+
+        expect(regionized.regions, hasLength(1), reason: prose);
+        expect(
+          regionized.regions.single.sourceBlockIds,
+          containsAllInOrder(['q1_start', 'q1_continuation']),
+          reason: prose,
+        );
+        expect(
+          regionized.referenceAnswerSectionBoundary,
+          isNull,
+          reason: prose,
+        );
+        expect(
+          regionized.diagnostics['referenceSectionDetected'],
+          isFalse,
+          reason: prose,
+        );
+        expect(result.entries, isEmpty, reason: prose);
+      }
+    });
+
+    test(
+        'rejects year-led prose with non-qualifier phrases following document tokens',
+        () {
+      for (final prose in const <String>[
+        '2024年考试中说明参考答案',
+        '2022年试卷中可参考答案',
+        '2023年考试中关于答案汇总',
+      ]) {
+        expect(
+          isDocumentTitledReferenceAnswerSectionHeading(prose),
+          isFalse,
+          reason: prose,
+        );
+        expect(
+          hasReferenceAnswerSectionHeadingSuffix(prose),
+          isFalse,
+          reason: prose,
+        );
+      }
+    });
+
+    test(
+        'production chain rejects year-led prose following document tokens before an answer heading',
+        () {
+      for (final prose in const <String>[
+        '2024年考试中说明参考答案',
+        '2022年试卷中可参考答案',
+        '2023年考试中关于答案汇总',
+      ]) {
+        final document = _document([
+          _block('q1_start', 0, '1. Official question'),
+          _block(
+            'q1_continuation',
+            1,
+            'Continuation derivation\n$prose\n'
+                '(1) Answer-like continuation',
+          ),
+        ]);
+
+        final regionized = const OcrQuestionRegionizer().regionize(document);
+        final result = extractor.extract(
+          document,
+          regionized.regions,
+          referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
+        );
+
+        expect(regionized.regions, hasLength(1), reason: prose);
+        expect(
+          regionized.regions.single.sourceBlockIds,
+          containsAllInOrder(['q1_start', 'q1_continuation']),
+          reason: prose,
+        );
+        expect(
+          regionized.referenceAnswerSectionBoundary,
+          isNull,
+          reason: prose,
+        );
+        expect(
+          regionized.diagnostics['referenceSectionDetected'],
+          isFalse,
+          reason: prose,
+        );
+        expect(result.entries, isEmpty, reason: prose);
+      }
     });
 
     test('does not start before the final official region', () {
