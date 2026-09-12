@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
+import 'package:shiroha_quiz/application/practice/subjective_answer_recognition.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
@@ -77,6 +78,23 @@ final class _UnusedAiAnswerCommitPersistence extends Fake
 
 final class _UnusedExamMutationPersistence extends Fake
     implements ExamMutationPersistencePort {}
+
+final class _FakeSubjectiveAnswerRecognition
+    implements SubjectiveAnswerRecognitionPort {
+  _FakeSubjectiveAnswerRecognition(this.result);
+
+  final SubjectiveAnswerRecognitionResult result;
+  final List<SubjectiveAnswerRecognitionRequest> requests =
+      <SubjectiveAnswerRecognitionRequest>[];
+
+  @override
+  Future<SubjectiveAnswerRecognitionResult> recognize(
+    SubjectiveAnswerRecognitionRequest request,
+  ) async {
+    requests.add(request);
+    return result;
+  }
+}
 
 void main() {
   final syntheticPng = base64Decode(
@@ -289,6 +307,11 @@ void main() {
         examMutationCommand: ExamMutationCommand(
           _UnusedExamMutationPersistence(),
         ),
+        subjectiveAnswerRecognition: _FakeSubjectiveAnswerRecognition(
+          SubjectiveAnswerRecognitionResult.failure(
+            SubjectiveAnswerRecognitionClassification.providerFailure,
+          ),
+        ),
         child: child,
       ),
     );
@@ -348,5 +371,99 @@ void main() {
       );
     }
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'subjective answer recognition returns editable text without import dispatch',
+      (tester) async {
+    tester.view.physicalSize = const Size(430, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final recognition = _FakeSubjectiveAnswerRecognition(
+      SubjectiveAnswerRecognitionResult.success('recognized answer'),
+    );
+    String? returnedText;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => FilledButton(
+            key: const ValueKey<String>('open-subjective-photo'),
+            onPressed: () async {
+              returnedText = await Navigator.of(context).push<String>(
+                MaterialPageRoute<String>(
+                  builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
+                    pickPhoto: (source) async => syntheticPhoto(syntheticPng),
+                    subjectiveAnswerRecognition: recognition,
+                  ),
+                ),
+              );
+            },
+            child: const Text('拍照作答'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('open-subjective-photo')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('photo-gallery-action')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('photo-start-recognition-action')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(returnedText, 'recognized answer');
+    expect(recognition.requests, hasLength(1));
+    expect(
+      recognition.requests.single.mode,
+      SubjectiveAnswerRecognitionMode.ocr,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('open-subjective-photo')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'subjective answer failure stays on confirmation and returns no text',
+      (tester) async {
+    tester.view.physicalSize = const Size(430, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final recognition = _FakeSubjectiveAnswerRecognition(
+      SubjectiveAnswerRecognitionResult.failure(
+        SubjectiveAnswerRecognitionClassification.providerFailure,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PhotoCaptureScreen.subjectiveAnswer(
+          pickPhoto: (source) async => syntheticPhoto(syntheticPng),
+          subjectiveAnswerRecognition: recognition,
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('photo-gallery-action')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('photo-start-recognition-action')),
+    );
+    await tester.pump();
+
+    expect(find.byType(PhotoRecognitionConfirmationScreen), findsOneWidget);
+    expect(find.text('答案识别失败，请稍后重试。'), findsOneWidget);
+    expect(recognition.requests, hasLength(1));
   });
 }

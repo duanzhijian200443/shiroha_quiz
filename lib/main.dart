@@ -27,6 +27,7 @@ import 'application/safe_write/typed_answer_command.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
+import 'application/practice/subjective_answer_recognition.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
@@ -86,6 +87,7 @@ import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapt
 import 'services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/parsed_artifact_generation_router.dart';
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
+import 'services/practice/subjective_answer_recognition_adapter.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
@@ -425,6 +427,9 @@ void main() {
           engineRepository: engineRepository,
           taskManager: taskManager,
         );
+        final subjectiveAnswerRecognition = SubjectiveAnswerRecognitionAdapter(
+          engineRepository: engineRepository,
+        );
         final ocrRequestScheduler = OcrRequestScheduler();
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
@@ -470,6 +475,7 @@ void main() {
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
             examMutationCommand: examMutationCommand,
+            subjectiveAnswerRecognition: subjectiveAnswerRecognition,
             questionListQuery: questionRepository,
             questionMutationPersistence: questionRepository,
             typedAnswerPersistence: questionRepository,
@@ -518,6 +524,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
+    required this.subjectiveAnswerRecognition,
     required this.questionListQuery,
     required this.questionMutationPersistence,
     required this.typedAnswerPersistence,
@@ -548,6 +555,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
   final ExamMutationCommand examMutationCommand;
+  final SubjectiveAnswerRecognitionPort subjectiveAnswerRecognition;
   final QuestionListQueryPort questionListQuery;
   final QuestionMutationPersistencePort questionMutationPersistence;
   final TypedAnswerPersistencePort typedAnswerPersistence;
@@ -615,6 +623,7 @@ class ShirohaQuizApp extends StatelessWidget {
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
           examMutationCommand: examMutationCommand,
+          subjectiveAnswerRecognition: subjectiveAnswerRecognition,
           child: content,
         );
       },

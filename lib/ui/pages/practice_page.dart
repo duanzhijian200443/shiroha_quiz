@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../application/practice/practice_session_mutation_command.dart';
 import '../../application/practice/record_answer_attempt_command.dart';
+import '../../application/practice/subjective_answer_recognition.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_write_mutation_command.dart';
 import '../../core/review_engine_service.dart';
@@ -16,8 +17,14 @@ import '../../domain/attempt/answer_attempt.dart';
 import '../../services/llm_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../models/practice_question_view.dart';
+import 'photo_capture_screen.dart';
 import '../widgets/markdown_extensions.dart';
 import '../widgets/structured_content_renderer.dart';
+
+typedef SubjectiveAnswerCaptureLauncher = Future<String?> Function(
+  BuildContext context,
+  SubjectiveAnswerRecognitionPort recognition,
+);
 
 class PracticePage extends StatefulWidget {
   final String? bankName;
@@ -41,6 +48,7 @@ class PracticePage extends StatefulWidget {
   final RecordAnswerAttemptCommand? recordAnswerAttemptCommand;
   final Future<void> Function(String questionId, int grade)?
       submitReviewOverride;
+  final SubjectiveAnswerCaptureLauncher? subjectiveAnswerCaptureLauncher;
 
   const PracticePage({
     super.key,
@@ -52,6 +60,7 @@ class PracticePage extends StatefulWidget {
     this.usePreparedStudySession = false,
     this.recordAnswerAttemptCommand,
     this.submitReviewOverride,
+    this.subjectiveAnswerCaptureLauncher,
   });
 
   @override
@@ -100,6 +109,37 @@ class _PracticePageState extends State<PracticePage> {
   bool get isSubjective {
     if (_currentQuestion == null) return false;
     return _currentQuestion!.displayOptions.isEmpty;
+  }
+
+  Future<void> _captureSubjectiveAnswer() async {
+    final recognition =
+        AiDependenciesScope.of(context).subjectiveAnswerRecognition;
+    final recognizedText = await (widget.subjectiveAnswerCaptureLauncher ??
+        _openSubjectiveAnswerCapture)(
+      context,
+      recognition,
+    );
+    if (!mounted || recognizedText == null || recognizedText.trim().isEmpty) {
+      return;
+    }
+
+    _subjectiveController.value = TextEditingValue(
+      text: recognizedText,
+      selection: TextSelection.collapsed(offset: recognizedText.length),
+    );
+  }
+
+  Future<String?> _openSubjectiveAnswerCapture(
+    BuildContext context,
+    SubjectiveAnswerRecognitionPort recognition,
+  ) {
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
+          subjectiveAnswerRecognition: recognition,
+        ),
+      ),
+    );
   }
 
   @override
@@ -817,6 +857,18 @@ class _PracticePageState extends State<PracticePage> {
             ),
             filled: true,
             fillColor: colors.surfaceContainerHigh,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const ValueKey<String>('subjective-answer-photo-action'),
+            onPressed: _isAiJudging || _isRecordingAttempt
+                ? null
+                : _captureSubjectiveAnswer,
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text('拍照作答 / 图片识别'),
           ),
         ),
         const SizedBox(height: 16),

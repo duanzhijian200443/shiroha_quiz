@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../application/practice/subjective_answer_recognition.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -21,18 +22,20 @@ class PhotoCaptureScreen extends StatefulWidget {
     super.key,
     this.pickPhoto,
     this.onRecognitionRequested,
-  }) : purpose = PhotoCapturePurpose.questionImport;
+  })  : purpose = PhotoCapturePurpose.questionImport,
+        subjectiveAnswerRecognition = null;
 
   const PhotoCaptureScreen.subjectiveAnswer({
     super.key,
     this.pickPhoto,
-    required PhotoRecognitionDispatcher dispatcher,
+    required this.subjectiveAnswerRecognition,
   })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
-        onRecognitionRequested = dispatcher;
+        onRecognitionRequested = null;
 
   final PhotoCapturePurpose purpose;
   final PhotoPicker? pickPhoto;
   final PhotoRecognitionDispatcher? onRecognitionRequested;
+  final SubjectiveAnswerRecognitionPort? subjectiveAnswerRecognition;
 
   @override
   State<PhotoCaptureScreen> createState() => _PhotoCaptureScreenState();
@@ -61,17 +64,37 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
           : await _picker.pickImage(source: source);
       if (!mounted || image == null) return;
 
-      final completed = await Navigator.of(context).push<bool>(
-        MaterialPageRoute<bool>(
-          builder: (_) => PhotoRecognitionConfirmationScreen(
-            image: image,
-            onRecognitionRequested:
-                widget.onRecognitionRequested ?? _dispatchRecognition,
+      if (widget.purpose == PhotoCapturePurpose.subjectiveAnswer) {
+        final recognition = widget.subjectiveAnswerRecognition;
+        if (recognition == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('答案识别暂不可用，请稍后重试。')),
+          );
+          return;
+        }
+        final recognizedText = await Navigator.of(context).push<String>(
+          MaterialPageRoute<String>(
+            builder: (_) => PhotoRecognitionConfirmationScreen.subjectiveAnswer(
+              image: image,
+              recognition: recognition,
+            ),
           ),
-        ),
-      );
-      if (!mounted || completed != true) return;
-      Navigator.of(context).pop(true);
+        );
+        if (!mounted || recognizedText == null) return;
+        Navigator.of(context).pop(recognizedText);
+      } else {
+        final completed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute<bool>(
+            builder: (_) => PhotoRecognitionConfirmationScreen(
+              image: image,
+              onRecognitionRequested:
+                  widget.onRecognitionRequested ?? _dispatchRecognition,
+            ),
+          ),
+        );
+        if (!mounted || completed != true) return;
+        Navigator.of(context).pop(true);
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -238,10 +261,22 @@ class PhotoRecognitionConfirmationScreen extends StatefulWidget {
     required this.image,
     required this.onRecognitionRequested,
     this.loadBytes,
-  });
+  })  : purpose = PhotoCapturePurpose.questionImport,
+        subjectiveAnswerRecognition = null;
+
+  const PhotoRecognitionConfirmationScreen.subjectiveAnswer({
+    super.key,
+    required this.image,
+    required SubjectiveAnswerRecognitionPort recognition,
+    this.loadBytes,
+  })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
+        onRecognitionRequested = null,
+        subjectiveAnswerRecognition = recognition;
 
   final XFile image;
-  final PhotoRecognitionDispatcher onRecognitionRequested;
+  final PhotoCapturePurpose purpose;
+  final PhotoRecognitionDispatcher? onRecognitionRequested;
+  final SubjectiveAnswerRecognitionPort? subjectiveAnswerRecognition;
   final PhotoBytesLoader? loadBytes;
 
   @override
@@ -267,9 +302,30 @@ class _PhotoRecognitionConfirmationScreenState
     if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
     try {
-      await widget.onRecognitionRequested(widget.image, _selectedMode);
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
+      if (widget.purpose == PhotoCapturePurpose.subjectiveAnswer) {
+        final result = await widget.subjectiveAnswerRecognition!.recognize(
+          SubjectiveAnswerRecognitionRequest(
+            imagePath: widget.image.path,
+            imageName: widget.image.name,
+            mode: _selectedMode == ImportParseMode.ocr
+                ? SubjectiveAnswerRecognitionMode.ocr
+                : SubjectiveAnswerRecognitionMode.vision,
+          ),
+        );
+        if (!mounted) return;
+        if (!result.isSuccess) {
+          setState(() => _isSubmitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_failureMessage(result.classification))),
+          );
+          return;
+        }
+        Navigator.of(context).pop(result.recognizedText);
+      } else {
+        await widget.onRecognitionRequested!(widget.image, _selectedMode);
+        if (!mounted) return;
+        Navigator.of(context).pop(true);
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
@@ -277,6 +333,19 @@ class _PhotoRecognitionConfirmationScreenState
         const SnackBar(content: Text('识别任务启动失败，请稍后重试。')),
       );
     }
+  }
+
+  String _failureMessage(
+    SubjectiveAnswerRecognitionClassification classification,
+  ) {
+    return switch (classification) {
+      SubjectiveAnswerRecognitionClassification.engineUnavailable =>
+        '未配置可用的识别引擎，请先完成配置。',
+      SubjectiveAnswerRecognitionClassification.emptyResult =>
+        '未识别到有效答案，请调整图片后重试。',
+      SubjectiveAnswerRecognitionClassification.success => '',
+      _ => '答案识别失败，请稍后重试。',
+    };
   }
 
   @override

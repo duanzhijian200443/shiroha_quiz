@@ -51,7 +51,9 @@ import 'package:shiroha_quiz/services/ai_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
+import 'package:shiroha_quiz/services/practice/subjective_answer_recognition_adapter.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
@@ -844,6 +846,16 @@ void main() {
       expect(app.folderQuery, same(configured));
       expect(app.contentAssetResolver, same(contentAssetStore));
       expect(
+        app.subjectiveAnswerRecognition,
+        isA<SubjectiveAnswerRecognitionAdapter>(),
+      );
+      expect(
+        tester
+            .widget<AiDependenciesScope>(find.byType(AiDependenciesScope))
+            .subjectiveAnswerRecognition,
+        same(app.subjectiveAnswerRecognition),
+      );
+      expect(
         tester.widget<MainScreen>(find.byType(MainScreen)).questionListQuery,
         same(configured),
       );
@@ -916,6 +928,9 @@ Widget _buildTestApp({
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
     examMutationCommand: examMutationCommand,
+    subjectiveAnswerRecognition: SubjectiveAnswerRecognitionAdapter(
+      engineRepository: engineRepository,
+    ),
     questionListQuery: configuredQuestionRepository,
     questionMutationPersistence: configuredQuestionRepository,
     typedAnswerPersistence: configuredQuestionRepository,
