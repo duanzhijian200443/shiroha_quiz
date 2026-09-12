@@ -8,8 +8,18 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../application/import_review/latex_fragment_repair.dart';
+import '../../utils/content_tokenizer.dart';
+import '../import_pipeline/latex_renderability_checker.dart';
+import 'review_legacy_field_content.dart';
+import 'review_repair_edit.dart';
+
 /// One typed commit input: the R7A persisted review marker identity, the
 /// `_typed_review_v1` envelope, and the commit-time finalized legacy draft.
+///
+/// [repairEdit] is the accepted AI repair marker for this item, if any. It is
+/// the only way a changed legacy field may keep a structural representation;
+/// without it a changed field keeps the frozen exact literal text.
 ///
 /// Collections are defensively copied. No arbitrary provenance map,
 /// diagnostics, file path or Provider content is ever carried here.
@@ -18,6 +28,7 @@ final class TypedReviewCommitInput {
     required this.reviewItemId,
     required this.envelope,
     required QuestionDraft currentDraft,
+    this.repairEdit,
   }) : currentDraft = QuestionDraft(
           type: currentDraft.type,
           content: currentDraft.content,
@@ -30,6 +41,7 @@ final class TypedReviewCommitInput {
   final String reviewItemId;
   final Object? envelope;
   final QuestionDraft currentDraft;
+  final ReviewRepairEdit? repairEdit;
 }
 
 /// Pure outcome of a typed review build: the completed [ReviewResult] and
@@ -58,6 +70,7 @@ enum TypedReviewCommitFailure {
   reviewCompletionFailed,
   unsafePayload,
   persistenceFailed,
+  invalidRepairEdit,
 }
 
 /// Safe fixed typed commit exception.
@@ -97,6 +110,8 @@ final class TypedReviewCommitException implements Exception {
         'Typed commit payload is unsafe.',
       TypedReviewCommitFailure.persistenceFailed =>
         'Typed commit persistence failed.',
+      TypedReviewCommitFailure.invalidRepairEdit =>
+        'Typed commit repair marker no longer matches its exact target.',
     };
   }
 }
@@ -186,7 +201,11 @@ final class TypedReviewResultBuilder {
     try {
       var working = session;
       for (var index = 0; index < inputs.length; index++) {
-        final edit = _buildEdit(snapshots[index], inputs[index].currentDraft);
+        final edit = _buildEdit(
+          snapshots[index],
+          inputs[index].currentDraft,
+          inputs[index].repairEdit,
+        );
         if (edit.isUnchanged) continue;
         working = working.edit(
           itemId: inputs[index].reviewItemId,
@@ -313,6 +332,7 @@ final class TypedReviewResultBuilder {
   ReviewEdit _buildEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ReviewRepairEdit? repairEdit,
   ) {
     final baseline = snapshot.baselineLegacy;
     final kindEdit =
@@ -325,15 +345,25 @@ final class TypedReviewResultBuilder {
     final stemEdit = current.content == baseline.content
         ? const ReviewFieldEdit<RichContent>.unchanged()
         : ReviewFieldEdit<RichContent>.replace(
-            RichContent(nodes: <ContentNode>[TextNode(current.content)]),
+            _editedFieldContent(
+              ReviewRepairField.content,
+              current.content,
+              repairEdit,
+              originalContent: snapshot.draft.stem,
+              originalText: baseline.content,
+              originalFieldSource: baseline.content,
+              currentFieldSource: current.content,
+            ),
           );
 
     final explanationEdit = _explanationEdit(
+      snapshot,
       current.explanation,
       baseline.explanation,
+      repairEdit,
     );
-    final optionsEdit = _optionsEdit(snapshot, current);
-    final answerEdit = _answerEdit(snapshot, current);
+    final optionsEdit = _optionsEdit(snapshot, current, repairEdit);
+    final answerEdit = _answerEdit(snapshot, current, repairEdit);
 
     return ReviewEdit(
       kind: kindEdit,
@@ -344,9 +374,169 @@ final class TypedReviewResultBuilder {
     );
   }
 
+  /// Content for one changed legacy field.
+  ///
+  /// A changed field is normally represented as the exact literal text it now
+  /// holds: review text is never reparsed as markup. The single exception is a
+  /// field that an accepted AI repair produced and that still matches its
+  /// recorded digest *and* whose text really carries structural math. Only then
+  /// is the structural representation rebuilt, so repaired math survives the
+  /// typed commit instead of degrading to literal source.
+  RichContent _editedFieldContent(
+    ReviewRepairField field,
+    String currentText,
+    ReviewRepairEdit? repairEdit, {
+    RichContent? originalContent,
+    String? originalText,
+    String? originalFieldSource,
+    String? currentFieldSource,
+    String? optionId,
+  }) {
+    final fragment = repairEdit?.fragment;
+    if (fragment != null && fragment.field == field) {
+      if (originalContent == null ||
+          originalText == null ||
+          originalFieldSource == null ||
+          currentFieldSource == null ||
+          fragment.optionId != optionId) {
+        throw const TypedReviewCommitException(
+          TypedReviewCommitFailure.invalidRepairEdit,
+        );
+      }
+      return _applyFragmentRepairMarker(
+        originalContent: originalContent,
+        originalText: originalText,
+        currentText: currentText,
+        originalFieldSource: originalFieldSource,
+        currentFieldSource: currentFieldSource,
+        marker: fragment,
+      );
+    }
+    final repairSource = currentFieldSource ?? currentText;
+    if (repairEdit != null && repairEdit.isSatisfiedBy(field, repairSource)) {
+      final rebuilt = reviewFieldContentFromLegacyText(currentText);
+      if (rebuilt != null && rebuilt.nodes.any((node) => node is! TextNode)) {
+        return rebuilt;
+      }
+    }
+    return RichContent(nodes: <ContentNode>[TextNode(currentText)]);
+  }
+
+  RichContent _applyFragmentRepairMarker({
+    required RichContent originalContent,
+    required String originalText,
+    required String currentText,
+    required String originalFieldSource,
+    required String currentFieldSource,
+    required LatexFragmentRepairMarker marker,
+  }) {
+    if (fieldDigest(originalFieldSource) != marker.originalFieldDigest ||
+        fieldDigest(currentFieldSource) != marker.resultFieldDigest ||
+        marker.nodeIndex >= originalContent.nodes.length) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+    final originalSpans = ContentTokenizer.tokenizeMathSpans(originalText);
+    final currentSpans = ContentTokenizer.tokenizeMathSpans(currentText);
+    if (originalSpans.length != originalContent.nodes.length ||
+        currentSpans.length != originalSpans.length) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+    String? replacement;
+    for (var index = 0; index < originalContent.nodes.length; index++) {
+      final node = originalContent.nodes[index];
+      final originalToken = originalSpans[index].token;
+      final currentToken = currentSpans[index].token;
+      final kindMatches = switch ((node, originalToken)) {
+        (TextNode(), TextToken()) => true,
+        (InlineMathNode(), InlineMathToken()) => true,
+        (BlockMathNode(), BlockMathToken()) => true,
+        _ => false,
+      };
+      if (!kindMatches) {
+        throw const TypedReviewCommitException(
+          TypedReviewCommitFailure.invalidRepairEdit,
+        );
+      }
+      if (index == marker.nodeIndex) {
+        final typedOriginalLatex = switch ((marker.nodeKind, node)) {
+          (LatexFragmentNodeKind.inlineMath, InlineMathNode(:final latex)) =>
+            latex,
+          (LatexFragmentNodeKind.blockMath, BlockMathNode(:final latex)) =>
+            latex,
+          _ => null,
+        };
+        final originalLatex = switch ((marker.nodeKind, originalToken)) {
+          (LatexFragmentNodeKind.inlineMath, InlineMathToken(:final tex)) =>
+            tex,
+          (LatexFragmentNodeKind.blockMath, BlockMathToken(:final tex)) => tex,
+          _ => null,
+        };
+        replacement = switch ((marker.nodeKind, currentToken)) {
+          (LatexFragmentNodeKind.inlineMath, InlineMathToken(:final tex)) =>
+            tex,
+          (LatexFragmentNodeKind.blockMath, BlockMathToken(:final tex)) => tex,
+          _ => null,
+        };
+        if (typedOriginalLatex == null ||
+            fieldDigest(typedOriginalLatex) != marker.originalLatexDigest ||
+            originalLatex == null ||
+            fieldDigest(originalLatex) != marker.originalLatexDigest ||
+            replacement == null ||
+            fieldDigest(replacement) != marker.replacementLatexDigest) {
+          throw const TypedReviewCommitException(
+            TypedReviewCommitFailure.invalidRepairEdit,
+          );
+        }
+        continue;
+      }
+      final matches = switch ((originalToken, currentToken)) {
+        (TextToken(text: final before), TextToken(text: final after)) =>
+          before == after,
+        (
+          InlineMathToken(tex: final before),
+          InlineMathToken(tex: final after)
+        ) =>
+          before == after,
+        (BlockMathToken(tex: final before), BlockMathToken(tex: final after)) =>
+          before == after,
+        _ => false,
+      };
+      if (!matches) {
+        throw const TypedReviewCommitException(
+          TypedReviewCommitFailure.invalidRepairEdit,
+        );
+      }
+    }
+    const checker = LatexRenderabilityChecker();
+    if (replacement == null ||
+        !checker
+            .check(
+              replacement,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable) {
+      throw const TypedReviewCommitException(
+        TypedReviewCommitFailure.invalidRepairEdit,
+      );
+    }
+    final nodes = List<ContentNode>.from(originalContent.nodes);
+    nodes[marker.nodeIndex] =
+        marker.nodeKind == LatexFragmentNodeKind.inlineMath
+            ? InlineMathNode(replacement)
+            : BlockMathNode(replacement);
+    return RichContent(nodes: nodes);
+  }
+
   ReviewFieldEdit<RichContent?> _explanationEdit(
+    TypedReviewSnapshot snapshot,
     String current,
     String baseline,
+    ReviewRepairEdit? repairEdit,
   ) {
     if (current == baseline) {
       return const ReviewFieldEdit<RichContent?>.unchanged();
@@ -355,13 +545,22 @@ final class TypedReviewResultBuilder {
       return const ReviewFieldEdit<RichContent?>.clear();
     }
     return ReviewFieldEdit<RichContent?>.replace(
-      RichContent(nodes: <ContentNode>[TextNode(current)]),
+      _editedFieldContent(
+        ReviewRepairField.explanation,
+        current,
+        repairEdit,
+        originalContent: snapshot.draft.explanation,
+        originalText: baseline,
+        originalFieldSource: baseline,
+        currentFieldSource: current,
+      ),
     );
   }
 
   ReviewFieldEdit<List<QuestionOption>> _optionsEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ReviewRepairEdit? repairEdit,
   ) {
     final typedOptions = snapshot.draft.options;
     final baselineOptions = snapshot.baselineLegacy.options;
@@ -394,8 +593,15 @@ final class TypedReviewResultBuilder {
           QuestionOption(
             optionId: original.optionId,
             label: original.label,
-            content: RichContent(
-              nodes: <ContentNode>[TextNode(currentOption.body)],
+            content: _editedFieldContent(
+              ReviewRepairField.options,
+              currentOption.body,
+              repairEdit,
+              originalContent: original.content,
+              originalText: baselineOption.body,
+              originalFieldSource: baselineOptions.join('\u0000'),
+              currentFieldSource: currentOptions.join('\u0000'),
+              optionId: original.optionId,
             ),
             sourceRef: original.sourceRef,
           ),
@@ -413,6 +619,7 @@ final class TypedReviewResultBuilder {
   ReviewFieldEdit<QuestionAnswer?> _answerEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
+    ReviewRepairEdit? repairEdit,
   ) {
     final baseline = snapshot.baselineLegacy.standardAnswer;
     final currentAnswer = current.standardAnswer;
@@ -427,6 +634,8 @@ final class TypedReviewResultBuilder {
         currentAnswer,
         _kindForQuestionType(current.type),
         snapshot.draft,
+        repairEdit,
+        baseline,
       ),
     );
   }
@@ -435,6 +644,8 @@ final class TypedReviewResultBuilder {
     String text,
     QuestionKind currentKind,
     QuestionDraftV2 typedDraft,
+    ReviewRepairEdit? repairEdit,
+    String baseline,
   ) {
     if (currentKind == QuestionKind.singleChoice) {
       final parsed = parseChoiceAnswerLabels(text);
@@ -466,7 +677,17 @@ final class TypedReviewResultBuilder {
       }
     }
     return ContentAnswer(
-      content: RichContent(nodes: <ContentNode>[TextNode(text)]),
+      content: _editedFieldContent(
+        ReviewRepairField.standardAnswer,
+        text,
+        repairEdit,
+        originalContent: typedDraft.answer is ContentAnswer
+            ? (typedDraft.answer as ContentAnswer).content
+            : null,
+        originalText: baseline,
+        originalFieldSource: baseline,
+        currentFieldSource: text,
+      ),
     );
   }
 

@@ -3280,12 +3280,12 @@ SELECT
       }
 
       final nextRevision = durableRevision + 1;
-      final nextDiagnostics = <String, Object?>{
-        ...diagnostics,
-        ReviewDraftCasPersistence.keyExplanationRetentionMode:
-            explanationRetentionMode,
-        ReviewDraftCasPersistence.keyReviewDraftRevision: nextRevision,
-      };
+      final nextDiagnostics =
+          ReviewDraftCasPersistence.diagnosticsAfterReviewSave(
+        diagnostics: diagnostics,
+        reviewExplanationRetentionMode: explanationRetentionMode,
+        reviewDraftRevision: nextRevision,
+      );
       final updated = await txn.update(
         'import_tasks',
         <String, Object?>{

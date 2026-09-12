@@ -434,6 +434,12 @@ class ImportPipelineService {
               ),
             );
             singleFileQuestions = ocrQualityGate.questions;
+            emitImportExplanationLifecycleTelemetryForProduction(
+              stage: 'post_quality_gate',
+              sourceCollectionName: 'ocr_quality_gate_questions',
+              questions: singleFileQuestions,
+              retentionMode: request.explanationRetentionMode,
+            );
             allWarnings.addAll(ocrQualityGate.warnings);
             allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
                 ocrQualityGate.diagnostics;
@@ -570,6 +576,12 @@ class ImportPipelineService {
       );
     }
     final contentAssetStore = _contentAssetStore;
+    emitImportExplanationLifecycleTelemetryForProduction(
+      stage: 'pre_gate',
+      sourceCollectionName: 'typed_gate_final_questions',
+      questions: finalized,
+      retentionMode: request.explanationRetentionMode,
+    );
     final gate = applyOcrTypedCandidateGate(
       batch: batch,
       finalQuestions: finalized,

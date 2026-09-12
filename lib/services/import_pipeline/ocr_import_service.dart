@@ -217,6 +217,7 @@ class OcrImportService {
       final referenceAnswerIndex = _referenceAnswerExtractor.extract(
         document,
         regionized.regions,
+        referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
       );
       final mergedRegions = _referenceAnswerMerger.merge(
         regionized.regions,
@@ -404,6 +405,17 @@ class OcrImportService {
             questions.where(_hasNonEmptyExplanation).length,
         'rejectedRegionCount': rejectedCount,
       });
+
+      // The final list below is the exact legacy collection from which the
+      // shadow candidate batch is built and returned to ImportPipelineService.
+      // Keep this summary bounded so a later product trace can distinguish an
+      // OCR-service loss from a downstream handoff loss.
+      emitImportExplanationLifecycleTelemetryForProduction(
+        stage: 'ocr_service_output',
+        sourceCollectionName: 'ocr_service_questions',
+        questions: questions,
+        retentionMode: explanationRetentionMode,
+      );
 
       final typedCandidateBatch = _buildTypedCandidateBatch(
         document,

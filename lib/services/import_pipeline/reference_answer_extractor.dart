@@ -28,8 +28,9 @@ class ReferenceAnswerExtractor {
 
   ReferenceAnswerIndex extract(
     OcrDocument document,
-    List<OcrQuestionRegion> officialRegions,
-  ) {
+    List<OcrQuestionRegion> officialRegions, {
+    OcrReferenceAnswerSectionBoundary? referenceSectionBoundary,
+  }) {
     final officialNumbers =
         officialRegions.map((region) => region.number).toSet();
     final blocks = document.flattenedBlocks;
@@ -58,18 +59,44 @@ class ReferenceAnswerExtractor {
     var sectionDetected = false;
     var stopped = false;
 
-    for (var blockIndex = lastOfficialBlockIndex + 1;
+    var startBlockIndex = lastOfficialBlockIndex + 1;
+    var startLineIndex = 0;
+    final boundary = referenceSectionBoundary;
+    if (boundary != null) {
+      final boundaryBlockIndex = blockIndexById[boundary.blockId];
+      if (boundaryBlockIndex == null ||
+          boundaryBlockIndex < lastOfficialBlockIndex) {
+        return _emptyIndex();
+      }
+      final boundaryBlock = blocks[boundaryBlockIndex];
+      final boundaryLines = _blockLines(boundaryBlock.text);
+      if (boundaryBlock.pageIndex != boundary.pageIndex ||
+          boundary.headingLineIndex < 0 ||
+          boundary.headingLineIndex >= boundaryLines.length ||
+          !hasReferenceAnswerSectionHeadingSuffix(
+            boundaryLines[boundary.headingLineIndex],
+          )) {
+        return _emptyIndex();
+      }
+      startBlockIndex = boundaryBlockIndex;
+      startLineIndex = boundary.headingLineIndex + 1;
+      sectionDetected = true;
+    }
+
+    for (var blockIndex = startBlockIndex;
         blockIndex < blocks.length && !stopped;
         blockIndex++) {
       final block = blocks[blockIndex];
-      if (repeatedBoilerplate.contains(_normalizeBlockText(block.text))) {
+      final isBoundaryBlock = boundary != null && blockIndex == startBlockIndex;
+      if (!isBoundaryBlock &&
+          repeatedBoilerplate.contains(_normalizeBlockText(block.text))) {
         continue;
       }
-      final lines = block.text
-          .replaceAll('\r\n', '\n')
-          .replaceAll('\r', '\n')
-          .split('\n');
-      for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      final lines = _blockLines(block.text);
+      final firstLineIndex = blockIndex == startBlockIndex ? startLineIndex : 0;
+      for (var lineIndex = firstLineIndex;
+          lineIndex < lines.length;
+          lineIndex++) {
         final line = lines[lineIndex];
         if (!sectionDetected) {
           if (hasReferenceAnswerSectionHeadingSuffix(line)) {
@@ -414,6 +441,9 @@ class ReferenceAnswerExtractor {
 
   String _normalizeBlockText(String text) =>
       text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  List<String> _blockLines(String text) =>
+      text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
 
   String _normalizeAnswer(String answer) =>
       answer.replaceAll(RegExp(r'\s+'), ' ').trim();
