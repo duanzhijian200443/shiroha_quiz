@@ -1140,7 +1140,17 @@ class _MathTexSanitizer {
   }
 
   static String _replaceUnsupportedCommands(String tex) {
+    // flutter_math_fork does not implement the textcircled accent in math
+    // mode. Preserve the exact single-digit circled label as Unicode text.
     var result = tex.replaceAllMapped(
+      RegExp(r'\\textcircled\{([1-9])\}'),
+      (match) {
+        final digit =
+            String.fromCharCode(0x2460 + int.parse(match.group(1)!) - 1);
+        return '\\text{$digit}';
+      },
+    );
+    result = result.replaceAllMapped(
       RegExp(r'\\xlongequal(?:\[[^\]]*\])?\{((?:[^{}]|\{[^{}]*\})*)\}'),
       (match) => r'\overset{' + match.group(1)! + r'}{=}',
     );

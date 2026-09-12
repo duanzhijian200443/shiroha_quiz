@@ -71,6 +71,43 @@ void main() {
       );
     });
 
+    test('mixed text, math and table projection reaches typedV2', () {
+      const projected = '<p>prefix</p>xA | B';
+      const finalized = 'prefix\nxA | B';
+      final result = _gateForExplanation(
+        projectedExplanation: projected,
+        baselineExplanation: finalized,
+        explanationNodes: <ContentNode>[
+          const TextNode('<p>prefix</p>'),
+          const InlineMathNode('x'),
+          TableNode(
+            structure: TableStructure(
+              rows: <TableRow>[
+                TableRow(
+                  cells: <TableCell>[
+                    TableCell(
+                      content: RichContent(
+                        nodes: <ContentNode>[const TextNode('A')],
+                      ),
+                    ),
+                    TableCell(
+                      content: RichContent(
+                        nodes: <ContentNode>[const TextNode('B')],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+      expect(result.questions.single['explanation'], finalized);
+    });
+
     test('exact and N0 admission precede HTML finalization eligibility', () {
       final exact = _gateForExplanation(
         projectedExplanation: '<custom>synthetic</custom>',
@@ -129,6 +166,7 @@ OcrTypedCandidateGateResult _gateForExplanation({
   required String projectedExplanation,
   required String baselineExplanation,
   bool includeRawExplanation = true,
+  List<ContentNode>? explanationNodes,
 }) {
   final question = _finalQuestion()
     ..['explanation'] = baselineExplanation
@@ -136,7 +174,10 @@ OcrTypedCandidateGateResult _gateForExplanation({
   return applyOcrTypedCandidateGate(
     batch: OcrTypedCandidateBatch(
       candidates: <OcrTypedCandidate>[
-        _candidate(projectedExplanation: projectedExplanation),
+        _candidate(
+          projectedExplanation: projectedExplanation,
+          explanationNodes: explanationNodes,
+        ),
       ],
     ),
     finalQuestions: <Map<String, dynamic>>[question],
@@ -144,7 +185,10 @@ OcrTypedCandidateGateResult _gateForExplanation({
   );
 }
 
-OcrTypedCandidate _candidate({required String projectedExplanation}) {
+OcrTypedCandidate _candidate({
+  required String projectedExplanation,
+  List<ContentNode>? explanationNodes,
+}) {
   return OcrTypedCandidate(
     questionNumber: 1,
     reviewItemId: _reviewUuid,
@@ -162,7 +206,8 @@ OcrTypedCandidate _candidate({required String projectedExplanation}) {
         ),
       ),
       explanation: RichContent(
-        nodes: <ContentNode>[TextNode(projectedExplanation)],
+        nodes:
+            explanationNodes ?? <ContentNode>[TextNode(projectedExplanation)],
       ),
     ),
     projectedLegacy: LegacyReviewBaseline(

@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/text_question_region_bridge.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
@@ -107,6 +108,90 @@ void main() {
   });
 
   group('OCR profile parity with OcrQuestionAssembler', () {
+    test('projects ASCII parenthesized options with authoritative parity', () {
+      final legacy = OcrQuestionRegion(
+        number: 1,
+        stemParts: <String>['1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'],
+        answerParts: <String>['A'],
+        explanationParts: const <String>[],
+        sourcePageIndices: <int>[1],
+        sourceBlockIds: <String>['b1', 'b2'],
+        diagnostics: const <String>[],
+        declaredKind: TextQuestionKind.choice,
+      );
+      final region = _bridgeOcr(legacy);
+      final draft = assembler.assemble(region, questionId: 'task_q1');
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const OcrLegacyProjectionProfile(),
+      );
+      final authoritative = const OcrQuestionAssembler().assemble(legacy);
+      final authoritativeOptions =
+          (authoritative.question['options'] as List?) ?? const <dynamic>[];
+      final projectedOptions =
+          (projected.question['options'] as List?) ?? const <dynamic>[];
+      final projectedContent = projected.question['content'] as String? ?? '';
+
+      expect(
+        <Object?>[
+          authoritativeOptions.length,
+          draft.options.length,
+          projectedOptions.length,
+          projectedContent.contains('(A)'),
+        ],
+        <Object?>[4, 4, 4, false],
+        reason: 'RED evidence: authoritative=${authoritativeOptions.length}, '
+            'typed=${draft.options.length}, projector=${projectedOptions.length}, '
+            'projectorContentContainsAsciiMarker=${projectedContent.contains('(A)')}',
+      );
+      expect(projected.question['content'], authoritative.question['content']);
+      expect(projected.question['options'], authoritative.question['options']);
+    });
+
+    test('supports the authoritative option marker variants', () {
+      const variants = <String, String>{
+        'ASCII parentheses': '(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁',
+        'full-width parentheses': '（A） 甲\n（B） 乙\n（C） 丙\n（D） 丁',
+        'ASCII dots': 'A. 甲\nB. 乙\nC. 丙\nD. 丁',
+        'full-width dots': 'A．甲\nB．乙\nC．丙\nD．丁',
+        'Chinese commas': 'A、甲\nB、乙\nC、丙\nD、丁',
+      };
+
+      for (final entry in variants.entries) {
+        final legacy = _ocrChoiceRegion(entry.value);
+        final projected = _projectOcr(legacy);
+        final expected = const OcrQuestionAssembler().assemble(legacy);
+
+        expect(
+          projected.question['content'],
+          expected.question['content'],
+          reason: entry.key,
+        );
+        expect(
+          projected.question['options'],
+          <String>['A. 甲', 'B. 乙', 'C. 丙', 'D. 丁'],
+          reason: entry.key,
+        );
+      }
+    });
+
+    test('keeps incomplete and empty options fail-closed', () {
+      for (final optionText in <String>[
+        '(A) 甲\n(B) 乙\n(D) 丁',
+        '(A) 甲\n(B)\n(C) 丙\n(D) 丁',
+      ]) {
+        final projected = _projectOcr(_ocrChoiceRegion(optionText));
+
+        expect(projected.question['options'], isEmpty, reason: optionText);
+        expect(
+          projected.question['content'],
+          contains('(A)'),
+          reason: 'option text must remain in content after fail-closed parse',
+        );
+      }
+    });
+
     test('projects a cross-page choice region to the identical legacy map', () {
       final legacy = OcrQuestionRegion(
         number: 1,
@@ -125,6 +210,31 @@ void main() {
       expect(projected.repairRecommended, isTrue);
       expect(projected.repairRecommended, expected.repairRecommended);
       expect(projected.rejected, expected.rejected);
+    });
+
+    test('allQuestionTypes explicitly retains an OCR choice explanation', () {
+      final legacy = OcrQuestionRegion(
+        number: 1,
+        stemParts: <String>['1. 题干\nA. 甲\nB. 乙\nC. 丙\nD. 丁'],
+        answerParts: <String>['A'],
+        explanationParts: <String>['解析：因为题干。'],
+        sourcePageIndices: <int>[1],
+        sourceBlockIds: <String>['b1', 'b2', 'b3'],
+        diagnostics: const <String>[],
+        declaredKind: TextQuestionKind.choice,
+      );
+      final projected = _projectOcr(
+        legacy,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(projected.question['type'], 0);
+      expect(projected.question['explanation'], '因为题干。');
+      expect(projected.question['raw_explanation'], '因为题干。');
+      expect(
+        projected.diagnostics,
+        isNot(contains('dropped_non_subjective_explanation')),
+      );
     });
 
     test('drops options for non-choice kinds with the legacy diagnostics', () {
@@ -829,8 +939,7 @@ void main() {
   });
 
   group('Projector provenance degradation contract', () {
-    test('locks the three-block range degradation with the coarse diagnostic',
-        () {
+    test('keeps exact question provenance while content binding is coarse', () {
       final legacy = OcrQuestionRegion(
         number: 1,
         stemParts: const <String>['q1'],
@@ -861,7 +970,14 @@ void main() {
         profile: const OcrLegacyProjectionProfile(),
       );
 
-      expect(projected.question['source_block_ids'], <String>['b1', 'b3']);
+      expect(
+        region.issues.map((issue) => issue.code),
+        contains('legacy_provenance_coarse'),
+      );
+      expect(
+        projected.question['source_block_ids'],
+        <String>['b1', 'b2', 'b3'],
+      );
       expect(projected.question['source_page_indices'], <int>[1, 2]);
     });
 
@@ -1002,7 +1118,23 @@ LocalAssemblyResult _projectText(TextQuestionRegion legacy) {
   );
 }
 
-LocalAssemblyResult _projectOcr(OcrQuestionRegion legacy) {
+LocalAssemblyResult _projectOcr(
+  OcrQuestionRegion legacy, {
+  ExplanationRetentionMode explanationRetentionMode =
+      ExplanationRetentionMode.subjectiveOnly,
+}) {
+  final region = _bridgeOcr(legacy);
+  final draft =
+      assembler.assemble(region, questionId: 'task_q${legacy.number}');
+  return projector.project(
+    draft: draft,
+    region: region,
+    profile: const OcrLegacyProjectionProfile(),
+    explanationRetentionMode: explanationRetentionMode,
+  );
+}
+
+QuestionRegion _bridgeOcr(OcrQuestionRegion legacy) {
   final parts = <SourcePart>[];
   for (var index = 0; index < legacy.stemParts.length; index++) {
     parts.add(
@@ -1028,12 +1160,19 @@ LocalAssemblyResult _projectOcr(OcrQuestionRegion legacy) {
     legacy,
     sourceDocument: sourceDocument,
   );
-  final draft =
-      assembler.assemble(region, questionId: 'task_q${legacy.number}');
-  return projector.project(
-    draft: draft,
-    region: region,
-    profile: const OcrLegacyProjectionProfile(),
+  return region;
+}
+
+OcrQuestionRegion _ocrChoiceRegion(String optionText) {
+  return OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['1. 题干\n$optionText'],
+    answerParts: <String>['A'],
+    explanationParts: const <String>[],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['b1', 'b2'],
+    diagnostics: const <String>[],
+    declaredKind: TextQuestionKind.choice,
   );
 }
 

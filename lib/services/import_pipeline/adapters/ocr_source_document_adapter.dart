@@ -8,6 +8,7 @@ import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
 import '../ocr_document.dart';
+import '../ocr_rich_content_parser.dart';
 import '../ocr_table_projection.dart';
 
 final _ocrTypeControlPattern = RegExp(r'[\u0000-\u001f\u007f]');
@@ -25,7 +26,9 @@ final class OcrSourceDocumentAdapter {
     OcrDocument document, {
     required String sourceId,
     String? displayLabel,
+    OcrMathSourceMap? mathSourceMap,
   }) {
+    final math = mathSourceMap ?? OcrMathSourceMap();
     final identityRef = SourceRef.document(sourceId: sourceId);
     var safeDisplayLabel = displayLabel;
     final issues = <ImportIssue>[];
@@ -125,6 +128,7 @@ final class OcrSourceDocumentAdapter {
         block,
         sourceRef,
         _assetStore,
+        mathSourceMap: math,
         onAssetCreated: onAssetCreated,
       );
       parts.add(mapped.part);
@@ -231,6 +235,7 @@ SourceDocument _convertWithoutBlocks({
   OcrBlock block,
   SourceRef sourceRef,
   ContentAssetStore? assetStore, {
+  required OcrMathSourceMap mathSourceMap,
   void Function(String localAssetId)? onAssetCreated,
 }) {
   final normalizedType = _normalizeType(block.type);
@@ -238,7 +243,7 @@ SourceDocument _convertWithoutBlocks({
     'text' || 'paragraph' => (
         part: SourceContentPart(
           sourceRef: sourceRef,
-          content: _textContent(block.text),
+          content: mathSourceMap.parse(block.text),
           role: SourceContentRole.paragraph,
         ),
         structureUnsupported: false,
@@ -246,7 +251,7 @@ SourceDocument _convertWithoutBlocks({
     'title' || 'heading' => (
         part: SourceContentPart(
           sourceRef: sourceRef,
-          content: _textContent(block.text),
+          content: mathSourceMap.parse(block.text),
           role: SourceContentRole.heading,
         ),
         structureUnsupported: false,
@@ -254,7 +259,7 @@ SourceDocument _convertWithoutBlocks({
     'formula' || 'equation' => (
         part: SourceContentPart(
           sourceRef: sourceRef,
-          content: _textContent(block.text),
+          content: mathSourceMap.parse(block.text, formula: true),
           role: SourceContentRole.formula,
         ),
         structureUnsupported: false,

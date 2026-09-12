@@ -1823,6 +1823,221 @@ void main() {
     });
 
     test(
+        'threads allQuestionTypes through choice and fillBlank production objects',
+        () async {
+      final fixtures = <({OcrDocument document, int type})>[
+        (
+          document: objectiveExplanationDocument(
+            question: '1. Valid stem （A）one （B）two （C）three （D）four',
+            explanation: '解析：<p>Synthetic choice explanation</p>',
+            answer: '答案：A',
+          ),
+          type: 0,
+        ),
+        (
+          document: objectiveExplanationDocument(
+            section: '二、填空题（共 1 题）',
+            question: '1. Compute ____ for the synthetic marker.',
+            explanation: '解析：<p>Synthetic fill explanation</p>',
+            answer: '答案：42',
+          ),
+          type: 2,
+        ),
+      ];
+
+      for (final fixture in fixtures) {
+        final client = FakeOcrDocumentClient(fixture.document);
+        final service = OcrImportService(
+          engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+          ocrClient: client,
+          repairService: const FakeRepairService(),
+          uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000001',
+        );
+        final parsed = await service.tryParse(
+          filePath: r'C:\synthetic\fixture.pdf',
+          sourceName: 'synthetic.pdf',
+          format: ImportFormat.pdf,
+          explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+        );
+
+        expect(client.callCount, 1, reason: 'fake OCR client only');
+        expect(parsed, isNotNull);
+        expect(parsed!.questions.single['type'], fixture.type);
+        expect(parsed.questions.single['explanation'], isNotEmpty);
+        final batch = parsed.typedCandidateBatch!;
+        expect(batch.failure, isNull);
+        final candidate = batch.candidates.single;
+        expect(candidate.projectedLegacy.type, parsed.questions.single['type']);
+        expect(
+          candidate.projectedLegacy.content,
+          parsed.questions.single['content'],
+        );
+        expect(
+          candidate.projectedLegacy.options,
+          parsed.questions.single['options'],
+        );
+        expect(
+          candidate.projectedLegacy.standardAnswer,
+          parsed.questions.single['standard_answer'],
+        );
+        expect(
+          candidate.sourcePageIndices,
+          parsed.questions.single['source_page_indices'],
+        );
+        expect(
+          candidate.sourceBlockIds,
+          parsed.questions.single['source_block_ids'],
+        );
+        expect(
+          candidate.projectedLegacy.explanation,
+          parsed.questions.single['raw_explanation'],
+        );
+        final gate = applyOcrTypedCandidateGate(
+          batch: batch,
+          finalQuestions: parsed.questions,
+          singleFile: true,
+        );
+        expect(gate.route, ImportStorageRoute.typedV2, reason: gate.reason);
+        expect(gate.reason, ocrTypedCandidateReadyReason);
+        final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+          gate.questions.single[TypedReviewSnapshotCodec.mapKey],
+        );
+        expect(
+          snapshot.baselineLegacy.explanation,
+          parsed.questions.single['explanation'],
+        );
+      }
+    });
+
+    test('inline objective explanation reaches the typed gate', () async {
+      final document = OcrDocument(
+        sourceName: 'inline-objective.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: const [
+              OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '一、选择题（共 1 题）',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'text',
+                text: '1. Valid stem （A）one （B）two （C）three （D）four。'
+                    '解析：<p>Synthetic inline explanation</p>',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              OcrBlock(
+                blockId: 'answer',
+                pageIndex: 1,
+                type: 'text',
+                text: '答案：A',
+                bbox: [],
+                readingOrder: 2,
+              ),
+            ],
+          ),
+        ],
+      );
+      final client = FakeOcrDocumentClient(document);
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: client,
+        repairService: const FakeRepairService(),
+        uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000001',
+      );
+
+      final parsed = await service.tryParse(
+        filePath: r'C:\synthetic\inline-objective.pdf',
+        sourceName: 'inline-objective.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(client.callCount, 1, reason: 'fake OCR client only');
+      expect(parsed, isNotNull);
+      expect(parsed!.questions.single['raw_explanation'], contains('<p>'));
+      expect(
+        parsed.questions.single['explanation'],
+        'Synthetic inline explanation',
+      );
+      final batch = parsed.typedCandidateBatch!;
+      expect(batch.failure, isNull);
+      final candidate = batch.candidates.single;
+      final question = parsed.questions.single;
+      expect(candidate.draft.explanation, isNotNull);
+      expect(candidate.projectedLegacy.type, question['type'], reason: 'type');
+      expect(candidate.projectedLegacy.content, question['content'],
+          reason: 'content');
+      expect(candidate.projectedLegacy.options, question['options'],
+          reason: 'options');
+      expect(
+        candidate.projectedLegacy.standardAnswer,
+        question['standard_answer'],
+        reason: 'answer',
+      );
+      expect(candidate.projectedLegacy.explanation, question['raw_explanation'],
+          reason: 'raw explanation');
+      expect(candidate.sourcePageIndices, question['source_page_indices'],
+          reason: 'pages');
+      expect(candidate.sourceBlockIds, question['source_block_ids'],
+          reason: 'blocks');
+      final gate = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: parsed.questions,
+        singleFile: true,
+      );
+      expect(gate.route, ImportStorageRoute.typedV2, reason: gate.reason);
+      expect(gate.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('subjectiveOnly keeps the objective explanation discard boundary',
+        () async {
+      final client = FakeOcrDocumentClient(
+        objectiveExplanationDocument(
+          explanation: '解析：Synthetic objective explanation',
+          answer: '答案：A',
+        ),
+      );
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: client,
+        repairService: const FakeRepairService(),
+        uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000001',
+      );
+      final parsed = await service.tryParse(
+        filePath: r'C:\synthetic\fixture.pdf',
+        sourceName: 'synthetic.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(client.callCount, 1, reason: 'fake OCR client only');
+      expect(parsed, isNotNull);
+      expect(parsed!.questions.single['explanation'], '');
+      expect(parsed.questions.single['raw_explanation'], isNotEmpty);
+      final batch = parsed.typedCandidateBatch!;
+      expect(batch.failure, isNull);
+      expect(batch.candidates.single.projectedLegacy.explanation, '');
+      final gate = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: parsed.questions,
+        singleFile: true,
+      );
+      expect(gate.route, ImportStorageRoute.legacyV1);
+      expect(gate.reason, 'typed_candidate_raw_explanation_diverged');
+    });
+
+    test(
         'unsupported structure yields a fixed failure without changing '
         'legacy questions', () async {
       final document = OcrDocument(

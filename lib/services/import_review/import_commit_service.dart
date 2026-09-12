@@ -516,6 +516,7 @@ class ImportCommitService {
             reviewItemId: items[index].reviewItemId,
             envelope: items[index].envelope,
             currentDraft: finalizedItems[index].draft,
+            repairEdit: items[index].repairEdit,
           ),
       ];
       final built = _typedResultBuilder.build(

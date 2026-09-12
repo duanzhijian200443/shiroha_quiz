@@ -249,6 +249,129 @@ void main() {
       );
     });
 
+    test('review retention updates its own key without overwriting parse mode',
+        () async {
+      for (final values in <({
+        ExplanationRetentionMode parse,
+        ExplanationRetentionMode review,
+      })>[
+        (
+          parse: ExplanationRetentionMode.allQuestionTypes,
+          review: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        (
+          parse: ExplanationRetentionMode.subjectiveOnly,
+          review: ExplanationRetentionMode.allQuestionTypes,
+        ),
+      ]) {
+        final saved = <Map<String, dynamic>>[];
+        final taskManager = TaskManager.forTesting(
+          saveTask: (taskMap) async {
+            saved.add(Map<String, dynamic>.from(taskMap));
+          },
+        );
+        taskManager.addTask(
+          ImportTask(
+            id: 'retention-authority-${values.parse.name}',
+            title: 'Synthetic retention authority task',
+            status: TaskStatus.pendingReview,
+            parsedData: <Map<String, dynamic>>[
+              _questionWithEnvelope(),
+            ],
+            diagnostics: <String, dynamic>{
+              TaskManager.keyParseExplanationRetentionMode: values.parse.name,
+              TaskManager.keyReviewExplanationRetentionMode: values.parse.name,
+              TaskManager.keyExplanationRetentionMode: values.parse.name,
+            },
+          ),
+        );
+
+        final result = await taskManager.saveReviewDraft(
+          'retention-authority-${values.parse.name}',
+          questions: <Map<String, dynamic>>[
+            _questionWithEnvelope(),
+          ],
+          explanationRetentionMode: values.review,
+        );
+
+        expect(result.saved, isTrue);
+        final restored = ImportTask.fromMap(saved.last);
+        expect(restored.parseExplanationRetentionMode, values.parse);
+        expect(restored.explanationRetentionMode, values.parse);
+        expect(restored.reviewExplanationRetentionMode, values.review);
+        expect(
+          restored.diagnostics?[TaskManager.keyParseExplanationRetentionMode],
+          values.parse.name,
+        );
+        expect(
+          restored.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+          values.review.name,
+        );
+        expect(
+          restored.diagnostics?[TaskManager.keyExplanationRetentionMode],
+          values.review.name,
+        );
+      }
+    });
+
+    test('legacy compatibility retention is frozen before review overwrite',
+        () async {
+      final saved = <Map<String, dynamic>>[];
+      final taskManager = TaskManager.forTesting(
+        saveTask: (taskMap) async {
+          saved.add(Map<String, dynamic>.from(taskMap));
+        },
+      );
+      taskManager.addTask(
+        ImportTask(
+          id: 'legacy-retention-authority',
+          title: 'Synthetic legacy retention authority task',
+          status: TaskStatus.pendingReview,
+          parsedData: <Map<String, dynamic>>[
+            _questionWithEnvelope(),
+          ],
+          diagnostics: <String, dynamic>{
+            TaskManager.keyExplanationRetentionMode:
+                ExplanationRetentionMode.allQuestionTypes.name,
+          },
+        ),
+      );
+
+      final result = await taskManager.saveReviewDraft(
+        'legacy-retention-authority',
+        questions: <Map<String, dynamic>>[
+          _questionWithEnvelope(),
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      expect(result.saved, isTrue);
+      final current = taskManager.tasks.single;
+      final restored = ImportTask.fromMap(saved.last);
+      for (final task in <ImportTask>[current, restored]) {
+        expect(
+          task.parseExplanationRetentionMode,
+          ExplanationRetentionMode.allQuestionTypes,
+        );
+        expect(
+          task.reviewExplanationRetentionMode,
+          ExplanationRetentionMode.subjectiveOnly,
+        );
+        expect(
+          task.diagnostics?[TaskManager.keyParseExplanationRetentionMode],
+          ExplanationRetentionMode.allQuestionTypes.name,
+        );
+        expect(
+          task.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+          ExplanationRetentionMode.subjectiveOnly.name,
+        );
+        expect(
+          task.diagnostics?[TaskManager.keyExplanationRetentionMode],
+          ExplanationRetentionMode.subjectiveOnly.name,
+        );
+      }
+    });
+
     test('answer distillation state update preserves the envelope', () async {
       final saved = <Map<String, dynamic>>[];
       final taskManager = TaskManager.forTesting(

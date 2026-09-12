@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+import '../../../core/observability/app_logger.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
 import '../../../domain/import/import_issue.dart';
@@ -6,6 +9,8 @@ import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
 import '../../../domain/source/source_ref.dart';
 import '../ocr_question_regionizer.dart';
+import '../ocr_rich_content_parser.dart';
+import '../ocr_text_normalization.dart';
 import '../text_question_region.dart';
 
 const _ocrKnownDiagnostics = <String>{
@@ -24,12 +29,59 @@ const _ocrKnownDiagnostics = <String>{
 
 const _structuralOwnershipUnsupportedKind = 'ocr_structural_ownership';
 
+/// Handler used by tests to capture structural ownership rejection telemetry.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    structuralOwnershipRejectionHandlerForTesting;
+
+void _emitStructuralOwnershipRejection({
+  required String reasonCode,
+  required int questionNumber,
+  String? blockId,
+  String? partType,
+  String? role,
+  String? field,
+  int? startCodeUnitOffset,
+  int? endCodeUnitOffset,
+  bool? ownedTextPresent,
+}) {
+  try {
+    final telemetry = <String, Object?>{
+      'reasonCode': reasonCode,
+      'reason': reasonCode,
+      'questionNumber': questionNumber,
+      if (blockId != null) 'blockId': blockId,
+      if (partType != null) 'partType': partType,
+      if (role != null) 'role': role,
+      if (field != null) 'field': field,
+      'startCodeUnitOffset': startCodeUnitOffset,
+      'endCodeUnitOffset': endCodeUnitOffset,
+      'ownedTextPresent': ownedTextPresent ?? false,
+    };
+    structuralOwnershipRejectionHandlerForTesting?.call(telemetry);
+    final buffer = StringBuffer('OCR structural ownership rejected: ')
+      ..write('reason=$reasonCode');
+    if (blockId != null) buffer.write(' block=$blockId');
+    if (partType != null) buffer.write(' part=$partType');
+    if (field != null) buffer.write(' field=$field');
+    buffer.write(' start=$startCodeUnitOffset end=$endCodeUnitOffset');
+    AppLogger.warning(
+      buffer.toString(),
+      module: 'ImportStructuralOwnership',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
 final class OcrQuestionRegionBridge {
   const OcrQuestionRegionBridge();
 
   QuestionRegion convert(
     OcrQuestionRegion region, {
     required SourceDocument sourceDocument,
+    OcrMathSourceMap? mathSourceMap,
   }) {
     final provenance = _resolveProvenance(
       sourceDocument,
@@ -37,7 +89,7 @@ final class OcrQuestionRegionBridge {
       region.sourcePageIndices,
     );
     final ref = provenance.ref;
-    final builtFragments = _buildFragments(region, provenance);
+    final builtFragments = _buildFragments(region, provenance, mathSourceMap);
     final fragments = builtFragments.fragments;
     final issues = <ImportIssue>{};
 
@@ -121,6 +173,7 @@ final class OcrQuestionRegionBridge {
       fragments: fragments,
       kindHint: _mapKind(region.effectiveKind),
       issues: issues,
+      sourceRefs: provenance.questionSourceRefs,
       sourceAssetRefs: sourceDocument.assetRefs,
     );
   }
@@ -129,6 +182,7 @@ final class OcrQuestionRegionBridge {
 ({List<QuestionRegionFragment> fragments, bool typedDegraded}) _buildFragments(
   OcrQuestionRegion region,
   _Provenance provenance,
+  OcrMathSourceMap? mathSourceMap,
 ) {
   final entries = <({QuestionRegionField field, String text})>[];
 
@@ -145,7 +199,7 @@ final class OcrQuestionRegionBridge {
 
   final hasStructuralPart = provenance.declaredParts.any(_hasTypedStructure);
   if (hasStructuralPart &&
-      !_hasCompleteStructuralOwnership(region, provenance)) {
+      !_hasCompleteStructuralOwnership(region, provenance, mathSourceMap)) {
     return (
       typedDegraded: true,
       fragments: [
@@ -184,7 +238,12 @@ final class OcrQuestionRegionBridge {
         QuestionRegionFragment(
           field: field,
           part: part,
-          slice: _sliceForOwnership(part, owned),
+          slice: part is SourceContentPart &&
+                  mathSourceMap?.parsed(part.content) != null &&
+                  part.content.nodes.any((node) => node is! TextNode)
+              ? _mathOwnership(mathSourceMap!.parsed(part.content)!, owned)
+                  .slice
+              : _sliceForOwnership(part, owned),
         ),
       );
     }
@@ -204,14 +263,23 @@ final class OcrQuestionRegionBridge {
       final remaining = syntheticCounts[entry.field] ?? 0;
       if (remaining == 0) continue;
       syntheticCounts[entry.field] = remaining - 1;
-      fragments.add(_fragment(entry.field, entry.text, provenance.ref));
+      fragments.add(
+        _fragment(
+          entry.field,
+          entry.text,
+          _syntheticRefForEntry(region, entry.field, provenance),
+          mathSourceMap,
+        ),
+      );
     }
 
     return (typedDegraded: typedDegraded, fragments: fragments);
   }
 
-  final canPairByEncounter = provenance.canBindLegacyParts &&
-      provenance.matchedParts.length == entries.length;
+  final canPairByEncounter =
+      !region.diagnostics.contains('reference_answer_attached') &&
+          provenance.canBindLegacyParts &&
+          provenance.matchedParts.length == entries.length;
   if (canPairByEncounter) {
     // This compatibility branch is reachable only for pure-text regions;
     // structural parts were rejected above unless block-native ownership was
@@ -236,9 +304,26 @@ final class OcrQuestionRegionBridge {
     typedDegraded: provenance.ambiguousBlockIds.isNotEmpty,
     fragments: [
       for (final entry in entries)
-        _fragment(entry.field, entry.text, provenance.ref),
+        _fragment(
+          entry.field,
+          entry.text,
+          _syntheticRefForEntry(region, entry.field, provenance),
+          mathSourceMap,
+        ),
     ],
   );
+}
+
+SourceRef _syntheticRefForEntry(
+  OcrQuestionRegion region,
+  QuestionRegionField field,
+  _Provenance provenance,
+) {
+  if (field == QuestionRegionField.answer &&
+      region.diagnostics.contains('reference_answer_attached')) {
+    return provenance.documentRef;
+  }
+  return provenance.ref;
 }
 
 QuestionRegionFragment _ownedTextFragment({
@@ -251,35 +336,376 @@ QuestionRegionFragment _ownedTextFragment({
 bool _hasCompleteStructuralOwnership(
   OcrQuestionRegion region,
   _Provenance provenance,
+  OcrMathSourceMap? mathSourceMap,
 ) {
   final structuralParts = provenance.declaredParts
       .where(_hasTypedStructure)
       .toList(growable: false);
   if (structuralParts.isEmpty) return true;
-  if (region.ownedSources.isEmpty) return false;
+  if (region.ownedSources.isEmpty) {
+    final first = structuralParts.first;
+    _emitStructuralOwnershipRejection(
+      reasonCode: _isAtomicStructuralPart(first)
+          ? 'atomic_declared_not_owned'
+          : 'structural_declared_not_owned',
+      questionNumber: region.number,
+      blockId: first.sourceRef.start?.blockId,
+      partType: first.runtimeType.toString(),
+      role: first is SourceContentPart ? first.role.name : null,
+      ownedTextPresent: false,
+    );
+    return false;
+  }
 
-  final declaredStructuralIds = <String>{};
-  for (final part in structuralParts) {
-    final blockId = part.sourceRef.start?.blockId;
-    if (blockId == null || !declaredStructuralIds.add(blockId)) {
+  final atomicParts = provenance.declaredParts
+      .where(_isAtomicStructuralPart)
+      .toList(growable: false);
+  if (atomicParts.isNotEmpty) {
+    final declaredAtomicIds = <String>{};
+    for (final part in atomicParts) {
+      final blockId = part.sourceRef.start?.blockId;
+      if (blockId == null) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'atomic_missing_block_id',
+          questionNumber: region.number,
+          partType: part.runtimeType.toString(),
+          role: part is SourceContentPart ? part.role.name : null,
+          ownedTextPresent: false,
+        );
+        return false;
+      }
+      if (!declaredAtomicIds.add(blockId)) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'atomic_duplicate_declared_block',
+          questionNumber: region.number,
+          blockId: blockId,
+          partType: part.runtimeType.toString(),
+          role: part is SourceContentPart ? part.role.name : null,
+          ownedTextPresent: false,
+        );
+        return false;
+      }
+    }
+
+    final ownedAtomicIds = <String>{};
+    final fieldByAtomicId = <String, QuestionRegionField>{};
+    for (final owned in region.ownedSources) {
+      final part = provenance.uniquePartByBlockId[owned.blockId];
+      if (part == null || !_isAtomicStructuralPart(part)) continue;
+      final field = _mapField(owned.field);
+      final previousField = fieldByAtomicId[owned.blockId];
+      if (part is SourceContentPart) {
+        if (previousField != null) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'atomic_multiple_owner',
+            questionNumber: region.number,
+            blockId: owned.blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            field: field.name,
+            startCodeUnitOffset: owned.startCodeUnitOffset,
+            endCodeUnitOffset: owned.endCodeUnitOffset,
+            ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+          );
+          return false;
+        }
+        if (!_isWholePartOwnership(part, owned)) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'atomic_partial_owner',
+            questionNumber: region.number,
+            blockId: owned.blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            field: field.name,
+            startCodeUnitOffset: owned.startCodeUnitOffset,
+            endCodeUnitOffset: owned.endCodeUnitOffset,
+            ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+          );
+          return false;
+        }
+      } else if (previousField != null && previousField != field) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'atomic_multiple_owner',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          field: field.name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
+        return false;
+      }
+      fieldByAtomicId[owned.blockId] = field;
+      ownedAtomicIds.add(owned.blockId);
+    }
+
+    if (ownedAtomicIds.length != declaredAtomicIds.length ||
+        !ownedAtomicIds.containsAll(declaredAtomicIds)) {
+      final missingBlockId = declaredAtomicIds
+          .firstWhere((id) => !ownedAtomicIds.contains(id), orElse: () => '');
+      final isAmbiguous = provenance.ambiguousBlockIds.contains(missingBlockId);
+      final missingPart = provenance.uniquePartByBlockId[missingBlockId] ??
+          (atomicParts.any((p) => p.sourceRef.start?.blockId == missingBlockId)
+              ? atomicParts.firstWhere(
+                  (p) => p.sourceRef.start?.blockId == missingBlockId)
+              : null);
+      _emitStructuralOwnershipRejection(
+        reasonCode: isAmbiguous
+            ? 'structural_ambiguous_block'
+            : 'atomic_declared_not_owned',
+        questionNumber: region.number,
+        blockId: missingBlockId.isEmpty ? null : missingBlockId,
+        partType: missingPart?.runtimeType.toString(),
+        role: missingPart is SourceContentPart ? missingPart.role.name : null,
+        ownedTextPresent: false,
+      );
       return false;
     }
   }
 
-  final ownedStructuralIds = <String>{};
-  final fieldByStructuralId = <String, QuestionRegionField>{};
+  final intervals = <String, List<({int start, int end})>>{};
+  final fieldByTextualId = <String, QuestionRegionField>{};
   for (final owned in region.ownedSources) {
     final part = provenance.uniquePartByBlockId[owned.blockId];
-    if (part == null || !_hasTypedStructure(part)) continue;
-    final field = _mapField(owned.field);
-    final previousField = fieldByStructuralId[owned.blockId];
-    if (previousField != null && previousField != field) return false;
-    fieldByStructuralId[owned.blockId] = field;
-    ownedStructuralIds.add(owned.blockId);
+    if (part == null || _isAtomicStructuralPart(part)) continue;
+    if (part is! SourceContentPart) continue;
+    final hasMath = part.content.nodes.any((node) => node is! TextNode);
+    if (!hasMath) continue;
+
+    final parsed = mathSourceMap?.parsed(part.content);
+    if (parsed == null) {
+      final field = _mapField(owned.field);
+      final previousField = fieldByTextualId[owned.blockId];
+      if (previousField != null) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'math_multiple_owner_without_map',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          role: part.role.name,
+          field: field.name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
+        return false;
+      }
+      if (!_isWholePartOwnership(part, owned)) {
+        _emitStructuralOwnershipRejection(
+          reasonCode: 'math_missing_map_partial',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          role: part.role.name,
+          field: field.name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
+        return false;
+      }
+      fieldByTextualId[owned.blockId] = field;
+    } else {
+      try {
+        final interval = _mathOwnership(parsed, owned);
+        final previous = intervals.putIfAbsent(owned.blockId, () => []);
+        if (previous.any((other) =>
+            interval.start < other.end && other.start < interval.end)) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'math_interval_overlap',
+            questionNumber: region.number,
+            blockId: owned.blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            field: _mapField(owned.field).name,
+            startCodeUnitOffset: interval.start,
+            endCodeUnitOffset: interval.end,
+            ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+          );
+          return false;
+        }
+        previous.add((start: interval.start, end: interval.end));
+      } on FormatException catch (e) {
+        final isAmbiguous = e.message.contains('Ambiguous');
+        _emitStructuralOwnershipRejection(
+          reasonCode:
+              isAmbiguous ? 'math_ambiguous_text_match' : 'math_invalid_slice',
+          questionNumber: region.number,
+          blockId: owned.blockId,
+          partType: part.runtimeType.toString(),
+          role: part.role.name,
+          field: _mapField(owned.field).name,
+          startCodeUnitOffset: owned.startCodeUnitOffset,
+          endCodeUnitOffset: owned.endCodeUnitOffset,
+          ownedTextPresent: owned.text != null && owned.text!.isNotEmpty,
+        );
+        return false;
+      }
+    }
   }
 
-  return ownedStructuralIds.length == declaredStructuralIds.length &&
-      ownedStructuralIds.containsAll(declaredStructuralIds);
+  for (final blockId in intervals.keys) {
+    final part = provenance.uniquePartByBlockId[blockId] as SourceContentPart;
+    final parsed = mathSourceMap!.parsed(part.content)!;
+    final blockIntervals = intervals[blockId]!;
+    for (var i = 0; i < parsed.content.nodes.length; i++) {
+      final node = parsed.content.nodes[i];
+      if (node is! TextNode) {
+        final nodeRange = parsed.ranges[i];
+        var coveringCount = 0;
+        for (final interval in blockIntervals) {
+          final intersects =
+              interval.start < nodeRange.end && nodeRange.start < interval.end;
+          if (intersects) {
+            if (interval.start <= nodeRange.start &&
+                nodeRange.end <= interval.end) {
+              coveringCount++;
+            } else {
+              _emitStructuralOwnershipRejection(
+                reasonCode: 'math_interior_boundary',
+                questionNumber: region.number,
+                blockId: blockId,
+                partType: part.runtimeType.toString(),
+                role: part.role.name,
+                startCodeUnitOffset: interval.start,
+                endCodeUnitOffset: interval.end,
+                ownedTextPresent: true,
+              );
+              return false;
+            }
+          }
+        }
+        if (coveringCount > 1) {
+          _emitStructuralOwnershipRejection(
+            reasonCode: 'math_multiple_coverage',
+            questionNumber: region.number,
+            blockId: blockId,
+            partType: part.runtimeType.toString(),
+            role: part.role.name,
+            ownedTextPresent: true,
+          );
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+bool _isAtomicStructuralPart(SourcePart part) {
+  return switch (part) {
+    SourceAssetPart() || SourceTablePart() || UnsupportedSourcePart() => true,
+    SourceContentPart() => false,
+  };
+}
+
+bool _isWholePartOwnership(
+  SourceContentPart part,
+  OcrQuestionRegionSource owned,
+) {
+  final noOffsets =
+      owned.startCodeUnitOffset == null && owned.endCodeUnitOffset == null;
+  final noText = owned.text == null || owned.text!.trim().isEmpty;
+  if (noOffsets && noText) {
+    return true;
+  }
+  if (part.content.nodes.length == 1 &&
+      part.content.nodes.single is BlockMathNode) {
+    final latex = (part.content.nodes.single as BlockMathNode).latex;
+    final isExactOffsets = owned.startCodeUnitOffset == 0 &&
+        owned.endCodeUnitOffset == latex.length;
+    final isExactText = owned.text != null && owned.text!.trim() == latex;
+    if (isExactOffsets && (noText || isExactText)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+({int start, int end, SourceSlice slice}) _mathOwnership(
+  OcrParsedContent parsed,
+  OcrQuestionRegionSource owned,
+) {
+  var start = owned.startCodeUnitOffset;
+  var end = owned.endCodeUnitOffset;
+  if (start == null || end == null) {
+    final text = owned.text;
+    if (text == null || text.isEmpty) {
+      throw const FormatException('Missing OCR math ownership.');
+    }
+    final matches = RegExp(RegExp.escape(text)).allMatches(parsed.original);
+    if (matches.isEmpty) {
+      final aligned = _normalizedRawOwnership(parsed.original, text);
+      start = aligned.start;
+      end = aligned.end;
+    } else {
+      if (matches.length != 1) {
+        throw const FormatException('Ambiguous OCR math ownership.');
+      }
+      start = matches.single.start;
+      end = matches.single.end;
+    }
+  }
+  return (start: start, end: end, slice: parsed.slice(start, end));
+}
+
+/// Transient UTF-16 source alignment for ownership whose producer normalized
+/// whitespace. Each replacement retains its entire raw coverage. Boundaries
+/// inside a multi-character replacement are deliberately not admissible.
+({int start, int end}) _normalizedRawOwnership(String raw, String owned) {
+  var value = raw;
+  var ranges = [for (var i = 0; i < raw.length; i++) (start: i, end: i + 1)];
+
+  void replace(Pattern pattern, String replacement) {
+    final output = StringBuffer();
+    final mapped = <({int start, int end})>[];
+    var cursor = 0;
+    for (final match in pattern.allMatches(value)) {
+      output.write(value.substring(cursor, match.start));
+      mapped.addAll(ranges.sublist(cursor, match.start));
+      output.write(replacement);
+      for (var i = 0; i < replacement.length; i++) {
+        mapped.add(
+            (start: ranges[match.start].start, end: ranges[match.end - 1].end));
+      }
+      cursor = match.end;
+    }
+    output.write(value.substring(cursor));
+    mapped.addAll(ranges.sublist(cursor));
+    value = output.toString();
+    ranges = mapped;
+  }
+
+  // Mirror only the canonical whitespace transformations, with a conformance
+  // check so future normalizer changes cannot silently yield wrong offsets.
+  replace('\r\n', '\n');
+  replace('\r', '\n');
+  replace(RegExp(r'[ \t]{2,}'), ' ');
+  replace(RegExp(r'\n{3,}'), '\n\n');
+  final left = value.length - value.trimLeft().length;
+  final trimmed = value.trim();
+  ranges = ranges.sublist(left, left + trimmed.length);
+  value = trimmed;
+  final target = normalizeOcrText(owned);
+  if (value != normalizeOcrText(raw) || target.isEmpty) {
+    throw const FormatException('Invalid OCR normalized ownership.');
+  }
+  // Lookahead also detects overlapping occurrences; never select first match.
+  final matches = RegExp('(?=${RegExp.escape(target)})')
+      .allMatches(value)
+      .toList(growable: false);
+  if (matches.length != 1) {
+    throw const FormatException('Ambiguous OCR math ownership.');
+  }
+  final start = matches.single.start;
+  final end = start + target.length;
+  if ((start > 0 && ranges[start - 1].end > ranges[start].start) ||
+      (end < ranges.length && ranges[end - 1].end > ranges[end].start)) {
+    throw const FormatException('Invalid OCR normalized ownership boundary.');
+  }
+  return (start: ranges[start].start, end: ranges[end - 1].end);
 }
 
 bool _hasTypedStructure(SourcePart part) {
@@ -339,12 +765,14 @@ QuestionRegionFragment _fragment(
   QuestionRegionField field,
   String text,
   SourceRef ref,
+  OcrMathSourceMap? mathSourceMap,
 ) {
   return QuestionRegionFragment(
     field: field,
     part: SourceContentPart(
       sourceRef: ref,
-      content: RichContent(nodes: <ContentNode>[TextNode(text)]),
+      content: mathSourceMap?.parse(text) ??
+          RichContent(nodes: <ContentNode>[TextNode(text)]),
     ),
   );
 }
@@ -352,6 +780,8 @@ QuestionRegionFragment _fragment(
 final class _Provenance {
   const _Provenance({
     required this.ref,
+    required this.documentRef,
+    required this.questionSourceRefs,
     required this.isCoarse,
     required this.matchedParts,
     required this.declaredParts,
@@ -361,6 +791,8 @@ final class _Provenance {
   });
 
   final SourceRef ref;
+  final SourceRef documentRef;
+  final List<SourceRef> questionSourceRefs;
   final bool isCoarse;
   final List<SourcePart> matchedParts;
   final List<SourcePart> declaredParts;
@@ -378,14 +810,21 @@ _Provenance _resolveProvenance(
   final ownedBlockIds = region.ownedSources
       .map((source) => source.blockId)
       .toList(growable: false);
-  final regionBlockIds = ownedBlockIds.isNotEmpty
-      ? ownedBlockIds
-      : List<String>.unmodifiable(region.sourceBlockIds);
-  final requested = regionBlockIds.toSet();
-  final declaredBlockIds = <String>{
+  final ownedBlockIdSet = ownedBlockIds.toSet();
+  final evidenceBlockIdSet = region.evidenceOnlySourceBlockIds.toSet();
+  final contentBlockIds = <String>[
+    for (final blockId in region.sourceBlockIds)
+      if (!evidenceBlockIdSet.contains(blockId) ||
+          ownedBlockIdSet.contains(blockId))
+        blockId,
+    for (final blockId in ownedBlockIds)
+      if (!region.sourceBlockIds.contains(blockId)) blockId,
+  ];
+  final requested = <String>{
     ...region.sourceBlockIds,
     ...ownedBlockIds,
   };
+  final contentBlockIdSet = contentBlockIds.toSet();
   final partsByBlockId = <String, List<SourcePart>>{};
   final declaredParts = <SourcePart>[];
 
@@ -395,7 +834,7 @@ _Provenance _resolveProvenance(
     if (requested.contains(blockId)) {
       partsByBlockId.putIfAbsent(blockId, () => <SourcePart>[]).add(part);
     }
-    if (declaredBlockIds.contains(blockId)) declaredParts.add(part);
+    if (contentBlockIdSet.contains(blockId)) declaredParts.add(part);
   }
 
   final uniquePartByBlockId = <String, SourcePart>{};
@@ -416,7 +855,7 @@ _Provenance _resolveProvenance(
       if (part != null) matchedParts.add(part);
     }
   } else {
-    final orderedIds = [...regionBlockIds];
+    final orderedIds = [...contentBlockIds];
     orderedIds.sort((left, right) {
       final leftPart = uniquePartByBlockId[left];
       final rightPart = uniquePartByBlockId[right];
@@ -433,12 +872,12 @@ _Provenance _resolveProvenance(
 
   var isCoarse = ambiguousBlockIds.isNotEmpty;
   if (region.ownedSources.isEmpty &&
-      regionBlockIds.toSet().length != regionBlockIds.length) {
+      contentBlockIds.toSet().length != contentBlockIds.length) {
     isCoarse = true;
   }
 
   final refsByBlockId = <String, SourceRef>{};
-  for (final blockId in regionBlockIds) {
+  for (final blockId in requested) {
     final part = uniquePartByBlockId[blockId];
     if (part == null) {
       isCoarse = true;
@@ -447,15 +886,37 @@ _Provenance _resolveProvenance(
     refsByBlockId[blockId] = part.sourceRef;
   }
 
+  final questionSourceRefs = <SourceRef>[];
+  final seenQuestionRefs = <SourceRef>{};
+  for (final blockId in region.sourceBlockIds) {
+    final ref = refsByBlockId[blockId];
+    if (ref != null && seenQuestionRefs.add(ref)) {
+      questionSourceRefs.add(ref);
+    }
+  }
+  if (questionSourceRefs.isEmpty) {
+    questionSourceRefs.add(documentRef);
+    isCoarse = true;
+  }
+
+  final declaredPages = regionPageIndices.toSet();
+  final questionPages = questionSourceRefs
+      .map((sourceRef) => sourceRef.start?.pageNumber)
+      .whereType<int>()
+      .toSet();
+  if (!_setEquals(declaredPages, questionPages)) isCoarse = true;
+
   final encounterOrder = <SourceRef>[];
   final seenRefs = <SourceRef>{};
-  for (final blockId in regionBlockIds) {
+  for (final blockId in contentBlockIds) {
     final ref = refsByBlockId[blockId];
     if (ref != null && seenRefs.add(ref)) encounterOrder.add(ref);
   }
   if (encounterOrder.isEmpty) {
     return _Provenance(
       ref: documentRef,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -465,14 +926,11 @@ _Provenance _resolveProvenance(
     );
   }
 
-  final declaredPages = regionPageIndices.toSet();
-  final matchedPages =
-      encounterOrder.map((sourceRef) => sourceRef.start!.pageNumber).toSet();
-  if (!_setEquals(declaredPages, matchedPages)) isCoarse = true;
-
   if (encounterOrder.length == 1) {
     return _Provenance(
       ref: isCoarse ? documentRef : encounterOrder.single,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: isCoarse,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -491,6 +949,8 @@ _Provenance _resolveProvenance(
   if (isCoarse) {
     return _Provenance(
       ref: documentRef,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -509,6 +969,8 @@ _Provenance _resolveProvenance(
     );
     return _Provenance(
       ref: range,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
@@ -519,6 +981,8 @@ _Provenance _resolveProvenance(
   } on FormatException {
     return _Provenance(
       ref: documentRef,
+      documentRef: documentRef,
+      questionSourceRefs: List<SourceRef>.unmodifiable(questionSourceRefs),
       isCoarse: true,
       matchedParts: matchedParts,
       declaredParts: declaredParts,
