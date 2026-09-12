@@ -213,6 +213,203 @@ void main() {
       );
     });
 
+    test('schema v1 structural option repair preserves math and identities',
+        () {
+      const optionAId = 'option-a';
+      const optionBId = 'option-b';
+      const beforeOptions = <String>[
+        r'A. 坏公式 \(\begin{matrix}1',
+        r'B. 保持 \(y\)',
+      ];
+      const afterOptions = <String>[
+        r'A. 修好 \(\begin{matrix}1\end{matrix}\)',
+        r'B. 保持 \(y\)',
+      ];
+      final optionSource = SourceRef.document(
+        sourceId: _sourceId,
+        displayLabel: null,
+      );
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: QuestionDraftV2(
+          questionId: _questionId,
+          kind: QuestionKind.singleChoice,
+          questionNumber: 21,
+          stem: RichContent(nodes: const <ContentNode>[TextNode('Stem')]),
+          options: <QuestionOption>[
+            QuestionOption(
+              optionId: optionAId,
+              label: 'A',
+              content: RichContent(
+                nodes: const <ContentNode>[
+                  TextNode(r'坏公式 \(\begin{matrix}1'),
+                ],
+              ),
+              sourceRef: optionSource,
+            ),
+            QuestionOption(
+              optionId: optionBId,
+              label: 'B',
+              content: RichContent(
+                nodes: const <ContentNode>[
+                  TextNode('保持 '),
+                  InlineMathNode('y'),
+                ],
+              ),
+            ),
+          ],
+          answer: ChoiceAnswer(optionIds: const <String>[optionAId]),
+          sourceRefs: _sourceRefs(),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 0,
+          questionNumber: 21,
+          content: 'Stem',
+          options: beforeOptions,
+          standardAnswer: 'A',
+          explanation: '',
+        ),
+      );
+      const before = QuestionDraft(
+        type: QuestionType.singleChoice,
+        content: 'Stem',
+        options: beforeOptions,
+        standardAnswer: 'A',
+        explanation: '',
+      );
+      const after = QuestionDraft(
+        type: QuestionType.singleChoice,
+        content: 'Stem',
+        options: afterOptions,
+        standardAnswer: 'A',
+        explanation: '',
+      );
+      final marker = ReviewRepairEdit.applied(
+        before: before,
+        after: after,
+        fields: const <ReviewRepairField>[ReviewRepairField.options],
+      );
+
+      final result = _build(
+        current: after,
+        repairEdit: marker,
+        snapshot: snapshot,
+      );
+
+      final options = result.acceptedDrafts.single.options;
+      expect(options.map((option) => option.optionId), <String>[
+        optionAId,
+        optionBId,
+      ]);
+      expect(options.map((option) => option.label), <String>['A', 'B']);
+      expect(options.first.sourceRef, optionSource);
+      expect(
+        options.first.content.nodes.whereType<InlineMathNode>().map(
+              (node) => node.latex,
+            ),
+        contains(r'\begin{matrix}1\end{matrix}'),
+      );
+      expect(options[1], snapshot.draft.options[1]);
+    });
+
+    test('schema v1 option marker fails safe after any option changes', () {
+      const beforeOptions = <String>[
+        r'A. 坏公式 \(\begin{matrix}1',
+        r'B. 保持 \(y\)',
+      ];
+      const markedOptions = <String>[
+        r'A. 修好 \(\begin{matrix}1\end{matrix}\)',
+        r'B. 保持 \(y\)',
+      ];
+      const editedOptions = <String>[
+        r'A. 修好 \(\begin{matrix}1\end{matrix}\)',
+        'B. 人工改动',
+      ];
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: QuestionDraftV2(
+          questionId: _questionId,
+          kind: QuestionKind.singleChoice,
+          questionNumber: 21,
+          stem: RichContent(nodes: const <ContentNode>[TextNode('Stem')]),
+          options: <QuestionOption>[
+            QuestionOption(
+              optionId: 'option-a',
+              label: 'A',
+              content: RichContent(
+                nodes: const <ContentNode>[
+                  TextNode(r'坏公式 \(\begin{matrix}1'),
+                ],
+              ),
+            ),
+            QuestionOption(
+              optionId: 'option-b',
+              label: 'B',
+              content: RichContent(
+                nodes: const <ContentNode>[
+                  TextNode('保持 '),
+                  InlineMathNode('y'),
+                ],
+              ),
+            ),
+          ],
+          answer: ChoiceAnswer(optionIds: const <String>['option-a']),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 0,
+          questionNumber: 21,
+          content: 'Stem',
+          options: beforeOptions,
+          standardAnswer: 'A',
+          explanation: '',
+        ),
+      );
+      const before = QuestionDraft(
+        type: QuestionType.singleChoice,
+        content: 'Stem',
+        options: beforeOptions,
+        standardAnswer: 'A',
+        explanation: '',
+      );
+      const marked = QuestionDraft(
+        type: QuestionType.singleChoice,
+        content: 'Stem',
+        options: markedOptions,
+        standardAnswer: 'A',
+        explanation: '',
+      );
+      const edited = QuestionDraft(
+        type: QuestionType.singleChoice,
+        content: 'Stem',
+        options: editedOptions,
+        standardAnswer: 'A',
+        explanation: '',
+      );
+
+      final result = _build(
+        current: edited,
+        repairEdit: ReviewRepairEdit.applied(
+          before: before,
+          after: marked,
+          fields: const <ReviewRepairField>[ReviewRepairField.options],
+        ),
+        snapshot: snapshot,
+      );
+
+      final repairedOption = result.acceptedDrafts.single.options.first;
+      expect(repairedOption.content.nodes, hasLength(1));
+      expect(
+        repairedOption.content.nodes.single,
+        const TextNode(r'修好 \(\begin{matrix}1\end{matrix}\)'),
+      );
+      expect(
+        repairedOption.content.nodes.whereType<InlineMathNode>(),
+        isEmpty,
+      );
+    });
+
     test('schema v2 replaces only the selected math node', () {
       const legacy = r'前 \(a\) 中 \(\begin{matrix}1\) 后 \(c\)';
       const repaired = r'前 \(a\) 中 \(\begin{matrix}1\end{matrix}\) 后 \(c\)';
@@ -421,6 +618,71 @@ void main() {
           repairEdit: marker,
           snapshot: snapshot,
         ),
+        throwsA(
+          isA<TypedReviewCommitException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitFailure.invalidRepairEdit,
+          ),
+        ),
+      );
+    });
+
+    test('schema v2 rejects a frozen typed target digest mismatch', () {
+      const legacy = r'前 \(\begin{matrix}1\) 后';
+      const repaired = r'前 \(\begin{matrix}1\end{matrix}\) 后';
+      const originalLatex = r'\begin{matrix}1';
+      const replacementLatex = r'\begin{matrix}1\end{matrix}';
+      final snapshot = TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: QuestionDraftV2(
+          questionId: _questionId,
+          kind: QuestionKind.shortAnswer,
+          questionNumber: 21,
+          stem: RichContent(nodes: const <ContentNode>[TextNode('Stem x+1')]),
+          explanation: RichContent(nodes: const <ContentNode>[
+            TextNode('前 '),
+            InlineMathNode(r'\begin{matrix}2'),
+            TextNode(' 后'),
+          ]),
+          sourceRefs: _sourceRefs(),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 3,
+          questionNumber: 21,
+          content: 'Stem x+1',
+          options: <String>[],
+          standardAnswer: 'Answer',
+          explanation: legacy,
+        ),
+      );
+      final before = _currentDraft(explanation: legacy);
+      final after = _currentDraft(explanation: repaired);
+      final start = legacy.indexOf(originalLatex);
+      final marker = ReviewRepairEdit.latexFragment(
+        before: before,
+        after: after,
+        target: LatexFragmentTarget(
+          reviewItemId: _reviewItemId,
+          expectedRevision: 3,
+          field: LatexFragmentField.explanation,
+          optionId: null,
+          nodeIndex: 1,
+          nodeKind: LatexFragmentNodeKind.inlineMath,
+          originalFieldDigest: fieldDigest(legacy),
+          originalLatexDigest: fieldDigest(originalLatex),
+          legacyStart: start,
+          legacyEnd: start + originalLatex.length,
+          originalLatex: originalLatex,
+          precedingContext: '前 ',
+          followingContext: ' 后',
+        ),
+        replacementLatex: replacementLatex,
+      );
+
+      expect(
+        () => _build(current: after, repairEdit: marker, snapshot: snapshot),
         throwsA(
           isA<TypedReviewCommitException>().having(
             (error) => error.failure,

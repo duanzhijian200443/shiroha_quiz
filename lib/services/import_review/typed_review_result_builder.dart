@@ -412,7 +412,8 @@ final class TypedReviewResultBuilder {
         marker: fragment,
       );
     }
-    if (repairEdit != null && repairEdit.isSatisfiedBy(field, currentText)) {
+    final repairSource = currentFieldSource ?? currentText;
+    if (repairEdit != null && repairEdit.isSatisfiedBy(field, repairSource)) {
       final rebuilt = reviewFieldContentFromLegacyText(currentText);
       if (rebuilt != null && rebuilt.nodes.any((node) => node is! TextNode)) {
         return rebuilt;
@@ -461,6 +462,13 @@ final class TypedReviewResultBuilder {
         );
       }
       if (index == marker.nodeIndex) {
+        final typedOriginalLatex = switch ((marker.nodeKind, node)) {
+          (LatexFragmentNodeKind.inlineMath, InlineMathNode(:final latex)) =>
+            latex,
+          (LatexFragmentNodeKind.blockMath, BlockMathNode(:final latex)) =>
+            latex,
+          _ => null,
+        };
         final originalLatex = switch ((marker.nodeKind, originalToken)) {
           (LatexFragmentNodeKind.inlineMath, InlineMathToken(:final tex)) =>
             tex,
@@ -473,7 +481,9 @@ final class TypedReviewResultBuilder {
           (LatexFragmentNodeKind.blockMath, BlockMathToken(:final tex)) => tex,
           _ => null,
         };
-        if (originalLatex == null ||
+        if (typedOriginalLatex == null ||
+            fieldDigest(typedOriginalLatex) != marker.originalLatexDigest ||
+            originalLatex == null ||
             fieldDigest(originalLatex) != marker.originalLatexDigest ||
             replacement == null ||
             fieldDigest(replacement) != marker.replacementLatexDigest) {

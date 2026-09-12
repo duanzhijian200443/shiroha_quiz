@@ -102,6 +102,7 @@ enum LatexFragmentLocateClassification {
   unsupportedNodeKind('unsupported_node_kind'),
   typedLegacyNodeCountMismatch('typed_legacy_node_count_mismatch'),
   typedLegacyNodeKindMismatch('typed_legacy_node_kind_mismatch'),
+  targetValueMismatch('target_value_mismatch'),
   targetLegacyRenderabilityMismatch(
     'target_legacy_renderability_mismatch',
   ),
@@ -506,6 +507,17 @@ final class LatexFragmentLocator {
               typedCharacterLength: latex.runes.length,
               legacyCharacterLength: tex.runes.length,
             );
+            if (!isRenderable(latex)) {
+              return _AlignmentResult.failure(
+                metrics.failure(
+                  isRenderable(tex)
+                      ? LatexFragmentLocateClassification
+                          .targetLegacyRenderabilityMismatch
+                      : LatexFragmentLocateClassification.targetValueMismatch,
+                  field: field,
+                ),
+              );
+            }
           }
           if (!isRenderable(latex)) {
             if (isRenderable(tex)) {
@@ -543,6 +555,17 @@ final class LatexFragmentLocator {
               typedCharacterLength: latex.runes.length,
               legacyCharacterLength: tex.runes.length,
             );
+            if (!isRenderable(latex)) {
+              return _AlignmentResult.failure(
+                metrics.failure(
+                  isRenderable(tex)
+                      ? LatexFragmentLocateClassification
+                          .targetLegacyRenderabilityMismatch
+                      : LatexFragmentLocateClassification.targetValueMismatch,
+                  field: field,
+                ),
+              );
+            }
           }
           if (!isRenderable(latex)) {
             if (isRenderable(tex)) {

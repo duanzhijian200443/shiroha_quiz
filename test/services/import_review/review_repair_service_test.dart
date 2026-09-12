@@ -755,6 +755,25 @@ void main() {
       expect(provider.calls, 0);
     });
 
+    test('typed and legacy target value mismatch makes zero provider calls',
+        () async {
+      const legacy = r'前 \(a\) 中 \(\begin{matrix}2\) 后 \(c\)';
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(explanation: legacy),
+        snapshot: _fragmentSnapshot(legacy: legacy),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.fragmentTargetUnavailable);
+      expect(result.diagnostics, <String>['target_value_mismatch']);
+      expect(provider.calls, 0);
+    });
+
     test('multiple invalid nodes make zero provider calls', () async {
       const legacy = r'前 \(\begin{matrix}1\) 后 \(\begin{array}2\)';
       final sink = _MemoryLogSink();

@@ -11,10 +11,11 @@ for `dangling_latex`, `empty_content`, `choice_options_less_than_2`, and
 `LatexFragmentRepair` applies only to a pure `latex_unrenderable` review issue.
 It requires a frozen typed review snapshot, an unchanged legacy baseline, and
 exactly one unrenderable `InlineMathNode` or `BlockMathNode` that aligns
-by node index and kind with one also-unrenderable legacy math span. Typed and
-legacy content may already differ because of prior normalization; the frozen
-legacy span is the fragment/digest authority, while node count and kind remain
-strict. Missing, ambiguous, multiple, stale, or unsupported targets stay
+by node index, kind, and exact LaTeX value with one also-unrenderable legacy
+math span. Typed and legacy content may already differ because of prior
+normalization only on non-target nodes; any target value mismatch fails closed.
+The matching frozen typed node and legacy span jointly bind the fragment digest,
+while node count and kind remain strict. Missing, ambiguous, multiple, stale, or unsupported targets stay
 manual-review-only with zero provider calls. In V1,
 `ImageNode`, `TableNode`, and `RawFallbackNode` make the containing field an
 unsupported target rather than allowing repair to cross a structural node.
@@ -50,9 +51,9 @@ field/option locator, node index and kind, and SHA-256 digests of the original
 and result field and fragment values. It never stores LaTeX source.
 
 At typed commit, schema v2 is revalidated against the frozen baseline and
-current legacy token streams, frozen typed node kinds, replacement span,
-renderability, and all digests. Existing typed/legacy normalization differences
-on non-target nodes are preserved: the builder clones the original
+current legacy token streams, frozen typed target kind and LaTeX digest,
+replacement span, renderability, and all digests. Existing typed/legacy
+normalization differences on non-target nodes are preserved: the builder clones the original
 `RichContent` and replaces exactly the target node. Every other node, option
 identity, source reference, asset,
 diagnostic, and draft field remains unchanged. Unknown or corrupt markers fail
@@ -74,7 +75,7 @@ reasoning text, raw provider bodies, private source content, or paths.
 
 Locator failures use fixed classifications for missing snapshot, identity or
 baseline drift, unavailable fields, option mismatch, unsupported nodes,
-typed/legacy count/kind mismatch, a typed-bad/legacy-valid target, and
+typed/legacy count/kind mismatch, any typed/legacy target value mismatch, and
 zero/multiple candidates. Shape
 metadata is bounded to counts plus at most 32 math-node entries containing only
 field, option ordinal, node index/kind, and renderability boolean. A first

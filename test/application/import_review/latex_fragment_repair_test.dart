@@ -334,7 +334,7 @@ void main() {
       );
     }
 
-    final mathResult = inspect(
+    final targetMismatch = inspect(
       legacy: r'前 \(\begin{matrix}2\) 后',
       nodes: const <ContentNode>[
         TextNode('前 '),
@@ -342,23 +342,43 @@ void main() {
         TextNode(' 后'),
       ],
     );
-    final mathDiagnostic = mathResult.diagnostic;
+    final targetMismatchDiagnostic = targetMismatch.diagnostic;
+    expect(targetMismatch.target, isNull);
     expect(
-      mathDiagnostic.classification,
-      LatexFragmentLocateClassification.targetAvailable,
+      targetMismatchDiagnostic.classification,
+      LatexFragmentLocateClassification.targetValueMismatch,
     );
-    expect(mathResult.target!.originalLatex, r'\begin{matrix}2');
-    expect(mathDiagnostic.uniqueUnrenderableNodeIndex, 1);
+    expect(targetMismatchDiagnostic.uniqueUnrenderableNodeIndex, 1);
     expect(
-      mathDiagnostic.uniqueUnrenderableNodeKind,
+      targetMismatchDiagnostic.uniqueUnrenderableNodeKind,
       LatexFragmentNodeKind.inlineMath,
     );
-    expect(mathDiagnostic.mismatchNodeIndex, 1);
-    expect(mathDiagnostic.mismatchTypedKind, 'inline_math');
-    expect(mathDiagnostic.mismatchLegacyKind, 'inline_math');
-    expect(mathDiagnostic.mismatchTypedCharacterLength, 15);
-    expect(mathDiagnostic.mismatchLegacyCharacterLength, 15);
-    expect(mathDiagnostic.mismatchAtUnrenderableMathNode, isTrue);
+    expect(targetMismatchDiagnostic.mismatchNodeIndex, 1);
+    expect(targetMismatchDiagnostic.mismatchTypedKind, 'inline_math');
+    expect(targetMismatchDiagnostic.mismatchLegacyKind, 'inline_math');
+    expect(targetMismatchDiagnostic.mismatchTypedCharacterLength, 15);
+    expect(targetMismatchDiagnostic.mismatchLegacyCharacterLength, 15);
+    expect(targetMismatchDiagnostic.mismatchAtUnrenderableMathNode, isTrue);
+
+    final nonTargetMathMismatch = inspect(
+      legacy: r'前 \(alpha\) 中 \(\begin{matrix}1\) 后',
+      nodes: const <ContentNode>[
+        TextNode('前 '),
+        InlineMathNode('a'),
+        TextNode(' 中 '),
+        InlineMathNode(r'\begin{matrix}1'),
+        TextNode(' 后'),
+      ],
+    );
+    final nonTargetMathDiagnostic = nonTargetMathMismatch.diagnostic;
+    expect(
+      nonTargetMathDiagnostic.classification,
+      LatexFragmentLocateClassification.targetAvailable,
+    );
+    expect(nonTargetMathMismatch.target!.nodeIndex, 3);
+    expect(nonTargetMathMismatch.target!.originalLatex, r'\begin{matrix}1');
+    expect(nonTargetMathDiagnostic.mismatchNodeIndex, 1);
+    expect(nonTargetMathDiagnostic.mismatchAtUnrenderableMathNode, isFalse);
 
     final textResult = inspect(
       legacy: r'甲 \(\begin{matrix}1\) 后',
