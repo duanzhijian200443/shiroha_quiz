@@ -217,6 +217,7 @@ class OcrImportService {
       final referenceAnswerIndex = _referenceAnswerExtractor.extract(
         document,
         regionized.regions,
+        referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
       );
       final mergedRegions = _referenceAnswerMerger.merge(
         regionized.regions,

@@ -28,8 +28,12 @@ class ReferenceAnswerMerger {
       final localAnswer = region.answerText;
       final diagnostics = <String>{...region.diagnostics};
       List<String> answerParts = region.answerParts;
+      List<OcrQuestionRegionSource> ownedSources = region.ownedSources;
       if (!isMeaningfulAnswer(localAnswer)) {
         answerParts = [entry.answerText];
+        ownedSources = region.ownedSources
+            .where((source) => source.field != OcrRegionField.answer)
+            .toList(growable: false);
         diagnostics
           ..remove('missing_answer')
           ..add('reference_answer_attached')
@@ -52,20 +56,18 @@ class ReferenceAnswerMerger {
         ...region.sourceBlockIds,
         ...entry.sourceBlockIds,
       }.toList();
+      final evidenceBlockIds = {
+        ...region.evidenceOnlySourceBlockIds,
+        for (final blockId in entry.sourceBlockIds)
+          if (!region.sourceBlockIds.contains(blockId)) blockId,
+      }.toList();
       return _copyRegion(
         region,
         answerParts: answerParts,
         sourcePageIndices: pages,
         sourceBlockIds: blockIds,
-        ownedSources: [
-          ...region.ownedSources,
-          for (final blockId in entry.sourceBlockIds)
-            OcrQuestionRegionSource(
-              blockId: blockId,
-              field: OcrRegionField.answer,
-              text: entry.answerText,
-            ),
-        ],
+        ownedSources: ownedSources,
+        evidenceOnlySourceBlockIds: evidenceBlockIds,
         diagnostics: diagnostics,
       );
     }).toList(growable: false);
@@ -77,6 +79,7 @@ class ReferenceAnswerMerger {
     List<int>? sourcePageIndices,
     List<String>? sourceBlockIds,
     List<OcrQuestionRegionSource>? ownedSources,
+    List<String>? evidenceOnlySourceBlockIds,
     Set<String>? diagnostics,
   }) {
     return OcrQuestionRegion(
@@ -89,6 +92,9 @@ class ReferenceAnswerMerger {
       sourceBlockIds:
           List.unmodifiable(sourceBlockIds ?? region.sourceBlockIds),
       ownedSources: List.unmodifiable(ownedSources ?? region.ownedSources),
+      evidenceOnlySourceBlockIds: List.unmodifiable(
+        evidenceOnlySourceBlockIds ?? region.evidenceOnlySourceBlockIds,
+      ),
       diagnostics: List.unmodifiable(diagnostics ?? region.diagnostics.toSet()),
       declaredKind: region.declaredKind,
     );

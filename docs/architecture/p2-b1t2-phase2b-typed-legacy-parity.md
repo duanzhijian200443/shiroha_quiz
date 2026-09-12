@@ -404,3 +404,32 @@ The following remain deferred and are not activated by this contract:
 - final live PDF acceptance for the real provider trace;
 - AI Repair, P2-B2, AnswerAttempt, RAG, MCP, and option-extraction redesign;
 - P3 mixed-structural stem option extraction.
+
+## 11. OCR typed-math producer successor
+
+The earlier production observations above describe the TextNode-only OCR
+producer at that stage. Its successor classifies explicit mathematical syntax
+in OCR text, paragraph, title, heading, formula and equation blocks before
+typed assembly. Persisted TextNode remains literal; renderers do not reinterpret
+its contents. This correction uses the existing InlineMathNode and BlockMathNode
+schema and does not repair historical snapshots.
+
+The opt-in math scanner preserves ordinary text and mathematical payloads,
+including whitespace. Ambiguous delimiters retain a literal suffix rather than
+being repaired. A call-local OCR source map records raw UTF-16 intervals and
+original mathematical delimiters by node identity. It is never serialized.
+Bridge ownership may split text but must include math nodes whole; ambiguous
+ownership is explicitly unsupported. Proven non-overlapping textual/math
+intervals may belong to different fields of one block. Asset and table ownership
+rules are unchanged.
+
+OCR assembly applies its existing field extraction policies through an atomic
+math view and restores the original nodes. General mixed image/table option
+extraction remains deferred. Only the OCR compatibility profile uses the
+call-local original math representation, preserving source delimiters; the
+general RichContentTextProjection and other profiles are unchanged.
+
+The final mathematical AST still crosses the existing strict candidate,
+privacy and snapshot gates. Math does not qualify for TextNode-only relaxed
+parity. No comparator exception, sidecar version, database schema or historical
+data migration is introduced by this producer correction.

@@ -17,7 +17,9 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dar
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_entry.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
@@ -205,6 +207,246 @@ void main() {
       );
       expect(candidate.draft.sourceRefs, hasLength(3),
           reason: 'typed source refs are preserved on the candidate draft');
+    });
+
+    test(
+        'conflicting multi-block reference evidence preserves local answer '
+        'and reaches typedV2', () {
+      final document = _document(
+        'q21_reference_ownership.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block('question_block', 1, 0, 'Synthetic prompt marker 21.'),
+              _block('local_answer', 1, 1, 'Local authoritative answer'),
+            ],
+          ),
+          OcrPage(
+            pageIndex: 2,
+            blocks: <OcrBlock>[
+              _block('reference_block_1', 2, 0, 'Reference evidence one'),
+              _block('reference_block_2', 2, 1, 'Reference evidence two'),
+              _block('reference_block_3', 2, 2, 'Reference evidence three'),
+            ],
+          ),
+        ],
+      );
+      final merged = const ReferenceAnswerMerger().merge(
+        const <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 21,
+            stemParts: <String>['Synthetic prompt marker 21.'],
+            answerParts: <String>['Local authoritative answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question_block', 'local_answer'],
+            diagnostics: <String>[],
+            declaredKind: TextQuestionKind.subjective,
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question_block',
+                field: OcrRegionField.stem,
+                text: 'Synthetic prompt marker 21.',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'Local authoritative answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            21: ReferenceAnswerEntry(
+              questionNumber: 21,
+              answerText: 'Different reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_block_1',
+                'reference_block_2',
+                'reference_block_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[merged]);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[merged],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        legacyQuestions.single['standard_answer'],
+      );
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        const <String>[
+          'question_block',
+          'local_answer',
+          'reference_block_1',
+          'reference_block_2',
+          'reference_block_3',
+        ],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('attached multi-block reference answer is materialized exactly once',
+        () {
+      final document = _document(
+        'attached_reference_ownership.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block('question_block', 1, 0, 'Synthetic prompt marker 22.'),
+            ],
+          ),
+          OcrPage(
+            pageIndex: 2,
+            blocks: <OcrBlock>[
+              _block('reference_block_1', 2, 0, 'Reference evidence one'),
+              _block('reference_block_2', 2, 1, 'Reference evidence two'),
+              _block('reference_block_3', 2, 2, 'Reference evidence three'),
+            ],
+          ),
+        ],
+      );
+      final merged = const ReferenceAnswerMerger().merge(
+        const <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 22,
+            stemParts: <String>['Synthetic prompt marker 22.'],
+            answerParts: <String>[],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question_block'],
+            diagnostics: <String>['missing_answer'],
+            declaredKind: TextQuestionKind.subjective,
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question_block',
+                field: OcrRegionField.stem,
+                text: 'Synthetic prompt marker 22.',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            22: ReferenceAnswerEntry(
+              questionNumber: 22,
+              answerText: 'Authoritative reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_block_1',
+                'reference_block_2',
+                'reference_block_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[merged]);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[merged],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        'Authoritative reference answer',
+      );
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        legacyQuestions.single['standard_answer'],
+      );
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        const <String>[
+          'question_block',
+          'reference_block_1',
+          'reference_block_2',
+          'reference_block_3',
+        ],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('ASCII choice production chain reaches typedV2 under allQuestionTypes',
+        () {
+      final document = _asciiChoiceDocument();
+      final region = _asciiChoiceRegion();
+      final finalQuestion = const ImportQuestionFieldPolicy().applyToMap(
+        _assembler.assemble(region).question,
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+      final finalQuestions = <Map<String, dynamic>>[finalQuestion];
+
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[region],
+        legacyQuestions: finalQuestions,
+        uuidV4Factory: _uuidSequence(),
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(finalQuestion['raw_explanation'], isNotEmpty);
+      expect(finalQuestion['explanation'], isNotEmpty);
+      expect(candidate.draft.options, hasLength(4));
+      expect(candidate.draft.explanation, isNotNull);
+      expect(candidate.projectedLegacy.options, <String>[
+        'A. 甲',
+        'B. 乙',
+        'C. 丙',
+        'D. 丁',
+      ]);
+      expect(candidate.projectedLegacy.content, finalQuestion['content']);
+      expect(candidate.projectedLegacy.explanation, isNotEmpty);
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: finalQuestions,
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
     });
 
     test('ai_repair_applied makes the whole batch ineligible', () {
@@ -1078,6 +1320,9 @@ void main() {
 
     test('snapshot encode/decode self-check failures remove every envelope',
         () {
+      final events = <Map<String, Object?>>[];
+      typedCandidateRejectionHandlerForTesting = events.add;
+      addTearDown(() => typedCandidateRejectionHandlerForTesting = null);
       final unsafeDraft = QuestionDraftV2(
         questionId: _questionUuidA,
         kind: QuestionKind.shortAnswer,
@@ -1107,6 +1352,32 @@ void main() {
       );
 
       expect(result.reason, 'typed_candidate_snapshot_invalid');
+      expect(events.single, <String, Object?>{
+        'question': 1,
+        'questionNumber': 1,
+        'kind': 'snapshot_encode_unsafePayload',
+        'kindCode': 'snapshot_encode_unsafePayload',
+        'failure': 'snapshotInvalid',
+        'field': 'stem',
+      });
+      typedCandidateRejectionHandlerForTesting =
+          (_) => throw StateError('observer');
+      final observedFailure = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(candidates: [
+          _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: unsafeDraft),
+        ]),
+        finalQuestions: [_finalQuestion(number: 1)],
+        singleFile: true,
+      );
+      expect(observedFailure.reason, result.reason);
+      expect(
+          observedFailure.questions.single
+              .containsKey(TypedReviewSnapshotCodec.mapKey),
+          isFalse);
       expect(
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,
@@ -1513,6 +1784,81 @@ void main() {
         expect(event['boundedAllowed'], isFalse);
       });
     });
+
+    group('unsupported structure diagnostic telemetry', () {
+      test(
+          'records questionNumber and kindCode when candidate construction throws (Test B)',
+          () {
+        final emitted = <Map<String, Object?>>[];
+        typedCandidateRejectionHandlerForTesting = emitted.add;
+        addTearDown(() {
+          typedCandidateRejectionHandlerForTesting = null;
+        });
+
+        final document = _tableDocument();
+        final regionized = _regionizer.regionize(document);
+        expect(regionized.regions, hasLength(1));
+        final batch = buildOcrTypedCandidateBatch(
+          document: document,
+          regions: regionized.regions,
+          legacyQuestions: _legacyQuestions(regionized.regions),
+          uuidV4Factory: _uuidSequence(),
+        );
+
+        expect(batch.candidates, isEmpty);
+        expect(
+          batch.failure,
+          OcrTypedCandidateFailure.unsupportedStructure,
+        );
+        expect(emitted, hasLength(1));
+        final record = emitted.single;
+        expect(record['questionNumber'], regionized.regions.single.number);
+        expect(record['kindCode'], 'ocr_table');
+        expect(record['failure'], 'unsupportedStructure');
+      });
+
+      test(
+          'records questionNumber and ocr_structural_ownership when structural part is not owned',
+          () {
+        final emitted = <Map<String, Object?>>[];
+        typedCandidateRejectionHandlerForTesting = emitted.add;
+        addTearDown(() {
+          typedCandidateRejectionHandlerForTesting = null;
+        });
+
+        final document = _mergedExplanationTableDocument();
+        final regionized = _regionizer.regionize(document);
+        expect(regionized.regions, hasLength(1));
+        final unownedRegion = OcrQuestionRegion(
+          number: regionized.regions.single.number,
+          stemParts: regionized.regions.single.stemParts,
+          answerParts: regionized.regions.single.answerParts,
+          explanationParts: regionized.regions.single.explanationParts,
+          sourcePageIndices: regionized.regions.single.sourcePageIndices,
+          sourceBlockIds: regionized.regions.single.sourceBlockIds,
+          diagnostics: regionized.regions.single.diagnostics,
+          declaredKind: regionized.regions.single.declaredKind,
+          ownedSources: const <OcrQuestionRegionSource>[],
+        );
+        final batch = buildOcrTypedCandidateBatch(
+          document: document,
+          regions: <OcrQuestionRegion>[unownedRegion],
+          legacyQuestions: _legacyQuestions(<OcrQuestionRegion>[unownedRegion]),
+          uuidV4Factory: _uuidSequence(),
+        );
+
+        expect(batch.candidates, isEmpty);
+        expect(
+          batch.failure,
+          OcrTypedCandidateFailure.unsupportedStructure,
+        );
+        expect(emitted, hasLength(1));
+        final record = emitted.single;
+        expect(record['questionNumber'], unownedRegion.number);
+        expect(record['kindCode'], 'ocr_structural_ownership');
+        expect(record['failure'], 'unsupportedStructure');
+      });
+    });
   });
 }
 
@@ -1669,6 +2015,35 @@ OcrDocument _shortAnswerDocument() {
           _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
           _block('answer_1', 1, 2, '答案：synthetic-result-1'),
           _block('explanation_1', 1, 3, '解析：Synthetic explanation 1'),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrQuestionRegion _asciiChoiceRegion() {
+  return const OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'],
+    answerParts: <String>['A'],
+    explanationParts: <String>['解析：保留解析'],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['q_1', 'answer_1', 'explanation_1'],
+    diagnostics: <String>[],
+    declaredKind: TextQuestionKind.choice,
+  );
+}
+
+OcrDocument _asciiChoiceDocument() {
+  return _document(
+    'r7b_synthetic_ascii_choice.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('q_1', 1, 0, '1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'),
+          _block('answer_1', 1, 1, '答案：A'),
+          _block('explanation_1', 1, 2, '解析：保留解析'),
         ],
       ),
     ],

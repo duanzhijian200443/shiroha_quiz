@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart'
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
@@ -108,6 +109,64 @@ void main() {
       store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
       isNull,
     );
+  });
+
+  test(
+      'allQuestionTypes keeps an objective explanation through the production chain',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    const mode = ExplanationRetentionMode.allQuestionTypes;
+    final fixture = _objectiveFixture();
+    final regions = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final assembled = const OcrQuestionAssembler().assemble(regions.single);
+    final sourceQuestion = const ImportQuestionFieldPolicy().applyToMap(
+      assembled.question,
+      mode: mode,
+    );
+    final sourceRawExplanation = sourceQuestion['raw_explanation'];
+    expect(sourceQuestion['type'], 0);
+    expect(sourceRawExplanation, isA<String>());
+    expect((sourceRawExplanation as String).isNotEmpty, isTrue);
+    expect(sourceQuestion['explanation'], isNotEmpty);
+
+    final batch = buildOcrTypedCandidateBatch(
+      document: fixture,
+      regions: regions,
+      legacyQuestions: <Map<String, dynamic>>[sourceQuestion],
+      uuidV4Factory: _uuidSequence(),
+      assetStore: store,
+      explanationRetentionMode: mode,
+    );
+    expect(batch.failure, isNull);
+    final candidate = batch.candidates.single;
+    expect(candidate.draft.explanation, isNotNull);
+    expect(candidate.projectedLegacy.explanation, isNotEmpty);
+
+    final result = await _pipelineForSingleBatch(
+      store: store,
+      batch: batch,
+      questions: <Map<String, dynamic>>[sourceQuestion],
+    ).parseFiles(
+      const ImportParseRequest(
+        filePaths: <String>['all-question-types.png'],
+        fileNames: <String>['all-question-types.png'],
+        mode: ImportParseMode.ocr,
+        maxConcurrency: 1,
+        taskId: 'a2-all-question-types',
+        explanationRetentionMode: mode,
+      ),
+    );
+
+    final projectedLegacy = result.questions.single;
+    expect(projectedLegacy['type'], 0);
+    expect(projectedLegacy['raw_explanation'], isNotEmpty);
+    expect(projectedLegacy['explanation'], isNotEmpty);
+    expect(result.storageRoute, ImportStorageRoute.typedV2);
+    expect(result.storageReason, ocrTypedCandidateReadyReason);
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+      projectedLegacy[TypedReviewSnapshotCodec.mapKey],
+    );
+    expect(snapshot.draft.explanation, isNotNull);
   });
 
   test('multi-file OCR rolls back every candidate lease on legacy fallback',
@@ -1062,6 +1121,37 @@ OcrDocument _fixture({
     sourceName: 'synthetic.pdf',
     pages: <OcrPage>[
       OcrPage(pageIndex: 1, blocks: blocks),
+    ],
+    markdown: '',
+    rawResponses: const <Map<String, dynamic>>[],
+    usage: const <String, dynamic>{},
+  );
+}
+
+OcrDocument _objectiveFixture() {
+  return OcrDocument(
+    sourceName: 'synthetic-objective.pdf',
+    pages: <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 'text', '一、选择题', 0),
+          _block(
+            'q_1',
+            'text',
+            '1. Prompt before image\n'
+                'A. Alpha\n'
+                'B. Beta\n'
+                'C. Gamma\n'
+                'D. Delta',
+            1,
+          ),
+          _block('img_001', 'image', _pngDataUrl, 2),
+          _block('answer_1', 'text', '答案：A', 3),
+          _block(
+              'explanation_1', 'text', '解析：Synthetic objective explanation', 4),
+        ],
+      ),
     ],
     markdown: '',
     rawResponses: const <Map<String, dynamic>>[],

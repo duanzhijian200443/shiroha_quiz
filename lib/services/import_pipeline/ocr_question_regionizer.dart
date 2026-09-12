@@ -1,15 +1,18 @@
 import 'ocr_document.dart';
 import 'ocr_table_projection.dart';
+import 'ocr_text_normalization.dart';
 import 'reference_answer_section.dart';
 import 'text_question_region.dart';
 
 enum OcrRegionField { stem, answer, explanation }
 
-/// Structural OCR ownership for one source block occurrence.
+/// Product-content ownership for one OCR source block occurrence.
 ///
 /// The legacy text arrays remain available to the existing text assembler, but
 /// typed bridging uses this identity-bearing sequence instead of recovering a
-/// source part from rendered text.
+/// source part from rendered text. A source consulted only as evidence or
+/// provenance must not be added here unless its materialized content belongs
+/// to the declared question field.
 final class OcrQuestionRegionSource {
   const OcrQuestionRegionSource({
     required this.blockId,
@@ -24,6 +27,22 @@ final class OcrQuestionRegionSource {
   final String? text;
   final int? startCodeUnitOffset;
   final int? endCodeUnitOffset;
+}
+
+/// Authoritative reference-answer heading boundary produced by the Regionizer.
+///
+/// [headingLineIndex] is zero-based after CR/LF canonicalization. The boundary
+/// carries only source identity and position; it never carries OCR text.
+final class OcrReferenceAnswerSectionBoundary {
+  const OcrReferenceAnswerSectionBoundary({
+    required this.blockId,
+    required this.pageIndex,
+    required this.headingLineIndex,
+  });
+
+  final String blockId;
+  final int pageIndex;
+  final int headingLineIndex;
 }
 
 class OcrQuestionNumberKindRange {
@@ -46,10 +65,12 @@ class OcrQuestionRegionizerResult {
   const OcrQuestionRegionizerResult({
     required this.regions,
     required this.diagnostics,
+    this.referenceAnswerSectionBoundary,
   });
 
   final List<OcrQuestionRegion> regions;
   final Map<String, dynamic> diagnostics;
+  final OcrReferenceAnswerSectionBoundary? referenceAnswerSectionBoundary;
 }
 
 class OcrQuestionRegion {
@@ -63,6 +84,7 @@ class OcrQuestionRegion {
     required this.diagnostics,
     this.declaredKind = TextQuestionKind.unknown,
     this.ownedSources = const <OcrQuestionRegionSource>[],
+    this.evidenceOnlySourceBlockIds = const <String>[],
   });
 
   final int number;
@@ -74,6 +96,9 @@ class OcrQuestionRegion {
   final List<String> diagnostics;
   final TextQuestionKind declaredKind;
   final List<OcrQuestionRegionSource> ownedSources;
+
+  /// Question-level provenance consulted without product-field ownership.
+  final List<String> evidenceOnlySourceBlockIds;
 
   String get stemText => _joinParts(stemParts);
   String get answerText => _joinParts(answerParts);
@@ -253,6 +278,7 @@ class OcrQuestionRegionizer {
     var currentSectionIsReference = false;
     var referenceSectionDetected = false;
     var referenceSectionCandidateCount = 0;
+    OcrReferenceAnswerSectionBoundary? referenceAnswerSectionBoundary;
 
     final questionCandidateTrace = <Map<String, dynamic>>[];
     var questionCandidateTraceTruncated = false;
@@ -395,7 +421,7 @@ class OcrQuestionRegionizer {
         initialDiagnostics: kindInfo.diagnostics,
       );
       currentField = OcrRegionField.stem;
-      current!.addSource(unit.block);
+      current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
       if (remainingText.isNotEmpty && remainingText != number.toString()) {
         final inlineTransition = _supportsFieldTransition(unit.block)
             ? _readInlineExplanationTransition(remainingText)
@@ -462,7 +488,7 @@ class OcrQuestionRegionizer {
       if (current == null) {
         ignoredBlocks.add(unit.block.blockId);
       } else {
-        current!.addSource(unit.block);
+        current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
         current!.addPart(
           currentField,
           text,
@@ -482,10 +508,15 @@ class OcrQuestionRegionizer {
       if (text.isEmpty) continue;
 
       if (confirmedAcceptedNumbers.isNotEmpty &&
-          _isReferenceSummaryHeading(text)) {
+          _isAuthoritativeReferenceSummaryBoundary(unit, text)) {
         finishCurrent();
         currentSectionIsReference = true;
         referenceSectionDetected = true;
+        referenceAnswerSectionBoundary ??= OcrReferenceAnswerSectionBoundary(
+          blockId: unit.sourceBlockId,
+          pageIndex: unit.block.pageIndex,
+          headingLineIndex: unit.sourceStartLineIndex,
+        );
         ignoredBlocks.add(unit.block.blockId);
         continue;
       }
@@ -520,7 +551,7 @@ class OcrQuestionRegionizer {
       final numberedField = _readNumberedFieldTransition(text);
       if (numberedField != null) {
         if (current != null && current!.number == numberedField.number) {
-          current!.addSource(unit.block);
+          current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
           current!.addPart(
             numberedField.field,
             numberedField.remainingText,
@@ -537,6 +568,7 @@ class OcrQuestionRegionizer {
               field: numberedField.field,
               text: numberedField.remainingText,
               block: unit.block,
+              sourceBlockId: unit.sourceBlockId,
             ),
           );
         }
@@ -783,7 +815,7 @@ class OcrQuestionRegionizer {
         continue;
       }
 
-      current!.addSource(unit.block);
+      current!.addSource(unit.block, sourceBlockId: unit.sourceBlockId);
       final supportsFieldTransition = _supportsFieldTransition(unit.block);
       final transition =
           supportsFieldTransition ? _readFieldTransition(text) : null;
@@ -854,6 +886,7 @@ class OcrQuestionRegionizer {
 
     return OcrQuestionRegionizerResult(
       regions: patchedRegions,
+      referenceAnswerSectionBoundary: referenceAnswerSectionBoundary,
       diagnostics: {
         'sourceName': document.sourceName,
         'unitCount': units.length,
@@ -932,6 +965,7 @@ class OcrQuestionRegionizer {
           text: text,
           wasSplit: false,
           startsAtBlockStart: true,
+          sourceStartLineIndex: 0,
           sourceStartCodeUnitOffset: block.text == text ? 0 : null,
           sourceEndCodeUnitOffset: block.text == text ? text.length : null,
         ),
@@ -959,6 +993,7 @@ class OcrQuestionRegionizer {
             text: part,
             wasSplit: true,
             startsAtBlockStart: start == 0,
+            sourceStartLineIndex: _lineIndexAtOffset(text, start),
             sourceStartCodeUnitOffset: block.text == text ? sourceStart : null,
             sourceEndCodeUnitOffset: block.text == text ? sourceEnd : null,
           ),
@@ -967,6 +1002,14 @@ class OcrQuestionRegionizer {
     }
 
     return units;
+  }
+
+  int _lineIndexAtOffset(String text, int offset) {
+    var lineIndex = 0;
+    for (var index = 0; index < offset; index++) {
+      if (text.codeUnitAt(index) == 0x0A) lineIndex++;
+    }
+    return lineIndex;
   }
 
   String _legacyRegionText(OcrBlock block) {
@@ -1328,12 +1371,7 @@ class OcrQuestionRegionizer {
   }
 
   String _normalizeText(String text) {
-    return text
-        .replaceAll('\r\n', '\n')
-        .replaceAll('\r', '\n')
-        .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        .trim();
+    return normalizeOcrText(text);
   }
 
   String _normalizeQuestionCandidateText(String text) {
@@ -1365,6 +1403,15 @@ class OcrQuestionRegionizer {
 
   bool _isReferenceSummaryHeading(String text) {
     return hasReferenceAnswerSectionHeadingSuffix(text);
+  }
+
+  bool _isAuthoritativeReferenceSummaryBoundary(
+    _OcrTextUnit unit,
+    String text,
+  ) {
+    if (!_isReferenceSummaryHeading(text)) return false;
+    if (unit.startsAtBlockStart) return true;
+    return isDocumentTitledReferenceAnswerSectionHeading(text);
   }
 
   _SectionHeadingInfo? _readSectionHeading(String text) {
@@ -1591,10 +1638,10 @@ class OcrQuestionRegionizer {
           explanationParts.add(candidate.text);
         }
         pageIndices.add(candidate.block.pageIndex);
-        blockIds.add(candidate.block.blockId);
+        blockIds.add(candidate.sourceBlockId);
         ownedSources.add(
           OcrQuestionRegionSource(
-            blockId: candidate.block.blockId,
+            blockId: candidate.sourceBlockId,
             field: candidate.field,
             text: candidate.text.trim(),
           ),
@@ -1637,9 +1684,9 @@ class _MutableRegion {
   final ownedSources = <OcrQuestionRegionSource>[];
   final diagnostics = <String>[];
 
-  void addSource(OcrBlock block) {
+  void addSource(OcrBlock block, {String? sourceBlockId}) {
     sourcePageIndices.add(block.pageIndex);
-    sourceBlockIds.add(block.blockId);
+    sourceBlockIds.add(sourceBlockId ?? block.blockId);
     if (block.type == 'formula') {
       diagnostics.add('contains_formula_block');
     }
@@ -1707,6 +1754,7 @@ class _OcrTextUnit {
     required this.text,
     required this.wasSplit,
     required this.startsAtBlockStart,
+    required this.sourceStartLineIndex,
     required this.sourceStartCodeUnitOffset,
     required this.sourceEndCodeUnitOffset,
   });
@@ -1716,6 +1764,7 @@ class _OcrTextUnit {
   final String text;
   final bool wasSplit;
   final bool startsAtBlockStart;
+  final int sourceStartLineIndex;
   final int? sourceStartCodeUnitOffset;
   final int? sourceEndCodeUnitOffset;
 }
@@ -1755,12 +1804,14 @@ class _NumberedFieldCandidate {
     required this.field,
     required this.text,
     required this.block,
+    required this.sourceBlockId,
   });
 
   final int number;
   final OcrRegionField field;
   final String text;
   final OcrBlock block;
+  final String sourceBlockId;
 }
 
 class _KindInfo {

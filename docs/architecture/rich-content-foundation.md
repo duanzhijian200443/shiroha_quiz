@@ -573,6 +573,14 @@ block identity/provenance, the actual `SourcePart` occurrence, and canonical
 reading/encounter order. An optional `SourceSlice` may select a text interval
 inside a `SourceContentPart`; it does not recover non-text ownership.
 
+Field-content ownership and question-level evidence provenance are distinct.
+A `QuestionRegionFragment` identifies source content that may be materialized
+into a product field. `QuestionRegion.sourceRefs` may additionally retain
+ordered source evidence that was consulted to confirm, conflict with, or
+otherwise support that content. Evidence membership alone MUST NOT create a
+field fragment or authorize materialization of the evidence block as product
+content.
+
 When present, `SourceSlice` is authoritative for the fragment's materialized
 content boundary and therefore for that fragment's transitive asset closure.
 Only assets reachable from the selected half-open materialized node interval

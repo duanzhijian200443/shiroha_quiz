@@ -2083,6 +2083,11 @@ void main() {
 
         expect(result.diagnostics['acceptedNumbers'], [1]);
         expect(result.diagnostics['referenceSectionDetected'], isTrue);
+        final boundary = result.referenceAnswerSectionBoundary;
+        expect(boundary, isNotNull);
+        expect(boundary!.blockId, 'embedded_summary');
+        expect(boundary.pageIndex, 1);
+        expect(boundary.headingLineIndex, 2);
         final trace = result.diagnostics['questionCandidateTrace'] as List;
         final referenceEntry = trace.singleWhere(
           (entry) => entry['number'] == 2,
@@ -2143,6 +2148,7 @@ void main() {
 
         expect(result.diagnostics['acceptedNumbers'], [1, 2]);
         expect(result.diagnostics['referenceSectionDetected'], isFalse);
+        expect(result.referenceAnswerSectionBoundary, isNull);
       });
     });
 

@@ -15,12 +15,26 @@ import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dar
 import 'package:shiroha_quiz/services/import_pipeline/candidate_asset_lease.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
+import 'package:shiroha_quiz/services/import_review/import_review_metadata.dart';
+import 'package:shiroha_quiz/services/import_review/review_repair_edit.dart';
 
 enum TaskStatus { processing, pendingReview, completed, error }
 
 extension TaskStatusX on TaskStatus {
   bool get isFinalState =>
       this == TaskStatus.completed || this == TaskStatus.error;
+}
+
+ExplanationRetentionMode _readRetentionMode(
+  Map<String, dynamic>? diagnostics,
+  List<String> keys,
+) {
+  for (final key in keys) {
+    if (diagnostics?.containsKey(key) == true) {
+      return parseExplanationRetentionMode(diagnostics![key]);
+    }
+  }
+  return ExplanationRetentionMode.subjectiveOnly;
 }
 
 /// Durable outcome of an ImportTask-only cleanup operation.
@@ -121,10 +135,29 @@ class ImportTask {
     return value is num ? value.toInt() : null;
   }
 
-  ExplanationRetentionMode get explanationRetentionMode =>
-      parseExplanationRetentionMode(
-        diagnostics?[TaskManager.keyExplanationRetentionMode],
+  ExplanationRetentionMode get parseExplanationRetentionMode =>
+      _readRetentionMode(
+        diagnostics,
+        const <String>[
+          TaskManager.keyParseExplanationRetentionMode,
+          TaskManager.keyExplanationRetentionMode,
+        ],
       );
+
+  ExplanationRetentionMode get reviewExplanationRetentionMode =>
+      _readRetentionMode(
+        diagnostics,
+        const <String>[
+          TaskManager.keyReviewExplanationRetentionMode,
+          TaskManager.keyExplanationRetentionMode,
+          TaskManager.keyParseExplanationRetentionMode,
+        ],
+      );
+
+  /// Compatibility getter. Parse-time retention is the immutable task
+  /// authority; review-time state is exposed separately above.
+  ExplanationRetentionMode get explanationRetentionMode =>
+      parseExplanationRetentionMode;
   Duration get elapsed {
     if (status == TaskStatus.processing) {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -400,7 +433,12 @@ class TaskManager extends ChangeNotifier {
       TypedImportCommitPersistence.keyAttemptToken;
   static const String keyAttemptState =
       TypedImportCommitPersistence.keyAttemptState;
-  static const String keyExplanationRetentionMode = '_explanationRetentionMode';
+  static const String keyParseExplanationRetentionMode =
+      ReviewDraftCasPersistence.keyParseExplanationRetentionMode;
+  static const String keyReviewExplanationRetentionMode =
+      ReviewDraftCasPersistence.keyReviewExplanationRetentionMode;
+  static const String keyExplanationRetentionMode =
+      ReviewDraftCasPersistence.keyExplanationRetentionMode;
   static const String keyReviewDraftRevision =
       TypedImportCommitPersistence.keyReviewDraftRevision;
   static const String keyReviewItemId = '_reviewItemId';
@@ -408,6 +446,7 @@ class TaskManager extends ChangeNotifier {
       '_answer_distillation_status';
   static const String keyAnswerDistillationReason =
       '_answer_distillation_reason';
+  static const String keyReviewRepairEdit = '_review_repair_v1';
   static const String keyImportStorageRoute =
       TypedImportCommitPersistence.keyImportStorageRoute;
   static const String keyImportStorageReason =
@@ -1207,6 +1246,8 @@ class TaskManager extends ChangeNotifier {
           if (previousTraceId != null) keyParentTraceId: previousTraceId,
           keyTraceId: nextAttempt.traceId,
           keyParseMode: parseMode,
+          keyParseExplanationRetentionMode: explanationRetentionMode.name,
+          keyReviewExplanationRetentionMode: explanationRetentionMode.name,
           keyExplanationRetentionMode: explanationRetentionMode.name,
           keyAttemptNumber: nextAttempt.attemptNumber,
           keyAttemptToken: nextAttempt.attemptToken,
@@ -1427,6 +1468,8 @@ class TaskManager extends ChangeNotifier {
       keyParseMode,
       keyBatchId,
       keySelectionIndex,
+      keyParseExplanationRetentionMode,
+      keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
       keyAttemptNumber,
       keyAttemptToken,
@@ -1519,6 +1562,9 @@ class TaskManager extends ChangeNotifier {
       keyParseMode,
       keyBatchId,
       keySelectionIndex,
+      keyParseExplanationRetentionMode,
+      keyReviewExplanationRetentionMode,
+      keyExplanationRetentionMode,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
@@ -1531,12 +1577,6 @@ class TaskManager extends ChangeNotifier {
       final value = existing?[key];
       if (value != null) {
         next[key] = value;
-      }
-    }
-    if (!next.containsKey(keyExplanationRetentionMode)) {
-      final retentionMode = existing?[keyExplanationRetentionMode];
-      if (retentionMode != null) {
-        next[keyExplanationRetentionMode] = retentionMode;
       }
     }
     return next;
@@ -1592,6 +1632,110 @@ class TaskManager extends ChangeNotifier {
       standardAnswer: standardAnswer,
       status: status,
     );
+  }
+
+  /// Per-item CAS merge of an accepted AI review repair.
+  ///
+  /// Only the reviewed text fields, the derived review metadata projection and
+  /// the bounded repair marker are writable. The typed review envelope, the
+  /// review item identity and all provenance stay untouched. Any revision drift
+  /// or missing item performs zero mutation and returns the fixed status.
+  ///
+  /// [reviewMetadata] must be the projection produced by
+  /// `ImportReviewItem.toPersistedMetadata()`; it is written verbatim under the
+  /// fixed review metadata key, and a null value leaves the existing entry
+  /// untouched.
+  Future<ReviewDraftSaveResult> mergeReviewDraftRepair(
+    String id, {
+    required String reviewItemId,
+    required int expectedRevision,
+    required String content,
+    required List<String> options,
+    required String standardAnswer,
+    required String explanation,
+    Map<String, dynamic>? reviewMetadata,
+    ReviewRepairEdit? repairEdit,
+  }) {
+    if (_cleanupInProgress.contains(id)) {
+      return Future<ReviewDraftSaveResult>.value(
+        const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        ),
+      );
+    }
+    if (_hasCommitLease(id)) {
+      return Future<ReviewDraftSaveResult>.value(
+        ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.commitInProgress,
+          revision: reviewDraftRevision(id),
+        ),
+      );
+    }
+
+    return _enqueueReviewDraftWrite(() async {
+      if (_cleanupInProgress.contains(id)) {
+        return const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        );
+      }
+      final idx = tasks.indexWhere((task) => task.id == id);
+      if (idx < 0) {
+        return const ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.taskMissing,
+          revision: 0,
+        );
+      }
+      final task = tasks[idx];
+      final revision = _readReviewDraftRevision(task);
+      if (revision != expectedRevision) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.stale,
+          revision: revision,
+        );
+      }
+      final questions = task.parsedData
+          ?.map((question) => Map<String, dynamic>.from(question))
+          .toList(growable: false);
+      if (questions == null) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.itemMissing,
+          revision: revision,
+        );
+      }
+      final questionIndex = questions.indexWhere(
+        (question) => question[keyReviewItemId]?.toString() == reviewItemId,
+      );
+      if (questionIndex < 0) {
+        return ReviewDraftSaveResult(
+          ReviewDraftSaveStatus.itemMissing,
+          revision: revision,
+        );
+      }
+      final updatedQuestion = <String, dynamic>{
+        ...questions[questionIndex],
+        'content': content,
+        'options': List<String>.from(options),
+        'standard_answer': standardAnswer,
+        'explanation': explanation,
+      };
+      if (reviewMetadata != null) {
+        updatedQuestion[ImportReviewMetadata.key] = reviewMetadata;
+      }
+      if (repairEdit != null && repairEdit.isNotEmpty) {
+        updatedQuestion[keyReviewRepairEdit] = repairEdit.toMap();
+      } else {
+        updatedQuestion.remove(keyReviewRepairEdit);
+      }
+      questions[questionIndex] = updatedQuestion;
+      return _saveReviewDraftNow(
+        id,
+        questions: questions,
+        explanationRetentionMode: task.reviewExplanationRetentionMode,
+        expectedRevision: expectedRevision,
+      );
+    });
   }
 
   Future<ReviewDraftSaveResult> mergeReviewDraftAnswerDistillation(
@@ -1691,7 +1835,7 @@ class TaskManager extends ChangeNotifier {
       return _saveReviewDraftNow(
         id,
         questions: questions,
-        explanationRetentionMode: task.explanationRetentionMode,
+        explanationRetentionMode: task.reviewExplanationRetentionMode,
         expectedRevision: expectedRevision,
       );
     });
@@ -1767,11 +1911,13 @@ class TaskManager extends ChangeNotifier {
     if (casResult.status != ReviewDraftCasStatus.saved) return mapped;
     final durableRevision = casResult.durableRevision!;
     task.parsedData = sanitizedQuestions;
-    task.diagnostics = <String, dynamic>{
-      ...?task.diagnostics,
-      keyExplanationRetentionMode: explanationRetentionMode.name,
-      keyReviewDraftRevision: durableRevision,
-    };
+    task.diagnostics = Map<String, dynamic>.from(
+      ReviewDraftCasPersistence.diagnosticsAfterReviewSave(
+        diagnostics: <String, Object?>{...?task.diagnostics},
+        reviewExplanationRetentionMode: explanationRetentionMode.name,
+        reviewDraftRevision: durableRevision,
+      ),
+    );
     notifyListeners();
     return mapped;
   }
@@ -1806,11 +1952,13 @@ class TaskManager extends ChangeNotifier {
       final task = tasks.singleWhere((candidate) => candidate.id == taskId);
       final next = ImportTask.fromMap(task.toMap());
       next.parsedData = questions;
-      next.diagnostics = <String, dynamic>{
-        ...?next.diagnostics,
-        keyExplanationRetentionMode: explanationRetentionMode,
-        keyReviewDraftRevision: expectedRevision + 1,
-      };
+      next.diagnostics = Map<String, dynamic>.from(
+        ReviewDraftCasPersistence.diagnosticsAfterReviewSave(
+          diagnostics: <String, Object?>{...?next.diagnostics},
+          reviewExplanationRetentionMode: explanationRetentionMode,
+          reviewDraftRevision: expectedRevision + 1,
+        ),
+      );
       await saveOverride(next.toMap());
       return ReviewDraftCasResult(
         ReviewDraftCasStatus.saved,

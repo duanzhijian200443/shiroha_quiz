@@ -46,6 +46,91 @@ class ParseErrorToken extends ContentToken {
 class ContentTokenizer {
   const ContentTokenizer._();
 
+  /// Lossless OCR math scan. Unlike [tokenize], this does not recognize images
+  /// or blanks and does not require normalization of the input.
+  static List<({int start, int end, ContentToken token})> tokenizeMathSpans(
+      String input) {
+    final result = <({int start, int end, ContentToken token})>[];
+    var textStart = 0;
+    var i = 0;
+    bool escaped(int at) {
+      var count = 0;
+      for (var j = at - 1; j >= 0 && input[j] == r'\'; j--) {
+        count++;
+      }
+      return count.isOdd;
+    }
+
+    String? delimiter(int at) {
+      if (escaped(at)) return null;
+      for (final value in [r'$$', r'\(', r'\[', r'\)', r'\]', r'$']) {
+        if (_startsWith(input, at, value)) return value;
+      }
+      return null;
+    }
+
+    while (i < input.length) {
+      final open = delimiter(i);
+      if (open == null) {
+        i++;
+        continue;
+      }
+      if (open == r'\)' || open == r'\]') break;
+      final close = switch (open) {
+        r'\(' => r'\)',
+        r'\[' => r'\]',
+        _ => open,
+      };
+      var end = i + open.length;
+      var found = false;
+      while (end < input.length) {
+        if (open == r'$' && (input[end] == '\n' || input[end] == '\r')) {
+          break;
+        }
+        final next = delimiter(end);
+        if (next != null) {
+          if (next == close &&
+              !(open == r'$' &&
+                  end + 1 < input.length &&
+                  RegExp(r'[0-9]').hasMatch(input[end + 1]))) {
+            found = true;
+          }
+          break;
+        }
+        end++;
+      }
+      if (!found) break;
+      final latex = input.substring(i + open.length, end);
+      if (latex.trim().isEmpty) break;
+      if (i > textStart) {
+        result.add((
+          start: textStart,
+          end: i,
+          token: TextToken(input.substring(textStart, i))
+        ));
+      }
+      final stop = end + close.length;
+      final raw = input.substring(i, stop);
+      result.add((
+        start: i,
+        end: stop,
+        token: open == r'$$' || open == r'\['
+            ? BlockMathToken(tex: latex, raw: raw)
+            : InlineMathToken(tex: latex, raw: raw)
+      ));
+      i = stop;
+      textStart = stop;
+    }
+    if (textStart < input.length) {
+      result.add((
+        start: textStart,
+        end: input.length,
+        token: TextToken(input.substring(textStart))
+      ));
+    }
+    return result;
+  }
+
   static List<ContentToken> tokenize(String input) {
     if (input.isEmpty) return const <ContentToken>[];
 

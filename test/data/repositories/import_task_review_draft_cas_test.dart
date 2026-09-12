@@ -117,4 +117,76 @@ void main() {
       expect(afterReplay['parsed_data'], durable['parsed_data']);
     },
   );
+
+  test(
+    'durable CAS freezes legacy parse retention before review overwrite',
+    () async {
+      const taskId = 'legacy-retention-review-draft-cas-task';
+      final repository = ImportTaskRepository();
+      await repository.saveImportTask(
+        ImportTask(
+          id: taskId,
+          title: 'Synthetic legacy retention task',
+          status: TaskStatus.pendingReview,
+          parsedData: const <Map<String, dynamic>>[
+            <String, dynamic>{'content': 'before-review'},
+          ],
+          diagnostics: const <String, Object?>{
+            TaskManager.keyExplanationRetentionMode: 'allQuestionTypes',
+            TaskManager.keyReviewDraftRevision: 0,
+          },
+        ).toMap(),
+      );
+
+      final manager = TaskManager.forTesting(
+        loadTasks: repository.getAllImportTasks,
+        saveReviewDraftCas: repository.saveReviewDraftCas,
+      );
+      await manager.ready;
+
+      final before = manager.tasks.singleWhere((task) => task.id == taskId);
+      expect(
+        before.diagnostics,
+        isNot(contains(TaskManager.keyParseExplanationRetentionMode)),
+      );
+      expect(
+        before.parseExplanationRetentionMode,
+        ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      final result = await manager.saveReviewDraft(
+        taskId,
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{'content': 'after-review'},
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      expect(result.status, ReviewDraftSaveStatus.saved);
+
+      final durable = ImportTask.fromMap(
+        (await repository.getAllImportTasks())
+            .singleWhere((row) => row['id'] == taskId),
+      );
+      expect(
+        durable.parseExplanationRetentionMode,
+        ExplanationRetentionMode.allQuestionTypes,
+      );
+      expect(
+        durable.reviewExplanationRetentionMode,
+        ExplanationRetentionMode.subjectiveOnly,
+      );
+      expect(
+        durable.diagnostics?[TaskManager.keyParseExplanationRetentionMode],
+        ExplanationRetentionMode.allQuestionTypes.name,
+      );
+      expect(
+        durable.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+        ExplanationRetentionMode.subjectiveOnly.name,
+      );
+      expect(
+        durable.diagnostics?[TaskManager.keyExplanationRetentionMode],
+        ExplanationRetentionMode.subjectiveOnly.name,
+      );
+    },
+  );
 }

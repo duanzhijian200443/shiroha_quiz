@@ -5,17 +5,24 @@ import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_codec.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_privacy_admission.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
+import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
+import 'ocr_typed_content_cleanup.dart';
 
 /// Fixed task-level storage reason for a successful shadow candidate batch.
 const String ocrTypedCandidateShadowReadyReason =
@@ -190,6 +197,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
 
   String? sourceId;
   final SourceDocument sourceDocument;
+  final mathSourceMap = OcrMathSourceMap();
   final createdAssetIds = <String>{};
   ContentAssetCandidateLease? candidateAssetLease;
   try {
@@ -198,7 +206,10 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     sourceDocument = OcrSourceDocumentAdapter(
       assetStore: assetStore,
       onAssetCreated: createdAssetIds.add,
-    ).convert(document, sourceId: generatedSourceId, displayLabel: null);
+    ).convert(document,
+        sourceId: generatedSourceId,
+        displayLabel: null,
+        mathSourceMap: mathSourceMap);
     candidateAssetLease = ContentAssetCandidateLease(
       sourceId: generatedSourceId,
       localAssetIds: createdAssetIds,
@@ -223,17 +234,29 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
       final typedRegion = const OcrQuestionRegionBridge().convert(
         region,
         sourceDocument: sourceDocument,
+        mathSourceMap: mathSourceMap,
       );
       final questionId = uuidV4Factory();
-      final draft = const TypedQuestionAssembler().assemble(
+      final assembledDraft = const TypedQuestionAssembler().assemble(
         typedRegion,
         questionId: questionId,
+        mathSourceMap: mathSourceMap,
       );
       final projected = const QuestionDraftV2LegacyProjector().project(
-        draft: draft,
+        draft: assembledDraft,
         region: typedRegion,
         profile: const OcrLegacyProjectionProfile(),
+        mathSourceMap: mathSourceMap,
         explanationRetentionMode: explanationRetentionMode,
+      );
+      // Freeze the original compatibility projection before display cleanup.
+      // The legacy finalizer's whitespace rules depend on the original HTML;
+      // projecting already-cleaned content would lose that source context.
+      final draft = cleanupOcrTypedDraft(assembledDraft);
+      _emitTypedCandidateConstructionTelemetry(
+        region: region,
+        typedRegion: typedRegion,
+        draft: draft,
       );
       final reviewItemId = uuidV4Factory();
       final projectedQuestion = projected.question;
@@ -266,19 +289,35 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
               : const <String>[],
         ),
       );
-    } on QuestionRegionUnsupportedException {
+    } on QuestionRegionUnsupportedException catch (e) {
+      _emitTypedCandidateRejection(
+        questionNumber: region.number,
+        kindCode: e.kindCode,
+        failure: 'unsupportedStructure',
+        field: e.field.name,
+      );
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.unsupportedStructure,
         candidateAssetLease: candidateAssetLease,
       );
-    } on LegacyProjectionUnsupportedException {
+    } on LegacyProjectionUnsupportedException catch (_) {
+      _emitTypedCandidateRejection(
+        questionNumber: region.number,
+        kindCode: 'legacy_projection_unsupported',
+        failure: 'projectionUnsupported',
+      );
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.projectionUnsupported,
         candidateAssetLease: candidateAssetLease,
       );
     } catch (_) {
+      _emitTypedCandidateRejection(
+        questionNumber: region.number,
+        kindCode: 'internal_error',
+        failure: 'internalError',
+      );
       return OcrTypedCandidateBatch(
         candidates: <OcrTypedCandidate>[],
         failure: OcrTypedCandidateFailure.internalError,
@@ -291,6 +330,294 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     candidates: candidates,
     candidateAssetLease: candidateAssetLease,
   );
+}
+
+/// Handler used by tests to capture typed candidate rejection telemetry.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    typedCandidateRejectionHandlerForTesting;
+
+void _emitTypedCandidateRejection({
+  required int questionNumber,
+  required String kindCode,
+  required String failure,
+  String? field,
+}) {
+  try {
+    final telemetry = <String, Object?>{
+      'question': questionNumber,
+      'questionNumber': questionNumber,
+      'kind': kindCode,
+      'kindCode': kindCode,
+      'failure': failure,
+      if (field != null) 'field': field,
+    };
+    typedCandidateRejectionHandlerForTesting?.call(telemetry);
+    final fieldSuffix = field != null ? ' field=$field' : '';
+    AppLogger.warning(
+      'Typed candidate question rejected: question=$questionNumber kind=$kindCode failure=$failure$fieldSuffix',
+      module: 'ImportTypedCandidate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+/// Handler used by tests to capture the redacted construction boundary between
+/// the OCR region, typed region, and assembled draft.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    typedCandidateConstructionTelemetryHandlerForTesting;
+
+/// Emits construction diagnostics without becoming part of candidate
+/// semantics. Collection, observation, and logging are all best-effort so a
+/// telemetry failure cannot change the candidate or projection result.
+void _emitTypedCandidateConstructionTelemetry({
+  required OcrQuestionRegion region,
+  required QuestionRegion typedRegion,
+  required QuestionDraftV2 draft,
+}) {
+  try {
+    final telemetry = _collectTypedCandidateConstructionTelemetry(
+      region: region,
+      typedRegion: typedRegion,
+      draft: draft,
+    );
+    typedCandidateConstructionTelemetryHandlerForTesting?.call(telemetry);
+    AppLogger.info(
+      'Typed candidate construction telemetry',
+      module: 'ImportTypedCandidate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+Map<String, Object?> _collectTypedCandidateConstructionTelemetry({
+  required OcrQuestionRegion region,
+  required QuestionRegion typedRegion,
+  required QuestionDraftV2 draft,
+}) {
+  final ocrRegionStem = region.stemText;
+  final stemOwnedSources = region.ownedSources
+      .where((owned) => owned.field == OcrRegionField.stem)
+      .toList(growable: false);
+  final stemFragments = typedRegion.fragmentsFor(QuestionRegionField.stem);
+  final typedMaterializedStem =
+      _diagnosticMaterializedTypedRegionContent(stemFragments);
+  final draftStem =
+      const RichContentTextProjection().project(draft.stem).trim();
+  final ocrRegionAnswer = region.answerText;
+  final answerOwnedSources = region.ownedSources
+      .where((owned) => owned.field == OcrRegionField.answer)
+      .toList(growable: false);
+  final answerFragments = typedRegion.fragmentsFor(QuestionRegionField.answer);
+  final bridgeMaterializedAnswer =
+      _diagnosticMaterializedTypedRegionContent(answerFragments);
+  final draftAnswerProjection = _diagnosticAnswerProjection(draft.answer);
+  final ocrMetrics = _diagnosticCharacterMetrics(ocrRegionStem);
+  final materializedMetrics =
+      _diagnosticCharacterMetrics(typedMaterializedStem);
+  final draftMetrics = _diagnosticCharacterMetrics(draftStem);
+
+  var sourceContentCount = 0;
+  var sourceAssetCount = 0;
+  var sourceTableCount = 0;
+  var unsupportedCount = 0;
+  for (final fragment in stemFragments) {
+    switch (fragment.part) {
+      case SourceContentPart():
+        sourceContentCount++;
+      case SourceAssetPart():
+        sourceAssetCount++;
+      case SourceTablePart():
+        sourceTableCount++;
+      case UnsupportedSourcePart():
+        unsupportedCount++;
+    }
+  }
+
+  return <String, Object?>{
+    'questionNumber': region.number,
+    'ocrRegionStemPartCount': region.stemParts.length,
+    'ocrRegionStemTextLength': ocrRegionStem.length,
+    'ocrRegionStemSpaceCount': ocrMetrics.spaceCount,
+    'ocrRegionStemTabCount': ocrMetrics.tabCount,
+    'ocrRegionStemCrCount': ocrMetrics.crCount,
+    'ocrRegionStemLfCount': ocrMetrics.lfCount,
+    'ocrRegionStemRepeatedHorizontalWhitespaceRuns':
+        ocrMetrics.repeatedHorizontalWhitespaceRuns,
+    'ocrRegionStemTripleNewlineRuns': ocrMetrics.tripleNewlineRuns,
+    'ownedSourceCount': stemOwnedSources.length,
+    'ownedSourceWithExplicitStartCount': stemOwnedSources
+        .where((owned) => owned.startCodeUnitOffset != null)
+        .length,
+    'ownedSourceWithExplicitEndCount': stemOwnedSources
+        .where((owned) => owned.endCodeUnitOffset != null)
+        .length,
+    'ownedSourceWithBothOffsetsCount': stemOwnedSources
+        .where(
+          (owned) =>
+              owned.startCodeUnitOffset != null &&
+              owned.endCodeUnitOffset != null,
+        )
+        .length,
+    'typedRegionStemFragmentCount': stemFragments.length,
+    'typedRegionStemFragmentWithSliceCount':
+        stemFragments.where((fragment) => fragment.slice != null).length,
+    'typedRegionStemFragmentWithoutSliceCount':
+        stemFragments.where((fragment) => fragment.slice == null).length,
+    'typedRegionStemSourceContentCount': sourceContentCount,
+    'typedRegionStemSourceAssetCount': sourceAssetCount,
+    'typedRegionStemSourceTableCount': sourceTableCount,
+    'typedRegionStemUnsupportedCount': unsupportedCount,
+    'typedRegionMaterializedStemLength': typedMaterializedStem.length,
+    'typedRegionMaterializedStemSpaceCount': materializedMetrics.spaceCount,
+    'typedRegionMaterializedStemTabCount': materializedMetrics.tabCount,
+    'typedRegionMaterializedStemCrCount': materializedMetrics.crCount,
+    'typedRegionMaterializedStemLfCount': materializedMetrics.lfCount,
+    'draftStemProjectedLength': draftStem.length,
+    'draftStemSpaceCount': draftMetrics.spaceCount,
+    'draftStemTabCount': draftMetrics.tabCount,
+    'draftStemCrCount': draftMetrics.crCount,
+    'draftStemLfCount': draftMetrics.lfCount,
+    'ocrRegionVsTypedMaterializedExactEqual':
+        ocrRegionStem == typedMaterializedStem,
+    'ocrRegionVsTypedMaterializedDiagnosticNormalizedEqual':
+        _diagnosticOcrNormalization(ocrRegionStem) ==
+            _diagnosticOcrNormalization(typedMaterializedStem),
+    'typedMaterializedVsDraftExactEqual': typedMaterializedStem == draftStem,
+    'typedMaterializedVsDraftDiagnosticNormalizedEqual':
+        _diagnosticOcrNormalization(typedMaterializedStem) ==
+            _diagnosticOcrNormalization(draftStem),
+    'regionAnswerPartCount': region.answerParts.length,
+    'regionAnswerLength': ocrRegionAnswer.length,
+    'bridgeMaterializedAnswerLength': bridgeMaterializedAnswer.length,
+    'regionVsBridgeExactEqual': ocrRegionAnswer == bridgeMaterializedAnswer,
+    'answerFragmentCount': answerFragments.length,
+    'answerFragmentsWithSlice':
+        answerFragments.where((fragment) => fragment.slice != null).length,
+    'answerFragmentsWithoutSlice':
+        answerFragments.where((fragment) => fragment.slice == null).length,
+    'ownedAnswerSourceCount': answerOwnedSources.length,
+    'draftAnswerKind': _diagnosticAnswerKind(draft.answer),
+    'draftAnswerProjectedLength': draftAnswerProjection.length,
+  };
+}
+
+String _diagnosticMaterializedTypedRegionContent(
+  List<QuestionRegionFragment> fragments,
+) {
+  final nodes = <ContentNode>[];
+  var lastFragmentWasPlainText = false;
+  for (final fragment in fragments) {
+    switch (fragment.part) {
+      case SourceContentPart(:final content):
+        final materialized = materializeQuestionRegionContent(
+          content,
+          fragment.slice,
+        );
+        if (_diagnosticStructurallyEmpty(materialized)) {
+          continue;
+        }
+        final plainText = materialized.isNotEmpty &&
+            materialized.every((node) => node is TextNode);
+        if (nodes.isNotEmpty && lastFragmentWasPlainText && plainText) {
+          nodes.add(const TextNode('\n'));
+        }
+        nodes.addAll(materialized);
+        lastFragmentWasPlainText = plainText;
+      case SourceAssetPart(:final asset, :final alternativeText):
+        nodes.add(
+          ImageNode(
+            sourceId: fragment.part.sourceRef.sourceId,
+            localAssetId: asset.assetId,
+            alternativeText: alternativeText,
+          ),
+        );
+        lastFragmentWasPlainText = false;
+      case SourceTablePart(:final structure):
+        if (structure == null) {
+          throw StateError(
+              'Diagnostic materialization requires table geometry.');
+        }
+        nodes.add(TableNode(structure: structure));
+        lastFragmentWasPlainText = false;
+      case UnsupportedSourcePart():
+        throw StateError('Unsupported diagnostic region fragment.');
+    }
+  }
+  return const RichContentTextProjection().project(RichContent(nodes: nodes));
+}
+
+bool _diagnosticStructurallyEmpty(List<ContentNode> nodes) {
+  return nodes.isEmpty ||
+      nodes.every((node) => node is TextNode && node.text.trim().isEmpty);
+}
+
+String _diagnosticAnswerKind(QuestionAnswer? answer) {
+  return switch (answer) {
+    null => 'none',
+    ChoiceAnswer() => 'choice',
+    ContentAnswer() => 'content',
+  };
+}
+
+String _diagnosticAnswerProjection(QuestionAnswer? answer) {
+  return switch (answer) {
+    null => '',
+    ChoiceAnswer(:final optionIds) => optionIds.join(),
+    ContentAnswer(:final content) =>
+      const RichContentTextProjection().project(content),
+  };
+}
+
+({
+  int spaceCount,
+  int tabCount,
+  int crCount,
+  int lfCount,
+  int repeatedHorizontalWhitespaceRuns,
+  int tripleNewlineRuns,
+}) _diagnosticCharacterMetrics(String input) {
+  var spaceCount = 0;
+  var tabCount = 0;
+  var crCount = 0;
+  var lfCount = 0;
+  for (final codeUnit in input.codeUnits) {
+    switch (codeUnit) {
+      case 0x20:
+        spaceCount++;
+      case 0x09:
+        tabCount++;
+      case 0x0d:
+        crCount++;
+      case 0x0a:
+        lfCount++;
+    }
+  }
+  return (
+    spaceCount: spaceCount,
+    tabCount: tabCount,
+    crCount: crCount,
+    lfCount: lfCount,
+    repeatedHorizontalWhitespaceRuns:
+        RegExp(r'[ \t]{2,}').allMatches(input).length,
+    tripleNewlineRuns: RegExp(r'\n{3,}').allMatches(input).length,
+  );
+}
+
+/// Diagnostic mirror only; this is not a semantic normalization authority and
+/// must never feed a candidate, projection, or gate decision.
+String _diagnosticOcrNormalization(String input) {
+  return input
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
 }
 
 /// The all-or-nothing storage outcome of the final parity gate.
@@ -432,6 +759,12 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
   for (final question in finalQuestions) {
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
+    _emitProjectionParityTelemetryForGate(
+      questionNumber: number,
+      question: question,
+      baseline: baselines[number]!,
+      candidate: candidate,
+    );
     if (!_baselineParity(baselines[number]!, candidate) ||
         !_provenanceParity(candidate, question)) {
       return _ineligible(
@@ -452,6 +785,11 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       contentAssetAuthority: contentAssetAuthority,
     );
     if (failure != null) {
+      _emitTypedCandidateRejection(
+        questionNumber: candidate.questionNumber,
+        kindCode: 'candidate_structure_failure',
+        failure: failure.name,
+      );
       return _ineligible(
         finalQuestions,
         ocrTypedCandidateFailureReason(failure),
@@ -465,6 +803,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     final number = question['question_number'] as int;
     final candidate = byNumber[number]!;
     final baseline = baselines[number]!;
+    var snapshotStage = 'encode';
     try {
       final snapshot = TypedReviewSnapshot(
         reviewItemId: candidate.reviewItemId,
@@ -473,11 +812,24 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
         baselineLegacy: baseline,
       );
       final envelope = codec.encode(snapshot);
+      snapshotStage = 'decode';
       final decoded = codec.decodeRequired(envelope);
       if (decoded.reviewItemId != snapshot.reviewItemId ||
           decoded.questionId != snapshot.questionId ||
           decoded.baselineLegacy != baseline ||
           decoded.draft != candidate.draft) {
+        _emitTypedCandidateRejection(
+          questionNumber: number,
+          kindCode: 'snapshot_round_trip_mismatch',
+          failure: OcrTypedCandidateFailure.snapshotInvalid.name,
+          field: decoded.reviewItemId != snapshot.reviewItemId
+              ? 'reviewItemId'
+              : decoded.questionId != snapshot.questionId
+                  ? 'questionId'
+                  : decoded.baselineLegacy != baseline
+                      ? 'baselineLegacy'
+                      : 'draft',
+        );
         return _ineligible(
           finalQuestions,
           ocrTypedCandidateFailureReason(
@@ -489,7 +841,13 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
         ...question,
         TypedReviewSnapshotCodec.mapKey: envelope,
       });
-    } on TypedReviewSnapshotException {
+    } on TypedReviewSnapshotException catch (error) {
+      _emitTypedCandidateRejection(
+        questionNumber: number,
+        kindCode: 'snapshot_${snapshotStage}_${error.failure.name}',
+        failure: OcrTypedCandidateFailure.snapshotInvalid.name,
+        field: _snapshotRejectedField(candidate.draft),
+      );
       return _ineligible(
         finalQuestions,
         ocrTypedCandidateFailureReason(
@@ -505,6 +863,32 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     reason: ocrTypedCandidateReadyReason,
     candidateAssetLease: batch.candidateAssetLease,
   );
+}
+
+/// Failure-only, best-effort localization using the existing admission/codecs.
+/// Never exposes content or exceptions and never changes the gate decision.
+String _snapshotRejectedField(QuestionDraftV2 draft) {
+  try {
+    final fields = <(String, RichContent)>[
+      ('stem', draft.stem),
+      for (var i = 0; i < draft.options.length; i++)
+        ('options[$i]', draft.options[i].content),
+      if (draft.answer case ContentAnswer(:final content)) ('answer', content),
+      if (draft.explanation != null) ('explanation', draft.explanation!),
+    ];
+    for (final (field, content) in fields) {
+      try {
+        const RichContentPrivacyAdmission().validate(content);
+        const codec = RichContentCodec();
+        if (codec.decode(codec.encode(content)) != content) return field;
+      } catch (_) {
+        return field;
+      }
+    }
+  } catch (_) {
+    // Diagnostic failures must not hide the original snapshot rejection.
+  }
+  return 'unknown';
 }
 
 OcrTypedCandidateGateResult _ineligible(
@@ -572,6 +956,322 @@ void _emitRawExplanationTelemetry(Map<String, Object?> telemetry) {
     module: 'ImportGate',
     data: telemetry,
   );
+}
+
+/// Handler used by tests to capture the redacted baseline/provenance
+/// diagnostic emitted at the projection gate.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    projectionParityTelemetryHandlerForTesting;
+
+/// Emits projection diagnostics without becoming part of gate semantics.
+/// Telemetry is best-effort: a logger or test observer failure must not change
+/// the existing candidate admission result.
+void _emitProjectionParityTelemetryForGate({
+  required int questionNumber,
+  required Map<String, dynamic> question,
+  required LegacyReviewBaseline baseline,
+  required OcrTypedCandidate candidate,
+}) {
+  try {
+    final telemetry = _collectProjectionParityTelemetry(
+      questionNumber: questionNumber,
+      question: question,
+      baseline: baseline,
+      candidate: candidate,
+    );
+    projectionParityTelemetryHandlerForTesting?.call(telemetry);
+    AppLogger.info(
+      'Typed candidate projection parity telemetry',
+      module: 'ImportGate',
+      data: telemetry,
+    );
+  } catch (_) {
+    // Diagnostic observation is deliberately non-authoritative.
+  }
+}
+
+Map<String, Object?> _collectProjectionParityTelemetry({
+  required int questionNumber,
+  required Map<String, dynamic> question,
+  required LegacyReviewBaseline baseline,
+  required OcrTypedCandidate candidate,
+}) {
+  final baselineEvaluation = _evaluateBaselineParity(baseline, candidate);
+  final provenanceEvaluation = _evaluateProvenanceParity(candidate, question);
+  final baselineParity = _baselineParity(baseline, candidate);
+  final provenanceParity = _provenanceParity(candidate, question);
+  final firstMismatchField = !baselineParity
+      ? baselineEvaluation.firstMismatchField
+      : !provenanceParity
+          ? provenanceEvaluation.firstMismatchField
+          : 'none';
+
+  return <String, Object?>{
+    'questionNumber': questionNumber,
+    'baselineParity': baselineParity,
+    'provenanceParity': provenanceParity,
+    'typeEqual': baselineEvaluation.typeEqual,
+    'questionNumberEqual': baselineEvaluation.questionNumberEqual,
+    'contentEqual': baselineEvaluation.content.equal,
+    'contentN0Equal': baselineEvaluation.content.n0Equal,
+    'contentFinalizerEligible': baselineEvaluation.content.finalizerEligible,
+    'contentFinalizerMatched': baselineEvaluation.content.finalizerMatched,
+    'baselineContentLength': baselineEvaluation.content.baselineLength,
+    'projectedContentLength': baselineEvaluation.content.projectedLength,
+    'optionsEqual': baselineEvaluation.optionsEqual,
+    'optionCountEqual': baselineEvaluation.optionCountEqual,
+    'firstMismatchedOptionIndex': baselineEvaluation.firstMismatchedOptionIndex,
+    'baselineOptionCount': baseline.options.length,
+    'projectedOptionCount': candidate.projectedLegacy.options.length,
+    'baselineOptionsTotalLength': _totalStringLength(baseline.options),
+    'projectedOptionsTotalLength':
+        _totalStringLength(candidate.projectedLegacy.options),
+    'standardAnswerEqual': baselineEvaluation.standardAnswer.equal,
+    'standardAnswerN0Equal': baselineEvaluation.standardAnswer.n0Equal,
+    'standardAnswerFinalizerEligible':
+        baselineEvaluation.standardAnswer.finalizerEligible,
+    'standardAnswerFinalizerMatched':
+        baselineEvaluation.standardAnswer.finalizerMatched,
+    'baselineAnswerLength': baselineEvaluation.standardAnswer.baselineLength,
+    'projectedAnswerLength': baselineEvaluation.standardAnswer.projectedLength,
+    'explanationEqual': baselineEvaluation.explanation.text.equal,
+    'explanationN0Equal': baselineEvaluation.explanation.text.n0Equal,
+    'explanationParityAllowed': baselineEvaluation.explanation.parityAllowed,
+    'explanationFinalizerEligible':
+        baselineEvaluation.explanation.text.finalizerEligible,
+    'explanationFinalizerMatched':
+        baselineEvaluation.explanation.text.finalizerMatched,
+    'baselineExplanationLength':
+        baselineEvaluation.explanation.text.baselineLength,
+    'projectedExplanationLength':
+        baselineEvaluation.explanation.text.projectedLength,
+    'pageCountEqual': provenanceEvaluation.pageCountEqual,
+    'pageOrderEqual': provenanceEvaluation.pageOrderEqual,
+    'finalPageCount': provenanceEvaluation.finalPageCount,
+    'candidatePageCount': provenanceEvaluation.candidatePageCount,
+    'blockCountEqual': provenanceEvaluation.blockCountEqual,
+    'blockOrderEqual': provenanceEvaluation.blockOrderEqual,
+    'finalBlockCount': provenanceEvaluation.finalBlockCount,
+    'candidateBlockCount': provenanceEvaluation.candidateBlockCount,
+    'firstMismatchField': firstMismatchField,
+  };
+}
+
+int _totalStringLength(Iterable<String> values) {
+  var total = 0;
+  for (final value in values) {
+    total += value.length;
+  }
+  return total;
+}
+
+final class _TextParityEvaluation {
+  const _TextParityEvaluation({
+    required this.equal,
+    required this.n0Equal,
+    required this.finalizerEligible,
+    required this.finalizerMatched,
+    required this.baselineLength,
+    required this.projectedLength,
+  });
+
+  final bool equal;
+  final bool n0Equal;
+  final bool finalizerEligible;
+  final bool finalizerMatched;
+  final int baselineLength;
+  final int projectedLength;
+}
+
+final class _ExplanationParityEvaluation {
+  const _ExplanationParityEvaluation({
+    required this.text,
+    required this.parityAllowed,
+  });
+
+  final _TextParityEvaluation text;
+  final bool parityAllowed;
+}
+
+final class _BaselineParityEvaluation {
+  const _BaselineParityEvaluation({
+    required this.typeEqual,
+    required this.questionNumberEqual,
+    required this.content,
+    required this.optionsEqual,
+    required this.optionCountEqual,
+    required this.firstMismatchedOptionIndex,
+    required this.standardAnswer,
+    required this.explanation,
+  });
+
+  final bool typeEqual;
+  final bool questionNumberEqual;
+  final _TextParityEvaluation content;
+  final bool optionsEqual;
+  final bool optionCountEqual;
+  final int? firstMismatchedOptionIndex;
+  final _TextParityEvaluation standardAnswer;
+  final _ExplanationParityEvaluation explanation;
+
+  bool get parity =>
+      typeEqual &&
+      questionNumberEqual &&
+      content.equal &&
+      optionsEqual &&
+      standardAnswer.equal &&
+      (explanation.text.equal || explanation.parityAllowed);
+
+  String get firstMismatchField {
+    if (!typeEqual) return 'type';
+    if (!questionNumberEqual) return 'questionNumber';
+    if (!content.equal) return 'content';
+    if (!optionsEqual) return 'options';
+    if (!standardAnswer.equal) return 'standardAnswer';
+    if (!explanation.text.equal && !explanation.parityAllowed) {
+      return 'explanation';
+    }
+    return 'none';
+  }
+}
+
+final class _ProvenanceParityEvaluation {
+  const _ProvenanceParityEvaluation({
+    required this.pageCountEqual,
+    required this.pageOrderEqual,
+    required this.finalPageCount,
+    required this.candidatePageCount,
+    required this.blockCountEqual,
+    required this.blockOrderEqual,
+    required this.finalBlockCount,
+    required this.candidateBlockCount,
+  });
+
+  final bool pageCountEqual;
+  final bool pageOrderEqual;
+  final int? finalPageCount;
+  final int candidatePageCount;
+  final bool blockCountEqual;
+  final bool blockOrderEqual;
+  final int? finalBlockCount;
+  final int candidateBlockCount;
+
+  String get firstMismatchField {
+    if (!pageCountEqual || !pageOrderEqual) return 'pageIndices';
+    if (!blockCountEqual || !blockOrderEqual) return 'blockIds';
+    return 'none';
+  }
+}
+
+_BaselineParityEvaluation _evaluateBaselineParity(
+  LegacyReviewBaseline baseline,
+  OcrTypedCandidate candidate,
+) {
+  final projected = candidate.projectedLegacy;
+  final content = _compareParityText(
+    projected: projected.content,
+    baseline: baseline.content,
+  );
+  final standardAnswer = _compareParityText(
+    projected: projected.standardAnswer,
+    baseline: baseline.standardAnswer,
+  );
+  final explanationText = _compareParityText(
+    projected: projected.explanation,
+    baseline: baseline.explanation,
+  );
+  final explanation = _ExplanationParityEvaluation(
+    text: explanationText,
+    parityAllowed: _explanationParityAllowed(
+      source: projected.explanation,
+      target: baseline.explanation,
+      candidate: candidate,
+    ),
+  );
+  final optionsEqual = _sameOrderedStrings(baseline.options, projected.options);
+  return _BaselineParityEvaluation(
+    typeEqual: baseline.type == projected.type,
+    questionNumberEqual: baseline.questionNumber == projected.questionNumber,
+    content: content,
+    optionsEqual: optionsEqual,
+    optionCountEqual: baseline.options.length == projected.options.length,
+    firstMismatchedOptionIndex: _firstMismatchedOptionIndex(
+      baseline.options,
+      projected.options,
+    ),
+    standardAnswer: standardAnswer,
+    explanation: explanation,
+  );
+}
+
+_TextParityEvaluation _compareParityText({
+  required String projected,
+  required String baseline,
+}) {
+  final finalized = finalizeImportTextForParityComparison(projected);
+  return _TextParityEvaluation(
+    equal: projected == baseline,
+    n0Equal: _n0Equals(projected, baseline),
+    finalizerEligible: finalized.eligible,
+    finalizerMatched: finalized.eligible && finalized.text == baseline,
+    baselineLength: baseline.length,
+    projectedLength: projected.length,
+  );
+}
+
+int? _firstMismatchedOptionIndex(
+  List<String> baseline,
+  List<String> projected,
+) {
+  final commonLength =
+      baseline.length < projected.length ? baseline.length : projected.length;
+  for (var index = 0; index < commonLength; index++) {
+    if (baseline[index] != projected[index]) return index;
+  }
+  return null;
+}
+
+_ProvenanceParityEvaluation _evaluateProvenanceParity(
+  OcrTypedCandidate candidate,
+  Map<String, dynamic> question,
+) {
+  final pages = question['source_page_indices'];
+  final blocks = question['source_block_ids'];
+  final finalPageCount = pages is List ? pages.length : null;
+  final finalBlockCount = blocks is List ? blocks.length : null;
+  final pageCountEqual =
+      pages is List && pages.length == candidate.sourcePageIndices.length;
+  final blockCountEqual =
+      blocks is List && blocks.length == candidate.sourceBlockIds.length;
+  return _ProvenanceParityEvaluation(
+    pageCountEqual: pageCountEqual,
+    pageOrderEqual: pageCountEqual &&
+        _sameOrderedPageIndices(pages, candidate.sourcePageIndices),
+    finalPageCount: finalPageCount,
+    candidatePageCount: candidate.sourcePageIndices.length,
+    blockCountEqual: blockCountEqual,
+    blockOrderEqual: blockCountEqual &&
+        _sameOrderedBlockIds(blocks, candidate.sourceBlockIds),
+    finalBlockCount: finalBlockCount,
+    candidateBlockCount: candidate.sourceBlockIds.length,
+  );
+}
+
+bool _sameOrderedPageIndices(Object? value, List<int> expected) {
+  if (value is! List || value.length != expected.length) return false;
+  for (var index = 0; index < expected.length; index++) {
+    if (value[index] != expected[index]) return false;
+  }
+  return true;
+}
+
+bool _sameOrderedBlockIds(Object? value, List<String> expected) {
+  if (value is! List || value.length != expected.length) return false;
+  for (var index = 0; index < expected.length; index++) {
+    if (value[index] != expected[index]) return false;
+  }
+  return true;
 }
 
 Map<String, Object?> _collectRawExplanationTelemetry({
