@@ -77,7 +77,7 @@ class TaskCenterProjection {
           task.status == TaskStatus.completed ? '已完成' : '待校对',
       },
       summaryOverride: switch (attemptState) {
-        ImportAttemptState.cancelRequested => '正在等待当前 OCR 请求结束',
+        ImportAttemptState.cancelRequested => '正在安全结束当前识别任务',
         ImportAttemptState.cancelled => '任务已取消',
         ImportAttemptState.interrupted => '应用重启后任务已中断，请重新选择文件重试',
         _ => null,

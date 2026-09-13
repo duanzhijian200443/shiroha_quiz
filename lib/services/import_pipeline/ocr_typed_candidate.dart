@@ -805,10 +805,14 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     final baseline = baselines[number]!;
     var snapshotStage = 'encode';
     try {
+      final snapshotDraft = _alignFinalizedExplanationMathForSnapshot(
+        candidate,
+        baseline,
+      );
       final snapshot = TypedReviewSnapshot(
         reviewItemId: candidate.reviewItemId,
         questionId: candidate.questionId,
-        draft: candidate.draft,
+        draft: snapshotDraft,
         baselineLegacy: baseline,
       );
       final envelope = codec.encode(snapshot);
@@ -817,7 +821,7 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       if (decoded.reviewItemId != snapshot.reviewItemId ||
           decoded.questionId != snapshot.questionId ||
           decoded.baselineLegacy != baseline ||
-          decoded.draft != candidate.draft) {
+          decoded.draft != snapshotDraft) {
         _emitTypedCandidateRejection(
           questionNumber: number,
           kindCode: 'snapshot_round_trip_mismatch',
@@ -863,6 +867,118 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
     reason: ocrTypedCandidateReadyReason,
     candidateAssetLease: batch.candidateAssetLease,
   );
+}
+
+/// Keeps the frozen typed explanation's math nodes authoritative to the exact
+/// final legacy spans that the locator will later patch.
+///
+/// The legacy finalizer may make a deterministic structural repair after the
+/// typed draft was assembled. A math node is synchronized only when its typed
+/// value still exactly matches the pre-finalization compatibility projection;
+/// an independently changed typed value remains untouched so the locator can
+/// fail closed with `target_value_mismatch`.
+QuestionDraftV2 _alignFinalizedExplanationMathForSnapshot(
+  OcrTypedCandidate candidate,
+  LegacyReviewBaseline baseline,
+) {
+  final explanation = candidate.draft.explanation;
+  final projected = candidate.projectedLegacy.explanation;
+  if (explanation == null || projected == baseline.explanation) {
+    return candidate.draft;
+  }
+  if (!_explanationParityAllowed(
+    source: projected,
+    target: baseline.explanation,
+    candidate: candidate,
+  )) {
+    return candidate.draft;
+  }
+  if (explanation.nodes.any(
+    (node) =>
+        node is! TextNode && node is! InlineMathNode && node is! BlockMathNode,
+  )) {
+    return candidate.draft;
+  }
+
+  try {
+    final projectedMath = OcrMathSourceMap()
+        .parse(projected)
+        .nodes
+        .where((node) => node is InlineMathNode || node is BlockMathNode)
+        .toList(growable: false);
+    final baselineMath = OcrMathSourceMap()
+        .parse(baseline.explanation)
+        .nodes
+        .where((node) => node is InlineMathNode || node is BlockMathNode)
+        .toList(growable: false);
+    final typedMath = explanation.nodes
+        .where((node) => node is InlineMathNode || node is BlockMathNode)
+        .toList(growable: false);
+    if (typedMath.length != projectedMath.length ||
+        typedMath.length != baselineMath.length) {
+      return candidate.draft;
+    }
+
+    final alignedMath = List<ContentNode>.of(typedMath);
+    var changed = false;
+    for (var index = 0; index < typedMath.length; index++) {
+      final typedNode = typedMath[index];
+      final projectedNode = projectedMath[index];
+      final baselineNode = baselineMath[index];
+      if (typedNode.runtimeType != projectedNode.runtimeType ||
+          projectedNode.runtimeType != baselineNode.runtimeType) {
+        return candidate.draft;
+      }
+      switch ((typedNode, projectedNode, baselineNode)) {
+        case (
+            InlineMathNode(latex: final typedLatex),
+            InlineMathNode(latex: final projectedLatex),
+            InlineMathNode(latex: final baselineLatex),
+          ):
+          if (typedLatex == projectedLatex && typedLatex != baselineLatex) {
+            alignedMath[index] = InlineMathNode(baselineLatex);
+            changed = true;
+          }
+        case (
+            BlockMathNode(latex: final typedLatex),
+            BlockMathNode(latex: final projectedLatex),
+            BlockMathNode(latex: final baselineLatex),
+          ):
+          if (typedLatex == projectedLatex && typedLatex != baselineLatex) {
+            alignedMath[index] = BlockMathNode(baselineLatex);
+            changed = true;
+          }
+        default:
+          return candidate.draft;
+      }
+    }
+    if (!changed) return candidate.draft;
+
+    var mathIndex = 0;
+    final alignedExplanation = RichContent(
+      nodes: <ContentNode>[
+        for (final node in explanation.nodes)
+          if (node is InlineMathNode || node is BlockMathNode)
+            alignedMath[mathIndex++]
+          else
+            node,
+      ],
+    );
+    return QuestionDraftV2(
+      questionId: candidate.draft.questionId,
+      kind: candidate.draft.kind,
+      questionNumber: candidate.draft.questionNumber,
+      stem: candidate.draft.stem,
+      options: candidate.draft.options,
+      answer: candidate.draft.answer,
+      explanation: alignedExplanation,
+      sourceRefs: candidate.draft.sourceRefs,
+      assetRefs: candidate.draft.assetRefs,
+      issues: candidate.draft.issues,
+    );
+  } catch (_) {
+    return candidate.draft;
+  }
 }
 
 /// Failure-only, best-effort localization using the existing admission/codecs.

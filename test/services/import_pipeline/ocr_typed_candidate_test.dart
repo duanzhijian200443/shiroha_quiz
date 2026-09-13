@@ -4,6 +4,7 @@
 // site, so Provider calls are 0 by construction.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
+import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
@@ -13,6 +14,8 @@ import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/latex_renderability_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
@@ -1228,6 +1231,178 @@ void main() {
       expect(result.route, ImportStorageRoute.typedV2);
       expect(result.reason, ocrTypedCandidateReadyReason);
       expect(result.questions.single['explanation'], finalExplanation);
+    });
+
+    test('Q21-shaped finalization aligns only the exact typed repair target',
+        () {
+      const projectedExplanation =
+          r'前 \(typed_source\) 中 \(\left\{ \begin{array}{l} x=1 \\ y=2 \) 后';
+      final finalExplanation =
+          finalizeImportTextForParityComparison(projectedExplanation).text;
+      final candidate = _candidate(
+        questionNumber: 21,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 21,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: const <ContentNode>[
+              TextNode('前 '),
+              InlineMathNode('typed_non_target'),
+              TextNode(' 中 '),
+              InlineMathNode(
+                r'\left\{ \begin{array}{l} x=1 \\ y=2 ',
+              ),
+              TextNode(' 后'),
+            ],
+          ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 21,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 21)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = projectedExplanation;
+
+      final gated = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(gated.route, ImportStorageRoute.typedV2, reason: gated.reason);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        gated.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      final typedTarget = snapshot.draft.explanation!.nodes[3];
+      expect(typedTarget, isA<InlineMathNode>());
+      expect(
+        (typedTarget as InlineMathNode).latex,
+        r'\{ \begin{array}{l} x=1 \\ y=2 ',
+      );
+      expect(
+        snapshot.draft.explanation!.nodes[1],
+        const InlineMathNode('typed_non_target'),
+        reason: 'an independent non-target mismatch must not be rewritten',
+      );
+
+      final located = const LatexFragmentLocator().inspect(
+        reviewItemId: _reviewUuidA,
+        expectedRevision: 1,
+        snapshot: snapshot,
+        current: LatexFragmentLegacyView(
+          content: snapshot.baselineLegacy.content,
+          options: snapshot.baselineLegacy.options,
+          standardAnswer: snapshot.baselineLegacy.standardAnswer,
+          explanation: snapshot.baselineLegacy.explanation,
+        ),
+        fields: const <LatexFragmentField>{
+          LatexFragmentField.explanation,
+        },
+        isRenderable: (latex) => const LatexRenderabilityChecker()
+            .check(
+              latex,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable,
+        digest: (value) => 'digest:${value.length}',
+      );
+
+      expect(
+        located.diagnostic.classification,
+        LatexFragmentLocateClassification.targetAvailable,
+      );
+      expect(located.diagnostic.mismatchNodeIndex, 1);
+      expect(located.diagnostic.mismatchAtUnrenderableMathNode, isFalse);
+      expect(located.target!.nodeIndex, 3);
+      expect(located.target!.originalLatex, (typedTarget).latex);
+    });
+
+    test('Q21-shaped finalization preserves an independent target mismatch',
+        () {
+      const projectedExplanation =
+          r'前 \(\left\{ \begin{array}{l} x=2 \\ y=2 \) 后';
+      final finalExplanation =
+          finalizeImportTextForParityComparison(projectedExplanation).text;
+      final candidate = _candidate(
+        questionNumber: 21,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 21,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: const <ContentNode>[
+              TextNode('前 '),
+              InlineMathNode(
+                r'\left\{ \begin{array}{l} x=1 \\ y=2 ',
+              ),
+              TextNode(' 后'),
+            ],
+          ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 21,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 21)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = projectedExplanation;
+
+      final gated = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(gated.route, ImportStorageRoute.typedV2, reason: gated.reason);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        gated.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      expect(
+        snapshot.draft.explanation!.nodes[1],
+        const InlineMathNode(
+          r'\left\{ \begin{array}{l} x=1 \\ y=2 ',
+        ),
+      );
+      final located = const LatexFragmentLocator().inspect(
+        reviewItemId: _reviewUuidA,
+        expectedRevision: 1,
+        snapshot: snapshot,
+        current: LatexFragmentLegacyView(
+          content: snapshot.baselineLegacy.content,
+          options: snapshot.baselineLegacy.options,
+          standardAnswer: snapshot.baselineLegacy.standardAnswer,
+          explanation: snapshot.baselineLegacy.explanation,
+        ),
+        fields: const <LatexFragmentField>{
+          LatexFragmentField.explanation,
+        },
+        isRenderable: (latex) => const LatexRenderabilityChecker()
+            .check(
+              latex,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable,
+        digest: (value) => 'digest:${value.length}',
+      );
+
+      expect(located.target, isNull);
+      expect(
+        located.diagnostic.classification,
+        LatexFragmentLocateClassification.targetValueMismatch,
+      );
+      expect(located.diagnostic.mismatchAtUnrenderableMathNode, isTrue);
     });
 
     test('over-limit explanation pairs do not enter N0 comparison', () {

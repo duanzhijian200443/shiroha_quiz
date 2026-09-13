@@ -44,14 +44,39 @@ class FileLibraryWorkspace extends StatelessWidget {
     return Scaffold(
       key: const ValueKey<String>('u1-ux01-file-library-workspace'),
       appBar: AppBar(
-        title: const Text('文件库'),
+        title: const Text('资料库'),
         actions: [
-          TextButton.icon(
-            key: const ValueKey<String>('u1-add-library-file'),
-            onPressed: () => _addFile(context),
+          PopupMenuButton<String>(
+            key: const ValueKey<String>('u1-library-add-menu'),
+            tooltip: '添加',
             icon: const Icon(Icons.add_rounded),
-            label: const Text('添加文件'),
+            onSelected: (action) {
+              if (action == 'file') {
+                _addFile(context);
+              } else if (action == 'folder') {
+                _createFolder(context, controller);
+              }
+            },
+            itemBuilder: (_) => const <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                key: ValueKey<String>('u1-add-library-file'),
+                value: 'file',
+                child: ListTile(
+                  leading: Icon(Icons.upload_file_outlined),
+                  title: Text('上传文件'),
+                ),
+              ),
+              PopupMenuItem<String>(
+                key: ValueKey<String>('f0-1-create-folder'),
+                value: 'folder',
+                child: ListTile(
+                  leading: Icon(Icons.create_new_folder_outlined),
+                  title: Text('新建文件夹'),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: AnimatedBuilder(
@@ -97,9 +122,9 @@ class _FileFilters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final choices = <(FileLibraryView, String, IconData)>[
-      (FileLibraryView.all, '全部文件', Icons.folder_copy_outlined),
+      (FileLibraryView.all, '全部', Icons.folder_copy_outlined),
       (FileLibraryView.recent, '最近', Icons.schedule_rounded),
-      (FileLibraryView.unclassified, '未归类', Icons.inbox_outlined),
+      (FileLibraryView.unclassified, '未分类', Icons.inbox_outlined),
     ];
     if (compact) {
       return Column(
@@ -165,8 +190,17 @@ class _FileFilters extends StatelessWidget {
   }
 
   List<Widget> _folderTiles(BuildContext context) {
+    final normalizedQuery = controller.query.trim().toLowerCase();
+    final visibleFolders = normalizedQuery.isEmpty
+        ? controller.folders
+        : controller.folders
+            .where(
+              (folder) =>
+                  folder.displayName.toLowerCase().contains(normalizedQuery),
+            )
+            .toList(growable: false);
     return <Widget>[
-      for (final folder in controller.folders)
+      for (final folder in visibleFolders)
         ListTile(
           key: ValueKey<String>('f0-1-folder-${folder.folderId}'),
           selected: controller.selectedFolderId == folder.folderId,
@@ -188,20 +222,25 @@ class _FileFilters extends StatelessWidget {
             ],
           ),
         ),
-      ListTile(
-        key: const ValueKey<String>('f0-1-create-folder'),
-        leading: const Icon(Icons.create_new_folder_outlined),
-        title: const Text('新建文件夹'),
-        onTap: () => _createFolder(context, controller),
-      ),
     ];
   }
 }
 
-class _FileLibraryContent extends StatelessWidget {
+enum _FileLibraryLayout { list, grid }
+
+class _FileLibraryContent extends StatefulWidget {
   const _FileLibraryContent({required this.controller});
 
   final FileLibraryController controller;
+
+  @override
+  State<_FileLibraryContent> createState() => _FileLibraryContentState();
+}
+
+class _FileLibraryContentState extends State<_FileLibraryContent> {
+  _FileLibraryLayout _layout = _FileLibraryLayout.list;
+
+  FileLibraryController get controller => widget.controller;
 
   @override
   Widget build(BuildContext context) {
@@ -212,13 +251,46 @@ class _FileLibraryContent extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-          child: TextField(
-            key: const ValueKey<String>('u1-ux01-file-search'),
-            onChanged: controller.setQuery,
-            decoration: const InputDecoration(
-              hintText: '搜索文件……',
-              prefixIcon: Icon(Icons.search_rounded),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const ValueKey<String>('u1-ux01-file-search'),
+                  onChanged: controller.setQuery,
+                  decoration: const InputDecoration(
+                    hintText: '搜索文件、文件夹…',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SegmentedButton<_FileLibraryLayout>(
+                key: const ValueKey<String>('u1-file-layout-selector'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment<_FileLibraryLayout>(
+                    value: _FileLibraryLayout.list,
+                    tooltip: '列表视图',
+                    icon: Icon(
+                      Icons.view_list_rounded,
+                      key: ValueKey<String>('u1-file-layout-list'),
+                    ),
+                  ),
+                  ButtonSegment<_FileLibraryLayout>(
+                    value: _FileLibraryLayout.grid,
+                    tooltip: '网格视图',
+                    icon: Icon(
+                      Icons.grid_view_rounded,
+                      key: ValueKey<String>('u1-file-layout-grid'),
+                    ),
+                  ),
+                ],
+                selected: {_layout},
+                onSelectionChanged: (selection) {
+                  setState(() => _layout = selection.single);
+                },
+              ),
+            ],
           ),
         ),
         if (controller.errorMessage case final error?)
@@ -232,55 +304,143 @@ class _FileLibraryContent extends StatelessWidget {
           ),
         Expanded(
           child: controller.visibleFiles.isEmpty
-              ? const Center(child: Text('这里还没有文件'))
-              : ListView.builder(
-                  key: const ValueKey<String>('u1-ux01-file-list'),
-                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
-                  itemCount: controller.visibleFiles.length,
-                  itemBuilder: (context, index) {
-                    final file = controller.visibleFiles[index];
-                    return Card(
-                      child: ListTile(
-                        key: ValueKey<String>('u1-ux01-file-${file.fileId}'),
-                        leading: Icon(_fileIcon(file.mimeType)),
-                        title: Text(file.displayName),
-                        subtitle: Text(
-                          '${file.mimeType} · ${_size(file.sizeBytes)} · ${_date(file.createdAt)}',
-                        ),
-                        trailing: IconButton(
-                          key: ValueKey<String>(
-                            'f0-1-move-file-${file.fileId}',
-                          ),
-                          tooltip: '移动到文件夹',
-                          onPressed: () => _moveFile(
-                            context,
-                            controller,
-                            file.fileId,
-                          ),
-                          icon: const Icon(Icons.drive_file_move_outlined),
-                        ),
-                        onTap: () async {
-                          await controller.select(file.fileId);
-                          if (!context.mounted ||
-                              (controller.selectedDetail == null &&
-                                  controller.errorMessage == null)) {
-                            return;
-                          }
-                          await Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => _FileDetailScreen(
-                                controller: controller,
-                                fileId: file.fileId,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
+              ? Center(child: Text(_emptyMessage()))
+              : _layout == _FileLibraryLayout.list
+                  ? _buildList(context)
+                  : _buildGrid(context),
         ),
       ],
+    );
+  }
+
+  Widget _buildList(BuildContext context) {
+    return ListView.builder(
+      key: const ValueKey<String>('u1-ux01-file-list'),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
+      itemCount: controller.visibleFiles.length,
+      itemBuilder: (context, index) {
+        final file = controller.visibleFiles[index];
+        return Card(
+          child: ListTile(
+            key: ValueKey<String>('u1-ux01-file-${file.fileId}'),
+            leading: Icon(_fileIcon(file.mimeType)),
+            title: Text(file.displayName),
+            subtitle: Text(_fileMetadata(file)),
+            trailing: IconButton(
+              key: ValueKey<String>('f0-1-move-file-${file.fileId}'),
+              tooltip: '移动到文件夹',
+              onPressed: () => _moveFile(context, controller, file.fileId),
+              icon: const Icon(Icons.drive_file_move_outlined),
+            ),
+            onTap: () => _openFile(context, file.fileId),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGrid(BuildContext context) {
+    return GridView.builder(
+      key: const ValueKey<String>('u1-ux01-file-grid'),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisExtent: 178,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: controller.visibleFiles.length,
+      itemBuilder: (context, index) {
+        final file = controller.visibleFiles[index];
+        return Card(
+          key: ValueKey<String>('u1-ux01-file-${file.fileId}'),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _openFile(context, file.fileId),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: Icon(
+                          _fileIcon(file.mimeType),
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        key: ValueKey<String>(
+                          'f0-1-move-file-${file.fileId}',
+                        ),
+                        tooltip: '移动到文件夹',
+                        onPressed: () =>
+                            _moveFile(context, controller, file.fileId),
+                        icon: const Icon(Icons.more_horiz_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    file.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _fileMetadata(file),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _fileMetadata(LibraryFileSummary file) =>
+      '${_fileTypeLabel(file.mimeType)} · ${_size(file.sizeBytes)} · ${_date(file.createdAt)}';
+
+  String _emptyMessage() {
+    if (controller.query.trim().isNotEmpty) return '没有匹配的文件';
+    if (controller.selectedFolderId != null) return '这个文件夹还没有文件';
+    return switch (controller.view) {
+      FileLibraryView.all => '资料库还没有文件',
+      FileLibraryView.recent => '最近还没有添加文件',
+      FileLibraryView.unclassified => '没有未分类文件',
+    };
+  }
+
+  Future<void> _openFile(BuildContext context, String fileId) async {
+    await controller.select(fileId);
+    if (!context.mounted ||
+        (controller.selectedDetail == null &&
+            controller.errorMessage == null)) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _FileDetailScreen(controller: controller, fileId: fileId),
+      ),
     );
   }
 }
@@ -319,7 +479,7 @@ class _FileDetailScreen extends StatelessWidget {
                     subtitle: Text(detail.file.displayName)),
                 ListTile(
                     title: const Text('类型'),
-                    subtitle: Text(detail.file.mimeType)),
+                    subtitle: Text(_fileTypeLabel(detail.file.mimeType))),
                 ListTile(
                     title: const Text('大小'),
                     subtitle: Text(_size(detail.file.sizeBytes))),
@@ -837,80 +997,387 @@ class McpWorkspace extends StatelessWidget {
 
   final McpWorkspaceProjection projection;
 
+  void _showRuntimeBoundary(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('关于扩展能力'),
+        content: const Text(
+          '这里展示已配置的本地只读能力。当前版本尚未提供运行状态检测、启动停止或连接测试。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        key: const ValueKey<String>('u1-ux01-mcp-workspace'),
-        appBar: AppBar(title: const Text('MCP')),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          children: [
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final capabilities =
+        projection.toolNames.map(_describeMcpTool).toList(growable: false);
+    return Scaffold(
+      key: const ValueKey<String>('u1-ux01-mcp-workspace'),
+      appBar: AppBar(
+        title: const Text('扩展能力'),
+        actions: [
+          IconButton(
+            key: const ValueKey<String>('mcp-runtime-boundary-help'),
+            tooltip: '关于扩展能力',
+            onPressed: () => _showRuntimeBoundary(context),
+            icon: const Icon(Icons.help_outline_rounded),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        children: [
+          _McpServerCard(projection: projection),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '已配置能力',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                '${capabilities.length}',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final capability in capabilities) ...[
+            _McpCapabilityCard(capability: capability),
+            const SizedBox(height: 10),
+          ],
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: colors.outlineVariant),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _McpMetric(label: '状态', value: '已配置 / 可用'),
-                _McpMetric(
-                  label: '传输',
-                  value: projection.transport == McpTransport.localStdio
-                      ? 'Local stdio'
-                      : '未知',
-                ),
-                _McpMetric(
-                  label: '权限',
-                  value: projection.permission == McpPermission.readOnly
-                      ? '只读'
-                      : '未知',
-                ),
-                _McpMetric(
-                  label: '可用工具',
-                  value: '${projection.toolNames.length}',
+                Icon(Icons.info_outline_rounded,
+                    color: colors.onSurfaceVariant),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '能力已配置不代表本地服务进程当前正在运行。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                      height: 1.45,
+                    ),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            Text('可用工具', style: Theme.of(context).textTheme.titleMedium),
-            for (final tool in projection.toolNames)
-              ListTile(
-                leading: const Icon(Icons.build_circle_outlined),
-                title: Text(tool),
-                dense: true,
-              ),
-            const SizedBox(height: 12),
-            const Text('Capability 可用不代表外部 MCP server process 当前正在运行。'),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _McpMetric extends StatelessWidget {
-  const _McpMetric({required this.label, required this.value});
+class _McpServerCard extends StatelessWidget {
+  const _McpServerCard({required this.projection});
 
-  final String label;
-  final String value;
+  final McpWorkspaceProjection projection;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: 170,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(18),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final stateLabel = switch (projection.state) {
+      McpCapabilityState.configuredAvailable => '已配置',
+    };
+    final transportLabel = switch (projection.transport) {
+      McpTransport.localStdio => '本地连接',
+    };
+    final permissionLabel = switch (projection.permission) {
+      McpPermission.readOnly => '只读权限',
+    };
+    return Container(
+      key: const ValueKey<String>('mcp-local-server-card'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.dns_outlined, color: colors.primary),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Shiroha 本地数据服务',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '为 Shiroha Agent 提供题库检索与学情分析',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  stateLabel,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Divider(height: 1, color: colors.outlineVariant),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _McpStatusChip(label: transportLabel),
+              _McpStatusChip(label: permissionLabel),
+              const _McpStatusChip(label: '运行状态未检测'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _McpStatusChip extends StatelessWidget {
+  const _McpStatusChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: colors.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label),
-            const SizedBox(height: 6),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
-          ],
-        ),
-      );
+      ),
+    );
+  }
+}
+
+class _McpCapabilityCard extends StatelessWidget {
+  const _McpCapabilityCard({required this.capability});
+
+  final _McpCapabilityDescriptor capability;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final accent = capability.accent(colors);
+    return Container(
+      key: ValueKey<String>('mcp-capability-${capability.toolName}'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(capability.icon, color: accent),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 3,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      capability.title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      capability.toolName,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  capability.description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(Icons.check_circle_rounded, color: colors.primary, size: 20),
+        ],
+      ),
+    );
+  }
+}
+
+class _McpCapabilityDescriptor {
+  const _McpCapabilityDescriptor({
+    required this.toolName,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.accent,
+  });
+
+  final String toolName;
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color Function(ColorScheme colors) accent;
+}
+
+_McpCapabilityDescriptor _describeMcpTool(String toolName) {
+  return switch (toolName) {
+    'search_questions' => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '题库检索与定位',
+        description: '按关键词和题型查找所需题目。',
+        icon: Icons.search_rounded,
+        accent: (colors) => colors.primary,
+      ),
+    'get_study_overview' => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '学情与进度概览',
+        description: '查看学习进度、掌握情况与趋势。',
+        icon: Icons.trending_up_rounded,
+        accent: (colors) => colors.primary,
+      ),
+    'get_due_review_summary' => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '到期复习统计',
+        description: '汇总当前到期复习题目。',
+        icon: Icons.event_available_outlined,
+        accent: (colors) => colors.tertiary,
+      ),
+    'get_weak_questions' => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '错题与薄弱项分析',
+        description: '定位错题与低掌握知识点。',
+        icon: Icons.warning_amber_rounded,
+        accent: (colors) => colors.tertiary,
+      ),
+    'list_question_banks' => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '题库列表',
+        description: '查看可用于学习和检索的题库。',
+        icon: Icons.library_books_outlined,
+        accent: (colors) => colors.primary,
+      ),
+    'get_question_detail' => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '题目详情',
+        description: '读取单道题目的结构化详情。',
+        icon: Icons.description_outlined,
+        accent: (colors) => colors.primary,
+      ),
+    _ => _McpCapabilityDescriptor(
+        toolName: toolName,
+        title: '其他只读能力',
+        description: '已配置的本地只读工具。',
+        icon: Icons.extension_outlined,
+        accent: (colors) => colors.primary,
+      ),
+  };
 }
 
 IconData _fileIcon(String mimeType) {
   if (mimeType == 'application/pdf') return Icons.picture_as_pdf_outlined;
   if (mimeType.startsWith('image/')) return Icons.image_outlined;
   return Icons.description_outlined;
+}
+
+String _fileTypeLabel(String mimeType) {
+  final normalized = mimeType.trim().toLowerCase();
+  return switch (normalized) {
+    'application/pdf' => 'PDF',
+    'text/markdown' || 'text/x-markdown' => 'Markdown',
+    'text/plain' => 'TXT',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document' =>
+      'DOCX',
+    'image/png' => 'PNG',
+    'image/jpeg' => 'JPG',
+    _ when normalized.startsWith('image/') => '图片',
+    _ => '文件',
+  };
 }
 
 /// Shared failure state for the Assistant workspace: shows a safe message

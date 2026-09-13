@@ -6,10 +6,8 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
-import 'agent_settings_screen.dart';
 import 'backup/backup_restore_screen.dart';
 import 'ai_settings_screen.dart';
-import 'knowledge_base_screen.dart';
 import 'wrong_book_page.dart';
 
 typedef ProfileHeatmapLoader = Future<Map<DateTime, int>> Function();
@@ -22,6 +20,7 @@ class ProfileScreen extends StatefulWidget {
     this.heatmapLoader,
     this.backupRestore,
     this.onRestoreCompleted,
+    this.onOpenFileLibrary,
   });
 
   final AiEngineRepository engineRepository;
@@ -29,22 +28,18 @@ class ProfileScreen extends StatefulWidget {
   final ProfileHeatmapLoader? heatmapLoader;
   final BackupRestoreCoordinator? backupRestore;
   final VoidCallback? onRestoreCompleted;
+  final VoidCallback? onOpenFileLibrary;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  static const Color _pageBackground = Color(0xFFF4F7FB);
-  static const Color _primaryText = Color(0xFF17233D);
-  static const Color _secondaryText = Color(0xFF73809A);
-  static const Color _brandBlue = Color(0xFF4C6ED7);
-  static const Color _iconBackground = Color(0xFFEEF3FF);
-  static const Color _divider = Color(0xFFE8EEF7);
-
   Map<DateTime, int> _heatmapData = const {};
   int _totalReviewed = 0;
+  int _learningDays = 0;
   bool _isLoading = true;
+  String? _loadErrorMessage;
 
   @override
   void initState() {
@@ -53,21 +48,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadData() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _loadErrorMessage = null;
+      });
+    }
     try {
       final heatmap = await (widget.heatmapLoader?.call() ??
           QuestionRepository.instance.getHeatmapData());
       final total = heatmap.values.fold<int>(0, (sum, value) => sum + value);
+      final learningDays = heatmap.values.where((value) => value > 0).length;
 
       if (!mounted) return;
       setState(() {
         _heatmapData = heatmap;
         _totalReviewed = total;
+        _learningDays = learningDays;
         _isLoading = false;
+        _loadErrorMessage = null;
       });
     } catch (error) {
       debugPrint('Profile data load failed: ${error.runtimeType}');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _loadErrorMessage = '暂时无法读取学习记录';
+        });
       }
     }
   }
@@ -97,16 +104,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final Color cellColor;
             if (count == 0) {
               cellColor = theme.brightness == Brightness.dark
-                  ? Colors.white10
-                  : const Color(0xFFE9EEF6);
+                  ? theme.colorScheme.outlineVariant.withValues(alpha: 0.72)
+                  : theme.colorScheme.outlineVariant;
             } else if (count < 10) {
-              cellColor = theme.primaryColor.withValues(alpha: 0.3);
+              cellColor = theme.colorScheme.primary.withValues(alpha: 0.3);
             } else if (count < 30) {
-              cellColor = theme.primaryColor.withValues(alpha: 0.6);
+              cellColor = theme.colorScheme.primary.withValues(alpha: 0.6);
             } else if (count < 60) {
-              cellColor = theme.primaryColor.withValues(alpha: 0.8);
+              cellColor = theme.colorScheme.primary.withValues(alpha: 0.8);
             } else {
-              cellColor = theme.primaryColor;
+              cellColor = theme.colorScheme.primary;
             }
 
             return Padding(
@@ -128,9 +135,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildOverviewCard(ThemeData theme) {
-    final isDark = theme.brightness == Brightness.dark;
-    final primaryText = isDark ? Colors.white : _primaryText;
-    final secondaryText = isDark ? Colors.white60 : _secondaryText;
+    final colors = theme.colorScheme;
 
     return _SurfaceCard(
       child: Padding(
@@ -140,13 +145,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             Row(
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 27,
-                  backgroundColor: Color(0xFFE8EEFC),
+                  backgroundColor: colors.primaryContainer,
                   child: Icon(
                     Icons.face_retouching_natural,
                     size: 31,
-                    color: _brandBlue,
+                    color: colors.primary,
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -154,21 +159,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Shiroha 学员',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: primaryText,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'Shiroha 学员',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colors.onSurface,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colors.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '学员',
+                              style: TextStyle(
+                                color: colors.primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '累计完成 $_totalReviewed 道题',
+                        '累计完成 $_totalReviewed 题 · 学习 $_learningDays 天',
                         style: TextStyle(
-                          color: secondaryText,
+                          color: colors.onSurfaceVariant,
                           fontSize: 13,
                         ),
                       ),
@@ -181,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Text(
               '最近 12 周学习记录',
               style: TextStyle(
-                color: secondaryText,
+                color: colors.onSurfaceVariant,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -197,133 +227,178 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
     return Scaffold(
-      backgroundColor: isDark ? theme.scaffoldBackgroundColor : _pageBackground,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         centerTitle: true,
-        title: const Text(
-          '我的',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+        title: const Text('我的', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
       body: SafeArea(
         top: false,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                children: [
-                  _buildOverviewCard(theme),
-                  const SizedBox(height: 24),
-                  const _SectionTitle('学习记录'),
-                  const SizedBox(height: 8),
-                  _SettingsCard(
-                    children: [
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          children: [
+            if (_isLoading)
+              const _ProfileOverviewLoading()
+            else if (_loadErrorMessage case final message?)
+              _ProfileLoadError(message: message, onRetry: _loadData)
+            else
+              _buildOverviewCard(theme),
+            const SizedBox(height: 24),
+            const _SectionTitle('学习记录'),
+            const SizedBox(height: 8),
+            _SettingsCard(
+              children: [
+                _SettingsRow(
+                  key: const ValueKey<String>('profile-wrong-book-row'),
+                  icon: Icons.assignment_late_outlined,
+                  title: '错题记录',
+                  subtitle: '集中查看练习与考试中的错题',
+                  onTap: () => _push(const WrongBookPage()),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const _SectionTitle('AI 与知识库'),
+            const SizedBox(height: 8),
+            _SettingsCard(
+              children: [
+                _SettingsRow(
+                  key: const ValueKey<String>('profile-ai-service-row'),
+                  icon: Icons.auto_awesome_outlined,
+                  title: 'AI 服务',
+                  subtitle: '探索 AI 模型与文档 AI 能力管理',
+                  accentColor: theme.colorScheme.secondary,
+                  onTap: () => _push(
+                    AiSettingsScreen(
+                      engineRepository: widget.engineRepository,
+                      agentSettingsService: widget.agentSettingsService,
+                    ),
+                  ),
+                ),
+                _SettingsRow(
+                  key: const ValueKey<String>('profile-file-library-row'),
+                  icon: Icons.auto_stories_outlined,
+                  title: '资料库',
+                  subtitle: '管理个人笔记与学习资料（与助手共享）',
+                  onTap: widget.onOpenFileLibrary ??
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('资料库暂不可用')),
+                          ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const _SectionTitle('设置与数据'),
+            const SizedBox(height: 8),
+            ValueListenableBuilder<String>(
+              valueListenable: globalThemeNotifier,
+              builder: (context, currentTheme, _) {
+                final isDarkTheme = currentTheme == 'dark';
+                return _SettingsCard(
+                  children: [
+                    if (widget.backupRestore != null)
                       _SettingsRow(
-                        key: const ValueKey<String>(
-                          'profile-agent-settings-row',
-                        ),
-                        icon: Icons.auto_awesome_outlined,
-                        title: 'Shiroha Agent 设置',
-                        subtitle: '主模型、联网、温度与推理强度',
+                        key: const ValueKey<String>('profile-backup-row'),
+                        icon: Icons.settings_backup_restore,
+                        title: '备份与数据管理',
+                        subtitle: '导出与恢复完整备份',
                         onTap: () => _push(
-                          AgentSettingsScreen(
-                            settingsService: widget.agentSettingsService,
-                            onOpenProfileSettings: () => _push(
-                              AiSettingsScreen(
-                                engineRepository: widget.engineRepository,
-                              ),
-                            ),
+                          BackupRestoreScreen(
+                            backupRestore: widget.backupRestore!,
+                            onRestoreCompleted:
+                                widget.onRestoreCompleted ?? () {},
                           ),
                         ),
                       ),
-                      _SettingsRow(
-                        key: const ValueKey<String>('profile-wrong-book-row'),
-                        icon: Icons.assignment_late_outlined,
-                        title: '错题记录',
-                        subtitle: '集中查看练习与考试中的错题',
-                        onTap: () => _push(const WrongBookPage()),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  const _SectionTitle('AI 与知识库'),
-                  const SizedBox(height: 8),
-                  _SettingsCard(
-                    children: [
-                      _SettingsRow(
+                    _SettingsRow(
+                      key: const ValueKey<String>('profile-appearance-row'),
+                      icon: Icons.palette_outlined,
+                      title: '外观设置',
+                      subtitle: isDarkTheme ? '深色模式' : '浅色模式',
+                      trailing: Switch(
                         key: const ValueKey<String>(
-                            'profile-knowledge-base-row'),
-                        icon: Icons.auto_stories_outlined,
-                        title: '我的知识库',
-                        subtitle: '管理个人笔记与学习资料',
-                        onTap: () => _push(const KnowledgeBaseScreen()),
-                      ),
-                      _SettingsRow(
-                        key: const ValueKey<String>('profile-ai-service-row'),
-                        icon: Icons.smart_toy_outlined,
-                        title: 'AI 服务',
-                        subtitle: '文本解答、图片理解与文档识别',
-                        onTap: () => _push(
-                          AiSettingsScreen(
-                            engineRepository: widget.engineRepository,
-                          ),
+                          'profile-appearance-switch',
                         ),
+                        value: isDarkTheme,
+                        activeTrackColor: theme.colorScheme.primary,
+                        onChanged: (value) =>
+                            _setTheme(value ? 'dark' : 'light'),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  const _SectionTitle('设置与数据'),
-                  const SizedBox(height: 8),
-                  ValueListenableBuilder<String>(
-                    valueListenable: globalThemeNotifier,
-                    builder: (context, currentTheme, _) {
-                      final isDarkTheme = currentTheme == 'dark';
-                      return _SettingsCard(
-                        children: [
-                          if (widget.backupRestore != null)
-                            _SettingsRow(
-                              key: const ValueKey<String>(
-                                'profile-backup-row',
-                              ),
-                              icon: Icons.settings_backup_restore,
-                              title: '备份与恢复',
-                              subtitle: '导出或恢复 .shiroha 备份',
-                              onTap: () => _push(
-                                BackupRestoreScreen(
-                                  backupRestore: widget.backupRestore!,
-                                  onRestoreCompleted:
-                                      widget.onRestoreCompleted ?? () {},
-                                ),
-                              ),
-                            ),
-                          _SettingsRow(
-                            key: const ValueKey<String>(
-                              'profile-appearance-row',
-                            ),
-                            icon: Icons.palette_outlined,
-                            title: '外观设置',
-                            subtitle: isDarkTheme ? '深色模式' : '浅色模式',
-                            trailing: Switch(
-                              key: const ValueKey<String>(
-                                'profile-appearance-switch',
-                              ),
-                              value: isDarkTheme,
-                              activeTrackColor: _brandBlue,
-                              onChanged: (value) =>
-                                  _setTheme(value ? 'dark' : 'light'),
-                            ),
-                            onTap: () =>
-                                _setTheme(isDarkTheme ? 'light' : 'dark'),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ],
+                      onTap: () => _setTheme(isDarkTheme ? 'light' : 'dark'),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileOverviewLoading extends StatelessWidget {
+  const _ProfileOverviewLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _SurfaceCard(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+  }
+}
+
+class _ProfileLoadError extends StatelessWidget {
+  const _ProfileLoadError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return _SurfaceCard(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 52,
+              color: colors.onSurfaceVariant,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              message,
+              key: const ValueKey<String>('profile-load-error'),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '请稍后重试，现有学习数据不会改变。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              key: const ValueKey<String>('profile-load-retry'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -336,13 +411,13 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         text,
         style: TextStyle(
-          color: isDark ? Colors.white70 : _ProfileScreenState._secondaryText,
+          color: colors.onSurfaceVariant,
           fontSize: 13,
           fontWeight: FontWeight.w700,
         ),
@@ -359,17 +434,12 @@ class _SurfaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : const Color(0xFFE9EEF6),
-        ),
-        boxShadow: isDark
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: theme.brightness == Brightness.dark
             ? const []
             : [
                 BoxShadow(
@@ -391,6 +461,7 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dividerColor = Theme.of(context).colorScheme.outlineVariant;
     return _SurfaceCard(
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
@@ -398,11 +469,11 @@ class _SettingsCard extends StatelessWidget {
           children: [
             for (var index = 0; index < children.length; index++) ...[
               if (index > 0)
-                const Divider(
+                Divider(
                   height: 1,
                   thickness: 1,
                   indent: 64,
-                  color: _ProfileScreenState._divider,
+                  color: dividerColor,
                 ),
               children[index],
             ],
@@ -421,6 +492,7 @@ class _SettingsRow extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.trailing,
+    this.accentColor,
   });
 
   final IconData icon;
@@ -428,10 +500,13 @@ class _SettingsRow extends StatelessWidget {
   final String subtitle;
   final VoidCallback onTap;
   final Widget? trailing;
+  final Color? accentColor;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final accent = accentColor ?? colors.primary;
     return ListTile(
       minVerticalPadding: 10,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
@@ -439,25 +514,19 @@ class _SettingsRow extends StatelessWidget {
         width: 38,
         height: 38,
         decoration: BoxDecoration(
-          color: isDark
-              ? _ProfileScreenState._brandBlue.withValues(alpha: 0.18)
-              : _ProfileScreenState._iconBackground,
+          color: accent.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.18 : 0.1,
+          ),
           borderRadius: BorderRadius.circular(11),
         ),
-        child: Icon(
-          icon,
-          color: isDark
-              ? Theme.of(context).colorScheme.primary
-              : _ProfileScreenState._brandBlue,
-          size: 21,
-        ),
+        child: Icon(icon, color: accent, size: 21),
       ),
       title: Text(
         title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: isDark ? Colors.white : _ProfileScreenState._primaryText,
+          color: colors.onSurface,
           fontSize: 15,
           fontWeight: FontWeight.w600,
         ),
@@ -469,17 +538,14 @@ class _SettingsRow extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: isDark ? Colors.white60 : _ProfileScreenState._secondaryText,
+            color: colors.onSurfaceVariant,
             fontSize: 12,
             height: 1.3,
           ),
         ),
       ),
       trailing: trailing ??
-          Icon(
-            Icons.chevron_right_rounded,
-            color: isDark ? Colors.white38 : const Color(0xFFA5AFC0),
-          ),
+          Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
       onTap: onTap,
     );
   }

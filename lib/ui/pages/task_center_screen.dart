@@ -11,6 +11,7 @@ import '../../services/task_manager.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../../services/import_review/import_commit_service.dart';
+import '../theme/app_theme.dart';
 import 'import_staging_screen.dart';
 import 'task_center_projection.dart';
 
@@ -29,6 +30,7 @@ class TaskCenterScreen extends StatefulWidget {
     this.taskManager,
     this.taskCoordinator,
     this.retryFilePicker,
+    this.onOpenBank,
     this.folderQuery,
     this.commitService,
   });
@@ -38,6 +40,7 @@ class TaskCenterScreen extends StatefulWidget {
   final TaskManager? taskManager;
   final ImportTaskCoordinator? taskCoordinator;
   final TaskCenterRetryFilePicker? retryFilePicker;
+  final ValueChanged<String>? onOpenBank;
   final FolderQueryPort? folderQuery;
   final ImportCommitService? commitService;
 
@@ -63,14 +66,26 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('传输与解析中心',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text('解析任务'),
+        centerTitle: true,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.clear_all),
-            onPressed: () => _taskManager.clearCompletedTasks(),
-            tooltip: '清理已完成',
+          PopupMenuButton<_TaskCenterPageAction>(
+            key: const ValueKey<String>('task-center-page-menu'),
+            tooltip: '更多操作',
+            icon: const Icon(Icons.more_horiz_rounded),
+            onSelected: (action) {
+              switch (action) {
+                case _TaskCenterPageAction.clearCompleted:
+                  _clearCompletedTaskRecords();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<_TaskCenterPageAction>(
+                value: _TaskCenterPageAction.clearCompleted,
+                child: Text('移除已完成任务记录'),
+              ),
+            ],
           ),
           const SizedBox(width: 8),
         ],
@@ -102,7 +117,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                   child: visibleTasks.isEmpty
                       ? _TaskCategoryEmptyState(category: _selectedCategory)
                       : ListView.builder(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                           itemCount: visibleTasks.length,
                           findChildIndexCallback: (key) {
                             if (key is! ValueKey<String> ||
@@ -131,7 +146,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
 
   Widget _buildTaskCard(BuildContext context, ImportTask task) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final colors = theme.colorScheme;
     final summary = ImportDiagnosticFormatter.summarize(task);
     final statusColor = _statusColor(task.status);
     final progress = task.percent.clamp(0.0, 1.0).toDouble();
@@ -148,10 +163,8 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isDark ? Colors.white10 : Colors.grey.withValues(alpha: 0.2),
-        ),
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: colors.outlineVariant),
       ),
       color: theme.cardTheme.color,
       child: Padding(
@@ -159,17 +172,19 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            task.status == TaskStatus.processing
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2.5),
-                  )
-                : Icon(
-                    _statusIcon(task.status),
-                    color: statusColor,
-                    size: 26,
-                  ),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.description_outlined,
+                color: colors.primary,
+                size: 22,
+              ),
+            ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -180,7 +195,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          task.title,
+                          _displayTitle(task.title),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -190,22 +205,13 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                           ),
                         ),
                       ),
-                      if (presentation.canDelete) ...[
-                        const SizedBox(width: 8),
-                        IconButton(
-                          key: ValueKey<String>('task-delete-${task.id}'),
-                          onPressed: actionPending
-                              ? null
-                              : () => _taskManager.deleteTask(task.id),
-                          icon: const Icon(
-                            Icons.close,
-                            size: 18,
-                            color: Colors.grey,
-                          ),
-                          tooltip: '删除${task.title}',
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ],
+                      const SizedBox(width: 8),
+                      _buildTaskMenu(
+                        context,
+                        task,
+                        presentation,
+                        actionPending,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -219,24 +225,13 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                     key: ValueKey<String>('task-summary-${task.id}'),
                     style: TextStyle(
                       color: task.status == TaskStatus.error
-                          ? Colors.redAccent
+                          ? AppTheme.dangerRed
                           : Colors.grey,
                       fontSize: 13,
                       height: 1.4,
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    'Trace ID: ${task.traceId ?? "不可用"}',
-                    key: ValueKey<String>('task-trace-${task.id}'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
                   if (task.status == TaskStatus.error &&
                       hasValidDiagnosticId) ...[
                     const SizedBox(height: 6),
@@ -278,7 +273,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                         minHeight: 6,
                         backgroundColor: Colors.grey.withValues(alpha: 0.2),
                         valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.blueAccent,
+                          AppTheme.shirohaCyan,
                         ),
                       ),
                     ),
@@ -310,25 +305,13 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                               '失败: ${task.failedChunks!.length} 批次',
                               style: const TextStyle(
                                 fontSize: 12,
-                                color: Colors.redAccent,
+                                color: AppTheme.dangerRed,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                         ],
                       ),
                     ],
-                  ],
-                  if (task.status == TaskStatus.pendingReview &&
-                      task.warnings?.isNotEmpty == true) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '解析完成，但有 ${task.warnings!.length} 条注意事项',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
                   ],
                   const SizedBox(height: 8),
                   Wrap(
@@ -338,7 +321,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                     children: [
                       Semantics(
                         button: true,
-                        label: '查看${task.title}诊断',
+                        label: '查看${_displayTitle(task.title)}详情',
                         child: TextButton.icon(
                           key: ValueKey<String>(
                             'task-diagnostics-${task.id}',
@@ -348,12 +331,12 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(48, 32),
                             foregroundColor: task.status == TaskStatus.error
-                                ? Colors.redAccent
+                                ? AppTheme.dangerRed
                                 : theme.primaryColor,
                           ),
                           icon: const Icon(Icons.info_outline, size: 16),
                           label: const Text(
-                            '查看诊断',
+                            '查看详情',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -372,6 +355,16 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                             icon: const Icon(Icons.rule_rounded, size: 16),
                             label: const Text('去校对'),
                           ),
+                        ),
+                      if (task.status == TaskStatus.completed &&
+                          task.bankName?.trim().isNotEmpty == true &&
+                          widget.onOpenBank != null)
+                        FilledButton.tonalIcon(
+                          key: ValueKey<String>('task-open-bank-${task.id}'),
+                          onPressed: () =>
+                              widget.onOpenBank!(task.bankName!.trim()),
+                          icon: const Icon(Icons.menu_book_outlined, size: 16),
+                          label: const Text('去题库'),
                         ),
                       if (presentation.canCancel ||
                           presentation.isCancellationPending)
@@ -397,7 +390,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
                               : () => _retryOcrTask(task.id),
                           icon: const Icon(Icons.refresh_rounded, size: 16),
                           label: Text(
-                            actionPending ? '选择文件中' : '重新选择文件重试',
+                            actionPending ? '选择文件中' : '重试',
                           ),
                         ),
                     ],
@@ -409,6 +402,83 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildTaskMenu(
+    BuildContext context,
+    ImportTask task,
+    TaskCenterTaskPresentation presentation,
+    bool actionPending,
+  ) {
+    return PopupMenuButton<_TaskCardAction>(
+      key: ValueKey<String>('task-menu-${task.id}'),
+      tooltip: '${_displayTitle(task.title)}更多操作',
+      enabled: !actionPending,
+      icon: Icon(
+        Icons.more_horiz_rounded,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+      onSelected: (action) {
+        switch (action) {
+          case _TaskCardAction.details:
+            _showDiagnosticsSheet(context, task);
+          case _TaskCardAction.cancel:
+            _cancelOcrTask(task.id);
+          case _TaskCardAction.retry:
+            _retryOcrTask(task.id);
+          case _TaskCardAction.remove:
+            _removeTaskRecord(task.id);
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<_TaskCardAction>(
+          value: _TaskCardAction.details,
+          child: const Text('查看详情'),
+        ),
+        if (presentation.canCancel)
+          const PopupMenuItem<_TaskCardAction>(
+            value: _TaskCardAction.cancel,
+            child: Text('取消任务'),
+          ),
+        if (presentation.canRetry)
+          const PopupMenuItem<_TaskCardAction>(
+            value: _TaskCardAction.retry,
+            child: Text('重新解析'),
+          ),
+        if (presentation.canDelete)
+          PopupMenuItem<_TaskCardAction>(
+            key: ValueKey<String>('task-delete-${task.id}'),
+            value: _TaskCardAction.remove,
+            child: const Text('移除任务记录'),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _removeTaskRecord(String taskId) async {
+    final status = await _taskManager.deleteTask(taskId);
+    if (!mounted) return;
+    final message = switch (status) {
+      ImportTaskCleanupStatus.deleted ||
+      ImportTaskCleanupStatus.alreadyAbsent =>
+        null,
+      ImportTaskCleanupStatus.busy => '任务仍在处理中，暂时无法移除',
+      ImportTaskCleanupStatus.failed => '任务记录移除失败，请稍后重试',
+    };
+    if (message != null) _showSafeActionMessage(message);
+  }
+
+  Future<void> _clearCompletedTaskRecords() async {
+    final status = await _taskManager.clearCompletedTasks();
+    if (!mounted) return;
+    final message = switch (status) {
+      ImportTaskCleanupStatus.deleted ||
+      ImportTaskCleanupStatus.alreadyAbsent =>
+        null,
+      ImportTaskCleanupStatus.busy => '仍有任务正在处理，暂时无法清理',
+      ImportTaskCleanupStatus.failed => '任务记录清理失败，请稍后重试',
+    };
+    if (message != null) _showSafeActionMessage(message);
   }
 
   Future<void> _cancelOcrTask(String taskId) async {
@@ -541,10 +611,15 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
     if (override != null) return override;
     switch (task.status) {
       case TaskStatus.processing:
-        return task.progressText;
+        return _processingStatusText(task.percent, presentation.statusLabel);
       case TaskStatus.pendingReview:
         final warningCount = task.warnings?.length ?? 0;
-        return warningCount == 0 ? '解析完成，等待校对' : '共有 $warningCount 条注意事项需要校对';
+        final questionCount = task.parsedData?.length ?? 0;
+        if (questionCount > 0 && warningCount > 0) {
+          return '已识别 $questionCount 道题 · $warningCount 项需要确认';
+        }
+        if (questionCount > 0) return '已识别 $questionCount 道题，等待校对';
+        return warningCount == 0 ? '解析完成，等待校对' : '共有 $warningCount 项需要确认';
       case TaskStatus.completed:
         return '任务已完成';
       case TaskStatus.error:
@@ -559,25 +634,33 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
         if (structuredErrorType != null && structuredErrorType.isNotEmpty) {
           return '异常类型：$structuredErrorType';
         }
-        return '导入失败，请查看诊断信息';
+        return '解析失败，请查看详情';
     }
+  }
+
+  String _processingStatusText(double percent, String statusLabel) {
+    if (statusLabel == '排队中') return '任务已排队，等待开始';
+    if (statusLabel == '取消中') return '正在安全结束当前任务';
+    final progress = percent.clamp(0.0, 1.0);
+    if (progress < 0.15) return '正在读取文件';
+    if (progress < 0.5) return '正在识别内容';
+    if (progress < 0.85) return '正在整理题目';
+    return '正在生成预览';
+  }
+
+  String _displayTitle(String title) {
+    const prefix = '文档解析任务:';
+    final trimmed = title.trim();
+    if (!trimmed.startsWith(prefix)) return trimmed;
+    return trimmed.substring(prefix.length).trim();
   }
 
   Color _statusColor(TaskStatus status) {
     return switch (status) {
-      TaskStatus.processing => Colors.blueAccent,
-      TaskStatus.pendingReview => Colors.orange,
-      TaskStatus.completed => Colors.green,
-      TaskStatus.error => Colors.redAccent,
-    };
-  }
-
-  IconData _statusIcon(TaskStatus status) {
-    return switch (status) {
-      TaskStatus.processing => Icons.sync,
-      TaskStatus.pendingReview => Icons.rule_rounded,
-      TaskStatus.completed => Icons.check_circle,
-      TaskStatus.error => Icons.error_rounded,
+      TaskStatus.processing => AppTheme.shirohaCyan,
+      TaskStatus.pendingReview => AppTheme.warningAmber,
+      TaskStatus.completed => AppTheme.shirohaCyan,
+      TaskStatus.error => AppTheme.dangerRed,
     };
   }
 
@@ -612,6 +695,10 @@ class _TaskCenterScreenState extends State<TaskCenterScreen> {
     _showSafeActionMessage('诊断信息已复制');
   }
 }
+
+enum _TaskCenterPageAction { clearCompleted }
+
+enum _TaskCardAction { details, cancel, retry, remove }
 
 class _TaskCategorySelector extends StatelessWidget {
   const _TaskCategorySelector({

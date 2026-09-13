@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../../application/answers/ai_answer_commit_command.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/exam/exam_mutation_command.dart';
+import '../../application/practice/subjective_answer_recognition.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/import_pipeline/import_pipeline_service.dart';
@@ -18,6 +19,8 @@ class AiDependenciesScope extends InheritedWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
+    this.subjectiveAnswerRecognition =
+        const _UnavailableSubjectiveAnswerRecognition(),
     required super.child,
   });
 
@@ -35,6 +38,10 @@ class AiDependenciesScope extends InheritedWidget {
 
   /// Application authority for every production Exam write.
   final ExamMutationCommand examMutationCommand;
+
+  /// Application seam for transient answer-image transcription. This path
+  /// never creates an import task or a pending-review draft.
+  final SubjectiveAnswerRecognitionPort subjectiveAnswerRecognition;
 
   static AiDependenciesScope of(BuildContext context) {
     final scope =
@@ -54,6 +61,24 @@ class AiDependenciesScope extends InheritedWidget {
         !identical(
             answerGenerationService, oldWidget.answerGenerationService) ||
         !identical(answerCommitCommand, oldWidget.answerCommitCommand) ||
-        !identical(examMutationCommand, oldWidget.examMutationCommand);
+        !identical(examMutationCommand, oldWidget.examMutationCommand) ||
+        !identical(
+          subjectiveAnswerRecognition,
+          oldWidget.subjectiveAnswerRecognition,
+        );
+  }
+}
+
+final class _UnavailableSubjectiveAnswerRecognition
+    implements SubjectiveAnswerRecognitionPort {
+  const _UnavailableSubjectiveAnswerRecognition();
+
+  @override
+  Future<SubjectiveAnswerRecognitionResult> recognize(
+    SubjectiveAnswerRecognitionRequest request,
+  ) async {
+    return SubjectiveAnswerRecognitionResult.failure(
+      SubjectiveAnswerRecognitionClassification.engineUnavailable,
+    );
   }
 }

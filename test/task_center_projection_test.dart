@@ -230,7 +230,7 @@ void main() {
     expect(cancelling.canRetry, isFalse);
     expect(cancelling.canDelete, isFalse);
     expect(cancelling.statusLabel, '取消中');
-    expect(cancelling.summaryOverride, '正在等待当前 OCR 请求结束');
+    expect(cancelling.summaryOverride, '正在安全结束当前识别任务');
 
     for (final state in <ImportAttemptState>[
       ImportAttemptState.cancelled,

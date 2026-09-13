@@ -313,6 +313,28 @@ void main() {
     );
   });
 
+  testWidgets('file-only entry hides camera and gallery source actions',
+      (tester) async {
+    await pumpScreen(
+      tester,
+      screen: const ImportSettingsScreen(showImageSourceActions: false),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('import-camera-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('import-gallery-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('import-file-button')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('OCR mode enables image entries and disables clipboard',
       (tester) async {
     await pumpScreen(tester);

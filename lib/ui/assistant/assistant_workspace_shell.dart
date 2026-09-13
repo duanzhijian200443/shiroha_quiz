@@ -33,6 +33,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
     this.proposalService,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
+    this.conversationFocusEpoch = 0,
   });
 
   final U1WorkspaceFacade facade;
@@ -43,6 +44,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
+  final int conversationFocusEpoch;
 
   @override
   State<AssistantWorkspaceShell> createState() =>
@@ -75,6 +77,16 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
     _spacesController.addListener(_handleSpacesChanged);
     _spacesController.load();
     _fileController = FileLibraryController(widget.facade)..load();
+  }
+
+  @override
+  void didUpdateWidget(covariant AssistantWorkspaceShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.conversationFocusEpoch <= oldWidget.conversationFocusEpoch) {
+      return;
+    }
+    _projectId = null;
+    _destination = _WorkspaceDestination.conversation;
   }
 
   @override

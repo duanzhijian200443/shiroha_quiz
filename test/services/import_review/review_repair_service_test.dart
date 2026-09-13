@@ -733,6 +733,38 @@ void main() {
       expect(logs, isNot(contains('alpha')));
     });
 
+    test('Q21-shaped finalizer-aligned target reaches the fragment provider',
+        () async {
+      const legacy = r'前 \(a\) 中 \(\{ \begin{array}{l} x=1 \\ y=2 \) 后 \(c\)';
+      final provider = _FakeFragmentProvider();
+      final service = ReviewRepairService(
+        engineRepository: _FakeEngineRepository(_profile),
+        fragmentProvider: provider,
+      );
+
+      final result = await service.generateProposal(
+        request: _fragmentRequest(explanation: legacy),
+        snapshot: _fragmentSnapshot(
+          legacy: legacy,
+          explanationNodes: const <ContentNode>[
+            TextNode('前 '),
+            InlineMathNode('a'),
+            TextNode(' 中 '),
+            InlineMathNode(r'\{ \begin{array}{l} x=1 \\ y=2 '),
+            TextNode(' 后 '),
+            InlineMathNode('c'),
+          ],
+        ),
+      );
+
+      expect(result.outcome, ReviewRepairOutcome.proposalReady);
+      expect(provider.calls, 1);
+      expect(
+        provider.lastRequest!.originalLatex,
+        r'\{ \begin{array}{l} x=1 \\ y=2 ',
+      );
+    });
+
     test('typed bad but legacy-valid target makes zero provider calls',
         () async {
       const legacy = r'前 \(a\) 中 \(x^2\) 后 \(c\)';
