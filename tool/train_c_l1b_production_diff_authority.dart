@@ -1,16 +1,20 @@
 import 'dart:io';
 
 import 'train_c_evidence_probe.dart';
+import 'train_c_production_authority_token.dart';
+import 'train_c_review_authorization.dart';
 
-/// The only production seam permitted by the TRAIN C L1B harness.
+/// The historical production seam permitted by the TRAIN C L1B harness.
 ///
-/// The path allowlist is not sufficient by itself: the reviewed file blob is
-/// also supplied out of band and checked against the current reviewed HEAD.
+/// Historical L1B remains a single-file, exact-blob authority. Final Package-B
+/// closure uses a separate `lib_tree:<sha>` token supplied out of band; that
+/// mode pins the complete production `lib/` tree instead of widening this
+/// historical path allowlist.
 const trainCL1BApprovedProductionPath =
     'lib/services/import_pipeline/import_pipeline_service.dart';
 
-/// Compatibility names for focused preflight tests. The authority itself is
-/// implemented by [TrainCL1BProductionDiffAuthority] below.
+/// Compatibility names for focused preflight tests. This remains the frozen
+/// historical L1B allowlist; final Package-B authority does not mutate it.
 const trainCL1BAllowedProductionPaths = <String>{
   trainCL1BApprovedProductionPath,
 };
@@ -35,12 +39,19 @@ final class TrainCL1BProductionDiffResult {
   final bool approvedSeamMatched;
 }
 
-/// Shared L1B production-diff authority.
+/// Shared TRAIN C production identity authority.
 ///
-/// Offline preflight, the default live gate, and trusted runtime evidence all
-/// use this same semantic check. The approved file blob is intentionally an
-/// out-of-band value; a candidate cannot change the production file and a
-/// repository constant in the same commit to self-authorize the change.
+/// There are deliberately two bounded modes:
+///
+/// * Historical L1B: one exact production seam blob relative to the frozen
+///   TRAIN-B production baseline.
+/// * Final Package-B: an out-of-band `lib_tree:<sha>` token pins the complete
+///   `lib/` tree at the independently reviewed harness HEAD. Diff counts are
+///   then measured from the contemporaneous reviewed base/master identity.
+///
+/// In both modes the approved value is supplied out of band. A candidate
+/// cannot change production code and a repository constant in the same commit
+/// to self-authorize that change.
 final class TrainCL1BProductionDiffAuthority {
   TrainCL1BProductionDiffAuthority({
     required this.approvedHarnessHead,
@@ -51,6 +62,7 @@ final class TrainCL1BProductionDiffAuthority {
     this.masterReader = _readOriginMaster,
     this.changedPathsReader = _readChangedProductionPaths,
     this.blobReader = _readBlobSha,
+    this.libTreeReader = _readLibTreeSha,
   });
 
   final String approvedHarnessHead;
@@ -61,6 +73,7 @@ final class TrainCL1BProductionDiffAuthority {
   final String Function() masterReader;
   final List<String> Function(String productionBase) changedPathsReader;
   final String Function(String head, String path) blobReader;
+  final String Function(String head) libTreeReader;
 
   TrainCL1BProductionDiffResult verify() {
     final currentHead = currentHeadReader().trim();
@@ -77,6 +90,37 @@ final class TrainCL1BProductionDiffAuthority {
   }
 
   TrainCL1BProductionDiffResult inspect() {
+    final finalLibTree = trainCFinalLibTreeShaFromAuthorityToken(
+      approvedProductionSeamBlobSha,
+    );
+    if (finalLibTree != null) return _inspectFinalLibTree(finalLibTree);
+    return _inspectHistoricalL1BSeam();
+  }
+
+  TrainCL1BProductionDiffResult _inspectFinalLibTree(String finalLibTree) {
+    if (!_isSha(approvedHarnessHead) ||
+        !_isSha(approvedBase) ||
+        !_isSha(approvedProductionBase) ||
+        !_isSha(finalLibTree)) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    final paths = changedPathsReader(approvedBase)
+        .map(_normalizePath)
+        .where((path) => path.isNotEmpty)
+        .toList(growable: false);
+    final actualTree = libTreeReader(approvedHarnessHead).trim();
+    final matched = actualTree == finalLibTree;
+    return TrainCL1BProductionDiffResult(
+      totalProductionDiffCount: paths.length,
+      approvedProductionDiffCount: matched ? paths.length : 0,
+      unexpectedProductionDiffCount: matched ? 0 : paths.length,
+      approvedSeamMatched: matched,
+    );
+  }
+
+  TrainCL1BProductionDiffResult _inspectHistoricalL1BSeam() {
     if (!_isSha(approvedHarnessHead) ||
         !_isSha(approvedBase) ||
         !_isSha(approvedProductionBase) ||
@@ -86,7 +130,7 @@ final class TrainCL1BProductionDiffAuthority {
       );
     }
     final paths = changedPathsReader(approvedProductionBase)
-        .map((path) => path.trim().replaceAll('\\', '/'))
+        .map(_normalizePath)
         .where((path) => path.isNotEmpty)
         .toList(growable: false);
     final approved = <String>[];
@@ -104,13 +148,37 @@ final class TrainCL1BProductionDiffAuthority {
     );
   }
 
+  /// Offline helper used by focused repository-state tests and old preflight.
+  ///
+  /// On the exact historical L1B shape it returns the historical seam blob.
+  /// Once the checkout contains any other production shape it returns a
+  /// complete-lib-tree authority token. Live execution never derives its own
+  /// token here: live review authorization still requires the value from the
+  /// explicit out-of-band environment.
   static String readProductionSeamBlobSha(String head) {
     if (!_isSha(head)) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
       );
     }
-    return _readBlobSha(head, trainCL1BApprovedProductionPath).trim();
+    final historicalPaths = _readChangedProductionPathsAtHead(
+      trainCApprovedProductionBase,
+      head,
+    ).map(_normalizePath).where((path) => path.isNotEmpty).toList();
+    if (historicalPaths.length == 1 &&
+        historicalPaths.single == trainCL1BApprovedProductionPath) {
+      return _readBlobSha(head, trainCL1BApprovedProductionPath).trim();
+    }
+    return trainCFinalLibTreeAuthorityToken(_readLibTreeSha(head));
+  }
+
+  static String readFinalLibTreeAuthorityToken(String head) {
+    if (!_isSha(head)) {
+      throw const TrainCEvidenceProbeException(
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
+    }
+    return trainCFinalLibTreeAuthorityToken(_readLibTreeSha(head));
   }
 
   static List<String> readProductionDiffPaths(String productionBase) {
@@ -126,12 +194,19 @@ final class TrainCL1BProductionDiffAuthority {
   }
 
   static List<String> _readChangedProductionPaths(String productionBase) {
+    return _readChangedProductionPathsAtHead(productionBase, 'HEAD');
+  }
+
+  static List<String> _readChangedProductionPathsAtHead(
+    String productionBase,
+    String head,
+  ) {
     final result = Process.runSync(
       'git',
       <String>[
         'diff',
         '--name-only',
-        '$productionBase..HEAD',
+        '$productionBase..$head',
         '--',
         'lib',
       ],
@@ -149,14 +224,22 @@ final class TrainCL1BProductionDiffAuthority {
     return _runGit(<String>['rev-parse', '$head:$path']);
   }
 
+  static String _readLibTreeSha(String head) {
+    return _runGit(<String>['rev-parse', '$head:lib']);
+  }
+
   static String _runGit(List<String> args) {
     final result = Process.runSync('git', args);
     if (result.exitCode != 0 || result.stdout is! String) {
       throw const TrainCEvidenceProbeException(
-          'TRAIN_C_CODE_IDENTITY_MISMATCH');
+        'TRAIN_C_CODE_IDENTITY_MISMATCH',
+      );
     }
     return (result.stdout as String).trim();
   }
+
+  static String _normalizePath(String path) =>
+      path.trim().replaceAll('\\', '/');
 
   static bool _isSha(String value) => RegExp(r'^[0-9a-f]{40}$').hasMatch(value);
 }

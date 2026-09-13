@@ -345,7 +345,7 @@ void main() {
   });
 
   test(
-      'reference-answer block ownership preserves existing strict parity and '
+      'reference-answer evidence provenance preserves strict parity and '
       'reaches typedV2', () async {
     final document = _referenceAnswerDocument();
     final client = _FakeOcrDocumentClient(document);
@@ -360,10 +360,13 @@ void main() {
     );
     for (final number in const <int>[1, 2]) {
       final region = mergedRegions.singleWhere((item) => item.number == number);
-      final ownership = region.ownedSources.singleWhere(
-        (source) => source.blockId == 'reference_$number',
+      expect(
+        region.ownedSources.any(
+          (source) => source.blockId == 'reference_$number',
+        ),
+        isFalse,
       );
-      expect(ownership.field, OcrRegionField.answer);
+      expect(region.sourceBlockIds, contains('reference_$number'));
     }
 
     final ocrService = OcrImportService(

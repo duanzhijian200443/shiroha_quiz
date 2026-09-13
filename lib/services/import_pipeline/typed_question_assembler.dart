@@ -1,10 +1,15 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_limits.dart';
 import '../../domain/import/import_issue.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/question/question_region.dart';
 import '../../domain/source/source_part.dart';
 import 'latex_sanity_checker.dart';
+import 'ocr_bare_math_segmenter.dart';
+import 'ocr_choice_answer_marker.dart';
+import 'ocr_rich_content_parser.dart';
+import 'ocr_text_normalization.dart';
 
 /// Raised when a [QuestionRegion] fragment cannot be expressed losslessly by
 /// [QuestionDraftV2] without changing the frozen domain models or inventing an
@@ -34,14 +39,15 @@ final class QuestionRegionUnsupportedException implements Exception {
 /// deterministic policy that mirrors the authoritative legacy assemblers:
 /// inline answer/explanation labels are removed, `A`-`D` options are split
 /// off, and the leading question number is stripped. When the stem contains
-/// non-text nodes (math or raw fallback), extraction is skipped entirely so
-/// the content is preserved verbatim.
+/// non-text nodes without an OCR source mapping, extraction is skipped. OCR
+/// math is atomic in the extraction view and restored by node identity.
 final class TypedQuestionAssembler {
   const TypedQuestionAssembler();
 
   QuestionDraftV2 assemble(
     QuestionRegion region, {
     required String questionId,
+    OcrMathSourceMap? mathSourceMap,
   }) {
     final nodesByField = <QuestionRegionField, List<ContentNode>>{};
     final lastFragmentWasPlainText = <QuestionRegionField, bool>{};
@@ -59,10 +65,14 @@ final class TypedQuestionAssembler {
           }
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
-          final plainText = _isPlainTextFragment(nodes);
+          final plainText = _isPlainTextFragment(nodes) ||
+              (mathSourceMap != null &&
+                  nodes.every((node) =>
+                      node is TextNode || mathSourceMap.rawMath(node) != null));
           if (target.isNotEmpty &&
-              lastFragmentWasPlainText[fragment.field] == true &&
-              plainText) {
+              (fragment.field == QuestionRegionField.explanation ||
+                  (lastFragmentWasPlainText[fragment.field] == true &&
+                      plainText))) {
             // Preserve the stable legacy fragment boundary.
             target.add(const TextNode('\n'));
           }
@@ -74,6 +84,10 @@ final class TypedQuestionAssembler {
           ):
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty &&
+              fragment.field == QuestionRegionField.explanation) {
+            target.add(const TextNode('\n'));
+          }
           try {
             target.add(
               ImageNode(
@@ -93,8 +107,13 @@ final class TypedQuestionAssembler {
         case SourceTablePart():
           final target =
               nodesByField.putIfAbsent(fragment.field, () => <ContentNode>[]);
+          if (target.isNotEmpty &&
+              fragment.field == QuestionRegionField.explanation) {
+            target.add(const TextNode('\n'));
+          }
           target.add(
-            _tableNode(fragment.part as SourceTablePart, fragment.field),
+            _tableNode(fragment.part as SourceTablePart, fragment.field,
+                mathSourceMap),
           );
           lastFragmentWasPlainText[fragment.field] = false;
         case UnsupportedSourcePart(:final kindCode):
@@ -114,9 +133,17 @@ final class TypedQuestionAssembler {
     final explanationNodes =
         nodesByField[QuestionRegionField.explanation] ?? const <ContentNode>[];
 
-    final stemText = _joinedText(stemNodes);
-    final answerText = _joinedText(answerNodes);
-    final explanationText = _joinedText(explanationNodes);
+    final view = mathSourceMap == null
+        ? null
+        : OcrMathExtractionView(
+            [...stemNodes, ...answerNodes, ...explanationNodes], mathSourceMap);
+    String? text(List<ContentNode> nodes) =>
+        view == null ? _joinedText(nodes) : view.text(nodes);
+    List<ContentNode> restore(String value) =>
+        view == null ? <ContentNode>[TextNode(value)] : view.restore(value);
+    final stemText = text(stemNodes);
+    final answerText = text(answerNodes);
+    final explanationText = text(explanationNodes);
 
     var stemContent = RichContent(nodes: stemNodes);
     var extractedOptions = const <_ExtractedOption>[];
@@ -130,10 +157,9 @@ final class TypedQuestionAssembler {
         final fallback = stemText.trim();
         stemContent = fallback.isEmpty
             ? RichContent(nodes: const <ContentNode>[])
-            : RichContent(nodes: <ContentNode>[TextNode(fallback)]);
+            : RichContent(nodes: restore(fallback));
       } else if (extraction.stem != stemText) {
-        stemContent =
-            RichContent(nodes: <ContentNode>[TextNode(extraction.stem)]);
+        stemContent = RichContent(nodes: restore(extraction.stem));
       }
       extractedOptions = extraction.options;
       inlineAnswer = extraction.inlineAnswer;
@@ -145,7 +171,7 @@ final class TypedQuestionAssembler {
         QuestionOption(
           optionId: option.key,
           label: option.key,
-          content: RichContent(nodes: <ContentNode>[TextNode(option.value)]),
+          content: RichContent(nodes: restore(option.value)),
         ),
     ];
 
@@ -158,15 +184,19 @@ final class TypedQuestionAssembler {
     RichContent? explanationContent;
     if (explanationText != null && explanationText.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: <ContentNode>[TextNode(_stripFieldLabels(explanationText))],
+        nodes: _boundedContentTextNodes(restore(
+          _stripFieldLabels(normalizeOcrText(explanationText)),
+        )),
       );
     } else if (inlineExplanation != null &&
         inlineExplanation.trim().isNotEmpty) {
       explanationContent = RichContent(
-        nodes: <ContentNode>[TextNode(inlineExplanation.trim())],
+        nodes: _boundedContentTextNodes(restore(inlineExplanation.trim())),
       );
     } else if (explanationNodes.isNotEmpty && explanationText == null) {
-      explanationContent = RichContent(nodes: explanationNodes);
+      explanationContent = RichContent(
+        nodes: _boundedContentTextNodes(explanationNodes),
+      );
     }
     final effectiveExplanation =
         explanationContent == null ? '' : _searchText(explanationContent.nodes);
@@ -177,16 +207,28 @@ final class TypedQuestionAssembler {
       sourceAnswerText ?? '',
       isChoice: isChoice,
     );
+    final compactChoiceIds =
+        isChoice ? _choiceOptionIds(normalizedAnswer) : null;
+    final extractedChoiceMarker = isChoice && compactChoiceIds == null
+        ? extractOcrChoiceAnswerMarker(
+            answerText: normalizedAnswer,
+            explanationText: answerText == null && answerNodes.isNotEmpty
+                ? ''
+                : effectiveExplanation,
+          )
+        : null;
     QuestionAnswer? answer;
-    if (normalizedAnswer.isNotEmpty) {
+    if (isChoice &&
+        (compactChoiceIds != null || extractedChoiceMarker != null)) {
+      answer = ChoiceAnswer(
+        optionIds: compactChoiceIds ?? <String>[extractedChoiceMarker!],
+      );
+    } else if (normalizedAnswer.isNotEmpty) {
       if (isChoice) {
-        final ids = _choiceOptionIds(normalizedAnswer);
-        if (ids != null) {
-          answer = ChoiceAnswer(optionIds: ids);
-        } else if (answerText != null || sourceAnswerText != null) {
+        if (answerText != null || sourceAnswerText != null) {
           answer = ContentAnswer(
             content: RichContent(
-              nodes: <ContentNode>[TextNode(normalizedAnswer)],
+              nodes: restore(normalizedAnswer),
             ),
           );
         } else {
@@ -196,28 +238,19 @@ final class TypedQuestionAssembler {
         answer = answerText != null
             ? ContentAnswer(
                 content: RichContent(
-                  nodes: <ContentNode>[TextNode(normalizedAnswer)],
+                  nodes: restore(normalizedAnswer),
                 ),
               )
             : answerNodes.isNotEmpty
                 ? ContentAnswer(content: RichContent(nodes: answerNodes))
                 : ContentAnswer(
                     content: RichContent(
-                      nodes: <ContentNode>[TextNode(normalizedAnswer)],
+                      nodes: restore(normalizedAnswer),
                     ),
                   );
       }
     } else if (answerNodes.isNotEmpty && answerText == null) {
       answer = ContentAnswer(content: RichContent(nodes: answerNodes));
-    }
-    if (answer == null && isChoice) {
-      final fromExplanation = RegExp(r'(?:应选|故选|答案为?)\s*([A-D])')
-          .firstMatch(effectiveExplanation)
-          ?.group(1);
-      if (fromExplanation != null) {
-        answer =
-            ChoiceAnswer(optionIds: <String>[fromExplanation.toUpperCase()]);
-      }
     }
 
     final issues = <ImportIssue>[...region.issues];
@@ -283,44 +316,82 @@ final class TypedQuestionAssembler {
   }
 }
 
-TableNode _tableNode(SourceTablePart part, QuestionRegionField field) {
-  if (part.rows.isEmpty || part.rows.any((row) => row.isEmpty)) {
+TableNode _tableNode(SourceTablePart part, QuestionRegionField field,
+    OcrMathSourceMap? mathSourceMap) {
+  final structure = part.structure;
+  if (structure == null) {
+    final message = part.rows.isEmpty || part.rows.any((row) => row.isEmpty)
+        ? 'The source table is empty and cannot be represented losslessly.'
+        : 'The source table has no normalized geometry and cannot be '
+            'represented losslessly.';
     throw QuestionRegionUnsupportedException(
       kindCode: 'source_table',
       field: field,
-      message: 'The source table is empty and cannot be represented '
-          'losslessly.',
+      message: message,
     );
   }
-
-  final columnCount = part.rows.first.length;
-  if (part.rows.any((row) => row.length != columnCount)) {
-    throw QuestionRegionUnsupportedException(
-      kindCode: 'source_table',
-      field: field,
-      message: 'The source table is ragged and cannot be represented '
-          'losslessly.',
-    );
-  }
-
-  try {
-    return TableNode(
-      structure: TableStructure(
-        rows: part.rows.map(
-          (row) => TableRow(
-            cells: row.map((cell) => TableCell(content: cell)),
+  if (mathSourceMap == null) return TableNode(structure: structure);
+  return TableNode(
+      structure: TableStructure(rows: [
+    for (final row in structure.rows)
+      TableRow(cells: [
+        for (final cell in row.cells)
+          TableCell(
+            rowSpan: cell.rowSpan,
+            columnSpan: cell.columnSpan,
+            content: RichContent(
+              nodes: _tableCellNodes(cell.content.nodes, mathSourceMap),
+            ),
           ),
-        ),
-      ),
-    );
-  } on FormatException {
-    throw QuestionRegionUnsupportedException(
-      kindCode: 'source_table',
-      field: field,
-      message: 'The source table contains content or geometry that cannot '
-          'be represented losslessly.',
-    );
+      ]),
+  ]));
+}
+
+/// Structuralizes the text nodes of one table cell.
+///
+/// Delimited math keeps the [OcrMathSourceMap.parse] tokenizer path. A cell
+/// whose text carries no delimiter is segmented into prose and expression runs
+/// by [OcrBareMathSegmenter], so a mixed cell renders as
+/// `TextNode -> math -> TextNode` instead of being forced into all-math or
+/// all-text. Non-text nodes are opaque and keep their identity.
+List<ContentNode> _tableCellNodes(
+  List<ContentNode> nodes,
+  OcrMathSourceMap mathSourceMap,
+) {
+  return <ContentNode>[
+    for (final node in nodes)
+      if (node is TextNode)
+        ..._tableCellTextNodes(node.text, mathSourceMap)
+      else
+        node,
+  ];
+}
+
+List<ContentNode> _tableCellTextNodes(
+  String text,
+  OcrMathSourceMap mathSourceMap,
+) {
+  if (text.isEmpty) return const <ContentNode>[];
+  final runs = OcrBareMathSegmenter.segment(text);
+  final mathRuns = runs.where((run) => run.isMath).toList(growable: false);
+  if (mathRuns.isEmpty) return mathSourceMap.parse(text).nodes;
+
+  final trimmed = text.trim();
+  if (mathRuns.length == 1 &&
+      trimmed ==
+          text.substring(mathRuns.single.start, mathRuns.single.end).trim()) {
+    // The whole cell is one bare expression: keep the frozen single-node
+    // behavior, including its source-map registration.
+    return mathSourceMap.parse(text, formula: true).nodes;
   }
+
+  return <ContentNode>[
+    for (final run in runs)
+      if (run.isMath)
+        mathSourceMap.bareInlineMath(text.substring(run.start, run.end))
+      else
+        TextNode(text.substring(run.start, run.end)),
+  ];
 }
 
 QuestionKind _mapKind(
@@ -393,12 +464,7 @@ String _stripFieldLabels(String text) {
   String? inlineAnswer,
   String? inlineExplanation
 }) _extractLegacyFields(String text) {
-  var working = text
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '\n')
-      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
-      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-      .trim();
+  var working = normalizeOcrText(text);
 
   final inlineAnswer = _extractInlineAnswer(working);
   working = inlineAnswer.remainingText;
@@ -506,6 +572,31 @@ String? _joinedText(List<ContentNode> nodes) {
     buffer.write(node.text);
   }
   return buffer.toString();
+}
+
+List<ContentNode> _boundedContentTextNodes(Iterable<ContentNode> nodes) {
+  return <ContentNode>[
+    for (final node in nodes)
+      if (node case TextNode(:final text)) ..._boundedTextNodes(text) else node,
+  ];
+}
+
+List<TextNode> _boundedTextNodes(String text) {
+  final scalars = text.runes.toList(growable: false);
+  if (scalars.length <= RichContentLimits.maxNodeScalars) {
+    return <TextNode>[TextNode(text)];
+  }
+
+  return <TextNode>[
+    for (var start = 0;
+        start < scalars.length;
+        start += RichContentLimits.maxNodeScalars)
+      TextNode(
+        String.fromCharCodes(
+          scalars.skip(start).take(RichContentLimits.maxNodeScalars),
+        ),
+      ),
+  ];
 }
 
 /// Lossless textual projection used for search and diagnostics; raw fallback

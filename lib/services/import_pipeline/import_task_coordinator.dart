@@ -284,6 +284,10 @@ class ImportTaskCoordinator {
         TaskManager.keyCorrelationId: correlationId,
         if (parentTraceId != null) TaskManager.keyParentTraceId: parentTraceId,
         TaskManager.keyParseMode: mode.name,
+        TaskManager.keyParseExplanationRetentionMode:
+            explanationRetentionMode.name,
+        TaskManager.keyReviewExplanationRetentionMode:
+            explanationRetentionMode.name,
         TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
         TaskManager.keyAttemptNumber: handle.attemptNumber,
         TaskManager.keyAttemptToken: handle.attemptToken,
@@ -398,6 +402,10 @@ class ImportTaskCoordinator {
           if (parentTraceId != null)
             TaskManager.keyParentTraceId: parentTraceId,
           TaskManager.keyParseMode: item.mode.name,
+          TaskManager.keyParseExplanationRetentionMode:
+              item.explanationRetentionMode.name,
+          TaskManager.keyReviewExplanationRetentionMode:
+              item.explanationRetentionMode.name,
           TaskManager.keyExplanationRetentionMode:
               item.explanationRetentionMode.name,
           TaskManager.keyBatchId: batchId,
@@ -769,6 +777,8 @@ class ImportTaskCoordinator {
       final storageReason = normalizeImportStorageReason(result.storageReason);
       final diagnostics = <String, dynamic>{
         ...result.diagnostics,
+        TaskManager.keyReviewExplanationRetentionMode:
+            result.explanationRetentionMode.name,
         TaskManager.keyExplanationRetentionMode:
             result.explanationRetentionMode.name,
         TaskManager.keyImportStorageRoute: storageRoute,

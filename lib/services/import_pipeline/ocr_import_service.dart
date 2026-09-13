@@ -217,6 +217,7 @@ class OcrImportService {
       final referenceAnswerIndex = _referenceAnswerExtractor.extract(
         document,
         regionized.regions,
+        referenceSectionBoundary: regionized.referenceAnswerSectionBoundary,
       );
       final mergedRegions = _referenceAnswerMerger.merge(
         regionized.regions,
@@ -405,12 +406,24 @@ class OcrImportService {
         'rejectedRegionCount': rejectedCount,
       });
 
+      // The final list below is the exact legacy collection from which the
+      // shadow candidate batch is built and returned to ImportPipelineService.
+      // Keep this summary bounded so a later product trace can distinguish an
+      // OCR-service loss from a downstream handoff loss.
+      emitImportExplanationLifecycleTelemetryForProduction(
+        stage: 'ocr_service_output',
+        sourceCollectionName: 'ocr_service_questions',
+        questions: questions,
+        retentionMode: explanationRetentionMode,
+      );
+
       final typedCandidateBatch = _buildTypedCandidateBatch(
         document,
         <OcrQuestionRegion>[
           for (final candidate in assembled) candidate.region,
         ],
         questions,
+        explanationRetentionMode: explanationRetentionMode,
       );
 
       return OcrImportResult(
@@ -519,8 +532,9 @@ class OcrImportService {
   OcrTypedCandidateBatch _buildTypedCandidateBatch(
     OcrDocument document,
     List<OcrQuestionRegion> regions,
-    List<Map<String, dynamic>> legacyQuestions,
-  ) {
+    List<Map<String, dynamic>> legacyQuestions, {
+    required ExplanationRetentionMode explanationRetentionMode,
+  }) {
     try {
       return buildOcrTypedCandidateBatch(
         document: document,
@@ -528,6 +542,7 @@ class OcrImportService {
         legacyQuestions: legacyQuestions,
         uuidV4Factory: _uuidV4Factory,
         assetStore: _contentAssetStore,
+        explanationRetentionMode: explanationRetentionMode,
       );
     } catch (_) {
       return OcrTypedCandidateBatch(

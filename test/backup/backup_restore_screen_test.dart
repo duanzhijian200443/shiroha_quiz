@@ -83,8 +83,13 @@ final _preparedState = PreparedRestoreState(
   totalSizeBytes: 2048,
 );
 
-Widget _screen(BackupRestoreCoordinator coordinator, {Key? key}) {
+Widget _screen(
+  BackupRestoreCoordinator coordinator, {
+  Key? key,
+  ThemeData? theme,
+}) {
   return MaterialApp(
+    theme: theme,
     home: BackupRestoreScreen(
       key: key,
       backupRestore: coordinator,
@@ -100,15 +105,16 @@ void main() {
     final coordinator = BackupRestoreCoordinator(operations: operations);
 
     await tester.pumpWidget(_screen(coordinator));
+    expect(find.text('备份与数据管理'), findsOneWidget);
+    expect(find.text('Shiroha 全量备份'), findsOneWidget);
+    expect(find.text('备份全部本地学习数据与设置'), findsOneWidget);
+    expect(find.text('导出全量备份 (.shiroha)'), findsOneWidget);
     expect(find.text('开始恢复'), findsOneWidget);
     expect(find.text('验证并准备恢复'), findsNothing);
-    expect(
-      find.text('数据版本：${BackupValues.currentSchemaVersion}'),
-      findsOneWidget,
-    );
+    expect(find.text('数据版本：'), findsOneWidget);
     expect(operations.prepareCalls, 0);
-    final picker = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, '恢复备份'),
+    final picker = tester.widget<TextButton>(
+      find.byKey(const ValueKey<String>('backup-restore-picker')),
     );
     expect(picker.onPressed, isNull);
     expect(operations.inspectCalls, 0);
@@ -117,8 +123,8 @@ void main() {
     expect(find.text('开始恢复'), findsOneWidget);
     expect(find.text('验证并准备恢复'), findsNothing);
     expect(operations.prepareCalls, 0);
-    final recreatedPicker = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, '恢复备份'),
+    final recreatedPicker = tester.widget<TextButton>(
+      find.byKey(const ValueKey<String>('backup-restore-picker')),
     );
     expect(recreatedPicker.onPressed, isNull);
     expect(operations.inspectCalls, 0);
@@ -142,13 +148,39 @@ void main() {
     expect(find.text('开始恢复'), findsNothing);
     expect(find.text('验证并准备恢复'), findsNothing);
 
-    final picker = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, '恢复备份'),
+    final picker = tester.widget<TextButton>(
+      find.byKey(const ValueKey<String>('backup-restore-picker')),
     );
     expect(picker.onPressed, isNotNull);
 
     await tester.pumpWidget(_screen(coordinator, key: const ValueKey('idle')));
     expect(find.text('开始恢复'), findsNothing);
     expect(find.text('验证并准备恢复'), findsNothing);
+  });
+
+  testWidgets('keeps one backup structure across light and dark themes', (
+    WidgetTester tester,
+  ) async {
+    for (final brightness in <Brightness>[
+      Brightness.light,
+      Brightness.dark,
+    ]) {
+      final operations = _ScreenOperations();
+      final coordinator = BackupRestoreCoordinator(operations: operations);
+      final theme = ThemeData(
+        brightness: brightness,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF08B9E8),
+          brightness: brightness,
+        ),
+      );
+
+      await tester.pumpWidget(_screen(coordinator, theme: theme));
+
+      expect(find.text('全量备份与迁移'), findsOneWidget);
+      expect(find.text('从备份恢复'), findsOneWidget);
+      expect(find.text('导出全量备份 (.shiroha)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
   });
 }

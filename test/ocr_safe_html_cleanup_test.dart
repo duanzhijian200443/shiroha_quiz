@@ -48,6 +48,48 @@ void main() {
       expect(result.diagnostics, isEmpty);
     });
 
+    test('does not read a LaTeX inequality as one phantom tag', () {
+      // The real recurring shape: a comparison to a variable is followed much
+      // later by an unrelated `>` comparison. A tag body must be a well-formed
+      // attribute list, so no tag exists here.
+      const original = r'当 0<x 时, \frac{2x}{1+\sin x} > x 成立.';
+
+      final result = stripSafeHtmlWrappers(original);
+
+      expect(containsRawHtmlTag(original), isFalse);
+      expect(result.text, original);
+      expect(result.diagnostics, isEmpty);
+    });
+
+    test('still detects real unsupported markup shapes', () {
+      for (final markup in const [
+        '<table>',
+        '</table>',
+        '<td colspan="2">',
+        "<td rowspan='2'>",
+        '<img src=image.png>',
+        '<custom-tag>',
+      ]) {
+        expect(containsRawHtmlTag(markup), isTrue, reason: markup);
+        expect(
+          stripSafeHtmlWrappers(markup).text,
+          markup,
+          reason: markup,
+        );
+      }
+    });
+
+    test('still detects real safe wrapper shapes', () {
+      for (final markup in const [
+        '<div align="center">',
+        '</div >',
+        '<br/>',
+        '<span style="color: red">',
+      ]) {
+        expect(containsRawHtmlTag(markup), isTrue, reason: markup);
+      }
+    });
+
     test('removes dangerous containers and records a fixed diagnostic', () {
       final result = stripSafeHtmlWrappers(
         '安全正文'

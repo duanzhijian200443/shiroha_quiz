@@ -97,7 +97,7 @@ final class TrainCLiveRunCapabilitySnapshot {
       };
 }
 
-/// Unified durable authority for one TRAIN C Run #1.
+/// Unified durable authority for one authorized TRAIN C live Run.
 ///
 /// State is an append-only sequence of immutable revision records. Each new
 /// record is published by exclusive creation while holding an OS file lock,
@@ -121,13 +121,15 @@ final class TrainCLiveRunCapability {
         '${_stateDirectory.path}${Platform.pathSeparator}$_lockName',
       );
 
-  /// Creates the only authorization record for a new Run #1. The isolated
+  /// Creates the only authorization record for a new live Run. The isolated
   /// runtime is bound later in the same artifact, before parse may begin.
   static String authorize({
     required Directory stateDirectory,
     required String approvedHarnessHead,
     required String approvedBase,
+    int runNumber = 1,
   }) {
+    _validateRunNumber(runNumber);
     if (!_isSha(approvedHarnessHead) || !_isSha(approvedBase)) {
       throw const TrainCEvidenceProbeException(
         'TRAIN_C_CODE_IDENTITY_MISMATCH',
@@ -142,8 +144,9 @@ final class TrainCLiveRunCapability {
     authority._writeInitialState(
       approvedHarnessHead: approvedHarnessHead,
       approvedBase: approvedBase,
+      runNumber: runNumber,
     );
-    return _encodeCapability(stateDirectory.path, nonce);
+    return _encodeCapability(stateDirectory.path, nonce, runNumber);
   }
 
   static TrainCLiveRunCapability fromCapability(String capability) {
@@ -153,7 +156,8 @@ final class TrainCLiveRunCapability {
       );
       if (decoded is! Map ||
           decoded['directory'] is! String ||
-          decoded['nonce'] is! String) {
+          decoded['nonce'] is! String ||
+          (decoded['runNumber'] != null && decoded['runNumber'] is! int)) {
         throw const FormatException();
       }
       final directory = Directory(decoded['directory'] as String);
@@ -164,6 +168,13 @@ final class TrainCLiveRunCapability {
       final authority = TrainCLiveRunCapability._(directory, nonce);
       final state = authority._readCurrentState();
       authority._validateState(state);
+      final capabilityRunNumber = decoded['runNumber'];
+      final stateRunNumber = state['runNumber'] as int;
+      if ((capabilityRunNumber == null && stateRunNumber != 1) ||
+          (capabilityRunNumber != null &&
+              capabilityRunNumber != stateRunNumber)) {
+        throw const FormatException();
+      }
       if (state['nonceDigest'] != _digest(nonce)) {
         throw const FormatException();
       }
@@ -266,7 +277,7 @@ final class TrainCLiveRunCapability {
     return state['runtimeIdentity'] == _digest(runtimeCapability.trim());
   }
 
-  /// Atomically consumes Run #1 immediately before a wrapped request is
+  /// Atomically consumes the live Run immediately before a wrapped request is
   /// delegated to dart:io. A failure here prevents network dispatch.
   void consumeAtDispatch() {
     _mutate((state) {
@@ -379,11 +390,12 @@ final class TrainCLiveRunCapability {
   void _writeInitialState({
     required String approvedHarnessHead,
     required String approvedBase,
+    required int runNumber,
   }) {
     _stateDirectory.createSync(recursive: true);
     _writeRevision(<String, Object?>{
       'schemaVersion': _schemaVersion,
-      'runNumber': 1,
+      'runNumber': runNumber,
       'approvedHarnessHead': approvedHarnessHead,
       'approvedBase': approvedBase,
       'approvedProductionBase': '711fd33f564b9fb6bb3c992d6458b0075990646c',
@@ -499,7 +511,7 @@ final class TrainCLiveRunCapability {
 
   void _validateState(Map<String, Object?> state) {
     if (state['schemaVersion'] != _schemaVersion ||
-        state['runNumber'] != 1 ||
+        state['runNumber'] is! int ||
         state['approvedHarnessHead'] is! String ||
         state['approvedBase'] is! String ||
         state['approvedProductionBase'] is! String ||
@@ -516,6 +528,7 @@ final class TrainCLiveRunCapability {
         'TRAIN_C_PROVIDER_ENVIRONMENT_BLOCKED',
       );
     }
+    _validateRunNumber(state['runNumber'] as int);
     if (!_isSha(state['approvedHarnessHead'] as String) ||
         !_isSha(state['approvedBase'] as String) ||
         !_isSha(state['approvedProductionBase'] as String)) {
@@ -585,6 +598,12 @@ final class TrainCLiveRunCapability {
     };
   }
 
+  static void _validateRunNumber(int runNumber) {
+    if (runNumber != 1 && runNumber != 2) {
+      throw const TrainCEvidenceProbeException('TRAIN_C_HARNESS_NOT_READY');
+    }
+  }
+
   static bool _continuationPhase(TrainCLiveRunPhase phase) {
     return phase == TrainCLiveRunPhase.pendingReview ||
         phase == TrainCLiveRunPhase.commitReady ||
@@ -594,11 +613,16 @@ final class TrainCLiveRunCapability {
         phase == TrainCLiveRunPhase.b0Restored;
   }
 
-  static String _encodeCapability(String directory, String nonce) {
+  static String _encodeCapability(
+    String directory,
+    String nonce,
+    int runNumber,
+  ) {
     return base64Url.encode(
-      utf8.encode(jsonEncode(<String, String>{
+      utf8.encode(jsonEncode(<String, Object>{
         'directory': directory,
         'nonce': nonce,
+        'runNumber': runNumber,
       })),
     );
   }

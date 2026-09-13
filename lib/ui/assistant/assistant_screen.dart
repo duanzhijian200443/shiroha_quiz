@@ -3,15 +3,72 @@ import 'package:flutter/services.dart';
 
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
+import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
+import '../theme/app_theme.dart';
 import 'assistant_content_renderer.dart';
 import 'conversation_controller.dart';
 import 'global_sidebar.dart';
 import 'learning_spaces_screen.dart';
 import 'workspace_controller.dart';
 import 'workspace_pages.dart';
+
+@immutable
+class AssistantComposerPrefillRequest {
+  const AssistantComposerPrefillRequest({
+    required this.epoch,
+    required this.text,
+  });
+
+  final int epoch;
+  final String text;
+}
+
+class AssistantComposerPrefillScope extends InheritedWidget {
+  const AssistantComposerPrefillScope({
+    super.key,
+    required this.request,
+    required this.onConsumed,
+    required super.child,
+  });
+
+  final AssistantComposerPrefillRequest? request;
+  final ValueChanged<int> onConsumed;
+
+  static AssistantComposerPrefillScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<AssistantComposerPrefillScope>();
+  }
+
+  @override
+  bool updateShouldNotify(AssistantComposerPrefillScope oldWidget) {
+    return request?.epoch != oldWidget.request?.epoch;
+  }
+}
+
+class AssistantGlobalDrawerScope extends InheritedWidget {
+  const AssistantGlobalDrawerScope({
+    super.key,
+    required this.registerDrawer,
+    required this.unregisterDrawer,
+    required this.openDrawer,
+    required super.child,
+  });
+
+  final void Function(Object owner, WidgetBuilder drawerBuilder) registerDrawer;
+  final ValueChanged<Object> unregisterDrawer;
+  final VoidCallback openDrawer;
+
+  static AssistantGlobalDrawerScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<AssistantGlobalDrawerScope>();
+  }
+
+  @override
+  bool updateShouldNotify(AssistantGlobalDrawerScope oldWidget) => false;
+}
 
 /// Shiroha conversation presentation backed by the C0 application boundary.
 class AssistantScreen extends StatefulWidget {
@@ -34,11 +91,14 @@ class AssistantScreen extends StatefulWidget {
 
 class _AssistantScreenState extends State<AssistantScreen> {
   static const double _nearBottomThreshold = 120;
+  static const String _manageSpacesSelection = '__manage_spaces__';
 
   final TextEditingController _composerController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
   bool _followLatest = true;
   bool _scrollScheduled = false;
+  int _lastComposerPrefillEpoch = 0;
+  AssistantGlobalDrawerScope? _globalDrawer;
 
   @override
   void initState() {
@@ -50,6 +110,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   void didUpdateWidget(covariant AssistantScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.showGlobalMenu != widget.showGlobalMenu ||
+        oldWidget.spacesController != widget.spacesController ||
+        oldWidget.fileController != widget.fileController ||
+        oldWidget.conversationController != widget.conversationController) {
+      _scheduleGlobalDrawerRegistration(_globalDrawer);
+    }
     if (oldWidget.conversationController == widget.conversationController) {
       return;
     }
@@ -61,9 +127,43 @@ class _AssistantScreenState extends State<AssistantScreen> {
     _scheduleScrollToLatest();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final prefillScope = AssistantComposerPrefillScope.maybeOf(context);
+    final globalDrawer = AssistantGlobalDrawerScope.maybeOf(context);
+    if (!identical(globalDrawer, _globalDrawer)) {
+      _globalDrawer = globalDrawer;
+      _scheduleGlobalDrawerRegistration(globalDrawer);
+    }
+    final request = prefillScope?.request;
+    if (request == null || request.epoch <= _lastComposerPrefillEpoch) return;
+    _lastComposerPrefillEpoch = request.epoch;
+    final onConsumed = prefillScope!.onConsumed;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      onConsumed(request.epoch);
+    });
+    if (_composerController.text.trim().isNotEmpty) return;
+    _composerController
+      ..text = request.text
+      ..selection = TextSelection.collapsed(offset: request.text.length);
+  }
+
+  void _scheduleGlobalDrawerRegistration(
+    AssistantGlobalDrawerScope? globalDrawer,
+  ) {
+    if (globalDrawer == null || !widget.showGlobalMenu) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !identical(_globalDrawer, globalDrawer)) return;
+      globalDrawer.registerDrawer(this, _buildGlobalDrawer);
+    });
+  }
+
+  Widget _buildGlobalDrawer(BuildContext _) => _buildDrawer()!;
+
   String get _currentSpace {
     final scope = widget.conversationController.currentScope;
-    if (scope.kind == ConversationScopeKind.global) return '全局对话';
+    if (scope.kind == ConversationScopeKind.global) return '全部资料';
     final projectId = scope.projectId;
     if (projectId == null) return '原学习空间已删除';
     for (final space in widget.spacesController.spaces) {
@@ -74,6 +174,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   @override
   void dispose() {
+    final globalDrawer = _globalDrawer;
+    if (globalDrawer != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        globalDrawer.unregisterDrawer(this);
+      });
+    }
     widget.conversationController.removeListener(_handleConversationChanged);
     _messageScrollController.dispose();
     _composerController.dispose();
@@ -159,63 +265,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _showDraftSpacePicker() async {
     final currentProjectId = widget.conversationController.draftScope.projectId;
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: const Text('选择对话范围'),
-                titleTextStyle: Theme.of(sheetContext)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              ListTile(
-                leading: const Icon(Icons.public_rounded),
-                title: const Text('全局对话'),
-                trailing: currentProjectId == null
-                    ? const Icon(Icons.check_rounded)
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, ''),
-              ),
-              if (widget.spacesController.spaces.isEmpty)
-                const ListTile(title: Text('暂无学习空间')),
-              for (final space in widget.spacesController.spaces)
-                ListTile(
-                  leading: const Icon(Icons.space_dashboard_outlined),
-                  title: Text(space.displayName),
-                  trailing: currentProjectId == space.projectId
-                      ? const Icon(Icons.check_rounded)
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, space.projectId),
-                ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.grid_view_rounded),
-                title: const Text('查看全部学习空间'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => LearningSpacesScreen(
-                        controller: widget.spacesController,
-                        fileController: widget.fileController,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+    final selected = await _pickSpaceScope(
+      title: '选择资料范围',
+      currentProjectId: currentProjectId,
     );
     if (!mounted || selected == null) return;
+    if (selected == _manageSpacesSelection) {
+      _openLearningSpaces();
+      return;
+    }
     widget.conversationController.selectDraftScope(
       selected.isEmpty
           ? ConversationScope.global()
@@ -239,49 +297,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final currentProjectId = currentScope.projectId;
     final isUnavailable = currentScope.isUnavailableLearningSpace;
 
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: const Text('移动对话'),
-                titleTextStyle: Theme.of(sheetContext)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w800),
-                subtitle: isUnavailable ? const Text('原学习空间已删除') : null,
-              ),
-              ListTile(
-                leading: const Icon(Icons.public_rounded),
-                title: const Text('全局对话'),
-                trailing: currentScope.kind == ConversationScopeKind.global
-                    ? const Icon(Icons.check_rounded)
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, ''),
-              ),
-              if (widget.spacesController.spaces.isEmpty)
-                const ListTile(title: Text('暂无学习空间')),
-              for (final space in widget.spacesController.spaces)
-                ListTile(
-                  leading: const Icon(Icons.space_dashboard_outlined),
-                  title: Text(space.displayName),
-                  trailing: currentProjectId == space.projectId
-                      ? const Icon(Icons.check_rounded)
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, space.projectId),
-                ),
-            ],
-          ),
-        ),
-      ),
+    final selected = await _pickSpaceScope(
+      title: '移动对话',
+      subtitle: isUnavailable ? '原学习空间已删除' : null,
+      currentProjectId: currentProjectId,
     );
 
     if (!mounted || selected == null) return;
+    if (selected == _manageSpacesSelection) {
+      _openLearningSpaces();
+      return;
+    }
 
     final targetScope = selected.isEmpty
         ? ConversationScope.global()
@@ -292,7 +318,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }
 
     final targetName = selected.isEmpty
-        ? '全局对话'
+        ? '全部资料'
         : widget.spacesController.spaces
                 .where((s) => s.projectId == selected)
                 .map((s) => s.displayName)
@@ -330,6 +356,36 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (success && mounted) {
       _feedback('已移动到「$targetName」');
     }
+  }
+
+  Future<String?> _pickSpaceScope({
+    required String title,
+    required String? currentProjectId,
+    String? subtitle,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => _SpaceScopePicker(
+        title: title,
+        subtitle: subtitle,
+        spaces: widget.spacesController.spaces,
+        currentProjectId: currentProjectId,
+        manageSelection: _manageSpacesSelection,
+      ),
+    );
+  }
+
+  void _openLearningSpaces() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LearningSpacesScreen(
+          controller: widget.spacesController,
+          fileController: widget.fileController,
+        ),
+      ),
+    );
   }
 
   Future<void> _showSpacePicker() async {
@@ -421,6 +477,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         onOpenSpaceHome: _openSpaceHome,
         onCreateSpace: _createSpace,
         onFeedback: _drawerFeedback,
+        onClose: () => Navigator.of(context).maybePop(),
       ),
     );
   }
@@ -440,10 +497,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final conversations = widget.conversationController;
+    final globalDrawer = AssistantGlobalDrawerScope.maybeOf(context);
     return Scaffold(
       key: const ValueKey<String>('u1-ux0-assistant-shell'),
       backgroundColor: theme.scaffoldBackgroundColor,
-      drawer: _buildDrawer(),
+      drawer: globalDrawer == null ? _buildDrawer() : null,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         toolbarHeight: 76,
@@ -453,7 +511,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   key: const ValueKey<String>('u1-ux0-open-drawer'),
                   tooltip: '打开菜单',
                   icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(drawerContext).openDrawer(),
+                  onPressed: () {
+                    final drawer = _buildDrawer();
+                    if (globalDrawer != null && drawer != null) {
+                      globalDrawer.registerDrawer(this, _buildGlobalDrawer);
+                      globalDrawer.openDrawer();
+                      return;
+                    }
+                    Scaffold.of(drawerContext).openDrawer();
+                  },
                 ),
               )
             : null,
@@ -469,8 +535,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
               key: const ValueKey<String>('u1-ux0-space-selector'),
               borderRadius: BorderRadius.circular(20),
               onTap: _showSpacePicker,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -500,7 +571,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     conversations.isMovingConversation)
                 ? null
                 : _startNewConversation,
-            icon: const Icon(Icons.add_comment_outlined),
+            icon: const Icon(Icons.add_rounded),
           ),
           const SizedBox(width: 4),
         ],
@@ -584,14 +655,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
           if (active == null) ...[
             const SizedBox(height: 24),
             _PromptCard(
+              key: const ValueKey<String>('assistant-starter-wrong-questions'),
               icon: Icons.insights_outlined,
               text: '分析我最近的错题',
+              description: '定位薄弱点与高频错题',
+              accent: AppTheme.shirohaCyan,
               onTap: () => _composerController.text = '分析我最近的错题',
             ),
             const SizedBox(height: 12),
             _PromptCard(
+              key: const ValueKey<String>('assistant-starter-review-plan'),
               icon: Icons.event_note_outlined,
               text: '帮我规划今天的复习',
+              description: '基于到期复习安排重点',
+              accent: AppTheme.warningAmber,
               onTap: () => _composerController.text = '帮我规划今天的复习',
             ),
           ] else ...[
@@ -654,7 +731,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     const Chip(
                       key: ValueKey<String>('a0-agent-settings-hint'),
                       avatar: Icon(Icons.settings_outlined, size: 18),
-                      label: Text('请前往“我的 → Shiroha Agent 设置”'),
+                      label: Text('请前往“我的 → AI 服务 → Shiroha Agent 设置”'),
                     ),
                 ],
               ),
@@ -695,15 +772,214 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 }
 
+class _SpaceScopePicker extends StatefulWidget {
+  const _SpaceScopePicker({
+    required this.title,
+    required this.spaces,
+    required this.currentProjectId,
+    required this.manageSelection,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<LearningSpaceSummary> spaces;
+  final String? currentProjectId;
+  final String manageSelection;
+
+  @override
+  State<_SpaceScopePicker> createState() => _SpaceScopePickerState();
+}
+
+class _SpaceScopePickerState extends State<_SpaceScopePicker> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final normalizedQuery = _query.trim().toLowerCase();
+    final matches = widget.spaces
+        .where(
+          (space) =>
+              normalizedQuery.isEmpty ||
+              space.displayName.toLowerCase().contains(normalizedQuery),
+        )
+        .toList(growable: false);
+    LearningSpaceSummary? current;
+    for (final space in matches) {
+      if (space.projectId == widget.currentProjectId) {
+        current = space;
+        break;
+      }
+    }
+    final others = matches
+        .where((space) => space.projectId != current?.projectId)
+        .toList(growable: false);
+
+    return SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: 0.82,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              if (widget.subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  widget.subtitle!,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              TextField(
+                key: const ValueKey<String>('assistant-space-search'),
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  hintText: '搜索学习空间…',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  filled: true,
+                  fillColor: colors.surfaceContainerHighest,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView(
+                  children: [
+                    _scopeTile(
+                      context,
+                      key: const ValueKey<String>('assistant-scope-all'),
+                      icon: Icons.public_rounded,
+                      title: '全部资料',
+                      subtitle: '可检索资料库中的全部资料',
+                      selected: widget.currentProjectId == null,
+                      value: '',
+                    ),
+                    if (current != null) ...[
+                      const _ScopeSectionLabel('当前学习空间'),
+                      _spaceTile(context, current),
+                    ],
+                    if (others.isNotEmpty) ...[
+                      const _ScopeSectionLabel('其他学习空间'),
+                      for (final space in others) _spaceTile(context, space),
+                    ] else if (current == null && matches.isEmpty) ...[
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(child: Text('没有匹配的学习空间')),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                key: const ValueKey<String>('assistant-manage-all-spaces'),
+                leading: const Icon(Icons.grid_view_rounded),
+                title: const Text('管理全部学习空间'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.pop(context, widget.manageSelection),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _spaceTile(BuildContext context, LearningSpaceSummary space) {
+    return _scopeTile(
+      context,
+      key: ValueKey<String>('assistant-scope-${space.projectId}'),
+      icon: Icons.space_dashboard_outlined,
+      title: space.displayName,
+      subtitle: '${space.bankCount} 个题库 · ${space.fileCount} 个文件',
+      selected: widget.currentProjectId == space.projectId,
+      value: space.projectId,
+    );
+  }
+
+  Widget _scopeTile(
+    BuildContext context, {
+    required Key key,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool selected,
+    required String value,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        key: key,
+        selected: selected,
+        selectedColor: colors.primary,
+        selectedTileColor: colors.primary.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: selected ? colors.primary : colors.outlineVariant,
+          ),
+        ),
+        leading: Icon(icon),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(subtitle),
+        trailing: Icon(
+          selected
+              ? Icons.check_circle_rounded
+              : Icons.radio_button_unchecked_rounded,
+        ),
+        onTap: () => Navigator.pop(context, value),
+      ),
+    );
+  }
+}
+
+class _ScopeSectionLabel extends StatelessWidget {
+  const _ScopeSectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      );
+}
+
 class _PromptCard extends StatelessWidget {
   const _PromptCard({
+    super.key,
     required this.icon,
     required this.text,
+    required this.description,
+    required this.accent,
     required this.onTap,
   });
 
   final IconData icon;
   final String text;
+  final String description;
+  final Color accent;
   final VoidCallback onTap;
 
   @override
@@ -711,14 +987,32 @@ class _PromptCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Material(
       color: colors.surface,
-      elevation: 1,
-      shadowColor: colors.shadow.withValues(alpha: 0.12),
+      elevation: 0,
       borderRadius: BorderRadius.circular(18),
       child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        leading: Icon(icon, color: colors.primary),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: colors.outlineVariant),
+        ),
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Icon(icon, color: accent),
+        ),
         title: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
-        trailing: const Icon(Icons.north_west_rounded, size: 18),
+        subtitle: Text(
+          description,
+          style: TextStyle(color: colors.onSurfaceVariant),
+        ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: colors.onSurfaceVariant,
+        ),
         onTap: onTap,
       ),
     );

@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+
 import 'import_question_field_policy.dart';
 import 'import_question_repair_policy.dart';
 import 'latex_block_environment_normalizer.dart';
@@ -14,6 +17,43 @@ const Set<String> _derivedDiagnosticCodes = {
   'unsafe_html_content_removed',
   'unsupported_html_tag_preserved',
 };
+
+const Set<String> _ineligibleFinalizationComparisonDiagnostics = {
+  'unsafe_html_content_removed',
+  'unsupported_html_tag_preserved',
+};
+
+/// The comparison-only result of the same deterministic text transformations
+/// used by the production finalization path.
+///
+/// This helper never mutates an import question or establishes persisted
+/// authority. HTML safety diagnostics remain fail-closed: a transformation
+/// that removes unsafe content or preserves an unsupported tag is not an
+/// equivalence claim.
+final class DeterministicFinalizationComparison {
+  const DeterministicFinalizationComparison({
+    required this.text,
+    required this.eligible,
+  });
+
+  final String text;
+  final bool eligible;
+}
+
+DeterministicFinalizationComparison finalizeImportTextForParityComparison(
+  String input,
+) {
+  final html = stripSafeHtmlWrappers(input);
+  final repaired = repairLatexDeterministically(html.text);
+  final normalized =
+      const LatexBlockEnvironmentNormalizer().normalize(repaired).text;
+  return DeterministicFinalizationComparison(
+    text: normalized,
+    eligible: !html.diagnostics.any(
+      _ineligibleFinalizationComparisonDiagnostics.contains,
+    ),
+  );
+}
 
 List<String> clearDerivedImportDiagnostics(
   Iterable<String> diagnostics,
@@ -174,6 +214,12 @@ List<Map<String, dynamic>> finalizeAndAuditImportQuestions(
   bool preserveRawExplanation = true,
 }) {
   final source = questions.toList(growable: false);
+  emitImportExplanationLifecycleTelemetryForProduction(
+    stage: 'pre_finalizer',
+    sourceCollectionName: 'finalizer_input',
+    questions: source,
+    retentionMode: mode,
+  );
   if (overrides != null && overrides.length != source.length) {
     throw ArgumentError.value(
       overrides.length,
@@ -181,7 +227,7 @@ List<Map<String, dynamic>> finalizeAndAuditImportQuestions(
       'must match question count ${source.length}',
     );
   }
-  return source
+  final finalized = source
       .asMap()
       .entries
       .map(
@@ -195,6 +241,52 @@ List<Map<String, dynamic>> finalizeAndAuditImportQuestions(
         ),
       )
       .toList(growable: false);
+  emitImportExplanationLifecycleTelemetryForProduction(
+    stage: 'post_finalizer',
+    sourceCollectionName: 'finalizer_output',
+    questions: finalized,
+    retentionMode: mode,
+  );
+  return finalized;
+}
+
+/// Safe, bounded diagnostics for locating explanation loss between import
+/// stages. This records only Q1 field presence/length and collection counts;
+/// it never records source text or provider payloads.
+@visibleForTesting
+void Function(Map<String, Object?> telemetry)?
+    explanationLifecycleTelemetryHandlerForTesting;
+
+void emitImportExplanationLifecycleTelemetryForProduction({
+  required String stage,
+  required String sourceCollectionName,
+  required List<Map<String, dynamic>> questions,
+  required ExplanationRetentionMode retentionMode,
+}) {
+  final question = questions.cast<Map<String, dynamic>>().firstWhere(
+        (candidate) => candidate['question_number'] == 1,
+        orElse: () => <String, dynamic>{},
+      );
+  final raw = question['raw_explanation'];
+  final explanation = question['explanation'];
+  final telemetry = <String, Object?>{
+    'stage': stage,
+    'sourceCollectionName': sourceCollectionName,
+    'collectionLength': questions.length,
+    'questionNumber': 1,
+    'questionType': question['type'] is int ? question['type'] : null,
+    'retentionMode': retentionMode.name,
+    'rawExplanationPresent': raw is String && raw.isNotEmpty,
+    'rawExplanationLength': raw is String ? raw.length : 0,
+    'explanationPresent': explanation is String && explanation.isNotEmpty,
+    'explanationLength': explanation is String ? explanation.length : 0,
+  };
+  explanationLifecycleTelemetryHandlerForTesting?.call(telemetry);
+  AppLogger.info(
+    'Import explanation lifecycle telemetry',
+    module: 'Import',
+    data: telemetry,
+  );
 }
 
 Map<String, dynamic> _clearDerivedDiagnostics(

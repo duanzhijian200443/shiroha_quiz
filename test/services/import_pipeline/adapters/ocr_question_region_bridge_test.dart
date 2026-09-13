@@ -3,6 +3,7 @@ import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
@@ -11,6 +12,7 @@ import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_docume
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_entry.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
@@ -316,6 +318,34 @@ void main() {
           endCodeUnitOffset: 11,
         ),
       );
+    });
+
+    test('keeps legitimate whole-part ownership with a null SourceSlice', () {
+      final part = _blockPart(
+        blockId: 'whole_part',
+        page: 1,
+        readingOrder: 0,
+        text: 'whole owned stem',
+      );
+      final result = bridge.convert(
+        _region(
+          stemParts: const <String>['whole owned stem'],
+          sourceBlockIds: const <String>['whole_part'],
+          ownedSources: const <OcrQuestionRegionSource>[
+            OcrQuestionRegionSource(
+              blockId: 'whole_part',
+              field: OcrRegionField.stem,
+              startCodeUnitOffset: 0,
+              endCodeUnitOffset: 16,
+            ),
+          ],
+        ),
+        sourceDocument: _document(<SourcePart>[part]),
+      );
+
+      expect(result.fragments.single.part, same(part));
+      expect(result.fragments.single.slice, isNull);
+      expect(_singleText(result.fragments.single), 'whole owned stem');
     });
 
     test('excludes unrelated structural blocks from the region', () {
@@ -773,6 +803,273 @@ void main() {
     });
   });
 
+  group('OcrQuestionRegionBridge reference evidence ownership', () {
+    test('confirmed multi-block evidence does not duplicate local answer', () {
+      final merged = const ReferenceAnswerMerger().merge(
+        <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: <String>['synthetic stem'],
+            answerParts: <String>['local answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question', 'local_answer'],
+            diagnostics: <String>[],
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question',
+                field: OcrRegionField.stem,
+                text: 'synthetic stem',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'local answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            1: ReferenceAnswerEntry(
+              questionNumber: 1,
+              answerText: 'local   answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_1',
+                'reference_2',
+                'reference_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final result = bridge.convert(
+        merged,
+        sourceDocument: _document(<SourcePart>[
+          _blockPart(
+            blockId: 'question',
+            page: 1,
+            readingOrder: 0,
+            text: 'synthetic stem',
+          ),
+          _blockPart(
+            blockId: 'local_answer',
+            page: 1,
+            readingOrder: 1,
+            text: 'local answer',
+          ),
+          _blockPart(
+            blockId: 'reference_1',
+            page: 2,
+            readingOrder: 0,
+            text: 'reference evidence one',
+          ),
+          _blockPart(
+            blockId: 'reference_2',
+            page: 2,
+            readingOrder: 1,
+            text: 'reference evidence two',
+          ),
+          _blockPart(
+            blockId: 'reference_3',
+            page: 2,
+            readingOrder: 2,
+            text: 'reference evidence three',
+          ),
+        ]),
+      );
+
+      final answers = result.fragmentsFor(QuestionRegionField.answer);
+      expect(answers, hasLength(1));
+      expect(_singleText(answers.single), 'local answer');
+      expect(
+        result.sourceRefs.map((ref) => ref.start?.blockId).whereType<String>(),
+        const <String>[
+          'question',
+          'local_answer',
+          'reference_1',
+          'reference_2',
+          'reference_3',
+        ],
+      );
+    });
+
+    test('attached multi-block evidence creates one synthetic answer', () {
+      final merged = const ReferenceAnswerMerger().merge(
+        <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: <String>['synthetic stem'],
+            answerParts: <String>[],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question'],
+            diagnostics: <String>['missing_answer'],
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question',
+                field: OcrRegionField.stem,
+                text: 'synthetic stem',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            1: ReferenceAnswerEntry(
+              questionNumber: 1,
+              answerText: 'authoritative reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_1',
+                'reference_2',
+                'reference_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final result = bridge.convert(
+        merged,
+        sourceDocument: _document(<SourcePart>[
+          _blockPart(
+            blockId: 'question',
+            page: 1,
+            readingOrder: 0,
+            text: 'synthetic stem',
+          ),
+          _blockPart(
+            blockId: 'reference_1',
+            page: 2,
+            readingOrder: 0,
+            text: 'reference evidence one',
+          ),
+          _blockPart(
+            blockId: 'reference_2',
+            page: 2,
+            readingOrder: 1,
+            text: 'reference evidence two',
+          ),
+          _blockPart(
+            blockId: 'reference_3',
+            page: 2,
+            readingOrder: 2,
+            text: 'reference evidence three',
+          ),
+        ]),
+      );
+
+      final answers = result.fragmentsFor(QuestionRegionField.answer);
+      expect(answers, hasLength(1));
+      expect(_singleText(answers.single), 'authoritative reference answer');
+      expect(answers.single.sourceRef.start, isNull,
+          reason: 'synthetic answer is not attributed to an evidence block');
+      final draft = const TypedQuestionAssembler().assemble(
+        result,
+        questionId: 'question_1',
+      );
+      final answer = draft.answer as ContentAnswer;
+      expect((answer.content.nodes.single as TextNode).text,
+          'authoritative reference answer');
+      expect(
+        result.sourceRefs.map((ref) => ref.start?.blockId).whereType<String>(),
+        const <String>[
+          'question',
+          'reference_1',
+          'reference_2',
+          'reference_3',
+        ],
+      );
+    });
+
+    test('reference-only structural evidence is not product content', () {
+      final merged = const ReferenceAnswerMerger().merge(
+        <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 1,
+            stemParts: <String>['synthetic stem'],
+            answerParts: <String>['local answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question', 'local_answer'],
+            diagnostics: <String>[],
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question',
+                field: OcrRegionField.stem,
+                text: 'synthetic stem',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'local answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            1: ReferenceAnswerEntry(
+              questionNumber: 1,
+              answerText: 'different reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>['reference_asset'],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final result = bridge.convert(
+        merged,
+        sourceDocument: _document(<SourcePart>[
+          _blockPart(
+            blockId: 'question',
+            page: 1,
+            readingOrder: 0,
+            text: 'synthetic stem',
+          ),
+          _blockPart(
+            blockId: 'local_answer',
+            page: 1,
+            readingOrder: 1,
+            text: 'local answer',
+          ),
+          SourceAssetPart(
+            sourceRef: _blockRef(
+              blockId: 'reference_asset',
+              page: 2,
+              readingOrder: 0,
+            ),
+            asset: AssetRef(
+              assetId: 'reference_asset',
+              kind: AssetKind.image,
+            ),
+          ),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(2));
+      expect(
+        result.fragments.map((fragment) => fragment.part),
+        everyElement(isA<SourceContentPart>()),
+      );
+      expect(result.assetRefs, isEmpty);
+      expect(
+        result.sourceRefs.map((ref) => ref.start?.blockId),
+        const <String>['question', 'local_answer', 'reference_asset'],
+      );
+    });
+  });
+
   group('OcrQuestionRegionBridge kind and diagnostics', () {
     test('maps the effective kind to its frozen hint', () {
       final cases = <(TextQuestionKind, QuestionRegionKindHint)>[
@@ -1106,6 +1403,489 @@ void main() {
       expect(identical(region.sourceBlockIds, sourceBlockIds), isTrue);
       expect(identical(region.diagnostics, diagnostics), isTrue);
       expect(second, first);
+    });
+  });
+
+  group('OcrQuestionRegionBridge structural math ownership completeness', () {
+    test(
+        'real Q1 geometry with multi-block sourceIds and partial math ownership (Regression 1)',
+        () {
+      final map = OcrMathSourceMap();
+      final blocks = <({String id, int order, String text})>[
+        (
+          id: 'p001_b0002',
+          order: 2,
+          text: r'1. 设 $ \lim_{x\rightarrow 1}\frac{f(x)}{\ln x}=1 $ ，则（ ）',
+        ),
+        (
+          id: 'p001_b0003',
+          order: 3,
+          text: r'A. $ f(1)=0. $',
+        ),
+        (
+          id: 'p001_b0004',
+          order: 4,
+          text: r'B. $ \lim_{x\rightarrow 1}f(x)=0. $',
+        ),
+        (
+          id: 'p001_b0005',
+          order: 5,
+          text: r'C. $ f^{\prime}(1)=1. $',
+        ),
+        (
+          id: 'p001_b0006',
+          order: 6,
+          text: r'D. $ \lim_{x\rightarrow 1}f^{\prime}(x)=1. $',
+        ),
+        (
+          id: 'p001_b0007',
+          order: 7,
+          text: '本题主要考查极限与导数的概念.',
+        ),
+        (
+          id: 'p001_b0008',
+          order: 8,
+          text:
+              r'本题中关于 f(x)的条件相当有限，仅有 $ \lim_{x\to 1}\frac{f(x)}{\ln x}=1 $这一个条件.',
+        ),
+        (
+          id: 'p001_b0009',
+          order: 9,
+          text:
+              r'当 $ x\to 1 $时， $ \lim_{x\to 1}\ln x=0 $ ，故分子 f(x)满足 $ \lim_{x\to 1}f(x)=0 $ .应选B.',
+        ),
+        (
+          id: 'p001_b0010',
+          order: 10,
+          text: r'洛必达法则：$$\lim _ {x \rightarrow 1} \frac {f (x)}{\ln x} = 1$$',
+        ),
+        (
+          id: 'p001_b0011',
+          order: 11,
+          text: r'考虑分段函数 $ f ( x ) $ 在 $ x=1 $ 处不可导.',
+        ),
+        (
+          id: 'p001_b0012',
+          order: 12,
+          text: r'不难发现， $ x=1 $ 是间断点， $ \lim_{x\to 1}f^{\prime}(x) $ 不存在.',
+        ),
+      ];
+
+      final parts = <SourcePart>[
+        for (final b in blocks)
+          SourceContentPart(
+            sourceRef: _blockRef(blockId: b.id, page: 1, readingOrder: b.order),
+            content: map.parse(b.text),
+          ),
+      ];
+
+      final stemText = r'设 $ \lim_{x\rightarrow 1}\frac{f(x)}{\ln x}=1 $ ，则（ ）';
+      final region = OcrQuestionRegion(
+        number: 1,
+        stemParts: <String>[stemText],
+        answerParts: const <String>[],
+        explanationParts: const <String>[],
+        sourcePageIndices: const <int>[1],
+        sourceBlockIds: blocks.map((b) => b.id).toList(growable: false),
+        diagnostics: const <String>['contains_formula_block'],
+        ownedSources: <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'p001_b0002',
+            field: OcrRegionField.stem,
+            text: stemText,
+          ),
+        ],
+      );
+
+      final result = bridge.convert(
+        region,
+        sourceDocument: _document(parts),
+        mathSourceMap: map,
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+      expect(result.fragments.single.part, same(parts.first));
+      expect(result.fragments.single.slice, isNotNull);
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      final inlineMath = materialized.whereType<InlineMathNode>().toList();
+      expect(inlineMath, hasLength(1));
+      expect(inlineMath.single.latex,
+          r' \lim_{x\rightarrow 1}\frac{f(x)}{\ln x}=1 ');
+      expect(
+        identical(
+          inlineMath.single,
+          (parts.first as SourceContentPart)
+              .content
+              .nodes
+              .whereType<InlineMathNode>()
+              .single,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+        'unowned inline math outside slice is legal for sliceable paragraph (Regression 2)',
+        () {
+      const raw = r'A $x$ B';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      expect(parsed.nodes, [
+        const TextNode('A '),
+        const InlineMathNode('x'),
+        const TextNode(' B'),
+      ]);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      final region = _region(
+        stemParts: const <String>['A '],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 2,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+      expect(result.fragments.single.part, same(document.parts.single));
+      expect(result.fragments.single.slice, isNotNull);
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [const TextNode('A ')]);
+    });
+
+    test('owned math remains atomic and preserves identity (Regression 3)', () {
+      const raw = r'A $x$ B';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      final region = _region(
+        stemParts: const <String>[r'A $x$'],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 5,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.field, QuestionRegionField.stem);
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [const TextNode('A '), const InlineMathNode('x')]);
+      expect(
+        identical(materialized[1], parsed.nodes[1]),
+        isTrue,
+      );
+    });
+
+    test('math interior slice must fail closed (Regression 4)', () {
+      const raw = r'A $x$ B';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      // MathNode 'x' is at [2, 5). Offset 3 is interior.
+      final region = _region(
+        stemParts: const <String>[r'A $'],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 3,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+    });
+
+    test(
+        'complete non-overlapping ownership covering all math nodes remains valid across fields (Regression B)',
+        () {
+      const raw = r'1. $x$ 答案：$y$';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw);
+      final boundary = raw.indexOf('答案');
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: parsed,
+        ),
+      ]);
+      final region = _region(
+        stemParts: <String>[raw.substring(0, boundary)],
+        answerParts: <String>[raw.substring(boundary)],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: boundary,
+          ),
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.answer,
+            startCodeUnitOffset: boundary,
+            endCodeUnitOffset: raw.length,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(2));
+      final stemFragment = result.fragments[0];
+      final answerFragment = result.fragments[1];
+      expect(stemFragment.field, QuestionRegionField.stem);
+      expect(answerFragment.field, QuestionRegionField.answer);
+      final stemNodes = materializeQuestionRegionContent(
+        (stemFragment.part as SourceContentPart).content,
+        stemFragment.slice,
+      );
+      final answerNodes = materializeQuestionRegionContent(
+        (answerFragment.part as SourceContentPart).content,
+        answerFragment.slice,
+      );
+      expect(stemNodes.whereType<InlineMathNode>().single.latex, 'x');
+      expect(answerNodes.whereType<InlineMathNode>().single.latex, 'y');
+      final originalMath = parsed.nodes.whereType<InlineMathNode>().toList();
+      expect(
+        identical(
+            stemNodes.whereType<InlineMathNode>().single, originalMath[0]),
+        isTrue,
+      );
+      expect(
+        identical(
+            answerNodes.whereType<InlineMathNode>().single, originalMath[1]),
+        isTrue,
+      );
+    });
+
+    test(
+        'missing map with partial mixed-math ownership fails closed (Regression C)',
+        () {
+      final mixedContent = RichContent(nodes: <ContentNode>[
+        const TextNode('A '),
+        const InlineMathNode('x'),
+        const TextNode(' B'),
+      ]);
+      final document = _document(<SourcePart>[
+        SourceContentPart(
+          sourceRef: _blockRef(blockId: 'b1', page: 1, readingOrder: 0),
+          content: mixedContent,
+        ),
+      ]);
+      final region = _region(
+        stemParts: const <String>['A '],
+        sourceBlockIds: const <String>['b1'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'b1',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 2,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: null,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(
+        result.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+    });
+
+    test(
+        'missing map with proven whole-part formula ownership remains valid (Regression D)',
+        () {
+      final formulaPart = SourceContentPart(
+        sourceRef: _blockRef(blockId: 'formula', page: 1, readingOrder: 0),
+        content: RichContent(nodes: <ContentNode>[const BlockMathNode('x^2')]),
+        role: SourceContentRole.formula,
+      );
+      final document = _document(<SourcePart>[formulaPart]);
+      final region = _region(
+        stemParts: const <String>['x^2'],
+        sourceBlockIds: const <String>['formula'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'formula',
+            field: OcrRegionField.stem,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: null,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.part, same(formulaPart));
+      expect(result.fragments.single.slice, isNull);
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [const BlockMathNode('x^2')]);
+    });
+
+    test(
+        'formula role content part with text prefix preserves structural ownership (Regression E)',
+        () {
+      const raw = r'洛必达法则：$$\lim_{x\to 1}f(x)=1$$';
+      final map = OcrMathSourceMap();
+      final parsed = map.parse(raw, formula: true);
+      final formulaPart = SourceContentPart(
+        sourceRef: _blockRef(blockId: 'p001_b0010', page: 1, readingOrder: 10),
+        content: parsed,
+        role: SourceContentRole.formula,
+      );
+      final document = _document(<SourcePart>[formulaPart]);
+      final region = _region(
+        stemParts: const <String>[raw],
+        sourceBlockIds: const <String>['p001_b0010'],
+        diagnostics: const <String>['contains_formula_block'],
+        ownedSources: const <OcrQuestionRegionSource>[
+          OcrQuestionRegionSource(
+            blockId: 'p001_b0010',
+            field: OcrRegionField.stem,
+            startCodeUnitOffset: 0,
+            endCodeUnitOffset: 29,
+          ),
+        ],
+      );
+      final result = bridge.convert(
+        region,
+        sourceDocument: document,
+        mathSourceMap: map,
+      );
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.part, isNot(isA<UnsupportedSourcePart>()));
+      expect(result.fragments.single.part, same(formulaPart));
+      expect(result.fragments.single.slice, isNotNull);
+
+      final materialized = materializeQuestionRegionContent(
+        (result.fragments.single.part as SourceContentPart).content,
+        result.fragments.single.slice,
+      );
+      expect(materialized, [
+        const TextNode('洛必达法则：'),
+        const BlockMathNode(r'\lim_{x\to 1}f(x)=1'),
+      ]);
+    });
+  });
+
+  group('structural ownership diagnostic telemetry', () {
+    test('emits diagnostic reason code and block details on failure (Test A)',
+        () {
+      final emitted = <Map<String, Object?>>[];
+      structuralOwnershipRejectionHandlerForTesting = emitted.add;
+      addTearDown(() {
+        structuralOwnershipRejectionHandlerForTesting = null;
+      });
+
+      final assetPart = SourceAssetPart(
+        sourceRef: _blockRef(blockId: 'p003_b0142', page: 1, readingOrder: 0),
+        asset: AssetRef(
+          assetId: 'asset_1',
+          kind: AssetKind.image,
+          mimeType: 'image/png',
+        ),
+      );
+      final region = bridge.convert(
+        _region(
+          stemParts: const <String>['figure'],
+          sourceBlockIds: const <String>['p003_b0142'],
+        ),
+        sourceDocument: _document(<SourcePart>[assetPart]),
+      );
+
+      expect(region.fragments, hasLength(1));
+      expect(
+        region.fragments.single.part,
+        isA<UnsupportedSourcePart>().having(
+          (part) => part.kindCode,
+          'kindCode',
+          'ocr_structural_ownership',
+        ),
+      );
+
+      expect(emitted, hasLength(1));
+      final record = emitted.single;
+      expect(record['reasonCode'], 'atomic_declared_not_owned');
+      expect(record['questionNumber'], 1);
+      expect(record['blockId'], 'p003_b0142');
+      expect(record['partType'], 'SourceAssetPart');
     });
   });
 }

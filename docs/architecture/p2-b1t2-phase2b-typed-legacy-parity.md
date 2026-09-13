@@ -63,11 +63,11 @@ heuristic.
 
 - `_strictDecodeBaseline()` strictly decodes the six legacy fields;
 - `_rawExplanationAllowed()` admits `null`, the empty string, exact equality,
-  or bounded N0 equality only when the typed explanation is TextNode-only and
-  both operands are non-empty;
+  deterministic-finalization equality, or bounded N0 equality only when the
+  typed explanation is TextNode-only and both operands are non-empty;
 - `LegacyReviewBaseline == candidate.projectedLegacy` remains exact for all
   fields except the bounded TextNode-only explanation comparison defined in
-  section 4, including exact ordered option elements and answer case;
+  sections 4 and 4A, including exact ordered option elements and answer case;
 - `_provenanceParity()` requires exact ordered equality for
   `source_page_indices` and `source_block_ids`;
 - any failed question removes every typed envelope and routes the whole batch
@@ -88,16 +88,17 @@ strict final baseline and the candidate compatibility projection.
 | `content` | exact | none |
 | `options` | exact ordered list and exact elements | none |
 | `standardAnswer` | exact and case-sensitive | none |
-| `explanation` | exact, or bounded normalized equality only for the TextNode-only path defined below | section 4 only |
+| `explanation` | exact, or bounded deterministic-finalization/N0 equality only for the TextNode-only path defined below | sections 4 and 4A |
 | `source_page_indices` | exact ordered equality | none |
 | `source_block_ids` | exact ordered equality | none |
 
 The comparator MUST NOT lowercase answers, sort answers or options, remove
-punctuation, normalize digits numerically, rewrite LaTeX, normalize
-mathematical symbols, remove math delimiters, strip HTML, apply Unicode NFKC,
-perform semantic sentence rewriting, collapse internal whitespace, collapse
-structural nodes to arbitrary text, or reconstruct typed authority from a
-legacy string.
+punctuation, normalize digits numerically, normalize mathematical symbols,
+remove math delimiters, apply Unicode NFKC, perform semantic sentence
+rewriting, collapse internal whitespace, collapse structural nodes to
+arbitrary text, or reconstruct typed authority from a legacy string. The only
+HTML/LaTeX transformation permitted for explanation parity is the one-way,
+comparison-only sequence defined in section 4A.
 
 ## 4. Bounded TextNode-only v0 normalization
 
@@ -158,6 +159,41 @@ Exact equality remains the first comparison path. The resource bound above
 governs the additional normalized representation, not persisted payload
 shape.
 
+### 4A. Deterministic finalization equivalence
+
+The production-backed explanation finalization comparator is comparison-only
+and applies exactly this one-way transformation to the raw/projected value:
+
+```text
+safe HTML cleanup
+    -> deterministic LaTeX repair
+    -> LatexBlockEnvironmentNormalizer
+```
+
+The transformed value is compared by exact equality with the final target.
+The comparator does not mutate `raw_explanation`, replace final explanation
+text, write a database value, or become a persisted authority. Renderability
+audit remains issue/risk classification and is not another text normalizer.
+
+The equivalence is ineligible when safe HTML cleanup reports either
+`unsafe_html_content_removed` or `unsupported_html_tag_preserved`. A
+production transformation therefore cannot automatically claim equivalence
+after removing unsafe content or preserving unsupported markup. No general
+whitespace collapse, OCR line reflow, semantic equivalence, fuzzy comparison,
+AI comparison, or reverse final-to-raw transformation is permitted.
+
+This equivalence applies at both explanation seams:
+
+```text
+A. raw_explanation -> final explanation
+B. projectedLegacy.explanation -> final baseline.explanation
+```
+
+The direction is always raw/projected-like value through the deterministic
+production transformation to the final user-visible value. All other fields
+remain exact, and the final baseline stored in `TypedReviewSnapshot` remains
+the actual unnormalized final value.
+
 ## 5. `raw_explanation` v0 admission
 
 The following order is frozen:
@@ -175,7 +211,12 @@ raw == final explanation
 raw != '' AND final explanation == ''
     -> reject typed_candidate_raw_explanation_diverged
 
-both strings non-empty, typed explanation TextNode-only, and N0(raw) == N0(final)
+both strings non-empty, typed explanation TextNode-only, and the deterministic
+finalization comparison is eligible and equals final
+    -> allowed
+
+otherwise, both strings non-empty, typed explanation TextNode-only, and
+N0(raw) == N0(final)
     -> allowed
 
 otherwise
@@ -187,10 +228,9 @@ whitespace-only non-empty raw text is not allowed to normalize into a literal
 empty final explanation. This preserves fail-closed retention/quality-policy
 semantics.
 
-V0 does not treat deterministic safe-HTML cleanup, deterministic LaTeX repair,
-or general OCR line reflow as equivalent merely because they may be produced
-by finalization. Those transformations require their own evidence-backed
-contract if they remain a real first-loss boundary.
+The deterministic-finalization equivalence in section 4A is the only
+additional representation-only admission. General OCR line reflow remains
+ineligible.
 
 ## 6. Internal line wrapping, formula-role TextNodes, math, and structural content
 
@@ -359,10 +399,37 @@ The following remain deferred and are not activated by this contract:
 - a future concrete producer-backed internal OCR line-wrap equivalence, if a
   live first-loss is isolated; such work is a bounded closure repair, not a
   generic normalization design;
-- evidence-backed handling, if required, for finalizer safe-HTML cleanup or
-  deterministic LaTeX repair differences;
 - unbounded asset registry, reference counting, garbage collection, and other
   lifecycle expansion beyond the bounded managed lifetime;
 - final live PDF acceptance for the real provider trace;
 - AI Repair, P2-B2, AnswerAttempt, RAG, MCP, and option-extraction redesign;
 - P3 mixed-structural stem option extraction.
+
+## 11. OCR typed-math producer successor
+
+The earlier production observations above describe the TextNode-only OCR
+producer at that stage. Its successor classifies explicit mathematical syntax
+in OCR text, paragraph, title, heading, formula and equation blocks before
+typed assembly. Persisted TextNode remains literal; renderers do not reinterpret
+its contents. This correction uses the existing InlineMathNode and BlockMathNode
+schema and does not repair historical snapshots.
+
+The opt-in math scanner preserves ordinary text and mathematical payloads,
+including whitespace. Ambiguous delimiters retain a literal suffix rather than
+being repaired. A call-local OCR source map records raw UTF-16 intervals and
+original mathematical delimiters by node identity. It is never serialized.
+Bridge ownership may split text but must include math nodes whole; ambiguous
+ownership is explicitly unsupported. Proven non-overlapping textual/math
+intervals may belong to different fields of one block. Asset and table ownership
+rules are unchanged.
+
+OCR assembly applies its existing field extraction policies through an atomic
+math view and restores the original nodes. General mixed image/table option
+extraction remains deferred. Only the OCR compatibility profile uses the
+call-local original math representation, preserving source delimiters; the
+general RichContentTextProjection and other profiles are unchanged.
+
+The final mathematical AST still crosses the existing strict candidate,
+privacy and snapshot gates. Math does not qualify for TextNode-only relaxed
+parity. No comparator exception, sidecar version, database schema or historical
+data migration is introduced by this producer correction.

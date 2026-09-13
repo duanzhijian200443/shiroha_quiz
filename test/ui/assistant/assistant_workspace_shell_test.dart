@@ -936,8 +936,27 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(FileLibraryWorkspace), findsOneWidget);
+    expect(find.text('资料库'), findsWidgets);
+    expect(find.text('文件库'), findsNothing);
     expect(find.text('notes.md'), findsOneWidget);
+    expect(find.textContaining('Markdown · 1.0 KB'), findsOneWidget);
+    expect(find.textContaining('text/markdown'), findsNothing);
     expect(find.text('论文'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-file-list')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-file-layout-grid')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-file-grid')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Markdown · 1.0 KB'), findsOneWidget);
+    expect(find.textContaining('text/markdown'), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('u1-ux01-file-file-notes')),
@@ -968,9 +987,69 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(McpWorkspace), findsOneWidget);
-    expect(find.text('已配置 / 可用'), findsOneWidget);
-    expect(find.text('Local stdio'), findsOneWidget);
+    expect(find.text('扩展能力'), findsWidgets);
+    expect(find.text('Shiroha 本地数据服务'), findsOneWidget);
+    expect(find.text('已配置'), findsOneWidget);
+    expect(find.text('本地连接'), findsOneWidget);
+    expect(find.text('只读权限'), findsOneWidget);
+    expect(find.text('运行状态未检测'), findsOneWidget);
+    expect(find.text('题库检索与定位'), findsOneWidget);
+    expect(find.text('学情与进度概览'), findsOneWidget);
+    expect(find.text('到期复习统计'), findsOneWidget);
+    expect(find.text('错题与薄弱项分析'), findsOneWidget);
+    expect(find.text('search_questions'), findsOneWidget);
+    expect(find.text('运行正常'), findsNothing);
     expect(find.textContaining('不代表'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'conversation focus epoch reuses shell owner and returns to conversation',
+      (tester) async {
+    final facade = _facade();
+    final conversationService = _conversationService();
+    final agentSettingsService = _agentSettingsService();
+    var focusEpoch = 0;
+    late StateSetter setHostState;
+    await tester.binding.setSurfaceSize(const Size(1300, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            setHostState = setState;
+            return AssistantWorkspaceShell(
+              facade: facade,
+              conversationService: conversationService,
+              agentSettingsService: agentSettingsService,
+              startAgentTurn: _failedAgentTurn,
+              conversationFocusEpoch: focusEpoch,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final originalController = tester
+        .widget<AssistantScreen>(find.byType(AssistantScreen))
+        .conversationController;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(FileLibraryWorkspace), findsOneWidget);
+
+    setHostState(() => focusEpoch++);
+    await tester.pump();
+
+    expect(find.byType(AssistantScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<AssistantScreen>(find.byType(AssistantScreen))
+          .conversationController,
+      same(originalController),
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -1191,6 +1270,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('notes.md'), findsOneWidget);
 
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux01-file-search')),
+      '不存在',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('f0-1-folder-folder-papers')),
+      findsNothing,
+    );
+    expect(find.text('没有匹配的文件'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux01-file-search')),
+      '',
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-library-add-menu')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('f0-1-create-folder')),
     );
@@ -1263,6 +1362,31 @@ void main() {
       find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Shiroha Agent'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-close-sidebar')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-new-conversation')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux01-close-sidebar')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('u1-ux01-global-sidebar')),
+      findsNothing,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('资料库'), findsOneWidget);
+    expect(find.text('文件库'), findsNothing);
+    expect(find.text('管理全部学习空间'), findsOneWidget);
+    expect(find.text('扩展能力'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
     );

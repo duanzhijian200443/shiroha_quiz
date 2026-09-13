@@ -44,6 +44,7 @@ void main() {
     TaskManager? taskManager,
     ImportTaskCoordinator? taskCoordinator,
     TaskCenterRetryFilePicker? retryFilePicker,
+    ValueChanged<String>? onOpenBank,
   }) {
     return MaterialApp(
       home: TaskCenterScreen(
@@ -52,6 +53,7 @@ void main() {
         taskManager: taskManager,
         taskCoordinator: taskCoordinator,
         retryFilePicker: retryFilePicker,
+        onOpenBank: onOpenBank,
       ),
     );
   }
@@ -91,6 +93,11 @@ void main() {
   testWidgets('TaskCenterScreen shows empty state when no tasks are present',
       (WidgetTester tester) async {
     await tester.pumpWidget(createWidgetUnderTest());
+    expect(find.text('解析任务'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('task-center-page-menu')),
+      findsOneWidget,
+    );
     expect(find.text('进行中（0）'), findsOneWidget);
     expect(find.text('待校对（0）'), findsOneWidget);
     expect(find.text('已完成（0）'), findsOneWidget);
@@ -155,6 +162,63 @@ void main() {
     expect(find.text('已完成（1）'), findsOneWidget);
     expect(find.text('异常（1）'), findsOneWidget);
     expect(find.text('error.pdf'), findsOneWidget);
+  });
+
+  testWidgets('completed task opens its persisted bank through the UI seam',
+      (WidgetTester tester) async {
+    final openedBanks = <String>[];
+    TaskManager.instance.tasks.add(
+      ImportTask(
+        id: 'completed-with-bank',
+        title: 'completed.pdf',
+        status: TaskStatus.completed,
+        bankName: '  Bank A  ',
+      ),
+    );
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(onOpenBank: openedBanks.add),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.completed);
+
+    final openBank = find.byKey(
+      const ValueKey<String>('task-open-bank-completed-with-bank'),
+    );
+    expect(openBank, findsOneWidget);
+    expect(find.text('去题库'), findsOneWidget);
+    expect(openedBanks, isEmpty);
+
+    await tester.tap(openBank);
+    await tester.pump();
+
+    expect(openedBanks, <String>['Bank A']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('completed task without bank authority exposes no dead CTA',
+      (WidgetTester tester) async {
+    TaskManager.instance.tasks.add(
+      ImportTask(
+        id: 'completed-without-bank',
+        title: 'legacy.pdf',
+        status: TaskStatus.completed,
+      ),
+    );
+
+    await tester.pumpWidget(
+      createWidgetUnderTest(onOpenBank: (_) {}),
+    );
+    await tester.pump();
+    await selectCategory(tester, TaskCenterCategory.completed);
+
+    expect(
+      find.byKey(
+        const ValueKey<String>('task-open-bank-completed-without-bank'),
+      ),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('each category has a distinct empty state',
@@ -318,8 +382,8 @@ void main() {
     await selectCategory(tester, TaskCenterCategory.error);
 
     expect(find.text(sensitiveSentinel), findsNothing);
-    expect(find.text('导入失败，请查看诊断信息'), findsOneWidget);
-    expect(find.text('Trace ID: trace-safe-error'), findsOneWidget);
+    expect(find.text('解析失败，请查看详情'), findsOneWidget);
+    expect(find.textContaining('trace-safe-error'), findsNothing);
     expect(find.text('解析失败'), findsOneWidget);
   });
 
@@ -339,7 +403,7 @@ void main() {
     await selectCategory(tester, TaskCenterCategory.pendingReview);
 
     expect(find.text('Review Task 1'), findsOneWidget);
-    expect(find.text('解析完成，但有 2 条注意事项'), findsOneWidget);
+    expect(find.text('共有 2 项需要确认'), findsOneWidget);
   });
 
   testWidgets('TaskCenterScreen displays processing batch statistics',
@@ -579,10 +643,10 @@ void main() {
     await selectCategory(tester, TaskCenterCategory.error);
 
     expect(find.text('Error Task 1'), findsOneWidget);
-    expect(find.text('查看诊断'), findsOneWidget);
+    expect(find.text('查看详情'), findsOneWidget);
 
     // Tap on the diagnostics button
-    await tester.tap(find.text('查看诊断'));
+    await tester.tap(find.text('查看详情'));
     await tester.pumpAndSettle();
 
     // Verify bottom sheet title is visible
@@ -806,7 +870,7 @@ void main() {
     );
     expect(
       tester.getSemantics(diagnosticsA).getSemanticsData().label,
-      contains('查看诊断'),
+      contains('查看详情'),
     );
 
     final taskC = ImportTask(
@@ -880,6 +944,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.element(cardA), same(completedCategoryTaskAElement));
 
+    final taskBMenu = find.byKey(const ValueKey<String>('task-menu-task-b'));
+    await tester.ensureVisible(taskBMenu);
+    await tester.pump();
+    await tester.tap(taskBMenu);
+    await tester.pumpAndSettle();
     final deleteTaskB =
         find.byKey(const ValueKey<String>('task-delete-task-b'));
     await tester.ensureVisible(deleteTaskB);
@@ -956,10 +1025,7 @@ void main() {
     expect(title.overflow, TextOverflow.ellipsis);
     expect(find.text('42%'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
-    expect(
-      find.text('Trace ID: trace-narrow-processing'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('trace-narrow-processing'), findsNothing);
     expect(tester.takeException(), isNull);
 
     await selectCategory(tester, TaskCenterCategory.pendingReview);
@@ -983,7 +1049,7 @@ void main() {
 
     await selectCategory(tester, TaskCenterCategory.error);
     expect(find.text(sensitiveError), findsNothing);
-    expect(find.text('导入失败，请查看诊断信息'), findsOneWidget);
+    expect(find.text('解析失败，请查看详情'), findsOneWidget);
     final errorDiagnostics = find.byKey(
       const ValueKey<String>('task-diagnostics-narrow-error'),
     );

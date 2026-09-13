@@ -4,9 +4,11 @@
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/app_data_paths.dart';
 import '../../domain/assets/library_file.dart';
 import 'managed_file_storage.dart';
 
@@ -65,11 +67,17 @@ final class ManagedFileStorageAdapter implements ManagedFileStorage {
   ManagedFileStorageAdapter({required Directory managedRoot})
       : _rootPath = p.normalize(managedRoot.path);
 
-  /// Resolves the default app-managed root (support directory / library_files).
+  /// Resolves the default app-managed root through the path authority.
   static Future<ManagedFileStorageAdapter> appManaged() async {
     final support = await getApplicationSupportDirectory();
+    final paths = AppDataPaths.fromApplicationSupportDirectory(
+      support,
+      environment: kReleaseMode
+          ? AppDataEnvironment.production
+          : AppDataEnvironment.development,
+    );
     return ManagedFileStorageAdapter(
-      managedRoot: Directory(p.join(support.path, 'library_files')),
+      managedRoot: Directory(paths.managedFilesRoot),
     );
   }
 

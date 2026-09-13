@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
@@ -43,17 +44,21 @@ import 'support/memory_engine_credential_store.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
+import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/main.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
+import 'package:shiroha_quiz/services/practice/subjective_answer_recognition_adapter.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
+import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -122,6 +127,21 @@ final class _EmptyMetrics extends Fake implements StudyMetricsQueryPort {}
 final class _EmptyConversations extends Fake
     implements ConversationRepositoryPort {
   @override
+  Future<ConversationThreadSlice> createWithFirstMessage({
+    required Conversation conversation,
+    required ConversationMessage firstMessage,
+    required List<String> fileIds,
+    required DateTime attachedAt,
+  }) async =>
+      ConversationThreadSlice(
+        conversation: conversation,
+        messages: <ConversationMessage>[firstMessage],
+        files: const <ConversationFileRef>[],
+        hasMoreBefore: false,
+        nextBeforeSequence: null,
+      );
+
+  @override
   Future<List<ConversationFileRef>> listAttachableFiles(
           {required int limit}) async =>
       const <ConversationFileRef>[];
@@ -143,6 +163,35 @@ final class _EmptyAgentConfigStore implements AgentConfigStorePort {
 final class _EmptyAgentProfiles implements AgentProfileCatalogPort {
   @override
   Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
+}
+
+final class _ConfiguredAgentConfigStore implements AgentConfigStorePort {
+  String? encoded = const AgentConfigCodec().encode(
+    AgentConfig(
+      providerKind: AgentProviderKind.deepSeekResponses,
+      mainProfileId: 'profile-test',
+    ),
+  );
+
+  @override
+  Future<String?> readAgentConfig() async => encoded;
+
+  @override
+  Future<void> writeAgentConfig(String encodedConfig) async {
+    encoded = encodedConfig;
+  }
+}
+
+final class _ConfiguredAgentProfiles implements AgentProfileCatalogPort {
+  @override
+  Future<List<AgentProfileSummary>> listMainProfiles() async =>
+      <AgentProfileSummary>[
+        AgentProfileSummary(
+          profileId: 'profile-test',
+          displayName: 'Test model',
+          modelName: 'deepseek-v4-flash',
+        ),
+      ];
 }
 
 final class _EmptyExamMutationPersistence extends Fake
@@ -171,8 +220,46 @@ AgentTurnSession _unusedAgentTurn({
       cancel: () {},
     );
 
-ConversationService _emptyConversationService() => ConversationService(
-      repository: _EmptyConversations(),
+final class _PendingAgentTurn {
+  final StreamController<AgentTurnEvent> events =
+      StreamController<AgentTurnEvent>.broadcast();
+  final Completer<AgentTurnResult> result = Completer<AgentTurnResult>();
+  bool cancelled = false;
+  int starts = 0;
+
+  late final AgentTurnSession session = AgentTurnSession(
+    events: events.stream,
+    result: result.future,
+    cancel: _cancel,
+  );
+
+  AgentTurnSession start({
+    required String conversationId,
+    required String userMessageId,
+  }) {
+    starts++;
+    return session;
+  }
+
+  void complete() {
+    if (result.isCompleted) return;
+    result.complete(
+      const AgentTurnFailed(AgentTurnFailure.temporarilyUnavailable),
+    );
+    unawaited(events.close());
+  }
+
+  void _cancel() {
+    cancelled = true;
+    complete();
+  }
+}
+
+ConversationService _emptyConversationService({
+  ConversationRepositoryPort? repository,
+}) =>
+    ConversationService(
+      repository: repository ?? _EmptyConversations(),
       conversationIdFactory: () => 'conversation-empty',
       messageIdFactory: () => 'message-empty',
       clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
@@ -229,6 +316,12 @@ void main() {
         .map((item) => item.label)
         .toList();
     expect(navLabels, <String>['今日', '助手', '我的']);
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .selectedItemColor,
+      AppTheme.shirohaCyanForeground,
+    );
 
     await tester.tap(find.text('助手'));
     await tester.pump();
@@ -257,18 +350,17 @@ void main() {
       find.byKey(const ValueKey<String>('main-nav-selected-profile')),
     );
     final decoration = selectedProfileIcon.decoration! as BoxDecoration;
-    expect(decoration.color, const Color(0xFFEAF1FF));
+    final selectedTheme = Theme.of(tester.element(
+      find.byKey(const ValueKey<String>('main-nav-selected-profile')),
+    ));
+    expect(decoration.color, selectedTheme.colorScheme.primaryContainer);
     expect(decoration.borderRadius, BorderRadius.circular(12));
 
     // Profile key settings entries remain reachable after the 3-tab
     // migration.
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-    );
-    expect(
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-      findsOneWidget,
+      find.byKey(const ValueKey<String>('profile-ai-service-row')),
     );
     expect(
       find.byKey(const ValueKey<String>('profile-ai-service-row')),
@@ -277,26 +369,427 @@ void main() {
 
     // Profile routes remain navigable without touching provider/config/
     // network: open each settings screen and return.
-    await tester.tap(
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-    );
-    await pumpUntilFound(tester, find.byType(AgentSettingsScreen));
-    expect(find.byType(AgentSettingsScreen), findsOneWidget);
-    await tester.pageBack();
-    await tester.pump();
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey<String>('profile-agent-settings-row')),
-    );
-
     final aiServiceRow =
         find.byKey(const ValueKey<String>('profile-ai-service-row'));
     await tester.tap(aiServiceRow);
     await pumpUntilFound(tester, find.byType(AiSettingsScreen));
     expect(find.byType(AiSettingsScreen), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('ai-service-agent-settings-row')),
+    );
+    await pumpUntilFound(tester, find.byType(AgentSettingsScreen));
+    expect(find.byType(AgentSettingsScreen), findsOneWidget);
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pump();
+    await pumpUntilFound(tester, find.byType(AiSettingsScreen));
+    await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pump();
 
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets(
+    'Today handoff selects conversation, consumes prefill, and never auto-sends',
+    (WidgetTester tester) async {
+      await pumpApp(tester, const Size(1024, 1200));
+
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('home-bank-card')),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomNavigationBar),
+          matching: find.text('助手'),
+        ),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomNavigationBar),
+          matching: find.text('今日'),
+        ),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('home-bank-card')),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+
+      expect(
+        tester
+            .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+            .currentIndex,
+        1,
+      );
+      final composer = tester.widget<TextField>(
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+      expect(composer.controller!.text, contains('今天可以开始新题'));
+      expect(
+        find.byKey(const ValueKey<String>('u1-ux0-send')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('a0-agent-cancel')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+        '保留中的草稿',
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomNavigationBar),
+          matching: find.text('今日'),
+        ),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('home-bank-card')),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('home-ask-assistant')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey<String>('u1-ux0-composer')),
+            )
+            .controller!
+            .text,
+        '保留中的草稿',
+      );
+
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey<String>('u1-ux0-composer')),
+          )
+          .controller!
+          .clear();
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('u1-ux01-open-file-library')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('u1-ux01-new-conversation')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey<String>('u1-ux0-composer')),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+
+      expect(tester.takeException(), isNull);
+      await drainBackgroundWork(tester);
+    },
+  );
+
+  testWidgets('Today handoff preserves an active Agent turn', (
+    WidgetTester tester,
+  ) async {
+    final turn = _PendingAgentTurn();
+    addTearDown(turn.complete);
+    await pumpApp(
+      tester,
+      const Size(1024, 1200),
+      conversationService: _emptyConversationService(),
+      agentSettingsService: AgentSettingsService(
+        configStore: _ConfiguredAgentConfigStore(),
+        profileCatalog: _ConfiguredAgentProfiles(),
+      ),
+      startAgentTurn: turn.start,
+    );
+
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('u1-ux0-composer')),
+      '保持当前生成',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('u1-ux0-send')));
+    await tester.pump();
+    await tester.pump();
+    expect(turn.starts, 1);
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-cancel')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('今日'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    expect(turn.cancelled, isFalse);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('home-ask-assistant')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('home-ask-assistant')));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('a0-agent-cancel')),
+    );
+
+    expect(turn.cancelled, isFalse);
+    expect(
+      tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .currentIndex,
+      1,
+    );
+    expect(tester.takeException(), isNull);
+
+    turn.complete();
+    await tester.pump();
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('mobile Assistant drawer and edge gesture stay tab-scoped', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, const Size(360, 720));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final drawerScaffold = find
+        .ancestor(of: find.byType(Drawer), matching: find.byType(Scaffold))
+        .first;
+    final navigationScaffold = find
+        .ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Scaffold),
+        )
+        .first;
+    expect(tester.element(drawerScaffold),
+        same(tester.element(navigationScaffold)));
+    final navigationScaffoldState =
+        tester.state<ScaffoldState>(navigationScaffold);
+    expect(navigationScaffoldState.isDrawerOpen, isTrue);
+
+    navigationScaffoldState.closeDrawer();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .onTap!(0);
+    await tester.pump(const Duration(milliseconds: 500));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .onTap!(1);
+    await tester.pump();
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isTrue);
+    navigationScaffoldState.closeDrawer();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+
+    tester
+        .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+        .onTap!(2);
+    await tester.pump();
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('mobile Assistant menu opens the global drawer', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, const Size(360, 720));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+
+    final menuButton = find.byKey(
+      const ValueKey<String>('u1-ux0-open-drawer'),
+    );
+    expect(menuButton.hitTestable(), findsOneWidget);
+    await tester.tap(menuButton);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final navigationScaffold = find
+        .ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Scaffold),
+        )
+        .first;
+    expect(
+      tester.state<ScaffoldState>(navigationScaffold).isDrawerOpen,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+    await drainBackgroundWork(tester);
+  });
+
+  testWidgets('Assistant drawer owner follows responsive layout changes', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, const Size(360, 720));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('home-bank-card')),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('助手'),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+
+    final navigationScaffold = find
+        .ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Scaffold),
+        )
+        .first;
+    final navigationScaffoldState =
+        tester.state<ScaffoldState>(navigationScaffold);
+
+    tester.view.physicalSize = const Size(1024, 768);
+    await tester.pump();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux01-workspace-shell')),
+    );
+    final desktopScaffold = tester.widget<Scaffold>(navigationScaffold);
+    expect(desktopScaffold.drawer, isNull);
+    expect(desktopScaffold.drawerEnableOpenDragGesture, isFalse);
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isFalse);
+
+    tester.view.physicalSize = const Size(360, 720);
+    await tester.pump();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('u1-ux0-open-drawer')),
+    );
+    await tester.dragFrom(
+      const Offset(1, 300),
+      const Offset(300, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(navigationScaffoldState.isDrawerOpen, isTrue);
+
+    navigationScaffoldState.closeDrawer();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(tester.takeException(), isNull);
     await drainBackgroundWork(tester);
   });
@@ -353,6 +846,16 @@ void main() {
       expect(app.folderQuery, same(configured));
       expect(app.contentAssetResolver, same(contentAssetStore));
       expect(
+        app.subjectiveAnswerRecognition,
+        isA<SubjectiveAnswerRecognitionAdapter>(),
+      );
+      expect(
+        tester
+            .widget<AiDependenciesScope>(find.byType(AiDependenciesScope))
+            .subjectiveAnswerRecognition,
+        same(app.subjectiveAnswerRecognition),
+      );
+      expect(
         tester.widget<MainScreen>(find.byType(MainScreen)).questionListQuery,
         same(configured),
       );
@@ -373,6 +876,9 @@ void main() {
 Widget _buildTestApp({
   QuestionRepository? questionRepository,
   ContentAssetResolver? contentAssetResolver,
+  ConversationService? conversationService,
+  AgentSettingsService? agentSettingsService,
+  AgentTurnStarter? startAgentTurn,
 }) {
   final engineRepository = AiEngineRepository(
     store: DatabaseHelper.instance,
@@ -422,6 +928,9 @@ Widget _buildTestApp({
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
     examMutationCommand: examMutationCommand,
+    subjectiveAnswerRecognition: SubjectiveAnswerRecognitionAdapter(
+      engineRepository: engineRepository,
+    ),
     questionListQuery: configuredQuestionRepository,
     questionMutationPersistence: configuredQuestionRepository,
     typedAnswerPersistence: configuredQuestionRepository,
@@ -429,23 +938,36 @@ Widget _buildTestApp({
     folderQuery: configuredQuestionRepository,
     contentAssetResolver: contentAssetResolver,
     u1WorkspaceFacade: _emptyWorkspaceFacade(),
-    conversationService: _emptyConversationService(),
-    agentSettingsService: AgentSettingsService(
-      configStore: _EmptyAgentConfigStore(),
-      profileCatalog: _EmptyAgentProfiles(),
-    ),
-    startAgentTurn: _unusedAgentTurn,
+    conversationService: conversationService ?? _emptyConversationService(),
+    agentSettingsService: agentSettingsService ??
+        AgentSettingsService(
+          configStore: _EmptyAgentConfigStore(),
+          profileCatalog: _EmptyAgentProfiles(),
+        ),
+    startAgentTurn: startAgentTurn ?? _unusedAgentTurn,
     proposalService: AgentWriteProposalService(_EmptyWritePersistence()),
   );
 }
 
 /// Pumps the full app at [size] and registers viewport teardown.
-Future<void> pumpApp(WidgetTester tester, Size size) async {
+Future<void> pumpApp(
+  WidgetTester tester,
+  Size size, {
+  ConversationService? conversationService,
+  AgentSettingsService? agentSettingsService,
+  AgentTurnStarter? startAgentTurn,
+}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(_buildTestApp());
+  await tester.pumpWidget(
+    _buildTestApp(
+      conversationService: conversationService,
+      agentSettingsService: agentSettingsService,
+      startAgentTurn: startAgentTurn,
+    ),
+  );
 }
 
 /// Proves every final primary destination is reachable at the current
@@ -495,10 +1017,10 @@ Future<void> expectResponsiveNavigation(
   );
   await pumpUntilFound(
     tester,
-    find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    find.byKey(const ValueKey<String>('profile-wrong-book-row')),
   );
   expect(
-    find.byKey(const ValueKey<String>('profile-agent-settings-row')),
+    find.byKey(const ValueKey<String>('profile-wrong-book-row')),
     findsOneWidget,
   );
   if (expectProfileAiServiceRow) {

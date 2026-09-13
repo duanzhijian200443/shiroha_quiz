@@ -39,12 +39,13 @@ void main() {
     String token,
     TrainCLiveRunCapability capability,
     Directory directory,
-  }) authorize() {
+  }) authorize({int runNumber = 1}) {
     final directory = createState();
     final token = TrainCLiveRunCapability.authorize(
       stateDirectory: directory,
       approvedHarnessHead: head,
       approvedBase: base,
+      runNumber: runNumber,
     );
     final capability = TrainCLiveRunCapability.fromCapability(token);
     capability.verifyUnused(
@@ -548,7 +549,7 @@ void main() {
 
     publishTrainCSafeEvidenceAfterFinalization(
       attemptCapability: authority.token,
-      evidence: const <String, dynamic>{'result': 'PASS'},
+      evidence: const <String, dynamic>{'runNumber': 1, 'result': 'PASS'},
       finalizeDurably: () {
         expect(evidenceFile.existsSync(), isFalse);
         expect(digestFile.existsSync(), isFalse);
@@ -561,7 +562,64 @@ void main() {
     expect(digestFile.existsSync(), isTrue);
     final decoded = jsonDecode(evidenceFile.readAsStringSync());
     expect(decoded, isA<Map<String, dynamic>>());
-    expect((decoded as Map<String, dynamic>)['result'], 'PASS');
+    expect((decoded as Map<String, dynamic>)['runNumber'], 1);
+    expect(decoded['result'], 'PASS');
+  });
+
+  test('Run 2 final PASS evidence uses the Run 2 artifact path', () {
+    final authority = authorize(runNumber: 2);
+    final run1Evidence = File(
+      '${authority.directory.path}${Platform.pathSeparator}'
+      'train_c_run_1_evidence.json',
+    );
+    final evidenceFile = File(
+      '${authority.directory.path}${Platform.pathSeparator}'
+      'train_c_run_2_evidence.json',
+    );
+    final digestFile = File('${evidenceFile.path}.sha256');
+    var finalized = false;
+
+    publishTrainCSafeEvidenceAfterFinalization(
+      attemptCapability: authority.token,
+      evidence: const <String, dynamic>{'runNumber': 2, 'result': 'PASS'},
+      finalizeDurably: () => finalized = true,
+    );
+
+    expect(finalized, isTrue);
+    expect(run1Evidence.existsSync(), isFalse);
+    expect(evidenceFile.existsSync(), isTrue);
+    expect(digestFile.existsSync(), isTrue);
+    final decoded = jsonDecode(evidenceFile.readAsStringSync());
+    expect((decoded as Map<String, dynamic>)['runNumber'], 2);
+    expect(decoded['result'], 'PASS');
+  });
+
+  test('evidence run mismatch fails before durable finalization', () {
+    final authority = authorize(runNumber: 2);
+    final run1Evidence = File(
+      '${authority.directory.path}${Platform.pathSeparator}'
+      'train_c_run_1_evidence.json',
+    );
+    final run2Evidence = File(
+      '${authority.directory.path}${Platform.pathSeparator}'
+      'train_c_run_2_evidence.json',
+    );
+    var finalized = false;
+
+    expect(
+      () => publishTrainCSafeEvidenceAfterFinalization(
+        attemptCapability: authority.token,
+        evidence: const <String, dynamic>{'runNumber': 1, 'result': 'PASS'},
+        finalizeDurably: () => finalized = true,
+      ),
+      _runtimeCode('TRAIN_C_EVIDENCE_INCONSISTENT'),
+    );
+
+    expect(finalized, isFalse);
+    expect(run1Evidence.existsSync(), isFalse);
+    expect(run2Evidence.existsSync(), isFalse);
+    expect(File('${run1Evidence.path}.pending').existsSync(), isFalse);
+    expect(File('${run2Evidence.path}.pending').existsSync(), isFalse);
   });
 
   test('failed durable finalization leaves no published PASS evidence', () {
@@ -575,7 +633,7 @@ void main() {
     expect(
       () => publishTrainCSafeEvidenceAfterFinalization(
         attemptCapability: authority.token,
-        evidence: const <String, dynamic>{'result': 'PASS'},
+        evidence: const <String, dynamic>{'runNumber': 1, 'result': 'PASS'},
         finalizeDurably: () => throw const TrainCEvidenceProbeException(
           'TRAIN_C_STALE_STATE',
         ),
@@ -617,6 +675,12 @@ void main() {
 
 Matcher _code(String expected) => throwsA(
       predicate<TrainCEvidenceProbeException>(
+        (error) => error.code == expected,
+      ),
+    );
+
+Matcher _runtimeCode(String expected) => throwsA(
+      predicate<TrainCL1BLiveRuntimeException>(
         (error) => error.code == expected,
       ),
     );

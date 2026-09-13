@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
@@ -27,6 +27,7 @@ import 'application/safe_write/typed_answer_command.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
+import 'application/practice/subjective_answer_recognition.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
@@ -35,6 +36,7 @@ import 'application/study_plan/study_plan_command_service.dart';
 import 'application/study_plan/study_plan_draft_service.dart';
 import 'application/study_plan/study_plan_pool_order.dart';
 import 'application/study_plan/study_plan_selection_service.dart';
+import 'core/app_data_paths.dart';
 import 'core/database/database_helper.dart';
 import 'core/review_engine_service.dart';
 import 'core/observability/app_logger.dart';
@@ -85,6 +87,7 @@ import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapt
 import 'services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/parsed_artifact_generation_router.dart';
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
+import 'services/practice/subjective_answer_recognition_adapter.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
@@ -126,7 +129,16 @@ void main() {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      await AppLogger.initialize();
+      final supportDirectory = await getApplicationSupportDirectory();
+      final appDataPaths = AppDataPaths.fromApplicationSupportDirectory(
+        supportDirectory,
+        environment: kReleaseMode
+            ? AppDataEnvironment.production
+            : AppDataEnvironment.development,
+      );
+      await AppLogger.initialize(
+        directory: Directory(appDataPaths.runtimeRoot),
+      );
 
       FlutterError.onError = (details) {
         AppLogger.error(
@@ -154,11 +166,13 @@ void main() {
         databaseFactory = databaseFactoryFfi;
       }
 
+      DatabaseHelper.configureAppDataPaths(appDataPaths);
       final databaseHelper = DatabaseHelper.instance;
-      final supportDirectory = await getApplicationSupportDirectory();
-      final managedFileStorage = await ManagedFileStorageAdapter.appManaged();
+      final managedFileStorage = ManagedFileStorageAdapter(
+        managedRoot: Directory(appDataPaths.managedFilesRoot),
+      );
       final contentAssetStore = ManagedContentAssetStore(
-        managedRoot: Directory(p.join(supportDirectory.path, 'library_files')),
+        managedRoot: Directory(appDataPaths.managedFilesRoot),
       );
       final backupSnapshotRepository = BackupSnapshotRepository(
         databaseHelper: databaseHelper,
@@ -174,10 +188,8 @@ void main() {
           snapshotRepository: backupSnapshotRepository,
           managedFileStorage: managedFileStorage,
           contentAssetStore: contentAssetStore,
-          restoreRoot: Directory(p.join(supportDirectory.path, 'restore')),
-          managedFilesRoot: Directory(
-            p.join(supportDirectory.path, 'library_files'),
-          ),
+          restoreRoot: Directory(appDataPaths.restoreRoot),
+          managedFilesRoot: Directory(appDataPaths.managedFilesRoot),
         ),
       );
       // Hard B0-I0 startup order: unfinished restore journal recovery MUST
@@ -216,9 +228,7 @@ void main() {
           databaseHelper: databaseHelper,
         );
         final managedArtifactStorage = ManagedArtifactStorageAdapter(
-          managedRoot: Directory(
-            p.join(supportDirectory.path, 'library_files'),
-          ),
+          managedRoot: Directory(appDataPaths.managedFilesRoot),
         );
         final fileIngestionService = FileIngestionService(
           storage: managedFileStorage,
@@ -417,6 +427,9 @@ void main() {
           engineRepository: engineRepository,
           taskManager: taskManager,
         );
+        final subjectiveAnswerRecognition = SubjectiveAnswerRecognitionAdapter(
+          engineRepository: engineRepository,
+        );
         final ocrRequestScheduler = OcrRequestScheduler();
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
@@ -462,6 +475,7 @@ void main() {
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
             examMutationCommand: examMutationCommand,
+            subjectiveAnswerRecognition: subjectiveAnswerRecognition,
             questionListQuery: questionRepository,
             questionMutationPersistence: questionRepository,
             typedAnswerPersistence: questionRepository,
@@ -510,6 +524,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
+    required this.subjectiveAnswerRecognition,
     required this.questionListQuery,
     required this.questionMutationPersistence,
     required this.typedAnswerPersistence,
@@ -540,6 +555,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
   final ExamMutationCommand examMutationCommand;
+  final SubjectiveAnswerRecognitionPort subjectiveAnswerRecognition;
   final QuestionListQueryPort questionListQuery;
   final QuestionMutationPersistencePort questionMutationPersistence;
   final TypedAnswerPersistencePort typedAnswerPersistence;
@@ -607,6 +623,7 @@ class ShirohaQuizApp extends StatelessWidget {
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
           examMutationCommand: examMutationCommand,
+          subjectiveAnswerRecognition: subjectiveAnswerRecognition,
           child: content,
         );
       },

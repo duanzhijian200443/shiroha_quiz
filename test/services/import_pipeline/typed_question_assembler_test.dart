@@ -443,6 +443,63 @@ void main() {
       );
     });
 
+    test('maps normalized merged geometry directly to the TableNode', () {
+      final structure = TableStructure(
+        rows: <TableRow>[
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('A')],
+                ),
+                rowSpan: 2,
+                columnSpan: 2,
+              ),
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('B')],
+                ),
+              ),
+            ],
+          ),
+          TableRow(
+            cells: <TableCell>[
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('C')],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final draft = assembler.assemble(
+        QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[
+            QuestionRegionFragment(
+              field: QuestionRegionField.stem,
+              part: _textPart('question'),
+            ),
+            QuestionRegionFragment(
+              field: QuestionRegionField.explanation,
+              part: SourceTablePart.normalized(
+                sourceRef: _docRef(),
+                structure: structure,
+              ),
+            ),
+          ],
+          kindHint: QuestionRegionKindHint.shortAnswer,
+        ),
+        questionId: 'q_merged_table',
+      );
+
+      final table = draft.explanation!.nodes.single as TableNode;
+      expect(table.structure, same(structure));
+      expect(table.structure.rows.first.cells.first.rowSpan, 2);
+      expect(table.structure.rows.first.cells.first.columnSpan, 2);
+    });
+
     test('preserves table and image encounter order in one field', () {
       final tablePart = SourceTablePart(
         sourceRef: _docRef(),
@@ -484,6 +541,33 @@ void main() {
 
     test('fails explicitly for nonrepresentable tables and unsupported parts',
         () {
+      final legacyRegion = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceTablePart.legacy(
+              sourceRef: _docRef(),
+              rows: <List<RichContent>>[
+                <RichContent>[
+                  RichContent(
+                    nodes: const <ContentNode>[TextNode('legacy')],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+        kindHint: QuestionRegionKindHint.unknown,
+      );
+      expect(
+        () => assembler.assemble(legacyRegion, questionId: 'q_legacy'),
+        throwsA(
+          isA<QuestionRegionUnsupportedException>()
+              .having((error) => error.kindCode, 'kindCode', 'source_table'),
+        ),
+      );
+
       final raggedRegion = QuestionRegion(
         questionNumber: 1,
         fragments: <QuestionRegionFragment>[

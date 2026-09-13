@@ -3,19 +3,28 @@
 // Provider, Replay, network, database, UI, filesystem or application call
 // site, so Provider calls are 0 by construction.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
+import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
+import 'package:shiroha_quiz/domain/assets/sourced_asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
+import 'package:shiroha_quiz/services/import_pipeline/latex_renderability_checker.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_extractor.dart';
+import 'package:shiroha_quiz/services/import_pipeline/reference_answer_entry.dart';
 import 'package:shiroha_quiz/services/import_pipeline/reference_answer_merger.dart';
+import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
 const _sourceUuid = '11111111-1111-4111-8111-111111111111';
 const _questionUuidA = '22222222-2222-4222-8222-222222222222';
@@ -203,6 +212,246 @@ void main() {
           reason: 'typed source refs are preserved on the candidate draft');
     });
 
+    test(
+        'conflicting multi-block reference evidence preserves local answer '
+        'and reaches typedV2', () {
+      final document = _document(
+        'q21_reference_ownership.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block('question_block', 1, 0, 'Synthetic prompt marker 21.'),
+              _block('local_answer', 1, 1, 'Local authoritative answer'),
+            ],
+          ),
+          OcrPage(
+            pageIndex: 2,
+            blocks: <OcrBlock>[
+              _block('reference_block_1', 2, 0, 'Reference evidence one'),
+              _block('reference_block_2', 2, 1, 'Reference evidence two'),
+              _block('reference_block_3', 2, 2, 'Reference evidence three'),
+            ],
+          ),
+        ],
+      );
+      final merged = const ReferenceAnswerMerger().merge(
+        const <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 21,
+            stemParts: <String>['Synthetic prompt marker 21.'],
+            answerParts: <String>['Local authoritative answer'],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question_block', 'local_answer'],
+            diagnostics: <String>[],
+            declaredKind: TextQuestionKind.subjective,
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question_block',
+                field: OcrRegionField.stem,
+                text: 'Synthetic prompt marker 21.',
+              ),
+              OcrQuestionRegionSource(
+                blockId: 'local_answer',
+                field: OcrRegionField.answer,
+                text: 'Local authoritative answer',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            21: ReferenceAnswerEntry(
+              questionNumber: 21,
+              answerText: 'Different reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_block_1',
+                'reference_block_2',
+                'reference_block_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[merged]);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[merged],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        legacyQuestions.single['standard_answer'],
+      );
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        const <String>[
+          'question_block',
+          'local_answer',
+          'reference_block_1',
+          'reference_block_2',
+          'reference_block_3',
+        ],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('attached multi-block reference answer is materialized exactly once',
+        () {
+      final document = _document(
+        'attached_reference_ownership.pdf',
+        <OcrPage>[
+          OcrPage(
+            pageIndex: 1,
+            blocks: <OcrBlock>[
+              _block('question_block', 1, 0, 'Synthetic prompt marker 22.'),
+            ],
+          ),
+          OcrPage(
+            pageIndex: 2,
+            blocks: <OcrBlock>[
+              _block('reference_block_1', 2, 0, 'Reference evidence one'),
+              _block('reference_block_2', 2, 1, 'Reference evidence two'),
+              _block('reference_block_3', 2, 2, 'Reference evidence three'),
+            ],
+          ),
+        ],
+      );
+      final merged = const ReferenceAnswerMerger().merge(
+        const <OcrQuestionRegion>[
+          OcrQuestionRegion(
+            number: 22,
+            stemParts: <String>['Synthetic prompt marker 22.'],
+            answerParts: <String>[],
+            explanationParts: <String>[],
+            sourcePageIndices: <int>[1],
+            sourceBlockIds: <String>['question_block'],
+            diagnostics: <String>['missing_answer'],
+            declaredKind: TextQuestionKind.subjective,
+            ownedSources: <OcrQuestionRegionSource>[
+              OcrQuestionRegionSource(
+                blockId: 'question_block',
+                field: OcrRegionField.stem,
+                text: 'Synthetic prompt marker 22.',
+              ),
+            ],
+          ),
+        ],
+        ReferenceAnswerIndex(
+          entries: <int, ReferenceAnswerEntry>{
+            22: ReferenceAnswerEntry(
+              questionNumber: 22,
+              answerText: 'Authoritative reference answer',
+              sourcePageIndices: <int>[2],
+              sourceBlockIds: <String>[
+                'reference_block_1',
+                'reference_block_2',
+                'reference_block_3',
+              ],
+              patternKind: 'explicit_numbered',
+            ),
+          },
+          conflictedNumbers: <int>{},
+          diagnostics: <String, dynamic>{},
+        ),
+      ).single;
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[merged]);
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[merged],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        'Authoritative reference answer',
+      );
+      expect(
+        batch.candidates.single.projectedLegacy.standardAnswer,
+        legacyQuestions.single['standard_answer'],
+      );
+      expect(
+        batch.candidates.single.sourceBlockIds,
+        const <String>[
+          'question_block',
+          'reference_block_1',
+          'reference_block_2',
+          'reference_block_3',
+        ],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
+    test('ASCII choice production chain reaches typedV2 under allQuestionTypes',
+        () {
+      final document = _asciiChoiceDocument();
+      final region = _asciiChoiceRegion();
+      final finalQuestion = const ImportQuestionFieldPolicy().applyToMap(
+        _assembler.assemble(region).question,
+        mode: ExplanationRetentionMode.allQuestionTypes,
+      );
+      final finalQuestions = <Map<String, dynamic>>[finalQuestion];
+
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[region],
+        legacyQuestions: finalQuestions,
+        uuidV4Factory: _uuidSequence(),
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final candidate = batch.candidates.single;
+      expect(finalQuestion['raw_explanation'], isNotEmpty);
+      expect(finalQuestion['explanation'], isNotEmpty);
+      expect(candidate.draft.options, hasLength(4));
+      expect(candidate.draft.explanation, isNotNull);
+      expect(candidate.projectedLegacy.options, <String>[
+        'A. 甲',
+        'B. 乙',
+        'C. 丙',
+        'D. 丁',
+      ]);
+      expect(candidate.projectedLegacy.content, finalQuestion['content']);
+      expect(candidate.projectedLegacy.explanation, isNotEmpty);
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: finalQuestions,
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.typedV2, reason: result.reason);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+    });
+
     test('ai_repair_applied makes the whole batch ineligible', () {
       final document = _shortAnswerDocument();
       final regionized = _regionizer.regionize(document);
@@ -254,6 +503,56 @@ void main() {
       expect(
         batch.failure,
         OcrTypedCandidateFailure.unsupportedStructure,
+      );
+    });
+
+    test('merged explanation table keeps parity and reaches typedV2', () {
+      final document = _mergedExplanationTableDocument();
+      final region = _mergedExplanationTableRegion();
+      expect(
+        region.ownedSources
+            .where((source) => source.blockId == 'explanation_table')
+            .single
+            .field,
+        OcrRegionField.explanation,
+      );
+      final legacyQuestions = _legacyQuestions(<OcrQuestionRegion>[region]);
+      expect(
+        legacyQuestions.single['explanation'],
+        'A | | B\n | | C',
+      );
+
+      final batch = buildOcrTypedCandidateBatch(
+        document: document,
+        regions: <OcrQuestionRegion>[region],
+        legacyQuestions: legacyQuestions,
+        uuidV4Factory: _uuidSequence(),
+      );
+      expect(batch.failure, isNull);
+      expect(batch.candidates, hasLength(1));
+      final table =
+          batch.candidates.single.draft.explanation!.nodes.single as TableNode;
+      expect(table.structure.rows.first.cells.first.rowSpan, 2);
+      expect(table.structure.rows.first.cells.first.columnSpan, 2);
+      expect(
+        batch.candidates.single.projectedLegacy.explanation,
+        legacyQuestions.single['explanation'],
+      );
+
+      final result = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: legacyQuestions,
+        singleFile: true,
+      );
+      expect(
+        result.route,
+        ImportStorageRoute.typedV2,
+        reason: result.reason,
+      );
+      expect(result.reason, ocrTypedCandidateReadyReason);
+      expect(
+        result.questions.single['explanation'],
+        'A | | B\n | | C',
       );
     });
 
@@ -381,6 +680,114 @@ void main() {
         decoded.baselineLegacy,
         _finalBaseline(number: 1),
       );
+    });
+
+    test('text-only parity remains eligible for every persisted type', () {
+      final cases = <({
+        QuestionKind kind,
+        int type,
+        List<QuestionOption> options,
+        QuestionAnswer answer,
+        List<String> legacyOptions,
+        String legacyAnswer,
+      })>[
+        (
+          kind: QuestionKind.singleChoice,
+          type: 0,
+          options: <QuestionOption>[
+            QuestionOption(
+              optionId: 'A',
+              label: 'A',
+              content: RichContent(
+                nodes: <ContentNode>[const TextNode('Alpha')],
+              ),
+            ),
+            QuestionOption(
+              optionId: 'B',
+              label: 'B',
+              content: RichContent(
+                nodes: <ContentNode>[const TextNode('Beta')],
+              ),
+            ),
+          ],
+          answer: ChoiceAnswer(optionIds: const <String>['A']),
+          legacyOptions: <String>['A. Alpha', 'B. Beta'],
+          legacyAnswer: 'A',
+        ),
+        (
+          kind: QuestionKind.fillBlank,
+          type: 2,
+          options: <QuestionOption>[],
+          answer: ContentAnswer(
+            content: RichContent(
+              nodes: <ContentNode>[const TextNode('synthetic-result-1')],
+            ),
+          ),
+          legacyOptions: <String>[],
+          legacyAnswer: 'synthetic-result-1',
+        ),
+        (
+          kind: QuestionKind.shortAnswer,
+          type: 3,
+          options: <QuestionOption>[],
+          answer: ContentAnswer(
+            content: RichContent(
+              nodes: <ContentNode>[const TextNode('synthetic-result-1')],
+            ),
+          ),
+          legacyOptions: <String>[],
+          legacyAnswer: 'synthetic-result-1',
+        ),
+      ];
+
+      for (final fixture in cases) {
+        final draft = QuestionDraftV2(
+          questionId: _questionUuidA,
+          kind: fixture.kind,
+          questionNumber: 1,
+          stem: RichContent(
+            nodes: <ContentNode>[
+              const TextNode('Synthetic prompt marker 1.'),
+            ],
+          ),
+          options: fixture.options,
+          answer: fixture.answer,
+          explanation: RichContent(
+            nodes: <ContentNode>[const TextNode('Synthetic explanation 1')],
+          ),
+        );
+        final baseline = LegacyReviewBaseline(
+          type: fixture.type,
+          questionNumber: 1,
+          content: 'Synthetic prompt marker 1.',
+          options: fixture.legacyOptions,
+          standardAnswer: fixture.legacyAnswer,
+          explanation: 'Synthetic explanation 1',
+        );
+        final question = _finalQuestion(number: 1)
+          ..['type'] = fixture.type
+          ..['options'] = fixture.legacyOptions
+          ..['standard_answer'] = fixture.legacyAnswer;
+        final result = applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[
+              _candidate(
+                questionNumber: 1,
+                questionId: _questionUuidA,
+                reviewItemId: _reviewUuidA,
+                draft: draft,
+                projectedLegacy: baseline,
+              ),
+            ],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(result.route, ImportStorageRoute.typedV2,
+            reason: 'persisted type ${fixture.type}');
+        expect(result.reason, ocrTypedCandidateReadyReason);
+      }
     });
 
     test('multi-file requests never attach envelopes', () {
@@ -791,9 +1198,9 @@ void main() {
       expect(result.reason, 'typed_candidate_projection_mismatch');
     });
 
-    test('non-TextNode explanation cannot use N0 for a boundary difference',
-        () {
-      final finalExplanation = '\tSynthetic explanation 1\n';
+    test('bounded math explanation can use N0 for a boundary difference', () {
+      const projectedExplanation = 'x';
+      final finalExplanation = '\t$projectedExplanation\n';
       final candidate = _candidate(
         questionNumber: 1,
         questionId: _questionUuidA,
@@ -802,13 +1209,17 @@ void main() {
           questionNumber: 1,
           questionId: _questionUuidA,
           explanation: RichContent(
-            nodes: <ContentNode>[InlineMathNode('x')],
+            nodes: <ContentNode>[InlineMathNode(projectedExplanation)],
           ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 1,
+          explanation: projectedExplanation,
         ),
       );
       final question = _finalQuestion(number: 1)
         ..['explanation'] = finalExplanation
-        ..['raw_explanation'] = null;
+        ..['raw_explanation'] = projectedExplanation;
       final result = applyOcrTypedCandidateGate(
         batch: OcrTypedCandidateBatch(
           candidates: <OcrTypedCandidate>[candidate],
@@ -817,8 +1228,181 @@ void main() {
         singleFile: true,
       );
 
-      expect(result.route, ImportStorageRoute.legacyV1);
-      expect(result.reason, 'typed_candidate_projection_mismatch');
+      expect(result.route, ImportStorageRoute.typedV2);
+      expect(result.reason, ocrTypedCandidateReadyReason);
+      expect(result.questions.single['explanation'], finalExplanation);
+    });
+
+    test('Q21-shaped finalization aligns only the exact typed repair target',
+        () {
+      const projectedExplanation =
+          r'前 \(typed_source\) 中 \(\left\{ \begin{array}{l} x=1 \\ y=2 \) 后';
+      final finalExplanation =
+          finalizeImportTextForParityComparison(projectedExplanation).text;
+      final candidate = _candidate(
+        questionNumber: 21,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 21,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: const <ContentNode>[
+              TextNode('前 '),
+              InlineMathNode('typed_non_target'),
+              TextNode(' 中 '),
+              InlineMathNode(
+                r'\left\{ \begin{array}{l} x=1 \\ y=2 ',
+              ),
+              TextNode(' 后'),
+            ],
+          ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 21,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 21)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = projectedExplanation;
+
+      final gated = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(gated.route, ImportStorageRoute.typedV2, reason: gated.reason);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        gated.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      final typedTarget = snapshot.draft.explanation!.nodes[3];
+      expect(typedTarget, isA<InlineMathNode>());
+      expect(
+        (typedTarget as InlineMathNode).latex,
+        r'\{ \begin{array}{l} x=1 \\ y=2 ',
+      );
+      expect(
+        snapshot.draft.explanation!.nodes[1],
+        const InlineMathNode('typed_non_target'),
+        reason: 'an independent non-target mismatch must not be rewritten',
+      );
+
+      final located = const LatexFragmentLocator().inspect(
+        reviewItemId: _reviewUuidA,
+        expectedRevision: 1,
+        snapshot: snapshot,
+        current: LatexFragmentLegacyView(
+          content: snapshot.baselineLegacy.content,
+          options: snapshot.baselineLegacy.options,
+          standardAnswer: snapshot.baselineLegacy.standardAnswer,
+          explanation: snapshot.baselineLegacy.explanation,
+        ),
+        fields: const <LatexFragmentField>{
+          LatexFragmentField.explanation,
+        },
+        isRenderable: (latex) => const LatexRenderabilityChecker()
+            .check(
+              latex,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable,
+        digest: (value) => 'digest:${value.length}',
+      );
+
+      expect(
+        located.diagnostic.classification,
+        LatexFragmentLocateClassification.targetAvailable,
+      );
+      expect(located.diagnostic.mismatchNodeIndex, 1);
+      expect(located.diagnostic.mismatchAtUnrenderableMathNode, isFalse);
+      expect(located.target!.nodeIndex, 3);
+      expect(located.target!.originalLatex, (typedTarget).latex);
+    });
+
+    test('Q21-shaped finalization preserves an independent target mismatch',
+        () {
+      const projectedExplanation =
+          r'前 \(\left\{ \begin{array}{l} x=2 \\ y=2 \) 后';
+      final finalExplanation =
+          finalizeImportTextForParityComparison(projectedExplanation).text;
+      final candidate = _candidate(
+        questionNumber: 21,
+        questionId: _questionUuidA,
+        reviewItemId: _reviewUuidA,
+        draft: _draftWithExplanation(
+          questionNumber: 21,
+          questionId: _questionUuidA,
+          explanation: RichContent(
+            nodes: const <ContentNode>[
+              TextNode('前 '),
+              InlineMathNode(
+                r'\left\{ \begin{array}{l} x=1 \\ y=2 ',
+              ),
+              TextNode(' 后'),
+            ],
+          ),
+        ),
+        projectedLegacy: _finalBaseline(
+          number: 21,
+          explanation: projectedExplanation,
+        ),
+      );
+      final question = _finalQuestion(number: 21)
+        ..['explanation'] = finalExplanation
+        ..['raw_explanation'] = projectedExplanation;
+
+      final gated = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[candidate],
+        ),
+        finalQuestions: <Map<String, dynamic>>[question],
+        singleFile: true,
+      );
+
+      expect(gated.route, ImportStorageRoute.typedV2, reason: gated.reason);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        gated.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      expect(
+        snapshot.draft.explanation!.nodes[1],
+        const InlineMathNode(
+          r'\left\{ \begin{array}{l} x=1 \\ y=2 ',
+        ),
+      );
+      final located = const LatexFragmentLocator().inspect(
+        reviewItemId: _reviewUuidA,
+        expectedRevision: 1,
+        snapshot: snapshot,
+        current: LatexFragmentLegacyView(
+          content: snapshot.baselineLegacy.content,
+          options: snapshot.baselineLegacy.options,
+          standardAnswer: snapshot.baselineLegacy.standardAnswer,
+          explanation: snapshot.baselineLegacy.explanation,
+        ),
+        fields: const <LatexFragmentField>{
+          LatexFragmentField.explanation,
+        },
+        isRenderable: (latex) => const LatexRenderabilityChecker()
+            .check(
+              latex,
+              requireMathContext: false,
+              assumeMathContext: true,
+            )
+            .isRenderable,
+        digest: (value) => 'digest:${value.length}',
+      );
+
+      expect(located.target, isNull);
+      expect(
+        located.diagnostic.classification,
+        LatexFragmentLocateClassification.targetValueMismatch,
+      );
+      expect(located.diagnostic.mismatchAtUnrenderableMathNode, isTrue);
     });
 
     test('over-limit explanation pairs do not enter N0 comparison', () {
@@ -911,6 +1495,9 @@ void main() {
 
     test('snapshot encode/decode self-check failures remove every envelope',
         () {
+      final events = <Map<String, Object?>>[];
+      typedCandidateRejectionHandlerForTesting = events.add;
+      addTearDown(() => typedCandidateRejectionHandlerForTesting = null);
       final unsafeDraft = QuestionDraftV2(
         questionId: _questionUuidA,
         kind: QuestionKind.shortAnswer,
@@ -940,6 +1527,68 @@ void main() {
       );
 
       expect(result.reason, 'typed_candidate_snapshot_invalid');
+      expect(events.single, <String, Object?>{
+        'question': 1,
+        'questionNumber': 1,
+        'kind': 'snapshot_encode_unsafePayload',
+        'kindCode': 'snapshot_encode_unsafePayload',
+        'failure': 'snapshotInvalid',
+        'field': 'stem',
+      });
+      typedCandidateRejectionHandlerForTesting =
+          (_) => throw StateError('observer');
+      final observedFailure = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(candidates: [
+          _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: unsafeDraft),
+        ]),
+        finalQuestions: [_finalQuestion(number: 1)],
+        singleFile: true,
+      );
+      expect(observedFailure.reason, result.reason);
+      expect(
+          observedFailure.questions.single
+              .containsKey(TypedReviewSnapshotCodec.mapKey),
+          isFalse);
+      expect(
+        result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
+        isFalse,
+      );
+    });
+
+    test('RawFallback explanation fails closed before envelope attachment', () {
+      final unsafeDraft = _draftWithExplanation(
+        questionNumber: 1,
+        questionId: _questionUuidA,
+        explanation: RichContent(
+          nodes: <ContentNode>[
+            RawFallbackNode(<Object?, Object?>{
+              'type': 'raw_fallback',
+              'payload': <Object?, Object?>{'marker': 'synthetic'},
+            }),
+          ],
+        ),
+      );
+      final result = applyOcrTypedCandidateGate(
+        batch: OcrTypedCandidateBatch(
+          candidates: <OcrTypedCandidate>[
+            _candidate(
+              questionNumber: 1,
+              questionId: _questionUuidA,
+              reviewItemId: _reviewUuidA,
+              draft: unsafeDraft,
+            ),
+          ],
+        ),
+        finalQuestions: <Map<String, dynamic>>[_finalQuestion(number: 1)],
+        singleFile: true,
+      );
+
+      expect(result.route, ImportStorageRoute.legacyV1);
+      expect(result.reason, 'typed_candidate_unsupported_structure');
       expect(
         result.questions.single.containsKey(TypedReviewSnapshotCodec.mapKey),
         isFalse,
@@ -1180,6 +1829,211 @@ void main() {
         expect(validated.reason, reason);
       }
     });
+
+    group('raw explanation parity telemetry', () {
+      tearDown(() {
+        rawExplanationTelemetryHandlerForTesting = null;
+      });
+
+      test(
+          'emits complete redacted per-question telemetry during gate evaluation',
+          () {
+        final telemetryEvents = <Map<String, Object?>>[];
+        rawExplanationTelemetryHandlerForTesting = telemetryEvents.add;
+
+        final candidate = _candidate(
+          questionNumber: 1,
+          questionId: _questionUuidA,
+          reviewItemId: _reviewUuidA,
+          draft: _draftWithExplanation(
+            questionNumber: 1,
+            questionId: _questionUuidA,
+            explanation: RichContent(
+              nodes: <ContentNode>[
+                const TextNode('Synthetic explanation 1'),
+                ImageNode(
+                  sourceId: _sourceUuid,
+                  localAssetId: 'img_01',
+                  alternativeText: RichContent(
+                    nodes: const <ContentNode>[TextNode('fig')],
+                  ),
+                ),
+              ],
+            ),
+            assetRefs: <SourcedAssetRef>[
+              SourcedAssetRef(
+                sourceId: _sourceUuid,
+                asset: AssetRef(
+                  assetId: 'img_01',
+                  kind: AssetKind.image,
+                ),
+              ),
+            ],
+          ),
+          projectedLegacy: _finalBaseline(
+            number: 1,
+            explanation: 'Synthetic explanation 1\n[图片]',
+          ),
+        );
+
+        final question = _finalQuestion(number: 1)
+          ..['raw_explanation'] = '<p>Synthetic explanation 1</p>[图片]'
+          ..['explanation'] = 'Synthetic explanation 1\n[图片]';
+
+        applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[candidate],
+            candidateAssetLease: ContentAssetCandidateLease(
+              sourceId: _sourceUuid,
+              localAssetIds: const <String>['img_01'],
+            ),
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(telemetryEvents, hasLength(1));
+        final event = telemetryEvents.single;
+        expect(event['questionNumber'], 1);
+        expect(event['rawPresent'], isTrue);
+        expect(event['rawTypeValid'], isTrue);
+        expect(event['rawEmpty'], isFalse);
+        expect(event['rawEqualsFinal'], isFalse);
+        expect(event['finalEmpty'], isFalse);
+        expect(event['candidateExplanationPresent'], isTrue);
+        expect(event['topLevelNodeKinds'], <String>['text', 'image']);
+        expect(event['containsRawFallback'], isFalse);
+        expect(event['rawFallbackLocation'], isNull);
+        expect(event['boundedAllowed'], isTrue);
+        expect(event['n0Equal'], isFalse);
+        expect(event['finalizerEligible'], isTrue);
+        expect(event['finalizerMatched'], isTrue);
+      });
+
+      test(
+          'identifies rawFallback and its location at top-level and in table-cell',
+          () {
+        final telemetryEvents = <Map<String, Object?>>[];
+        rawExplanationTelemetryHandlerForTesting = telemetryEvents.add;
+
+        final candidateFallback = _candidate(
+          questionNumber: 2,
+          questionId: _questionUuidB,
+          reviewItemId: _reviewUuidB,
+          draft: _draftWithExplanation(
+            questionNumber: 2,
+            questionId: _questionUuidB,
+            explanation: RichContent(
+              nodes: <ContentNode>[
+                const TextNode('Explanation'),
+                RawFallbackNode(
+                  const <Object?, Object?>{'type': 'unsupported_tag'},
+                ),
+              ],
+            ),
+          ),
+          projectedLegacy: _finalBaseline(
+            number: 2,
+            explanation: 'Explanation',
+          ),
+        );
+
+        final question = _finalQuestion(number: 2)
+          ..['raw_explanation'] = 'Explanation'
+          ..['explanation'] = 'Explanation';
+
+        applyOcrTypedCandidateGate(
+          batch: OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[candidateFallback],
+          ),
+          finalQuestions: <Map<String, dynamic>>[question],
+          singleFile: true,
+        );
+
+        expect(telemetryEvents, hasLength(1));
+        final event = telemetryEvents.single;
+        expect(event['questionNumber'], 2);
+        expect(event['topLevelNodeKinds'], <String>['text', 'rawFallback']);
+        expect(event['containsRawFallback'], isTrue);
+        expect(event['rawFallbackLocation'], 'top-level');
+        expect(event['boundedAllowed'], isFalse);
+      });
+    });
+
+    group('unsupported structure diagnostic telemetry', () {
+      test(
+          'records questionNumber and kindCode when candidate construction throws (Test B)',
+          () {
+        final emitted = <Map<String, Object?>>[];
+        typedCandidateRejectionHandlerForTesting = emitted.add;
+        addTearDown(() {
+          typedCandidateRejectionHandlerForTesting = null;
+        });
+
+        final document = _tableDocument();
+        final regionized = _regionizer.regionize(document);
+        expect(regionized.regions, hasLength(1));
+        final batch = buildOcrTypedCandidateBatch(
+          document: document,
+          regions: regionized.regions,
+          legacyQuestions: _legacyQuestions(regionized.regions),
+          uuidV4Factory: _uuidSequence(),
+        );
+
+        expect(batch.candidates, isEmpty);
+        expect(
+          batch.failure,
+          OcrTypedCandidateFailure.unsupportedStructure,
+        );
+        expect(emitted, hasLength(1));
+        final record = emitted.single;
+        expect(record['questionNumber'], regionized.regions.single.number);
+        expect(record['kindCode'], 'ocr_table');
+        expect(record['failure'], 'unsupportedStructure');
+      });
+
+      test(
+          'records questionNumber and ocr_structural_ownership when structural part is not owned',
+          () {
+        final emitted = <Map<String, Object?>>[];
+        typedCandidateRejectionHandlerForTesting = emitted.add;
+        addTearDown(() {
+          typedCandidateRejectionHandlerForTesting = null;
+        });
+
+        final document = _mergedExplanationTableDocument();
+        final regionized = _regionizer.regionize(document);
+        expect(regionized.regions, hasLength(1));
+        final unownedRegion = OcrQuestionRegion(
+          number: regionized.regions.single.number,
+          stemParts: regionized.regions.single.stemParts,
+          answerParts: regionized.regions.single.answerParts,
+          explanationParts: regionized.regions.single.explanationParts,
+          sourcePageIndices: regionized.regions.single.sourcePageIndices,
+          sourceBlockIds: regionized.regions.single.sourceBlockIds,
+          diagnostics: regionized.regions.single.diagnostics,
+          declaredKind: regionized.regions.single.declaredKind,
+          ownedSources: const <OcrQuestionRegionSource>[],
+        );
+        final batch = buildOcrTypedCandidateBatch(
+          document: document,
+          regions: <OcrQuestionRegion>[unownedRegion],
+          legacyQuestions: _legacyQuestions(<OcrQuestionRegion>[unownedRegion]),
+          uuidV4Factory: _uuidSequence(),
+        );
+
+        expect(batch.candidates, isEmpty);
+        expect(
+          batch.failure,
+          OcrTypedCandidateFailure.unsupportedStructure,
+        );
+        expect(emitted, hasLength(1));
+        final record = emitted.single;
+        expect(record['questionNumber'], unownedRegion.number);
+        expect(record['kindCode'], 'ocr_structural_ownership');
+        expect(record['failure'], 'unsupportedStructure');
+      });
+    });
   });
 }
 
@@ -1243,6 +2097,8 @@ QuestionDraftV2 _draftWithExplanation({
   required int questionNumber,
   required String questionId,
   required RichContent explanation,
+  Iterable<SourceRef>? sourceRefs,
+  Iterable<SourcedAssetRef> assetRefs = const <SourcedAssetRef>[],
 }) {
   return QuestionDraftV2(
     questionId: questionId,
@@ -1259,6 +2115,9 @@ QuestionDraftV2 _draftWithExplanation({
       ),
     ),
     explanation: explanation,
+    sourceRefs:
+        sourceRefs ?? <SourceRef>[SourceRef.document(sourceId: _sourceUuid)],
+    assetRefs: assetRefs,
   );
 }
 
@@ -1337,6 +2196,35 @@ OcrDocument _shortAnswerDocument() {
   );
 }
 
+OcrQuestionRegion _asciiChoiceRegion() {
+  return const OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'],
+    answerParts: <String>['A'],
+    explanationParts: <String>['解析：保留解析'],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['q_1', 'answer_1', 'explanation_1'],
+    diagnostics: <String>[],
+    declaredKind: TextQuestionKind.choice,
+  );
+}
+
+OcrDocument _asciiChoiceDocument() {
+  return _document(
+    'r7b_synthetic_ascii_choice.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('q_1', 1, 0, '1. 题干\n(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁'),
+          _block('answer_1', 1, 1, '答案：A'),
+          _block('explanation_1', 1, 2, '解析：保留解析'),
+        ],
+      ),
+    ],
+  );
+}
+
 OcrDocument _twoQuestionDocument() {
   return _document(
     'r7b_synthetic_two.pdf',
@@ -1396,6 +2284,62 @@ OcrDocument _tableDocument() {
           _block('answer_1', 1, 2, '答案：synthetic-result-1'),
           _block('explanation_1', 1, 3, '解析：Synthetic explanation 1'),
         ],
+      ),
+    ],
+  );
+}
+
+OcrDocument _mergedExplanationTableDocument() {
+  return _document(
+    'r7b_synthetic_merged_explanation.pdf',
+    <OcrPage>[
+      OcrPage(
+        pageIndex: 1,
+        blocks: <OcrBlock>[
+          _block('section', 1, 0, '三、解答题'),
+          _block('q_1', 1, 1, '1. Synthetic prompt marker 1.'),
+          _block('answer_1', 1, 2, '答案：synthetic-result-1'),
+          _block(
+            'explanation_table',
+            1,
+            3,
+            '<table>'
+                '<tr><td rowspan="2" colspan="2">A</td><td>B</td></tr>'
+                '<tr><td>C</td></tr>'
+                '</table>',
+            type: 'table',
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+OcrQuestionRegion _mergedExplanationTableRegion() {
+  return const OcrQuestionRegion(
+    number: 1,
+    stemParts: <String>['Synthetic prompt marker 1.'],
+    answerParts: <String>['synthetic-result-1'],
+    explanationParts: <String>['A | | B\n | | C'],
+    sourcePageIndices: <int>[1],
+    sourceBlockIds: <String>['q_1', 'answer_1', 'explanation_table'],
+    diagnostics: <String>['contains_table_block'],
+    declaredKind: TextQuestionKind.subjective,
+    ownedSources: <OcrQuestionRegionSource>[
+      OcrQuestionRegionSource(
+        blockId: 'q_1',
+        field: OcrRegionField.stem,
+        text: 'Synthetic prompt marker 1.',
+      ),
+      OcrQuestionRegionSource(
+        blockId: 'answer_1',
+        field: OcrRegionField.answer,
+        text: 'synthetic-result-1',
+      ),
+      OcrQuestionRegionSource(
+        blockId: 'explanation_table',
+        field: OcrRegionField.explanation,
+        text: 'A | | B\n | | C',
       ),
     ],
   );

@@ -18,6 +18,7 @@ class GlobalSidebar extends StatelessWidget {
     required this.onOpenSpaceHome,
     required this.onCreateSpace,
     required this.onFeedback,
+    this.onClose,
   });
 
   final LearningSpacesController controller;
@@ -30,6 +31,7 @@ class GlobalSidebar extends StatelessWidget {
   final ValueChanged<String> onOpenSpaceHome;
   final VoidCallback onCreateSpace;
   final ValueChanged<String> onFeedback;
+  final VoidCallback? onClose;
 
   Future<void> _confirmDeleteConversation(
     BuildContext context,
@@ -126,18 +128,46 @@ class GlobalSidebar extends StatelessWidget {
                       child: const Icon(Icons.auto_awesome_rounded, size: 18),
                     ),
                     const SizedBox(width: 10),
-                    const Text(
-                      'Shiroha',
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                    const Expanded(
+                      child: Text(
+                        'Shiroha Agent',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
+                    if (onClose != null)
+                      IconButton(
+                        key: const ValueKey<String>(
+                          'u1-ux01-close-sidebar',
+                        ),
+                        tooltip: '关闭菜单',
+                        onPressed: onClose,
+                        icon: const Icon(Icons.close_rounded),
+                      ),
                   ],
                 ),
               ),
-              _item(Icons.add_comment_outlined, '新对话', onNewConversation),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: FilledButton.tonalIcon(
+                  key: const ValueKey<String>('u1-ux01-new-conversation'),
+                  onPressed: onNewConversation,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('新对话'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const _SidebarLabel('资源'),
               _item(
                 Icons.folder_copy_outlined,
-                '文件库',
+                '资料库',
                 onOpenFileLibrary,
                 key: const ValueKey<String>('u1-ux01-open-file-library'),
               ),
@@ -146,12 +176,6 @@ class GlobalSidebar extends StatelessWidget {
                 '学习空间',
                 onOpenLearningSpaces,
                 key: const ValueKey<String>('u1-ux01-open-learning-spaces'),
-              ),
-              _item(
-                Icons.cable_rounded,
-                'MCP',
-                onOpenMcp,
-                key: const ValueKey<String>('u1-ux01-open-mcp'),
               ),
               const Divider(height: 28),
               const _SidebarLabel('最近对话'),
@@ -287,11 +311,30 @@ class GlobalSidebar extends StatelessWidget {
                     ],
                   ),
               ListTile(
+                key: const ValueKey<String>('u1-sidebar-manage-spaces'),
+                dense: true,
+                leading: const Icon(Icons.grid_view_rounded),
+                title: const Text('管理全部学习空间'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onTap: onOpenLearningSpaces,
+              ),
+              ListTile(
                 key: const ValueKey<String>('u1-sidebar-create-space'),
                 dense: true,
                 leading: const Icon(Icons.add_rounded),
                 title: const Text('新建学习空间'),
                 onTap: onCreateSpace,
+              ),
+              const Divider(height: 28),
+              const _SidebarLabel('更多'),
+              _item(
+                Icons.extension_outlined,
+                '扩展能力',
+                onOpenMcp,
+                key: const ValueKey<String>('u1-ux01-open-mcp'),
               ),
               if (controller.errorMessage case final error?)
                 ListTile(
@@ -329,6 +372,7 @@ class GlobalSidebar extends StatelessWidget {
       dense: true,
       leading: Icon(icon),
       title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+      trailing: const Icon(Icons.chevron_right_rounded, size: 20),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onTap: onTap,
     );
@@ -360,6 +404,7 @@ class _ConversationTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
+      subtitle: Text(_formatConversationTime(conversation.updatedAt)),
       onTap: onTap,
       trailing: PopupMenuButton<String>(
         key: ValueKey<String>(
@@ -394,6 +439,15 @@ class _ConversationTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatConversationTime(DateTime value) {
+  final local = value.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$month-$day  $hour:$minute';
 }
 
 class _SidebarLabel extends StatelessWidget {

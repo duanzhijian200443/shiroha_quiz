@@ -239,9 +239,15 @@ void main() {
         'latexInvalidFields': ['content'],
       },
     });
+    // Fragment repair requires a frozen typed snapshot. Legacy-only metadata
+    // therefore stays review-only instead of exposing an unusable repair action.
     expect(
       find.byKey(const ValueKey('question-repair-review-only-0')),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('review-ai-repair-0')),
+      findsNothing,
     );
   });
 

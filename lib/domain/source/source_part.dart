@@ -60,33 +60,73 @@ final class SourceTablePart extends SourcePart {
     required SourceRef sourceRef,
     required Iterable<Iterable<RichContent>> rows,
   }) {
-    final copiedRows = List<List<RichContent>>.unmodifiable(
-      rows.map((row) => List<RichContent>.unmodifiable(row)),
+    final copiedRows = _copySourceTableRows(rows);
+    return SourceTablePart._(
+      sourceRef: sourceRef,
+      rows: copiedRows,
+      structure: _tryNormalizeSourceTableRows(copiedRows),
     );
-    for (final row in copiedRows) {
+  }
+
+  /// Constructs an explicit rows-only compatibility carrier.
+  factory SourceTablePart.legacy({
+    required SourceRef sourceRef,
+    required Iterable<Iterable<RichContent>> rows,
+  }) {
+    return SourceTablePart._(
+      sourceRef: sourceRef,
+      rows: _copySourceTableRows(rows),
+      structure: null,
+    );
+  }
+
+  /// Constructs a table whose validated geometry is the sole authority.
+  factory SourceTablePart.normalized({
+    required SourceRef sourceRef,
+    required TableStructure structure,
+  }) {
+    final rows = List<List<RichContent>>.unmodifiable(
+      structure.expandedCells
+          .map(
+            (row) => List<RichContent>.unmodifiable(
+              row.map(
+                (cell) =>
+                    cell?.content ?? RichContent(nodes: const <ContentNode>[]),
+              ),
+            ),
+          )
+          .toList(),
+    );
+    for (final row in rows) {
       for (final cell in row) {
         _validateSourceTableCell(cell);
       }
     }
     return SourceTablePart._(
       sourceRef: sourceRef,
-      rows: copiedRows,
+      rows: rows,
+      structure: structure,
     );
   }
 
   const SourceTablePart._({
     required super.sourceRef,
     required this.rows,
+    required this.structure,
   });
 
   final List<List<RichContent>> rows;
+  final TableStructure? structure;
+
+  bool get isNormalized => structure != null;
 
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
         other is SourceTablePart &&
             sourceRef == other.sourceRef &&
-            _tableRowsEqual(rows, other.rows);
+            _tableRowsEqual(rows, other.rows) &&
+            structure == other.structure;
   }
 
   @override
@@ -98,6 +138,7 @@ final class SourceTablePart extends SourcePart {
             (row) => Object.hashAll(row.map(_richContentHash)),
           ),
         ),
+        structure,
       );
 }
 
@@ -232,6 +273,39 @@ void _validateSourceTableCell(RichContent content) {
       case RawFallbackNode():
         break;
     }
+  }
+}
+
+List<List<RichContent>> _copySourceTableRows(
+  Iterable<Iterable<RichContent>> rows,
+) {
+  final copiedRows = List<List<RichContent>>.unmodifiable(
+    rows.map((row) => List<RichContent>.unmodifiable(row)),
+  );
+  for (final row in copiedRows) {
+    for (final cell in row) {
+      _validateSourceTableCell(cell);
+    }
+  }
+  return copiedRows;
+}
+
+TableStructure? _tryNormalizeSourceTableRows(
+  List<List<RichContent>> rows,
+) {
+  if (rows.isEmpty || rows.any((row) => row.isEmpty)) return null;
+  final columnCount = rows.first.length;
+  if (rows.any((row) => row.length != columnCount)) return null;
+  try {
+    return TableStructure(
+      rows: rows.map(
+        (row) => TableRow(
+          cells: row.map((content) => TableCell(content: content)),
+        ),
+      ),
+    );
+  } on FormatException {
+    return null;
   }
 }
 

@@ -350,6 +350,36 @@ void main() {
       expect(() => region.sourceRefs.clear(), throwsUnsupportedError);
     });
 
+    test('keeps ordered question evidence beyond content fragments', () {
+      final contentRef = _sourceRef('source_a', pageNumber: 1);
+      final evidenceRef = _sourceRef('source_a', pageNumber: 3);
+      final region = QuestionRegion(
+        questionNumber: 1,
+        fragments: <QuestionRegionFragment>[
+          _fragment(_contentPart(contentRef, 'stem')),
+        ],
+        sourceRefs: <SourceRef>[contentRef, evidenceRef, evidenceRef],
+      );
+
+      expect(region.sourceRefs, <SourceRef>[contentRef, evidenceRef]);
+      expect(() => region.sourceRefs.clear(), throwsUnsupportedError);
+    });
+
+    test('explicit provenance must cover every fragment source', () {
+      expect(
+        () => QuestionRegion(
+          questionNumber: 1,
+          fragments: <QuestionRegionFragment>[
+            _fragment(
+              _contentPart(_sourceRef('source_a'), 'stem'),
+            ),
+          ],
+          sourceRefs: <SourceRef>[_sourceRef('source_b')],
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('derives source-qualified assets and rejects metadata conflicts', () {
       AssetRef asset({required int width}) => AssetRef(
             assetId: 'asset_shared',
@@ -550,7 +580,7 @@ void main() {
       );
     });
 
-    test('requires issue source IDs to belong to a fragment source', () {
+    test('requires issue source IDs to belong to question provenance', () {
       final fragments = <QuestionRegionFragment>[
         _fragment(_contentPart(_sourceRef('source_a'), 'stem')),
       ];
@@ -564,6 +594,24 @@ void main() {
               code: 'same_source',
               severity: ImportIssueSeverity.info,
               sourceRef: _sourceRef('source_a', pageNumber: 3),
+            ),
+          ],
+        ).issues,
+        hasLength(1),
+      );
+      expect(
+        QuestionRegion(
+          questionNumber: 1,
+          fragments: fragments,
+          sourceRefs: <SourceRef>[
+            _sourceRef('source_a'),
+            _sourceRef('source_b'),
+          ],
+          issues: <ImportIssue>[
+            ImportIssue(
+              code: 'evidence_source',
+              severity: ImportIssueSeverity.info,
+              sourceRef: _sourceRef('source_b', pageNumber: 3),
             ),
           ],
         ).issues,
@@ -740,6 +788,19 @@ void main() {
       expect(equal.hashCode, first.hashCode);
       expect(<QuestionRegion>{first}, contains(equal));
       expect(first.kindHint, QuestionRegionKindHint.shortAnswer);
+      expect(
+        QuestionRegion(
+          questionNumber: first.questionNumber,
+          kindHint: first.kindHint,
+          fragments: first.fragments,
+          issues: first.issues,
+          sourceRefs: <SourceRef>[
+            ...first.sourceRefs,
+            _sourceRef('source_a', pageNumber: 2),
+          ],
+        ),
+        isNot(first),
+      );
       expect(
         QuestionRegion(
           questionNumber: 4,

@@ -7,7 +7,8 @@ import '../../domain/source/source_ref.dart';
 ///
 /// HTML is an input representation only. It is never stored in a
 /// [SourceTablePart] or used as the canonical legacy projection. Unsupported
-/// markup, merged-cell geometry, and malformed tables fail closed.
+/// markup and malformed tables fail closed; valid merged-cell geometry is
+/// admitted through the shared [TableStructure] authority.
 final class OcrTableProjector {
   const OcrTableProjector._();
 
@@ -21,58 +22,70 @@ final class OcrTableProjector {
   }) {
     if (html.length > maxInputLength) return null;
     final trimmed = html.trim();
-    if (!RegExp(r'<table\b', caseSensitive: false).hasMatch(trimmed) ||
+    final tableHtml = _singleTableHtml(trimmed);
+    if (tableHtml == null ||
         RegExp(
-          r'<(?:script|style)\b',
+          r'<\s*(?:script|style|img|a|iframe|object|embed|audio|video|source|form|input|button|link|meta)\b',
           caseSensitive: false,
-        ).hasMatch(trimmed) ||
+        ).hasMatch(tableHtml) ||
         RegExp(
-          r'<\s*(?:img|a)\b|\b(?:src|href)\s*=',
+          r'\b(?:src|href|on[a-z]+)\s*=',
           caseSensitive: false,
-        ).hasMatch(trimmed)) {
+        ).hasMatch(tableHtml)) {
       return null;
     }
 
-    final rowMatches = RegExp(
+    final rowPattern = RegExp(
       r'<tr\b[^>]*>(.*?)</tr\s*>',
       caseSensitive: false,
       dotAll: true,
-    ).allMatches(trimmed).toList(growable: false);
+    );
+    final rowMatches = rowPattern.allMatches(tableHtml).toList(growable: false);
     if (rowMatches.isEmpty || rowMatches.length > maxRowCount) return null;
+    if (_tagCount(tableHtml, 'tr') != rowMatches.length * 2) return null;
 
-    final rows = <List<RichContent>>[];
+    final structureRows = <TableRow>[];
     for (final rowMatch in rowMatches) {
       final rowHtml = rowMatch.group(1) ?? '';
-      final cellMatches = RegExp(
-        r'<(?:td|th)\b([^>]*)>(.*?)</(?:td|th)\s*>',
+      final cellPattern = RegExp(
+        r'<(td|th)\b([^>]*)>(.*?)</\1\s*>',
         caseSensitive: false,
         dotAll: true,
-      ).allMatches(rowHtml).toList(growable: false);
+      );
+      final cellMatches =
+          cellPattern.allMatches(rowHtml).toList(growable: false);
       if (cellMatches.isEmpty || cellMatches.length > maxColumnCount) {
         return null;
       }
+      if (_tagCount(rowHtml, 'td') + _tagCount(rowHtml, 'th') !=
+          cellMatches.length * 2) {
+        return null;
+      }
 
-      final row = <RichContent>[];
+      final cells = <TableCell>[];
       for (final cellMatch in cellMatches) {
-        final attributes = cellMatch.group(1) ?? '';
-        if (RegExp(
-          r'\b(?:rowspan|colspan)\s*=',
-          caseSensitive: false,
-        ).hasMatch(attributes)) {
-          return null;
-        }
-        final text = _sanitizeCellText(cellMatch.group(2) ?? '');
-        row.add(
-          text.isEmpty
-              ? RichContent(nodes: const <ContentNode>[])
-              : RichContent(nodes: <ContentNode>[TextNode(text)]),
+        final spans = _parseCellSpans(cellMatch.group(2) ?? '');
+        if (!spans.valid) return null;
+        final text = _sanitizeCellText(cellMatch.group(3) ?? '');
+        final content = text.isEmpty
+            ? RichContent(nodes: const <ContentNode>[])
+            : RichContent(nodes: <ContentNode>[TextNode(text)]);
+        cells.add(
+          TableCell(
+            content: content,
+            rowSpan: spans.rowSpan,
+            columnSpan: spans.columnSpan,
+          ),
         );
       }
-      rows.add(row);
+      structureRows.add(TableRow(cells: cells));
     }
 
     try {
-      return SourceTablePart(sourceRef: sourceRef, rows: rows);
+      return SourceTablePart.normalized(
+        sourceRef: sourceRef,
+        structure: TableStructure(rows: structureRows),
+      );
     } on FormatException {
       return null;
     }
@@ -80,8 +93,19 @@ final class OcrTableProjector {
 
   static String projectToPlainText(SourceTablePart table) {
     final rows = <String>[];
-    for (final row in table.rows) {
-      rows.add(row.map(_projectCell).join(' | '));
+    final structure = table.structure;
+    if (structure != null) {
+      for (final row in structure.expandedCells) {
+        rows.add(
+          row
+              .map((cell) => cell == null ? '' : _projectCell(cell.content))
+              .join(' | '),
+        );
+      }
+    } else {
+      for (final row in table.rows) {
+        rows.add(row.map(_projectCell).join(' | '));
+      }
     }
     return rows.join('\n');
   }
@@ -101,6 +125,67 @@ final class OcrTableProjector {
         .replaceAll(RegExp(r'<[^>]+>'), '');
     text = _decodeHtmlEntities(text);
     return text.replaceAll(RegExp(r'[ \t\r\n]+'), ' ').trim();
+  }
+
+  static String? _singleTableHtml(String html) {
+    final matches = RegExp(
+      r'<\s*(/?)\s*table\b[^>]*>',
+      caseSensitive: false,
+    ).allMatches(html).toList(growable: false);
+    if (matches.length != 2 ||
+        (matches.first.group(1) ?? '').isNotEmpty ||
+        (matches.last.group(1) ?? '').isEmpty ||
+        matches.first.start >= matches.last.start ||
+        html.substring(0, matches.first.start).trim().isNotEmpty ||
+        html.substring(matches.last.end).trim().isNotEmpty) {
+      return null;
+    }
+    return html.substring(matches.first.start, matches.last.end);
+  }
+
+  static int _tagCount(String html, String tag) {
+    return RegExp(
+      '<\\s*/?\\s*$tag\\b',
+      caseSensitive: false,
+    ).allMatches(html).length;
+  }
+
+  static _ParsedTableCellSpans _parseCellSpans(String attributes) {
+    var rowSpan = 1;
+    var columnSpan = 1;
+    var rowSpanSeen = false;
+    var columnSpanSeen = false;
+    var parsedSpanCount = 0;
+    for (final match in _htmlAttributePattern.allMatches(attributes)) {
+      final name = match.group(1)?.toLowerCase();
+      if (name != 'rowspan' && name != 'colspan') continue;
+      parsedSpanCount++;
+      final value = match.group(2) ?? match.group(3) ?? match.group(4);
+      final parsed = value == null ? null : int.tryParse(value.trim());
+      if (parsed == null || parsed < 1) {
+        return const _ParsedTableCellSpans.invalid();
+      }
+      if (name == 'rowspan') {
+        if (rowSpanSeen) return const _ParsedTableCellSpans.invalid();
+        rowSpanSeen = true;
+        rowSpan = parsed;
+      } else {
+        if (columnSpanSeen) return const _ParsedTableCellSpans.invalid();
+        columnSpanSeen = true;
+        columnSpan = parsed;
+      }
+    }
+    final mentionedSpanCount = RegExp(
+      r'\b(?:rowspan|colspan)\b',
+      caseSensitive: false,
+    ).allMatches(attributes).length;
+    if (parsedSpanCount != mentionedSpanCount) {
+      return const _ParsedTableCellSpans.invalid();
+    }
+    return _ParsedTableCellSpans(
+      rowSpan: rowSpan,
+      columnSpan: columnSpan,
+    );
   }
 
   static String _decodeHtmlEntities(String text) {
@@ -160,3 +245,24 @@ final class OcrTableProjector {
     }).join();
   }
 }
+
+final class _ParsedTableCellSpans {
+  const _ParsedTableCellSpans({
+    required this.rowSpan,
+    required this.columnSpan,
+  }) : valid = true;
+
+  const _ParsedTableCellSpans.invalid()
+      : valid = false,
+        rowSpan = 1,
+        columnSpan = 1;
+
+  final bool valid;
+  final int rowSpan;
+  final int columnSpan;
+}
+
+final _htmlAttributePattern = RegExp(
+  r'''([A-Za-z][A-Za-z0-9:-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?''',
+  caseSensitive: false,
+);
