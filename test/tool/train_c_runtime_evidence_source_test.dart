@@ -100,7 +100,17 @@ Future<TrainCRuntimeCheckpoint> _capture(TrainCIsolatedRuntime runtime) {
     runtime: runtime,
     phaseFacts: _placeholderFacts(),
     reviewedIdentity: _reviewedForCurrentHead(),
+    productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
   ).captureCheckpoint();
+}
+
+TrainCL1BProductionDiffResult _acceptedProductionDiffEvidence() {
+  return const TrainCL1BProductionDiffResult(
+    totalProductionDiffCount: 1,
+    approvedProductionDiffCount: 1,
+    unexpectedProductionDiffCount: 0,
+    approvedSeamMatched: true,
+  );
 }
 
 QuestionDraftV2 _draft(
@@ -462,6 +472,7 @@ void main() {
       ),
       renderEvidence: const _AllRenderEvidence(),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
     final snapshot = await source.readAuthoritativeSnapshot();
     expect(snapshot['imageSummary'], isA<Map<String, dynamic>>());
@@ -547,6 +558,7 @@ void main() {
         sourceImages: sourceImages,
       ),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
 
     await expectLater(
@@ -613,6 +625,7 @@ void main() {
         referencedImageBlockCount: 5,
       ),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
 
     await expectLater(
@@ -681,6 +694,7 @@ void main() {
         referencedImageBlockCount: 4,
       ),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
 
     await expectLater(
@@ -732,6 +746,7 @@ void main() {
         sourceImages: sourceImages,
       ),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
 
     await expectLater(
@@ -788,6 +803,7 @@ void main() {
         candidateCheckpoint: candidate,
       ),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
 
     await expectLater(
@@ -821,6 +837,7 @@ void main() {
         ledger: ledger,
       ),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
     final result = TrainCEvidenceProbe(
       expectedIdentity: reviewed.toExpectedCodeIdentity(),
@@ -843,6 +860,7 @@ void main() {
       runtime: runtime,
       phaseFacts: _placeholderFacts(),
       reviewedIdentity: _reviewedForCurrentHead(),
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
     await expectLater(
       source.readAuthoritativeSnapshot(),
@@ -869,6 +887,7 @@ void main() {
       runtime: runtime,
       phaseFacts: _placeholderFacts(),
       reviewedIdentity: _reviewedForCurrentHead(),
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
     await expectLater(
       source.captureCheckpoint(),
@@ -893,6 +912,7 @@ void main() {
       runtime: runtime,
       phaseFacts: _placeholderFacts(),
       reviewedIdentity: _reviewedForCurrentHead(),
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
     await expectLater(
       source.readAuthoritativeSnapshot(),
@@ -947,6 +967,7 @@ void main() {
       ),
       renderEvidence: const _AllRenderEvidence(),
       reviewedIdentity: reviewed,
+      productionDiffEvidenceReader: _acceptedProductionDiffEvidence,
     );
     await expectLater(
       source.readAuthoritativeSnapshot(),

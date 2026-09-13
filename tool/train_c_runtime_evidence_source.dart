@@ -561,6 +561,9 @@ sealed class TrainCTrustedEvidenceSource {
   Future<Map<String, dynamic>> readAuthoritativeSnapshot();
 }
 
+typedef TrainCProductionDiffEvidenceReader = TrainCL1BProductionDiffResult
+    Function();
+
 final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
   TrainCRuntimeEvidenceSource({
     required this.runtime,
@@ -568,6 +571,7 @@ final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
     required this.reviewedIdentity,
     this.renderEvidence = const UnavailableTrainCRenderEvidencePort(),
     this.currentHeadReader = _readCurrentHead,
+    this.productionDiffEvidenceReader,
   }) : super();
 
   final TrainCIsolatedRuntime runtime;
@@ -576,6 +580,11 @@ final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
   @override
   final TrainCReviewedIdentity reviewedIdentity;
   final String Function() currentHeadReader;
+
+  /// Deterministic test seam for repository-state-independent source tests.
+  /// Live composition leaves this null and always uses the Git-backed
+  /// production-diff authority below.
+  final TrainCProductionDiffEvidenceReader? productionDiffEvidenceReader;
 
   Future<TrainCRuntimeCheckpoint> captureCheckpoint() async {
     try {
@@ -736,7 +745,8 @@ final class TrainCRuntimeEvidenceSource extends TrainCTrustedEvidenceSource {
       if (currentHead != reviewedIdentity.approvedHarnessHead) {
         throw const TrainCRuntimeEvidenceException('TRAIN_C_HEAD_DRIFT');
       }
-      final productionDiff = _productionDiffFromBase();
+      final productionDiff =
+          productionDiffEvidenceReader?.call() ?? _productionDiffFromBase();
       final commit = phaseFacts.commitCheckpoint;
       final restart = phaseFacts.b0.preB0Checkpoint;
       final candidate = phaseFacts.candidateCheckpoint;
