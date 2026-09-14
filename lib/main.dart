@@ -46,6 +46,7 @@ import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
 import 'data/credentials/secure_engine_credential_store.dart';
+import 'data/repositories/ai_config_store.dart';
 import 'data/credentials/ai_engine_credential_activation.dart';
 import 'data/repositories/agent_config_repository.dart';
 import 'data/repositories/backup_database_authority.dart';
@@ -70,6 +71,7 @@ import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
 import 'services/answers/ai_answer_provider_adapter.dart';
 import 'services/agent/deepseek_responses_provider.dart';
+import 'services/agent/deepseek_agent_model_compatibility_adapter.dart';
 import 'services/backup/backup_restore_runtime.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
 import 'services/file_library/file_ingestion_service.dart';
@@ -273,6 +275,12 @@ void main() {
           questionQuery: questionRepository,
           metricsQuery: ReviewRepository(databaseHelper: databaseHelper),
         );
+        final aiConfigStore = SqliteAiConfigStore(
+          databaseHelper: databaseHelper,
+        );
+        final agentConfigStore = SqliteAgentConfigStore(
+          databaseHelper: databaseHelper,
+        );
         final engineRepository = await activateAiEngineRepository(
           openDatabase: () async {
             await databaseHelper.database;
@@ -280,6 +288,8 @@ void main() {
           store: databaseHelper,
           migrationStore: databaseHelper,
           createCredentialStore: SecureEngineCredentialStore.new,
+          configStore: aiConfigStore,
+          agentReferences: agentConfigStore,
         );
         // P7 composition: Presentation only sees the Application seams.
         final answerGenerationService = AiAnswerGenerationService(
@@ -296,15 +306,15 @@ void main() {
             mapper: productionQuestionMapper,
           ),
         );
-        final agentConfigStore = SqliteAgentConfigStore(
-          databaseHelper: databaseHelper,
-        );
         final agentProfileRepository = AiEngineAgentProfileRepository(
           engineRepository: engineRepository,
+          aiConfigStore: aiConfigStore,
         );
         final agentSettingsService = AgentSettingsService(
           configStore: agentConfigStore,
           profileCatalog: agentProfileRepository,
+          transportCompatibility:
+              const DeepSeekAgentModelCompatibilityAdapter(),
         );
         // W0 composition enablement point: removing this dispatcher registration
         // (and the proposalService wiring below) turns the proposal capability
@@ -400,6 +410,8 @@ void main() {
           configResolver: AgentRuntimeConfigResolver(
             configStore: agentConfigStore,
             profileResolver: agentProfileRepository,
+            transportCompatibility:
+                const DeepSeekAgentModelCompatibilityAdapter(),
           ),
           providerFactory: (resolved) => DeepSeekResponsesProvider(
             profile: resolved.profile,

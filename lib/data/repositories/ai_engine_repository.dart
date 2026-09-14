@@ -1,7 +1,10 @@
 import '../../application/backup/backup_restore_gate.dart';
+import '../../domain/ai_config/ai_config_contracts.dart';
+import '../../domain/ai_config/shiroha_capability_registry.dart';
 import '../models/ai_engine_profile.dart';
 import '../persistence/ai_engine_store.dart';
 import '../persistence/engine_credential_store.dart';
+import 'ai_config_repository.dart';
 
 class AiEngineDependencyException implements Exception {
   const AiEngineDependencyException();
@@ -18,11 +21,14 @@ class AiEngineRepository {
   const AiEngineRepository({
     required AiEngineStore store,
     required EngineCredentialStore credentialStore,
+    AiConfigRepository? configRepository,
   })  : _store = store,
-        _credentialStore = credentialStore;
+        _credentialStore = credentialStore,
+        _configRepository = configRepository;
 
   final AiEngineStore _store;
   final EngineCredentialStore _credentialStore;
+  final AiConfigRepository? _configRepository;
 
   /// Per-engineId serialization for activated-path credential/metadata
   /// mutations. Different engineIds never share a lock; completed chains are
@@ -31,6 +37,9 @@ class AiEngineRepository {
       <String, Future<void>>{};
 
   Future<List<AiEngineProfile>> getEngines(AiEngineType type) async {
+    if (_configRepository case final config?) {
+      return _getProjectedEngines(config, type);
+    }
     final profiles = await _store.listAiEngines(type);
     final selected = (type == AiEngineType.ocr
             ? profiles
@@ -46,6 +55,9 @@ class AiEngineRepository {
   }
 
   Future<AiEngineProfile?> getActiveEngine(AiEngineType type) async {
+    if (_configRepository case final config?) {
+      return _getProjectedActiveEngine(config, type);
+    }
     final profile = await _store.getActiveAiEngine(type);
     if (profile == null) return null;
     final matches = type == AiEngineType.ocr
@@ -72,6 +84,9 @@ class AiEngineRepository {
   }
 
   Future<void> saveEngine(AiEngineProfile profile) {
+    if (_configRepository case final config?) {
+      return _saveProjectedEngine(config, profile);
+    }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _runEngineExclusive(
         profile.id,
@@ -81,12 +96,18 @@ class AiEngineRepository {
   }
 
   Future<void> setActiveEngine(String id, AiEngineType type) {
+    if (_configRepository case final config?) {
+      return _setProjectedActiveEngine(config, id, type);
+    }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _store.setActiveAiEngine(id, type),
     );
   }
 
   Future<void> deleteEngine(String id) {
+    if (_configRepository case final config?) {
+      return config.deleteLegacyProjection(id);
+    }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _runEngineExclusive(
         id,
@@ -96,6 +117,9 @@ class AiEngineRepository {
   }
 
   Future<void> renameEngine(String id, String newName, AiEngineType type) {
+    if (_configRepository case final config?) {
+      return _renameProjectedEngine(config, id, newName);
+    }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _runEngineExclusive(id, () async {
         final engines = await getEngines(type);
@@ -119,6 +143,216 @@ class AiEngineRepository {
       }),
     );
   }
+
+  Future<List<AiEngineProfile>> _getProjectedEngines(
+    AiConfigRepository config,
+    AiEngineType type,
+  ) async {
+    final legacyRows = await _store.listAiEngines(type);
+    final legacyTypes = {
+      for (final row in legacyRows) row.id: row.engineType,
+    };
+    final bindings = await config.store.listBindings();
+    final boundByModel = <String, List<AiCapabilityBinding>>{};
+    for (final binding in bindings) {
+      boundByModel.putIfAbsent(binding.modelRef, () => []).add(binding);
+    }
+    final result = <AiEngineProfile>[];
+    for (final model in await config.store.listModels()) {
+      final provider = await config.store.readProvider(model.providerId);
+      if (provider == null) {
+        throw const AiConfigException(AiConfigFailure.dataCorrupt);
+      }
+      final claims = resolveModelCapabilities(
+        providerKind: provider.kind,
+        canonicalModelId: model.canonicalModelId,
+        claims: await config.store.listClaims(model.modelRef),
+      );
+      final legacyType = legacyTypes[model.modelRef];
+      final boundAsOcr = boundByModel[model.modelRef]?.any(
+            (binding) => binding.slot == AiCapabilitySlot.documentRecognition,
+          ) ??
+          false;
+      final ocr = legacyType == AiEngineType.ocr ||
+          boundAsOcr ||
+          claims[AiModelCapability.ocr] == AiCapabilitySupport.supported;
+      if ((type == AiEngineType.ocr) != ocr) continue;
+      String credential;
+      try {
+        credential = await config.credentialForProvider(provider.providerId);
+      } on AiConfigException catch (error) {
+        if (error.failure != AiConfigFailure.credentialMissing) rethrow;
+        credential = '';
+      }
+      final matchingBinding = boundByModel[model.modelRef]
+          ?.where((binding) => binding.slot == _slotFor(type))
+          .firstOrNull;
+      result.add(
+        AiEngineProfile(
+          id: model.modelRef,
+          engineType: type,
+          name: provider.displayName,
+          apiKey: credential,
+          baseUrl: provider.baseUrl,
+          modelName: model.canonicalModelId,
+          temperature: matchingBinding?.temperature ??
+              (type == AiEngineType.ocr ? 0.0 : 0.7),
+          reasoningEffort: matchingBinding?.reasoningEffort ?? '',
+          isActive: matchingBinding != null,
+        ),
+      );
+    }
+    return List.unmodifiable(result);
+  }
+
+  Future<AiEngineProfile?> _getProjectedActiveEngine(
+    AiConfigRepository config,
+    AiEngineType type,
+  ) async {
+    final binding = await config.store.readBinding(_slotFor(type));
+    if (binding == null) return null;
+    final resolved = await config.resolveModel(binding.modelRef);
+    for (final capability in _slotFor(type).requiredCapabilities) {
+      final support =
+          resolved.capabilities[capability] ?? AiCapabilitySupport.unknown;
+      if (support == AiCapabilitySupport.unsupported ||
+          (support == AiCapabilitySupport.unknown &&
+              binding.validationMode == AiBindingValidationMode.verified)) {
+        throw AiConfigException(
+          support == AiCapabilitySupport.unknown
+              ? AiConfigFailure.capabilityUnknown
+              : AiConfigFailure.capabilityUnsupported,
+        );
+      }
+    }
+    return AiEngineProfile(
+      id: resolved.model.modelRef,
+      engineType: type,
+      name: resolved.provider.displayName,
+      apiKey: resolved.credential,
+      baseUrl: resolved.provider.baseUrl,
+      modelName: resolved.model.canonicalModelId,
+      temperature: binding.temperature,
+      reasoningEffort: binding.reasoningEffort,
+      isActive: true,
+    );
+  }
+
+  Future<void> _saveProjectedEngine(
+    AiConfigRepository config,
+    AiEngineProfile profile,
+  ) async {
+    final existing = await config.store.readProvider(profile.id);
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final provider = AiProviderRecord(
+      providerId: profile.id,
+      kind: existing?.kind ?? AiProviderKind.openAiCompatible,
+      displayName: profile.modelName,
+      baseUrl: profile.baseUrl,
+      state: profile.baseUrl.isNotEmpty && profile.modelName.isNotEmpty
+          ? AiProviderState.ready
+          : AiProviderState.legacyIncomplete,
+      revision: (existing?.revision ?? -1) + 1,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      lastConnectionStatus:
+          existing?.lastConnectionStatus ?? AiOperationStatus.never,
+      lastConnectionAt: existing?.lastConnectionAt,
+      lastSyncStatus: existing?.lastSyncStatus ?? AiOperationStatus.never,
+      lastSyncAt: existing?.lastSyncAt,
+    );
+    final model = AiModelRecord(
+      modelRef: profile.id,
+      providerId: profile.id,
+      canonicalModelId: profile.modelName,
+      displayName: profile.name,
+      availability: AiModelAvailability.available,
+      firstSeenAt:
+          (await config.store.readModel(profile.id))?.firstSeenAt ?? now,
+      lastSeenAt: now,
+    );
+    final currentBinding = await config.store.readBinding(
+      _slotFor(profile.engineType),
+    );
+    final binding = AiCapabilityBinding(
+      slot: _slotFor(profile.engineType),
+      modelRef: profile.id,
+      temperature: profile.temperature,
+      reasoningEffort: profile.reasoningEffort,
+      validationMode: AiBindingValidationMode.legacyPreserved,
+      revision: (currentBinding?.revision ?? -1) + 1,
+      updatedAt: now,
+    );
+    await config.saveLegacyProjection(
+      provider: provider,
+      model: model,
+      binding: binding,
+      credential: ReplaceAiCredential(profile.apiKey),
+      expectedProviderRevision: existing?.revision,
+      expectedBindingRevision: currentBinding?.revision,
+    );
+  }
+
+  Future<void> _setProjectedActiveEngine(
+    AiConfigRepository config,
+    String id,
+    AiEngineType type,
+  ) async {
+    final model = await config.store.readModel(id);
+    if (model == null) {
+      throw const AiConfigException(AiConfigFailure.modelNotFound);
+    }
+    final slot = _slotFor(type);
+    final current = await config.store.readBinding(slot);
+    final profiles = await _getProjectedEngines(config, type);
+    final selected = profiles.where((profile) => profile.id == id).firstOrNull;
+    await config.store.saveBinding(
+      AiCapabilityBinding(
+        slot: slot,
+        modelRef: id,
+        temperature:
+            selected?.temperature ?? (type == AiEngineType.ocr ? 0.0 : 0.7),
+        reasoningEffort: selected?.reasoningEffort ?? '',
+        validationMode: AiBindingValidationMode.legacyPreserved,
+        revision: (current?.revision ?? -1) + 1,
+        updatedAt: DateTime.now().toUtc().millisecondsSinceEpoch,
+      ),
+      expectedRevision: current?.revision,
+    );
+  }
+
+  Future<void> _renameProjectedEngine(
+    AiConfigRepository config,
+    String id,
+    String newName,
+  ) async {
+    final provider = await config.store.readProvider(id);
+    if (provider == null) return;
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
+    await config.updateProvider(
+      AiProviderRecord(
+        providerId: provider.providerId,
+        kind: provider.kind,
+        displayName: newName,
+        baseUrl: provider.baseUrl,
+        state: provider.state,
+        revision: provider.revision + 1,
+        createdAt: provider.createdAt,
+        updatedAt: now,
+        lastConnectionStatus: provider.lastConnectionStatus,
+        lastConnectionAt: provider.lastConnectionAt,
+        lastSyncStatus: provider.lastSyncStatus,
+        lastSyncAt: provider.lastSyncAt,
+      ),
+      expectedRevision: provider.revision,
+    );
+  }
+
+  static AiCapabilitySlot _slotFor(AiEngineType type) => switch (type) {
+        AiEngineType.text => AiCapabilitySlot.textModel,
+        AiEngineType.vision => AiCapabilitySlot.imageUnderstanding,
+        AiEngineType.ocr => AiCapabilitySlot.documentRecognition,
+      };
 
   /// Runs [action] exclusively for [engineId]: concurrent mutations of the
   /// same engine are serialized while different engineIds proceed

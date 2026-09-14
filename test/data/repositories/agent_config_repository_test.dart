@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/agent_config_repository.dart';
@@ -35,6 +36,26 @@ void main() {
           isNot(contains('SENSITIVE_DATABASE_MARKER')),
         ),
       ),
+    );
+  });
+
+  test('agent model references preserve main and fallback profile ids',
+      () async {
+    final database = _DatabaseHelper();
+    final store = SqliteAgentConfigStore(databaseHelper: database);
+    await store.writeAgentConfig(
+      const AgentConfigCodec().encode(
+        AgentConfig(
+          providerKind: AgentProviderKind.deepSeekResponses,
+          mainProfileId: 'main-model-ref',
+          fallbackProfileId: 'fallback-model-ref',
+        ),
+      ),
+    );
+
+    expect(
+      await store.referencedModelRefs(),
+      <String>{'main-model-ref', 'fallback-model-ref'},
     );
   });
 }

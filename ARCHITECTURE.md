@@ -96,12 +96,13 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v23**: the frozen v15 typed sidecar remains
+9. Current database schema is **v24**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
-   additive v22 `study_plans` table, and the later additive v23
-   `answer_attempts` table. `answer_attempts` is append-only durable answer
+   additive v22 `study_plans` table, the additive v23 `answer_attempts` table,
+   and the additive v24 Provider / Model Registry / capability authority.
+   `answer_attempts` is append-only durable answer
    history, separate from mutable Review/FSRS scheduling state in
    `review_states`; changing or resetting scheduling state does not rewrite or
    delete answer history.
@@ -293,6 +294,24 @@ SQLite as plaintext and are never a runtime SQLite fallback.
 
 See `docs/architecture/s0-secure-credential-storage.md`.
 
+### Provider and Model Registry boundary (schema v24)
+
+Schema v24 separates Provider credential identity, discovered models,
+capability claims, and capability bindings. New AI configuration writes use
+this authority only; retained `ai_engines` rows are migration/rollback
+evidence, not a second write target. Existing `AiEngineProfile` consumers are
+served through a temporary repository projection.
+
+Provider identity is the stable `provider_id`, also used by the unchanged S0
+key `engine.<providerId>`. Runtime adapter selection uses explicit
+`provider_kind`, never Base URL inference. Capability resolution uses strict
+source priority and an exact-key Shiroha registry; model-name heuristics are
+forbidden. Binding changes are CAS-protected and fail closed for stale,
+missing, unavailable, unknown, or explicitly unsupported models, except that
+migrated `legacyPreserved` bindings may retain unknown claims.
+
+See `docs/architecture/ai-config-provider-model-registry.md`.
+
 ## 10. Supplemental-answer matching boundary (P6)
 
 P6-P0 froze the focused canonical contract in
@@ -412,7 +431,7 @@ through an Application command with a durable transaction-level
   compare-and-set may persist the single global `ActiveStudyPlan`. MCP v0
   remains exactly six READ_ONLY tools and the A0 read catalog remains exactly
   six tools. SPL-1-D1 introduced the v22 `study_plans` table; the current
-  runtime schema is v23. ActiveStudyPlan durable singleton persistence exists;
+  runtime schema is v24. ActiveStudyPlan durable singleton persistence exists;
   formal adoption
   remains Application-controlled; Agent planning and Assistant draft/adoption
   Presentation are implemented; Today/特训 consumes the adopted plan through
@@ -421,7 +440,7 @@ through an Application command with a durable transaction-level
   materializes the exact ordered selected storage IDs through the narrow
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
-  (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, current runtime v23).
+  (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, current runtime v24).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.

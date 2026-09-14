@@ -60,6 +60,19 @@ provider/model allowlist, endpoint mapping, tuning defaults and ranges are
 current implementation support, not frozen long-term product or architecture
 contracts.
 
+### Current-state amendment: schema v24 model compatibility
+
+Agent configuration continues to store existing main/fallback profile ids.
+Migrated Model Registry entries retain those ids as `model_ref`, so no Agent
+config re-encoding occurs. Before save and runtime provider creation, the
+selected model must provide `textInput + textOutput + toolCalling` and pass the
+separate exact DeepSeek Responses transport compatibility contract.
+
+The runtime transport allowlist remains unchanged and fail-closed:
+`deepseek-v4-flash` is supported; a discovered `deepseek-flash` is reported as
+transport-incompatible during configuration and is not silently renamed. This
+amendment does not expand Agent protocol capability.
+
 ## 4. Conversation turn lifecycle
 
 An A0 turn is bound to an already-persisted User Message:
@@ -122,8 +135,8 @@ search, browsing, retrieval, or RAG subsystem.
 
 ## 6. Persistence and transient state
 
-The database remains schema v19. A0 uses the additive Assistant-message seam
-provided by C0 and introduces no schema or migration.
+At the A0 delivery stage the database was schema v19; A0 itself introduced no
+schema or migration. Current runtime schema is v24.
 
 Conversation and completed User/Assistant Messages are durable. In-flight turn
 state, streamed text, Web/tool progress, provider continuation state, the

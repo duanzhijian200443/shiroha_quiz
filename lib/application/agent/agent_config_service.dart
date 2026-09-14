@@ -1,4 +1,6 @@
 import 'agent_config.dart';
+import '../ai_config/ai_config_ports.dart';
+import '../../domain/ai_config/ai_config_contracts.dart';
 import '../backup/backup_restore_gate.dart';
 
 abstract interface class AgentConfigStorePort {
@@ -23,6 +25,8 @@ final class AgentProfileSummary {
     required String profileId,
     required String displayName,
     required String modelName,
+    AiProviderKind? modelProviderKind,
+    Map<AiModelCapability, AiCapabilitySupport> capabilities = const {},
   }) {
     final normalizedId = profileId.trim();
     final normalizedName = displayName.trim();
@@ -36,6 +40,8 @@ final class AgentProfileSummary {
       profileId: normalizedId,
       displayName: normalizedName,
       modelName: normalizedModel,
+      modelProviderKind: modelProviderKind,
+      capabilities: Map.unmodifiable(capabilities),
     );
   }
 
@@ -43,11 +49,15 @@ final class AgentProfileSummary {
     required this.profileId,
     required this.displayName,
     required this.modelName,
+    required this.modelProviderKind,
+    required this.capabilities,
   });
 
   final String profileId;
   final String displayName;
   final String modelName;
+  final AiProviderKind? modelProviderKind;
+  final Map<AiModelCapability, AiCapabilitySupport> capabilities;
 
   @override
   bool operator ==(Object other) =>
@@ -55,10 +65,12 @@ final class AgentProfileSummary {
       other is AgentProfileSummary &&
           profileId == other.profileId &&
           displayName == other.displayName &&
-          modelName == other.modelName;
+          modelName == other.modelName &&
+          modelProviderKind == other.modelProviderKind;
 
   @override
-  int get hashCode => Object.hash(profileId, displayName, modelName);
+  int get hashCode =>
+      Object.hash(profileId, displayName, modelName, modelProviderKind);
 }
 
 final class AgentProviderProfile {
@@ -67,6 +79,8 @@ final class AgentProviderProfile {
     required String apiKey,
     required String baseUrl,
     required String modelName,
+    AiProviderKind? modelProviderKind,
+    Map<AiModelCapability, AiCapabilitySupport> capabilities = const {},
   }) {
     final normalizedId = profileId.trim();
     final normalizedKey = apiKey.trim();
@@ -84,6 +98,8 @@ final class AgentProviderProfile {
       apiKey: normalizedKey,
       baseUrl: normalizedBaseUrl,
       modelName: normalizedModel,
+      modelProviderKind: modelProviderKind,
+      capabilities: Map.unmodifiable(capabilities),
     );
   }
 
@@ -92,12 +108,16 @@ final class AgentProviderProfile {
     required this.apiKey,
     required this.baseUrl,
     required this.modelName,
+    required this.modelProviderKind,
+    required this.capabilities,
   });
 
   final String profileId;
   final String apiKey;
   final String baseUrl;
   final String modelName;
+  final AiProviderKind? modelProviderKind;
+  final Map<AiModelCapability, AiCapabilitySupport> capabilities;
 
   @override
   String toString() => 'AgentProviderProfile(REDACTED)';
@@ -132,8 +152,16 @@ final class AgentSettingsSnapshot {
     this.selectedFallbackProfile,
     this.fallbackUnavailable = false,
     required List<AgentProfileSummary> availableProfiles,
-  }) : availableProfiles = List<AgentProfileSummary>.unmodifiable(
+    List<AgentProfileSummary> incompatibleProfiles = const [],
+    Map<String, String> incompatibilityReasons = const {},
+  })  : availableProfiles = List<AgentProfileSummary>.unmodifiable(
           availableProfiles,
+        ),
+        incompatibleProfiles = List<AgentProfileSummary>.unmodifiable(
+          incompatibleProfiles,
+        ),
+        incompatibilityReasons = Map<String, String>.unmodifiable(
+          incompatibilityReasons,
         );
 
   final AgentSettingsState state;
@@ -142,34 +170,47 @@ final class AgentSettingsSnapshot {
   final AgentProfileSummary? selectedFallbackProfile;
   final bool fallbackUnavailable;
   final List<AgentProfileSummary> availableProfiles;
+  final List<AgentProfileSummary> incompatibleProfiles;
+  final Map<String, String> incompatibilityReasons;
 }
 
 final class AgentSettingsService {
   const AgentSettingsService({
     required AgentConfigStorePort configStore,
     required AgentProfileCatalogPort profileCatalog,
+    AgentTransportCompatibilityPort? transportCompatibility,
     AgentConfigCodec codec = const AgentConfigCodec(),
   })  : _configStore = configStore,
         _profileCatalog = profileCatalog,
+        _transportCompatibility = transportCompatibility,
         _codec = codec;
 
   final AgentConfigStorePort _configStore;
   final AgentProfileCatalogPort _profileCatalog;
+  final AgentTransportCompatibilityPort? _transportCompatibility;
   final AgentConfigCodec _codec;
 
   Future<AgentSettingsSnapshot> load() async {
     try {
-      final profiles = await _profileCatalog.listMainProfiles();
+      final allProfiles = await _profileCatalog.listMainProfiles();
       final encoded = await _configStore.readAgentConfig();
       if (encoded == null) {
+        final (profiles, incompatible, reasons) = _partitionProfiles(
+          allProfiles,
+          AgentProviderKind.deepSeekResponses,
+        );
         return AgentSettingsSnapshot(
           state: AgentSettingsState.unconfigured,
           config: null,
           selectedProfile: null,
           availableProfiles: profiles,
+          incompatibleProfiles: incompatible,
+          incompatibilityReasons: reasons,
         );
       }
       final config = _codec.decode(encoded);
+      final (profiles, incompatible, reasons) =
+          _partitionProfiles(allProfiles, config.providerKind);
       final selected = profiles
           .where((profile) => profile.profileId == config.mainProfileId)
           .firstOrNull;
@@ -190,6 +231,8 @@ final class AgentSettingsService {
         selectedFallbackProfile: selectedFallback,
         fallbackUnavailable: fallbackUnavailable,
         availableProfiles: profiles,
+        incompatibleProfiles: incompatible,
+        incompatibilityReasons: reasons,
       );
     } on AgentConfigException {
       rethrow;
@@ -211,12 +254,23 @@ final class AgentSettingsService {
   Future<void> _saveUnchecked(AgentConfig config) async {
     try {
       final profiles = await _profileCatalog.listMainProfiles();
-      if (!profiles
-          .any((profile) => profile.profileId == config.mainProfileId)) {
+      final selected = profiles
+          .where((profile) => profile.profileId == config.mainProfileId)
+          .firstOrNull;
+      if (selected == null) {
+        throw const AgentConfigException(AgentConfigFailure.profileNotFound);
+      }
+      if (!_compatibility(selected, config.providerKind).compatible) {
         throw const AgentConfigException(AgentConfigFailure.profileNotFound);
       }
       if (config.fallbackProfileId case final fallbackId?) {
-        if (!profiles.any((profile) => profile.profileId == fallbackId)) {
+        final fallback = profiles
+            .where((profile) => profile.profileId == fallbackId)
+            .firstOrNull;
+        if (fallback == null) {
+          throw const AgentConfigException(AgentConfigFailure.profileNotFound);
+        }
+        if (!_compatibility(fallback, config.providerKind).compatible) {
           throw const AgentConfigException(AgentConfigFailure.profileNotFound);
         }
       }
@@ -230,6 +284,45 @@ final class AgentSettingsService {
         AgentConfigFailure.temporarilyUnavailable,
       );
     }
+  }
+
+  (List<AgentProfileSummary>, List<AgentProfileSummary>, Map<String, String>)
+      _partitionProfiles(
+    List<AgentProfileSummary> profiles,
+    AgentProviderKind providerKind,
+  ) {
+    if (_transportCompatibility == null) {
+      return (profiles, const [], const {});
+    }
+    final compatible = <AgentProfileSummary>[];
+    final incompatible = <AgentProfileSummary>[];
+    final reasons = <String, String>{};
+    for (final profile in profiles) {
+      final result = _compatibility(profile, providerKind);
+      (result.compatible ? compatible : incompatible).add(profile);
+      if (!result.compatible) {
+        final reason = result.reasonCode;
+        if (reason != null) reasons[profile.profileId] = reason;
+      }
+    }
+    return (
+      List.unmodifiable(compatible),
+      List.unmodifiable(incompatible),
+      Map.unmodifiable(reasons),
+    );
+  }
+
+  AgentTransportCompatibilityResult _compatibility(
+    AgentProfileSummary profile,
+    AgentProviderKind providerKind,
+  ) {
+    return _transportCompatibility?.evaluate(
+          transportProviderKind: providerKind.storageValue,
+          modelProviderKind: profile.modelProviderKind,
+          canonicalModelId: profile.modelName,
+          capabilities: profile.capabilities,
+        ) ??
+        const AgentTransportCompatibilityResult.compatible();
   }
 }
 
@@ -252,13 +345,16 @@ final class AgentRuntimeConfigResolver {
   const AgentRuntimeConfigResolver({
     required AgentConfigStorePort configStore,
     required AgentProviderProfileResolverPort profileResolver,
+    AgentTransportCompatibilityPort? transportCompatibility,
     AgentConfigCodec codec = const AgentConfigCodec(),
   })  : _configStore = configStore,
         _profileResolver = profileResolver,
+        _transportCompatibility = transportCompatibility,
         _codec = codec;
 
   final AgentConfigStorePort _configStore;
   final AgentProviderProfileResolverPort _profileResolver;
+  final AgentTransportCompatibilityPort? _transportCompatibility;
   final AgentConfigCodec _codec;
 
   Future<ResolvedAgentConfig> resolve() async {
@@ -273,11 +369,32 @@ final class AgentRuntimeConfigResolver {
       if (profile == null) {
         throw const AgentConfigException(AgentConfigFailure.profileNotFound);
       }
+      final compatibility = _transportCompatibility?.evaluate(
+        transportProviderKind: config.providerKind.storageValue,
+        modelProviderKind: profile.modelProviderKind,
+        canonicalModelId: profile.modelName,
+        capabilities: profile.capabilities,
+      );
+      if (compatibility != null && !compatibility.compatible) {
+        throw const AgentConfigException(AgentConfigFailure.profileNotFound);
+      }
       AgentProviderProfile? fallbackProfile;
       if (config.fallbackProfileId case final fallbackId?) {
         try {
           fallbackProfile =
               await _profileResolver.resolveMainProfile(fallbackId);
+          if (fallbackProfile case final resolvedFallback?) {
+            final fallbackCompatibility = _transportCompatibility?.evaluate(
+              transportProviderKind: config.providerKind.storageValue,
+              modelProviderKind: resolvedFallback.modelProviderKind,
+              canonicalModelId: resolvedFallback.modelName,
+              capabilities: resolvedFallback.capabilities,
+            );
+            if (fallbackCompatibility != null &&
+                !fallbackCompatibility.compatible) {
+              fallbackProfile = null;
+            }
+          }
         } on AgentProfileException {
           // If the optional fallback profile has corrupt data or error,
           // treat as unavailable without failing the primary.

@@ -7,6 +7,23 @@ Agent provider credentials: credential authority, activation semantics,
 save/delete and migration state machines, failure taxonomy, and S0 stage
 governance.
 
+### Current-state amendment: Provider authority in schema v24
+
+Schema v24 changes non-secret metadata ownership from one-engine-per-model to
+Provider + Model Registry + capability bindings. It does not change S0:
+
+- the key remains `engine.<providerId>`;
+- migrated `providerId` equals the legacy `engineId`, so migration performs no
+  credential read, copy, delete, or rekey;
+- new Providers receive a stable generated id and use the same namespace;
+- Provider queries expose only credential presence state;
+- Provider save/delete reuse the state machines in sections 5 and 6;
+- v24 tables contain no credential columns and B0 never touches secure-store
+  state.
+
+References below to older runtime schema numbers describe the original S0
+stage. Current runtime schema is v24.
+
 ## 1. Problem and scope
 
 Provider credentials were historically persisted as plaintext in SQLite
@@ -229,8 +246,8 @@ S0-P0 -> S0-D0 -> S0-D1 -> S0-D2 -> S0-CL
 - `S0-CL`: focused verification, final full semantic review, canonical
   closure — COMPLETE.
 
-S0 Secure Credential Storage is COMPLETE. The secure store is the current
-production credential authority; runtime schema remains v20.
+S0 Secure Credential Storage is COMPLETE. The secure store remains the current
+production credential authority; current runtime schema is v24.
 
 All S0 stages are `SERIAL`; a checkpoint must complete and freeze before the
 next stage starts, and later stages never auto-activate.
@@ -243,8 +260,8 @@ next stage starts, and later stages never auto-activate.
   write/delete; no scheduler in v0).
 - Moving the engine-settings "test connection" direct HTTP call behind an
   application seam (existing presentation-layer debt, follow-up).
-- B0 backup interplay: any future `.shiroha`/export package must exclude
-  credentials (frozen requirement; B0 itself remains DEFERRED).
+- B0 backup interplay: `.shiroha` packages exclude credentials and restore
+  never creates, copies, deletes, or remaps secure-store entries.
 
 ## 11. Documentation authority
 

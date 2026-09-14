@@ -205,6 +205,45 @@ void main() {
       'reasoning_effort': '',
       'is_active': 0,
     });
+    await db.insert('ai_providers', <String, Object?>{
+      'provider_id': 'provider-1',
+      'provider_kind': 'deepseek',
+      'display_name': 'provider metadata',
+      'base_url': 'https://api.deepseek.com',
+      'state': 'ready',
+      'revision': 0,
+      'created_at': 1,
+      'updated_at': 1,
+      'last_connection_status': 'succeeded',
+      'last_connection_at': 1,
+      'last_sync_status': 'succeeded',
+      'last_sync_at': 1,
+    });
+    await db.insert('ai_models', <String, Object?>{
+      'model_ref': 'model-ref-1',
+      'provider_id': 'provider-1',
+      'canonical_model_id': 'deepseek-v4-flash',
+      'display_name': 'DeepSeek V4 Flash',
+      'availability': 'available',
+      'first_seen_at': 1,
+      'last_seen_at': 1,
+    });
+    await db.insert('ai_model_capability_claims', <String, Object?>{
+      'model_ref': 'model-ref-1',
+      'capability': 'textInput',
+      'source': 'providerOfficial',
+      'support': 'supported',
+      'asserted_at': 1,
+    });
+    await db.insert('ai_capability_bindings', <String, Object?>{
+      'slot': 'textModel',
+      'model_ref': 'model-ref-1',
+      'temperature': 0.7,
+      'reasoning_effort': 'high',
+      'validation_mode': 'verified',
+      'revision': 0,
+      'updated_at': 1,
+    });
     await db.insert('parsed_artifact_heads', <String, Object?>{
       'file_id': 'file-1',
       'last_revision': 1,
@@ -341,6 +380,35 @@ void main() {
       fileBytes,
     );
     expect((await restored.query('ai_engines')).single['api_key'], '');
+    expect(
+      (await restored.query('ai_providers')).single['provider_id'],
+      'provider-1',
+    );
+    expect(
+      (await restored.query('ai_models')).single['canonical_model_id'],
+      'deepseek-v4-flash',
+    );
+    expect(
+      (await restored.query('ai_model_capability_claims')).single['support'],
+      'supported',
+    );
+    expect(
+      (await restored.query('ai_capability_bindings')).single['model_ref'],
+      'model-ref-1',
+    );
+    for (final table in <String>[
+      'ai_providers',
+      'ai_models',
+      'ai_model_capability_claims',
+      'ai_capability_bindings',
+    ]) {
+      final columns = await restored.rawQuery('PRAGMA table_info($table)');
+      expect(
+        columns.map((row) => row['name']),
+        isNot(contains('api_key')),
+        reason: table,
+      );
+    }
 
     final excluded = <String>[
       'parsed_artifacts',
