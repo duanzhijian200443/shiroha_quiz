@@ -93,6 +93,92 @@ void main() {
         AiProviderKind.openAiCompatible);
   });
 
+  test('legacy edit preserves one-to-many provider and credential ownership',
+      () async {
+    final credentials =
+        MemoryEngineCredentialStore({'provider-p': 'old-secret'});
+    final configStore = SqliteAiConfigStore(
+      databaseHelper: DatabaseHelper.instance,
+    );
+    await configStore.insertProvider(
+      AiProviderRecord(
+        providerId: 'provider-p',
+        kind: AiProviderKind.deepseek,
+        displayName: 'Provider P',
+        baseUrl: 'https://api.deepseek.com',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    for (final modelRef in const <String>['model-m1', 'model-m2']) {
+      await configStore.saveModel(
+        AiModelRecord(
+          modelRef: modelRef,
+          providerId: 'provider-p',
+          canonicalModelId: 'canonical-$modelRef',
+          displayName: modelRef,
+          availability: AiModelAvailability.available,
+          firstSeenAt: 1,
+          lastSeenAt: 1,
+        ),
+      );
+    }
+    final repository = AiEngineRepository(
+      store: DatabaseHelper.instance,
+      credentialStore: credentials,
+      configRepository: AiConfigRepository(
+        store: configStore,
+        credentialStore: credentials,
+      ),
+    );
+
+    await repository.saveEngine(
+      const AiEngineProfile(
+        id: 'model-m1',
+        engineType: AiEngineType.text,
+        name: 'Model M1',
+        apiKey: 'new-secret',
+        baseUrl: 'https://api.deepseek.com',
+        modelName: 'canonical-model-m1',
+        temperature: 0.4,
+        reasoningEffort: 'high',
+        isActive: true,
+      ),
+    );
+    await repository.renameEngine(
+      'model-m1',
+      'Renamed Provider P',
+      AiEngineType.text,
+    );
+
+    final providers = await configStore.listProviders();
+    final models = await configStore.listModels(providerId: 'provider-p');
+    expect(providers, hasLength(1));
+    expect(providers.single.providerId, 'provider-p');
+    expect(providers.single.displayName, 'Renamed Provider P');
+    expect(await configStore.readProvider('model-m1'), isNull);
+    expect(await credentials.readCredential('provider-p'), 'new-secret');
+    expect(await credentials.readCredential('model-m1'), isNull);
+    expect(models.map((model) => model.modelRef),
+        containsAll(<String>['model-m1', 'model-m2']));
+    expect(models.every((model) => model.providerId == 'provider-p'), isTrue);
+
+    await expectLater(
+      repository.deleteEngine('model-m1'),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.providerInUse,
+        ),
+      ),
+    );
+    expect(await configStore.listProviders(), hasLength(1));
+    expect(await credentials.readCredential('provider-p'), 'new-secret');
+  });
+
   test('verified binding resolves exact Shiroha registry capabilities',
       () async {
     final credentials = MemoryEngineCredentialStore({'legacy-id': 'secret'});

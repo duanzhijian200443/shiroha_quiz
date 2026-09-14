@@ -106,7 +106,7 @@ class AiEngineRepository {
 
   Future<void> deleteEngine(String id) {
     if (_configRepository case final config?) {
-      return config.deleteLegacyProjection(id);
+      return _deleteProjectedEngine(config, id);
     }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _runEngineExclusive(
@@ -242,10 +242,18 @@ class AiEngineRepository {
     AiConfigRepository config,
     AiEngineProfile profile,
   ) async {
-    final existing = await config.store.readProvider(profile.id);
+    final existingModel = await config.store.readModel(profile.id);
+    final existing = existingModel == null
+        ? await config.store.readProvider(profile.id)
+        : await config.store.readProvider(existingModel.providerId);
+    if (existingModel != null && existing == null) {
+      throw const AiConfigException(AiConfigFailure.dataCorrupt);
+    }
+    final providerId =
+        existingModel?.providerId ?? existing?.providerId ?? profile.id;
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
     final provider = AiProviderRecord(
-      providerId: profile.id,
+      providerId: providerId,
       kind: existing?.kind ?? AiProviderKind.openAiCompatible,
       displayName: profile.modelName,
       baseUrl: profile.baseUrl,
@@ -263,12 +271,11 @@ class AiEngineRepository {
     );
     final model = AiModelRecord(
       modelRef: profile.id,
-      providerId: profile.id,
+      providerId: providerId,
       canonicalModelId: profile.modelName,
       displayName: profile.name,
       availability: AiModelAvailability.available,
-      firstSeenAt:
-          (await config.store.readModel(profile.id))?.firstSeenAt ?? now,
+      firstSeenAt: existingModel?.firstSeenAt ?? now,
       lastSeenAt: now,
     );
     final currentBinding = await config.store.readBinding(
@@ -326,8 +333,14 @@ class AiEngineRepository {
     String id,
     String newName,
   ) async {
-    final provider = await config.store.readProvider(id);
-    if (provider == null) return;
+    final model = await config.store.readModel(id);
+    if (model == null) {
+      throw const AiConfigException(AiConfigFailure.modelNotFound);
+    }
+    final provider = await config.store.readProvider(model.providerId);
+    if (provider == null) {
+      throw const AiConfigException(AiConfigFailure.dataCorrupt);
+    }
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
     await config.updateProvider(
       AiProviderRecord(
@@ -346,6 +359,27 @@ class AiEngineRepository {
       ),
       expectedRevision: provider.revision,
     );
+  }
+
+  Future<void> _deleteProjectedEngine(
+    AiConfigRepository config,
+    String modelRef,
+  ) async {
+    final model = await config.store.readModel(modelRef);
+    if (model == null) {
+      throw const AiConfigException(AiConfigFailure.modelNotFound);
+    }
+    final provider = await config.store.readProvider(model.providerId);
+    if (provider == null) {
+      throw const AiConfigException(AiConfigFailure.dataCorrupt);
+    }
+    final providerModels =
+        await config.store.listModels(providerId: provider.providerId);
+    if (providerModels.length != 1 ||
+        providerModels.single.modelRef != modelRef) {
+      throw const AiConfigException(AiConfigFailure.providerInUse);
+    }
+    await config.deleteLegacyProjection(provider.providerId);
   }
 
   static AiCapabilitySlot _slotFor(AiEngineType type) => switch (type) {
