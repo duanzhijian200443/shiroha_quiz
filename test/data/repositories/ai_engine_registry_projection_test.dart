@@ -330,6 +330,114 @@ void main() {
     expect(await credentials.readCredential('provider-p'), 'old-secret');
   });
 
+  test('legacy save cannot change canonical identity or reuse old claims',
+      () async {
+    final credentials =
+        MemoryEngineCredentialStore({'provider-p': 'old-secret'});
+    final configStore = SqliteAiConfigStore(
+      databaseHelper: DatabaseHelper.instance,
+    );
+    await configStore.insertProvider(
+      AiProviderRecord(
+        providerId: 'provider-p',
+        kind: AiProviderKind.deepseek,
+        displayName: 'Provider P',
+        baseUrl: 'https://api.deepseek.com',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    await configStore.saveModel(
+      AiModelRecord(
+        modelRef: 'model-m1',
+        providerId: 'provider-p',
+        canonicalModelId: 'old-model',
+        displayName: '旧配置',
+        availability: AiModelAvailability.available,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    await configStore.saveClaims(
+      'model-m1',
+      AiCapabilityClaimSource.providerOfficial,
+      <AiCapabilityClaim>[
+        for (final capability in const <AiModelCapability>[
+          AiModelCapability.textInput,
+          AiModelCapability.textOutput,
+          AiModelCapability.toolCalling,
+        ])
+          AiCapabilityClaim(
+            modelRef: 'model-m1',
+            capability: capability,
+            source: AiCapabilityClaimSource.providerOfficial,
+            support: AiCapabilitySupport.supported,
+            assertedAt: 1,
+          ),
+      ],
+    );
+    await configStore.saveBinding(
+      AiCapabilityBinding(
+        slot: AiCapabilitySlot.textModel,
+        modelRef: 'model-m1',
+        temperature: 0.4,
+        reasoningEffort: 'high',
+        validationMode: AiBindingValidationMode.legacyPreserved,
+        revision: 0,
+        updatedAt: 1,
+      ),
+      expectedRevision: null,
+    );
+    final repository = AiEngineRepository(
+      store: DatabaseHelper.instance,
+      credentialStore: credentials,
+      configRepository: AiConfigRepository(
+        store: configStore,
+        credentialStore: credentials,
+      ),
+    );
+
+    await expectLater(
+      repository.saveEngine(
+        const AiEngineProfile(
+          id: 'model-m1',
+          engineType: AiEngineType.text,
+          name: '不应保存的新配置',
+          apiKey: 'new-secret',
+          baseUrl: 'https://changed.example.test',
+          modelName: 'different-model',
+          temperature: 0.9,
+          reasoningEffort: '',
+          isActive: true,
+        ),
+      ),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.invalidInput,
+        ),
+      ),
+    );
+
+    final provider = (await configStore.readProvider('provider-p'))!;
+    final model = (await configStore.readModel('model-m1'))!;
+    final binding =
+        (await configStore.readBinding(AiCapabilitySlot.textModel))!;
+    final claims = await configStore.listClaims('model-m1');
+    expect(provider.revision, 0);
+    expect(provider.baseUrl, 'https://api.deepseek.com');
+    expect(model.canonicalModelId, 'old-model');
+    expect(model.displayName, '旧配置');
+    expect(claims, hasLength(3));
+    expect(binding.modelRef, 'model-m1');
+    expect(binding.revision, 0);
+    expect(binding.temperature, 0.4);
+    expect(await credentials.readCredential('provider-p'), 'old-secret');
+  });
+
   test('legacy activation rejects unavailable model with zero mutation',
       () async {
     final credentials =

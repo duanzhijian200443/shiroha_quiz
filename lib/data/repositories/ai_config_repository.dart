@@ -172,6 +172,12 @@ final class AiConfigRepository implements AiConfigServiceRepositoryPort {
       () => _runProviderExclusive(
         provider.providerId,
         () async {
+          final persistedModel = await _store.readModel(model.modelRef);
+          if (persistedModel != null &&
+              (persistedModel.providerId != model.providerId ||
+                  persistedModel.canonicalModelId != model.canonicalModelId)) {
+            throw const AiConfigException(AiConfigFailure.invalidInput);
+          }
           await _validateLegacyBinding(
             provider: provider,
             model: model,
