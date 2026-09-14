@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 
 import '../../tool/train_c_evidence_collector.dart';
 import '../../tool/train_c_evidence_probe.dart';
@@ -224,7 +225,7 @@ Map<String, dynamic> _validSnapshot(TrainCExpectedCodeIdentity expected) {
     },
     'backupRestore': <String, dynamic>{
       'packageVersion': 2,
-      'schemaVersion': 23,
+      'schemaVersion': BackupValues.currentSchemaVersion,
       'backupStatus': 'PASS',
       'restoreStatus': 'PASS',
       'restoredQuestionCount': 22,

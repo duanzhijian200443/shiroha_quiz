@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_provider.dart';
 import 'deepseek_responses_sse_parser.dart';
+import 'deepseek_responses_transport_contract.dart';
 
 typedef AgentHttpClientFactory = http.Client Function();
 
@@ -24,10 +25,6 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
   final AgentHttpClientFactory _clientFactory;
   final Duration _requestTimeout;
   final DeepSeekResponsesSseParser _parser;
-
-  static const Set<String> _supportedModels = <String>{
-    'deepseek-v4-flash',
-  };
 
   @override
   AgentProviderCapabilities get capabilities => const AgentProviderCapabilities(
@@ -71,7 +68,9 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
 
     try {
       cancellationToken.throwIfCancelled();
-      if (!_supportedModels.contains(_profile.modelName)) {
+      if (!DeepSeekResponsesTransportContract.supportsModel(
+        _profile.modelName,
+      )) {
         throw const AgentProviderException(
           AgentProviderFailure.unsupportedModel,
         );

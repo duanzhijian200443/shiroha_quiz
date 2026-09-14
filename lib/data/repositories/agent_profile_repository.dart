@@ -1,4 +1,7 @@
 import '../../application/agent/agent_config_service.dart';
+import '../../application/ai_config/ai_config_ports.dart';
+import '../../domain/ai_config/ai_config_contracts.dart';
+import '../../domain/ai_config/shiroha_capability_registry.dart';
 import '../models/ai_engine_profile.dart';
 import 'ai_engine_repository.dart';
 
@@ -6,24 +9,69 @@ final class AiEngineAgentProfileRepository
     implements AgentProfileCatalogPort, AgentProviderProfileResolverPort {
   const AiEngineAgentProfileRepository({
     required AiEngineRepository engineRepository,
-  }) : _engineRepository = engineRepository;
+    AiConfigStorePort? aiConfigStore,
+  })  : _engineRepository = engineRepository,
+        _aiConfigStore = aiConfigStore;
 
   final AiEngineRepository _engineRepository;
+  final AiConfigStorePort? _aiConfigStore;
 
   @override
   Future<List<AgentProfileSummary>> listMainProfiles() async {
     final profiles = (await _loadProfiles())
         .where((profile) => profile.isComplete)
         .toList(growable: false);
-    return List<AgentProfileSummary>.unmodifiable(
-      profiles.map(
-        (profile) => AgentProfileSummary(
+    final summaries = <AgentProfileSummary>[];
+    for (final profile in profiles) {
+      final (providerKind, capabilities) =
+          await _registryMetadataFor(profile.id);
+      summaries.add(
+        AgentProfileSummary(
           profileId: profile.id,
           displayName: profile.name,
           modelName: profile.modelName,
+          modelProviderKind: providerKind,
+          capabilities: capabilities,
         ),
-      ),
-    );
+      );
+    }
+    return List<AgentProfileSummary>.unmodifiable(summaries);
+  }
+
+  Future<(AiProviderKind?, Map<AiModelCapability, AiCapabilitySupport>)>
+      _registryMetadataFor(
+    String modelRef,
+  ) async {
+    final store = _aiConfigStore;
+    if (store == null) {
+      return (
+        null,
+        const <AiModelCapability, AiCapabilitySupport>{},
+      );
+    }
+    final model = await store.readModel(modelRef);
+    if (model == null) {
+      return (
+        null,
+        const <AiModelCapability, AiCapabilitySupport>{},
+      );
+    }
+    final provider = await store.readProvider(model.providerId);
+    if (provider == null) {
+      throw const AgentProfileException(AgentProfileFailure.dataCorrupt);
+    }
+    try {
+      return (
+        provider.kind,
+        resolveModelCapabilities(
+          providerKind: provider.kind,
+          canonicalModelId: model.canonicalModelId,
+          claims: await store.listClaims(modelRef),
+        ),
+      );
+    } on AiConfigException {
+      throw const AgentProfileException(AgentProfileFailure.dataCorrupt);
+    }
   }
 
   @override
@@ -41,11 +89,14 @@ final class AiEngineAgentProfileRepository
     if (!profile.isComplete) {
       throw const AgentProfileException(AgentProfileFailure.dataCorrupt);
     }
+    final (providerKind, capabilities) = await _registryMetadataFor(profile.id);
     return AgentProviderProfile(
       profileId: profile.id,
       apiKey: profile.apiKey,
       baseUrl: profile.baseUrl,
       modelName: profile.modelName,
+      modelProviderKind: providerKind,
+      capabilities: capabilities,
     );
   }
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:shiroha_quiz/domain/backup/backup_values.dart';
+
 import 'train_c_http_observer.dart';
 
 const _topLevelKeys = <String>{
@@ -686,7 +688,8 @@ final class TrainCEvidenceProbe {
     final backup = _section(evidence, 'backupRestore');
     final reachableAssets = _requiredInt(backup, 'reachableAssetCount');
     if (_requiredInt(backup, 'packageVersion') != 2 ||
-        _requiredInt(backup, 'schemaVersion') != 23 ||
+        _requiredInt(backup, 'schemaVersion') !=
+            BackupValues.currentSchemaVersion ||
         _requiredString(backup, 'backupStatus') != 'PASS' ||
         _requiredString(backup, 'restoreStatus') != 'PASS' ||
         _requiredInt(backup, 'restoredQuestionCount') != 22 ||

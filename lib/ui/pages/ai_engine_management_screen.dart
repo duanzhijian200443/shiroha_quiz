@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../data/models/ai_engine_profile.dart';
+import '../../domain/ai_config/ai_config_contracts.dart';
 
 class AiEngineManagementScreen extends StatefulWidget {
   final String engineType; // 'text'、'vision' 或 'ocr'
@@ -44,6 +45,13 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
   };
 
   bool get _isOcrEngine => widget.engineType == 'ocr';
+
+  AiProviderKind get _selectedProviderKind => switch (_selectedProvider) {
+        'Google AI Studio (Gemini)' => AiProviderKind.gemini,
+        '智谱清言 (GLM)' => AiProviderKind.zhipu,
+        'DeepSeek 官方' => AiProviderKind.deepseek,
+        _ => AiProviderKind.openAiCompatible,
+      };
 
   String _screenTitle() => switch (widget.engineType) {
         'text' => '文本逻辑引擎',
@@ -166,13 +174,18 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           reasoningEffort: _reasoningEffort,
           isActive: true,
         );
-        await widget.engineRepository.saveEngine(profile);
+        await widget.engineRepository.saveEngine(
+          profile,
+          providerKind: _selectedProviderKind,
+          providerDisplayName: _selectedProvider,
+        );
         await widget.engineRepository.setActiveEngine(newId, engineTypeEnum);
         await _loadData();
         setState(() => _currentId = newId);
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context)
               .showSnackBar(const SnackBar(content: Text('已新建配置！')));
+        }
       } else {
         final currentEngine = _engines.firstWhere((e) => e.id == _currentId);
         final engineTypeEnum = AiEngineType.fromDbValue(widget.engineType);
@@ -189,18 +202,24 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           reasoningEffort: _reasoningEffort,
           isActive: true,
         );
-        await widget.engineRepository.saveEngine(profile);
+        await widget.engineRepository.saveEngine(
+          profile,
+          providerKind: _selectedProviderKind,
+          providerDisplayName: _selectedProvider,
+        );
         await widget.engineRepository
             .setActiveEngine(_currentId!, engineTypeEnum);
         await _loadData();
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context)
               .showSnackBar(const SnackBar(content: Text('配置已无缝覆盖！')));
+        }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('保存失败: $e')));
+      }
     }
   }
 
@@ -227,9 +246,10 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
       await widget.engineRepository.deleteEngine(_currentId!);
       _clearInputs();
       await _loadData();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('配置已被净空')));
+      }
     }
   }
 
@@ -268,8 +288,9 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
 
   // 高级多端 API 探测
   Future<void> _fetchModels() async {
-    if (_baseUrlCtrl.text.trim().isEmpty || _apiKeyCtrl.text.trim().isEmpty)
+    if (_baseUrlCtrl.text.trim().isEmpty || _apiKeyCtrl.text.trim().isEmpty) {
       return;
+    }
     try {
       String url = _baseUrlCtrl.text.trim();
       if (url.endsWith('/')) url = url.substring(0, url.length - 1);
@@ -277,10 +298,11 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
       http.Response res;
 
       if (isGemini) {
-        if (!url.endsWith('/models'))
+        if (!url.endsWith('/models')) {
           url = url.endsWith('/v1beta') || url.endsWith('/v1')
               ? '$url/models'
               : '$url/v1beta/models';
+        }
         res = await http.get(Uri.parse('$url?key=${_apiKeyCtrl.text.trim()}'),
             headers: {
               'Content-Type': 'application/json'
@@ -353,13 +375,15 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
           }).timeout(const Duration(seconds: 10));
         }
       }
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('状态码异常或找不到列表: ${res.statusCode}')));
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('获取失败: $e')));
+      }
     }
   }
 
@@ -491,7 +515,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
                                   borderRadius: BorderRadius.circular(8)))),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
-                        value: _selectedProvider,
+                        initialValue: _selectedProvider,
                         decoration: InputDecoration(
                           labelText: 'API 提供商 (快捷填充)',
                           border: OutlineInputBorder(
@@ -565,7 +589,7 @@ class _AiEngineManagementScreenState extends State<AiEngineManagementScreen> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: _reasoningEffort,
+                        initialValue: _reasoningEffort,
                         decoration: InputDecoration(
                             labelText: '推理思维强度 (专供 o1/R1/高阶思考模型)',
                             labelStyle: const TextStyle(

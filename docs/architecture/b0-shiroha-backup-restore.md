@@ -10,9 +10,20 @@ Implementation status amendment: B0-P0 froze this contract as docs-only. The
 serial implementation stages B0-D0 (package/manifest core), B0-E0 (export),
 B0-I0 (whole restore + durable journal + crash recovery + rollback), B0-U0
 (minimal backup/restore UI), B0-V0 (focused acceptance), and B0-CL (canonical
-closure) are COMPLETE. B0 adds no migration or dependency changes. The
-current runtime schema is v23 because the additive AnswerAttempt migration was
-introduced after the original B0-P0 v22 freeze.
+closure) are COMPLETE. B0 itself added no migration or dependency changes. At
+that closure point the runtime schema was v23 because the additive
+AnswerAttempt migration followed the original B0-P0 v22 freeze.
+
+### Current-state amendment: AI Config schema v24
+
+The current runtime and current-runtime backup fixtures use schema **v24**.
+The four additive AI configuration tables (`ai_providers`, `ai_models`,
+`ai_model_capability_claims`, `ai_capability_bindings`) are authoritative
+INCLUDE state. None has a credential column. Legacy `ai_engines.api_key` and
+`ai_profiles` credential columns remain scrubbed. A v23 package is migrated
+only by DatabaseHelper against the staged DB; restore never reads or mutates
+the secure credential store. Older references to v23 below are historical
+stage context unless a compatibility fixture is explicitly discussed.
 
 ### Current-state amendment: Rich content asset package v2
 
@@ -30,7 +41,7 @@ typed-sidecar migration is introduced by this amendment.
 
 ### Current-state amendment: DM-D3A
 
-- The current runtime and current-runtime backup fixtures use schema **v23**.
+- At DM-D3A closure, runtime and backup fixtures used schema **v23**.
 - `answer_attempts` is included in the portable snapshot as append-only
   AnswerAttempt history.
 - The existing `backup_acceptance_test.dart` export/restore roundtrip is the
@@ -61,7 +72,7 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema is **v23**.
+- Current runtime schema is **v24**.
 
 ## 2. Frozen package structure
 
@@ -131,7 +142,7 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. For current runtime schema v23, the frozen INCLUDE set is:
+state. For current runtime schema v24, the frozen INCLUDE set is:
 
 | Durable state | Current schema rows |
 |---|---|
@@ -150,6 +161,7 @@ state. For current runtime schema v23, the frozen INCLUDE set is:
 | Conversation-file relations | `conversation_files` |
 | Active StudyPlan | `study_plans` |
 | Non-secret AI engine metadata | `ai_engines` metadata columns only; credential columns scrubbed (§4) |
+| Provider / Model Registry authority | `ai_providers`, `ai_models`, `ai_model_capability_claims`, `ai_capability_bindings` |
 | Legacy AI metadata compatibility | `ai_profiles` metadata columns only, if retained; credential columns scrubbed (§4) |
 | Non-secret durable app/Agent configuration | audited `app_settings` rows such as `agent_config_v0`, active engine ids, current-bank and daily-quota settings; purely UI-local keys (currently `app_theme`) are excluded |
 
@@ -186,7 +198,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v23 this includes at least:
+empty/null safe state. For current schema v24 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -833,7 +845,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- future database schema migrations beyond the current runtime v23;
+- future database schema migrations beyond the current runtime v24;
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -892,7 +904,7 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated current-schema v23 round trip;
+2. realistic populated current-schema v24 round trip;
 3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;
