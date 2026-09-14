@@ -147,6 +147,15 @@ void main() {
         }),
       );
       expect(await migrated.query('ai_models'), hasLength(3));
+      expect(
+        (await migrated.query(
+          'ai_models',
+          where: 'model_ref = ?',
+          whereArgs: <Object?>['engine-a'],
+        ))
+            .single['display_name'],
+        'Account',
+      );
       expect(await migrated.query('ai_model_capability_claims'), isEmpty);
       final bindings = await migrated.query(
         'ai_capability_bindings',

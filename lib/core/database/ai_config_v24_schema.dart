@@ -123,7 +123,7 @@ Future<void> migrateLegacyAiEnginesToV24(DatabaseExecutor db) async {
         'model_ref': id,
         'provider_id': id,
         'canonical_model_id': modelId,
-        'display_name': modelId,
+        'display_name': name,
         'availability': 'available',
         'first_seen_at': 0,
         'last_seen_at': 0,

@@ -83,9 +83,18 @@ class AiEngineRepository {
     return profile;
   }
 
-  Future<void> saveEngine(AiEngineProfile profile) {
+  Future<void> saveEngine(
+    AiEngineProfile profile, {
+    AiProviderKind? providerKind,
+    String? providerDisplayName,
+  }) {
     if (_configRepository case final config?) {
-      return _saveProjectedEngine(config, profile);
+      return _saveProjectedEngine(
+        config,
+        profile,
+        providerKind: providerKind,
+        providerDisplayName: providerDisplayName,
+      );
     }
     return BackupRestoreMutationGate.instance.runMutation(
       () => _runEngineExclusive(
@@ -191,7 +200,7 @@ class AiEngineRepository {
         AiEngineProfile(
           id: model.modelRef,
           engineType: type,
-          name: provider.displayName,
+          name: model.displayName,
           apiKey: credential,
           baseUrl: provider.baseUrl,
           modelName: model.canonicalModelId,
@@ -228,7 +237,7 @@ class AiEngineRepository {
     return AiEngineProfile(
       id: resolved.model.modelRef,
       engineType: type,
-      name: resolved.provider.displayName,
+      name: resolved.model.displayName,
       apiKey: resolved.credential,
       baseUrl: resolved.provider.baseUrl,
       modelName: resolved.model.canonicalModelId,
@@ -240,8 +249,10 @@ class AiEngineRepository {
 
   Future<void> _saveProjectedEngine(
     AiConfigRepository config,
-    AiEngineProfile profile,
-  ) async {
+    AiEngineProfile profile, {
+    required AiProviderKind? providerKind,
+    required String? providerDisplayName,
+  }) async {
     final existingModel = await config.store.readModel(profile.id);
     final existing = existingModel == null
         ? await config.store.readProvider(profile.id)
@@ -249,13 +260,19 @@ class AiEngineRepository {
     if (existingModel != null && existing == null) {
       throw const AiConfigException(AiConfigFailure.dataCorrupt);
     }
+    if (existing == null &&
+        (providerKind == null ||
+            providerDisplayName == null ||
+            providerDisplayName.trim().isEmpty)) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
     final providerId =
         existingModel?.providerId ?? existing?.providerId ?? profile.id;
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
     final provider = AiProviderRecord(
       providerId: providerId,
-      kind: existing?.kind ?? AiProviderKind.openAiCompatible,
-      displayName: profile.modelName,
+      kind: existing?.kind ?? providerKind!,
+      displayName: existing?.displayName ?? providerDisplayName!.trim(),
       baseUrl: profile.baseUrl,
       state: profile.baseUrl.isNotEmpty && profile.modelName.isNotEmpty
           ? AiProviderState.ready
@@ -274,7 +291,8 @@ class AiEngineRepository {
       providerId: providerId,
       canonicalModelId: profile.modelName,
       displayName: profile.name,
-      availability: AiModelAvailability.available,
+      availability:
+          existingModel?.availability ?? AiModelAvailability.available,
       firstSeenAt: existingModel?.firstSeenAt ?? now,
       lastSeenAt: now,
     );
@@ -305,16 +323,12 @@ class AiEngineRepository {
     String id,
     AiEngineType type,
   ) async {
-    final model = await config.store.readModel(id);
-    if (model == null) {
-      throw const AiConfigException(AiConfigFailure.modelNotFound);
-    }
     final slot = _slotFor(type);
     final current = await config.store.readBinding(slot);
     final profiles = await _getProjectedEngines(config, type);
     final selected = profiles.where((profile) => profile.id == id).firstOrNull;
-    await config.store.saveBinding(
-      AiCapabilityBinding(
+    await config.saveLegacyBinding(
+      binding: AiCapabilityBinding(
         slot: slot,
         modelRef: id,
         temperature:
@@ -333,32 +347,7 @@ class AiEngineRepository {
     String id,
     String newName,
   ) async {
-    final model = await config.store.readModel(id);
-    if (model == null) {
-      throw const AiConfigException(AiConfigFailure.modelNotFound);
-    }
-    final provider = await config.store.readProvider(model.providerId);
-    if (provider == null) {
-      throw const AiConfigException(AiConfigFailure.dataCorrupt);
-    }
-    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
-    await config.updateProvider(
-      AiProviderRecord(
-        providerId: provider.providerId,
-        kind: provider.kind,
-        displayName: newName,
-        baseUrl: provider.baseUrl,
-        state: provider.state,
-        revision: provider.revision + 1,
-        createdAt: provider.createdAt,
-        updatedAt: now,
-        lastConnectionStatus: provider.lastConnectionStatus,
-        lastConnectionAt: provider.lastConnectionAt,
-        lastSyncStatus: provider.lastSyncStatus,
-        lastSyncAt: provider.lastSyncAt,
-      ),
-      expectedRevision: provider.revision,
-    );
+    await config.renameLegacyModel(id, newName);
   }
 
   Future<void> _deleteProjectedEngine(

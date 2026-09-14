@@ -171,19 +171,105 @@ final class AiConfigRepository implements AiConfigServiceRepositoryPort {
     return BackupRestoreMutationGate.instance.runMutation(
       () => _runProviderExclusive(
         provider.providerId,
-        () => _saveMetadataWithCredential(
-          providerId: provider.providerId,
-          secret: credential.secret,
-          saveMetadata: () => _store.saveLegacyProjection(
+        () async {
+          await _validateLegacyBinding(
             provider: provider,
             model: model,
             binding: binding,
-            expectedProviderRevision: expectedProviderRevision,
-            expectedBindingRevision: expectedBindingRevision,
-          ),
-        ),
+          );
+          await _saveMetadataWithCredential(
+            providerId: provider.providerId,
+            secret: credential.secret,
+            saveMetadata: () => _store.saveLegacyProjection(
+              provider: provider,
+              model: model,
+              binding: binding,
+              expectedProviderRevision: expectedProviderRevision,
+              expectedBindingRevision: expectedBindingRevision,
+            ),
+          );
+        },
       ),
     );
+  }
+
+  Future<void> saveLegacyBinding({
+    required AiCapabilityBinding binding,
+    required int? expectedRevision,
+  }) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      final model = await _store.readModel(binding.modelRef);
+      if (model == null) {
+        throw const AiConfigException(AiConfigFailure.modelNotFound);
+      }
+      final provider = await _store.readProvider(model.providerId);
+      if (provider == null) {
+        throw const AiConfigException(AiConfigFailure.dataCorrupt);
+      }
+      await _validateLegacyBinding(
+        provider: provider,
+        model: model,
+        binding: binding,
+      );
+      await _store.saveBinding(binding, expectedRevision: expectedRevision);
+    });
+  }
+
+  Future<void> renameLegacyModel(String modelRef, String displayName) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      final model = await _store.readModel(modelRef);
+      if (model == null) {
+        throw const AiConfigException(AiConfigFailure.modelNotFound);
+      }
+      await _runProviderExclusive(model.providerId, () async {
+        final current = await _store.readModel(modelRef);
+        if (current == null) {
+          throw const AiConfigException(AiConfigFailure.modelNotFound);
+        }
+        if (current.providerId != model.providerId) {
+          throw const AiConfigException(AiConfigFailure.dataCorrupt);
+        }
+        if (await _store.readProvider(current.providerId) == null) {
+          throw const AiConfigException(AiConfigFailure.dataCorrupt);
+        }
+        await _store.saveModel(
+          AiModelRecord(
+            modelRef: current.modelRef,
+            providerId: current.providerId,
+            canonicalModelId: current.canonicalModelId,
+            displayName: displayName,
+            availability: current.availability,
+            firstSeenAt: current.firstSeenAt,
+            lastSeenAt: current.lastSeenAt,
+          ),
+        );
+      });
+    });
+  }
+
+  Future<void> _validateLegacyBinding({
+    required AiProviderRecord provider,
+    required AiModelRecord model,
+    required AiCapabilityBinding binding,
+  }) async {
+    if (binding.validationMode != AiBindingValidationMode.legacyPreserved ||
+        binding.modelRef != model.modelRef ||
+        model.providerId != provider.providerId) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
+    if (model.availability != AiModelAvailability.available) {
+      throw const AiConfigException(AiConfigFailure.modelUnavailable);
+    }
+    final capabilities = resolveModelCapabilities(
+      providerKind: provider.kind,
+      canonicalModelId: model.canonicalModelId,
+      claims: await _store.listClaims(model.modelRef),
+    );
+    for (final required in binding.slot.requiredCapabilities) {
+      if (capabilities[required] == AiCapabilitySupport.unsupported) {
+        throw const AiConfigException(AiConfigFailure.capabilityUnsupported);
+      }
+    }
   }
 
   Future<void> deleteLegacyProjection(String providerId) {
