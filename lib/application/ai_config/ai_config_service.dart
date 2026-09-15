@@ -18,7 +18,128 @@ final class AiModelCompatibility {
   final List<String> reasonCodes;
 }
 
-final class AiConfigService {
+final class AiCapabilityBindingSummary {
+  const AiCapabilityBindingSummary({
+    required this.binding,
+    required this.model,
+    required this.provider,
+  });
+
+  final AiCapabilityBinding binding;
+  final AiModelRecord model;
+  final AiProviderRecord provider;
+}
+
+final class AiProviderOverview {
+  const AiProviderOverview({
+    required this.provider,
+    required this.credentialState,
+    required this.modelCount,
+  });
+
+  final AiProviderRecord provider;
+  final AiCredentialState credentialState;
+  final int modelCount;
+}
+
+abstract interface class AiConfigPresentationService {
+  Future<AiCapabilityBindingSummary?> bindingSummary(AiCapabilitySlot slot);
+  Future<List<AiModelCompatibility>> listModelsForSlot(AiCapabilitySlot slot);
+  Future<List<AiProviderOverview>> listProviders();
+  Future<String> createProvider({
+    required AiProviderKind kind,
+    required String displayName,
+    required String baseUrl,
+    required String credential,
+  });
+  Future<void> updateProvider({
+    required String providerId,
+    required int expectedRevision,
+    required AiProviderKind kind,
+    required String displayName,
+    required String baseUrl,
+    String? replacementCredential,
+  });
+  Future<void> deleteProvider(String providerId);
+  Future<void> testConnection(String providerId);
+  Future<void> testConnectionDraft({
+    String? providerId,
+    required AiProviderKind kind,
+    required String baseUrl,
+    String? credential,
+  });
+  Future<void> syncModels(String providerId);
+  Future<void> applyBinding({
+    required AiCapabilitySlot slot,
+    required String modelRef,
+    required int? expectedRevision,
+    double temperature = 0.7,
+    String reasoningEffort = '',
+  });
+}
+
+final class UnavailableAiConfigPresentationService
+    implements AiConfigPresentationService {
+  const UnavailableAiConfigPresentationService();
+
+  Future<Never> _unavailable() => Future<Never>.error(
+        const AiConfigException(AiConfigFailure.temporarilyUnavailable),
+      );
+
+  @override
+  Future<AiCapabilityBindingSummary?> bindingSummary(AiCapabilitySlot slot) =>
+      _unavailable();
+  @override
+  Future<List<AiModelCompatibility>> listModelsForSlot(
+    AiCapabilitySlot slot,
+  ) =>
+      _unavailable();
+  @override
+  Future<List<AiProviderOverview>> listProviders() => _unavailable();
+  @override
+  Future<String> createProvider({
+    required AiProviderKind kind,
+    required String displayName,
+    required String baseUrl,
+    required String credential,
+  }) =>
+      _unavailable();
+  @override
+  Future<void> updateProvider({
+    required String providerId,
+    required int expectedRevision,
+    required AiProviderKind kind,
+    required String displayName,
+    required String baseUrl,
+    String? replacementCredential,
+  }) =>
+      _unavailable();
+  @override
+  Future<void> deleteProvider(String providerId) => _unavailable();
+  @override
+  Future<void> testConnection(String providerId) => _unavailable();
+  @override
+  Future<void> testConnectionDraft({
+    String? providerId,
+    required AiProviderKind kind,
+    required String baseUrl,
+    String? credential,
+  }) =>
+      _unavailable();
+  @override
+  Future<void> syncModels(String providerId) => _unavailable();
+  @override
+  Future<void> applyBinding({
+    required AiCapabilitySlot slot,
+    required String modelRef,
+    required int? expectedRevision,
+    double temperature = 0.7,
+    String reasoningEffort = '',
+  }) =>
+      _unavailable();
+}
+
+final class AiConfigService implements AiConfigPresentationService {
   const AiConfigService({
     required AiConfigServiceRepositoryPort repository,
     required AiProviderConnectionPort providerConnection,
@@ -34,6 +155,124 @@ final class AiConfigService {
   final String Function() _modelRefFactory;
   final int Function() _clock;
 
+  @override
+  Future<AiCapabilityBindingSummary?> bindingSummary(
+    AiCapabilitySlot slot,
+  ) async {
+    final binding = await _repository.store.readBinding(slot);
+    if (binding == null) return null;
+    final model = await _repository.store.readModel(binding.modelRef);
+    if (model == null) {
+      throw const AiConfigException(AiConfigFailure.dataCorrupt);
+    }
+    final provider = await _repository.store.readProvider(model.providerId);
+    if (provider == null) {
+      throw const AiConfigException(AiConfigFailure.dataCorrupt);
+    }
+    return AiCapabilityBindingSummary(
+      binding: binding,
+      model: model,
+      provider: provider,
+    );
+  }
+
+  @override
+  Future<List<AiProviderOverview>> listProviders() async {
+    final result = <AiProviderOverview>[];
+    for (final snapshot in await _repository.listProviderAccess()) {
+      final models = await _repository.store.listModels(
+        providerId: snapshot.provider.providerId,
+      );
+      result.add(
+        AiProviderOverview(
+          provider: snapshot.provider,
+          credentialState: snapshot.credentialState,
+          modelCount: models
+              .where(
+                (model) => model.availability == AiModelAvailability.available,
+              )
+              .length,
+        ),
+      );
+    }
+    result.sort(
+      (left, right) => left.provider.displayName.compareTo(
+        right.provider.displayName,
+      ),
+    );
+    return List<AiProviderOverview>.unmodifiable(result);
+  }
+
+  @override
+  Future<String> createProvider({
+    required AiProviderKind kind,
+    required String displayName,
+    required String baseUrl,
+    required String credential,
+  }) async {
+    if (displayName.trim().isEmpty || baseUrl.trim().isEmpty) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
+    final now = _clock();
+    final providerId = validateAiConfigId(_modelRefFactory());
+    await _repository.createProviderWithCredential(
+      AiProviderRecord(
+        providerId: providerId,
+        kind: kind,
+        displayName: displayName.trim(),
+        baseUrl: baseUrl.trim(),
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      credential,
+    );
+    return providerId;
+  }
+
+  @override
+  Future<void> updateProvider({
+    required String providerId,
+    required int expectedRevision,
+    required AiProviderKind kind,
+    required String displayName,
+    required String baseUrl,
+    String? replacementCredential,
+  }) async {
+    if (displayName.trim().isEmpty || baseUrl.trim().isEmpty) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
+    final current = await _repository.store.readProvider(providerId);
+    if (current == null) {
+      throw const AiConfigException(AiConfigFailure.providerNotFound);
+    }
+    await _repository.updateProviderWithCredential(
+      AiProviderRecord(
+        providerId: current.providerId,
+        kind: kind,
+        displayName: displayName.trim(),
+        baseUrl: baseUrl.trim(),
+        state: AiProviderState.ready,
+        revision: current.revision + 1,
+        createdAt: current.createdAt,
+        updatedAt: _clock(),
+        lastConnectionStatus: current.lastConnectionStatus,
+        lastConnectionAt: current.lastConnectionAt,
+        lastSyncStatus: current.lastSyncStatus,
+        lastSyncAt: current.lastSyncAt,
+      ),
+      expectedRevision: expectedRevision,
+      replacementCredential: replacementCredential,
+    );
+  }
+
+  @override
+  Future<void> deleteProvider(String providerId) {
+    return _repository.deleteProviderAuthority(providerId);
+  }
+
+  @override
   Future<List<AiModelCompatibility>> listModelsForSlot(
     AiCapabilitySlot slot,
   ) async {
@@ -83,6 +322,7 @@ final class AiConfigService {
     return List.unmodifiable(result);
   }
 
+  @override
   Future<void> applyBinding({
     required AiCapabilitySlot slot,
     required String modelRef,
@@ -130,6 +370,7 @@ final class AiConfigService {
     );
   }
 
+  @override
   Future<void> testConnection(String providerId) async {
     final provider = await _repository.store.readProvider(providerId);
     if (provider == null) {
@@ -152,6 +393,31 @@ final class AiConfigService {
     await _markConnection(provider, AiOperationStatus.succeeded);
   }
 
+  @override
+  Future<void> testConnectionDraft({
+    String? providerId,
+    required AiProviderKind kind,
+    required String baseUrl,
+    String? credential,
+  }) async {
+    final endpoint = baseUrl.trim();
+    if (endpoint.isEmpty) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
+    final supplied = credential;
+    final secret = supplied != null && supplied.isNotEmpty
+        ? supplied
+        : providerId == null
+            ? (throw const AiConfigException(AiConfigFailure.credentialMissing))
+            : await _repository.credentialForProvider(providerId);
+    await _providerConnection.testConnection(
+      providerKind: kind,
+      baseUrl: endpoint,
+      credential: secret,
+    );
+  }
+
+  @override
   Future<void> syncModels(String providerId) async {
     final provider = await _repository.store.readProvider(providerId);
     if (provider == null) {

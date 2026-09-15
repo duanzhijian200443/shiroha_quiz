@@ -23,6 +23,7 @@ import '../assistant/workspace_controller.dart';
 import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/design_tokens.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({
@@ -187,7 +188,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ), // Tab 1 — 助手
       ProfileScreen(
-        engineRepository: dependencies.engineRepository,
+        aiConfigService: dependencies.aiConfigService,
         agentSettingsService: widget.agentSettingsService,
         backupRestore: widget.backupRestore,
         onRestoreCompleted: widget.onRestoreCompleted,
@@ -267,7 +268,9 @@ class _SelectedNavigationIcon extends StatelessWidget {
         color: isDark
             ? theme.colorScheme.primary.withValues(alpha: 0.16)
             : theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(
+          DesignTokens.navigationSelectedRadius,
+        ),
       ),
       child: Icon(
         icon,

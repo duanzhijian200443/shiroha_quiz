@@ -56,12 +56,37 @@ abstract interface class AiConfigStorePort {
 abstract interface class AiConfigServiceRepositoryPort {
   AiConfigStorePort get store;
 
+  Future<List<AiProviderAccessSnapshot>> listProviderAccess();
+
+  Future<void> createProviderWithCredential(
+    AiProviderRecord provider,
+    String credential,
+  );
+
+  Future<void> updateProviderWithCredential(
+    AiProviderRecord provider, {
+    required int expectedRevision,
+    String? replacementCredential,
+  });
+
+  Future<void> deleteProviderAuthority(String providerId);
+
   Future<String> credentialForProvider(String providerId);
 
   Future<void> updateProviderMetadata(
     AiProviderRecord provider, {
     required int expectedRevision,
   });
+}
+
+final class AiProviderAccessSnapshot {
+  const AiProviderAccessSnapshot({
+    required this.provider,
+    required this.credentialState,
+  });
+
+  final AiProviderRecord provider;
+  final AiCredentialState credentialState;
 }
 
 abstract interface class AiProviderConnectionPort {

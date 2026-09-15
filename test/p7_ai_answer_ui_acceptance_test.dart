@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/questions/question_list_query_port.dart';
 import 'package:shiroha_quiz/application/questions/question_presentation_read.dart';
@@ -253,6 +254,7 @@ class _Harness {
       MaterialApp(
         home: AiDependenciesScope(
           engineRepository: _FakeEngineRepository(),
+          aiConfigService: const UnavailableAiConfigPresentationService(),
           aiService: _FakeAiService(),
           importPipelineService: _FakeImportPipelineService(),
           importTaskCoordinator: _FakeImportTaskCoordinator(),

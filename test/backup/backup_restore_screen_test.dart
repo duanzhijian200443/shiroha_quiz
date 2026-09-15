@@ -175,11 +175,34 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(_screen(coordinator, theme: theme));
+      await tester.pumpWidget(
+        _screen(
+          coordinator,
+          key: ValueKey<Brightness>(brightness),
+          theme: theme,
+        ),
+      );
 
       expect(find.text('全量备份与迁移'), findsOneWidget);
       expect(find.text('从备份恢复'), findsOneWidget);
       expect(find.text('导出全量备份 (.shiroha)'), findsOneWidget);
+      expect(find.text('导入结构化题库包'), findsOneWidget);
+      expect(find.text('暂未开放'), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey<String>('structured-bank-import-unavailable'),
+        ),
+        findsOneWidget,
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('clear-all-data-unavailable')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('clear-all-data-unavailable')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     }
   });

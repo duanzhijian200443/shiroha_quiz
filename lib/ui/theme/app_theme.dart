@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'design_tokens.dart';
+
 class AppTheme {
   static const Color shirohaCyan = Color(0xFF08B9E8);
   static const Color shirohaCyanForeground = Color(0xFF006A85);
@@ -81,7 +83,7 @@ class AppTheme {
         color: _lightSurface,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
           side: const BorderSide(color: _lightOutline),
         ),
       ),
@@ -134,7 +136,7 @@ class AppTheme {
         color: _darkSurface,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
           side: const BorderSide(color: _darkOutline),
         ),
       ),

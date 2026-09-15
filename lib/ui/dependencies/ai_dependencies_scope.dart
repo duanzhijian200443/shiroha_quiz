@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../application/answers/ai_answer_commit_command.dart';
+import '../../application/ai_config/ai_config_service.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/exam/exam_mutation_command.dart';
 import '../../application/practice/subjective_answer_recognition.dart';
@@ -13,6 +14,7 @@ class AiDependenciesScope extends InheritedWidget {
   const AiDependenciesScope({
     super.key,
     required this.engineRepository,
+    required this.aiConfigService,
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
@@ -25,6 +27,7 @@ class AiDependenciesScope extends InheritedWidget {
   });
 
   final AiEngineRepository engineRepository;
+  final AiConfigPresentationService aiConfigService;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
@@ -55,6 +58,7 @@ class AiDependenciesScope extends InheritedWidget {
   @override
   bool updateShouldNotify(AiDependenciesScope oldWidget) {
     return !identical(engineRepository, oldWidget.engineRepository) ||
+        !identical(aiConfigService, oldWidget.aiConfigService) ||
         !identical(aiService, oldWidget.aiService) ||
         !identical(importPipelineService, oldWidget.importPipelineService) ||
         !identical(importTaskCoordinator, oldWidget.importTaskCoordinator) ||

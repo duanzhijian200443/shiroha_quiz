@@ -257,6 +257,46 @@ void main() {
       AiOperationStatus.failed,
     );
   });
+
+  test('Provider UI seam creates independent instances and reports access',
+      () async {
+    final service = _service(repository, const _Connection([]));
+
+    final created = await service.createProvider(
+      kind: AiProviderKind.deepseek,
+      displayName: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com',
+      credential: 'second-secret',
+    );
+
+    expect(created, 'generated-1');
+    final providers = await service.listProviders();
+    expect(providers, hasLength(2));
+    expect(
+      providers
+          .singleWhere((item) => item.provider.providerId == created)
+          .credentialState,
+      AiCredentialState.present,
+    );
+  });
+
+  test('Provider UI metadata edit preserves credential when replacement absent',
+      () async {
+    final service = _service(repository, const _Connection([]));
+
+    await service.updateProvider(
+      providerId: 'provider-a',
+      expectedRevision: 0,
+      kind: AiProviderKind.deepseek,
+      displayName: 'Renamed',
+      baseUrl: 'https://api.deepseek.com/v1',
+    );
+
+    final updated = await store.readProvider('provider-a');
+    expect(updated!.displayName, 'Renamed');
+    expect(updated.revision, 1);
+    expect(await repository.credentialForProvider('provider-a'), 'secret');
+  });
 }
 
 AiConfigService _service(

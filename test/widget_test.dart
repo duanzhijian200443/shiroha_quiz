@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
+import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
@@ -922,6 +923,7 @@ Widget _buildTestApp({
       );
   return ShirohaQuizApp(
     engineRepository: engineRepository,
+    aiConfigService: const UnavailableAiConfigPresentationService(),
     aiService: aiService,
     importPipelineService: importPipelineService,
     importTaskCoordinator: importTaskCoordinator,
