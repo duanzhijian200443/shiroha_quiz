@@ -14,6 +14,28 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  test('v25 migration is idempotent when user_version is reset below 25',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('ai_v25_reopen_');
+    final path = p.join(dir.path, 'reopen.db');
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    try {
+      final seeded = await DatabaseHelper.instance.openPathForTesting(path);
+      await seeded.execute('PRAGMA user_version = 19');
+      await seeded.close();
+      final db = await DatabaseHelper.instance.openPathForTesting(path);
+      try {
+        expect(await db.getVersion(), 25);
+        await validateAiConfigV25Schema(db);
+      } finally {
+        await db.close();
+      }
+    } finally {
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      await dir.delete(recursive: true);
+    }
+  });
+
   test('v24 upgrade preserves ambiguous origins, claims and binding modes',
       () async {
     final dir = await Directory.systemTemp.createTemp('ai_v25_');
