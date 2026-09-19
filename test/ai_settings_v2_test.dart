@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/ui/pages/ai_engine_management_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_provider_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
+import 'package:shiroha_quiz/ui/widgets/shiroha_settings_components.dart';
 
 void main() {
   testWidgets('AI service exposes capability, Agent and Provider IA', (
@@ -25,8 +26,15 @@ void main() {
     expect(find.text('文本模型'), findsOneWidget);
     expect(find.text('图片理解'), findsOneWidget);
     expect(find.text('文档识别'), findsOneWidget);
-    expect(find.text('基础设置'), findsOneWidget);
-    expect(find.text('API 提供商与密钥'), findsOneWidget);
+    expect(find.text('基础配置'), findsOneWidget);
+    expect(find.text('API 提供商与模型'), findsOneWidget);
+
+    // Provider / Models own the model assets, so 基础配置 comes first.
+    final sectionOrder = tester
+        .widgetList<ShirohaSectionLabel>(find.byType(ShirohaSectionLabel))
+        .map((label) => label.text)
+        .toList(growable: false);
+    expect(sectionOrder, <String>['基础配置', '能力配置']);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('ai-service-text-row')),
@@ -35,6 +43,27 @@ void main() {
     expect(find.byType(AiModelSelectorScreen), findsOneWidget);
     expect(find.byType(AiEngineManagementScreen), findsNothing);
     expect(find.text('选择模型 · 文本模型'), findsOneWidget);
+  });
+
+  testWidgets('provider entry opens the provider and model management page', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: AiSettingsScreen(configService: service),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('ai-service-provider-row')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AiProviderSettingsScreen), findsOneWidget);
+    expect(find.text('API 提供商与模型'), findsOneWidget);
+    expect(find.text('添加提供商'), findsOneWidget);
   });
 
   testWidgets('model selector confirms explicitly and cancel has zero mutation',
@@ -221,7 +250,7 @@ void main() {
     );
   });
 
-  testWidgets('custom model dialog requires an existing provider instance', (
+  testWidgets('capability picker is selection-only without model creation', (
     tester,
   ) async {
     final service = _UiAiConfigService();
@@ -235,35 +264,43 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey<String>('add-custom-model')));
-    await tester.pumpAndSettle();
-    // The button label and the dialog title share the same copy.
-    expect(find.text('添加自定义模型'), findsNWidgets(2));
-    expect(find.text('Model ID *'), findsOneWidget);
-    // 'DeepSeek' shows in its header and as the selected dropdown value;
-    // the other names only render their (collapsed) provider headers until
-    // the dropdown opens.
-    expect(find.text('DeepSeek'), findsNWidgets(2));
-    expect(find.text('智谱 OCR'), findsOneWidget);
-    expect(find.text('我的代理 API'), findsOneWidget);
+    // The picker only selects existing modelRefs; asset creation belongs to
+    // provider management.
     expect(
-      tester
-          .widget<DropdownButton<String>>(
-            find.byType(DropdownButton<String>),
-          )
-          .items,
-      hasLength(3),
-    );
-
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
+        find.byKey(const ValueKey<String>('add-custom-model')), findsNothing);
+    expect(find.text('添加自定义模型'), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('Model ID *'), findsNothing);
+  });
+
+  testWidgets('empty picker directs users to provider management', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService()..emptySlotModels = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AiModelSelectorScreen(
+          service: service,
+          slot: AiCapabilitySlot.textModel,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂无可选择的模型，请先在「API 提供商与模型」中添加或刷新模型。'), findsOneWidget);
+    expect(find.text('添加自定义模型'), findsNothing);
+    expect(
+        find.byKey(const ValueKey<String>('add-custom-model')), findsNothing);
   });
 
   testWidgets('Provider editor never pre-fills credential plaintext', (
     tester,
   ) async {
     final service = _UiAiConfigService()..singleProvider = true;
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
     await tester.pumpWidget(
       MaterialApp(home: AiProviderSettingsScreen(service: service)),
     );
@@ -304,6 +341,43 @@ void main() {
     );
     expect(find.text('已有模型时不可修改，请新建 Provider 实例'), findsOneWidget);
 
+    // The editor owns this provider's model directory.
+    expect(find.byKey(const ValueKey<String>('provider-model-section')),
+        findsOneWidget);
+    expect(find.text('Compatible Model'), findsOneWidget);
+    expect(find.text('官方目录'), findsOneWidget);
+
+    // Adding a model never asks for a Provider again.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-add-model-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('添加模型'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Model ID *'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Provider'),
+      ),
+      findsNothing,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-model-id-field')),
+      'custom-deepseek-model',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('provider-save-model')));
+    await tester.pumpAndSettle();
+    expect(service.addModelCalls, 1);
+    expect(service.lastAddedModelProviderId, 'provider-a');
+    expect(service.lastAddedModelId, 'custom-deepseek-model');
+    expect(find.text('模型已添加'), findsOneWidget);
+
     await tester.tap(
       find.byKey(const ValueKey<String>('provider-test-connection')),
     );
@@ -332,6 +406,10 @@ void main() {
     tester,
   ) async {
     final service = _UiAiConfigService()..singleProvider = true;
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
     await tester.pumpWidget(
       MaterialApp(home: AiProviderSettingsScreen(service: service)),
     );
@@ -359,6 +437,281 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.createCalls, 1);
+  });
+
+  testWidgets('provider cards show their own manageable model count', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderSettingsScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('DeepSeek'), findsOneWidget);
+    expect(find.text('智谱 OCR'), findsOneWidget);
+    expect(find.text('我的代理 API'), findsOneWidget);
+    expect(find.text('当前模型 1 个'), findsNWidgets(2));
+    expect(find.text('当前模型 6 个'), findsOneWidget);
+    expect(find.text('API 提供商与模型'), findsOneWidget);
+  });
+
+  testWidgets('each provider editor shows only its own models', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderSettingsScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    final deepseekCard = find.ancestor(
+      of: find.text('DeepSeek'),
+      matching: find.byType(ShirohaSurfaceCard),
+    );
+    await tester.tap(
+      find.descendant(of: deepseekCard.first, matching: find.text('编辑')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Compatible Model'), findsOneWidget);
+    expect(find.text('官方目录'), findsOneWidget);
+    expect(find.text('Glm 5.3'), findsNothing);
+    expect(find.text('glm-ocr'), findsNothing);
+    expect(find.text('手动添加'), findsNothing);
+  });
+
+  testWidgets('curated and userDefined models show inside their provider', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderSettingsScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    final zhipuCard = find.ancestor(
+      of: find.text('智谱 OCR'),
+      matching: find.byType(ShirohaSurfaceCard),
+    );
+    await tester.tap(
+      find.descendant(of: zhipuCard.first, matching: find.text('编辑')),
+    );
+    await tester.pumpAndSettle();
+
+    // glm-ocr stays a curated model of this zhipu provider.
+    expect(find.text('glm-ocr'), findsOneWidget);
+    expect(find.text('内置'), findsOneWidget);
+    expect(find.text('custom-model'), findsOneWidget);
+    expect(find.text('手动添加'), findsOneWidget);
+    expect(find.text('Compatible Model'), findsNothing);
+    expect(find.byKey(const ValueKey<String>('provider-add-model-button')),
+        findsOneWidget);
+  });
+
+  testWidgets('known provider creation keeps the first model optional', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderSettingsScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    // Path A: create only, refresh models later.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-add-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-name-field')),
+      'Second DeepSeek',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-key-field')),
+      'synthetic-secret',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-base-url-field')),
+      'https://second.example.invalid',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(service.createCalls, 1);
+    expect(service.addModelCalls, 0);
+
+    // Path B: create with an explicit first model id.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-add-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-name-field')),
+      'Third DeepSeek',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-key-field')),
+      'synthetic-secret',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-base-url-field')),
+      'https://third.example.invalid',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-first-model-id-field')),
+      'hidden-model',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(service.createCalls, 2);
+    expect(service.addModelCalls, 1);
+    expect(service.lastAddedModelProviderId, 'created-provider');
+    expect(service.lastAddedModelId, 'hidden-model');
+  });
+
+  testWidgets('custom model provider requires the first model id', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderSettingsScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-add-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-kind-field')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义模型提供商').last);
+    await tester.pumpAndSettle();
+    expect(find.text('使用 OpenAI Compatible 协议接入未预置的模型提供商。'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-name-field')),
+      'School Relay',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-key-field')),
+      'synthetic-secret',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-base-url-field')),
+      'https://relay.example.invalid',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('自定义模型提供商必须填写首个 Model ID'), findsOneWidget);
+    expect(service.createCalls, 0);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-first-model-id-field')),
+      'relay-model',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(service.createCalls, 1);
+    expect(service.addModelCalls, 1);
+    expect(service.lastAddedModelProviderId, 'created-provider');
+    expect(service.lastAddedModelId, 'relay-model');
+  });
+
+  testWidgets('first model failure keeps the saved provider and offers retry', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService()..failAddCustomModel = true;
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderSettingsScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-add-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-name-field')),
+      'Second DeepSeek',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-key-field')),
+      'synthetic-secret',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-base-url-field')),
+      'https://second.example.invalid',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-first-model-id-field')),
+      'hidden-model',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    await tester.pumpAndSettle();
+
+    // Partial success: the provider survives and the screen adopts it as an
+    // existing editor instead of pretending the whole save failed.
+    expect(service.createCalls, 1);
+    expect(find.text('API 提供商已保存，但首个模型添加失败，请进入该提供商后重试。'), findsOneWidget);
+    expect(find.text('编辑 API 提供商'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('provider-model-section')),
+      findsOneWidget,
+    );
+    expect(find.text('暂无模型。可刷新模型列表或手动添加。'), findsOneWidget);
+
+    // Retry the first model from the provider's own editor.
+    service.failAddCustomModel = false;
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-add-model-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-model-id-field')),
+      'recovered-model',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('provider-save-model')));
+    await tester.pumpAndSettle();
+    expect(service.addModelCalls, 1);
+    expect(service.lastAddedModelProviderId, 'created-provider');
+    expect(service.lastAddedModelId, 'recovered-model');
+    expect(find.text('模型已添加'), findsOneWidget);
   });
 
   testWidgets('first OCR binding uses the legacy zero temperature default', (
@@ -416,6 +769,29 @@ void main() {
             child: child!,
           ),
           home: AiProviderSettingsScreen(service: service),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: const TextScaler.linear(1.3),
+            ),
+            child: child!,
+          ),
+          home: AiProviderEditorScreen(
+            service: service,
+            existing: AiProviderOverview(
+              provider: _UiAiConfigService.providerA,
+              credentialState: AiCredentialState.present,
+              modelCount: 1,
+              hasModelAuthority: true,
+            ),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -492,13 +868,19 @@ final class _UiAiConfigService implements AiConfigPresentationService {
   int updateCalls = 0;
   int testConnectionCalls = 0;
   int syncCalls = 0;
+  int addModelCalls = 0;
   int providerRevision = 2;
   int? lastExpectedRevision;
   String? lastReplacementCredential;
+  String? lastAddedModelProviderId;
+  String? lastAddedModelId;
   AiCapabilitySlot? lastAppliedSlot;
   double? lastAppliedTemperature;
   AiCapabilityBindingSummary? binding;
   bool singleProvider = false;
+  bool failAddCustomModel = false;
+  bool emptySlotModels = false;
+  final Set<String> createdProviderIds = <String>{};
 
   static final providerA = AiProviderRecord(
     providerId: 'provider-a',
@@ -665,69 +1047,80 @@ final class _UiAiConfigService implements AiConfigPresentationService {
   @override
   Future<List<AiModelCompatibility>> listModelsForSlot(
     AiCapabilitySlot slot,
-  ) async =>
-      <AiModelCompatibility>[
-        _entry(
-          compatible,
-          state: AiModelSelectionState.selectable,
-          capabilities: const <AiModelCapability, AiCapabilitySupport>{
-            AiModelCapability.textInput: AiCapabilitySupport.supported,
-            AiModelCapability.textOutput: AiCapabilitySupport.supported,
-          },
-        ),
-        _entry(
-          z53,
-          state: AiModelSelectionState.selectable,
-          capabilities: const <AiModelCapability, AiCapabilitySupport>{
-            AiModelCapability.textInput: AiCapabilitySupport.supported,
-            AiModelCapability.textOutput: AiCapabilitySupport.supported,
-          },
-        ),
-        _entry(
-          zflash,
-          state: AiModelSelectionState.unsupported,
-          capabilities: const <AiModelCapability, AiCapabilitySupport>{
-            AiModelCapability.textInput: AiCapabilitySupport.unsupported,
-            AiModelCapability.imageInput: AiCapabilitySupport.supported,
-            AiModelCapability.textOutput: AiCapabilitySupport.supported,
-          },
-          reasonCodes: const <String>['unsupported:textInput'],
-        ),
-        _entry(
-          zocr,
-          state: AiModelSelectionState.unsupported,
-          capabilities: const <AiModelCapability, AiCapabilitySupport>{
-            AiModelCapability.ocr: AiCapabilitySupport.supported,
-            AiModelCapability.textOutput: AiCapabilitySupport.supported,
-            AiModelCapability.textInput: AiCapabilitySupport.unsupported,
-            AiModelCapability.imageInput: AiCapabilitySupport.unsupported,
-          },
-          reasonCodes: const <String>['unsupported:textInput'],
-        ),
-        _entry(zunknown, state: AiModelSelectionState.unannotated),
-        _entry(zcustom, state: AiModelSelectionState.unannotated),
-        _entry(
-          zsame,
-          state: AiModelSelectionState.selectable,
-          capabilities: const <AiModelCapability, AiCapabilitySupport>{
-            AiModelCapability.textInput: AiCapabilitySupport.supported,
-            AiModelCapability.textOutput: AiCapabilitySupport.supported,
-          },
-        ),
-        _entry(
-          proxy,
-          state: AiModelSelectionState.selectable,
-          capabilities: const <AiModelCapability, AiCapabilitySupport>{
-            AiModelCapability.textInput: AiCapabilitySupport.supported,
-            AiModelCapability.textOutput: AiCapabilitySupport.supported,
-          },
-        ),
+  ) async {
+    if (emptySlotModels) return const <AiModelCompatibility>[];
+    return <AiModelCompatibility>[
+      _entry(
+        compatible,
+        state: AiModelSelectionState.selectable,
+        capabilities: const <AiModelCapability, AiCapabilitySupport>{
+          AiModelCapability.textInput: AiCapabilitySupport.supported,
+          AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        },
+      ),
+      _entry(
+        z53,
+        state: AiModelSelectionState.selectable,
+        capabilities: const <AiModelCapability, AiCapabilitySupport>{
+          AiModelCapability.textInput: AiCapabilitySupport.supported,
+          AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        },
+      ),
+      _entry(
+        zflash,
+        state: AiModelSelectionState.unsupported,
+        capabilities: const <AiModelCapability, AiCapabilitySupport>{
+          AiModelCapability.textInput: AiCapabilitySupport.unsupported,
+          AiModelCapability.imageInput: AiCapabilitySupport.supported,
+          AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        },
+        reasonCodes: const <String>['unsupported:textInput'],
+      ),
+      _entry(
+        zocr,
+        state: AiModelSelectionState.unsupported,
+        capabilities: const <AiModelCapability, AiCapabilitySupport>{
+          AiModelCapability.ocr: AiCapabilitySupport.supported,
+          AiModelCapability.textOutput: AiCapabilitySupport.supported,
+          AiModelCapability.textInput: AiCapabilitySupport.unsupported,
+          AiModelCapability.imageInput: AiCapabilitySupport.unsupported,
+        },
+        reasonCodes: const <String>['unsupported:textInput'],
+      ),
+      _entry(zunknown, state: AiModelSelectionState.unannotated),
+      _entry(zcustom, state: AiModelSelectionState.unannotated),
+      _entry(
+        zsame,
+        state: AiModelSelectionState.selectable,
+        capabilities: const <AiModelCapability, AiCapabilitySupport>{
+          AiModelCapability.textInput: AiCapabilitySupport.supported,
+          AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        },
+      ),
+      _entry(
+        proxy,
+        state: AiModelSelectionState.selectable,
+        capabilities: const <AiModelCapability, AiCapabilitySupport>{
+          AiModelCapability.textInput: AiCapabilitySupport.supported,
+          AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        },
+      ),
+    ];
+  }
+
+  @override
+  Future<List<AiModelRecord>> listModelsForProvider(String providerId) async =>
+      <AiModelRecord>[
+        for (final model in modelByRef.values)
+          if (model.providerId == providerId &&
+              model.availability == AiModelAvailability.available)
+            model,
       ];
 
   @override
   Future<List<AiProviderOverview>> listProviders() async {
-    if (singleProvider) {
-      return <AiProviderOverview>[
+    final overviews = <AiProviderOverview>[
+      if (singleProvider)
         AiProviderOverview(
           provider: AiProviderRecord(
             providerId: providerA.providerId,
@@ -742,22 +1135,37 @@ final class _UiAiConfigService implements AiConfigPresentationService {
           credentialState: AiCredentialState.present,
           modelCount: 2,
           hasModelAuthority: true,
-        ),
-      ];
-    }
-    return <AiProviderOverview>[
-      for (final provider in <AiProviderRecord>[
-        providerA,
-        providerZ,
-        providerC
-      ])
-        AiProviderOverview(
-          provider: provider,
-          credentialState: AiCredentialState.present,
-          modelCount: provider.providerId == 'provider-z' ? 6 : 1,
-          hasModelAuthority: true,
+        )
+      else
+        ...<AiProviderRecord>[providerA, providerZ, providerC].map(
+          (provider) => AiProviderOverview(
+            provider: provider,
+            credentialState: AiCredentialState.present,
+            modelCount: provider.providerId == 'provider-z' ? 6 : 1,
+            hasModelAuthority: true,
+          ),
         ),
     ];
+    for (final providerId in createdProviderIds) {
+      overviews.add(
+        AiProviderOverview(
+          provider: AiProviderRecord(
+            providerId: providerId,
+            kind: AiProviderKind.deepseek,
+            displayName: 'Second DeepSeek',
+            baseUrl: 'https://second.example.invalid',
+            state: AiProviderState.ready,
+            revision: 0,
+            createdAt: 1,
+            updatedAt: 2,
+          ),
+          credentialState: AiCredentialState.present,
+          modelCount: 0,
+          hasModelAuthority: false,
+        ),
+      );
+    }
+    return overviews;
   }
 
   @override
@@ -781,7 +1189,23 @@ final class _UiAiConfigService implements AiConfigPresentationService {
     required String credential,
   }) async {
     createCalls++;
+    createdProviderIds.add('created-provider');
     return 'created-provider';
+  }
+
+  @override
+  Future<String> addCustomModel({
+    required String providerId,
+    required String canonicalModelId,
+    String? displayName,
+  }) async {
+    if (failAddCustomModel) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
+    addModelCalls++;
+    lastAddedModelProviderId = providerId;
+    lastAddedModelId = canonicalModelId;
+    return 'added-model-ref';
   }
 
   @override

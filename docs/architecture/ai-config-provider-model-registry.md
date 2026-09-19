@@ -24,6 +24,12 @@ confined to explicit provider adapters. Credentials cross only the bounded S0
 repository/runtime seam and never enter query DTOs, logs, SQLite, backups, or
 Presentation.
 
+The Provider / Model Registry is the single model-asset authority. Capability
+bindings and future Agent configuration are consumers that only reference an
+existing `model_ref`; neither may create Provider or Model assets. Custom
+model creation belongs to Provider management — never to a capability picker
+or any other consumer screen.
+
 ## 2. Durable identities and schema v24
 
 Schema v24 adds four tables:
@@ -48,7 +54,12 @@ model ids are invalid.
 Provider kind is one of `deepseek`, `zhipu`, `gemini`, or
 `openai_compatible`. Runtime adapter selection uses this stored kind; Base URL
 is only an endpoint. URL classification exists only as the frozen one-time
-legacy migration rule.
+legacy migration rule. In the product UI, `openai_compatible` may be
+presented under the label “自定义模型提供商”: it reuses the existing
+OpenAI-compatible adapter to connect a provider that Shiroha does not preset.
+This is a presentation label only and implies no protocol support beyond the
+existing OpenAI-compatible adapter contract; no additional
+`AiProviderKind` value is introduced for it.
 
 ### 2.1 Model origin authority (v25)
 
@@ -192,15 +203,45 @@ catalog no longer returns keeps its binding; Presentation explains it as
 “当前模型目录未返回此模型” — retirement wording (“Provider 已下架”) is
 reserved for explicit retirement evidence.
 
-The ordinary model picker shows the current Provider catalog plus curated
-plus user-defined models. `unknown` capability renders as “能力未标注” and
-remains user-selectable with a one-time responsibility hint; only explicit
-`unsupported` is disabled. Historical catalog tombstones stay out of the
-ordinary picker, while a currently bound tombstoned model keeps summary
-visibility. Custom models are first-class Model Registry citizens created
-through the Application seam — never the legacy engine screen — and carry no
-credential input. The Agent transport compatibility gate is unchanged and
-stays independent of these selection semantics.
+### 6.1 Provider-owned model management
+
+The Provider management surface (“API 提供商与模型”) is the model-asset
+entry point. Each provider editor exposes the provider's currently manageable
+models through a bounded Application projection
+(`listModelsForProvider(providerId)`): the available rows of that exact
+provider across `providerCatalog`, `curated`, and `userDefined`, plus any
+still-valid `legacyImported` rows under the existing compatibility strategy.
+Historical `providerCatalog` tombstones stay out of this projection and are
+never deleted by it, so existing bindings are not disturbed. Capability
+queue entries never materialize provider-manageable models, and model counts
+count only these manageable rows — the queue is not the registry. Weak
+origin labels are presentation-only: `providerCatalog` → “官方目录”,
+`curated` → “内置”, `userDefined` → “手动添加”; `legacyImported` is never
+exposed as a user-facing product label.
+
+Custom model creation lives here and only here: from a provider's own editor
+the user adds a model with `origin = userDefined` bound to that exact
+`providerId` through the existing `addCustomModel` authority, including for
+preset providers and without any virtual “custom provider”. Creating an
+`openai_compatible` provider presented as “自定义模型提供商” requires an
+explicit first model id (such endpoints cannot be assumed to implement
+reliable `/models` discovery); preset providers may create with or without
+one. When provider creation succeeds but the first model add fails, the
+provider and its credential persist — no destructive rollback — and the UI
+clearly reports the partial success and returns the user to that provider's
+editor to retry.
+
+The capability model picker is selection-only. It continues to read
+`listModelsForSlot(slot)` for slot eligibility (unknown stays selectable as
+“能力未标注”, only explicit `unsupported` is disabled) but never calls
+`createProvider`, `addCustomModel`, or `syncModels`, and offers no custom
+model entry. When no model exists it directs users to
+“API 提供商与模型” to add or refresh models instead of creating anything
+in place. A currently bound tombstoned model keeps summary visibility.
+Custom models remain first-class Model Registry citizens created through the
+Application seam — never the legacy engine screen — and carry no credential
+input. The Agent transport compatibility gate is unchanged and stays
+independent of these selection semantics.
 
 Agent configuration evaluates registry capabilities and the explicit
 DeepSeek Responses transport contract before save/runtime provider creation.
