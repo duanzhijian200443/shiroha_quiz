@@ -105,6 +105,21 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       appBar: AppBar(title: const Text('AI 服务')),
       body: ShirohaPageBody(
         children: <Widget>[
+          const ShirohaSectionLabel('基础配置'),
+          const SizedBox(height: 8),
+          ShirohaSettingsCard(
+            children: <Widget>[
+              _AiServiceRow(
+                key: const ValueKey<String>('ai-service-provider-row'),
+                icon: Icons.key_outlined,
+                title: 'API 提供商与模型',
+                subtitle: '管理 Provider、凭据与模型目录',
+                accentColor: theme.colorScheme.primary,
+                onTap: _openProviderSettings,
+              ),
+            ],
+          ),
+          const SizedBox(height: DesignTokens.sectionGap),
           const ShirohaSectionLabel('能力配置'),
           const SizedBox(height: 8),
           ShirohaSettingsCard(
@@ -159,21 +174,6 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
               ],
             ),
           ],
-          const SizedBox(height: DesignTokens.sectionGap),
-          const ShirohaSectionLabel('基础设置'),
-          const SizedBox(height: 8),
-          ShirohaSettingsCard(
-            children: <Widget>[
-              _AiServiceRow(
-                key: const ValueKey<String>('ai-service-provider-row'),
-                icon: Icons.key_outlined,
-                title: 'API 提供商与密钥',
-                subtitle: '管理 Provider、连接状态与模型列表',
-                accentColor: theme.colorScheme.primary,
-                onTap: _openProviderSettings,
-              ),
-            ],
-          ),
           const SizedBox(height: 16),
           Text(
             '能力模型与 API 凭据分开管理；密钥不会显示在模型选择页面。',

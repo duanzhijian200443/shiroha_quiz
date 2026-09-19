@@ -92,38 +92,6 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
     });
   }
 
-  Future<void> _addCustomModel() async {
-    try {
-      final providers = await widget.service.listProviders();
-      if (!mounted) return;
-      if (providers.isEmpty) {
-        setState(() => _message = '请先添加 Provider');
-        return;
-      }
-      final result = await showDialog<String>(
-        context: context,
-        builder: (_) =>
-            _CustomModelDialog(service: widget.service, providers: providers),
-      );
-      if (result == null || !mounted) return;
-      await _load();
-      if (!mounted) return;
-      setState(() {
-        if (_models
-            .any((item) => item.model.modelRef == result && item.compatible)) {
-          _selectedModelRef = result;
-          _expandedProviderId = _models
-              .singleWhere((item) => item.model.modelRef == result)
-              .model
-              .providerId;
-          _message = '模型已添加，请确认并应用模型。能力未标注时，请确认该模型支持此用途。';
-        }
-      });
-    } catch (_) {
-      if (mounted) setState(() => _message = '暂时无法添加自定义模型');
-    }
-  }
-
   Future<void> _confirm() async {
     final selected = _selectedModelRef;
     if (selected == null) return;
@@ -172,13 +140,6 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                     _Notice(message: _message!),
                     const SizedBox(height: 16),
                   ],
-                  OutlinedButton.icon(
-                    key: const ValueKey<String>('add-custom-model'),
-                    onPressed: _saving ? null : _addCustomModel,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('添加自定义模型'),
-                  ),
-                  const SizedBox(height: 12),
                   TextField(
                     key: const ValueKey<String>('model-search-field'),
                     controller: _searchController,
@@ -254,7 +215,7 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
 
   String get _emptyStateMessage {
     if (_models.isEmpty) {
-      return '尚未发现任何模型，请前往 Provider 页面刷新模型列表。';
+      return '暂无可选择的模型，请先在「API 提供商与模型」中添加或刷新模型。';
     }
     return '当前没有可用于此功能的模型。';
   }
@@ -544,115 +505,6 @@ class _Notice extends StatelessWidget {
         borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
       ),
       child: Text(message, style: TextStyle(color: colors.onErrorContainer)),
-    );
-  }
-}
-
-class _CustomModelDialog extends StatefulWidget {
-  const _CustomModelDialog({
-    required this.service,
-    required this.providers,
-  });
-
-  final AiConfigPresentationService service;
-  final List<AiProviderOverview> providers;
-
-  @override
-  State<_CustomModelDialog> createState() => _CustomModelDialogState();
-}
-
-class _CustomModelDialogState extends State<_CustomModelDialog> {
-  final TextEditingController _id = TextEditingController();
-  final TextEditingController _name = TextEditingController();
-  late String _providerId = widget.providers.first.provider.providerId;
-  bool _saving = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _id.dispose();
-    _name.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final ref = await widget.service.addCustomModel(
-        providerId: _providerId,
-        canonicalModelId: _id.text,
-        displayName: _name.text,
-      );
-      if (mounted) Navigator.of(context).pop(ref);
-    } on AiConfigException catch (error) {
-      if (mounted) {
-        setState(
-          () => _error = error.failure == AiConfigFailure.invalidInput
-              ? '请输入有效的 Model ID，不要包含首尾空格'
-              : '保存失败，请重试',
-        );
-      }
-    } catch (_) {
-      if (mounted) setState(() => _error = '保存失败，请重试');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('添加自定义模型'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            DropdownButtonFormField<String>(
-              key: const ValueKey<String>('custom-model-provider'),
-              initialValue: _providerId,
-              decoration: const InputDecoration(labelText: 'Provider'),
-              items: widget.providers
-                  .map(
-                    (item) => DropdownMenuItem<String>(
-                      value: item.provider.providerId,
-                      child: Text(item.provider.displayName),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: _saving
-                  ? null
-                  : (value) => setState(() => _providerId = value!),
-            ),
-            TextField(
-              key: const ValueKey<String>('custom-model-id'),
-              controller: _id,
-              enabled: !_saving,
-              decoration: const InputDecoration(labelText: 'Model ID *'),
-            ),
-            TextField(
-              key: const ValueKey<String>('custom-model-name'),
-              controller: _name,
-              enabled: !_saving,
-              decoration: const InputDecoration(labelText: 'Display Name（可选）'),
-            ),
-            if (_error != null) Text(_error!),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const ValueKey<String>('save-custom-model'),
-          onPressed: _saving ? null : _save,
-          child: const Text('添加'),
-        ),
-      ],
     );
   }
 }

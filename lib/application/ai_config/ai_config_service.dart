@@ -62,6 +62,11 @@ abstract interface class AiConfigPresentationService {
   Future<AiCapabilityBindingSummary?> bindingSummary(AiCapabilitySlot slot);
   Future<List<AiModelCompatibility>> listModelsForSlot(AiCapabilitySlot slot);
   Future<List<AiProviderOverview>> listProviders();
+
+  /// Provider-owned model management projection: the currently manageable
+  /// models of exactly one provider. The Provider / Model Registry is the
+  /// only model-asset authority; capability pickers only select from it.
+  Future<List<AiModelRecord>> listModelsForProvider(String providerId);
   Future<String> createProvider({
     required AiProviderKind kind,
     required String displayName,
@@ -116,6 +121,9 @@ final class UnavailableAiConfigPresentationService
       _unavailable();
   @override
   Future<List<AiProviderOverview>> listProviders() => _unavailable();
+  @override
+  Future<List<AiModelRecord>> listModelsForProvider(String providerId) =>
+      _unavailable();
   @override
   Future<String> createProvider({
     required AiProviderKind kind,
@@ -228,6 +236,22 @@ final class AiConfigService implements AiConfigPresentationService {
       ),
     );
     return List<AiProviderOverview>.unmodifiable(result);
+  }
+
+  @override
+  Future<List<AiModelRecord>> listModelsForProvider(String providerId) async {
+    if (await _repository.store.readProvider(providerId) == null) {
+      throw const AiConfigException(AiConfigFailure.providerNotFound);
+    }
+    final models = await _repository.store.listModels(providerId: providerId);
+    // Historical providerCatalog tombstones stay out of ordinary management;
+    // curated, userDefined and legacy rows keep their existing compatibility
+    // semantics and are never deleted or re-identified here.
+    return List<AiModelRecord>.unmodifiable(
+      models.where(
+        (model) => model.availability == AiModelAvailability.available,
+      ),
+    );
   }
 
   @override

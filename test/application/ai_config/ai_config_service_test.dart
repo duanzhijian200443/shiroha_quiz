@@ -169,6 +169,66 @@ void main() {
         0);
   });
 
+  test('provider management projection lists only its own manageable models',
+      () async {
+    final service = _service(repository, const _Connection([]));
+    await store.saveModel(_model('m1', 'm1-model'));
+    await store.saveModel(
+      AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
+        modelRef: 'dead-tombstone',
+        providerId: 'provider-a',
+        canonicalModelId: 'dead-model',
+        displayName: 'dead-model',
+        availability: AiModelAvailability.unavailable,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    final custom = await service.addCustomModel(
+      providerId: 'provider-a',
+      canonicalModelId: 'my-private-deepseek',
+    );
+    await store.insertProvider(
+      AiProviderRecord(
+        providerId: 'provider-z',
+        kind: AiProviderKind.zhipu,
+        displayName: 'Zhipu',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+
+    final managed = await service.listModelsForProvider('provider-a');
+    expect(
+      managed.map((model) => model.modelRef),
+      unorderedEquals(<String>['m1', custom]),
+    );
+    expect(managed.map((model) => model.modelRef), isNot(contains('dead')));
+
+    final zhipu = await service.listModelsForProvider('provider-z');
+    expect(zhipu.map((model) => model.canonicalModelId), <String>['glm-ocr']);
+    // Capability queue entries never materialize provider-manageable assets.
+    expect(
+      zhipu.map((model) => model.canonicalModelId),
+      isNot(contains('glm-4.7')),
+    );
+
+    await expectLater(
+      service.listModelsForProvider('missing-provider'),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.providerNotFound,
+        ),
+      ),
+    );
+  });
+
   test('zhipu queue gates slots per the frozen classification', () async {
     await store.insertProvider(
       AiProviderRecord(
