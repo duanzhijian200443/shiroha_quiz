@@ -232,6 +232,11 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
   late final TextEditingController _firstModelNameController;
   late AiProviderOverview? _existing;
   late AiProviderKind _kind;
+
+  /// Set once createProvider succeeded and cleared when the editor adopted
+  /// the created provider. While set, saving is disabled so a failed
+  /// adoption can never produce a duplicate provider.
+  String? _createdProviderId;
   bool _busy = false;
   bool _modelsLoading = false;
   List<AiModelRecord> _models = const <AiModelRecord>[];
@@ -305,6 +310,7 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
           baseUrl: _baseUrlController.text,
           credential: _credentialController.text,
         );
+        setState(() => _createdProviderId = createdId);
         final firstModelId = _firstModelIdController.text.trim();
         if (firstModelId.isEmpty) {
           if (mounted) Navigator.of(context).pop();
@@ -358,7 +364,10 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _existing = created ?? _existing;
+      if (created != null) {
+        _existing = created;
+        _createdProviderId = null;
+      }
       _message = 'API 提供商已保存，但首个模型添加失败，请进入该提供商后重试。';
     });
     await _loadModels();
@@ -570,7 +579,8 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
                   const SizedBox(height: DesignTokens.sectionGap),
                   FilledButton.icon(
                     key: const ValueKey<String>('provider-save-button'),
-                    onPressed: _busy ? null : _save,
+                    onPressed:
+                        _busy || _createdProviderId != null ? null : _save,
                     icon: const Icon(Icons.save_outlined),
                     label: Text(_busy ? '处理中…' : '保存配置'),
                   ),

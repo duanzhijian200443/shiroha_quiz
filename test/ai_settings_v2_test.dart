@@ -714,6 +714,58 @@ void main() {
     expect(find.text('模型已添加'), findsOneWidget);
   });
 
+  testWidgets('failed adoption after partial success cannot create twice', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService()
+      ..failAddCustomModel = true
+      ..failListProviders = true;
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(home: AiProviderEditorScreen(service: service)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-name-field')),
+      'Second DeepSeek',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-key-field')),
+      'synthetic-secret',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-base-url-field')),
+      'https://second.example.invalid',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('provider-first-model-id-field')),
+      'hidden-model',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(service.createCalls, 1);
+    expect(find.text('API 提供商已保存，但首个模型添加失败，请进入该提供商后重试。'), findsOneWidget);
+
+    // The editor cannot adopt the created provider, so saving is disabled:
+    // a second save must never duplicate the provider.
+    final saveButton = tester.widget<FilledButton>(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+    );
+    expect(saveButton.onPressed, isNull);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('provider-save-button')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(service.createCalls, 1);
+  });
+
   testWidgets('first OCR binding uses the legacy zero temperature default', (
     tester,
   ) async {
@@ -879,6 +931,7 @@ final class _UiAiConfigService implements AiConfigPresentationService {
   AiCapabilityBindingSummary? binding;
   bool singleProvider = false;
   bool failAddCustomModel = false;
+  bool failListProviders = false;
   bool emptySlotModels = false;
   final Set<String> createdProviderIds = <String>{};
 
@@ -1119,6 +1172,9 @@ final class _UiAiConfigService implements AiConfigPresentationService {
 
   @override
   Future<List<AiProviderOverview>> listProviders() async {
+    if (failListProviders) {
+      throw const AiConfigException(AiConfigFailure.temporarilyUnavailable);
+    }
     final overviews = <AiProviderOverview>[
       if (singleProvider)
         AiProviderOverview(
