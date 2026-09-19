@@ -33,14 +33,70 @@ void main() {
 
   test('exact registry supports only the exact curated model id', () async {
     await store.saveModel(_model('exact', 'deepseek-v4-flash'));
-    await store.saveModel(_model('near', 'deepseek-flash'));
+    await store.saveModel(_model('flash', 'deepseek-flash'));
+    await store.saveModel(_model('near', 'deepseek-chat'));
     final service = _service(repository, const _Connection([]));
 
     final models = await service.listModelsForSlot(AiCapabilitySlot.textModel);
-    expect(models.first.model.modelRef, 'exact');
+    expect(
+      models.map((item) => item.model.modelRef).toList(),
+      <String>['flash', 'exact', 'near'],
+    );
     expect(models.first.compatible, isTrue);
-    expect(models.last.model.modelRef, 'near');
+    expect(models[1].compatible, isTrue);
+    expect(models.last.selectionState, AiModelSelectionState.evidenceRequired);
     expect(models.last.compatible, isFalse);
+  });
+
+  test('registered text models are selectable and bind without claims',
+      () async {
+    await store.insertProvider(
+      AiProviderRecord(
+        providerId: 'provider-z',
+        kind: AiProviderKind.zhipu,
+        displayName: 'Zhipu',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    await store.saveModel(_model('flash', 'deepseek-flash'));
+    await store.saveModel(
+      AiModelRecord(
+        modelRef: 'zhipu-ref',
+        providerId: 'provider-z',
+        canonicalModelId: 'glm-5.3',
+        displayName: 'GLM-5.3',
+        availability: AiModelAvailability.available,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    final service = _service(repository, const _Connection([]));
+
+    final models = await service.listModelsForSlot(AiCapabilitySlot.textModel);
+    final byRef = {
+      for (final item in models) item.model.modelRef: item,
+    };
+    expect(byRef['flash']!.selectionState, AiModelSelectionState.selectable);
+    expect(byRef['flash']!.reasonCodes, isEmpty);
+    expect(
+      byRef['zhipu-ref']!.selectionState,
+      AiModelSelectionState.selectable,
+    );
+    expect(byRef['zhipu-ref']!.reasonCodes, isEmpty);
+
+    await service.applyBinding(
+      slot: AiCapabilitySlot.textModel,
+      modelRef: 'zhipu-ref',
+      expectedRevision: null,
+    );
+    final binding = await store.readBinding(AiCapabilitySlot.textModel);
+    expect(binding!.modelRef, 'zhipu-ref');
+    expect(binding.validationMode, AiBindingValidationMode.verified);
+    expect(binding.revision, 0);
   });
 
   test('selection state classifies eligibility with fixed priority', () async {

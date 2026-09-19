@@ -75,6 +75,96 @@ void main() {
       resolved[AiModelCapability.textInput],
       AiCapabilitySupport.unsupported,
     );
+
+    final overrideOnNewEntry = resolveModelCapabilities(
+      providerKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-flash',
+      claims: <AiCapabilityClaim>[
+        AiCapabilityClaim(
+          modelRef: 'model-ref',
+          capability: AiModelCapability.textInput,
+          source: AiCapabilityClaimSource.providerOfficial,
+          support: AiCapabilitySupport.unsupported,
+          assertedAt: 1,
+        ),
+      ],
+    );
+    expect(
+      overrideOnNewEntry[AiModelCapability.textInput],
+      AiCapabilitySupport.unsupported,
+    );
+  });
+
+  test('exact registry entries carry verified text evidence only', () {
+    for (final entry in const <(AiProviderKind, String)>[
+      (AiProviderKind.deepseek, 'deepseek-flash'),
+      (AiProviderKind.zhipu, 'glm-5.3'),
+    ]) {
+      final resolved = resolveModelCapabilities(
+        providerKind: entry.$1,
+        canonicalModelId: entry.$2,
+        claims: const <AiCapabilityClaim>[],
+      );
+      expect(
+        resolved[AiModelCapability.textInput],
+        AiCapabilitySupport.supported,
+        reason: '${entry.$1} / ${entry.$2}',
+      );
+      expect(
+        resolved[AiModelCapability.textOutput],
+        AiCapabilitySupport.supported,
+        reason: '${entry.$1} / ${entry.$2}',
+      );
+      expect(
+        resolved[AiModelCapability.imageInput],
+        AiCapabilitySupport.unknown,
+        reason: '${entry.$1} / ${entry.$2} must not declare vision',
+      );
+      expect(
+        resolved[AiModelCapability.ocr],
+        AiCapabilitySupport.unknown,
+        reason: '${entry.$1} / ${entry.$2} must not declare OCR',
+      );
+      expect(
+        resolved[AiModelCapability.reasoning],
+        AiCapabilitySupport.unknown,
+        reason: '${entry.$1} / ${entry.$2} must not declare reasoning',
+      );
+      expect(
+        resolved[AiModelCapability.toolCalling],
+        AiCapabilitySupport.unknown,
+        reason: '${entry.$1} / ${entry.$2} must not declare tool calling',
+      );
+    }
+  });
+
+  test('registry matches are exact in kind and id', () {
+    for (final mismatch in const <(AiProviderKind, String)>[
+      (AiProviderKind.zhipu, 'deepseek-flash'),
+      (AiProviderKind.deepseek, 'glm-5.3'),
+      (AiProviderKind.deepseek, 'DeepSeek-Flash'),
+      (AiProviderKind.zhipu, 'GLM-5.3'),
+      (AiProviderKind.deepseek, 'deepseek-flash-v2'),
+      (AiProviderKind.deepseek, 'xdeepseek-flash'),
+      (AiProviderKind.zhipu, 'glm-5.3-preview'),
+      (AiProviderKind.deepseek, ' deepseek-flash'),
+    ]) {
+      final resolved = resolveModelCapabilities(
+        providerKind: mismatch.$1,
+        canonicalModelId: mismatch.$2,
+        claims: const <AiCapabilityClaim>[],
+      );
+      expect(
+        resolved[AiModelCapability.textInput],
+        AiCapabilitySupport.unknown,
+        reason: '${mismatch.$1} / ${mismatch.$2} must not hit the registry',
+      );
+      expect(
+        resolved[AiModelCapability.textOutput],
+        AiCapabilitySupport.unknown,
+        reason: '${mismatch.$1} / ${mismatch.$2} must not hit the registry',
+      );
+    }
   });
 
   test('same-source capability conflict is dataCorrupt', () {

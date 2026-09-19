@@ -11,8 +11,16 @@ abstract final class ShirohaCapabilityRegistry {
       AiModelCapability.reasoning: AiCapabilitySupport.supported,
       AiModelCapability.toolCalling: AiCapabilitySupport.supported,
     },
+    (AiProviderKind.deepseek, 'deepseek-flash'): {
+      AiModelCapability.textInput: AiCapabilitySupport.supported,
+      AiModelCapability.textOutput: AiCapabilitySupport.supported,
+    },
     (AiProviderKind.zhipu, 'glm-ocr'): {
       AiModelCapability.ocr: AiCapabilitySupport.supported,
+      AiModelCapability.textOutput: AiCapabilitySupport.supported,
+    },
+    (AiProviderKind.zhipu, 'glm-5.3'): {
+      AiModelCapability.textInput: AiCapabilitySupport.supported,
       AiModelCapability.textOutput: AiCapabilitySupport.supported,
     },
   };
