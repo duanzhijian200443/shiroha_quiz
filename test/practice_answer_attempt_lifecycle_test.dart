@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
@@ -496,6 +497,7 @@ void main() {
     await tester.pumpWidget(
       AiDependenciesScope(
         engineRepository: _FakeEngineRepository(),
+        aiConfigService: const UnavailableAiConfigPresentationService(),
         aiService: spyAi,
         importPipelineService: _FakeImportPipelineService(),
         importTaskCoordinator: _FakeImportTaskCoordinator(),

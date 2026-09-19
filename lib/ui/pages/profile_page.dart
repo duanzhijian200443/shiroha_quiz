@@ -134,8 +134,8 @@ class ProfilePage extends StatelessWidget {
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => AiSettingsScreen(
-                    engineRepository:
-                        AiDependenciesScope.of(context).engineRepository,
+                    configService:
+                        AiDependenciesScope.of(context).aiConfigService,
                   ),
                 ),
               );

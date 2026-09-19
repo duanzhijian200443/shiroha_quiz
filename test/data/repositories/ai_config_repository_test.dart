@@ -302,6 +302,7 @@ AiProviderRecord _provider(
 }
 
 AiModelRecord _model() => AiModelRecord(
+      origin: AiModelOrigin.providerCatalog,
       modelRef: 'model-a',
       providerId: 'provider-a',
       canonicalModelId: 'custom-model',

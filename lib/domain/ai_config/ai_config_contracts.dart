@@ -136,6 +136,7 @@ enum AiCapabilitySlot {
 
 enum AiBindingValidationMode {
   verified('verified'),
+  userSelectedUnknown('userSelectedUnknown'),
   legacyPreserved('legacyPreserved');
 
   const AiBindingValidationMode(this.storageValue);
@@ -143,6 +144,7 @@ enum AiBindingValidationMode {
 
   static AiBindingValidationMode parse(Object? value) => switch (value) {
         'verified' => AiBindingValidationMode.verified,
+        'userSelectedUnknown' => AiBindingValidationMode.userSelectedUnknown,
         'legacyPreserved' => AiBindingValidationMode.legacyPreserved,
         _ => throw const AiConfigException(AiConfigFailure.dataCorrupt),
       };
@@ -239,6 +241,17 @@ final class AiProviderRecord {
   final int? lastSyncAt;
 }
 
+enum AiModelOrigin {
+  providerCatalog,
+  curated,
+  userDefined,
+  legacyImported;
+
+  static AiModelOrigin parse(Object? value) =>
+      values.where((item) => item.name == value).firstOrNull ??
+      (throw const AiConfigException(AiConfigFailure.dataCorrupt));
+}
+
 final class AiModelRecord {
   AiModelRecord({
     required String modelRef,
@@ -246,6 +259,7 @@ final class AiModelRecord {
     required String canonicalModelId,
     required String displayName,
     required this.availability,
+    required this.origin,
     required this.firstSeenAt,
     required this.lastSeenAt,
   })  : modelRef = validateAiConfigId(modelRef),
@@ -262,6 +276,7 @@ final class AiModelRecord {
   final String canonicalModelId;
   final String displayName;
   final AiModelAvailability availability;
+  final AiModelOrigin origin;
   final int firstSeenAt;
   final int lastSeenAt;
 }

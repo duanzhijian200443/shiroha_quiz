@@ -85,6 +85,47 @@ final class AiConfigRepository implements AiConfigServiceRepositoryPort {
     return List<AiProviderSnapshot>.unmodifiable(result);
   }
 
+  @override
+  Future<List<AiProviderAccessSnapshot>> listProviderAccess() async {
+    final snapshots = await listProviders();
+    return List<AiProviderAccessSnapshot>.unmodifiable(
+      snapshots.map(
+        (snapshot) => AiProviderAccessSnapshot(
+          provider: snapshot.provider,
+          credentialState: snapshot.credential,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Future<void> createProviderWithCredential(
+    AiProviderRecord provider,
+    String credential,
+  ) {
+    return createProvider(provider, ReplaceAiCredential(credential));
+  }
+
+  @override
+  Future<void> updateProviderWithCredential(
+    AiProviderRecord provider, {
+    required int expectedRevision,
+    String? replacementCredential,
+  }) {
+    return updateProvider(
+      provider,
+      expectedRevision: expectedRevision,
+      credential: replacementCredential == null
+          ? const PreserveAiCredential()
+          : ReplaceAiCredential(replacementCredential),
+    );
+  }
+
+  @override
+  Future<void> deleteProviderAuthority(String providerId) {
+    return deleteProvider(providerId);
+  }
+
   Future<void> createProvider(
     AiProviderRecord provider,
     ReplaceAiCredential credential,
@@ -240,6 +281,7 @@ final class AiConfigRepository implements AiConfigServiceRepositoryPort {
         }
         await _store.saveModel(
           AiModelRecord(
+            origin: current.origin,
             modelRef: current.modelRef,
             providerId: current.providerId,
             canonicalModelId: current.canonicalModelId,

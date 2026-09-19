@@ -1,4 +1,5 @@
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/ai_config/ai_config_ports.dart';
 import '../../domain/ai_config/ai_config_contracts.dart';
 import '../../domain/ai_config/shiroha_capability_registry.dart';
 import '../models/ai_engine_profile.dart';
@@ -29,6 +30,10 @@ class AiEngineRepository {
   final AiEngineStore _store;
   final EngineCredentialStore _credentialStore;
   final AiConfigRepository? _configRepository;
+
+  AiConfigServiceRepositoryPort get configServiceRepository {
+    return _configRepository ?? (throw const AiEngineDependencyException());
+  }
 
   /// Per-engineId serialization for activated-path credential/metadata
   /// mutations. Different engineIds never share a lock; completed chains are
@@ -287,6 +292,7 @@ class AiEngineRepository {
       lastSyncAt: existing?.lastSyncAt,
     );
     final model = AiModelRecord(
+      origin: existingModel?.origin ?? AiModelOrigin.userDefined,
       modelRef: profile.id,
       providerId: providerId,
       canonicalModelId: profile.modelName,

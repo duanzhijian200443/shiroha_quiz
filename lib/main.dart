@@ -10,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
 import 'application/agent/agent_config_service.dart';
+import 'application/ai_config/ai_config_service.dart';
 import 'application/backup/backup_restore_coordinator.dart';
 import 'application/agent/agent_runtime.dart';
 import 'application/agent/agent_study_plan_tool_dispatcher.dart';
@@ -85,6 +86,7 @@ import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/import_review/import_commit_service.dart';
 import 'services/task_manager.dart';
 import 'services/llm_providers/zhipu_ocr_client.dart';
+import 'services/llm_providers/ai_provider_connection.dart';
 import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/parsed_artifact_generation_router.dart';
@@ -291,6 +293,12 @@ void main() {
           configStore: aiConfigStore,
           agentReferences: agentConfigStore,
         );
+        final aiConfigService = AiConfigService(
+          repository: engineRepository.configServiceRepository,
+          providerConnection: HttpAiProviderConnection(client: http.Client()),
+          modelRefFactory: uuid.v4,
+          clock: () => DateTime.now().toUtc().millisecondsSinceEpoch,
+        );
         // P7 composition: Presentation only sees the Application seams.
         final answerGenerationService = AiAnswerGenerationService(
           questionPort: questionRepository,
@@ -480,6 +488,7 @@ void main() {
         runApp(
           ShirohaQuizApp(
             engineRepository: engineRepository,
+            aiConfigService: aiConfigService,
             aiService: aiService,
             importPipelineService: importPipelineService,
             importTaskCoordinator: importTaskCoordinator,
@@ -529,6 +538,7 @@ class ShirohaQuizApp extends StatelessWidget {
   const ShirohaQuizApp({
     super.key,
     required this.engineRepository,
+    required this.aiConfigService,
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
@@ -558,6 +568,7 @@ class ShirohaQuizApp extends StatelessWidget {
   });
 
   final AiEngineRepository engineRepository;
+  final AiConfigPresentationService aiConfigService;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
@@ -629,6 +640,7 @@ class ShirohaQuizApp extends StatelessWidget {
               );
         return AiDependenciesScope(
           engineRepository: engineRepository,
+          aiConfigService: aiConfigService,
           aiService: aiService,
           importPipelineService: importPipelineService,
           importTaskCoordinator: importTaskCoordinator,

@@ -35,6 +35,42 @@ void main() {
     );
   });
 
+  test('binding modes and model origins are frozen enums', () {
+    expect(
+      AiBindingValidationMode.values.map((mode) => mode.storageValue),
+      <String>['verified', 'userSelectedUnknown', 'legacyPreserved'],
+    );
+    expect(
+      AiBindingValidationMode.parse('userSelectedUnknown'),
+      AiBindingValidationMode.userSelectedUnknown,
+    );
+    expect(
+      () => AiBindingValidationMode.parse('invented'),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.dataCorrupt,
+        ),
+      ),
+    );
+    expect(
+      AiModelOrigin.values.map((origin) => origin.name),
+      <String>['providerCatalog', 'curated', 'userDefined', 'legacyImported'],
+    );
+    expect(AiModelOrigin.parse('curated'), AiModelOrigin.curated);
+    expect(
+      () => AiModelOrigin.parse('invented'),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.dataCorrupt,
+        ),
+      ),
+    );
+  });
+
   test('canonical model ids are case-sensitive and never trimmed', () {
     expect(validateCanonicalModelId('Model-A'), 'Model-A');
     expect(validateCanonicalModelId('model-a'), 'model-a');
@@ -75,6 +111,110 @@ void main() {
       resolved[AiModelCapability.textInput],
       AiCapabilitySupport.unsupported,
     );
+
+    final overrideOnNewEntry = resolveModelCapabilities(
+      providerKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-flash',
+      claims: <AiCapabilityClaim>[
+        AiCapabilityClaim(
+          modelRef: 'model-ref',
+          capability: AiModelCapability.textInput,
+          source: AiCapabilityClaimSource.providerOfficial,
+          support: AiCapabilitySupport.unsupported,
+          assertedAt: 1,
+        ),
+      ],
+    );
+    expect(
+      overrideOnNewEntry[AiModelCapability.textInput],
+      AiCapabilitySupport.unsupported,
+    );
+  });
+
+  test('exact registry entries carry verified text evidence only', () {
+    final deepseekFlash = resolveModelCapabilities(
+      providerKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-flash',
+      claims: const <AiCapabilityClaim>[],
+    );
+    expect(
+      deepseekFlash[AiModelCapability.textInput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      deepseekFlash[AiModelCapability.textOutput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      deepseekFlash[AiModelCapability.imageInput],
+      AiCapabilitySupport.supported,
+      reason: 'official docs classify deepseek-flash (V4.1-Flash) as '
+          'multimodal with vision',
+    );
+    expect(
+      deepseekFlash[AiModelCapability.ocr],
+      AiCapabilitySupport.unsupported,
+      reason: 'DeepSeek has no dedicated OCR transport',
+    );
+
+    final glmFiveThree = resolveModelCapabilities(
+      providerKind: AiProviderKind.zhipu,
+      canonicalModelId: 'glm-5.3',
+      claims: const <AiCapabilityClaim>[],
+    );
+    expect(
+      glmFiveThree[AiModelCapability.textInput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      glmFiveThree[AiModelCapability.textOutput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      glmFiveThree[AiModelCapability.imageInput],
+      AiCapabilitySupport.unsupported,
+      reason: 'official docs classify glm-5.3 as text-only',
+    );
+    expect(
+      glmFiveThree[AiModelCapability.ocr],
+      AiCapabilitySupport.unsupported,
+      reason: 'official docs classify glm-5.3 as text-only',
+    );
+    expect(
+      glmFiveThree[AiModelCapability.reasoning],
+      AiCapabilitySupport.unknown,
+      reason:
+          'reasoning stays unannotated without a dedicated evidence package',
+    );
+  });
+
+  test('registry matches are exact in kind and id', () {
+    for (final mismatch in const <(AiProviderKind, String)>[
+      (AiProviderKind.zhipu, 'deepseek-flash'),
+      (AiProviderKind.deepseek, 'glm-5.3'),
+      (AiProviderKind.deepseek, 'DeepSeek-Flash'),
+      (AiProviderKind.zhipu, 'GLM-5.3'),
+      (AiProviderKind.deepseek, 'deepseek-flash-v2'),
+      (AiProviderKind.deepseek, 'xdeepseek-flash'),
+      (AiProviderKind.zhipu, 'glm-5.3-preview'),
+      (AiProviderKind.deepseek, ' deepseek-flash'),
+    ]) {
+      final resolved = resolveModelCapabilities(
+        providerKind: mismatch.$1,
+        canonicalModelId: mismatch.$2,
+        claims: const <AiCapabilityClaim>[],
+      );
+      expect(
+        resolved[AiModelCapability.textInput],
+        AiCapabilitySupport.unknown,
+        reason: '${mismatch.$1} / ${mismatch.$2} must not hit the registry',
+      );
+      expect(
+        resolved[AiModelCapability.textOutput],
+        AiCapabilitySupport.unknown,
+        reason: '${mismatch.$1} / ${mismatch.$2} must not hit the registry',
+      );
+    }
   });
 
   test('same-source capability conflict is dataCorrupt', () {

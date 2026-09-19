@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/practice/subjective_answer_recognition.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
@@ -297,6 +298,7 @@ void main() {
       dispatch: null,
       wrapDependencies: (child) => AiDependenciesScope(
         engineRepository: _UnusedEngineRepository(),
+        aiConfigService: const UnavailableAiConfigPresentationService(),
         aiService: _UnusedAiService(),
         importPipelineService: pipeline,
         importTaskCoordinator: coordinator,

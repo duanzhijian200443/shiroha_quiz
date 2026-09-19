@@ -1,24 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
-import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
-import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
-import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
+import 'package:shiroha_quiz/domain/ai_config/ai_config_contracts.dart';
 import 'package:shiroha_quiz/ui/pages/profile_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
-import 'support/memory_engine_credential_store.dart';
-
 void main() {
-  late AiEngineRepository engineRepository;
-
-  setUp(() {
-    engineRepository = AiEngineRepository(
-      store: _ProfileAiEngineStore(),
-      credentialStore: MemoryEngineCredentialStore(),
-    );
-  });
-
   test('maps Minimal v2 semantic colors in light and dark themes', () {
     _verifySemanticPalette(AppTheme.lightTheme);
     _verifySemanticPalette(AppTheme.darkTheme);
@@ -32,6 +20,7 @@ void main() {
     Map<DateTime, int> heatmap = const {},
     ProfileHeatmapLoader? heatmapLoader,
     VoidCallback? onOpenFileLibrary,
+    AiConfigPresentationService? aiConfigService,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -46,7 +35,7 @@ void main() {
           child: child!,
         ),
         home: ProfileScreen(
-          engineRepository: engineRepository,
+          aiConfigService: aiConfigService ?? _ProfileAiConfigService(),
           agentSettingsService: AgentSettingsService(
             configStore: _ProfileAgentConfigStore(),
             profileCatalog: _ProfileAgentCatalog(),
@@ -125,13 +114,14 @@ void main() {
   testWidgets('AI service isolates one failed summary and keeps every entry', (
     tester,
   ) async {
-    final store = _ProfileAiEngineStore()
-      ..failedActiveTypes.add(AiEngineType.vision);
-    engineRepository = AiEngineRepository(
-      store: store,
-      credentialStore: MemoryEngineCredentialStore(),
+    await pumpProfile(
+      tester,
+      aiConfigService: _ProfileAiConfigService(
+        failedSlots: <AiCapabilitySlot>{
+          AiCapabilitySlot.imageUnderstanding,
+        },
+      ),
     );
-    await pumpProfile(tester);
 
     await tester.ensureVisible(
       find.byKey(const ValueKey<String>('profile-ai-service-row')),
@@ -141,7 +131,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('暂时无法读取 · 点击配置'), findsOneWidget);
+    expect(find.text('暂时无法读取 · 点击选择'), findsOneWidget);
     expect(find.textContaining('PRIVATE_AI_FAILURE'), findsNothing);
     expect(find.text('DeepSeek'), findsOneWidget);
     expect(find.text('智谱 OCR'), findsOneWidget);
@@ -362,63 +352,55 @@ final class _ProfileAgentCatalog implements AgentProfileCatalogPort {
   Future<List<AgentProfileSummary>> listMainProfiles() async => const [];
 }
 
-class _ProfileAiEngineStore implements AiEngineStore {
-  final Set<AiEngineType> failedActiveTypes = <AiEngineType>{};
+final class _ProfileAiConfigService implements AiConfigPresentationService {
+  _ProfileAiConfigService({
+    Set<AiCapabilitySlot> failedSlots = const <AiCapabilitySlot>{},
+  }) : failedSlots = Set<AiCapabilitySlot>.of(failedSlots);
 
-  static const Map<AiEngineType, AiEngineProfile> _profiles = {
-    AiEngineType.text: AiEngineProfile(
-      id: 'text',
-      engineType: AiEngineType.text,
-      name: 'DeepSeek',
-      apiKey: '',
-      baseUrl: 'https://example.invalid',
-      modelName: 'text-model',
-      temperature: 0.7,
-      reasoningEffort: '',
-      isActive: true,
-    ),
-    AiEngineType.vision: AiEngineProfile(
-      id: 'vision',
-      engineType: AiEngineType.vision,
-      name: '智谱视觉',
-      apiKey: '',
-      baseUrl: 'https://example.invalid',
-      modelName: 'vision-model',
-      temperature: 0.7,
-      reasoningEffort: '',
-      isActive: true,
-    ),
-    AiEngineType.ocr: AiEngineProfile(
-      id: 'ocr',
-      engineType: AiEngineType.ocr,
-      name: '智谱 OCR',
-      apiKey: '',
-      baseUrl: 'https://example.invalid',
-      modelName: 'ocr-model',
-      temperature: 0.7,
-      reasoningEffort: '',
-      isActive: true,
-    ),
-  };
+  final Set<AiCapabilitySlot> failedSlots;
 
   @override
-  Future<void> deleteAiEngine(String id) async {}
-
-  @override
-  Future<AiEngineProfile?> getActiveAiEngine(AiEngineType type) async {
-    if (failedActiveTypes.contains(type)) {
-      throw StateError('PRIVATE_AI_FAILURE');
-    }
-    return _profiles[type];
+  Future<AiCapabilityBindingSummary?> bindingSummary(
+    AiCapabilitySlot slot,
+  ) async {
+    if (failedSlots.contains(slot)) throw StateError('PRIVATE_AI_FAILURE');
+    final index = AiCapabilitySlot.values.indexOf(slot);
+    final names = <String>['DeepSeek', '智谱视觉', '智谱 OCR'];
+    final provider = AiProviderRecord(
+      providerId: 'provider-$index',
+      kind: AiProviderKind.deepseek,
+      displayName: 'Provider $index',
+      baseUrl: 'https://example.invalid',
+      state: AiProviderState.ready,
+      revision: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    );
+    final model = AiModelRecord(
+      origin: AiModelOrigin.providerCatalog,
+      modelRef: 'model-$index',
+      providerId: provider.providerId,
+      canonicalModelId: 'canonical-$index',
+      displayName: names[index],
+      availability: AiModelAvailability.available,
+      firstSeenAt: 1,
+      lastSeenAt: 1,
+    );
+    return AiCapabilityBindingSummary(
+      binding: AiCapabilityBinding(
+        slot: slot,
+        modelRef: model.modelRef,
+        temperature: 0.7,
+        reasoningEffort: '',
+        validationMode: AiBindingValidationMode.verified,
+        revision: 0,
+        updatedAt: 1,
+      ),
+      model: model,
+      provider: provider,
+    );
   }
 
   @override
-  Future<List<AiEngineProfile>> listAiEngines(AiEngineType type) async =>
-      <AiEngineProfile>[_profiles[type]!];
-
-  @override
-  Future<void> saveAiEngine(AiEngineProfile profile) async {}
-
-  @override
-  Future<void> setActiveAiEngine(String id, AiEngineType type) async {}
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

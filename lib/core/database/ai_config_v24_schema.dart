@@ -2,7 +2,7 @@ library;
 
 import 'sqflite_runtime.dart';
 
-const int aiConfigSchemaVersion = 24;
+const int aiConfigSchemaVersion = 25;
 
 const String aiProvidersTableDdl = '''
 CREATE TABLE ai_providers (
@@ -257,8 +257,9 @@ String _legacyProviderKind(String baseUrl) {
   return 'openai_compatible';
 }
 
-Future<void> validateAiConfigV24Schema(DatabaseExecutor db) async {
-  const expectedColumns = <String, List<String>>{
+Future<void> validateAiConfigV24Schema(DatabaseExecutor db,
+    {bool withOrigin = false}) async {
+  final expectedColumns = <String, List<String>>{
     'ai_providers': <String>[
       'provider_id',
       'provider_kind',
@@ -281,6 +282,7 @@ Future<void> validateAiConfigV24Schema(DatabaseExecutor db) async {
       'availability',
       'first_seen_at',
       'last_seen_at',
+      if (withOrigin) 'origin',
     ],
     'ai_model_capability_claims': <String>[
       'model_ref',

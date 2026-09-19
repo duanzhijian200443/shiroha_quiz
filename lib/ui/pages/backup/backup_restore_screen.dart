@@ -5,6 +5,7 @@ import '../../../application/backup/backup_contracts.dart';
 import '../../../application/backup/backup_restore_coordinator.dart';
 import '../../../domain/backup/backup_failure.dart';
 import '../../../domain/backup/backup_manifest.dart';
+import '../../theme/design_tokens.dart';
 
 enum _BackupUiState {
   idle,
@@ -230,9 +231,16 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
         top: false,
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
+            constraints: const BoxConstraints(
+              maxWidth: DesignTokens.contentMaxWidth,
+            ),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              padding: const EdgeInsets.fromLTRB(
+                DesignTokens.pageHorizontalPadding,
+                DesignTokens.pageHorizontalPadding,
+                DesignTokens.pageHorizontalPadding,
+                DesignTokens.pageBottomPadding,
+              ),
               children: <Widget>[
                 const _BackupSectionTitle('全量备份与迁移'),
                 const SizedBox(height: 8),
@@ -250,7 +258,9 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                               height: 44,
                               decoration: BoxDecoration(
                                 color: colors.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(13),
+                                borderRadius: BorderRadius.circular(
+                                  DesignTokens.prominentIconContainerRadius,
+                                ),
                               ),
                               child: Icon(
                                 Icons.cloud_upload_outlined,
@@ -312,7 +322,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                 ),
                 if (_preview != null &&
                     _state == _BackupUiState.readyToConfirm) ...<Widget>[
-                  const SizedBox(height: 24),
+                  const SizedBox(height: DesignTokens.sectionGap),
                   const _BackupSectionTitle('恢复预检查'),
                   const SizedBox(height: 8),
                   _BackupSurface(
@@ -370,7 +380,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                   ),
                 ],
                 if (busy) ...<Widget>[
-                  const SizedBox(height: 24),
+                  const SizedBox(height: DesignTokens.sectionGap),
                   const Center(child: CircularProgressIndicator()),
                 ],
                 if (_message != null) ...<Widget>[
@@ -385,6 +395,94 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                     ),
                   ),
                 ],
+                const SizedBox(height: DesignTokens.sectionGap),
+                const _BackupSectionTitle('题库分发与导入'),
+                const SizedBox(height: 8),
+                _BackupSurface(
+                  child: ListTile(
+                    key: const ValueKey<String>(
+                      'structured-bank-import-unavailable',
+                    ),
+                    contentPadding: const EdgeInsets.all(
+                      DesignTokens.cardInternalPadding,
+                    ),
+                    leading: Icon(
+                      Icons.inventory_2_outlined,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    title: const Text('导入结构化题库包'),
+                    subtitle: const Text('暂未开放'),
+                    trailing: const Icon(Icons.lock_outline_rounded),
+                    enabled: false,
+                  ),
+                ),
+                const SizedBox(height: DesignTokens.sectionGap),
+                const _BackupSectionTitle('存储空间与清理'),
+                const SizedBox(height: 8),
+                const _BackupSurface(
+                  child: Padding(
+                    padding: EdgeInsets.all(
+                      DesignTokens.cardInternalPadding,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(Icons.storage_outlined),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text('本地存储统计'),
+                              SizedBox(height: 4),
+                              Text('当前版本尚无可信的统一空间统计 authority'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: DesignTokens.sectionGap),
+                const _BackupSectionTitle('危险区域'),
+                const SizedBox(height: 8),
+                Container(
+                  key: const ValueKey<String>('clear-all-data-unavailable'),
+                  padding: const EdgeInsets.all(
+                    DesignTokens.cardInternalPadding,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.errorContainer,
+                    borderRadius: BorderRadius.circular(
+                      DesignTokens.cardRadius,
+                    ),
+                    border: Border.all(color: colors.error),
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(Icons.delete_forever_outlined, color: colors.error),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              '清空所有本地数据',
+                              style: TextStyle(
+                                color: colors.onErrorContainer,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '暂不可用；完整安全清理能力将在独立版本提供。',
+                              style: TextStyle(color: colors.onErrorContainer),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.lock_outline, color: colors.error),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -426,17 +524,9 @@ class _BackupSurface extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
         border: Border.all(color: theme.colorScheme.outlineVariant),
-        boxShadow: theme.brightness == Brightness.dark
-            ? const []
-            : [
-                BoxShadow(
-                  color: const Color(0xFF375078).withValues(alpha: 0.06),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+        boxShadow: DesignTokens.surfaceShadow(theme.brightness),
       ),
       child: child,
     );
