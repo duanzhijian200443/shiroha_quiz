@@ -43,6 +43,25 @@ abstract final class ShirohaCapabilityRegistry {
     AiModelCapability.ocr: AiCapabilitySupport.unsupported,
   };
 
+  /// Agent-capability evidence (2026-09-20, official api-docs.deepseek.com):
+  /// the pricing feature matrix marks tool calls for both current models,
+  /// the changelog dates native Responses API support (2026-07-31 V4-Flash,
+  /// 2026-08-13 API-wide) and thinking effort levels low/high/max, and
+  /// /guides/tool_calls documents tool use in the thinking mode.
+  static const Map<AiModelCapability, AiCapabilitySupport>
+      _deepseekAgentTextCapabilities = {
+    ..._textCapabilities,
+    AiModelCapability.reasoning: AiCapabilitySupport.supported,
+    AiModelCapability.toolCalling: AiCapabilitySupport.supported,
+  };
+
+  static const Map<AiModelCapability, AiCapabilitySupport>
+      _deepseekAgentMultimodalCapabilities = {
+    ..._multimodalCapabilities,
+    AiModelCapability.reasoning: AiCapabilitySupport.supported,
+    AiModelCapability.toolCalling: AiCapabilitySupport.supported,
+  };
+
   static const String _zhipuOverview =
       'docs.bigmodel.cn/cn/guide/start/model-overview';
 
@@ -69,17 +88,19 @@ abstract final class ShirohaCapabilityRegistry {
       providerKind: AiProviderKind.deepseek,
       canonicalModelId: 'deepseek-v4-pro',
       category: AiCuratedModelCategory.text,
-      capabilities: _textCapabilities,
+      capabilities: _deepseekAgentTextCapabilities,
       evidenceDate: '2026-09-20',
-      evidenceSource: 'api-docs.deepseek.com/quick_start/pricing',
+      evidenceSource:
+          'api-docs.deepseek.com/quick_start/pricing + /updates + /guides/tool_calls',
     ),
     (AiProviderKind.deepseek, 'deepseek-flash'): CuratedModelDefinition(
       providerKind: AiProviderKind.deepseek,
       canonicalModelId: 'deepseek-flash',
       category: AiCuratedModelCategory.multimodal,
-      capabilities: _multimodalCapabilities,
+      capabilities: _deepseekAgentMultimodalCapabilities,
       evidenceDate: '2026-09-20',
-      evidenceSource: 'api-docs.deepseek.com/quick_start/pricing',
+      evidenceSource:
+          'api-docs.deepseek.com/quick_start/pricing + /updates + /guides/tool_calls',
     ),
     (AiProviderKind.zhipu, 'glm-5.3'): CuratedModelDefinition(
       providerKind: AiProviderKind.zhipu,

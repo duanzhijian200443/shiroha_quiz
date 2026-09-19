@@ -502,7 +502,7 @@ void main() {
       final client = _FixtureClient(textDeltaAndCompletedSse);
       final provider = _provider(
         client: client,
-        modelName: 'deepseek-v4-pro',
+        modelName: 'deepseek-chat',
       );
 
       await expectLater(

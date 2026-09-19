@@ -75,13 +75,22 @@ Evidence date: **2026-09-20** (all rows).
 
 | Canonical Model ID | Category | Capabilities (Shiroha) | Official Source |
 |---|---|---|---|
-| deepseek-flash | multimodal | textInput=supported, imageInput=supported, textOutput=supported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> + <https://api-docs.deepseek.com/guides/vision> |
-| deepseek-v4-pro | text | textInput=supported, textOutput=supported, imageInput=unsupported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> |
+| deepseek-flash | multimodal | textInput=supported, imageInput=supported, textOutput=supported, reasoning=supported, toolCalling=supported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> + <https://api-docs.deepseek.com/updates> + <https://api-docs.deepseek.com/guides/tool_calls> + <https://api-docs.deepseek.com/guides/vision> |
+| deepseek-v4-pro | text | textInput=supported, textOutput=supported, reasoning=supported, toolCalling=supported, imageInput=unsupported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> + <https://api-docs.deepseek.com/updates> + <https://api-docs.deepseek.com/guides/tool_calls> |
 | deepseek-v4-flash | multimodal (retired alias) | textInput=supported, imageInput=supported, textOutput=supported, reasoning=supported, toolCalling=supported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> |
-| deepseek-v4-flash-vision-exp | multimodal (retired alias) | 同 deepseek-flash | 同 deepseek-flash |
+| deepseek-v4-flash-vision-exp | multimodal (retired alias) | 同 deepseek-flash 的模态分类；reasoning / toolCalling 保持未标注 | 同 deepseek-flash |
 
 Notes:
 
+- Agent-capability evidence (2026-09-20, dedicated Agent closure package):
+  the official pricing feature matrix marks tool calls for `deepseek-flash`
+  and `deepseek-v4-pro`; the changelog dates native Responses API support
+  (2026-07-31 for V4-Flash, 2026-08-13 API-wide) and thinking effort levels
+  `low / high / max` (backing the `reasoning` claims); `/guides/tool_calls`
+  documents tool use including in the thinking mode. Native web search has
+  NO official api-docs.deepseek.com evidence as of 2026-09-20, so no
+  registry claim is written for it, and third-party mentions are not
+  evidence.
 - `deepseek-flash` is DeepSeek-V4.1-Flash (released 2026-09-10, "native
   multimodal visual understanding"): it accepts images alongside text per the
   official vision guide and supports tool calling and thinking /
@@ -99,5 +108,9 @@ Notes:
   are intentionally not entered.
 - DeepSeek officially publishes no embedding model and no dedicated OCR /
   document-parsing transport, so every row writes `ocr` as `unsupported`.
-- The Agent transport allowlist (`deepseek_responses`) is independent of this
-  queue and is not expanded by it.
+- The Agent transport allowlist (`deepseek_responses`) is updated only by
+  exact official evidence recorded here: current ids are `deepseek-flash` and
+  `deepseek-v4-pro`; the retired alias `deepseek-v4-flash` remains as legacy
+  compatibility for historical bindings only (legacy compatibility is not a
+  current-model recommendation). Exact-id matching only; name prefixes and
+  substrings never inherit eligibility.

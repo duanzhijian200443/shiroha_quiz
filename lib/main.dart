@@ -52,7 +52,7 @@ import 'data/credentials/ai_engine_credential_activation.dart';
 import 'data/repositories/agent_config_repository.dart';
 import 'data/repositories/backup_database_authority.dart';
 import 'data/repositories/backup_snapshot_repository.dart';
-import 'data/repositories/agent_profile_repository.dart';
+import 'data/repositories/registry_agent_profile_repository.dart';
 import 'data/repositories/approved_agent_write_repository.dart';
 import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/exam_repository.dart';
@@ -314,9 +314,10 @@ void main() {
             mapper: productionQuestionMapper,
           ),
         );
-        final agentProfileRepository = AiEngineAgentProfileRepository(
-          engineRepository: engineRepository,
-          aiConfigStore: aiConfigStore,
+        // Agent candidates resolve directly from the Provider / Model
+        // Registry (the model-asset authority), not the legacy projection.
+        final agentProfileRepository = RegistryAgentProfileRepository(
+          aiConfigRepository: engineRepository.configServiceRepository,
         );
         final agentSettingsService = AgentSettingsService(
           configStore: agentConfigStore,

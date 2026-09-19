@@ -5,6 +5,8 @@ import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/repositories/agent_profile_repository.dart';
+import 'package:shiroha_quiz/domain/ai_config/ai_config_contracts.dart';
+import 'package:shiroha_quiz/services/agent/deepseek_agent_model_compatibility_adapter.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 
@@ -95,6 +97,111 @@ void main() {
     },
   );
 
+  testWidgets('case A: no models at all directs users to provider management',
+      (tester) async {
+    final service = AgentSettingsService(
+      configStore: _ConfigStore(),
+      profileCatalog: _Catalog(<AgentProfileSummary>[]),
+    );
+    await pumpSettings(tester, service, onOpenProfiles: () {});
+
+    expect(find.text('尚未配置可用模型'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-open-ai-profiles')),
+      findsOneWidget,
+    );
+    expect(find.text('前往 API 提供商与模型'), findsOneWidget);
+    expect(find.text('配置 AI 服务'), findsNothing);
+  });
+
+  testWidgets(
+      'case B: models exist but none is compatible lists honest reasons',
+      (tester) async {
+    final service = AgentSettingsService(
+      configStore: _ConfigStore(),
+      profileCatalog: _Catalog(<AgentProfileSummary>[
+        AgentProfileSummary(
+          profileId: 'zhipu-ref',
+          displayName: 'glm-5.3',
+          modelName: 'glm-5.3',
+          modelProviderKind: AiProviderKind.zhipu,
+          providerDisplayName: '智谱 AI',
+        ),
+        AgentProfileSummary(
+          profileId: 'unknown-tools-ref',
+          displayName: 'mystery-model',
+          modelName: 'deepseek-flash',
+          modelProviderKind: AiProviderKind.deepseek,
+          providerDisplayName: 'DeepSeek',
+          capabilities: {
+            AiModelCapability.textInput: AiCapabilitySupport.supported,
+            AiModelCapability.textOutput: AiCapabilitySupport.supported,
+          },
+        ),
+      ]),
+      transportCompatibility: const DeepSeekAgentModelCompatibilityAdapter(),
+    );
+    await pumpSettings(tester, service, onOpenProfiles: () {});
+
+    expect(
+      find.text('已有模型，但当前没有满足 Shiroha Agent 要求的模型。'),
+      findsOneWidget,
+    );
+    // The navigation loop is gone: no provider-configuration CTA here.
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-open-ai-profiles')),
+      findsNothing,
+    );
+    expect(find.text('配置 AI 服务'), findsNothing);
+
+    expect(
+      find.byKey(const ValueKey<String>('a0-agent-incompatible-zhipu-ref')),
+      findsOneWidget,
+    );
+    expect(find.text('当前 Agent transport 暂不支持该模型所属提供商'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey<String>('a0-agent-incompatible-unknown-tools-ref'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('工具调用能力尚未标注'), findsOneWidget);
+  });
+
+  testWidgets(
+      'case C: compatible registry models render provider and model once',
+      (tester) async {
+    final service = AgentSettingsService(
+      configStore: _ConfigStore(),
+      profileCatalog: _Catalog(<AgentProfileSummary>[
+        AgentProfileSummary(
+          profileId: 'flash-ref',
+          displayName: 'deepseek-flash',
+          modelName: 'deepseek-flash',
+          modelProviderKind: AiProviderKind.deepseek,
+          providerDisplayName: 'DeepSeek',
+          capabilities: {
+            AiModelCapability.textInput: AiCapabilitySupport.supported,
+            AiModelCapability.textOutput: AiCapabilitySupport.supported,
+            AiModelCapability.toolCalling: AiCapabilitySupport.supported,
+          },
+        ),
+      ]),
+      transportCompatibility: const DeepSeekAgentModelCompatibilityAdapter(),
+    );
+    await pumpSettings(tester, service);
+
+    expect(find.byKey(const ValueKey<String>('a0-agent-main-profile')),
+        findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('a0-agent-main-profile')),
+    );
+    await tester.pumpAndSettle();
+    // Provider and model id appear exactly once: no duplicate concatenation.
+    expect(find.textContaining('DeepSeek · deepseek-flash'), findsOneWidget);
+    expect(find.textContaining('deepseek-flash（deepseek-flash）'), findsNothing);
+  });
+
   testWidgets('shows profile-unavailable state and permits a valid reselection',
       (tester) async {
     final store = _ConfigStore(
@@ -144,14 +251,14 @@ void main() {
     var openedProfiles = false;
     final emptyService = AgentSettingsService(
       configStore: _ConfigStore(),
-      profileCatalog: _Catalog(const <AgentProfileSummary>[]),
+      profileCatalog: _Catalog(<AgentProfileSummary>[]),
     );
     await pumpSettings(
       tester,
       emptyService,
       onOpenProfiles: () => openedProfiles = true,
     );
-    expect(find.text('暂无可用于 Shiroha Agent 的文本模型配置'), findsOneWidget);
+    expect(find.text('尚未配置可用模型'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('a0-agent-open-ai-profiles')),
     );
@@ -163,7 +270,7 @@ void main() {
           key: const ValueKey<String>('failing-agent-settings'),
           settingsService: AgentSettingsService(
             configStore: _ConfigStore(failReads: true),
-            profileCatalog: _Catalog(const <AgentProfileSummary>[]),
+            profileCatalog: _Catalog(<AgentProfileSummary>[]),
           ),
         ),
       ),
