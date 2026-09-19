@@ -75,7 +75,8 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
         slot: widget.slot,
         modelRef: selected,
         expectedRevision: _current?.binding.revision,
-        temperature: _current?.binding.temperature ?? 0.7,
+        temperature: _current?.binding.temperature ??
+            (widget.slot == AiCapabilitySlot.documentRecognition ? 0.0 : 0.7),
         reasoningEffort: _current?.binding.reasoningEffort ?? '',
       );
       if (mounted) Navigator.of(context).pop(true);

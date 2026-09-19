@@ -374,7 +374,7 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
                           ),
                         )
                         .toList(growable: false),
-                    onChanged: _busy
+                    onChanged: _busy || existing
                         ? null
                         : (value) => setState(() => _kind = value!),
                   ),
@@ -411,9 +411,13 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
                   TextFormField(
                     key: const ValueKey<String>('provider-base-url-field'),
                     controller: _baseUrlController,
-                    decoration: const InputDecoration(
+                    readOnly: existing && _existing!.hasModelAuthority,
+                    decoration: InputDecoration(
                       labelText: 'Base URL',
-                      border: OutlineInputBorder(),
+                      helperText: existing && _existing!.hasModelAuthority
+                          ? '已有模型时不可修改，请新建 Provider 实例'
+                          : null,
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (value) => value == null || value.trim().isEmpty
                         ? '请输入 Base URL'

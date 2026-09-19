@@ -35,11 +35,13 @@ final class AiProviderOverview {
     required this.provider,
     required this.credentialState,
     required this.modelCount,
+    required this.hasModelAuthority,
   });
 
   final AiProviderRecord provider;
   final AiCredentialState credentialState;
   final int modelCount;
+  final bool hasModelAuthority;
 }
 
 abstract interface class AiConfigPresentationService {
@@ -192,6 +194,7 @@ final class AiConfigService implements AiConfigPresentationService {
                 (model) => model.availability == AiModelAvailability.available,
               )
               .length,
+          hasModelAuthority: models.isNotEmpty,
         ),
       );
     }
@@ -240,19 +243,28 @@ final class AiConfigService implements AiConfigPresentationService {
     required String baseUrl,
     String? replacementCredential,
   }) async {
-    if (displayName.trim().isEmpty || baseUrl.trim().isEmpty) {
+    final normalizedBaseUrl = baseUrl.trim();
+    if (displayName.trim().isEmpty || normalizedBaseUrl.isEmpty) {
       throw const AiConfigException(AiConfigFailure.invalidInput);
     }
     final current = await _repository.store.readProvider(providerId);
     if (current == null) {
       throw const AiConfigException(AiConfigFailure.providerNotFound);
     }
+    if (kind != current.kind) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
+    if (normalizedBaseUrl != current.baseUrl &&
+        (await _repository.store.listModels(providerId: providerId))
+            .isNotEmpty) {
+      throw const AiConfigException(AiConfigFailure.invalidInput);
+    }
     await _repository.updateProviderWithCredential(
       AiProviderRecord(
         providerId: current.providerId,
-        kind: kind,
+        kind: current.kind,
         displayName: displayName.trim(),
-        baseUrl: baseUrl.trim(),
+        baseUrl: normalizedBaseUrl,
         state: AiProviderState.ready,
         revision: current.revision + 1,
         createdAt: current.createdAt,

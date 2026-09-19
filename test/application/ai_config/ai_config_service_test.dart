@@ -226,6 +226,9 @@ void main() {
       ),
     );
     expect(await store.readBinding(AiCapabilitySlot.textModel), isNull);
+    final overview = (await service.listProviders()).single;
+    expect(overview.modelCount, 0);
+    expect(overview.hasModelAuthority, isTrue);
   });
 
   test('duplicate discovered canonical ids fail without snapshot mutation',
@@ -296,6 +299,110 @@ void main() {
     expect(updated!.displayName, 'Renamed');
     expect(updated.revision, 1);
     expect(await repository.credentialForProvider('provider-a'), 'secret');
+  });
+
+  test('Provider transport identity changes fail with zero authority mutation',
+      () async {
+    const modelRef = 'model-a';
+    final model = _model(modelRef, 'deepseek-v4-flash');
+    final claims = <AiCapabilityClaim>[
+      for (final capability in const <AiModelCapability>[
+        AiModelCapability.textInput,
+        AiModelCapability.textOutput,
+        AiModelCapability.toolCalling,
+      ])
+        AiCapabilityClaim(
+          modelRef: modelRef,
+          capability: capability,
+          source: AiCapabilityClaimSource.providerOfficial,
+          support: AiCapabilitySupport.supported,
+          assertedAt: 1,
+        ),
+    ];
+    final binding = AiCapabilityBinding(
+      slot: AiCapabilitySlot.textModel,
+      modelRef: modelRef,
+      temperature: 0.7,
+      reasoningEffort: '',
+      validationMode: AiBindingValidationMode.verified,
+      revision: 0,
+      updatedAt: 1,
+    );
+    await store.saveModel(model);
+    await store.saveClaims(
+      modelRef,
+      AiCapabilityClaimSource.providerOfficial,
+      claims,
+    );
+    await store.saveBinding(binding, expectedRevision: null);
+    final service = _service(repository, const _Connection([]));
+
+    for (final mutation in <({AiProviderKind kind, String baseUrl})>[
+      (
+        kind: AiProviderKind.gemini,
+        baseUrl: 'https://api.deepseek.com',
+      ),
+      (
+        kind: AiProviderKind.deepseek,
+        baseUrl: 'https://other.example.invalid',
+      ),
+    ]) {
+      await expectLater(
+        service.updateProvider(
+          providerId: 'provider-a',
+          expectedRevision: 0,
+          kind: mutation.kind,
+          displayName: 'Mutated',
+          baseUrl: mutation.baseUrl,
+          replacementCredential: 'replacement-secret',
+        ),
+        throwsA(
+          isA<AiConfigException>().having(
+            (error) => error.failure,
+            'failure',
+            AiConfigFailure.invalidInput,
+          ),
+        ),
+      );
+
+      final provider = await store.readProvider('provider-a');
+      expect(provider!.kind, AiProviderKind.deepseek);
+      expect(provider.displayName, 'DeepSeek');
+      expect(provider.baseUrl, 'https://api.deepseek.com');
+      expect(provider.revision, 0);
+      final persistedModel = await store.readModel(modelRef);
+      expect(persistedModel!.providerId, 'provider-a');
+      expect(persistedModel.canonicalModelId, 'deepseek-v4-flash');
+      final persistedClaims = await store.listClaims(modelRef);
+      expect(persistedClaims, hasLength(claims.length));
+      expect(
+        persistedClaims.map(
+          (claim) => (
+            claim.modelRef,
+            claim.capability,
+            claim.source,
+            claim.support,
+            claim.assertedAt,
+          ),
+        ),
+        unorderedEquals(
+          claims.map(
+            (claim) => (
+              claim.modelRef,
+              claim.capability,
+              claim.source,
+              claim.support,
+              claim.assertedAt,
+            ),
+          ),
+        ),
+      );
+      final persistedBinding =
+          await store.readBinding(AiCapabilitySlot.textModel);
+      expect(persistedBinding!.modelRef, modelRef);
+      expect(persistedBinding.revision, 0);
+      expect(await repository.credentialForProvider('provider-a'), 'secret');
+    }
   });
 }
 

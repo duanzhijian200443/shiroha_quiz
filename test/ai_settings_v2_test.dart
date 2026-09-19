@@ -119,6 +119,28 @@ void main() {
     );
     expect(field.controller!.text, isEmpty);
     expect(editable.obscureText, isTrue);
+    expect(
+      tester
+          .widget<DropdownButtonFormField<AiProviderKind>>(
+            find.byKey(const ValueKey<String>('provider-kind-field')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(
+                const ValueKey<String>('provider-base-url-field'),
+              ),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .readOnly,
+      isTrue,
+    );
+    expect(find.text('已有模型时不可修改，请新建 Provider 实例'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('provider-test-connection')),
@@ -175,6 +197,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.createCalls, 1);
+  });
+
+  testWidgets('first OCR binding uses the legacy zero temperature default', (
+    tester,
+  ) async {
+    final service = _UiAiConfigService();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AiModelSelectorScreen(
+          service: service,
+          slot: AiCapabilitySlot.documentRecognition,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('model-compatible-model')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('model-confirm-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(service.lastAppliedSlot, AiCapabilitySlot.documentRecognition);
+    expect(service.lastAppliedTemperature, 0.0);
   });
 
   testWidgets(
@@ -262,6 +311,8 @@ final class _UiAiConfigService implements AiConfigPresentationService {
   int providerRevision = 2;
   int? lastExpectedRevision;
   String? lastReplacementCredential;
+  AiCapabilitySlot? lastAppliedSlot;
+  double? lastAppliedTemperature;
 
   static final provider = AiProviderRecord(
     providerId: 'provider-p',
@@ -343,6 +394,7 @@ final class _UiAiConfigService implements AiConfigPresentationService {
           ),
           credentialState: AiCredentialState.present,
           modelCount: 2,
+          hasModelAuthority: true,
         ),
       ];
 
@@ -355,6 +407,8 @@ final class _UiAiConfigService implements AiConfigPresentationService {
     String reasoningEffort = '',
   }) async {
     applyCalls++;
+    lastAppliedSlot = slot;
+    lastAppliedTemperature = temperature;
   }
 
   @override
