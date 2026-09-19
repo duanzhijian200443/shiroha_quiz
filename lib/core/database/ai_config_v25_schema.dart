@@ -6,14 +6,15 @@ import 'sqflite_runtime.dart';
 /// Called inside DatabaseHelper's open transaction. Idempotent: a v24-shaped
 /// ai config schema is upgraded to v25, and an already-v25 shape (for example
 /// an onCreate-built database whose user_version was reset for a migration
-/// test) is accepted unchanged. Final state is still validated strictly.
+/// test) is accepted unchanged. The migration performs DDL and data work only;
+/// strict validation runs once at the end of the open, after the earlier-stage
+/// schema gates, so their typed failures keep precedence.
 Future<void> migrateAiConfigToV25(DatabaseExecutor db) async {
   await _ensureOriginColumn(db);
   await _ensureUserSelectedUnknownBindingCheck(db);
   for (final provider in await db.query('ai_providers')) {
     await installCuratedModels(db, provider);
   }
-  await validateAiConfigV25Schema(db);
 }
 
 Future<void> _ensureOriginColumn(DatabaseExecutor db) async {
