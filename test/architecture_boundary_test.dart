@@ -1048,7 +1048,7 @@ import '../../domain/content/content_node.dart'
       final mainSource = File('lib/main.dart').readAsStringSync();
       for (final requiredComposition in const <String>[
         'SqliteAgentConfigStore',
-        'AiEngineAgentProfileRepository',
+        'RegistryAgentProfileRepository',
         'AgentSettingsService',
         'AgentRuntimeConfigResolver',
         'AgentStudyToolDispatcher',
@@ -1067,6 +1067,13 @@ import '../../domain/content/content_node.dart'
           reason: 'main.dart must compose $requiredComposition.',
         );
       }
+      expect(
+        mainSource,
+        isNot(contains('AiEngineAgentProfileRepository')),
+        reason: 'Agent composition must resolve candidates from the '
+            'Provider / Model Registry, never the legacy ai_engines '
+            'projection.',
+      );
     });
   });
 }
