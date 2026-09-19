@@ -159,7 +159,7 @@ class _ProviderCard extends StatelessWidget {
       (AiCredentialState.missing, _, _) => '缺少 API Key',
       (AiCredentialState.unavailable, _, _) => '凭据暂不可用',
       (_, AiOperationStatus.failed, _) => '连接测试失败',
-      (_, _, AiOperationStatus.failed) => '模型同步失败',
+      (_, _, AiOperationStatus.failed) => '模型列表刷新失败',
       _ when provider.state == AiProviderState.legacyIncomplete => '需要完善配置',
       _ => '已就绪',
     };
@@ -189,7 +189,7 @@ class _ProviderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(status),
-                  Text('已同步 ${overview.modelCount} 个模型'),
+                  Text('当前可用 ${overview.modelCount} 个模型'),
                 ],
               ),
             ),
@@ -443,7 +443,7 @@ class _AiProviderEditorScreenState extends State<AiProviderEditorScreen> {
                               ? null
                               : () => _runExisting(widget.service.syncModels),
                           icon: const Icon(Icons.sync_rounded),
-                          label: const Text('同步模型'),
+                          label: const Text('刷新模型列表'),
                         ),
                     ],
                   ),
@@ -478,7 +478,7 @@ String _providerKindName(AiProviderKind kind) => switch (kind) {
 String _providerError(AiConfigFailure failure) => switch (failure) {
       AiConfigFailure.credentialMissing => '缺少 API Key',
       AiConfigFailure.connectionRejected => '连接被拒绝，请检查密钥',
-      AiConfigFailure.syncFailed => '模型同步失败，原有模型列表未改变',
+      AiConfigFailure.syncFailed => '模型列表刷新失败，原有模型列表未改变',
       AiConfigFailure.staleRevision => '配置已被更新，请返回后重试',
       AiConfigFailure.providerInUse => 'Provider 正在使用中，无法删除',
       AiConfigFailure.invalidInput => '配置内容无效，请检查后重试',

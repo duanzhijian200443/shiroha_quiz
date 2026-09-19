@@ -2,21 +2,39 @@ import '../../domain/ai_config/ai_config_contracts.dart';
 import '../../domain/ai_config/shiroha_capability_registry.dart';
 import 'ai_config_ports.dart';
 
+/// Slot-specific selection eligibility. Evidence-required models are usable
+/// candidates pending capability confirmation, not incompatible models.
+enum AiModelSelectionState {
+  selectable,
+  evidenceRequired,
+  unsupported,
+  unavailable
+}
+
 final class AiModelCompatibility {
   const AiModelCompatibility({
     required this.model,
     required this.provider,
     required this.capabilities,
-    required this.compatible,
+    required this.selectionState,
     required this.reasonCodes,
   });
 
   final AiModelRecord model;
   final AiProviderRecord provider;
   final Map<AiModelCapability, AiCapabilitySupport> capabilities;
-  final bool compatible;
+  final AiModelSelectionState selectionState;
   final List<String> reasonCodes;
+
+  bool get compatible => selectionState == AiModelSelectionState.selectable;
 }
+
+int _selectionOrder(AiModelSelectionState state) => switch (state) {
+      AiModelSelectionState.selectable => 0,
+      AiModelSelectionState.evidenceRequired => 1,
+      AiModelSelectionState.unsupported => 2,
+      AiModelSelectionState.unavailable => 3,
+    };
 
 final class AiCapabilityBindingSummary {
   const AiCapabilityBindingSummary({
@@ -300,8 +318,10 @@ final class AiConfigService implements AiConfigPresentationService {
       }
       final capabilities = await _resolvedCapabilities(model, provider);
       final reasons = <String>[];
+      var state = AiModelSelectionState.selectable;
       if (model.availability != AiModelAvailability.available) {
         reasons.add('modelUnavailable');
+        state = AiModelSelectionState.unavailable;
       }
       for (final required in slot.requiredCapabilities) {
         switch (capabilities[required] ?? AiCapabilitySupport.unknown) {
@@ -309,8 +329,14 @@ final class AiConfigService implements AiConfigPresentationService {
             break;
           case AiCapabilitySupport.unsupported:
             reasons.add('unsupported:${required.storageValue}');
+            if (state != AiModelSelectionState.unavailable) {
+              state = AiModelSelectionState.unsupported;
+            }
           case AiCapabilitySupport.unknown:
             reasons.add('unknown:${required.storageValue}');
+            if (state == AiModelSelectionState.selectable) {
+              state = AiModelSelectionState.evidenceRequired;
+            }
         }
       }
       result.add(
@@ -318,13 +344,15 @@ final class AiConfigService implements AiConfigPresentationService {
           model: model,
           provider: provider,
           capabilities: capabilities,
-          compatible: reasons.isEmpty,
+          selectionState: state,
           reasonCodes: List.unmodifiable(reasons),
         ),
       );
     }
     result.sort((left, right) {
-      if (left.compatible != right.compatible) return left.compatible ? -1 : 1;
+      final byState = _selectionOrder(left.selectionState)
+          .compareTo(_selectionOrder(right.selectionState));
+      if (byState != 0) return byState;
       final byProvider =
           left.provider.displayName.compareTo(right.provider.displayName);
       return byProvider != 0

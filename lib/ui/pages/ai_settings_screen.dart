@@ -164,7 +164,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                 key: const ValueKey<String>('ai-service-provider-row'),
                 icon: Icons.key_outlined,
                 title: 'API 提供商与密钥',
-                subtitle: '管理 Provider、连接状态与模型同步',
+                subtitle: '管理 Provider、连接状态与模型列表',
                 accentColor: theme.colorScheme.primary,
                 onTap: _openProviderSettings,
               ),

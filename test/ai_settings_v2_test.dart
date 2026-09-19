@@ -75,7 +75,7 @@ void main() {
     expect(service.applyCalls, 1);
   });
 
-  testWidgets('incompatible models are collapsed and expose exact reason', (
+  testWidgets('pending and unusable models collapse with accurate semantics', (
     tester,
   ) async {
     final service = _UiAiConfigService();
@@ -89,13 +89,45 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.textContaining('不兼容'), findsNothing);
     expect(find.textContaining('Incompatible Model'), findsNothing);
+    expect(find.textContaining('Offshelf Model'), findsNothing);
+    expect(find.text('能力待确认（1）'), findsOneWidget);
+    expect(find.text('当前不可使用（2）'), findsOneWidget);
+
     await tester.tap(
-      find.byKey(const ValueKey<String>('model-incompatible-toggle')),
+      find.byKey(const ValueKey<String>('model-evidence-required-toggle')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Pending Model'), findsOneWidget);
+    expect(find.text('模型能力待确认'), findsOneWidget);
+    expect(find.textContaining('textInput'), findsNothing);
+    expect(find.textContaining('unknown:'), findsNothing);
+    expect(find.textContaining('userDeclaration'), findsNothing);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('model-unavailable-toggle')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('model-unavailable-toggle')),
     );
     await tester.pumpAndSettle();
     expect(find.text('Incompatible Model'), findsOneWidget);
-    expect(find.textContaining('不支持所需能力'), findsOneWidget);
+    expect(find.text('不支持当前功能'), findsOneWidget);
+    expect(find.text('Offshelf Model'), findsOneWidget);
+    expect(find.text('Provider 已下架'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Incompatible Model'));
+    await tester.tap(find.text('Incompatible Model'));
+    await tester.pump();
+    await tester.ensureVisible(find.text('Offshelf Model'));
+    await tester.tap(find.text('Offshelf Model'));
+    await tester.pump();
+    final confirm = tester.widget<FilledButton>(
+      find.byKey(const ValueKey<String>('model-confirm-button')),
+    );
+    expect(confirm.onPressed, isNull);
+    expect(service.applyCalls, 0);
   });
 
   testWidgets('Provider editor never pre-fills credential plaintext', (
@@ -107,7 +139,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已同步 2 个模型'), findsOneWidget);
+    expect(find.text('当前可用 2 个模型'), findsOneWidget);
     await tester.tap(find.text('编辑'));
     await tester.pumpAndSettle();
     final fieldFinder = find.byKey(
@@ -335,12 +367,32 @@ final class _UiAiConfigService implements AiConfigPresentationService {
     lastSeenAt: 2,
   );
 
+  static final pending = AiModelRecord(
+    modelRef: 'pending-model',
+    providerId: provider.providerId,
+    canonicalModelId: 'pending-canonical',
+    displayName: 'Pending Model',
+    availability: AiModelAvailability.available,
+    firstSeenAt: 1,
+    lastSeenAt: 2,
+  );
+
   static final incompatible = AiModelRecord(
     modelRef: 'incompatible-model',
     providerId: provider.providerId,
     canonicalModelId: 'incompatible-canonical',
     displayName: 'Incompatible Model',
     availability: AiModelAvailability.available,
+    firstSeenAt: 1,
+    lastSeenAt: 2,
+  );
+
+  static final offshelf = AiModelRecord(
+    modelRef: 'offshelf-model',
+    providerId: provider.providerId,
+    canonicalModelId: 'offshelf-canonical',
+    displayName: 'Offshelf Model',
+    availability: AiModelAvailability.unavailable,
     firstSeenAt: 1,
     lastSeenAt: 2,
   );
@@ -363,8 +415,21 @@ final class _UiAiConfigService implements AiConfigPresentationService {
             AiModelCapability.textInput: AiCapabilitySupport.supported,
             AiModelCapability.textOutput: AiCapabilitySupport.supported,
           },
-          compatible: true,
+          selectionState: AiModelSelectionState.selectable,
           reasonCodes: const <String>[],
+        ),
+        AiModelCompatibility(
+          model: pending,
+          provider: provider,
+          capabilities: const <AiModelCapability, AiCapabilitySupport>{
+            AiModelCapability.textInput: AiCapabilitySupport.unknown,
+            AiModelCapability.textOutput: AiCapabilitySupport.unknown,
+          },
+          selectionState: AiModelSelectionState.evidenceRequired,
+          reasonCodes: const <String>[
+            'unknown:textInput',
+            'unknown:textOutput',
+          ],
         ),
         AiModelCompatibility(
           model: incompatible,
@@ -373,8 +438,22 @@ final class _UiAiConfigService implements AiConfigPresentationService {
             AiModelCapability.textInput: AiCapabilitySupport.unsupported,
             AiModelCapability.textOutput: AiCapabilitySupport.supported,
           },
-          compatible: false,
+          selectionState: AiModelSelectionState.unsupported,
           reasonCodes: const <String>['unsupported:textInput'],
+        ),
+        AiModelCompatibility(
+          model: offshelf,
+          provider: provider,
+          capabilities: const <AiModelCapability, AiCapabilitySupport>{
+            AiModelCapability.textInput: AiCapabilitySupport.unknown,
+            AiModelCapability.textOutput: AiCapabilitySupport.unknown,
+          },
+          selectionState: AiModelSelectionState.unavailable,
+          reasonCodes: const <String>[
+            'modelUnavailable',
+            'unknown:textInput',
+            'unknown:textOutput',
+          ],
         ),
       ];
 

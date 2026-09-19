@@ -22,7 +22,8 @@ class AiModelSelectorScreen extends StatefulWidget {
 class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
   bool _loading = true;
   bool _saving = false;
-  bool _showIncompatible = false;
+  bool _showPending = false;
+  bool _showUnusable = false;
   List<AiModelCompatibility> _models = const <AiModelCompatibility>[];
   AiCapabilityBindingSummary? _current;
   String? _selectedModelRef;
@@ -93,8 +94,24 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final compatible = _models.where((model) => model.compatible).toList();
-    final incompatible = _models.where((model) => !model.compatible).toList();
+    final selectable = _models
+        .where(
+          (model) => model.selectionState == AiModelSelectionState.selectable,
+        )
+        .toList();
+    final pending = _models
+        .where(
+          (model) =>
+              model.selectionState == AiModelSelectionState.evidenceRequired,
+        )
+        .toList();
+    final unusable = _models
+        .where(
+          (model) =>
+              model.selectionState == AiModelSelectionState.unsupported ||
+              model.selectionState == AiModelSelectionState.unavailable,
+        )
+        .toList();
     return Scaffold(
       appBar: AppBar(title: Text('选择模型 · ${_slotName(widget.slot)}')),
       body: _loading
@@ -110,20 +127,20 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                     _Notice(message: _message!),
                     const SizedBox(height: 16),
                   ],
-                  const ShirohaSectionLabel('兼容模型'),
+                  const ShirohaSectionLabel('可使用'),
                   const SizedBox(height: 8),
-                  if (compatible.isEmpty)
-                    const ShirohaSurfaceCard(
+                  if (selectable.isEmpty)
+                    ShirohaSurfaceCard(
                       child: Padding(
-                        padding: EdgeInsets.all(
+                        padding: const EdgeInsets.all(
                           DesignTokens.cardInternalPadding,
                         ),
-                        child: Text('暂无已验证兼容的模型，请先同步 Provider 模型。'),
+                        child: Text(_emptyStateMessage),
                       ),
                     )
                   else
                     for (final entry
-                        in _groupByProvider(compatible).entries) ...[
+                        in _groupByProvider(selectable).entries) ...[
                       Padding(
                         padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
                         child: Text(
@@ -137,18 +154,37 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                             .toList(growable: false),
                       ),
                     ],
-                  if (incompatible.isNotEmpty) ...<Widget>[
+                  if (pending.isNotEmpty) ...<Widget>[
                     const SizedBox(height: DesignTokens.sectionGap),
                     ShirohaSurfaceCard(
                       child: ExpansionTile(
-                        key:
-                            const ValueKey<String>('model-incompatible-toggle'),
-                        title: Text('不兼容模型（${incompatible.length}）'),
-                        subtitle: const Text('展开查看具体原因'),
-                        initiallyExpanded: _showIncompatible,
+                        key: const ValueKey<String>(
+                          'model-evidence-required-toggle',
+                        ),
+                        title: Text('能力待确认（${pending.length}）'),
+                        subtitle: const Text('展开查看具体模型'),
+                        initiallyExpanded: _showPending,
                         onExpansionChanged: (value) =>
-                            setState(() => _showIncompatible = value),
-                        children: incompatible
+                            setState(() => _showPending = value),
+                        children: pending
+                            .map((model) => _modelTile(model, enabled: false))
+                            .toList(growable: false),
+                      ),
+                    ),
+                  ],
+                  if (unusable.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: DesignTokens.sectionGap),
+                    ShirohaSurfaceCard(
+                      child: ExpansionTile(
+                        key: const ValueKey<String>(
+                          'model-unavailable-toggle',
+                        ),
+                        title: Text('当前不可使用（${unusable.length}）'),
+                        subtitle: const Text('展开查看具体原因'),
+                        initiallyExpanded: _showUnusable,
+                        onExpansionChanged: (value) =>
+                            setState(() => _showUnusable = value),
+                        children: unusable
                             .map((model) => _modelTile(model, enabled: false))
                             .toList(growable: false),
                       ),
@@ -171,6 +207,19 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
               ),
             ),
     );
+  }
+
+  String get _emptyStateMessage {
+    if (_models.isEmpty) {
+      return '尚未发现任何模型，请前往 Provider 页面刷新模型列表。';
+    }
+    final hasPending = _models.any(
+      (model) => model.selectionState == AiModelSelectionState.evidenceRequired,
+    );
+    if (hasPending) {
+      return '已发现模型，但能力待确认，暂时无法选择；刷新模型列表不会自动完成能力确认。';
+    }
+    return '当前没有可用于此功能的模型。';
   }
 
   Widget _modelTile(AiModelCompatibility item, {required bool enabled}) {
@@ -211,8 +260,13 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                item.reasonCodes.map(_reasonName).join('；'),
-                style: TextStyle(color: colors.error),
+                _stateLabel(item.selectionState),
+                style: TextStyle(
+                  color: item.selectionState ==
+                          AiModelSelectionState.evidenceRequired
+                      ? colors.onSurfaceVariant
+                      : colors.error,
+                ),
               ),
             ),
         ],
@@ -247,19 +301,17 @@ String _capabilityName(AiModelCapability capability) => switch (capability) {
       AiModelCapability.embedding => '向量',
     };
 
-String _reasonName(String reason) {
-  if (reason == 'modelUnavailable') return 'Provider 已不再提供该模型';
-  if (reason.startsWith('unknown:')) return '能力尚未验证：${reason.substring(8)}';
-  if (reason.startsWith('unsupported:')) {
-    return '不支持所需能力：${reason.substring(12)}';
-  }
-  return '当前能力不兼容';
-}
+String _stateLabel(AiModelSelectionState state) => switch (state) {
+      AiModelSelectionState.selectable => '可使用',
+      AiModelSelectionState.evidenceRequired => '模型能力待确认',
+      AiModelSelectionState.unsupported => '不支持当前功能',
+      AiModelSelectionState.unavailable => 'Provider 已下架',
+    };
 
 String _bindingError(AiConfigFailure failure) => switch (failure) {
       AiConfigFailure.staleRevision => '配置已在其他位置更新，请重新选择',
       AiConfigFailure.modelUnavailable => '该模型已不可用',
-      AiConfigFailure.capabilityUnknown => '模型能力尚未验证',
+      AiConfigFailure.capabilityUnknown => '模型能力待确认',
       AiConfigFailure.capabilityUnsupported => '模型不支持当前能力',
       _ => '应用失败，请刷新后重试',
     };

@@ -43,6 +43,110 @@ void main() {
     expect(models.last.compatible, isFalse);
   });
 
+  test('selection state classifies eligibility with fixed priority', () async {
+    await store.saveModel(_model('sel', 'deepseek-v4-flash'));
+    await store.saveModel(_model('unknown-only', 'mystery-model'));
+    await store.saveModel(_model('unsupported', 'partial-model'));
+    await store.saveModel(_model('mixed', 'mixed-model'));
+    await store.saveClaims(
+      'unsupported',
+      AiCapabilityClaimSource.userDeclaration,
+      <AiCapabilityClaim>[
+        AiCapabilityClaim(
+          modelRef: 'unsupported',
+          capability: AiModelCapability.textInput,
+          source: AiCapabilityClaimSource.userDeclaration,
+          support: AiCapabilitySupport.unsupported,
+          assertedAt: 1,
+        ),
+      ],
+    );
+    await store.saveClaims(
+      'mixed',
+      AiCapabilityClaimSource.userDeclaration,
+      <AiCapabilityClaim>[
+        AiCapabilityClaim(
+          modelRef: 'mixed',
+          capability: AiModelCapability.textInput,
+          source: AiCapabilityClaimSource.userDeclaration,
+          support: AiCapabilitySupport.unsupported,
+          assertedAt: 1,
+        ),
+      ],
+    );
+    await store.saveModel(
+      AiModelRecord(
+        modelRef: 'dead-b',
+        providerId: 'provider-a',
+        canonicalModelId: 'dead-b-model',
+        displayName: 'B-dead',
+        availability: AiModelAvailability.unavailable,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    await store.saveModel(
+      AiModelRecord(
+        modelRef: 'dead-a',
+        providerId: 'provider-a',
+        canonicalModelId: 'dead-a-model',
+        displayName: 'A-dead',
+        availability: AiModelAvailability.unavailable,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    await store.saveClaims(
+      'dead-a',
+      AiCapabilityClaimSource.userDeclaration,
+      <AiCapabilityClaim>[
+        AiCapabilityClaim(
+          modelRef: 'dead-a',
+          capability: AiModelCapability.textInput,
+          source: AiCapabilityClaimSource.userDeclaration,
+          support: AiCapabilitySupport.unsupported,
+          assertedAt: 1,
+        ),
+      ],
+    );
+    final service = _service(repository, const _Connection([]));
+
+    final models = await service.listModelsForSlot(AiCapabilitySlot.textModel);
+
+    expect(
+      models.map((item) => item.model.modelRef).toList(),
+      <String>[
+        'sel',
+        'unknown-only',
+        'mixed',
+        'unsupported',
+        'dead-a',
+        'dead-b',
+      ],
+    );
+    final stateByRef = {
+      for (final item in models) item.model.modelRef: item.selectionState,
+    };
+    expect(
+      stateByRef,
+      <String, AiModelSelectionState>{
+        'sel': AiModelSelectionState.selectable,
+        'unknown-only': AiModelSelectionState.evidenceRequired,
+        'mixed': AiModelSelectionState.unsupported,
+        'unsupported': AiModelSelectionState.unsupported,
+        'dead-a': AiModelSelectionState.unavailable,
+        'dead-b': AiModelSelectionState.unavailable,
+      },
+    );
+    expect(models.first.compatible, isTrue);
+    expect(
+      models.where((item) => item.model.modelRef != 'sel').map(
+            (item) => item.compatible,
+          ),
+      everyElement(isFalse),
+    );
+  });
+
   test('binding requires evidence and compare-and-set revision', () async {
     await store.saveModel(_model('model-a', 'unknown-model'));
     final service = _service(repository, const _Connection([]));
