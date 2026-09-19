@@ -2443,4 +2443,168 @@ void main() {
       });
     });
   });
+
+  group('embedded structural image region ownership', () {
+    const pngDataUrl = 'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+    OcrBlock block(
+      String id,
+      String type,
+      String text,
+      int order, {
+      OcrImagePayload? imagePayload,
+    }) {
+      return OcrBlock(
+        blockId: id,
+        pageIndex: 1,
+        type: type,
+        text: text,
+        bbox: const [],
+        readingOrder: order,
+        imagePayload: imagePayload,
+      );
+    }
+
+    OcrDocument document(List<OcrBlock> blocks) {
+      return OcrDocument(
+        sourceName: 'figure_region.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [OcrPage(pageIndex: 1, blocks: blocks)],
+      );
+    }
+
+    test('fixture A: baseline text question with embedded image keeps region',
+        () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('section', 'text', '三、解答题', 0),
+        block('q_1', 'text', '1. Prompt before image', 1),
+        block('img_001', 'image', pngDataUrl, 2),
+        block('answer_1', 'text', '答案：A', 3),
+        block('explanation_1', 'text', '解析：Because', 4),
+      ]));
+
+      expect(result.regions, hasLength(1));
+      final region = result.regions.single;
+      expect(region.number, 1);
+      expect(region.stemText, contains('Prompt before image'));
+      expect(
+        region.ownedSources.map((source) => source.blockId),
+        containsAll(<String>['q_1', 'img_001']),
+      );
+      expect(
+        region.ownedSources
+            .where((source) => source.blockId == 'img_001')
+            .single
+            .field,
+        OcrRegionField.stem,
+      );
+      expect(region.answerText, 'A');
+    });
+
+    test(
+        'fixture B: accepted standalone marker followed only by a structural '
+        'image keeps the region and the owned image source', () {
+      final payload = OcrImagePayload.fromDataUrl(pngDataUrl);
+      expect(payload, isNotNull);
+
+      // Source layer fact: the OcrDocument carries the structural image.
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('section', 'text', '三、解答题', 0),
+        block('q_1', 'text', '1.', 1),
+        block('img_001', 'image', '', 2, imagePayload: payload),
+        block('q_2', 'text', '2. Next question stem', 3),
+      ]));
+
+      expect(result.regions.map((region) => region.number), [1, 2]);
+      final q1 = result.regions.first;
+      expect(
+        q1.ownedSources.map((source) => source.blockId),
+        contains('img_001'),
+      );
+      expect(
+        q1.ownedSources
+            .where((source) => source.blockId == 'img_001')
+            .single
+            .field,
+        OcrRegionField.stem,
+      );
+    });
+
+    test('fixture C: placeholder image text with payload is not duplicated',
+        () {
+      final payload = OcrImagePayload.fromDataUrl(pngDataUrl);
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('section', 'text', '三、解答题', 0),
+        block('q_1', 'text', '1. Prompt', 1),
+        block('img_001', 'image', '[图片]', 2, imagePayload: payload),
+        block('answer_1', 'text', '答案：A', 3),
+      ]));
+
+      expect(result.regions, hasLength(1));
+      final region = result.regions.single;
+      expect(
+        region.stemParts.where((part) => part.contains('图片')),
+        hasLength(1),
+      );
+      expect(
+        region.ownedSources.where((source) => source.blockId == 'img_001'),
+        hasLength(1),
+      );
+    });
+
+    test('fixture D: decorative logo and footer images stay question-unowned',
+        () {
+      final payload = OcrImagePayload.fromDataUrl(pngDataUrl);
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('logo', 'image', '', 0, imagePayload: payload),
+        block('section', 'text', '三、解答题', 1),
+        block('q_1', 'text', '1. Prompt', 2),
+        block('answer_1', 'text', '答案：A', 3),
+        block('section2', 'text', '四、解答题', 4),
+        block('footer', 'image', '', 5, imagePayload: payload),
+      ]));
+
+      expect(result.regions.map((region) => region.number), [1]);
+      final q1 = result.regions.single;
+      expect(q1.sourceBlockIds, isNot(contains('logo')));
+      expect(q1.sourceBlockIds, isNot(contains('footer')));
+      expect(
+        q1.ownedSources.map((source) => source.blockId),
+        isNot(contains('logo')),
+      );
+      expect(
+        q1.ownedSources.map((source) => source.blockId),
+        isNot(contains('footer')),
+      );
+    });
+
+    test('fixture E: consecutive structural and text questions keep numbering',
+        () {
+      final payload = OcrImagePayload.fromDataUrl(pngDataUrl);
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('section', 'text', '三、解答题', 0),
+        block('q_1', 'text', '1.', 1),
+        block('img_001', 'image', '', 2, imagePayload: payload),
+        block('q_2', 'text', '2. Text question stem', 3),
+        block('answer_2', 'text', '答案：B', 4),
+      ]));
+
+      expect(result.regions.map((region) => region.number), [1, 2]);
+      expect(result.diagnostics['acceptedNumbers'], [1, 2]);
+      expect(
+        result.regions.first.ownedSources.map((source) => source.blockId),
+        contains('img_001'),
+      );
+      final q2 = result.regions.last;
+      expect(q2.stemText, contains('Text question stem'));
+      expect(
+        q2.ownedSources.map((source) => source.blockId),
+        isNot(contains('img_001')),
+      );
+    });
+  });
 }

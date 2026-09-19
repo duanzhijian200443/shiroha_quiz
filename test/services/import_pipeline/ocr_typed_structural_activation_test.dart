@@ -266,6 +266,102 @@ void main() {
     );
     expect(snapshot.baselineLegacy.explanation, expected);
   });
+
+  test('image-only structural question survives regionizer, bridge and gate',
+      () {
+    const dataUrl = 'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    final payload = OcrImagePayload.fromDataUrl(dataUrl);
+    expect(payload, isNotNull);
+    final document = _document(<OcrBlock>[
+      _block('section', 'text', '三、解答题', 0),
+      _block('q_1', 'text', '1.', 1),
+      OcrBlock(
+        blockId: 'img_001',
+        pageIndex: 1,
+        type: 'image',
+        text: '',
+        bbox: const <double>[],
+        readingOrder: 2,
+        imagePayload: payload,
+      ),
+      _block('q_2', 'text', '2. Text question stem', 3),
+      _block('answer_2', 'text', '答案：synthetic-result-2', 4),
+    ]);
+    final regionized = const OcrQuestionRegionizer().regionize(document);
+    expect(regionized.regions.map((region) => region.number), [1, 2]);
+
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final legacyQuestions = <Map<String, dynamic>>[
+      for (final region in regionized.regions)
+        const OcrQuestionAssembler().assemble(region).question,
+    ];
+    final batch = buildOcrTypedCandidateBatch(
+      document: document,
+      regions: regionized.regions,
+      legacyQuestions: legacyQuestions,
+      uuidV4Factory: _uuidSequenceForCandidates(2),
+      assetStore: store,
+      explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+    );
+
+    expect(batch.failure, isNull, reason: '${batch.failure}');
+    expect(batch.candidates, hasLength(2));
+    final imageDraft = batch.candidates.first.draft;
+    expect(imageDraft.stem.nodes.whereType<ImageNode>(), hasLength(1));
+    expect(
+      imageDraft.stem.nodes.whereType<ImageNode>().single.localAssetId,
+      'img_001',
+    );
+    expect(imageDraft.stem.nodes.whereType<TextNode>(), isEmpty);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNotNull,
+    );
+    expect(
+      batch.candidateAssetLease?.localAssetIds,
+      <String>['img_001'],
+    );
+
+    final finalQuestions = finalizeAndAuditImportQuestions(
+      legacyQuestions,
+      mode: ExplanationRetentionMode.allQuestionTypes,
+    );
+    final gate = applyOcrTypedCandidateGate(
+      batch: batch,
+      finalQuestions: finalQuestions,
+      singleFile: true,
+      contentAssetAuthority: store,
+    );
+    expect(gate.route, ImportStorageRoute.typedV2, reason: gate.reason);
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+      gate.questions.first[TypedReviewSnapshotCodec.mapKey],
+    );
+    expect(
+      snapshot.draft.stem.nodes.whereType<ImageNode>(),
+      hasLength(1),
+    );
+    expect(
+      snapshot.draft.stem.nodes.whereType<ImageNode>().single.localAssetId,
+      'img_001',
+    );
+  });
+}
+
+String Function() _uuidSequenceForCandidates(int candidateCount) {
+  var index = 0;
+  String tail(int value) => value.toString().padLeft(12, '0');
+  return () {
+    final id = switch (index) {
+      0 => _sourceId,
+      _ => index.isOdd
+          ? '22222222-2222-4222-8222-${tail(index)}'
+          : '33333333-3333-4333-8333-${tail(index)}',
+    };
+    index++;
+    return id;
+  };
 }
 
 String Function() _uuidSequence() {
