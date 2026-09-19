@@ -10,6 +10,7 @@ abstract interface class AiConfigStorePort {
   Future<List<AiModelRecord>> listModels({String? providerId});
   Future<AiModelRecord?> readModel(String modelRef);
   Future<void> saveModel(AiModelRecord model);
+  Future<String> saveCustomModel(AiModelRecord model);
   Future<void> deleteModel(String modelRef);
   Future<List<AiCapabilityClaim>> listClaims(String modelRef);
   Future<void> replaceModelSnapshot({

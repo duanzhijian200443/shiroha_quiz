@@ -25,7 +25,7 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  test('v23 staged backup migrates through DatabaseHelper to v24', () async {
+  test('v23 staged backup migrates through DatabaseHelper to v25', () async {
     final path = p.join(tempDir.path, 'staged-v23.db');
     final seed = await DatabaseHelper.instance.openPathForTesting(path);
     await seed.insert('ai_engines', <String, Object?>{
@@ -53,7 +53,7 @@ void main() {
     try {
       expect(
         (await migrated.rawQuery('PRAGMA user_version')).single['user_version'],
-        24,
+        25,
       );
       expect(
         (await migrated.query('ai_providers')).single['provider_id'],

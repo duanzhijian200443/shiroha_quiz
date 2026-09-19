@@ -281,6 +281,7 @@ final class AiConfigRepository implements AiConfigServiceRepositoryPort {
         }
         await _store.saveModel(
           AiModelRecord(
+            origin: current.origin,
             modelRef: current.modelRef,
             providerId: current.providerId,
             canonicalModelId: current.canonicalModelId,

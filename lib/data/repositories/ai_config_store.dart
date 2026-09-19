@@ -1,5 +1,6 @@
 import '../../application/ai_config/ai_config_ports.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/database/ai_config_v25_schema.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../domain/ai_config/ai_config_contracts.dart';
 
@@ -37,7 +38,10 @@ final class SqliteAiConfigStore implements AiConfigStorePort {
     }
     final db = await _databaseHelper.database;
     try {
-      await db.insert('ai_providers', _providerToRow(provider));
+      await db.transaction((txn) async {
+        await txn.insert('ai_providers', _providerToRow(provider));
+        await installCuratedModels(txn, _providerToRow(provider));
+      });
     } on DatabaseException catch (error) {
       throw AiConfigException(
         error.isUniqueConstraintError()
@@ -111,6 +115,36 @@ final class SqliteAiConfigStore implements AiConfigStorePort {
   }
 
   @override
+  Future<String> saveCustomModel(AiModelRecord model) async {
+    final db = await _databaseHelper.database;
+    return db.transaction((txn) async {
+      final providers = await txn.query('ai_providers',
+          where: 'provider_id = ?', whereArgs: [model.providerId]);
+      if (providers.isEmpty) {
+        throw const AiConfigException(AiConfigFailure.providerNotFound);
+      }
+      final rows = await txn.query('ai_models',
+          where: 'provider_id = ? AND canonical_model_id = ?',
+          whereArgs: [model.providerId, model.canonicalModelId]);
+      final prior = rows.isEmpty ? null : _modelFromRow(rows.single);
+      // A custom confirmation cannot take ownership of a special curated model.
+      if (prior?.origin == AiModelOrigin.curated) return prior!.modelRef;
+      final saved = AiModelRecord(
+        modelRef: prior?.modelRef ?? model.modelRef,
+        providerId: model.providerId,
+        canonicalModelId: model.canonicalModelId,
+        displayName: model.displayName,
+        origin: AiModelOrigin.userDefined,
+        availability: AiModelAvailability.available,
+        firstSeenAt: prior?.firstSeenAt ?? model.firstSeenAt,
+        lastSeenAt: prior?.lastSeenAt ?? model.lastSeenAt,
+      );
+      await _upsertModel(txn, saved);
+      return saved.modelRef;
+    });
+  }
+
+  @override
   Future<void> deleteModel(String modelRef) async {
     final db = await _databaseHelper.database;
     final changed = await db.delete(
@@ -173,7 +207,7 @@ final class SqliteAiConfigStore implements AiConfigStorePort {
       await txn.update(
         'ai_models',
         <String, Object?>{'availability': 'unavailable'},
-        where: 'provider_id = ?',
+        where: "provider_id = ? AND origin = 'providerCatalog'",
         whereArgs: <Object?>[providerId],
       );
       for (final model in models) {
@@ -182,25 +216,36 @@ final class SqliteAiConfigStore implements AiConfigStorePort {
         }
         final existing = await txn.query(
           'ai_models',
-          columns: const <String>['first_seen_at'],
+          columns: const <String>['first_seen_at', 'origin', 'model_ref'],
           where: 'provider_id = ? AND canonical_model_id = ?',
           whereArgs: <Object?>[providerId, model.canonicalModelId],
           limit: 1,
         );
-        await _upsertModel(
-          txn,
-          AiModelRecord(
-            modelRef: model.modelRef,
-            providerId: model.providerId,
-            canonicalModelId: model.canonicalModelId,
-            displayName: model.displayName,
-            availability: AiModelAvailability.available,
-            firstSeenAt: existing.isEmpty
-                ? model.firstSeenAt
-                : existing.single['first_seen_at']! as int,
-            lastSeenAt: syncedAt,
-          ),
-        );
+        if (existing.isNotEmpty &&
+            existing.single['model_ref'] != model.modelRef) {
+          throw const AiConfigException(AiConfigFailure.staleRevision);
+        }
+        final priorOrigin = existing.isEmpty
+            ? null
+            : AiModelOrigin.parse(existing.single['origin']);
+        if (priorOrigin != AiModelOrigin.curated &&
+            priorOrigin != AiModelOrigin.userDefined) {
+          await _upsertModel(
+            txn,
+            AiModelRecord(
+              origin: AiModelOrigin.providerCatalog,
+              modelRef: model.modelRef,
+              providerId: model.providerId,
+              canonicalModelId: model.canonicalModelId,
+              displayName: model.displayName,
+              availability: AiModelAvailability.available,
+              firstSeenAt: existing.isEmpty
+                  ? model.firstSeenAt
+                  : existing.single['first_seen_at']! as int,
+              lastSeenAt: syncedAt,
+            ),
+          );
+        }
         await txn.delete(
           'ai_model_capability_claims',
           where: 'model_ref = ? AND source = ?',
@@ -439,6 +484,7 @@ Map<String, Object?> _providerToRow(AiProviderRecord value) =>
     };
 
 AiModelRecord _modelFromRow(Map<String, Object?> row) => AiModelRecord(
+      origin: AiModelOrigin.parse(row['origin']),
       modelRef: row['model_ref']! as String,
       providerId: row['provider_id']! as String,
       canonicalModelId: row['canonical_model_id']! as String,
@@ -454,6 +500,7 @@ Map<String, Object?> _modelToRow(AiModelRecord value) => <String, Object?>{
       'canonical_model_id': value.canonicalModelId,
       'display_name': value.displayName,
       'availability': value.availability.storageValue,
+      'origin': value.origin.name,
       'first_seen_at': value.firstSeenAt,
       'last_seen_at': value.lastSeenAt,
     };

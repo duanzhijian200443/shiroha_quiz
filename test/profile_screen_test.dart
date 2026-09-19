@@ -377,6 +377,7 @@ final class _ProfileAiConfigService implements AiConfigPresentationService {
       updatedAt: 1,
     );
     final model = AiModelRecord(
+      origin: AiModelOrigin.providerCatalog,
       modelRef: 'model-$index',
       providerId: provider.providerId,
       canonicalModelId: 'canonical-$index',

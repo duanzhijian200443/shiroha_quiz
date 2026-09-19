@@ -2,14 +2,8 @@ import '../../domain/ai_config/ai_config_contracts.dart';
 import '../../domain/ai_config/shiroha_capability_registry.dart';
 import 'ai_config_ports.dart';
 
-/// Slot-specific selection eligibility. Evidence-required models are usable
-/// candidates pending capability confirmation, not incompatible models.
-enum AiModelSelectionState {
-  selectable,
-  evidenceRequired,
-  unsupported,
-  unavailable
-}
+/// Slot-specific policy. Unknown evidence remains unknown but permits selection.
+enum AiModelSelectionState { selectable, unannotated, unsupported, unavailable }
 
 final class AiModelCompatibility {
   const AiModelCompatibility({
@@ -26,12 +20,14 @@ final class AiModelCompatibility {
   final AiModelSelectionState selectionState;
   final List<String> reasonCodes;
 
-  bool get compatible => selectionState == AiModelSelectionState.selectable;
+  bool get compatible =>
+      selectionState == AiModelSelectionState.selectable ||
+      selectionState == AiModelSelectionState.unannotated;
 }
 
 int _selectionOrder(AiModelSelectionState state) => switch (state) {
       AiModelSelectionState.selectable => 0,
-      AiModelSelectionState.evidenceRequired => 1,
+      AiModelSelectionState.unannotated => 1,
       AiModelSelectionState.unsupported => 2,
       AiModelSelectionState.unavailable => 3,
     };
@@ -89,6 +85,10 @@ abstract interface class AiConfigPresentationService {
     String? credential,
   });
   Future<void> syncModels(String providerId);
+  Future<String> addCustomModel(
+      {required String providerId,
+      required String canonicalModelId,
+      String? displayName});
   Future<void> applyBinding({
     required AiCapabilitySlot slot,
     required String modelRef,
@@ -148,6 +148,12 @@ final class UnavailableAiConfigPresentationService
       _unavailable();
   @override
   Future<void> syncModels(String providerId) => _unavailable();
+  @override
+  Future<String> addCustomModel(
+          {required String providerId,
+          required String canonicalModelId,
+          String? displayName}) =>
+      _unavailable();
   @override
   Future<void> applyBinding({
     required AiCapabilitySlot slot,
@@ -312,6 +318,7 @@ final class AiConfigService implements AiConfigPresentationService {
     };
     final result = <AiModelCompatibility>[];
     for (final model in await _repository.store.listModels()) {
+      if (model.availability != AiModelAvailability.available) continue;
       final provider = providers[model.providerId];
       if (provider == null) {
         throw const AiConfigException(AiConfigFailure.dataCorrupt);
@@ -335,7 +342,7 @@ final class AiConfigService implements AiConfigPresentationService {
           case AiCapabilitySupport.unknown:
             reasons.add('unknown:${required.storageValue}');
             if (state == AiModelSelectionState.selectable) {
-              state = AiModelSelectionState.evidenceRequired;
+              state = AiModelSelectionState.unannotated;
             }
         }
       }
@@ -382,6 +389,7 @@ final class AiConfigService implements AiConfigPresentationService {
       throw const AiConfigException(AiConfigFailure.dataCorrupt);
     }
     final capabilities = await _resolvedCapabilities(model, provider);
+    var hasUnknown = false;
     for (final required in slot.requiredCapabilities) {
       switch (capabilities[required] ?? AiCapabilitySupport.unknown) {
         case AiCapabilitySupport.supported:
@@ -389,7 +397,7 @@ final class AiConfigService implements AiConfigPresentationService {
         case AiCapabilitySupport.unsupported:
           throw const AiConfigException(AiConfigFailure.capabilityUnsupported);
         case AiCapabilitySupport.unknown:
-          throw const AiConfigException(AiConfigFailure.capabilityUnknown);
+          hasUnknown = true;
       }
     }
     final current = await _repository.store.readBinding(slot);
@@ -402,12 +410,35 @@ final class AiConfigService implements AiConfigPresentationService {
         modelRef: modelRef,
         temperature: temperature,
         reasoningEffort: reasoningEffort,
-        validationMode: AiBindingValidationMode.verified,
+        validationMode: hasUnknown
+            ? AiBindingValidationMode.userSelectedUnknown
+            : AiBindingValidationMode.verified,
         revision: (expectedRevision ?? -1) + 1,
         updatedAt: _clock(),
       ),
       expectedRevision: expectedRevision,
     );
+  }
+
+  @override
+  Future<String> addCustomModel(
+      {required String providerId,
+      required String canonicalModelId,
+      String? displayName}) async {
+    final id = validateCanonicalModelId(canonicalModelId);
+    final now = _clock();
+    return _repository.store.saveCustomModel(AiModelRecord(
+      modelRef: validateAiConfigId(_modelRefFactory()),
+      providerId: providerId,
+      canonicalModelId: id,
+      displayName: displayName == null || displayName.trim().isEmpty
+          ? id
+          : displayName.trim(),
+      origin: AiModelOrigin.userDefined,
+      availability: AiModelAvailability.available,
+      firstSeenAt: now,
+      lastSeenAt: now,
+    ));
   }
 
   @override
@@ -472,6 +503,8 @@ final class AiConfigService implements AiConfigPresentationService {
       );
       await _replaceModelSnapshot(provider, snapshot);
     } catch (_) {
+      // Quota, entitlement, authentication and invocation failures are runtime
+      // errors, never capability evidence. No failure path writes claims.
       await _markSyncFailed(provider);
       throw const AiConfigException(AiConfigFailure.syncFailed);
     }
@@ -499,6 +532,7 @@ final class AiConfigService implements AiConfigPresentationService {
           prior?.modelRef ?? validateAiConfigId(_modelRefFactory());
       models.add(
         AiModelRecord(
+          origin: AiModelOrigin.providerCatalog,
           modelRef: modelRef,
           providerId: provider.providerId,
           canonicalModelId: discovered.canonicalModelId,

@@ -31,6 +31,144 @@ void main() {
 
   tearDown(() => DatabaseHelper.resetRuntimeProfileForTesting());
 
+  test('catalog ownership, custom identity, history and counts survive refresh',
+      () async {
+    final service = _service(
+        repository,
+        _Connection([
+          AiDiscoveredModel(canonicalModelId: 'M2'),
+          AiDiscoveredModel(canonicalModelId: 'legacy-hit'),
+          AiDiscoveredModel(canonicalModelId: 'custom-model-abc')
+        ]));
+    await store.saveModel(_model('m1', 'M1'));
+    for (final id in ['legacy-hit', 'legacy-missing']) {
+      await store.saveModel(AiModelRecord(
+          modelRef: id,
+          providerId: 'provider-a',
+          canonicalModelId: id,
+          displayName: id,
+          origin: AiModelOrigin.legacyImported,
+          availability: AiModelAvailability.available,
+          firstSeenAt: 1,
+          lastSeenAt: 1));
+    }
+    final custom = await service.addCustomModel(
+        providerId: 'provider-a',
+        canonicalModelId: 'custom-model-abc',
+        displayName: 'My custom');
+    await service.applyBinding(
+        slot: AiCapabilitySlot.textModel,
+        modelRef: 'm1',
+        expectedRevision: null);
+    await service.syncModels('provider-a');
+    expect((await store.readModel('m1'))!.availability,
+        AiModelAvailability.unavailable);
+    expect(
+        (await service.bindingSummary(AiCapabilitySlot.textModel))!
+            .model
+            .modelRef,
+        'm1');
+    expect((await store.readModel(custom))!.origin, AiModelOrigin.userDefined);
+    expect((await store.readModel(custom))!.displayName, 'My custom');
+    expect((await store.readModel('legacy-hit'))!.origin,
+        AiModelOrigin.providerCatalog);
+    expect((await store.readModel('legacy-missing'))!.origin,
+        AiModelOrigin.legacyImported);
+    final choices = await service.listModelsForSlot(AiCapabilitySlot.textModel);
+    expect(choices.map((item) => item.model.modelRef), isNot(contains('m1')));
+    expect((await service.listProviders()).single.modelCount, 4);
+    final confirmed = await service.addCustomModel(
+        providerId: 'provider-a', canonicalModelId: 'legacy-missing');
+    expect(confirmed, 'legacy-missing');
+    expect(
+        (await store.readModel(confirmed))!.origin, AiModelOrigin.userDefined);
+  });
+
+  test('curated glm-ocr survives empty catalog and is selectable for OCR',
+      () async {
+    await store.insertProvider(AiProviderRecord(
+        providerId: 'z',
+        kind: AiProviderKind.zhipu,
+        displayName: 'Zhipu',
+        baseUrl: 'https://example.invalid',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1));
+    final before = (await store.listModels(providerId: 'z')).single;
+    expect(before.canonicalModelId, 'glm-ocr');
+    await store.replaceModelSnapshot(
+        providerId: 'z',
+        expectedProviderRevision: 0,
+        models: [],
+        officialClaims: [],
+        syncedAt: 2);
+    final after = (await store.listModels(providerId: 'z')).single;
+    expect(after.modelRef, before.modelRef);
+    expect(after.origin, AiModelOrigin.curated);
+    expect(after.availability, AiModelAvailability.available);
+    final service = _service(repository, const _Connection([]));
+    final ocr =
+        (await service.listModelsForSlot(AiCapabilitySlot.documentRecognition))
+            .single;
+    expect(ocr.compatible, isTrue);
+    await service.applyBinding(
+        slot: AiCapabilitySlot.documentRecognition,
+        modelRef: after.modelRef,
+        expectedRevision: null);
+    expect(
+        (await store.readBinding(AiCapabilitySlot.documentRecognition))!
+            .validationMode,
+        AiBindingValidationMode.verified);
+  });
+
+  test(
+      'unknown selection uses no provider call or probe and unsupported image fails closed',
+      () async {
+    final service = _service(
+        repository,
+        const _Connection([],
+            failure: AiConfigException(AiConfigFailure.connectionRejected)));
+    final ref = await service.addCustomModel(
+        providerId: 'provider-a', canonicalModelId: 'unknown');
+    await service.listModelsForSlot(AiCapabilitySlot.imageUnderstanding);
+    await service.applyBinding(
+        slot: AiCapabilitySlot.imageUnderstanding,
+        modelRef: ref,
+        expectedRevision: null);
+    expect(await store.listClaims(ref), isEmpty);
+    expect(
+        (await store.readBinding(AiCapabilitySlot.imageUnderstanding))!
+            .validationMode,
+        AiBindingValidationMode.userSelectedUnknown);
+    await store.saveClaims(ref, AiCapabilityClaimSource.providerOfficial, [
+      AiCapabilityClaim(
+          modelRef: ref,
+          capability: AiModelCapability.imageInput,
+          source: AiCapabilityClaimSource.providerOfficial,
+          support: AiCapabilitySupport.unsupported,
+          assertedAt: 1)
+    ]);
+    await expectLater(
+        service.applyBinding(
+            slot: AiCapabilitySlot.imageUnderstanding,
+            modelRef: ref,
+            expectedRevision: 0),
+        throwsA(isA<AiConfigException>().having((e) => e.failure, 'failure',
+            AiConfigFailure.capabilityUnsupported)));
+    final before = await store.listClaims(ref);
+    await expectLater(
+        service.syncModels('provider-a'), throwsA(isA<AiConfigException>()));
+    final after = await store.listClaims(ref);
+    expect(
+        after.map((claim) => (claim.capability, claim.source, claim.support)),
+        before.map((claim) => (claim.capability, claim.source, claim.support)));
+    expect(
+        (await store.readBinding(AiCapabilitySlot.imageUnderstanding))!
+            .revision,
+        0);
+  });
+
   test('exact registry supports only the exact curated model id', () async {
     await store.saveModel(_model('exact', 'deepseek-v4-flash'));
     await store.saveModel(_model('flash', 'deepseek-flash'));
@@ -44,8 +182,8 @@ void main() {
     );
     expect(models.first.compatible, isTrue);
     expect(models[1].compatible, isTrue);
-    expect(models.last.selectionState, AiModelSelectionState.evidenceRequired);
-    expect(models.last.compatible, isFalse);
+    expect(models.last.selectionState, AiModelSelectionState.unannotated);
+    expect(models.last.compatible, isTrue);
   });
 
   test('registered text models are selectable and bind without claims',
@@ -65,6 +203,7 @@ void main() {
     await store.saveModel(_model('flash', 'deepseek-flash'));
     await store.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'zhipu-ref',
         providerId: 'provider-z',
         canonicalModelId: 'glm-5.3',
@@ -132,6 +271,7 @@ void main() {
     );
     await store.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'dead-b',
         providerId: 'provider-a',
         canonicalModelId: 'dead-b-model',
@@ -143,6 +283,7 @@ void main() {
     );
     await store.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'dead-a',
         providerId: 'provider-a',
         canonicalModelId: 'dead-a-model',
@@ -176,8 +317,6 @@ void main() {
         'unknown-only',
         'mixed',
         'unsupported',
-        'dead-a',
-        'dead-b',
       ],
     );
     final stateByRef = {
@@ -187,39 +326,36 @@ void main() {
       stateByRef,
       <String, AiModelSelectionState>{
         'sel': AiModelSelectionState.selectable,
-        'unknown-only': AiModelSelectionState.evidenceRequired,
+        'unknown-only': AiModelSelectionState.unannotated,
         'mixed': AiModelSelectionState.unsupported,
         'unsupported': AiModelSelectionState.unsupported,
-        'dead-a': AiModelSelectionState.unavailable,
-        'dead-b': AiModelSelectionState.unavailable,
       },
     );
     expect(models.first.compatible, isTrue);
     expect(
-      models.where((item) => item.model.modelRef != 'sel').map(
+      models
+          .where((item) =>
+              item.model.modelRef != 'sel' &&
+              item.model.modelRef != 'unknown-only')
+          .map(
             (item) => item.compatible,
           ),
       everyElement(isFalse),
     );
   });
 
-  test('binding requires evidence and compare-and-set revision', () async {
+  test('unknown binding retains evidence and compare-and-set revision',
+      () async {
     await store.saveModel(_model('model-a', 'unknown-model'));
     final service = _service(repository, const _Connection([]));
-    await expectLater(
-      service.applyBinding(
+    await service.applyBinding(
         slot: AiCapabilitySlot.textModel,
         modelRef: 'model-a',
-        expectedRevision: null,
-      ),
-      throwsA(
-        isA<AiConfigException>().having(
-          (error) => error.failure,
-          'failure',
-          AiConfigFailure.capabilityUnknown,
-        ),
-      ),
-    );
+        expectedRevision: null);
+    expect(
+        (await store.readBinding(AiCapabilitySlot.textModel))!.validationMode,
+        AiBindingValidationMode.userSelectedUnknown);
+    expect(await store.listClaims('model-a'), isEmpty);
     await store.saveClaims(
       'model-a',
       AiCapabilityClaimSource.userDeclaration,
@@ -240,9 +376,12 @@ void main() {
     await service.applyBinding(
       slot: AiCapabilitySlot.textModel,
       modelRef: 'model-a',
-      expectedRevision: null,
+      expectedRevision: 0,
     );
-    expect((await store.readBinding(AiCapabilitySlot.textModel))!.revision, 0);
+    expect((await store.readBinding(AiCapabilitySlot.textModel))!.revision, 1);
+    expect(
+        (await store.readBinding(AiCapabilitySlot.textModel))!.validationMode,
+        AiBindingValidationMode.verified);
     await expectLater(
       service.applyBinding(
         slot: AiCapabilitySlot.textModel,
@@ -360,6 +499,7 @@ void main() {
   test('unavailable model fails closed with zero binding mutation', () async {
     await store.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'unavailable-ref',
         providerId: 'provider-a',
         canonicalModelId: 'deepseek-v4-flash',
@@ -616,6 +756,7 @@ AiProviderRecord _provider() => AiProviderRecord(
     );
 
 AiModelRecord _model(String ref, String id) => AiModelRecord(
+      origin: AiModelOrigin.providerCatalog,
       modelRef: ref,
       providerId: 'provider-a',
       canonicalModelId: id,

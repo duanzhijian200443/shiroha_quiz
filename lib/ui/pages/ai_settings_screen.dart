@@ -45,7 +45,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       if (!mounted) return;
       setState(() {
         _summaries[slot] = _AiCapabilitySummary.loaded(
-          summary?.model.displayName,
+          summary == null
+              ? null
+              : summary.model.availability == AiModelAvailability.unavailable
+                  ? '${summary.model.displayName} · 当前模型目录未返回此模型'
+                  : summary.model.displayName,
         );
       });
     } catch (_) {

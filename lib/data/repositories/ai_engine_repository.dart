@@ -292,6 +292,7 @@ class AiEngineRepository {
       lastSyncAt: existing?.lastSyncAt,
     );
     final model = AiModelRecord(
+      origin: existingModel?.origin ?? AiModelOrigin.userDefined,
       modelRef: profile.id,
       providerId: providerId,
       canonicalModelId: profile.modelName,

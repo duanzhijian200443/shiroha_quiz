@@ -189,7 +189,7 @@ class _ProviderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(status),
-                  Text('当前可用 ${overview.modelCount} 个模型'),
+                  Text('当前模型 ${overview.modelCount} 个'),
                 ],
               ),
             ),

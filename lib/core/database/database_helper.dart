@@ -12,6 +12,7 @@ import '../../data/persistence/legacy_engine_credential_migration_store.dart';
 import '../../data/persistence/question_v2_persistence_mapper.dart';
 import '../app_data_paths.dart';
 import 'ai_config_v24_schema.dart';
+import 'ai_config_v25_schema.dart';
 import 'answer_attempt_v23_schema.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
@@ -678,7 +679,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV23Schema(db);
-    await validateAiConfigV24Schema(db);
+    await validateAiConfigV25Schema(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -884,6 +885,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     ''');
 
     await createAiConfigV24Schema(db);
+    await migrateAiConfigToV25(db);
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS import_tasks (
@@ -936,7 +938,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV23Schema(db);
-    await validateAiConfigV24Schema(db);
+    await validateAiConfigV25Schema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -1089,6 +1091,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
       await createAiConfigV24Schema(db);
       await migrateLegacyAiEnginesToV24(db);
     }
+    if (oldVersion < 25) {
+      await migrateAiConfigToV25(db);
+    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -1098,7 +1103,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV23Schema(db);
-    await validateAiConfigV24Schema(db);
+    await validateAiConfigV25Schema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.

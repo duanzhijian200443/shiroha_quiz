@@ -35,6 +35,42 @@ void main() {
     );
   });
 
+  test('binding modes and model origins are frozen enums', () {
+    expect(
+      AiBindingValidationMode.values.map((mode) => mode.storageValue),
+      <String>['verified', 'userSelectedUnknown', 'legacyPreserved'],
+    );
+    expect(
+      AiBindingValidationMode.parse('userSelectedUnknown'),
+      AiBindingValidationMode.userSelectedUnknown,
+    );
+    expect(
+      () => AiBindingValidationMode.parse('invented'),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.dataCorrupt,
+        ),
+      ),
+    );
+    expect(
+      AiModelOrigin.values.map((origin) => origin.name),
+      <String>['providerCatalog', 'curated', 'userDefined', 'legacyImported'],
+    );
+    expect(AiModelOrigin.parse('curated'), AiModelOrigin.curated);
+    expect(
+      () => AiModelOrigin.parse('invented'),
+      throwsA(
+        isA<AiConfigException>().having(
+          (error) => error.failure,
+          'failure',
+          AiConfigFailure.dataCorrupt,
+        ),
+      ),
+    );
+  });
+
   test('canonical model ids are case-sensitive and never trimmed', () {
     expect(validateCanonicalModelId('Model-A'), 'Model-A');
     expect(validateCanonicalModelId('model-a'), 'model-a');

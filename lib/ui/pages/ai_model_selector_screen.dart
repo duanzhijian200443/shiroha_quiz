@@ -22,7 +22,6 @@ class AiModelSelectorScreen extends StatefulWidget {
 class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
   bool _loading = true;
   bool _saving = false;
-  bool _showPending = false;
   bool _showUnusable = false;
   List<AiModelCompatibility> _models = const <AiModelCompatibility>[];
   AiCapabilityBindingSummary? _current;
@@ -64,6 +63,34 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
     }
   }
 
+  Future<void> _addCustomModel() async {
+    try {
+      final providers = await widget.service.listProviders();
+      if (!mounted) return;
+      if (providers.isEmpty) {
+        setState(() => _message = '请先添加 Provider');
+        return;
+      }
+      final result = await showDialog<String>(
+        context: context,
+        builder: (_) =>
+            _CustomModelDialog(service: widget.service, providers: providers),
+      );
+      if (result == null || !mounted) return;
+      await _load();
+      if (!mounted) return;
+      setState(() {
+        if (_models
+            .any((item) => item.model.modelRef == result && item.compatible)) {
+          _selectedModelRef = result;
+          _message = '模型已添加，请确认并应用模型。能力未标注时，请确认该模型支持此用途。';
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _message = '暂时无法添加自定义模型');
+    }
+  }
+
   Future<void> _confirm() async {
     final selected = _selectedModelRef;
     if (selected == null) return;
@@ -96,20 +123,12 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
   Widget build(BuildContext context) {
     final selectable = _models
         .where(
-          (model) => model.selectionState == AiModelSelectionState.selectable,
-        )
-        .toList();
-    final pending = _models
-        .where(
-          (model) =>
-              model.selectionState == AiModelSelectionState.evidenceRequired,
+          (model) => model.compatible,
         )
         .toList();
     final unusable = _models
         .where(
-          (model) =>
-              model.selectionState == AiModelSelectionState.unsupported ||
-              model.selectionState == AiModelSelectionState.unavailable,
+          (model) => model.selectionState == AiModelSelectionState.unsupported,
         )
         .toList();
     return Scaffold(
@@ -120,13 +139,31 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
               groupValue: _selectedModelRef,
               onChanged: _saving
                   ? (_) {}
-                  : (value) => setState(() => _selectedModelRef = value),
+                  : (value) => setState(() {
+                        _selectedModelRef = value;
+                        final item = _models
+                            .where((item) => item.model.modelRef == value)
+                            .firstOrNull;
+                        _message = item?.selectionState ==
+                                AiModelSelectionState.unannotated
+                            ? 'Shiroha 尚未标注该模型的当前能力，请确认该模型支持此用途。'
+                            : null;
+                      }),
               child: ShirohaPageBody(
                 children: <Widget>[
                   if (_message != null) ...<Widget>[
                     _Notice(message: _message!),
                     const SizedBox(height: 16),
                   ],
+                  OutlinedButton.icon(
+                    key: const ValueKey<String>('add-custom-model'),
+                    onPressed: _saving ? null : _addCustomModel,
+                    icon: const Icon(Icons.add),
+                    label: const Text('添加自定义模型'),
+                  ),
+                  if (_current?.model.availability ==
+                      AiModelAvailability.unavailable)
+                    Text('${_current!.model.displayName}：当前模型目录未返回此模型'),
                   const ShirohaSectionLabel('可使用'),
                   const SizedBox(height: 8),
                   if (selectable.isEmpty)
@@ -154,24 +191,6 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                             .toList(growable: false),
                       ),
                     ],
-                  if (pending.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: DesignTokens.sectionGap),
-                    ShirohaSurfaceCard(
-                      child: ExpansionTile(
-                        key: const ValueKey<String>(
-                          'model-evidence-required-toggle',
-                        ),
-                        title: Text('能力待确认（${pending.length}）'),
-                        subtitle: const Text('展开查看具体模型'),
-                        initiallyExpanded: _showPending,
-                        onExpansionChanged: (value) =>
-                            setState(() => _showPending = value),
-                        children: pending
-                            .map((model) => _modelTile(model, enabled: false))
-                            .toList(growable: false),
-                      ),
-                    ),
-                  ],
                   if (unusable.isNotEmpty) ...<Widget>[
                     const SizedBox(height: DesignTokens.sectionGap),
                     ShirohaSurfaceCard(
@@ -213,12 +232,6 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
     if (_models.isEmpty) {
       return '尚未发现任何模型，请前往 Provider 页面刷新模型列表。';
     }
-    final hasPending = _models.any(
-      (model) => model.selectionState == AiModelSelectionState.evidenceRequired,
-    );
-    if (hasPending) {
-      return '已发现模型，但能力待确认，暂时无法选择；刷新模型列表不会自动完成能力确认。';
-    }
     return '当前没有可用于此功能的模型。';
   }
 
@@ -256,16 +269,17 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                     .toList(growable: false),
               ),
             ),
-          if (!enabled)
+          if (!enabled ||
+              item.selectionState == AiModelSelectionState.unannotated)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 _stateLabel(item.selectionState),
                 style: TextStyle(
-                  color: item.selectionState ==
-                          AiModelSelectionState.evidenceRequired
-                      ? colors.onSurfaceVariant
-                      : colors.error,
+                  color:
+                      item.selectionState == AiModelSelectionState.unannotated
+                          ? colors.onSurfaceVariant
+                          : colors.error,
                 ),
               ),
             ),
@@ -303,15 +317,15 @@ String _capabilityName(AiModelCapability capability) => switch (capability) {
 
 String _stateLabel(AiModelSelectionState state) => switch (state) {
       AiModelSelectionState.selectable => '可使用',
-      AiModelSelectionState.evidenceRequired => '模型能力待确认',
+      AiModelSelectionState.unannotated => '能力未标注',
       AiModelSelectionState.unsupported => '不支持当前功能',
-      AiModelSelectionState.unavailable => 'Provider 已下架',
+      AiModelSelectionState.unavailable => '当前模型目录未返回',
     };
 
 String _bindingError(AiConfigFailure failure) => switch (failure) {
       AiConfigFailure.staleRevision => '配置已在其他位置更新，请重新选择',
       AiConfigFailure.modelUnavailable => '该模型已不可用',
-      AiConfigFailure.capabilityUnknown => '模型能力待确认',
+      AiConfigFailure.capabilityUnknown => '能力未标注',
       AiConfigFailure.capabilityUnsupported => '模型不支持当前能力',
       _ => '应用失败，请刷新后重试',
     };
@@ -333,4 +347,93 @@ class _Notice extends StatelessWidget {
       child: Text(message, style: TextStyle(color: colors.onErrorContainer)),
     );
   }
+}
+
+class _CustomModelDialog extends StatefulWidget {
+  const _CustomModelDialog({required this.service, required this.providers});
+  final AiConfigPresentationService service;
+  final List<AiProviderOverview> providers;
+  @override
+  State<_CustomModelDialog> createState() => _CustomModelDialogState();
+}
+
+class _CustomModelDialogState extends State<_CustomModelDialog> {
+  final _id = TextEditingController();
+  final _name = TextEditingController();
+  late String _providerId = widget.providers.first.provider.providerId;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _id.dispose();
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final ref = await widget.service.addCustomModel(
+          providerId: _providerId,
+          canonicalModelId: _id.text,
+          displayName: _name.text);
+      if (mounted) Navigator.of(context).pop(ref);
+    } on AiConfigException catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.failure == AiConfigFailure.invalidInput
+              ? '请输入有效的 Model ID，不要包含首尾空格'
+              : '保存失败，请重试',
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = '保存失败，请重试');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('添加自定义模型'),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          DropdownButtonFormField<String>(
+            initialValue: _providerId,
+            decoration: const InputDecoration(labelText: 'Provider'),
+            items: widget.providers
+                .map((item) => DropdownMenuItem(
+                    value: item.provider.providerId,
+                    child: Text(item.provider.displayName)))
+                .toList(),
+            onChanged: _saving
+                ? null
+                : (value) => setState(() => _providerId = value!),
+          ),
+          TextField(
+              key: const ValueKey<String>('custom-model-id'),
+              controller: _id,
+              enabled: !_saving,
+              decoration: const InputDecoration(labelText: 'Model ID *')),
+          TextField(
+              key: const ValueKey<String>('custom-model-name'),
+              controller: _name,
+              enabled: !_saving,
+              decoration: const InputDecoration(labelText: 'Display Name（可选）')),
+          if (_error != null) Text(_error!),
+        ])),
+        actions: [
+          TextButton(
+              onPressed: _saving ? null : () => Navigator.of(context).pop(),
+              child: const Text('取消')),
+          FilledButton(
+              key: const ValueKey<String>('save-custom-model'),
+              onPressed: _saving ? null : _save,
+              child: const Text('添加')),
+        ],
+      );
 }

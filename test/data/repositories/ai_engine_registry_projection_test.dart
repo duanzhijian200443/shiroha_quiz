@@ -165,6 +165,7 @@ void main() {
     }.entries) {
       await configStore.saveModel(
         AiModelRecord(
+          origin: AiModelOrigin.providerCatalog,
           modelRef: entry.key,
           providerId: 'provider-p',
           canonicalModelId: 'canonical-${entry.key}',
@@ -267,6 +268,7 @@ void main() {
     );
     await configStore.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'model-m1',
         providerId: 'provider-p',
         canonicalModelId: 'unsupported-model',
@@ -351,6 +353,7 @@ void main() {
     );
     await configStore.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'model-m1',
         providerId: 'provider-p',
         canonicalModelId: 'old-model',
@@ -459,6 +462,7 @@ void main() {
     );
     await configStore.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'model-current',
         providerId: 'provider-p',
         canonicalModelId: 'current-model',
@@ -470,6 +474,7 @@ void main() {
     );
     await configStore.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'model-unavailable',
         providerId: 'provider-p',
         canonicalModelId: 'unavailable-model',
@@ -527,6 +532,7 @@ void main() {
     await configStore.insertProvider(_provider());
     await configStore.saveModel(
       AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
         modelRef: 'legacy-id',
         providerId: 'legacy-id',
         canonicalModelId: 'deepseek-v4-flash',
@@ -615,6 +621,7 @@ AiProviderRecord _provider() => AiProviderRecord(
     );
 
 AiModelRecord _model() => AiModelRecord(
+      origin: AiModelOrigin.providerCatalog,
       modelRef: 'legacy-id',
       providerId: 'legacy-id',
       canonicalModelId: 'Legacy-Model',
