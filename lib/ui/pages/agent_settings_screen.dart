@@ -135,7 +135,8 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
   Widget _buildContent(BuildContext context) {
     final snapshot = _snapshot!;
     final profiles = snapshot.availableProfiles;
-    if (profiles.isEmpty) {
+    if (profiles.isEmpty && snapshot.incompatibleProfiles.isEmpty) {
+      // Case A: the Model Registry has no models at all.
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(28),
@@ -145,12 +146,12 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
               const Icon(Icons.smart_toy_outlined, size: 48),
               const SizedBox(height: 16),
               const Text(
-                '暂无可用于 Shiroha Agent 的文本模型配置',
+                '尚未配置可用模型',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
-                '请先在 AI 服务中配置完整的文本模型连接信息。',
+                '请先在「API 提供商与模型」中添加提供商并添加或刷新模型。',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -160,12 +161,54 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
                   key: const ValueKey<String>('a0-agent-open-ai-profiles'),
                   onPressed: widget.onOpenProfileSettings,
                   icon: const Icon(Icons.settings_outlined),
-                  label: const Text('配置 AI 服务'),
+                  label: const Text('前往 API 提供商与模型'),
                 ),
               ],
             ],
           ),
         ),
+      );
+    }
+    if (profiles.isEmpty) {
+      // Case B: models exist, but none satisfies the Agent requirements.
+      // Never offers the provider-configuration CTA: that would loop.
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        children: [
+          if (snapshot.state == AgentSettingsState.profileUnavailable)
+            const _SettingsNotice(
+              key: ValueKey<String>('a0-agent-profile-unavailable'),
+              text: '此前选择的主模型已不可用，请重新选择并保存。',
+              isError: true,
+            ),
+          if (snapshot.fallbackUnavailable)
+            const _SettingsNotice(
+              key: ValueKey<String>('a0-agent-fallback-unavailable'),
+              text: '此前选择的备用模型已不可用，请重新选择或关闭备用模型。',
+              isError: false,
+            ),
+          const SizedBox(height: 8),
+          const Text(
+            '已有模型，但当前没有满足 Shiroha Agent 要求的模型。',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          for (final profile in snapshot.incompatibleProfiles) ...<Widget>[
+            Card(
+              key: ValueKey<String>(
+                'a0-agent-incompatible-${profile.profileId}',
+              ),
+              child: ListTile(
+                title: _profileOptionText(profile),
+                subtitle: Text(
+                  _incompatibilityReasonText(
+                    snapshot.incompatibilityReasons[profile.profileId],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       );
     }
 
@@ -207,10 +250,7 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
                     for (final profile in profiles)
                       DropdownMenuItem<String>(
                         value: profile.profileId,
-                        child: Text(
-                          '${profile.displayName} · ${profile.modelName}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        child: _profileOptionText(profile),
                       ),
                   ],
                   onChanged: _isSaving
@@ -240,10 +280,7 @@ class _AgentSettingsScreenState extends State<AgentSettingsScreen> {
                       if (profile.profileId != _selectedProfileId)
                         DropdownMenuItem<String?>(
                           value: profile.profileId,
-                          child: Text(
-                            '${profile.displayName} · ${profile.modelName}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          child: _profileOptionText(profile),
                         ),
                   ],
                   onChanged: _isSaving
@@ -406,6 +443,58 @@ class _SettingsFailure extends StatelessWidget {
     );
   }
 }
+
+Widget _profileOptionText(AgentProfileSummary profile) {
+  final provider = profile.providerDisplayName;
+  if (provider == null) {
+    // Legacy projection source keeps the historical single-line format.
+    return Text(
+      '${profile.displayName} · ${profile.modelName}',
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+  final modelText = profile.displayName == profile.modelName
+      ? profile.modelName
+      : '${profile.displayName}（${profile.modelName}）';
+  return Text(
+    '$provider · $modelText',
+    overflow: TextOverflow.ellipsis,
+  );
+}
+
+String _incompatibilityReasonText(String? reasonCode) {
+  if (reasonCode == null || reasonCode.isEmpty) {
+    return '当前模型不满足 Shiroha Agent 要求';
+  }
+  if (reasonCode == 'transportUnsupportedProvider') {
+    return '当前 Agent transport 暂不支持该模型所属提供商';
+  }
+  if (reasonCode == 'transportUnsupportedModel') {
+    return '当前 Agent transport 暂不支持该模型';
+  }
+  const unsupportedPrefix = 'capabilityUnsupported:';
+  const unknownPrefix = 'capabilityUnknown:';
+  if (reasonCode.startsWith(unsupportedPrefix)) {
+    return '该模型明确不支持'
+        '${_capabilityLabel(reasonCode.substring(unsupportedPrefix.length))}';
+  }
+  if (reasonCode.startsWith(unknownPrefix)) {
+    return '${_capabilityLabel(reasonCode.substring(unknownPrefix.length))}'
+        '能力尚未标注';
+  }
+  return '当前模型不满足 Shiroha Agent 要求';
+}
+
+String _capabilityLabel(String storageValue) => switch (storageValue) {
+      'toolCalling' => '工具调用',
+      'textInput' => '文本输入',
+      'textOutput' => '文本输出',
+      'imageInput' => '图片输入',
+      'reasoning' => '推理',
+      'ocr' => 'OCR',
+      'embedding' => '向量',
+      _ => '所需',
+    };
 
 String _settingsError(AgentConfigFailure failure) {
   return switch (failure) {

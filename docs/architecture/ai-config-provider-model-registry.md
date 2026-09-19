@@ -243,17 +243,30 @@ Application seam — never the legacy engine screen — and carry no credential
 input. The Agent transport compatibility gate is unchanged and stays
 independent of these selection semantics.
 
-Agent configuration evaluates registry capabilities and the explicit
-DeepSeek Responses transport contract before save/runtime provider creation.
-The frozen transport allowlist still contains the single exact id
-`deepseek-v4-flash`, so `deepseek-flash` is rejected at configuration
-resolution. Officially, DeepSeek retired `deepseek-v4-flash` on 2026-09-10
-(requests are served by DeepSeek-V4.1-Flash, which documents Responses API
-support) and has documented native Responses API support for
-`deepseek-v4-pro` since 2026-08-13; the runtime allowlist remains an
-independent defense and widening it to the current official ids requires a
-separate explicitly authorized package. Capability truth for DeepSeek model
-ids is maintained in `docs/architecture/ai-model-capability-registry.md`.
+Agent configuration is an independent consumer of the Provider / Model
+Registry: `AgentConfig.mainProfileId` and `fallbackProfileId` are Model
+Registry `modelRef` values (the legacy engine projection shares this id
+space, so stored configurations keep resolving without a codec migration),
+and Agent candidates list directly from the registry — never through the
+capability text binding and never through the retained `ai_engines`
+projection. Agent temperature, reasoning effort, web toggle, and fallback
+remain Agent invocation policy and are never taken from capability
+bindings.
+
+The Agent evaluates registry capabilities and the explicit DeepSeek
+Responses transport contract before save/runtime provider creation. Per the
+official evidence recorded in
+`docs/architecture/ai-model-capability-registry.md` (2026-09-20), the
+exact-id allowlist contains the current ids `deepseek-flash` and
+`deepseek-v4-pro`; the retired alias `deepseek-v4-flash` (retired
+2026-09-10, served by DeepSeek-V4.1-Flash, still accepted by the API)
+remains solely as legacy compatibility for historical bindings — legacy
+compatibility is not a current-model recommendation. Matching stays
+exact-key; prefixes, substrings, and near-matches never inherit
+eligibility. The runtime resolver fails closed for missing model, missing
+provider, missing credential, unknown or unsupported required capability,
+or unsupported transport, and only the explicitly configured fallback is
+ever tried.
 
 ## 7. Backup and rollback
 

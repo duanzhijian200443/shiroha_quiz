@@ -7,38 +7,112 @@ import 'package:shiroha_quiz/services/agent/deepseek_agent_model_compatibility_a
 void main() {
   const compatibility = DeepSeekAgentModelCompatibilityAdapter();
 
-  test('transport accepts only the frozen exact model id', () {
+  Map<AiModelCapability, AiCapabilitySupport> agentClaims() => const {
+        AiModelCapability.textInput: AiCapabilitySupport.supported,
+        AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        AiModelCapability.toolCalling: AiCapabilitySupport.supported,
+      };
+
+  test('transport accepts the official current exact model ids', () {
+    for (final currentModelId in const <String>[
+      'deepseek-flash',
+      'deepseek-v4-pro',
+    ]) {
+      expect(
+        compatibility
+            .evaluate(
+              transportProviderKind: 'deepseek_responses',
+              modelProviderKind: AiProviderKind.deepseek,
+              canonicalModelId: currentModelId,
+              capabilities: agentClaims(),
+            )
+            .compatible,
+        isTrue,
+        reason: currentModelId,
+      );
+    }
+    // Retired alias: legacy compatibility for historical bindings only.
     expect(
-      compatibility.evaluate(
-        transportProviderKind: 'deepseek_responses',
-        modelProviderKind: AiProviderKind.deepseek,
-        canonicalModelId: 'deepseek-v4-flash',
-        capabilities: const {
-          AiModelCapability.textInput: AiCapabilitySupport.supported,
-          AiModelCapability.textOutput: AiCapabilitySupport.supported,
-          AiModelCapability.toolCalling: AiCapabilitySupport.supported,
-        },
-      ).compatible,
+      compatibility
+          .evaluate(
+            transportProviderKind: 'deepseek_responses',
+            modelProviderKind: AiProviderKind.deepseek,
+            canonicalModelId: 'deepseek-v4-flash',
+            capabilities: agentClaims(),
+          )
+          .compatible,
       isTrue,
     );
-    final rejected = compatibility.evaluate(
+  });
+
+  test('near-matches and unknown ids never inherit eligibility', () {
+    for (final nearMatch in const <String>[
+      'deepseek-flash-extra',
+      'deepseek-flashx',
+      'deepseek-chat',
+      'deepseek-v4-pro-max',
+    ]) {
+      final rejected = compatibility.evaluate(
+        transportProviderKind: 'deepseek_responses',
+        modelProviderKind: AiProviderKind.deepseek,
+        canonicalModelId: nearMatch,
+        capabilities: agentClaims(),
+      );
+      expect(rejected.compatible, isFalse, reason: nearMatch);
+      expect(
+        rejected.reasonCode,
+        'transportUnsupportedModel',
+        reason: nearMatch,
+      );
+    }
+  });
+
+  test('unknown or unsupported tool calling fails closed', () {
+    // Missing required evidence reports the first unknown required capability.
+    final unknownToolCalling = compatibility.evaluate(
       transportProviderKind: 'deepseek_responses',
       modelProviderKind: AiProviderKind.deepseek,
       canonicalModelId: 'deepseek-flash',
       capabilities: const {},
     );
-    expect(rejected.compatible, isFalse);
-    expect(rejected.reasonCode, 'transportUnsupportedModel');
+    expect(unknownToolCalling.compatible, isFalse);
+    expect(unknownToolCalling.reasonCode, 'capabilityUnknown:textInput');
 
-    final wrongProvider = compatibility.evaluate(
+    final unknownToolCallingOnly = compatibility.evaluate(
       transportProviderKind: 'deepseek_responses',
-      modelProviderKind: AiProviderKind.openAiCompatible,
-      canonicalModelId: 'deepseek-v4-flash',
+      modelProviderKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-flash',
       capabilities: const {
         AiModelCapability.textInput: AiCapabilitySupport.supported,
         AiModelCapability.textOutput: AiCapabilitySupport.supported,
-        AiModelCapability.toolCalling: AiCapabilitySupport.supported,
       },
+    );
+    expect(unknownToolCallingOnly.compatible, isFalse);
+    expect(unknownToolCallingOnly.reasonCode, 'capabilityUnknown:toolCalling');
+
+    final unsupportedToolCalling = compatibility.evaluate(
+      transportProviderKind: 'deepseek_responses',
+      modelProviderKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-flash',
+      capabilities: const {
+        AiModelCapability.textInput: AiCapabilitySupport.supported,
+        AiModelCapability.textOutput: AiCapabilitySupport.supported,
+        AiModelCapability.toolCalling: AiCapabilitySupport.unsupported,
+      },
+    );
+    expect(unsupportedToolCalling.compatible, isFalse);
+    expect(
+      unsupportedToolCalling.reasonCode,
+      'capabilityUnsupported:toolCalling',
+    );
+  });
+
+  test('wrong provider transport is rejected', () {
+    final wrongProvider = compatibility.evaluate(
+      transportProviderKind: 'deepseek_responses',
+      modelProviderKind: AiProviderKind.openAiCompatible,
+      canonicalModelId: 'deepseek-flash',
+      capabilities: agentClaims(),
     );
     expect(wrongProvider.compatible, isFalse);
     expect(wrongProvider.reasonCode, 'transportUnsupportedProvider');
@@ -76,7 +150,7 @@ void main() {
     expect(snapshot.incompatibleProfiles.single.profileId, 'unsupported');
     expect(
       snapshot.incompatibilityReasons['unsupported'],
-      'transportUnsupportedModel',
+      'capabilityUnknown:textInput',
     );
 
     await expectLater(

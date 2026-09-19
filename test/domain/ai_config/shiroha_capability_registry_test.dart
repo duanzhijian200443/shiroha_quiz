@@ -106,10 +106,12 @@ void main() {
             'multimodal with vision');
     expect(flash[AiModelCapability.textOutput], AiCapabilitySupport.supported);
     expect(flash[AiModelCapability.ocr], AiCapabilitySupport.unsupported);
-    expect(flash[AiModelCapability.reasoning], AiCapabilitySupport.unknown,
-        reason: 'reasoning stays unannotated without a dedicated package');
-    expect(flash[AiModelCapability.toolCalling], AiCapabilitySupport.unknown,
-        reason: 'the Agent transport gate is a separate frozen contract');
+    expect(flash[AiModelCapability.reasoning], AiCapabilitySupport.supported,
+        reason: 'official changelog dates thinking effort levels '
+            'low/high/max for V4-Pro and V4-Flash');
+    expect(flash[AiModelCapability.toolCalling], AiCapabilitySupport.supported,
+        reason: 'official pricing matrix and tool-calls guide cover '
+            'deepseek-flash tool calling');
 
     final retired = resolve(AiProviderKind.deepseek, 'deepseek-v4-flash');
     expect(retired[AiModelCapability.textInput], AiCapabilitySupport.supported);
@@ -136,6 +138,11 @@ void main() {
     expect(pro[AiModelCapability.imageInput], AiCapabilitySupport.unsupported,
         reason: 'official docs classify deepseek-v4-pro as text-only');
     expect(pro[AiModelCapability.ocr], AiCapabilitySupport.unsupported);
+    expect(pro[AiModelCapability.reasoning], AiCapabilitySupport.supported,
+        reason: 'official changelog dates thinking effort levels '
+            'low/high/max for V4-Pro and V4-Flash');
+    expect(pro[AiModelCapability.toolCalling], AiCapabilitySupport.supported,
+        reason: 'official pricing matrix marks tool calls for deepseek-v4-pro');
   });
 
   test('queue matching stays exact in kind and id', () async {

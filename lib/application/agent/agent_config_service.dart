@@ -26,14 +26,18 @@ final class AgentProfileSummary {
     required String displayName,
     required String modelName,
     AiProviderKind? modelProviderKind,
+    String? providerDisplayName,
     Map<AiModelCapability, AiCapabilitySupport> capabilities = const {},
   }) {
     final normalizedId = profileId.trim();
     final normalizedName = displayName.trim();
     final normalizedModel = modelName.trim();
+    final normalizedProviderName = providerDisplayName?.trim();
     if (!_isSafeValue(normalizedId, maxRunes: 128) ||
         !_isSafeValue(normalizedName, maxRunes: 200) ||
-        !_isSafeValue(normalizedModel, maxRunes: 200)) {
+        !_isSafeValue(normalizedModel, maxRunes: 200) ||
+        (normalizedProviderName != null &&
+            !_isSafeValue(normalizedProviderName, maxRunes: 200))) {
       throw const AgentProfileException(AgentProfileFailure.dataCorrupt);
     }
     return AgentProfileSummary._(
@@ -41,6 +45,7 @@ final class AgentProfileSummary {
       displayName: normalizedName,
       modelName: normalizedModel,
       modelProviderKind: modelProviderKind,
+      providerDisplayName: normalizedProviderName,
       capabilities: Map.unmodifiable(capabilities),
     );
   }
@@ -50,12 +55,19 @@ final class AgentProfileSummary {
     required this.displayName,
     required this.modelName,
     required this.modelProviderKind,
+    required this.providerDisplayName,
     required this.capabilities,
   });
 
   final String profileId;
+
+  /// Model-asset display name. [profileId] is the Model Registry modelRef.
   final String displayName;
   final String modelName;
+
+  /// Owning provider display name from the Provider / Model Registry; null
+  /// only for legacy projection sources.
+  final String? providerDisplayName;
   final AiProviderKind? modelProviderKind;
   final Map<AiModelCapability, AiCapabilitySupport> capabilities;
 
@@ -66,11 +78,17 @@ final class AgentProfileSummary {
           profileId == other.profileId &&
           displayName == other.displayName &&
           modelName == other.modelName &&
+          providerDisplayName == other.providerDisplayName &&
           modelProviderKind == other.modelProviderKind;
 
   @override
-  int get hashCode =>
-      Object.hash(profileId, displayName, modelName, modelProviderKind);
+  int get hashCode => Object.hash(
+        profileId,
+        displayName,
+        modelName,
+        providerDisplayName,
+        modelProviderKind,
+      );
 }
 
 final class AgentProviderProfile {
