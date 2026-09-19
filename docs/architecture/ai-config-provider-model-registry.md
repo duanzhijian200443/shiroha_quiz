@@ -204,9 +204,15 @@ stays independent of these selection semantics.
 
 Agent configuration evaluates registry capabilities and the explicit
 DeepSeek Responses transport contract before save/runtime provider creation.
-`deepseek-flash` is therefore rejected at configuration resolution. The
-runtime allowlist remains an independent defense and is not expanded;
-`deepseek-v4-flash` remains the only currently supported exact id.
+The frozen transport allowlist still contains the single exact id
+`deepseek-v4-flash`, so `deepseek-flash` is rejected at configuration
+resolution. Officially, DeepSeek retired `deepseek-v4-flash` on 2026-09-10
+(requests are served by DeepSeek-V4.1-Flash, which documents Responses API
+support) and has documented native Responses API support for
+`deepseek-v4-pro` since 2026-08-13; the runtime allowlist remains an
+independent defense and widening it to the current official ids requires a
+separate explicitly authorized package. Capability truth for DeepSeek model
+ids is maintained in `docs/architecture/ai-model-capability-registry.md`.
 
 ## 7. Backup and rollback
 

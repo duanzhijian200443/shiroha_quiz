@@ -147,8 +147,14 @@ void main() {
     );
     expect(
       deepseekFlash[AiModelCapability.imageInput],
-      AiCapabilitySupport.unknown,
-      reason: 'deepseek-flash has no vision evidence and stays unannotated',
+      AiCapabilitySupport.supported,
+      reason: 'official docs classify deepseek-flash (V4.1-Flash) as '
+          'multimodal with vision',
+    );
+    expect(
+      deepseekFlash[AiModelCapability.ocr],
+      AiCapabilitySupport.unsupported,
+      reason: 'DeepSeek has no dedicated OCR transport',
     );
 
     final glmFiveThree = resolveModelCapabilities(

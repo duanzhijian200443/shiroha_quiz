@@ -30,6 +30,19 @@ abstract final class ShirohaCapabilityRegistry {
     AiModelCapability.imageInput: AiCapabilitySupport.unsupported,
   };
 
+  /// Retired 2026-09-10: requests are served by the multimodal
+  /// DeepSeek-V4.1-Flash, which also backs the preserved reasoning and
+  /// toolCalling claims.
+  static const Map<AiModelCapability, AiCapabilitySupport>
+      _deepseekV4FlashCapabilities = {
+    AiModelCapability.textInput: AiCapabilitySupport.supported,
+    AiModelCapability.imageInput: AiCapabilitySupport.supported,
+    AiModelCapability.textOutput: AiCapabilitySupport.supported,
+    AiModelCapability.reasoning: AiCapabilitySupport.supported,
+    AiModelCapability.toolCalling: AiCapabilitySupport.supported,
+    AiModelCapability.ocr: AiCapabilitySupport.unsupported,
+  };
+
   static const String _zhipuOverview =
       'docs.bigmodel.cn/cn/guide/start/model-overview';
 
@@ -38,26 +51,35 @@ abstract final class ShirohaCapabilityRegistry {
     (AiProviderKind.deepseek, 'deepseek-v4-flash'): CuratedModelDefinition(
       providerKind: AiProviderKind.deepseek,
       canonicalModelId: 'deepseek-v4-flash',
+      category: AiCuratedModelCategory.multimodal,
+      capabilities: _deepseekV4FlashCapabilities,
+      evidenceDate: '2026-09-20',
+      evidenceSource: 'api-docs.deepseek.com/quick_start/pricing',
+    ),
+    (AiProviderKind.deepseek, 'deepseek-v4-flash-vision-exp'):
+        CuratedModelDefinition(
+      providerKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-v4-flash-vision-exp',
+      category: AiCuratedModelCategory.multimodal,
+      capabilities: _multimodalCapabilities,
+      evidenceDate: '2026-09-20',
+      evidenceSource: 'api-docs.deepseek.com/quick_start/pricing',
+    ),
+    (AiProviderKind.deepseek, 'deepseek-v4-pro'): CuratedModelDefinition(
+      providerKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-v4-pro',
       category: AiCuratedModelCategory.text,
-      capabilities: {
-        AiModelCapability.textInput: AiCapabilitySupport.supported,
-        AiModelCapability.textOutput: AiCapabilitySupport.supported,
-        AiModelCapability.reasoning: AiCapabilitySupport.supported,
-        AiModelCapability.toolCalling: AiCapabilitySupport.supported,
-      },
-      evidenceDate: '2026-09-19',
-      evidenceSource: 'api-docs.deepseek.com',
+      capabilities: _textCapabilities,
+      evidenceDate: '2026-09-20',
+      evidenceSource: 'api-docs.deepseek.com/quick_start/pricing',
     ),
     (AiProviderKind.deepseek, 'deepseek-flash'): CuratedModelDefinition(
       providerKind: AiProviderKind.deepseek,
       canonicalModelId: 'deepseek-flash',
-      category: AiCuratedModelCategory.text,
-      capabilities: {
-        AiModelCapability.textInput: AiCapabilitySupport.supported,
-        AiModelCapability.textOutput: AiCapabilitySupport.supported,
-      },
-      evidenceDate: '2026-09-19',
-      evidenceSource: 'api-docs.deepseek.com',
+      category: AiCuratedModelCategory.multimodal,
+      capabilities: _multimodalCapabilities,
+      evidenceDate: '2026-09-20',
+      evidenceSource: 'api-docs.deepseek.com/quick_start/pricing',
     ),
     (AiProviderKind.zhipu, 'glm-5.3'): CuratedModelDefinition(
       providerKind: AiProviderKind.zhipu,

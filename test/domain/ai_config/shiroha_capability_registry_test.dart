@@ -98,23 +98,44 @@ void main() {
         AiCapabilitySupport.unsupported);
   });
 
-  test('deepseek queue entries keep their frozen evidence', () async {
-    final flagship = resolve(AiProviderKind.deepseek, 'deepseek-v4-flash');
-    expect(
-        flagship[AiModelCapability.textInput], AiCapabilitySupport.supported);
-    expect(
-        flagship[AiModelCapability.textOutput], AiCapabilitySupport.supported);
-    expect(
-        flagship[AiModelCapability.reasoning], AiCapabilitySupport.supported);
-    expect(
-        flagship[AiModelCapability.toolCalling], AiCapabilitySupport.supported);
-    expect(flagship[AiModelCapability.imageInput], AiCapabilitySupport.unknown);
-
+  test('deepseek queue carries the official classification', () async {
     final flash = resolve(AiProviderKind.deepseek, 'deepseek-flash');
     expect(flash[AiModelCapability.textInput], AiCapabilitySupport.supported);
+    expect(flash[AiModelCapability.imageInput], AiCapabilitySupport.supported,
+        reason: 'official docs classify deepseek-flash (V4.1-Flash) as '
+            'multimodal with vision');
     expect(flash[AiModelCapability.textOutput], AiCapabilitySupport.supported);
-    expect(flash[AiModelCapability.imageInput], AiCapabilitySupport.unknown);
-    expect(flash[AiModelCapability.ocr], AiCapabilitySupport.unknown);
+    expect(flash[AiModelCapability.ocr], AiCapabilitySupport.unsupported);
+    expect(flash[AiModelCapability.reasoning], AiCapabilitySupport.unknown,
+        reason: 'reasoning stays unannotated without a dedicated package');
+    expect(flash[AiModelCapability.toolCalling], AiCapabilitySupport.unknown,
+        reason: 'the Agent transport gate is a separate frozen contract');
+
+    final retired = resolve(AiProviderKind.deepseek, 'deepseek-v4-flash');
+    expect(retired[AiModelCapability.textInput], AiCapabilitySupport.supported);
+    expect(retired[AiModelCapability.imageInput], AiCapabilitySupport.supported,
+        reason: 'the retired id is served by the multimodal V4.1-Flash');
+    expect(
+        retired[AiModelCapability.textOutput], AiCapabilitySupport.supported);
+    expect(retired[AiModelCapability.reasoning], AiCapabilitySupport.supported,
+        reason: 'Package 2 claims stay preserved');
+    expect(
+        retired[AiModelCapability.toolCalling], AiCapabilitySupport.supported,
+        reason: 'Package 2 claims stay preserved');
+    expect(retired[AiModelCapability.ocr], AiCapabilitySupport.unsupported);
+
+    final visionExp =
+        resolve(AiProviderKind.deepseek, 'deepseek-v4-flash-vision-exp');
+    expect(
+        visionExp[AiModelCapability.imageInput], AiCapabilitySupport.supported);
+    expect(visionExp[AiModelCapability.ocr], AiCapabilitySupport.unsupported);
+
+    final pro = resolve(AiProviderKind.deepseek, 'deepseek-v4-pro');
+    expect(pro[AiModelCapability.textInput], AiCapabilitySupport.supported);
+    expect(pro[AiModelCapability.textOutput], AiCapabilitySupport.supported);
+    expect(pro[AiModelCapability.imageInput], AiCapabilitySupport.unsupported,
+        reason: 'official docs classify deepseek-v4-pro as text-only');
+    expect(pro[AiModelCapability.ocr], AiCapabilitySupport.unsupported);
   });
 
   test('queue matching stays exact in kind and id', () async {
@@ -126,6 +147,11 @@ void main() {
       (AiProviderKind.zhipu, 'glm-ocr-pro'),
       (AiProviderKind.deepseek, 'glm-5.3'),
       (AiProviderKind.openAiCompatible, 'glm-5.3'),
+      (AiProviderKind.deepseek, 'deepseek-v4'),
+      (AiProviderKind.deepseek, 'deepseek-v4-flash-vision'),
+      (AiProviderKind.deepseek, 'deepseek-v4-pro-max'),
+      (AiProviderKind.deepseek, 'deepseek-chat'),
+      (AiProviderKind.deepseek, 'deepseek-reasoner'),
     ];
     for (final (kind, id) in misses) {
       expect(ShirohaCapabilityRegistry.definitionFor(kind, id), isNull,
@@ -145,8 +171,13 @@ void main() {
   test('every curated definition carries an auditable evidence trail',
       () async {
     for (final definition in ShirohaCapabilityRegistry.definitions) {
-      expect(definition.evidenceDate, '2026-09-19',
-          reason: definition.canonicalModelId);
+      expect(
+        definition.evidenceDate,
+        definition.providerKind == AiProviderKind.deepseek
+            ? '2026-09-20'
+            : '2026-09-19',
+        reason: definition.canonicalModelId,
+      );
       expect(definition.evidenceSource, isNotEmpty,
           reason: definition.canonicalModelId);
       expect(definition.capabilities, isNotEmpty,
@@ -167,6 +198,18 @@ void main() {
       ShirohaCapabilityRegistry.definitionFor(AiProviderKind.zhipu, 'glm-ocr')!
           .category,
       AiCuratedModelCategory.ocr,
+    );
+    expect(
+      ShirohaCapabilityRegistry.definitionFor(
+              AiProviderKind.deepseek, 'deepseek-flash')!
+          .category,
+      AiCuratedModelCategory.multimodal,
+    );
+    expect(
+      ShirohaCapabilityRegistry.definitionFor(
+              AiProviderKind.deepseek, 'deepseek-v4-pro')!
+          .category,
+      AiCuratedModelCategory.text,
     );
   });
 

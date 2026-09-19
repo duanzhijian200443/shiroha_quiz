@@ -71,16 +71,33 @@ Notes:
 
 ## DeepSeek (AiProviderKind.deepseek)
 
-Evidence date: **2026-09-19** (all rows).
+Evidence date: **2026-09-20** (all rows).
 
 | Canonical Model ID | Category | Capabilities (Shiroha) | Official Source |
 |---|---|---|---|
-| deepseek-v4-flash | text | textInput=supported, textOutput=supported, reasoning=supported, toolCalling=supported; other capabilities unknown | <https://api-docs.deepseek.com/> |
-| deepseek-flash | text | textInput=supported, textOutput=supported; other capabilities unknown | <https://api-docs.deepseek.com/> |
+| deepseek-flash | multimodal | textInput=supported, imageInput=supported, textOutput=supported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> + <https://api-docs.deepseek.com/guides/vision> |
+| deepseek-v4-pro | text | textInput=supported, textOutput=supported, imageInput=unsupported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> |
+| deepseek-v4-flash | multimodal (retired alias) | textInput=supported, imageInput=supported, textOutput=supported, reasoning=supported, toolCalling=supported, ocr=unsupported | <https://api-docs.deepseek.com/quick_start/pricing> |
+| deepseek-v4-flash-vision-exp | multimodal (retired alias) | 同 deepseek-flash | 同 deepseek-flash |
 
 Notes:
 
-- DeepSeek entries predate this manifest (PR #159 Package 2) and keep their
-  frozen semantics: vision stays `unknown`, not `unsupported`.
+- `deepseek-flash` is DeepSeek-V4.1-Flash (released 2026-09-10, "native
+  multimodal visual understanding"): it accepts images alongside text per the
+  official vision guide and supports tool calling and thinking /
+  non-thinking modes.
+- `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` were retired on
+  2026-09-10 and are served by DeepSeek-V4.1-Flash; their effective
+  classification is therefore multimodal. `deepseek-v4-flash` keeps the
+  Package 2 frozen `reasoning` / `toolCalling` claims, which the served-by
+  model's official capability table continues to back.
+- `deepseek-v4-pro` is text-only per its official row ("Vision: Not
+  supported"). Its officially documented tool calling stays unannotated:
+  `reasoning` / `toolCalling` for new DeepSeek rows require a dedicated
+  evidence package.
+- `deepseek-chat` / `deepseek-reasoner` were discontinued on 2026-07-24 and
+  are intentionally not entered.
+- DeepSeek officially publishes no embedding model and no dedicated OCR /
+  document-parsing transport, so every row writes `ocr` as `unsupported`.
 - The Agent transport allowlist (`deepseek_responses`) is independent of this
   queue and is not expanded by it.
