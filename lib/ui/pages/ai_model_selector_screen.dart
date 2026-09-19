@@ -22,16 +22,25 @@ class AiModelSelectorScreen extends StatefulWidget {
 class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
   bool _loading = true;
   bool _saving = false;
-  bool _showUnusable = false;
   List<AiModelCompatibility> _models = const <AiModelCompatibility>[];
   AiCapabilityBindingSummary? _current;
   String? _selectedModelRef;
   String? _message;
+  String _searchQuery = '';
+  String? _expandedProviderId;
+  String? _preSearchExpandedProviderId;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -52,6 +61,7 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
         )
             ? currentRef
             : null;
+        _expandedProviderId = current?.model.providerId;
         _loading = false;
       });
     } catch (_) {
@@ -61,6 +71,25 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
         _message = '暂时无法读取模型列表';
       });
     }
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {
+      if (_searchQuery.isEmpty && value.isNotEmpty) {
+        _preSearchExpandedProviderId = _expandedProviderId;
+      }
+      _searchQuery = value;
+      if (value.isEmpty) {
+        _expandedProviderId = _preSearchExpandedProviderId;
+      }
+    });
+  }
+
+  void _toggleProvider(String providerId) {
+    setState(() {
+      _expandedProviderId =
+          _expandedProviderId == providerId ? null : providerId;
+    });
   }
 
   Future<void> _addCustomModel() async {
@@ -83,6 +112,10 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
         if (_models
             .any((item) => item.model.modelRef == result && item.compatible)) {
           _selectedModelRef = result;
+          _expandedProviderId = _models
+              .singleWhere((item) => item.model.modelRef == result)
+              .model
+              .providerId;
           _message = '模型已添加，请确认并应用模型。能力未标注时，请确认该模型支持此用途。';
         }
       });
@@ -121,16 +154,9 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final selectable = _models
-        .where(
-          (model) => model.compatible,
-        )
-        .toList();
-    final unusable = _models
-        .where(
-          (model) => model.selectionState == AiModelSelectionState.unsupported,
-        )
-        .toList();
+    final searching = _searchQuery.trim().isNotEmpty;
+    final visibleModels = searching ? _searchMatches() : _models;
+    final providerGroups = _groupByProvider(visibleModels);
     return Scaffold(
       appBar: AppBar(title: Text('选择模型 · ${_slotName(widget.slot)}')),
       body: _loading
@@ -139,16 +165,7 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
               groupValue: _selectedModelRef,
               onChanged: _saving
                   ? (_) {}
-                  : (value) => setState(() {
-                        _selectedModelRef = value;
-                        final item = _models
-                            .where((item) => item.model.modelRef == value)
-                            .firstOrNull;
-                        _message = item?.selectionState ==
-                                AiModelSelectionState.unannotated
-                            ? 'Shiroha 尚未标注该模型的当前能力，请确认该模型支持此用途。'
-                            : null;
-                      }),
+                  : (value) => setState(() => _selectedModelRef = value),
               child: ShirohaPageBody(
                 children: <Widget>[
                   if (_message != null) ...<Widget>[
@@ -158,15 +175,30 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                   OutlinedButton.icon(
                     key: const ValueKey<String>('add-custom-model'),
                     onPressed: _saving ? null : _addCustomModel,
-                    icon: const Icon(Icons.add),
+                    icon: const Icon(Icons.add_rounded),
                     label: const Text('添加自定义模型'),
                   ),
-                  if (_current?.model.availability ==
-                      AiModelAvailability.unavailable)
-                    Text('${_current!.model.displayName}：当前模型目录未返回此模型'),
-                  const ShirohaSectionLabel('可使用'),
-                  const SizedBox(height: 8),
-                  if (selectable.isEmpty)
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey<String>('model-search-field'),
+                    controller: _searchController,
+                    onChanged: _onSearchChanged,
+                    decoration: const InputDecoration(
+                      hintText: '搜索模型',
+                      prefixIcon: Icon(Icons.search_rounded),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  if (_current != null) ...<Widget>[
+                    const SizedBox(height: DesignTokens.sectionGap),
+                    _CurrentSelection(
+                      summary: _current!,
+                      slotName: _slotName(widget.slot),
+                    ),
+                  ],
+                  const SizedBox(height: DesignTokens.sectionGap),
+                  if (_models.isEmpty)
                     ShirohaSurfaceCard(
                       child: Padding(
                         padding: const EdgeInsets.all(
@@ -175,40 +207,32 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                         child: Text(_emptyStateMessage),
                       ),
                     )
+                  else if (searching && providerGroups.isEmpty)
+                    const ShirohaSurfaceCard(
+                      child: Padding(
+                        padding: EdgeInsets.all(
+                          DesignTokens.cardInternalPadding,
+                        ),
+                        child: Text('没有匹配的模型'),
+                      ),
+                    )
                   else
-                    for (final entry
-                        in _groupByProvider(selectable).entries) ...[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
-                        child: Text(
-                          entry.value.first.provider.displayName,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
+                    for (final entry in providerGroups.entries)
+                      _providerAccordion(
+                        entry.value,
+                        expanded: searching || _expandedProviderId == entry.key,
+                        onToggle: () => _toggleProvider(entry.key),
                       ),
-                      ShirohaSettingsCard(
-                        children: entry.value
-                            .map((model) => _modelTile(model, enabled: true))
-                            .toList(growable: false),
-                      ),
-                    ],
-                  if (unusable.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: DesignTokens.sectionGap),
-                    ShirohaSurfaceCard(
-                      child: ExpansionTile(
-                        key: const ValueKey<String>(
-                          'model-unavailable-toggle',
-                        ),
-                        title: Text('当前不可使用（${unusable.length}）'),
-                        subtitle: const Text('展开查看具体原因'),
-                        initiallyExpanded: _showUnusable,
-                        onExpansionChanged: (value) =>
-                            setState(() => _showUnusable = value),
-                        children: unusable
-                            .map((model) => _modelTile(model, enabled: false))
-                            .toList(growable: false),
+                  if (!searching &&
+                      _models.isNotEmpty &&
+                      _models.every((model) => !model.compatible))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '当前没有可用于此功能的模型。',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
-                  ],
                   const SizedBox(height: DesignTokens.sectionGap),
                   FilledButton.icon(
                     key: const ValueKey<String>('model-confirm-button'),
@@ -235,23 +259,150 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
     return '当前没有可用于此功能的模型。';
   }
 
-  Widget _modelTile(AiModelCompatibility item, {required bool enabled}) {
+  List<AiModelCompatibility> _searchMatches() {
+    final query = _searchQuery.trim().toLowerCase();
+    return _models
+        .where(
+          (item) =>
+              item.model.displayName.toLowerCase().contains(query) ||
+              item.model.canonicalModelId.toLowerCase().contains(query) ||
+              item.provider.displayName.toLowerCase().contains(query),
+        )
+        .toList();
+  }
+
+  Widget _providerAccordion(
+    List<AiModelCompatibility> models, {
+    required bool expanded,
+    required VoidCallback onToggle,
+  }) {
+    final provider = models.first.provider;
+    final boundHere =
+        _current != null && _current!.model.providerId == provider.providerId;
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ShirohaSurfaceCard(
+        child: Column(
+          children: <Widget>[
+            InkWell(
+              key: ValueKey<String>('provider-header-${provider.providerId}'),
+              onTap: onToggle,
+              borderRadius:
+                  BorderRadius.circular(DesignTokens.cardInternalPadding),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: DesignTokens.cardInternalPadding,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    AnimatedRotation(
+                      turns: expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 150),
+                      child: const Icon(Icons.expand_more_rounded),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Flexible(
+                                child: Text(
+                                  provider.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              ),
+                              if (provider.kind ==
+                                  AiProviderKind.openAiCompatible) ...<Widget>[
+                                const SizedBox(width: 6),
+                                Text(
+                                  '自定义/OpenAI兼容',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: colors.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (boundHere)
+                            Text(
+                              '当前：${_current!.model.displayName}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${models.length} 个',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: colors.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: expanded
+                  ? Column(
+                      children: models
+                          .map((model) => _modelTile(model))
+                          .toList(growable: false),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _modelTile(AiModelCompatibility item) {
     final colors = Theme.of(context).colorScheme;
     final selected = item.model.modelRef == _selectedModelRef;
+    final enabled = item.compatible && !_saving;
+    final sameId = item.model.displayName == item.model.canonicalModelId;
     final tags = item.capabilities.entries
         .where((entry) => entry.value == AiCapabilitySupport.supported)
         .map((entry) => _capabilityName(entry.key))
         .toList(growable: false);
+    final unsupported =
+        item.selectionState == AiModelSelectionState.unsupported;
+    final unannotated =
+        item.selectionState == AiModelSelectionState.unannotated;
     return RadioListTile<String>(
       key: ValueKey<String>('model-${item.model.modelRef}'),
       value: item.model.modelRef,
-      enabled: enabled && !_saving,
+      enabled: enabled,
       selected: selected,
       title: Text(item.model.displayName),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(item.model.canonicalModelId),
+          if (!sameId) Text(item.model.canonicalModelId),
           if (tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -269,21 +420,76 @@ class _AiModelSelectorScreenState extends State<AiModelSelectorScreen> {
                     .toList(growable: false),
               ),
             ),
-          if (!enabled ||
-              item.selectionState == AiModelSelectionState.unannotated)
+          if (unannotated)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                _stateLabel(item.selectionState),
-                style: TextStyle(
-                  color:
-                      item.selectionState == AiModelSelectionState.unannotated
-                          ? colors.onSurfaceVariant
-                          : colors.error,
-                ),
+                '能力未标注',
+                style: TextStyle(color: colors.onSurfaceVariant),
+              ),
+            ),
+          if (unsupported)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '不支持当前功能',
+                style: TextStyle(color: colors.error),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _CurrentSelection extends StatelessWidget {
+  const _CurrentSelection({required this.summary, required this.slotName});
+
+  final AiCapabilityBindingSummary summary;
+  final String slotName;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ShirohaSurfaceCard(
+      key: const ValueKey<String>('current-selection'),
+      child: Padding(
+        padding: const EdgeInsets.all(DesignTokens.cardInternalPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '当前选择 · $slotName',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              summary.model.displayName,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            Text(
+              summary.provider.displayName,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: colors.onSurfaceVariant),
+            ),
+            if (summary.model.availability == AiModelAvailability.unavailable)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '当前模型目录未返回此模型',
+                  style: TextStyle(color: colors.error),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -315,13 +521,6 @@ String _capabilityName(AiModelCapability capability) => switch (capability) {
       AiModelCapability.embedding => '向量',
     };
 
-String _stateLabel(AiModelSelectionState state) => switch (state) {
-      AiModelSelectionState.selectable => '可使用',
-      AiModelSelectionState.unannotated => '能力未标注',
-      AiModelSelectionState.unsupported => '不支持当前功能',
-      AiModelSelectionState.unavailable => '当前模型目录未返回',
-    };
-
 String _bindingError(AiConfigFailure failure) => switch (failure) {
       AiConfigFailure.staleRevision => '配置已在其他位置更新，请重新选择',
       AiConfigFailure.modelUnavailable => '该模型已不可用',
@@ -350,16 +549,21 @@ class _Notice extends StatelessWidget {
 }
 
 class _CustomModelDialog extends StatefulWidget {
-  const _CustomModelDialog({required this.service, required this.providers});
+  const _CustomModelDialog({
+    required this.service,
+    required this.providers,
+  });
+
   final AiConfigPresentationService service;
   final List<AiProviderOverview> providers;
+
   @override
   State<_CustomModelDialog> createState() => _CustomModelDialogState();
 }
 
 class _CustomModelDialogState extends State<_CustomModelDialog> {
-  final _id = TextEditingController();
-  final _name = TextEditingController();
+  final TextEditingController _id = TextEditingController();
+  final TextEditingController _name = TextEditingController();
   late String _providerId = widget.providers.first.provider.providerId;
   bool _saving = false;
   String? _error;
@@ -378,9 +582,10 @@ class _CustomModelDialogState extends State<_CustomModelDialog> {
     });
     try {
       final ref = await widget.service.addCustomModel(
-          providerId: _providerId,
-          canonicalModelId: _id.text,
-          displayName: _name.text);
+        providerId: _providerId,
+        canonicalModelId: _id.text,
+        displayName: _name.text,
+      );
       if (mounted) Navigator.of(context).pop(ref);
     } on AiConfigException catch (error) {
       if (mounted) {
@@ -398,42 +603,56 @@ class _CustomModelDialogState extends State<_CustomModelDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('添加自定义模型'),
-        content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-          DropdownButtonFormField<String>(
-            initialValue: _providerId,
-            decoration: const InputDecoration(labelText: 'Provider'),
-            items: widget.providers
-                .map((item) => DropdownMenuItem(
-                    value: item.provider.providerId,
-                    child: Text(item.provider.displayName)))
-                .toList(),
-            onChanged: _saving
-                ? null
-                : (value) => setState(() => _providerId = value!),
-          ),
-          TextField(
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('添加自定义模型'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            DropdownButtonFormField<String>(
+              key: const ValueKey<String>('custom-model-provider'),
+              initialValue: _providerId,
+              decoration: const InputDecoration(labelText: 'Provider'),
+              items: widget.providers
+                  .map(
+                    (item) => DropdownMenuItem<String>(
+                      value: item.provider.providerId,
+                      child: Text(item.provider.displayName),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _providerId = value!),
+            ),
+            TextField(
               key: const ValueKey<String>('custom-model-id'),
               controller: _id,
               enabled: !_saving,
-              decoration: const InputDecoration(labelText: 'Model ID *')),
-          TextField(
+              decoration: const InputDecoration(labelText: 'Model ID *'),
+            ),
+            TextField(
               key: const ValueKey<String>('custom-model-name'),
               controller: _name,
               enabled: !_saving,
-              decoration: const InputDecoration(labelText: 'Display Name（可选）')),
-          if (_error != null) Text(_error!),
-        ])),
-        actions: [
-          TextButton(
-              onPressed: _saving ? null : () => Navigator.of(context).pop(),
-              child: const Text('取消')),
-          FilledButton(
-              key: const ValueKey<String>('save-custom-model'),
-              onPressed: _saving ? null : _save,
-              child: const Text('添加')),
-        ],
-      );
+              decoration: const InputDecoration(labelText: 'Display Name（可选）'),
+            ),
+            if (_error != null) Text(_error!),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('save-custom-model'),
+          onPressed: _saving ? null : _save,
+          child: const Text('添加'),
+        ),
+      ],
+    );
+  }
 }

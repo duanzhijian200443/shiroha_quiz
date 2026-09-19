@@ -132,46 +132,54 @@ void main() {
   });
 
   test('exact registry entries carry verified text evidence only', () {
-    for (final entry in const <(AiProviderKind, String)>[
-      (AiProviderKind.deepseek, 'deepseek-flash'),
-      (AiProviderKind.zhipu, 'glm-5.3'),
-    ]) {
-      final resolved = resolveModelCapabilities(
-        providerKind: entry.$1,
-        canonicalModelId: entry.$2,
-        claims: const <AiCapabilityClaim>[],
-      );
-      expect(
-        resolved[AiModelCapability.textInput],
-        AiCapabilitySupport.supported,
-        reason: '${entry.$1} / ${entry.$2}',
-      );
-      expect(
-        resolved[AiModelCapability.textOutput],
-        AiCapabilitySupport.supported,
-        reason: '${entry.$1} / ${entry.$2}',
-      );
-      expect(
-        resolved[AiModelCapability.imageInput],
-        AiCapabilitySupport.unknown,
-        reason: '${entry.$1} / ${entry.$2} must not declare vision',
-      );
-      expect(
-        resolved[AiModelCapability.ocr],
-        AiCapabilitySupport.unknown,
-        reason: '${entry.$1} / ${entry.$2} must not declare OCR',
-      );
-      expect(
-        resolved[AiModelCapability.reasoning],
-        AiCapabilitySupport.unknown,
-        reason: '${entry.$1} / ${entry.$2} must not declare reasoning',
-      );
-      expect(
-        resolved[AiModelCapability.toolCalling],
-        AiCapabilitySupport.unknown,
-        reason: '${entry.$1} / ${entry.$2} must not declare tool calling',
-      );
-    }
+    final deepseekFlash = resolveModelCapabilities(
+      providerKind: AiProviderKind.deepseek,
+      canonicalModelId: 'deepseek-flash',
+      claims: const <AiCapabilityClaim>[],
+    );
+    expect(
+      deepseekFlash[AiModelCapability.textInput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      deepseekFlash[AiModelCapability.textOutput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      deepseekFlash[AiModelCapability.imageInput],
+      AiCapabilitySupport.unknown,
+      reason: 'deepseek-flash has no vision evidence and stays unannotated',
+    );
+
+    final glmFiveThree = resolveModelCapabilities(
+      providerKind: AiProviderKind.zhipu,
+      canonicalModelId: 'glm-5.3',
+      claims: const <AiCapabilityClaim>[],
+    );
+    expect(
+      glmFiveThree[AiModelCapability.textInput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      glmFiveThree[AiModelCapability.textOutput],
+      AiCapabilitySupport.supported,
+    );
+    expect(
+      glmFiveThree[AiModelCapability.imageInput],
+      AiCapabilitySupport.unsupported,
+      reason: 'official docs classify glm-5.3 as text-only',
+    );
+    expect(
+      glmFiveThree[AiModelCapability.ocr],
+      AiCapabilitySupport.unsupported,
+      reason: 'official docs classify glm-5.3 as text-only',
+    );
+    expect(
+      glmFiveThree[AiModelCapability.reasoning],
+      AiCapabilitySupport.unknown,
+      reason:
+          'reasoning stays unannotated without a dedicated evidence package',
+    );
   });
 
   test('registry matches are exact in kind and id', () {

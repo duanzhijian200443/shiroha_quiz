@@ -169,6 +169,185 @@ void main() {
         0);
   });
 
+  test('zhipu queue gates slots per the frozen classification', () async {
+    await store.insertProvider(
+      AiProviderRecord(
+        providerId: 'provider-z',
+        kind: AiProviderKind.zhipu,
+        displayName: 'Zhipu',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    final curatedOcr = (await store.listModels(providerId: 'provider-z'))
+        .singleWhere((model) => model.canonicalModelId == 'glm-ocr');
+    await store.saveModel(
+      AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
+        modelRef: 't53',
+        providerId: 'provider-z',
+        canonicalModelId: 'glm-5.3',
+        displayName: 'glm-5.3',
+        availability: AiModelAvailability.available,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    await store.saveModel(
+      AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
+        modelRef: 't53f',
+        providerId: 'provider-z',
+        canonicalModelId: 'glm-5.3-flash',
+        displayName: 'glm-5.3-flash',
+        availability: AiModelAvailability.available,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    await store.saveModel(
+      AiModelRecord(
+        origin: AiModelOrigin.providerCatalog,
+        modelRef: 't45',
+        providerId: 'provider-z',
+        canonicalModelId: 'glm-4.5',
+        displayName: 'glm-4.5',
+        availability: AiModelAvailability.available,
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+      ),
+    );
+    final service = _service(repository, const _Connection([]));
+
+    AiModelSelectionState stateOf(
+      List<AiModelCompatibility> models,
+      String modelRef,
+    ) =>
+        models
+            .singleWhere((item) => item.model.modelRef == modelRef)
+            .selectionState;
+
+    final text = await service.listModelsForSlot(AiCapabilitySlot.textModel);
+    final image =
+        await service.listModelsForSlot(AiCapabilitySlot.imageUnderstanding);
+    final ocr =
+        await service.listModelsForSlot(AiCapabilitySlot.documentRecognition);
+
+    expect(stateOf(text, 't53'), AiModelSelectionState.selectable);
+    expect(stateOf(text, 't53f'), AiModelSelectionState.selectable);
+    expect(stateOf(text, 't45'), AiModelSelectionState.unannotated);
+    expect(
+        stateOf(text, curatedOcr.modelRef), AiModelSelectionState.unsupported);
+    expect(stateOf(image, 't53'), AiModelSelectionState.unsupported);
+    expect(stateOf(image, 't53f'), AiModelSelectionState.selectable);
+    expect(stateOf(image, 't45'), AiModelSelectionState.unannotated);
+    expect(
+        stateOf(image, curatedOcr.modelRef), AiModelSelectionState.unsupported);
+    expect(stateOf(ocr, 't53'), AiModelSelectionState.unsupported);
+    expect(stateOf(ocr, 't53f'), AiModelSelectionState.unsupported);
+    expect(stateOf(ocr, 't45'), AiModelSelectionState.unannotated);
+    expect(stateOf(ocr, curatedOcr.modelRef), AiModelSelectionState.selectable);
+
+    await service.applyBinding(
+      slot: AiCapabilitySlot.textModel,
+      modelRef: 't53',
+      expectedRevision: null,
+    );
+    await service.applyBinding(
+      slot: AiCapabilitySlot.imageUnderstanding,
+      modelRef: 't53f',
+      expectedRevision: null,
+    );
+    await service.applyBinding(
+      slot: AiCapabilitySlot.documentRecognition,
+      modelRef: curatedOcr.modelRef,
+      expectedRevision: null,
+    );
+    expect(
+      (await store.readBinding(AiCapabilitySlot.textModel))!.validationMode,
+      AiBindingValidationMode.verified,
+    );
+    expect(
+      (await store.readBinding(AiCapabilitySlot.imageUnderstanding))!
+          .validationMode,
+      AiBindingValidationMode.verified,
+    );
+    expect(
+      (await store.readBinding(AiCapabilitySlot.documentRecognition))!
+          .validationMode,
+      AiBindingValidationMode.verified,
+    );
+  });
+
+  test('queue entries never materialize catalog models', () async {
+    await store.saveModel(_model('local-only', 'school-private-model'));
+    final service = _service(repository, const _Connection([]));
+
+    final models = await service.listModelsForSlot(AiCapabilitySlot.textModel);
+    expect(models.map((item) => item.model.modelRef), <String>['local-only']);
+    expect(
+      models.map((item) => item.model.canonicalModelId),
+      isNot(contains('glm-4.7')),
+    );
+  });
+
+  test('custom model stays pinned to its selected provider across refreshes',
+      () async {
+    await store.insertProvider(
+      AiProviderRecord(
+        providerId: 'provider-z',
+        kind: AiProviderKind.zhipu,
+        displayName: 'Zhipu',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        state: AiProviderState.ready,
+        revision: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    final localRepository = AiConfigRepository(
+      store: store,
+      credentialStore: MemoryEngineCredentialStore({
+        'provider-a': 'secret',
+        'provider-z': 'secret-z',
+      }),
+    );
+    final service = _service(
+      localRepository,
+      _Connection([AiDiscoveredModel(canonicalModelId: 'other-model')]),
+    );
+    final custom = await service.addCustomModel(
+      providerId: 'provider-z',
+      canonicalModelId: 'custom-model',
+    );
+
+    await service.syncModels('provider-a');
+    expect((await store.readModel(custom))!.origin, AiModelOrigin.userDefined);
+    expect(
+      (await store.readModel(custom))!.availability,
+      AiModelAvailability.available,
+    );
+
+    await service.syncModels('provider-z');
+    expect((await store.readModel(custom))!.origin, AiModelOrigin.userDefined);
+    expect(
+      (await store.readModel(custom))!.availability,
+      AiModelAvailability.available,
+    );
+
+    final models = await service.listModelsForSlot(AiCapabilitySlot.textModel);
+    expect(
+      models
+          .singleWhere((item) => item.model.modelRef == custom)
+          .model
+          .providerId,
+      'provider-z',
+    );
+  });
+
   test('exact registry supports only the exact curated model id', () async {
     await store.saveModel(_model('exact', 'deepseek-v4-flash'));
     await store.saveModel(_model('flash', 'deepseek-flash'));
