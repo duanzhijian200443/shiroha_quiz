@@ -98,6 +98,11 @@ text and performs no comparison, and it is sticky: an edit that deletes the
 original text and types it back is still an edit, and edit history can never be
 recovered from the final string.
 
+The Review explanation editor is that user edit event: it seeds its field with
+the text currently rendered, keeps the saved value as exact literal text, and
+records the manual edit. Dismissing the editor or saving it without changing the
+text is not an edit, so the typed structure and its provenance both survive.
+
 The following never set `manualEdited`: initial load, persisted or restart
 reload, the explanation retention toggle, deterministic finalization, safe HTML
 cleanup, OCR normalization, snapshot registration, typed restore, a policy

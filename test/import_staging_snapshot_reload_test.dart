@@ -332,6 +332,80 @@ void main() {
   });
 
   testWidgets(
+      'editing the explanation marks the item manually edited and commits the '
+      'literal text', (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: projected),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: projected,
+      rawExplanation: projected,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceUntouched;
+
+    await _open(tester, question, resolver: _Resolver());
+
+    // Untouched typed structure renders and offers the edit affordance.
+    expect(_typedContent(explanation), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-open')));
+    await tester.pumpAndSettle();
+
+    // The editor is seeded with what the reviewer is looking at.
+    final field = find.byKey(const ValueKey('explanation-edit-field'));
+    expect(field, findsOneWidget);
+    await tester.enterText(field, 'Corrected by the reviewer');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-save')));
+    await tester.pumpAndSettle();
+
+    // A real edit is terminal: the typed structure is no longer inherited.
+    expect(_typedContent(explanation), findsNothing);
+    expect(_tableAnchor(0, 0), findsNothing);
+    expect(find.textContaining('Corrected by the reviewer', findRichText: true),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dismissing the explanation editor is not an edit',
+      (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: projected),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: projected,
+      rawExplanation: projected,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceUntouched;
+
+    await _open(tester, question, resolver: _Resolver());
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-open')));
+    await tester.pumpAndSettle();
+    // Save without changing anything: no edit happened, so the typed
+    // structure and its provenance must both survive.
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(_typedContent(explanation), findsOneWidget,
+        reason: 'an unchanged save must not discard the structure');
+    expect(_tableAnchor(0, 0), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'decoded envelope never re-applies the old structure over a manual edit',
       (tester) async {
     final explanation = _tableExplanation();

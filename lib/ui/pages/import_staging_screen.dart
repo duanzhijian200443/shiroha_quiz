@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
@@ -1761,6 +1762,66 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  /// Opens the explanation editor for one review item.
+  ///
+  /// The field is seeded with the text the reviewer is currently looking at, so
+  /// editing starts from what was rendered. Saving keeps the entered value as
+  /// literal text and marks the explanation manually edited; dismissing the
+  /// dialog without changing anything is not an edit and leaves the typed
+  /// structure and its provenance untouched.
+  Future<void> _editExplanation(ImportReviewItem item) async {
+    if (_isSaving) return;
+    final snapshot = _presentationSnapshots[item.originalIndex];
+    final provenance = _explanationProvenance[item.originalIndex] ??
+        ExplanationEditProvenance.legacyUnknown;
+    final typed = resolveExplanationReviewContent(
+      originalContent: snapshot?.draft.explanation,
+      baselineText: snapshot?.baselineLegacy.explanation ?? '',
+      currentText: item.draft.explanation,
+      retained: _isQuestionExplanationRetained(item),
+      provenance: provenance,
+    );
+    final seed = typed == null
+        ? item.draft.explanation
+        : const RichContentTextProjection().project(typed);
+    final edited = await showDialog<String>(
+      context: context,
+      builder: (_) => _ExplanationEditDialog(initialText: seed),
+    );
+    if (edited == null || !mounted) return;
+    // An untouched dialog is not an edit; only a real change records one.
+    if (edited == item.draft.explanation) return;
+    _saveManualExplanationEdit(item, edited);
+  }
+
+  /// Records one direct user edit of the explanation content.
+  ///
+  /// This is the only path that may move an item to
+  /// [ExplanationEditProvenance.manualEdited], and it is deliberately driven by
+  /// the user's save action rather than by comparing text: the typed and legacy
+  /// explanations are different representations, so text can never prove
+  /// whether an edit happened. The edited value is kept as exact literal text
+  /// and is never reparsed into typed nodes.
+  void _saveManualExplanationEdit(ImportReviewItem item, String edited) {
+    if (_isSaving) return;
+    if (item.draft.explanation == edited) return;
+    setState(() {
+      _allItems = _allItems
+          .map(
+            (candidate) => identical(candidate, item)
+                ? candidate.copyWith(
+                    draft: candidate.draft.copyWith(explanation: edited),
+                  )
+                : candidate,
+          )
+          .toList();
+      _explanationProvenance[item.originalIndex] =
+          markExplanationManuallyEdited();
+      _refreshReviewState();
+    });
+    unawaited(_persistReviewDraft());
+  }
+
   void _refreshVisibleItems() {
     _visibleItems = ImportReviewFilterService.apply(
       items: _allItems,
@@ -2312,6 +2373,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       issues: visibleItem.issues,
                                       explanationRetained:
                                           _isQuestionExplanationRetained(item),
+                                      onEditExplanation:
+                                          (_selectionMode || _isSaving)
+                                              ? null
+                                              : () => _editExplanation(item),
                                       explanationProvenance:
                                           _explanationProvenance[
                                                   item.originalIndex] ??
@@ -2782,6 +2847,7 @@ class _QuestionCard extends StatelessWidget {
     required this.explanationRetained,
     required this.explanationProvenance,
     required this.onExplanationRetentionChanged,
+    required this.onEditExplanation,
     required this.answerDistillationCandidate,
     required this.answerDistillationStatus,
     required this.proofExplanationRecognized,
@@ -2799,6 +2865,7 @@ class _QuestionCard extends StatelessWidget {
   final bool explanationRetained;
   final ExplanationEditProvenance explanationProvenance;
   final ValueChanged<bool>? onExplanationRetentionChanged;
+  final VoidCallback? onEditExplanation;
   final bool answerDistillationCandidate;
   final String? answerDistillationStatus;
   final bool proofExplanationRecognized;
@@ -3074,6 +3141,7 @@ class _QuestionCard extends StatelessWidget {
                 explanation: explanation,
                 typedAnswer: typedAnswer,
                 typedExplanation: typedExplanation,
+                onEditExplanation: onEditExplanation,
               ),
           ],
         ),
@@ -3209,6 +3277,58 @@ class _RepairEligibilityNotice extends StatelessWidget {
   }
 }
 
+class _ExplanationEditDialog extends StatefulWidget {
+  const _ExplanationEditDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_ExplanationEditDialog> createState() => _ExplanationEditDialogState();
+}
+
+/// Owns its controller so the field stays valid for the closing animation.
+class _ExplanationEditDialogState extends State<_ExplanationEditDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('编辑解析'),
+      content: SizedBox(
+        width: 520,
+        child: TextField(
+          key: const ValueKey('explanation-edit-field'),
+          controller: _controller,
+          maxLines: 12,
+          minLines: 6,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '解析内容',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('explanation-edit-save'),
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
 class _MissingAnswerNotice extends StatelessWidget {
   const _MissingAnswerNotice();
 
@@ -3248,12 +3368,14 @@ class _AnswerBlock extends StatelessWidget {
     required this.explanation,
     this.typedAnswer,
     this.typedExplanation,
+    this.onEditExplanation,
   });
 
   final String standardAnswer;
   final String explanation;
   final RichContent? typedAnswer;
   final RichContent? typedExplanation;
+  final VoidCallback? onEditExplanation;
 
   @override
   Widget build(BuildContext context) {
@@ -3272,9 +3394,22 @@ class _AnswerBlock extends StatelessWidget {
         ),
         if (explanation.isNotEmpty || typedExplanation != null) ...[
           const SizedBox(height: 12),
-          const Text(
-            '解析：',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+          Row(
+            children: [
+              const Text(
+                '解析：',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              if (onEditExplanation != null) ...[
+                const Spacer(),
+                TextButton.icon(
+                  key: const ValueKey('explanation-edit-open'),
+                  onPressed: onEditExplanation,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('编辑', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 4),
           _QuestionCard._buildContent(context, explanation, typedExplanation),
