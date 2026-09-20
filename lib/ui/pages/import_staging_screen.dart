@@ -240,16 +240,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     const snapshotCodec = TypedReviewSnapshotCodec();
     for (final entry in _snapshotProvenance.entries) {
       try {
-        // The stored value is either the typed envelope itself or a question
-        // shaped map that carries it, depending on the shape this item was
-        // written with. Resolving both keeps strict decoding as the single
-        // structural authority, and the catch below keeps the fail-closed
-        // behavior for an absent or invalid envelope.
-        final stored = entry.value[TypedReviewSnapshotCodec.mapKey];
+        // Read exactly the value the commit path reads. Canonical persistence
+        // stores the envelope itself under the reserved key, so accepting a
+        // second nested layer here would let the preview render typed content
+        // that the commit then rejects, and would widen a fail-closed contract
+        // in the UI only.
         final snapshot = snapshotCodec.decodeRequired(
-          stored is Map && stored.containsKey(TypedReviewSnapshotCodec.mapKey)
-              ? stored[TypedReviewSnapshotCodec.mapKey]
-              : stored,
+          entry.value[TypedReviewSnapshotCodec.mapKey],
         );
         // Mirror TypedReviewResultBuilder's static identity/baseline checks.
         // Compare the frozen baseline, not the user's editable current type.
@@ -1789,8 +1786,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       builder: (_) => _ExplanationEditDialog(initialText: seed),
     );
     if (edited == null || !mounted) return;
-    // An untouched dialog is not an edit; only a real change records one.
-    if (edited == item.draft.explanation) return;
+    // An edit means "did this interaction change what the editor was seeded
+    // with". Comparing against the stored legacy text instead would misfire on
+    // exactly the payload this contract exists for: the typed projection and
+    // the legacy text are different representations, so a no-op save would look
+    // like an edit and permanently flatten the structure.
+    if (edited == seed) return;
     _saveManualExplanationEdit(item, edited);
   }
 

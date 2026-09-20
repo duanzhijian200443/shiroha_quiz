@@ -77,6 +77,12 @@ The provenance marker is transient review state. It lives only in the persisted
 ReviewDraft question map under the stable key `_explanation_edit_provenance`
 with the stable values `untouched` and `manualEdited`.
 
+Typed snapshot persistence stays canonical: the envelope itself is stored
+directly under the reserved `_typed_review_v1` key. Preview and commit read that
+same canonical value, and a nested or otherwise non-canonical payload fails
+closed on both sides. Preview must never be more permissive than commit, or a
+reviewer could see typed content that can never be committed.
+
 It never enters `QuestionDraftV2`, the typed snapshot payload, the question
 schema or SQLite. This contract adds no schema and requires no migration.
 
@@ -100,8 +106,15 @@ recovered from the final string.
 
 The Review explanation editor is that user edit event: it seeds its field with
 the text currently rendered, keeps the saved value as exact literal text, and
-records the manual edit. Dismissing the editor or saving it without changing the
-text is not an edit, so the typed structure and its provenance both survive.
+records the manual edit.
+
+Whether an edit happened is decided against **the value the editor was seeded
+with**, never against the stored legacy string. On the payload this contract
+exists for the two differ (the seed is the typed projection, the stored field is
+the legacy rendering), so comparing with the stored field would report a no-op
+save as an edit and permanently flatten the structure. Dismissing the editor, or
+saving it unchanged, is not an edit and leaves the structure and its provenance
+intact.
 
 The following never set `manualEdited`: initial load, persisted or restart
 reload, the explanation retention toggle, deterministic finalization, safe HTML
@@ -139,6 +152,15 @@ An `untouched` restore reuses the snapshot's own `RichContent` node identity. It
 never reparses text into a new `TableNode`, never re-downloads an image and never
 re-establishes asset identity: `ImageNode.sourceId`, `ImageNode.localAssetId`
 and `TableNode.structure` are preserved exactly.
+
+## 7a. Typed option finalization parity
+
+The legacy review map is finalized with the safe-HTML cleanup, so the typed
+draft is cleaned at the same deterministic boundary. Because the explicit-edit
+path keeps an unchanged typed option verbatim, a typed option that retained
+`<p>Four</p>` while the finalized legacy option read `Four` would make raw
+markup the persisted typed authority. Option order, option count and every
+non-text node are preserved; only text nodes inside an option are cleaned.
 
 ## 8. Unchanged contracts
 

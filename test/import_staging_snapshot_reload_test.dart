@@ -15,6 +15,8 @@ import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
+import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
+import 'package:shiroha_quiz/data/models/question_draft.dart';
 
 /// Reload regression for persisted Review drafts.
 ///
@@ -104,7 +106,6 @@ Map<String, dynamic> _persistedQuestion({
   required TypedReviewSnapshot snapshot,
   required String explanation,
   required String rawExplanation,
-  bool bareEnvelope = false,
 }) {
   final envelope = const TypedReviewSnapshotCodec().encode(snapshot);
   return jsonDecode(jsonEncode(<String, dynamic>{
@@ -116,9 +117,7 @@ Map<String, dynamic> _persistedQuestion({
     'explanation': explanation,
     'raw_explanation': rawExplanation,
     TaskManager.keyReviewItemId: snapshot.reviewItemId,
-    TypedReviewSnapshotCodec.mapKey: bareEnvelope
-        ? envelope
-        : <String, dynamic>{TypedReviewSnapshotCodec.mapKey: envelope},
+    TypedReviewSnapshotCodec.mapKey: envelope,
   })) as Map<String, dynamic>;
 }
 
@@ -225,7 +224,6 @@ void main() {
       snapshot: snapshot,
       explanation: projected,
       rawExplanation: projected,
-      bareEnvelope: true,
     );
     (question[TypedReviewSnapshotCodec.mapKey] as Map)['schemaVersion'] = 999;
     final before = jsonEncode(question);
@@ -258,7 +256,6 @@ void main() {
       snapshot: snapshot,
       explanation: projected,
       rawExplanation: projected,
-      bareEnvelope: true,
     );
 
     await _open(tester, question, resolver: _Resolver());
@@ -406,6 +403,104 @@ void main() {
   });
 
   testWidgets(
+      'saving the editor unchanged keeps the structure on a non-isomorphic '
+      'payload', (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    // The real premise: the stored legacy text is NOT the typed projection, so
+    // the editor seed differs from the stored field.
+    final legacyText = projected.replaceAll(' | ', '\n').replaceAll(' ', '');
+    expect(legacyText == projected, isFalse);
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: legacyText),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: legacyText,
+      rawExplanation: legacyText,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceUntouched;
+
+    await _open(tester, question, resolver: _Resolver());
+    expect(_typedContent(explanation), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-open')));
+    await tester.pumpAndSettle();
+    // The field is seeded with the rendered text, not with the stored legacy
+    // string, so a no-op save must be judged against the seed.
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('explanation-edit-field')),
+    );
+    expect(field.controller!.text, isNot(legacyText),
+        reason: 'the seed is the typed projection of the rendered content');
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-save')));
+    await tester.pumpAndSettle();
+
+    // A no-op save must not be recorded as an edit: the structure survives.
+    expect(_typedContent(explanation), findsOneWidget,
+        reason: 'a no-op save must never flatten the structure');
+    expect(_tableAnchor(0, 0), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a nested non-canonical envelope is rejected by preview and commit alike',
+      (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: projected),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: projected,
+      rawExplanation: projected,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceUntouched;
+    // Canonical persistence stores the envelope itself under the reserved key.
+    // Wrap it once more: the preview must not be more permissive than the
+    // commit, otherwise it would render typed content that can never commit.
+    final envelope = question[TypedReviewSnapshotCodec.mapKey];
+    question[TypedReviewSnapshotCodec.mapKey] = <String, dynamic>{
+      TypedReviewSnapshotCodec.mapKey: envelope
+    };
+
+    await _open(tester, question, resolver: _Resolver());
+
+    // Preview fails closed.
+    expect(_typedContent(explanation), findsNothing);
+    expect(_tableAnchor(0, 0), findsNothing);
+
+    // Commit fails closed on the same payload.
+    expect(
+      () => TypedReviewResultBuilder().build(
+        inputs: <TypedReviewCommitInput>[
+          TypedReviewCommitInput(
+            reviewItemId: _itemId,
+            envelope: question[TypedReviewSnapshotCodec.mapKey],
+            currentDraft: QuestionDraft.fromMap(question),
+            explanationRetained: true,
+            explanationEditProvenance: ExplanationEditProvenance.untouched,
+          ),
+        ],
+        taskId: 'synthetic-task',
+        attemptToken: 'synthetic-attempt',
+        attemptNumber: 1,
+      ),
+      throwsA(isA<TypedReviewCommitException>()),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'decoded envelope never re-applies the old structure over a manual edit',
       (tester) async {
     final explanation = _tableExplanation();
@@ -420,7 +515,6 @@ void main() {
       snapshot: snapshot,
       explanation: 'Synthetic manual edit',
       rawExplanation: projected,
-      bareEnvelope: true,
     );
 
     await _open(tester, question, resolver: _Resolver());

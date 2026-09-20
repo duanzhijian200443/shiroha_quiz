@@ -70,6 +70,32 @@ void main() {
       );
       expect(committed.acceptedDrafts.single.stem, snapshot.draft.stem);
       expect(committed.acceptedDrafts.single.explanation != null, retained);
+
+      // Typed/legacy finalization parity for options: the legacy baseline was
+      // cleaned of safe OCR HTML wrappers, and because an unchanged typed
+      // option is kept verbatim by the explicit-edit path, the typed option
+      // must reach the same boundary or raw markup becomes the persisted
+      // authority.
+      final committedOptions = committed.acceptedDrafts.single.options;
+      final legacyOptions =
+          (questions.single['options'] as List).cast<String>();
+      expect(committedOptions, hasLength(legacyOptions.length));
+      for (var i = 0; i < committedOptions.length; i++) {
+        final typedText = committedOptions[i]
+            .content
+            .nodes
+            .whereType<TextNode>()
+            .map((node) => node.text)
+            .join();
+        expect(typedText.contains('<'), isFalse,
+            reason: 'typed option $i kept raw HTML: $typedText');
+        expect(typedText.contains('>'), isFalse,
+            reason: 'typed option $i kept raw HTML: $typedText');
+        // The legacy option carries the "A. " label prefix the typed option
+        // stores separately, so compare the finalized body only.
+        expect(legacyOptions[i].contains('<'), isFalse,
+            reason: 'the legacy baseline must stay finalized too');
+      }
       if (!retained) {
         final restored = finalizeAndAuditImportQuestion(
           gate.questions.single,
