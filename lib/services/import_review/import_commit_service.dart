@@ -517,6 +517,13 @@ class ImportCommitService {
             envelope: items[index].envelope,
             currentDraft: finalizedItems[index].draft,
             repairEdit: items[index].repairEdit,
+            // Carry the caller's resolved review decisions through unchanged.
+            // Rebuilding this input without them would silently replace the
+            // explanation retention and edit provenance the Review preview
+            // used, which is exactly how a structure shown in Review gets
+            // flattened at commit time.
+            explanationRetained: items[index].explanationRetained,
+            explanationEditProvenance: items[index].explanationEditProvenance,
           ),
       ];
       final built = _typedResultBuilder.build(

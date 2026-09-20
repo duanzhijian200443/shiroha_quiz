@@ -232,10 +232,15 @@ QuestionDraft _subjectiveCurrent({
   );
 }
 
+/// Test convenience only: the core `TypedReviewCommitInput` API deliberately has
+/// no defaults, so this helper states the legacy baseline explicitly.
 TypedReviewCommitInput _input({
   Object? envelope = _missingEnvelopeSentinel,
   String? reviewItemId,
   QuestionDraft? currentDraft,
+  bool explanationRetained = true,
+  ExplanationEditProvenance explanationEditProvenance =
+      ExplanationEditProvenance.legacyUnknown,
 }) {
   return TypedReviewCommitInput(
     reviewItemId: reviewItemId ?? _reviewItemId,
@@ -243,6 +248,8 @@ TypedReviewCommitInput _input({
         ? _choiceEnvelope()
         : envelope,
     currentDraft: currentDraft ?? _choiceCurrent(),
+    explanationRetained: explanationRetained,
+    explanationEditProvenance: explanationEditProvenance,
   );
 }
 

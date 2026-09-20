@@ -45,6 +45,7 @@ import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/unsupported_ai_engine_store.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 
 const _sourceName = 'r7c_acceptance_single.pdf';
 const _bankName = 'r7c_synthetic_bank';
@@ -368,6 +369,8 @@ List<TypedReviewCommitInput> _stagingTypedInputs(
         reviewItemId: _reviewItemIdFor(question),
         envelope: question[TypedReviewSnapshotCodec.mapKey],
         currentDraft: QuestionDraft.fromMap(question),
+        explanationRetained: true,
+        explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
       ),
   ];
 }

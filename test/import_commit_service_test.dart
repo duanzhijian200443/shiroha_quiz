@@ -17,6 +17,8 @@ import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 
 class _CommitRepository extends Fake implements QuestionRepository {
   var saveCalls = 0;
@@ -259,6 +261,8 @@ TypedReviewCommitInput _imageInput({
       standardAnswer: 'Conclusion',
       explanation: 'Subjective explanation',
     ),
+    explanationRetained: true,
+    explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
   );
 }
 
@@ -298,17 +302,24 @@ Map<String, Object?> _typedEnvelope() {
   );
 }
 
-TypedReviewCommitInput _typedInput() {
+TypedReviewCommitInput _typedInput({
+  String currentExplanation = 'Subjective explanation',
+  bool explanationRetained = true,
+  ExplanationEditProvenance explanationEditProvenance =
+      ExplanationEditProvenance.legacyUnknown,
+}) {
   return TypedReviewCommitInput(
     reviewItemId: _typedReviewItemId,
     envelope: _typedEnvelope(),
-    currentDraft: const QuestionDraft(
+    currentDraft: QuestionDraft(
       type: QuestionType.shortAnswer,
       content: 'Synthetic stem',
-      options: <String>[],
+      options: const <String>[],
       standardAnswer: 'Conclusion',
-      explanation: 'Subjective explanation',
+      explanation: currentExplanation,
     ),
+    explanationRetained: explanationRetained,
+    explanationEditProvenance: explanationEditProvenance,
   );
 }
 
@@ -352,6 +363,8 @@ TypedReviewCommitInput _typedInputB() {
       standardAnswer: 'Conclusion B',
       explanation: 'Subjective explanation B',
     ),
+    explanationRetained: true,
+    explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
   );
 }
 
@@ -871,6 +884,66 @@ void main() {
       expect(repository.v2SaveCalls, 0);
     });
 
+    test('typed commit forwards the caller retention decision', () async {
+      final repository = _CommitRepository();
+      final service = typedService(repository);
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[
+          _typedInput(explanationRetained: false),
+        ],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      // The service rebuilds each commit input after finalization. Dropping the
+      // caller decision here would silently retain an explanation the review
+      // decided to discard, so the committed draft must really be cleared.
+      expect(repository.savedV2Questions!.single.explanation, isNull);
+    });
+
+    test('typed commit forwards the caller explanation edit provenance',
+        () async {
+      final repository = _CommitRepository();
+      final service = typedService(repository);
+
+      await service.commitTyped(
+        bankName: 'Typed Bank',
+        folderName: 'Math',
+        items: <TypedReviewCommitInput>[
+          _typedInput(
+            currentExplanation: 'Revise by hand',
+            explanationEditProvenance: ExplanationEditProvenance.manualEdited,
+          ),
+        ],
+        taskId: _typedTaskId,
+        attemptToken: _typedAttemptToken,
+        attemptNumber: 1,
+        expectedReviewDraftRevision: 1,
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: ocrTypedCandidateReadyReason,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+
+      // manualEdited is observable: the literal user text is committed instead
+      // of the snapshot structure. Under the old default the service replaced
+      // the provenance with legacyUnknown, whose strict fallback restores the
+      // original typed explanation and silently discards the user's text.
+      final explanation = repository.savedV2Questions!.single.explanation;
+      expect(explanation, isNotNull);
+      expect(
+        const RichContentTextProjection().project(explanation!),
+        'Revise by hand',
+      );
+    });
+
     test('typed commit calls only the V2 writer', () async {
       final repository = _CommitRepository();
       final service = typedService(repository);
@@ -1287,6 +1360,9 @@ void main() {
                 standardAnswer: '',
                 explanation: '',
               ),
+              explanationRetained: true,
+              explanationEditProvenance:
+                  ExplanationEditProvenance.legacyUnknown,
             ),
           ],
           taskId: _typedTaskId,
@@ -1433,6 +1509,9 @@ void main() {
                 standardAnswer: 'Conclusion',
                 explanation: 'Subjective explanation',
               ),
+              explanationRetained: true,
+              explanationEditProvenance:
+                  ExplanationEditProvenance.legacyUnknown,
             ),
           ],
           taskId: _typedTaskId,

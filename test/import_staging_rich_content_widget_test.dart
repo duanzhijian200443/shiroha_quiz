@@ -19,6 +19,7 @@ import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 import 'services/import_pipeline/ocr_math_production_test.dart' as production;
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 
 const _sourceId = '11111111-1111-4111-8111-000000000001';
 const _questionId = '22222222-2222-4222-8222-000000000001';
@@ -196,6 +197,9 @@ void main() {
               reviewItemId: question[TaskManager.keyReviewItemId] as String,
               envelope: envelope,
               currentDraft: QuestionDraft.fromMap(question),
+              explanationRetained: true,
+              explanationEditProvenance:
+                  ExplanationEditProvenance.legacyUnknown,
             )
           ],
           taskId: 'synthetic-task',

@@ -24,10 +24,13 @@ import 'review_repair_edit.dart';
 ///
 /// [explanationRetained] and [explanationEditProvenance] are the same resolved
 /// decisions the Review preview used, so a structure shown in Review can never
-/// be flattened at commit time. Production callers must pass both explicitly.
-/// The default provenance is [ExplanationEditProvenance.legacyUnknown], never
-/// `untouched`, so an input that supplies no review state keeps the strict
-/// legacy fallback.
+/// be flattened at commit time. Both are **required**: a commit path that
+/// omits them would silently fall back to the legacy strict comparison, which
+/// is the exact inference this contract removed. There is deliberately no
+/// default for either — not even a conservative one — so an omission is a
+/// compile error instead of a silent fallback. Any caller that genuinely has no
+/// review state must say so explicitly by passing
+/// [ExplanationEditProvenance.legacyUnknown].
 ///
 /// Collections are defensively copied. No arbitrary provenance map,
 /// diagnostics, file path or Provider content is ever carried here.
@@ -36,9 +39,9 @@ final class TypedReviewCommitInput {
     required this.reviewItemId,
     required this.envelope,
     required QuestionDraft currentDraft,
+    required this.explanationRetained,
+    required this.explanationEditProvenance,
     this.repairEdit,
-    this.explanationRetained = true,
-    this.explanationEditProvenance = ExplanationEditProvenance.legacyUnknown,
   }) : currentDraft = QuestionDraft(
           type: currentDraft.type,
           content: currentDraft.content,
