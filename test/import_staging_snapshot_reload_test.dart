@@ -448,6 +448,52 @@ void main() {
   });
 
   testWidgets(
+      'a real edit whose result equals the stored legacy text is still an edit',
+      (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    // Non-isomorphic premise: the stored legacy text differs from the seed.
+    final legacyText = projected.replaceAll(' | ', '\n').replaceAll(' ', '');
+    expect(legacyText == projected, isFalse);
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: legacyText),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: legacyText,
+      rawExplanation: legacyText,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceUntouched;
+
+    await _open(tester, question, resolver: _Resolver());
+    expect(_typedContent(explanation), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-open')));
+    await tester.pumpAndSettle();
+    // A genuine edit: seed -> the stored legacy text, which differs from the
+    // seed but equals what is already stored in the field.
+    await tester.enterText(
+      find.byKey(const ValueKey('explanation-edit-field')),
+      legacyText,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-save')));
+    await tester.pumpAndSettle();
+
+    // The interaction changed the seed, so this is a real manual edit even
+    // though the resulting text equals the stored legacy string. It must not be
+    // silently ignored: the typed structure is no longer the authority.
+    expect(_typedContent(explanation), findsNothing,
+        reason: 'a confirmed manual edit must never be silently discarded');
+    expect(_tableAnchor(0, 0), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'a nested non-canonical envelope is rejected by preview and commit alike',
       (tester) async {
     final explanation = _tableExplanation();

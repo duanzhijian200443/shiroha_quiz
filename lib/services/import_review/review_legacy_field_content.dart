@@ -106,6 +106,27 @@ RichContent? originalReviewContentForCurrentLegacyText({
   }
 }
 
+/// Whether this is an unedited typed explicit-empty explanation.
+///
+/// A typed explanation that exists with no nodes is **not** the same thing as a
+/// missing explanation: the codec encodes `null` and `RichContent(nodes: [])`
+/// differently and the typed explicit-empty semantics must survive Review. When
+/// nothing was rendered and nothing was edited, the typed empty value is the
+/// authority, so a commit must keep it instead of collapsing it to `null`.
+///
+/// This reads typed authority, never string similarity: it does not compare the
+/// legacy text with any projection.
+bool isUneditedExplicitEmptyExplanation({
+  required RichContent? originalContent,
+  required String baselineText,
+  required String currentText,
+}) {
+  return originalContent != null &&
+      originalContent.nodes.isEmpty &&
+      baselineText.trim().isEmpty &&
+      currentText.trim().isEmpty;
+}
+
 /// Resolves the explanation content one review item must render or commit.
 ///
 /// This is the single authority shared by the Review preview and the typed

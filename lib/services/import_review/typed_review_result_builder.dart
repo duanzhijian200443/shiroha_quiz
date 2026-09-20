@@ -618,6 +618,18 @@ final class TypedReviewResultBuilder {
                 ),
               );
       case ExplanationEditProvenance.legacyUnknown:
+        // A typed explicit-empty explanation is typed authority, not a missing
+        // field: the codec distinguishes null from an empty node list, so an
+        // unedited empty explanation must stay empty instead of being collapsed
+        // to null. This is checked before the strict fallback because that
+        // fallback treats empty text as "not retained".
+        if (isUneditedExplicitEmptyExplanation(
+          originalContent: originalContent,
+          baselineText: baseline,
+          currentText: current,
+        )) {
+          return const ReviewFieldEdit<RichContent?>.unchanged();
+        }
         // Old drafts without a marker keep the frozen strict fallback.
         final legacyOriginal = originalReviewContentForCurrentLegacyText(
           originalContent: originalContent,

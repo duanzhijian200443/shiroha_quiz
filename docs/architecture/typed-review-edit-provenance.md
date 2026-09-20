@@ -109,7 +109,9 @@ the text currently rendered, keeps the saved value as exact literal text, and
 records the manual edit.
 
 Whether an edit happened is decided against **the value the editor was seeded
-with**, never against the stored legacy string. On the payload this contract
+with**, never against the stored legacy string, and that decision is final: the
+save path must not re-derive it, or an edit whose result happens to equal the
+stored legacy text would be silently discarded. On the payload this contract
 exists for the two differ (the seed is the typed projection, the stored field is
 the legacy rendering), so comparing with the stored field would report a no-op
 save as an edit and permanently flatten the structure. Dismissing the editor, or
@@ -153,7 +155,19 @@ never reparses text into a new `TableNode`, never re-downloads an image and neve
 re-establishes asset identity: `ImageNode.sourceId`, `ImageNode.localAssetId`
 and `TableNode.structure` are preserved exactly.
 
-## 7a. Typed option finalization parity
+## 7a. Typed explicit-empty explanation
+
+A typed explanation that exists with no nodes is not a missing explanation: the
+codec encodes `null` and an empty node list differently, and the typed
+explicit-empty semantics must survive Review. When an explanation is present but
+empty, nothing was rendered and nothing was edited, the typed empty value is the
+authority, so a commit keeps it instead of collapsing it to `null`.
+
+This is typed authority, not a text comparison. It matters for drafts whose
+provenance is `legacyUnknown`, because the legacy strict fallback treats empty
+text as "not retained" and would otherwise clear the field.
+
+## 7b. Typed option finalization parity
 
 The legacy review map is finalized with the safe-HTML cleanup, so the typed
 draft is cleaned at the same deterministic boundary. Because the explicit-edit

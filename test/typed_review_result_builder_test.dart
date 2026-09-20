@@ -791,6 +791,53 @@ void main() {
     });
   });
 
+  group('builder: typed explicit-empty explanation', () {
+    TypedReviewCommitInput explicitEmptyInput() {
+      return TypedReviewCommitInput(
+        reviewItemId: _reviewItemId,
+        envelope: _codec.encode(
+          TypedReviewSnapshot(
+            reviewItemId: _reviewItemId,
+            questionId: _questionId,
+            draft: QuestionDraftV2(
+              questionId: _questionId,
+              kind: QuestionKind.singleChoice,
+              questionNumber: 1,
+              stem: _choiceDraft().stem,
+              options: _options(),
+              answer: ChoiceAnswer(optionIds: const <String>['A']),
+              // Explicit empty: present, but with no content nodes.
+              explanation: RichContent(nodes: const <ContentNode>[]),
+              sourceRefs: _sourceRefs(),
+              assetRefs: _choiceDraft().assetRefs,
+              issues: _issues(),
+            ),
+            baselineLegacy: LegacyReviewBaseline(
+              type: 0,
+              questionNumber: 1,
+              content: 'Stem text x+1',
+              options: _baselineOptions(),
+              standardAnswer: 'A',
+              explanation: '',
+            ),
+          ),
+        ),
+        currentDraft: _choiceCurrent(),
+        explanationRetained: true,
+        explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
+      );
+    }
+
+    test('a marker-less draft keeps explicit empty instead of null', () {
+      final result = _build(<TypedReviewCommitInput>[explicitEmptyInput()]);
+
+      final explanation = result.acceptedDrafts.single.explanation;
+      expect(explanation, isNotNull,
+          reason: 'typed explicit-empty must not collapse to missing');
+      expect(explanation!.nodes, isEmpty);
+    });
+  });
+
   group('builder: option content edits', () {
     test('same count, order and labels with edited content passes', () {
       final result = _build(<TypedReviewCommitInput>[

@@ -1797,15 +1797,16 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   /// Records one direct user edit of the explanation content.
   ///
-  /// This is the only path that may move an item to
-  /// [ExplanationEditProvenance.manualEdited], and it is deliberately driven by
-  /// the user's save action rather than by comparing text: the typed and legacy
-  /// explanations are different representations, so text can never prove
-  /// whether an edit happened. The edited value is kept as exact literal text
-  /// and is never reparsed into typed nodes.
+  /// Calling this means a real manual edit has already been confirmed: the
+  /// caller established that the interaction changed the editor's seed. It must
+  /// not re-derive that from text, because the typed and legacy explanations are
+  /// different representations and a user edit whose result happens to equal
+  /// the stored legacy text would otherwise be silently discarded.
+  ///
+  /// The edited value is kept as exact literal text and is never reparsed into
+  /// typed nodes.
   void _saveManualExplanationEdit(ImportReviewItem item, String edited) {
     if (_isSaving) return;
-    if (item.draft.explanation == edited) return;
     setState(() {
       _allItems = _allItems
           .map(
