@@ -98,6 +98,11 @@ void main() {
     );
     expect(ocrCard(), findsOneWidget);
     expect(textCard(), findsOneWidget);
+    // OCR leads the list, matching its default selection.
+    expect(
+      tester.getTopLeft(ocrCard()).dy,
+      lessThan(tester.getTopLeft(textCard()).dy),
+    );
   });
 
   testWidgets('does not expose vision as a document import mode',
