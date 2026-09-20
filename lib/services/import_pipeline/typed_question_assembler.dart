@@ -164,6 +164,61 @@ final class TypedQuestionAssembler {
       extractedOptions = extraction.options;
       inlineAnswer = extraction.inlineAnswer;
       inlineExplanation = extraction.inlineExplanation;
+    } else if (mathSourceMap != null) {
+      // Images, tables and raw fallbacks are opaque barriers. Extract fields
+      // from exactly one contiguous OCR-text run containing a complete A-D
+      // sequence, wherever that run appears, while retaining every structural
+      // node in place. This covers photo overlays before/after option text
+      // without interpreting table cells or image alternative text as options.
+      int? matchedStart;
+      int? matchedEnd;
+      String? matchedStem;
+      List<_ExtractedOption>? matchedOptions;
+      String? matchedInlineAnswer;
+      String? matchedInlineExplanation;
+      var ambiguous = false;
+      var start = 0;
+      while (start < stemNodes.length) {
+        while (start < stemNodes.length &&
+            !_isOcrExtractionNode(stemNodes[start], mathSourceMap)) {
+          start++;
+        }
+        if (start == stemNodes.length) break;
+        var end = start + 1;
+        while (end < stemNodes.length &&
+            _isOcrExtractionNode(stemNodes[end], mathSourceMap)) {
+          end++;
+        }
+        final runText = text(stemNodes.sublist(start, end));
+        if (runText != null) {
+          final extraction = _extractLegacyFields(runText);
+          if (extraction.options.map((option) => option.key).join() == 'ABCD') {
+            if (matchedStart != null) {
+              ambiguous = true;
+              break;
+            }
+            matchedStart = start;
+            matchedEnd = end;
+            matchedStem = extraction.stem;
+            matchedOptions = extraction.options;
+            matchedInlineAnswer = extraction.inlineAnswer;
+            matchedInlineExplanation = extraction.inlineExplanation;
+          }
+        }
+        start = end;
+      }
+      if (!ambiguous && matchedStart != null && matchedEnd != null) {
+        final nextStemNodes = <ContentNode>[
+          ...stemNodes.take(matchedStart),
+          if (matchedStem!.isNotEmpty) ...restore(matchedStem),
+          ...stemNodes.skip(matchedEnd),
+        ];
+        stemContent = RichContent(nodes: nextStemNodes);
+        cleanedStemEmpty = _isStructurallyEmpty(nextStemNodes);
+        extractedOptions = matchedOptions!;
+        inlineAnswer = matchedInlineAnswer;
+        inlineExplanation = matchedInlineExplanation;
+      }
     }
 
     final options = <QuestionOption>[
@@ -314,6 +369,10 @@ final class TypedQuestionAssembler {
       issues: issues,
     );
   }
+}
+
+bool _isOcrExtractionNode(ContentNode node, OcrMathSourceMap mathSourceMap) {
+  return node is TextNode || mathSourceMap.rawMath(node) != null;
 }
 
 TableNode _tableNode(SourceTablePart part, QuestionRegionField field,

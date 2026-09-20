@@ -1,5 +1,6 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../utils/content_normalizer.dart';
 import '../../utils/content_tokenizer.dart';
 import '../import_pipeline/latex_block_environment_normalizer.dart';
@@ -72,4 +73,29 @@ bool reviewFieldSupportsStructuralEdit(RichContent content) {
     }
   }
   return true;
+}
+
+/// Returns the original typed content only when the current legacy text is an
+/// exact projection of it.
+///
+/// This lets an explanation hidden by the initial retention policy be restored
+/// during Review without reparsing text and losing table/image identity. Empty
+/// current text always means "not retained". Manual edits remain literal.
+RichContent? originalReviewContentForCurrentLegacyText({
+  required RichContent? originalContent,
+  required String baselineText,
+  required String currentText,
+}) {
+  if (originalContent == null || currentText.isEmpty) return null;
+  if (baselineText.isNotEmpty && currentText == baselineText) {
+    return originalContent;
+  }
+  try {
+    return const RichContentTextProjection().project(originalContent) ==
+            currentText
+        ? originalContent
+        : null;
+  } on FormatException {
+    return null;
+  }
 }

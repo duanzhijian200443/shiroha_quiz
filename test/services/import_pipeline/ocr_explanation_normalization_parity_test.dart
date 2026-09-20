@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_field_poli
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_text_normalization.dart';
 import 'package:shiroha_quiz/services/import_pipeline/question_draft_v2_legacy_projection.dart';
@@ -152,13 +153,16 @@ Map<String, Object?> _observeExplanationChain({
   final regionized = const OcrQuestionRegionizer().regionize(document);
   expect(regionized.regions, hasLength(1));
   final region = regionized.regions.single;
+  final mathSourceMap = OcrMathSourceMap();
   final sourceDocument = const OcrSourceDocumentAdapter().convert(
     document,
     sourceId: _sourceId,
+    mathSourceMap: mathSourceMap,
   );
   final typedRegion = const OcrQuestionRegionBridge().convert(
     region,
     sourceDocument: sourceDocument,
+    mathSourceMap: mathSourceMap,
   );
   final explanationFragments =
       typedRegion.fragmentsFor(QuestionRegionField.explanation);
@@ -183,12 +187,14 @@ Map<String, Object?> _observeExplanationChain({
   final draft = const TypedQuestionAssembler().assemble(
     typedRegion,
     questionId: 'synthetic_question',
+    mathSourceMap: mathSourceMap,
   );
   final draftExplanation = textProjection.project(draft.explanation!);
   final projected = const QuestionDraftV2LegacyProjector().project(
     draft: draft,
     region: typedRegion,
     profile: OcrLegacyProjectionProfile(),
+    mathSourceMap: mathSourceMap,
     explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
   );
   final projectedExplanation = projected.question['explanation'] as String;

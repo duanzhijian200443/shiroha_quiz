@@ -152,6 +152,80 @@ void main() {
       expect(explanationSource.endCodeUnitOffset, questionText.length);
     });
 
+    test('markdown explanation heading owns following table and image blocks',
+        () {
+      final document = OcrDocument(
+        sourceName: 'photo-layout.png',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [
+          OcrPage(
+            pageIndex: 1,
+            blocks: const [
+              OcrBlock(
+                blockId: 'section',
+                pageIndex: 1,
+                type: 'text',
+                text: '一、选择题（共 1 题）',
+                bbox: [],
+                readingOrder: 0,
+              ),
+              OcrBlock(
+                blockId: 'question',
+                pageIndex: 1,
+                type: 'text',
+                text:
+                    '5. Synthetic prompt\n(A) one\n(B) two\n(C) three\n(D) four\n答案：A',
+                bbox: [],
+                readingOrder: 1,
+              ),
+              OcrBlock(
+                blockId: 'analysis_heading',
+                pageIndex: 1,
+                type: 'text',
+                text: '## 分析 Synthetic explanation',
+                bbox: [],
+                readingOrder: 2,
+              ),
+              OcrBlock(
+                blockId: 'analysis_table',
+                pageIndex: 1,
+                type: 'table',
+                text: '<table><tr><td>left</td><td>right</td></tr></table>',
+                bbox: [],
+                readingOrder: 3,
+              ),
+              OcrBlock(
+                blockId: 'analysis_image',
+                pageIndex: 1,
+                type: 'image',
+                text: '[图片]',
+                bbox: [],
+                readingOrder: 4,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final region =
+          const OcrQuestionRegionizer().regionize(document).regions.single;
+
+      expect(region.stemText, isNot(contains('分析')));
+      expect(region.explanationText, contains('Synthetic explanation'));
+      expect(
+        region.ownedSources
+            .where((source) => <String>{
+                  'analysis_heading',
+                  'analysis_table',
+                  'analysis_image',
+                }.contains(source.blockId))
+            .map((source) => source.field),
+        everyElement(OcrRegionField.explanation),
+      );
+    });
+
     test('does not infer explanation ownership from table projection text', () {
       final document = OcrDocument(
         sourceName: 'table-marker.pdf',

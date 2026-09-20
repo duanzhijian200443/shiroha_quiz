@@ -440,6 +440,108 @@ void main() {
       expect(result.acceptedDrafts.single.explanation, isNull);
     });
 
+    test('hidden original explanation clears while retention stays disabled',
+        () {
+      final original = _choiceDraft();
+      final hiddenExplanation = RichContent(nodes: <ContentNode>[
+        const TextNode('Reason '),
+        TableNode(
+          structure: TableStructure(rows: [
+            TableRow(cells: [
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('left')],
+                ),
+              ),
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('right')],
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ]);
+      final hiddenDraft = QuestionDraftV2(
+        questionId: original.questionId,
+        kind: original.kind,
+        questionNumber: original.questionNumber,
+        stem: original.stem,
+        options: original.options,
+        answer: original.answer,
+        explanation: hiddenExplanation,
+        sourceRefs: original.sourceRefs,
+        assetRefs: original.assetRefs,
+        issues: original.issues,
+      );
+      final envelope = _codec.encode(TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: hiddenDraft,
+        baselineLegacy: _choiceSnapshot().baselineLegacy,
+      ));
+
+      final result = _build(<TypedReviewCommitInput>[
+        _input(envelope: envelope, currentDraft: _choiceCurrent()),
+      ]);
+
+      expect(result.acceptedDrafts.single.explanation, isNull);
+    });
+
+    test('retention restore reuses original table explanation exactly', () {
+      final original = _choiceDraft();
+      final hiddenExplanation = RichContent(nodes: <ContentNode>[
+        const TextNode('Reason '),
+        TableNode(
+          structure: TableStructure(rows: [
+            TableRow(cells: [
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('left')],
+                ),
+              ),
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('right')],
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ]);
+      final hiddenDraft = QuestionDraftV2(
+        questionId: original.questionId,
+        kind: original.kind,
+        questionNumber: original.questionNumber,
+        stem: original.stem,
+        options: original.options,
+        answer: original.answer,
+        explanation: hiddenExplanation,
+        sourceRefs: original.sourceRefs,
+        assetRefs: original.assetRefs,
+        issues: original.issues,
+      );
+      final envelope = _codec.encode(TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: hiddenDraft,
+        baselineLegacy: _choiceSnapshot().baselineLegacy,
+      ));
+
+      final result = _build(<TypedReviewCommitInput>[
+        _input(
+          envelope: envelope,
+          currentDraft: _choiceCurrent(explanation: 'Reason left | right'),
+        ),
+      ]);
+
+      expect(result.acceptedDrafts.single.explanation, hiddenExplanation);
+      expect(
+        result.acceptedDrafts.single.explanation!.nodes.whereType<TableNode>(),
+        hasLength(1),
+      );
+    });
+
     test('answer edit maps to ContentAnswer', () {
       final result = _build(<TypedReviewCommitInput>[
         _input(

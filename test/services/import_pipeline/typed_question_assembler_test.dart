@@ -8,9 +8,144 @@ import 'package:shiroha_quiz/domain/question/question_region.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/typed_question_assembler.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
 
 void main() {
   const assembler = TypedQuestionAssembler();
+
+  for (final optionCount in [0, 2, 4]) {
+    test('OCR structural stem keeps cells opaque with options=$optionCount',
+        () {
+      final withOptions = optionCount == 4;
+      final math = OcrMathSourceMap();
+      final suffixText = switch (optionCount) {
+        4 => r'Context (A) $x^2$ (B) Beta (C) Gamma (D) Delta',
+        2 => 'Context (C) Gamma (D) Delta',
+        _ => 'Context without options',
+      };
+      final suffix = math.parse(suffixText);
+      final structure = TableStructure(rows: [
+        TableRow(cells: [
+          TableCell(
+              content: RichContent(nodes: const [
+            TextNode('(A) Cell alpha (B) Cell beta'),
+          ])),
+        ]),
+      ]);
+      final draft = assembler.assemble(
+        QuestionRegion(
+          questionNumber: 1,
+          kindHint: QuestionRegionKindHint.singleChoice,
+          fragments: [
+            QuestionRegionFragment(
+              field: QuestionRegionField.stem,
+              part: SourceTablePart.normalized(
+                  sourceRef: _docRef(), structure: structure),
+            ),
+            QuestionRegionFragment(
+              field: QuestionRegionField.stem,
+              part: SourceContentPart(sourceRef: _docRef(), content: suffix),
+            ),
+          ],
+        ),
+        questionId: 'synthetic_structural',
+        mathSourceMap: math,
+      );
+      expect(
+          draft.stem.nodes.whereType<TableNode>().single.structure, structure);
+      expect(draft.options, hasLength(withOptions ? 4 : 0));
+      if (withOptions) {
+        expect(
+            draft.options.first.content.nodes
+                .whereType<InlineMathNode>()
+                .single,
+            same(suffix.nodes.whereType<InlineMathNode>().single));
+        expect(_searchTextOf(draft.stem.nodes), 'Context');
+      } else {
+        expect(_searchTextOf(draft.stem.nodes), suffixText);
+      }
+    });
+  }
+
+  test('extracts one complete option run before an opaque photo overlay', () {
+    final math = OcrMathSourceMap();
+    final optionText = math.parse(
+      r'5. Prompt (A) $x^2$ (B) Beta (C) Gamma (D) Delta',
+    );
+    final draft = assembler.assemble(
+      QuestionRegion(
+        questionNumber: 5,
+        kindHint: QuestionRegionKindHint.singleChoice,
+        fragments: [
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceContentPart(
+              sourceRef: _docRef(),
+              content: optionText,
+            ),
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceAssetPart(
+              sourceRef: _docRef(),
+              asset: AssetRef(assetId: 'overlay', kind: AssetKind.image),
+            ),
+          ),
+        ],
+      ),
+      questionId: 'synthetic_photo_overlay',
+      mathSourceMap: math,
+    );
+
+    expect(draft.options.map((option) => option.label), ['A', 'B', 'C', 'D']);
+    expect(_searchTextOf(draft.stem.nodes), 'Prompt');
+    expect(draft.stem.nodes.whereType<ImageNode>(), hasLength(1));
+    expect(
+      draft.options.first.content.nodes.whereType<InlineMathNode>().single,
+      same(optionText.nodes.whereType<InlineMathNode>().single),
+    );
+  });
+
+  test('does not choose between two complete option runs around a structure',
+      () {
+    final math = OcrMathSourceMap();
+    SourceContentPart optionPart(String prefix) => SourceContentPart(
+          sourceRef: _docRef(),
+          content: math.parse(
+            '$prefix (A) one (B) two (C) three (D) four',
+          ),
+        );
+    final draft = assembler.assemble(
+      QuestionRegion(
+        questionNumber: 1,
+        kindHint: QuestionRegionKindHint.singleChoice,
+        fragments: [
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: optionPart('first'),
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: SourceAssetPart(
+              sourceRef: _docRef(),
+              asset: AssetRef(assetId: 'barrier', kind: AssetKind.image),
+            ),
+          ),
+          QuestionRegionFragment(
+            field: QuestionRegionField.stem,
+            part: optionPart('second'),
+          ),
+        ],
+      ),
+      questionId: 'synthetic_ambiguous_runs',
+      mathSourceMap: math,
+    );
+
+    expect(draft.options, isEmpty);
+    expect(_searchTextOf(draft.stem.nodes), contains('first'));
+    expect(_searchTextOf(draft.stem.nodes), contains('second'));
+    expect(draft.stem.nodes.whereType<ImageNode>(), hasLength(1));
+  });
 
   group('TypedQuestionAssembler identity and kind mapping', () {
     test('uses the caller-owned question id verbatim', () {

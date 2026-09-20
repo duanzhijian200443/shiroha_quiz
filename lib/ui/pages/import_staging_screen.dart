@@ -32,6 +32,7 @@ import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_review_metadata.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/import_review/review_repair_edit.dart';
+import '../../services/import_review/review_legacy_field_content.dart';
 import '../../services/import_review/review_repair_policy.dart';
 import '../../services/import_review/review_repair_service.dart';
 import '../../services/import_review/typed_review_result_builder.dart';
@@ -232,10 +233,17 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     // Presentation decoding never repairs metadata or changes commit routing.
     const snapshotCodec = TypedReviewSnapshotCodec();
     for (final entry in _snapshotProvenance.entries) {
-      if (!snapshotCodec.containsEnvelope(entry.value)) continue;
       try {
+        // The stored value is either the typed envelope itself or a question
+        // shaped map that carries it, depending on the shape this item was
+        // written with. Resolving both keeps strict decoding as the single
+        // structural authority, and the catch below keeps the fail-closed
+        // behavior for an absent or invalid envelope.
+        final stored = entry.value[TypedReviewSnapshotCodec.mapKey];
         final snapshot = snapshotCodec.decodeRequired(
-          entry.value[TypedReviewSnapshotCodec.mapKey],
+          stored is Map && stored.containsKey(TypedReviewSnapshotCodec.mapKey)
+              ? stored[TypedReviewSnapshotCodec.mapKey]
+              : stored,
         );
         // Mirror TypedReviewResultBuilder's static identity/baseline checks.
         // Compare the frozen baseline, not the user's editable current type.
@@ -2779,9 +2787,11 @@ class _QuestionCard extends StatelessWidget {
             typed?.answer is ContentAnswer
         ? (typed!.answer as ContentAnswer).content
         : null;
-    final typedExplanation = question.explanation == baseline?.explanation
-        ? typed?.explanation
-        : null;
+    final typedExplanation = originalReviewContentForCurrentLegacyText(
+      originalContent: typed?.explanation,
+      baselineText: baseline?.explanation ?? '',
+      currentText: question.explanation,
+    );
     final metadataAvailable = item.metadataProjectionState ==
         ImportReviewMetadataProjectionState.available;
     final metadataUnavailable = item.metadataProjectionState ==

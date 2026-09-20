@@ -2028,13 +2028,19 @@ void main() {
       final batch = parsed.typedCandidateBatch!;
       expect(batch.failure, isNull);
       expect(batch.candidates.single.projectedLegacy.explanation, '');
+      expect(batch.candidates.single.draft.explanation, isNotNull);
       final gate = applyOcrTypedCandidateGate(
         batch: batch,
         finalQuestions: parsed.questions,
         singleFile: true,
       );
-      expect(gate.route, ImportStorageRoute.legacyV1);
-      expect(gate.reason, 'typed_candidate_raw_explanation_diverged');
+      expect(gate.route, ImportStorageRoute.typedV2, reason: gate.reason);
+      expect(gate.reason, ocrTypedCandidateReadyReason);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        gate.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      expect(snapshot.baselineLegacy.explanation, isEmpty);
+      expect(snapshot.draft.explanation, isNotNull);
     });
 
     test(

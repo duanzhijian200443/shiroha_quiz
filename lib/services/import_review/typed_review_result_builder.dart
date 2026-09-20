@@ -538,10 +538,18 @@ final class TypedReviewResultBuilder {
     String baseline,
     ReviewRepairEdit? repairEdit,
   ) {
-    if (current == baseline) {
+    final original = originalReviewContentForCurrentLegacyText(
+      originalContent: snapshot.draft.explanation,
+      baselineText: baseline,
+      currentText: current,
+    );
+    if (original != null) {
       return const ReviewFieldEdit<RichContent?>.unchanged();
     }
     if (current.isEmpty) {
+      if (snapshot.draft.explanation == null) {
+        return const ReviewFieldEdit<RichContent?>.unchanged();
+      }
       return const ReviewFieldEdit<RichContent?>.clear();
     }
     return ReviewFieldEdit<RichContent?>.replace(
