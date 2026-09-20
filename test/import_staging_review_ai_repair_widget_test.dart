@@ -483,11 +483,23 @@ void main() {
     expect(generator.calls, 1);
 
     // The user changes the same question while the proposal is in flight.
-    final discard =
-        find.byKey(const ValueKey('question-explanation-discard-0'));
-    expect(discard, findsOneWidget);
-    tester.widget<FilterChip>(discard).onSelected!(true);
+    // A new import retains every explanation, so the mutation is the review
+    // page's own explanation edit rather than a removed retention chip.
+    // The repair action is still in flight, so this must not settle-wait.
+    final editOpen = find.byKey(const ValueKey('explanation-edit-open'));
+    await tester.ensureVisible(editOpen);
     await tester.pump();
+    await tester.tap(editOpen);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final editField = find.byKey(const ValueKey('explanation-edit-field'));
+    expect(editField, findsOneWidget);
+    await tester.enterText(editField, 'Edited while the repair proposal flew');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-save')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     gate.complete();
     await tester.pumpAndSettle();

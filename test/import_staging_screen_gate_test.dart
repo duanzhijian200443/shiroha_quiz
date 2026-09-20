@@ -59,7 +59,24 @@ void main() {
     );
   }
 
-  testWidgets('document retention switch restores the import task mode',
+  /// Diagnostics a task persisted by the current import entry always carries.
+  ///
+  /// A task that records no explanation retention mode was persisted before
+  /// document import fixed the policy, and it keeps the controls that describe
+  /// what its pipeline actually did.
+  Map<String, dynamic> newTaskDiagnostics({
+    String retentionMode = 'allQuestionTypes',
+    Map<String, dynamic> extra = const <String, dynamic>{},
+  }) {
+    return <String, dynamic>{
+      TaskManager.keyParseExplanationRetentionMode: retentionMode,
+      TaskManager.keyReviewExplanationRetentionMode: retentionMode,
+      TaskManager.keyExplanationRetentionMode: retentionMode,
+      ...extra,
+    };
+  }
+
+  testWidgets('legacy document retention switch restores the import task mode',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       createWidget(
@@ -90,8 +107,41 @@ void main() {
     expect(find.text('Retained explanation'), findsOneWidget);
   });
 
+  testWidgets('a new import exposes no retention controls at all',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: newTaskDiagnostics(),
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Retained explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+      findsNothing,
+    );
+    expect(find.text('保留解析'), findsNothing);
+    expect(find.text('忽略解析'), findsNothing);
+    expect(find.text('同时导入选择题、填空题解析'), findsNothing);
+    // The explanation itself is still reviewed, it is simply not optional.
+    expect(find.text('Retained explanation'), findsOneWidget);
+  });
+
   testWidgets(
-      'review screen uses review retention without changing parse authority',
+      'a new import keeps the recorded policy and exposes no switch to change it',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       createWidget(
@@ -117,16 +167,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final control = tester.widget<SwitchListTile>(
+    // The task recorded its own retention values, so it is a task from the
+    // current entry and nothing on this page may rewrite that decision.
+    expect(
       find.byKey(
         const ValueKey<String>('objective-explanation-document-switch'),
       ),
+      findsNothing,
     );
-    expect(control.value, isFalse);
     expect(find.text('Review mode hides this explanation'), findsNothing);
   });
 
-  testWidgets('document retention switch defaults to subjective only',
+  testWidgets('legacy document retention switch defaults to subjective only',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       createWidget(
@@ -356,7 +408,7 @@ void main() {
   });
 
   testWidgets(
-      'document and per-question retention controls recompute quality state',
+      'legacy document and per-question retention controls recompute quality state',
       (WidgetTester tester) async {
     await tester.pumpWidget(createWidget(
       diagnostics: const {},

@@ -149,7 +149,10 @@ void main() {
     });
   });
 
-  group('ImportStagingScreen unsupported structure banner', () {
+  // These fixtures deliberately record no explanation retention mode, so they
+  // exercise the legacy task path that keeps the document retention switch.
+  // A task from the current import entry fixes retention and exposes no switch.
+  group('ImportStagingScreen unsupported structure banner (legacy task)', () {
     Widget createWidget({
       required Map<String, dynamic>? diagnostics,
       List<Map<String, dynamic>>? questions,

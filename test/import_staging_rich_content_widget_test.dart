@@ -60,6 +60,8 @@ Map<String, dynamic> _question({
   String questionId = _questionId,
   String sourceId = _sourceId,
   String localAssetId = 'image_1',
+  RichContent? explanationContent,
+  String baselineExplanation = '**explanation**',
 }) {
   final draft = QuestionDraftV2(
     questionId: questionId,
@@ -81,7 +83,7 @@ Map<String, dynamic> _question({
       QuestionOption(optionId: 'b', label: 'B', content: _text('**option B**')),
     ],
     answer: ContentAnswer(content: _text('**answer**')),
-    explanation: _text('**explanation**'),
+    explanation: explanationContent ?? _text('**explanation**'),
     sourceRefs: [SourceRef.document(sourceId: sourceId)],
     assetRefs: [
       SourcedAssetRef(
@@ -100,7 +102,7 @@ Map<String, dynamic> _question({
         '<td>cell right</td></tr></table>',
     options: ['A. **option A**', 'B. **option B**'],
     standardAnswer: '**answer**',
-    explanation: '**explanation**',
+    explanation: baselineExplanation,
   );
   return {
     'type': baseline.type,
@@ -121,12 +123,24 @@ Map<String, dynamic> _question({
   };
 }
 
+/// Diagnostics a task persisted by the current import entry always carries.
+///
+/// Document import fixes explanation retention, so a task recording one is a
+/// current task; a task recording none keeps the controls of the older builds
+/// that let the user choose.
+Map<String, dynamic> _newTaskDiagnostics() => <String, dynamic>{
+      TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
+      TaskManager.keyReviewExplanationRetentionMode: 'allQuestionTypes',
+      TaskManager.keyExplanationRetentionMode: 'allQuestionTypes',
+    };
+
 Future<void> _open(
   WidgetTester tester,
   Map<String, dynamic> question,
   _Resolver resolver, {
   ExplanationRetentionMode explanationRetentionMode =
       ExplanationRetentionMode.allQuestionTypes,
+  Map<String, dynamic>? diagnostics,
 }) async {
   await tester.binding.setSurfaceSize(const Size(1000, 2200));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -135,6 +149,7 @@ Future<void> _open(
       resolver: resolver,
       child: ImportStagingScreen(
         parsedQuestions: [question],
+        diagnostics: diagnostics,
         folderQuery: _Folders(),
         taskManager: TaskManager.forTesting(),
         initialExplanationRetentionMode: explanationRetentionMode,
@@ -278,24 +293,128 @@ void main() {
     });
   }
 
-  testWidgets('live explanation discard and restore respects current field',
+  testWidgets('new import keeps the typed explanation without any chip',
       (tester) async {
-    await _open(tester, _question(), _Resolver());
-    await tester
-        .tap(find.byKey(const ValueKey('question-explanation-discard-0')));
-    await tester.pumpAndSettle();
-    expect(_typedText('**explanation**'), findsNothing);
-    expect(find.textContaining('**explanation**', findRichText: true),
+    await _open(
+      tester,
+      _question(),
+      _Resolver(),
+      diagnostics: _newTaskDiagnostics(),
+    );
+
+    // Retention is no longer a per-question choice, so the explanation stays
+    // rendered and there is nothing to discard it with.
+    expect(find.byKey(const ValueKey('question-explanation-discard-0')),
         findsNothing);
+    expect(find.byKey(const ValueKey('question-explanation-keep-0')),
+        findsNothing);
+    expect(_typedText('**explanation**'), findsOneWidget);
+    expect(find.textContaining('**explanation**', findRichText: true),
+        findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
     expect(_typedText('**answer**'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('question-explanation-keep-0')));
-    await tester.pumpAndSettle();
-    expect(_typedText('**explanation**'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('retention switch restores hidden typed table explanation',
+  testWidgets('per-question retention chips are gone for a new import',
+      (tester) async {
+    await _open(
+      tester,
+      _question(),
+      _Resolver(),
+      diagnostics: _newTaskDiagnostics(),
+    );
+
+    expect(
+      find.byKey(const ValueKey('objective-explanation-document-switch')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('question-explanation-keep-0')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('question-explanation-discard-0')),
+        findsNothing);
+    expect(find.text('保留解析'), findsNothing);
+    expect(find.text('忽略解析'), findsNothing);
+    expect(find.text('同时导入选择题、填空题解析'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'new typed task renders its table explanation, commits it, and keeps it',
+      (tester) async {
+    final tableExplanation = RichContent(nodes: <ContentNode>[
+      const TextNode('Explanation '),
+      TableNode(
+        structure: TableStructure(rows: [
+          TableRow(cells: [
+            TableCell(content: _text('kept left')),
+            TableCell(content: _text('kept right')),
+          ]),
+        ]),
+      ),
+    ]);
+    final question = _question(
+      explanationContent: tableExplanation,
+      baselineExplanation: 'Explanation kept left | kept right',
+    );
+    await _open(
+      tester,
+      question,
+      _Resolver(),
+      diagnostics: _newTaskDiagnostics(),
+    );
+
+    // No retention control may stand between the user and the explanation.
+    expect(
+      find.byKey(const ValueKey('objective-explanation-document-switch')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('question-explanation-discard-0')),
+        findsNothing);
+
+    // The typed explanation and its structure are visible.
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichContentRenderer && widget.content == tableExplanation,
+      ),
+      findsOneWidget,
+    );
+    expect(
+        find.textContaining('kept left', findRichText: true), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // The commit path must keep that structure rather than flattening it.
+    final envelope = question[TypedReviewSnapshotCodec.mapKey];
+    final built = TypedReviewResultBuilder().build(
+      inputs: [
+        TypedReviewCommitInput(
+          reviewItemId: question[TaskManager.keyReviewItemId] as String,
+          envelope: envelope,
+          currentDraft: QuestionDraft.fromMap(question),
+          explanationRetained: true,
+          explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
+        )
+      ],
+      taskId: 'synthetic-task',
+      attemptToken: 'synthetic-attempt',
+      attemptNumber: 1,
+    );
+
+    expect(built.acceptedDrafts, hasLength(1));
+    final committed = built.acceptedDrafts.single;
+    expect(
+      committed.explanation,
+      isNotNull,
+      reason: 'a new import must not drop the recognized explanation',
+    );
+    expect(
+      committed.explanation!.nodes.whereType<TableNode>(),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('legacy retention switch restores hidden typed table explanation',
       (tester) async {
     final question = _question();
     const codec = TypedReviewSnapshotCodec();
@@ -344,6 +463,8 @@ void main() {
         ),
       );
 
+    // A task that recorded no policy is a legacy task, so it keeps the switch
+    // that describes what its parse stage actually did.
     await _open(
       tester,
       question,

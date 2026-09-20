@@ -479,7 +479,15 @@ void main() {
             standardAnswer: '',
             explanation: 'Subjective explanation'),
       ],
-      diagnostics: _typedDiagnostics(),
+      // A task from the current import entry records its explanation retention
+      // policy, so it exposes the explanation edit affordance rather than the
+      // removed retention controls.
+      diagnostics: <String, dynamic>{
+        ..._typedDiagnostics(),
+        TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
+        TaskManager.keyReviewExplanationRetentionMode: 'allQuestionTypes',
+        TaskManager.keyExplanationRetentionMode: 'allQuestionTypes',
+      },
       taskId: _taskId,
       answerDistiller: distiller,
       retentionMode: ExplanationRetentionMode.allQuestionTypes,
@@ -494,11 +502,11 @@ void main() {
           find.byKey(const ValueKey<String>('answer-distillation-single-1')),
         )
         .onPressed!;
-    final discardExplanation = tester
-        .widget<FilterChip>(
-          find.byKey(const ValueKey<String>('question-explanation-discard-0')),
+    final editExplanation = tester
+        .widget<TextButton>(
+          find.byKey(const ValueKey<String>('explanation-edit-open')).first,
         )
-        .onSelected!;
+        .onPressed!;
 
     flushGate.armed = true;
     await tester.tap(find.textContaining('收入题库'));
@@ -535,23 +543,14 @@ void main() {
       isNull,
       reason: 'single distillation must be disabled during the commit',
     );
+    // The explanation edit affordance is not merely disabled while the commit
+    // runs: it is absent, matching the rule that unsupported actions are hidden
+    // rather than left as a greyed-out control.
     expect(
-      tester
-          .widget<FilterChip>(
-            find.byKey(
-                const ValueKey<String>('question-explanation-discard-0')),
-          )
-          .onSelected,
-      isNull,
-      reason: 'retention chips must be disabled during the commit',
-    );
-    expect(
-      tester
-          .widget<SwitchListTile>(find.byKey(
-              const ValueKey<String>('objective-explanation-document-switch')))
-          .onChanged,
-      isNull,
-      reason: 'the document retention switch must be disabled during commit',
+      find.byKey(const ValueKey<String>('explanation-edit-open')),
+      findsNothing,
+      reason: 'the explanation edit affordance must be unavailable during the '
+          'commit',
     );
     expect(
       tester
@@ -570,10 +569,12 @@ void main() {
 
     // Programmatic bypasses are no-ops: no mutation, no enqueued save.
     distillSingle();
-    discardExplanation(false);
+    editExplanation();
     await pumpFrames(tester);
     expect(find.text('正在生成答案 0/1'), findsNothing);
     expect(distiller.distillCalls, 0);
+    expect(find.byKey(const ValueKey('explanation-edit-field')), findsNothing,
+        reason: 'the explanation editor must not open during the commit');
     expect(flushGate.saveCount, 1,
         reason: 'no mutation save may be enqueued while the flush runs');
 
@@ -587,7 +588,7 @@ void main() {
         reason: 'the commit payload must equal the flushed state, not the '
             'bypassed distilled answer');
     expect(service.lastObservedExplanation, 'Synthetic explanation',
-        reason: 'the retention discard must be a no-op, so the payload stays '
+        reason: 'the blocked edit must be a no-op, so the payload stays '
             'identical to the flushed state');
     expect(repo.lastScreenPayloadAnswer, 'A');
     expect(repo.typedSaveCalls, 1);

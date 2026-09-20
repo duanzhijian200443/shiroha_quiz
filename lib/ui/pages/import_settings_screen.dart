@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:image_picker/image_picker.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../theme/design_tokens.dart';
 import '../../services/import_pipeline/import_parse_result.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_task_coordinator.dart';
+import 'import_advanced_settings_screen.dart';
 import 'paste_text_screen.dart';
 
 typedef ImportFilePicker = Future<FilePickerResult?> Function();
-typedef ImportImagePicker = Future<XFile?> Function(ImageSource source);
 typedef ImportTaskParser = Future<List<Map<String, dynamic>>> Function(
   String taskId,
 );
@@ -18,63 +18,51 @@ typedef ImportTaskDispatcher = void Function(
   ImportTaskParser parseTask,
 );
 
+/// Extension sets the pipeline actually accepts per parse mode.
+///
+/// These are the same lists [ImportSettingsScreen] hands to the file picker and
+/// enforces after selection, so the helper text under the file action can never
+/// promise a format the pipeline rejects.
+const List<String> importOcrSupportedExtensions = <String>[
+  'pdf',
+  'png',
+  'jpg',
+  'jpeg',
+];
+
+const List<String> importTextSupportedExtensions = <String>[
+  'pdf',
+  'docx',
+  'txt',
+  'md',
+  'zip',
+];
+
+/// The document import entry.
+///
+/// This screen owns batch document intake only: PDF, text document, archive and
+/// image ingestion through the OCR and text-direct read routes. Single-question
+/// photo capture is a separate product entry (`PhotoCaptureScreen`), which is
+/// why no vision mode, camera action or gallery action is exposed here.
 class ImportSettingsScreen extends StatefulWidget {
   const ImportSettingsScreen({
     super.key,
     this.pickFiles,
-    this.pickImage,
     this.taskDispatcher,
     this.requestParser,
-    this.showImageSourceActions = true,
-    this.retainObjectiveExplanations = false,
-    this.onRetainObjectiveExplanationsChanged,
   });
 
   final ImportFilePicker? pickFiles;
-  final ImportImagePicker? pickImage;
   final ImportTaskDispatcher? taskDispatcher;
   final ImportRequestParser? requestParser;
-  final bool showImageSourceActions;
-  final bool retainObjectiveExplanations;
-  final ValueChanged<bool>? onRetainObjectiveExplanationsChanged;
 
   @override
   State<ImportSettingsScreen> createState() => _ImportSettingsScreenState();
 }
 
 class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
-  ImportParseMode _selectedMode = ImportParseMode.vision;
-  late ExplanationRetentionMode _explanationRetentionMode;
-  double _maxConcurrency = 3.0; // 默认多图并发线程
-  final ImagePicker _picker = ImagePicker();
-
-  @override
-  void initState() {
-    super.initState();
-    _explanationRetentionMode = widget.retainObjectiveExplanations
-        ? ExplanationRetentionMode.allQuestionTypes
-        : ExplanationRetentionMode.subjectiveOnly;
-  }
-
-  @override
-  void didUpdateWidget(covariant ImportSettingsScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.retainObjectiveExplanations !=
-        widget.retainObjectiveExplanations) {
-      _explanationRetentionMode = widget.retainObjectiveExplanations
-          ? ExplanationRetentionMode.allQuestionTypes
-          : ExplanationRetentionMode.subjectiveOnly;
-    }
-  }
-
-  void _setRetainObjectiveExplanations(bool value) {
-    final nextMode = value
-        ? ExplanationRetentionMode.allQuestionTypes
-        : ExplanationRetentionMode.subjectiveOnly;
-    if (_explanationRetentionMode == nextMode) return;
-    setState(() => _explanationRetentionMode = nextMode);
-    widget.onRetainObjectiveExplanationsChanged?.call(value);
-  }
+  /// Documents and scans are this page's main material, so OCR is the default.
+  ImportParseMode _selectedMode = ImportParseMode.ocr;
 
   ImportRequestParser _resolveRequestParser() {
     final requestParser = widget.requestParser;
@@ -86,7 +74,6 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     String sourceDesc,
     Future<ImportParseResult> Function(String taskId) parseTask, {
     required ImportParseMode mode,
-    required ExplanationRetentionMode explanationRetentionMode,
   }) async {
     final testDispatcher = widget.taskDispatcher;
     if (testDispatcher != null) {
@@ -102,7 +89,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       sourceDescription: sourceDesc,
       mode: mode,
       parse: parseTask,
-      explanationRetentionMode: explanationRetentionMode,
+      explanationRetentionMode: newDocumentImportExplanationRetentionMode,
     );
 
     if (!mounted) return;
@@ -136,58 +123,19 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     Navigator.pop(context);
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    if (_selectedMode == ImportParseMode.text) return;
-
-    final selectedMode = _selectedMode;
-    final maxConcurrency = _maxConcurrency.toInt();
-    final explanationRetentionMode = _explanationRetentionMode;
-    try {
-      final XFile? image = widget.pickImage != null
-          ? await widget.pickImage!(source)
-          : await _picker.pickImage(source: source, imageQuality: 85);
-      if (image == null) return;
-      if (!mounted) return;
-      final parseRequest = _resolveRequestParser();
-      await _dispatchBackgroundTask('图片识别', (taskId) async {
-        final request = ImportParseRequest(
-          filePaths: <String>[image.path],
-          fileNames: <String>[image.name],
-          mode: selectedMode,
-          maxConcurrency: maxConcurrency,
-          taskId: taskId,
-          explanationRetentionMode: explanationRetentionMode,
-        );
-        return parseRequest(request);
-      },
-          mode: selectedMode,
-          explanationRetentionMode: explanationRetentionMode);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('获取图片失败: $e'), backgroundColor: Colors.redAccent));
-      }
-    }
-  }
+  List<String> get _supportedExtensions => switch (_selectedMode) {
+        ImportParseMode.ocr => importOcrSupportedExtensions,
+        ImportParseMode.text => importTextSupportedExtensions,
+        ImportParseMode.vision => importOcrSupportedExtensions,
+      };
 
   Future<void> _pickAndParseFile() async {
     final selectedMode = _selectedMode;
-    final maxConcurrency = _maxConcurrency.toInt();
-    final explanationRetentionMode = _explanationRetentionMode;
     final result = widget.pickFiles != null
         ? await widget.pickFiles!()
         : await FilePicker.platform.pickFiles(
             type: FileType.custom,
-            allowedExtensions: [
-              'pdf',
-              'txt',
-              'png',
-              'jpg',
-              'jpeg',
-              'docx',
-              'md',
-              'zip'
-            ],
+            allowedExtensions: _supportedExtensions,
             allowMultiple: true,
           );
 
@@ -212,15 +160,17 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
             (file) => ImportTaskBatchItem(
               sourceDescription: file.name,
               mode: selectedMode,
-              explanationRetentionMode: explanationRetentionMode,
+              explanationRetentionMode:
+                  newDocumentImportExplanationRetentionMode,
               parse: (taskId) => parseRequest(
                 ImportParseRequest(
                   filePaths: <String>[file.path!],
                   fileNames: <String>[file.name],
                   mode: selectedMode,
-                  maxConcurrency: maxConcurrency,
+                  maxConcurrency: 1,
                   taskId: taskId,
-                  explanationRetentionMode: explanationRetentionMode,
+                  explanationRetentionMode:
+                      newDocumentImportExplanationRetentionMode,
                 ),
               ),
             ),
@@ -242,24 +192,22 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           filePaths: result.files.map((file) => file.path!).toList(),
           fileNames: result.files.map((file) => file.name).toList(),
           mode: selectedMode,
-          maxConcurrency: maxConcurrency,
+          maxConcurrency: 1,
           taskId: taskId,
-          explanationRetentionMode: explanationRetentionMode,
+          explanationRetentionMode: newDocumentImportExplanationRetentionMode,
         ),
       ),
       mode: selectedMode,
-      explanationRetentionMode: explanationRetentionMode,
     );
   }
 
   bool _isFileCompatible(PlatformFile file, ImportParseMode mode) {
     final extension = _fileExtension(file);
     return switch (mode) {
-      ImportParseMode.text =>
-        const <String>{'pdf', 'docx', 'txt', 'md', 'zip'}.contains(extension),
+      ImportParseMode.text => importTextSupportedExtensions.contains(extension),
       ImportParseMode.vision ||
       ImportParseMode.ocr =>
-        const <String>{'pdf', 'png', 'jpg', 'jpeg'}.contains(extension),
+        importOcrSupportedExtensions.contains(extension),
     };
   }
 
@@ -276,9 +224,10 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     List<PlatformFile> files,
   ) {
     final guidance = switch (mode) {
-      ImportParseMode.text => '文本模式不支持图片，请改用视觉或 OCR 模式。',
-      ImportParseMode.vision => '视觉模式不支持 ZIP、DOCX 或纯文本文件。',
-      ImportParseMode.ocr => 'OCR 模式仅支持 PDF、PNG 和 JPG/JPEG。',
+      ImportParseMode.text => '图片无法使用文本直读，请改用 OCR 扫描或拍照识题。',
+      ImportParseMode.vision ||
+      ImportParseMode.ocr =>
+        'OCR 扫描仅支持 PDF 和图片；文本类文档请使用文本直读。',
     };
     final fileNames = files.map((file) => file.name).join('、');
     ScaffoldMessenger.of(context).showSnackBar(
@@ -286,8 +235,12 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     );
   }
 
+  /// Pasted text always means text-direct parsing.
+  ///
+  /// The clipboard is an independent text import action: it is never a
+  /// disabled variant of the currently selected mode, so choosing OCR does not
+  /// take it away.
   Future<void> _pasteAndParse() async {
-    final explanationRetentionMode = _explanationRetentionMode;
     final pastedText = await Navigator.push<String>(context,
         MaterialPageRoute(builder: (context) => const PasteTextScreen()));
     if (pastedText != null && pastedText.trim().length >= 10) {
@@ -296,243 +249,226 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           questions: await AiDependenciesScope.of(context)
               .aiService
               .parseTextToQuestions(pastedText),
-          explanationRetentionMode: explanationRetentionMode,
+          explanationRetentionMode: newDocumentImportExplanationRetentionMode,
         );
-      },
-          mode: ImportParseMode.text,
-          explanationRetentionMode: explanationRetentionMode);
+      }, mode: ImportParseMode.text);
     }
+  }
+
+  void _openAdvancedSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ImportAdvancedSettingsScreen(),
+      ),
+    );
+  }
+
+  void _showJsonImportFormat() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => const _JsonImportFormatDialog(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final imageEntriesEnabled = _selectedMode != ImportParseMode.text;
-    final clipboardEnabled = _selectedMode == ImportParseMode.text;
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
           title: const Text('导入题目',
               style: TextStyle(fontWeight: FontWeight.bold))),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(DesignTokens.pageHorizontalPadding),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: DesignTokens.contentMaxWidth,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildParseModeSection(theme),
+                const SizedBox(height: DesignTokens.sectionGap),
+                _buildImportSourceSection(theme),
+                const SizedBox(height: DesignTokens.sectionGap),
+                _buildFooterActions(theme),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParseModeSection(ThemeData theme) {
+    return _ImportSection(
+      title: '解析模式',
+      children: [
+        _ImportParseModeCard(
+          key: const ValueKey<String>('import-parse-mode-ocr'),
+          title: 'OCR 扫描',
+          description: '适用于扫描版 PDF、图片及无法直接提取文字的文档。',
+          icon: Icons.document_scanner_rounded,
+          selected: _selectedMode == ImportParseMode.ocr,
+          onTap: () => setState(() => _selectedMode = ImportParseMode.ocr),
+        ),
+        const SizedBox(height: 10),
+        _ImportParseModeCard(
+          key: const ValueKey<String>('import-parse-mode-text'),
+          title: '文本直读',
+          description: '适用于可提取文字的 PDF 与纯文本内容，直接读取文字并解析，不经过 OCR，速度更快。',
+          icon: Icons.text_snippet_rounded,
+          selected: _selectedMode == ImportParseMode.text,
+          onTap: () => setState(() => _selectedMode = ImportParseMode.text),
+        ),
+        const SizedBox(height: 14),
+        _ImportInfoNotice(
+          icon: Icons.info_outline_rounded,
+          text: '单题拍照识别请前往「拍照识题」入口。',
+          theme: theme,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImportSourceSection(ThemeData theme) {
+    return _ImportSection(
+      title: '导入来源',
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.tonalIcon(
+            key: const ValueKey<String>('import-file-button'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              backgroundColor: theme.colorScheme.primaryContainer,
+              foregroundColor: theme.colorScheme.onPrimaryContainer,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
+              ),
+            ),
+            icon: const Icon(Icons.folder_open_rounded),
+            label: const Text(
+              '从文件管理器选择',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            onPressed: _pickAndParseFile,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _fileSupportHint(),
+          key: const ValueKey<String>('import-file-support-hint'),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const ValueKey<String>('import-clipboard-button'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              foregroundColor: theme.colorScheme.primary,
+              side: BorderSide(
+                color: theme.colorScheme.primary.withValues(alpha: 0.3),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
+              ),
+            ),
+            icon: const Icon(Icons.content_paste_rounded),
+            label: const Text(
+              '从剪贴板粘贴文本',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            onPressed: _pasteAndParse,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _fileSupportHint() {
+    final extensions =
+        _supportedExtensions.map((value) => value.toUpperCase()).join(' / ');
+    return '当前模式可读：$extensions';
+  }
+
+  Widget _buildFooterActions(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(
+          height: 1,
+          thickness: 1,
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: TextButton.icon(
+                key: const ValueKey<String>('import-advanced-settings-entry'),
+                style: TextButton.styleFrom(
+                  foregroundColor: theme.colorScheme.onSurfaceVariant,
+                  alignment: Alignment.centerLeft,
+                ),
+                icon: const Icon(Icons.settings_outlined, size: 18),
+                label: const Text('高级设置'),
+                onPressed: _openAdvancedSettings,
+              ),
+            ),
+            Expanded(
+              child: TextButton.icon(
+                key: const ValueKey<String>('import-json-format-entry'),
+                style: TextButton.styleFrom(
+                  foregroundColor: theme.colorScheme.onSurfaceVariant,
+                  alignment: Alignment.centerRight,
+                ),
+                icon: const Icon(Icons.description_outlined, size: 18),
+                label: const Text('查看标准 JSON 导入格式'),
+                onPressed: _showJsonImportFormat,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One titled group of related controls.
+class _ImportSection extends StatelessWidget {
+  const _ImportSection({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(DesignTokens.cardInternalPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ExpansionTile(
-              title: const Text('查看标准 JSON 导入格式',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              collapsedBackgroundColor:
-                  theme.primaryColor.withValues(alpha: 0.05),
-              backgroundColor: theme.primaryColor.withValues(alpha: 0.05),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              collapsedShape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              childrenPadding: const EdgeInsets.all(16),
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: theme.brightness == Brightness.dark
-                          ? Colors.black45
-                          : Colors.white,
-                      borderRadius: BorderRadius.circular(8)),
-                  child: const Text(
-                      '[\n  {\n    "type": 0,\n    "content": "题干",\n    "options": ["A.", "B."],\n    "standard_answer": "A",\n    "explanation": "解析"\n  }\n]',
-                      style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          color: Colors.blueGrey)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      '解析模式',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
-                    _ImportParseModeCard(
-                      key: const ValueKey<String>('import-parse-mode-vision'),
-                      title: '视觉（推荐）',
-                      description: '适合图片、扫描 PDF 与复杂公式',
-                      icon: Icons.visibility_rounded,
-                      selected: _selectedMode == ImportParseMode.vision,
-                      onTap: () => setState(
-                        () => _selectedMode = ImportParseMode.vision,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _ImportParseModeCard(
-                      key: const ValueKey<String>('import-parse-mode-text'),
-                      title: '文本（最快）',
-                      description: '适合可提取文字的 PDF 与剪贴板文本',
-                      icon: Icons.text_snippet_rounded,
-                      selected: _selectedMode == ImportParseMode.text,
-                      onTap: () => setState(
-                        () => _selectedMode = ImportParseMode.text,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _ImportParseModeCard(
-                      key: const ValueKey<String>('import-parse-mode-ocr'),
-                      title: 'OCR（扫描）',
-                      description: '先识别文字再解析，适合扫描文档',
-                      icon: Icons.document_scanner_rounded,
-                      selected: _selectedMode == ImportParseMode.ocr,
-                      onTap: () => setState(
-                        () => _selectedMode = ImportParseMode.ocr,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: theme.colorScheme.outlineVariant.withValues(
-                        alpha: 0.7,
-                      ),
-                    ),
-                    _ObjectiveExplanationRetentionSetting(
-                      value: _explanationRetentionMode ==
-                          ExplanationRetentionMode.allQuestionTypes,
-                      onChanged: _setRetainObjectiveExplanations,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_selectedMode == ImportParseMode.vision)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('多图并发线程上限',
-                            style: TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.bold)),
-                        Text(
-                          '${_maxConcurrency.toInt()} 线程',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: _maxConcurrency,
-                      min: 1,
-                      max: 10,
-                      divisions: 9,
-                      onChanged: (val) => setState(() => _maxConcurrency = val),
-                    ),
-                    const Text('⚠️ 提示: 并发越高速度越快，若触发大模型 429 频率限制，引擎会自动为您降频。',
-                        style: TextStyle(fontSize: 11, color: Colors.grey)),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 24),
-            if (widget.showImageSourceActions) ...[
-              Row(
-                children: [
-                  Expanded(
-                      child: ElevatedButton.icon(
-                          key: const ValueKey<String>('import-camera-button'),
-                          style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              backgroundColor: theme.primaryColor,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  theme.colorScheme.surfaceContainerHighest,
-                              disabledForegroundColor:
-                                  theme.colorScheme.onSurfaceVariant,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
-                              elevation: 0),
-                          icon: const Icon(Icons.camera_alt_rounded),
-                          label: const Text('拍照识别',
-                              style: TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.bold)),
-                          onPressed: imageEntriesEnabled
-                              ? () => _pickImage(ImageSource.camera)
-                              : null)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                      child: ElevatedButton.icon(
-                          key: const ValueKey<String>('import-gallery-button'),
-                          style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              backgroundColor: theme.primaryColor,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  theme.colorScheme.surfaceContainerHighest,
-                              disabledForegroundColor:
-                                  theme.colorScheme.onSurfaceVariant,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
-                              elevation: 0),
-                          icon: const Icon(Icons.photo_library_rounded),
-                          label: const Text('相册选图',
-                              style: TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.bold)),
-                          onPressed: imageEntriesEnabled
-                              ? () => _pickImage(ImageSource.gallery)
-                              : null)),
-                ],
-              ),
-              const SizedBox(height: 12),
-            ],
-            OutlinedButton.icon(
-              key: const ValueKey<String>('import-file-button'),
-              style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  foregroundColor: theme.primaryColor,
-                  side: BorderSide(
-                    color: theme.primaryColor.withValues(alpha: 0.3),
-                  ),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
-              icon: const Icon(Icons.folder_open_rounded),
-              label: const Text('从文件管理器选择 (PDF/ZIP)',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              onPressed: _pickAndParseFile,
+            Text(
+              title,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            OutlinedButton.icon(
-              key: const ValueKey<String>('import-clipboard-button'),
-              style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  foregroundColor: theme.primaryColor,
-                  disabledForegroundColor: theme.colorScheme.onSurfaceVariant,
-                  side: BorderSide(
-                    color: clipboardEnabled
-                        ? theme.primaryColor.withValues(alpha: 0.3)
-                        : theme.colorScheme.outlineVariant,
-                  ),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
-              icon: const Icon(Icons.content_paste),
-              label: const Text('从剪贴板粘贴文本解析',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              onPressed: clipboardEnabled ? _pasteAndParse : null,
-            ),
+            ...children,
           ],
         ),
       ),
@@ -540,113 +476,79 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 }
 
-class _ObjectiveExplanationRetentionSetting extends StatelessWidget {
-  const _ObjectiveExplanationRetentionSetting({
-    required this.value,
-    required this.onChanged,
+/// A quiet informational line: never an affordance, never a disabled control.
+class _ImportInfoNotice extends StatelessWidget {
+  const _ImportInfoNotice({
+    required this.icon,
+    required this.text,
+    required this.theme,
   });
 
-  final bool value;
-  final ValueChanged<bool> onChanged;
+  final IconData icon;
+  final String text;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest
+            .withValues(alpha: theme.brightness == Brightness.dark ? 0.4 : 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JsonImportFormatDialog extends StatelessWidget {
+  const _JsonImportFormatDialog();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Semantics(
-      container: true,
-      button: true,
-      toggled: value,
-      label: '保留选择题与填空题解析',
-      hint: '关闭时仅导入题干、选项和标准答案',
-      child: InkWell(
-        key: const ValueKey<String>('retain-objective-explanations-row'),
-        onTap: () => onChanged(!value),
-        borderRadius: BorderRadius.circular(12),
-        child: SizedBox(
-          height: 80,
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '保留选择题与填空题解析',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: colorScheme.onSurface,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.primary.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '推荐关闭',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: colorScheme.primary,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '关闭时仅导入题干、选项和标准答案',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '开启后会保留详细解析，可能增加处理时间和校对问题',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              ExcludeSemantics(
-                child: Switch(
-                  key: const ValueKey<String>(
-                    'retain-objective-explanations-switch',
-                  ),
-                  value: value,
-                  onChanged: onChanged,
-                  activeThumbColor: colorScheme.onPrimary,
-                  activeTrackColor: colorScheme.primary,
-                  inactiveThumbColor: colorScheme.outline,
-                  inactiveTrackColor: colorScheme.surfaceContainerHighest,
-                ),
-              ),
-            ],
+    return AlertDialog(
+      title: const Text('标准 JSON 导入格式'),
+      content: SingleChildScrollView(
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.brightness == Brightness.dark
+                ? Colors.black45
+                : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const SelectableText(
+            '[\n  {\n    "type": 0,\n    "content": "题干",\n    "options": ["A.", "B."],\n    "standard_answer": "A",\n    "explanation": "解析"\n  }\n]',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: Colors.blueGrey,
+            ),
           ),
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
     );
   }
 }

@@ -13,6 +13,19 @@ ExplanationRetentionMode parseExplanationRetentionMode(Object? value) {
   return ExplanationRetentionMode.subjectiveOnly;
 }
 
+/// The explanation retention policy every **new** document import dispatches.
+///
+/// Document import no longer offers a retention choice: recognized
+/// explanations are always retained into Review, where the user edits or
+/// removes them per question. The mode stays a parameter of the pipeline so
+/// that tasks persisted by older builds keep being read back through
+/// [ImportQuestionFieldPolicy] with their own recorded policy.
+///
+/// It lives here, next to the policy it fixes, so no widget hardcodes the
+/// value and the single authority is reachable from production and tests.
+const ExplanationRetentionMode newDocumentImportExplanationRetentionMode =
+    ExplanationRetentionMode.allQuestionTypes;
+
 enum QuestionExplanationOverride {
   inherit,
   keep,

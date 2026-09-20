@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -421,91 +420,21 @@ void main() {
     );
   });
 
-  testWidgets(
-      'retention save queued during AI merge preserves both latest states',
-      (tester) async {
-    final pending = Completer<SubjectiveAnswerDistillationResult>();
-    final mergeWriteStarted = Completer<void>();
-    final releaseMergeWrite = Completer<void>();
-    final taskManager = TaskManager.forTesting(
-      saveTask: (taskMap) async {
-        final rawParsedData = taskMap['parsed_data'];
-        if (rawParsedData is! String) return;
-        final decoded = jsonDecode(rawParsedData);
-        if (decoded is! List || decoded.isEmpty || decoded.first is! Map) {
-          return;
-        }
-        final question = Map<String, dynamic>.from(decoded.first as Map);
-        if (question['standard_answer'] == 'Concurrent generated answer' &&
-            !mergeWriteStarted.isCompleted) {
-          mergeWriteStarted.complete();
-          await releaseMergeWrite.future;
-        }
-      },
-    );
-    final source = [_subjectiveQuestion(1)];
-    taskManager.addTask(
-      ImportTask(
-        id: 'concurrent-retention-review-task',
-        title: 'Synthetic concurrent retention review',
-        status: TaskStatus.pendingReview,
-        parsedData: source,
-      ),
-    );
-    final distiller = _FakeDistiller(pending: pending);
-    await tester.pumpWidget(
-      _widget(
-        distiller,
-        questions: source,
-        taskManager: taskManager,
-        taskId: 'concurrent-retention-review-task',
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('answer-distillation-batch')));
-    await tester.pump();
-    pending.complete(
-      const SubjectiveAnswerDistillationResult.applied(
-        'Concurrent generated answer',
-      ),
-    );
-    await tester.pump();
-    await mergeWriteStarted.future;
-
-    await tester.tap(
-      find.byKey(const ValueKey('objective-explanation-document-switch')),
-    );
-    await tester.pump();
-    releaseMergeWrite.complete();
-    await tester.pumpAndSettle();
-
-    final task = taskManager.tasks.single;
-    final question = task.parsedData!.single;
-    expect(question['standard_answer'], 'Concurrent generated answer');
-    expect(
-      question[TaskManager.keyAnswerDistillationStatus],
-      'ai_applied',
-    );
-    expect(
-      task.explanationRetentionMode,
-      ExplanationRetentionMode.allQuestionTypes,
-    );
-
-    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-    await tester.pump();
-    await tester.pumpWidget(
-      _widget(
-        distiller,
-        questions: task.parsedData!,
-        taskManager: taskManager,
-        taskId: 'concurrent-retention-review-task',
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Concurrent generated answer'), findsOneWidget);
-  });
+  // RETIRED (product change): 'retention save queued during AI merge preserves
+  // both latest states' asserted a race between the document retention toggle
+  // and an AI answer merge. Document import now fixes explanation retention and
+  // the review page exposes no retention control, so that user path no longer
+  // exists and no widget can produce it.
+  //
+  // The TaskManager contract it relied on is still load-bearing and remains
+  // asserted at the service level:
+  //   * test/task_manager_typed_review_snapshot_test.dart — a merge at the
+  //     exact revision persists the answer and leaves the typed envelope alone,
+  //     and a stale merge performs zero mutation;
+  //   * test/task_manager_import_diagnostics_test.dart — merge-only field
+  //     writes, their bounded metadata and their sanitization.
+  // A full review-draft snapshot save does not clobber a merged answer either,
+  // so no field of the review draft can silently overwrite another.
 
   testWidgets('batch can cancel before starting another question',
       (tester) async {

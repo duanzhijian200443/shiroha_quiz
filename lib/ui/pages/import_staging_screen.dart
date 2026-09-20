@@ -115,6 +115,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   final Set<int> _selectedOriginalIndices = {};
   late ExplanationRetentionMode _explanationRetentionMode;
   final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
+
+  /// See [_isLegacyRetentionTask]. Captured once so the controls and the
+  /// finalization policy can never disagree while the page is open.
+  late final bool _isLegacyRetentionTaskMode;
   final Map<int, String> _answerDistillationStatuses = {};
   final Map<int, String> _answerDistillationReasons = {};
   final Map<int, String> _reviewItemIds = {};
@@ -204,6 +208,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
+    _isLegacyRetentionTaskMode = _isLegacyRetentionTask();
     _explanationRetentionMode = _readReviewExplanationRetentionMode();
     final messages = ImportDiagnosticFormatter.format(
       warnings: widget.warnings,
@@ -283,6 +288,20 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         diagnostics?[TaskManager.keyExplanationRetentionMode];
     if (value == null) return widget.initialExplanationRetentionMode;
     return parseExplanationRetentionMode(value);
+  }
+
+  /// Whether this task predates the fixed document-import retention policy.
+  ///
+  /// A task created by the current import entry always carries a recorded
+  /// explanation retention mode, because that entry fixes it. A task that
+  /// records none was persisted by an older build that let the user choose,
+  /// so its persisted draft is the only honest description of what its
+  /// pipeline did and it keeps the controls that describe it.
+  bool _isLegacyRetentionTask() {
+    final diagnostics = widget.diagnostics;
+    return diagnostics?[TaskManager.keyReviewExplanationRetentionMode] ==
+            null &&
+        diagnostics?[TaskManager.keyExplanationRetentionMode] == null;
   }
 
   @override
@@ -2152,6 +2171,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  /// The document-level retention switch for tasks persisted before document
+  /// import fixed the policy.
+  ///
+  /// New imports retain every recognized explanation, so they expose no
+  /// document-level switch: the user edits or deletes explanations per question
+  /// on the review card instead.
   Widget _buildExplanationRetentionControl() {
     return SwitchListTile.adaptive(
       key: const ValueKey('objective-explanation-document-switch'),
@@ -2275,7 +2300,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
           if (_hasUnsupportedStructure) _buildUnsupportedStructureBanner(),
-          _buildExplanationRetentionControl(),
+          if (_isLegacyRetentionTaskMode) _buildExplanationRetentionControl(),
           _buildAnswerDistillationControl(),
           const Divider(height: 1),
           _buildSummaryBar(),
@@ -2385,7 +2410,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                               ExplanationEditProvenance
                                                   .legacyUnknown,
                                       onExplanationRetentionChanged:
-                                          (_selectionMode || _isSaving)
+                                          (_selectionMode ||
+                                                  _isSaving ||
+                                                  !_isLegacyRetentionTaskMode)
                                               ? null
                                               : (retain) =>
                                                   _setQuestionExplanationRetention(
@@ -3073,7 +3100,11 @@ class _QuestionCard extends StatelessWidget {
                 label: Text(reviewRepairInProgress ? '正在生成修补建议' : 'AI 修补'),
               ),
             ],
-            if ((question.type == QuestionType.singleChoice ||
+            // Per-question keep/discard is meaningful only where a
+            // document-level policy choice existed. New imports retain every
+            // explanation, so they expose no retention control on the card.
+            if (onExplanationRetentionChanged != null &&
+                (question.type == QuestionType.singleChoice ||
                     question.type == QuestionType.fillBlank) &&
                 (question.rawExplanation?.trim().isNotEmpty ?? false)) ...[
               const SizedBox(height: 8),
@@ -3086,9 +3117,7 @@ class _QuestionCard extends StatelessWidget {
                     ),
                     label: const Text('保留解析'),
                     selected: explanationRetained,
-                    onSelected: onExplanationRetentionChanged == null
-                        ? null
-                        : (_) => onExplanationRetentionChanged!(true),
+                    onSelected: (_) => onExplanationRetentionChanged!(true),
                   ),
                   FilterChip(
                     key: ValueKey(
@@ -3096,9 +3125,7 @@ class _QuestionCard extends StatelessWidget {
                     ),
                     label: const Text('忽略解析'),
                     selected: !explanationRetained,
-                    onSelected: onExplanationRetentionChanged == null
-                        ? null
-                        : (_) => onExplanationRetentionChanged!(false),
+                    onSelected: (_) => onExplanationRetentionChanged!(false),
                   ),
                 ],
               ),
