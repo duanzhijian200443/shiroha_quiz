@@ -32,6 +32,7 @@ import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_review_metadata.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/import_review/review_repair_edit.dart';
+import '../../services/import_review/explanation_edit_provenance.dart';
 import '../../services/import_review/review_legacy_field_content.dart';
 import '../../services/import_review/review_repair_policy.dart';
 import '../../services/import_review/review_repair_service.dart';
@@ -96,6 +97,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     'source_block_ids',
     '_import_diagnostics',
     TypedReviewSnapshotCodec.mapKey,
+    // Carried verbatim so an explicit edit provenance survives every draft
+    // save and reload; it is never inferred from the explanation text.
+    TaskManager.keyExplanationEditProvenance,
   };
 
   late List<ImportReviewItem> _allItems;
@@ -115,6 +119,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   final Map<int, String> _reviewItemIds = {};
   final Map<int, Map<String, dynamic>> _snapshotProvenance = {};
   final Map<int, TypedReviewSnapshot> _presentationSnapshots = {};
+  final Map<int, ExplanationEditProvenance> _explanationProvenance = {};
   Future<void> _reviewDraftOperationTail = Future<void>.value();
   final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
       const SubjectiveAnswerDistillationPolicy();
@@ -892,6 +897,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           envelope: provenance[TypedReviewSnapshotCodec.mapKey],
           currentDraft: item.draft,
           repairEdit: _repairEdits[item.originalIndex],
+          // Same resolved decisions the preview used, so a structure rendered
+          // in Review is committed rather than flattened.
+          explanationRetained: _isQuestionExplanationRetained(item),
+          explanationEditProvenance:
+              _explanationProvenance[item.originalIndex] ??
+                  ExplanationEditProvenance.legacyUnknown,
         ),
       );
     }
@@ -1049,6 +1060,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           break;
         }
       }
+      // Missing or unrecognized marker reads as legacyUnknown: an older draft
+      // may have been edited before provenance existed, and absence must never
+      // be upgraded to "untouched".
+      _explanationProvenance[index] = decodeExplanationEditProvenance(
+        questions[index][TaskManager.keyExplanationEditProvenance],
+      );
       final status = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
         questions[index][TaskManager.keyAnswerDistillationStatus],
       );
@@ -1149,6 +1166,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         final persistedMetadata = item.toPersistedMetadata();
         if (persistedMetadata != null) {
           question[ImportReviewMetadata.key] = persistedMetadata;
+        }
+        // legacyUnknown has no persisted token, so an old draft keeps its
+        // unknown state instead of being silently upgraded on the next save.
+        final provenance = encodeExplanationEditProvenance(
+          _explanationProvenance[item.originalIndex] ??
+              ExplanationEditProvenance.legacyUnknown,
+        );
+        if (provenance != null) {
+          question[TaskManager.keyExplanationEditProvenance] = provenance;
         }
         final status =
             SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
@@ -2286,6 +2312,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       issues: visibleItem.issues,
                                       explanationRetained:
                                           _isQuestionExplanationRetained(item),
+                                      explanationProvenance:
+                                          _explanationProvenance[
+                                                  item.originalIndex] ??
+                                              ExplanationEditProvenance
+                                                  .legacyUnknown,
                                       onExplanationRetentionChanged:
                                           (_selectionMode || _isSaving)
                                               ? null
@@ -2749,6 +2780,7 @@ class _QuestionCard extends StatelessWidget {
     required this.index,
     required this.issues,
     required this.explanationRetained,
+    required this.explanationProvenance,
     required this.onExplanationRetentionChanged,
     required this.answerDistillationCandidate,
     required this.answerDistillationStatus,
@@ -2765,6 +2797,7 @@ class _QuestionCard extends StatelessWidget {
   final int index;
   final List<ImportReviewIssue> issues;
   final bool explanationRetained;
+  final ExplanationEditProvenance explanationProvenance;
   final ValueChanged<bool>? onExplanationRetentionChanged;
   final bool answerDistillationCandidate;
   final String? answerDistillationStatus;
@@ -2787,10 +2820,12 @@ class _QuestionCard extends StatelessWidget {
             typed?.answer is ContentAnswer
         ? (typed!.answer as ContentAnswer).content
         : null;
-    final typedExplanation = originalReviewContentForCurrentLegacyText(
+    final typedExplanation = resolveExplanationReviewContent(
       originalContent: typed?.explanation,
       baselineText: baseline?.explanation ?? '',
       currentText: question.explanation,
+      retained: explanationRetained,
+      provenance: explanationProvenance,
     );
     final metadataAvailable = item.metadataProjectionState ==
         ImportReviewMetadataProjectionState.available;

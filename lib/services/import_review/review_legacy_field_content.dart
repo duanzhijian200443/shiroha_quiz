@@ -4,6 +4,7 @@ import '../../domain/content/rich_content_text_projection.dart';
 import '../../utils/content_normalizer.dart';
 import '../../utils/content_tokenizer.dart';
 import '../import_pipeline/latex_block_environment_normalizer.dart';
+import 'explanation_edit_provenance.dart';
 
 /// Structural representation of an AI-repaired review field.
 ///
@@ -78,9 +79,14 @@ bool reviewFieldSupportsStructuralEdit(RichContent content) {
 /// Returns the original typed content only when the current legacy text is an
 /// exact projection of it.
 ///
-/// This lets an explanation hidden by the initial retention policy be restored
-/// during Review without reparsing text and losing table/image identity. Empty
-/// current text always means "not retained". Manual edits remain literal.
+/// This is the legacy compatibility fallback for review drafts whose edit
+/// provenance is unknown. It never normalizes: only an exact match against the
+/// frozen baseline or against the exact text projection is accepted, because a
+/// typed explanation and its legacy text rendering are intentionally different
+/// representations and no string rule can tell them apart from a real edit.
+///
+/// New typed review items do not use this path; they carry
+/// [ExplanationEditProvenance.untouched] and resolve their structure directly.
 RichContent? originalReviewContentForCurrentLegacyText({
   required RichContent? originalContent,
   required String baselineText,
@@ -98,4 +104,40 @@ RichContent? originalReviewContentForCurrentLegacyText({
   } on FormatException {
     return null;
   }
+}
+
+/// Resolves the explanation content one review item must render or commit.
+///
+/// This is the single authority shared by the Review preview and the typed
+/// commit, so a table or image can never be shown in Review and then flattened
+/// at commit time. The decision is driven by the retention decision plus the
+/// explicit [ExplanationEditProvenance]; it never compares the legacy text with
+/// the typed projection to guess whether an edit happened.
+///
+/// Returns the typed [RichContent] to use, or `null` when the caller must fall
+/// back to the literal legacy/manual rendering path.
+RichContent? resolveExplanationReviewContent({
+  required RichContent? originalContent,
+  required String baselineText,
+  required String currentText,
+  required bool retained,
+  required ExplanationEditProvenance provenance,
+}) {
+  // Not retained: the policy answer wins over any provenance state.
+  if (!retained) return null;
+  if (provenance == ExplanationEditProvenance.manualEdited) {
+    // A user edit is terminal: the original structure is never re-inherited,
+    // even when the edited text happens to match the baseline or projection.
+    return null;
+  }
+  if (provenance == ExplanationEditProvenance.untouched) {
+    // Confirmed untouched review content keeps its original structural
+    // authority; its legacy text rendering is not compared at all.
+    return originalContent;
+  }
+  return originalReviewContentForCurrentLegacyText(
+    originalContent: originalContent,
+    baselineText: baselineText,
+    currentText: currentText,
+  );
 }

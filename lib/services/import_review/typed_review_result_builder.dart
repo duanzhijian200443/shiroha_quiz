@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import '../../application/import_review/latex_fragment_repair.dart';
 import '../../utils/content_tokenizer.dart';
 import '../import_pipeline/latex_renderability_checker.dart';
+import 'explanation_edit_provenance.dart';
 import 'review_legacy_field_content.dart';
 import 'review_repair_edit.dart';
 
@@ -21,6 +22,13 @@ import 'review_repair_edit.dart';
 /// the only way a changed legacy field may keep a structural representation;
 /// without it a changed field keeps the frozen exact literal text.
 ///
+/// [explanationRetained] and [explanationEditProvenance] are the same resolved
+/// decisions the Review preview used, so a structure shown in Review can never
+/// be flattened at commit time. Production callers must pass both explicitly.
+/// The default provenance is [ExplanationEditProvenance.legacyUnknown], never
+/// `untouched`, so an input that supplies no review state keeps the strict
+/// legacy fallback.
+///
 /// Collections are defensively copied. No arbitrary provenance map,
 /// diagnostics, file path or Provider content is ever carried here.
 final class TypedReviewCommitInput {
@@ -29,6 +37,8 @@ final class TypedReviewCommitInput {
     required this.envelope,
     required QuestionDraft currentDraft,
     this.repairEdit,
+    this.explanationRetained = true,
+    this.explanationEditProvenance = ExplanationEditProvenance.legacyUnknown,
   }) : currentDraft = QuestionDraft(
           type: currentDraft.type,
           content: currentDraft.content,
@@ -42,6 +52,8 @@ final class TypedReviewCommitInput {
   final Object? envelope;
   final QuestionDraft currentDraft;
   final ReviewRepairEdit? repairEdit;
+  final bool explanationRetained;
+  final ExplanationEditProvenance explanationEditProvenance;
 }
 
 /// Pure outcome of a typed review build: the completed [ReviewResult] and
@@ -205,6 +217,8 @@ final class TypedReviewResultBuilder {
           snapshots[index],
           inputs[index].currentDraft,
           inputs[index].repairEdit,
+          retained: inputs[index].explanationRetained,
+          provenance: inputs[index].explanationEditProvenance,
         );
         if (edit.isUnchanged) continue;
         working = working.edit(
@@ -332,8 +346,10 @@ final class TypedReviewResultBuilder {
   ReviewEdit _buildEdit(
     TypedReviewSnapshot snapshot,
     QuestionDraft current,
-    ReviewRepairEdit? repairEdit,
-  ) {
+    ReviewRepairEdit? repairEdit, {
+    required bool retained,
+    required ExplanationEditProvenance provenance,
+  }) {
     final baseline = snapshot.baselineLegacy;
     final kindEdit =
         _kindForLegacyType(baseline.type) == _kindForQuestionType(current.type)
@@ -361,6 +377,8 @@ final class TypedReviewResultBuilder {
       current.explanation,
       baseline.explanation,
       repairEdit,
+      retained: retained,
+      provenance: provenance,
     );
     final optionsEdit = _optionsEdit(snapshot, current, repairEdit);
     final answerEdit = _answerEdit(snapshot, current, repairEdit);
@@ -532,37 +550,97 @@ final class TypedReviewResultBuilder {
     return RichContent(nodes: nodes);
   }
 
+  /// Explanation edit for one item, driven by the same decisions the Review
+  /// preview used.
+  ///
+  /// The legacy text is never compared with the typed projection to guess
+  /// whether an edit happened: the typed and legacy representations of one
+  /// explanation are intentionally different shapes, so only the explicit
+  /// [provenance] can answer that question. An accepted AI repair still keeps
+  /// its own precedence and is applied before any provenance branch, so the
+  /// existing fragment-marker and digest contract is unchanged.
   ReviewFieldEdit<RichContent?> _explanationEdit(
     TypedReviewSnapshot snapshot,
     String current,
     String baseline,
-    ReviewRepairEdit? repairEdit,
-  ) {
-    final original = originalReviewContentForCurrentLegacyText(
-      originalContent: snapshot.draft.explanation,
-      baselineText: baseline,
-      currentText: current,
-    );
-    if (original != null) {
-      return const ReviewFieldEdit<RichContent?>.unchanged();
+    ReviewRepairEdit? repairEdit, {
+    required bool retained,
+    required ExplanationEditProvenance provenance,
+  }) {
+    final originalContent = snapshot.draft.explanation;
+
+    // An accepted AI repair is the one legitimate structural rebuild of a
+    // changed explanation and keeps its existing authority.
+    if (repairEdit != null) {
+      return ReviewFieldEdit<RichContent?>.replace(
+        _editedFieldContent(
+          ReviewRepairField.explanation,
+          current,
+          repairEdit,
+          originalContent: originalContent,
+          originalText: baseline,
+          originalFieldSource: baseline,
+          currentFieldSource: current,
+        ),
+      );
     }
-    if (current.isEmpty) {
-      if (snapshot.draft.explanation == null) {
+
+    if (!retained) {
+      // The policy answer wins: the explanation is dropped unless there was
+      // nothing typed to drop.
+      return originalContent == null
+          ? const ReviewFieldEdit<RichContent?>.unchanged()
+          : const ReviewFieldEdit<RichContent?>.clear();
+    }
+
+    switch (provenance) {
+      case ExplanationEditProvenance.untouched:
+        // Confirmed untouched: the original structural authority is committed
+        // exactly as snapshotted, whatever the legacy text looks like.
         return const ReviewFieldEdit<RichContent?>.unchanged();
-      }
-      return const ReviewFieldEdit<RichContent?>.clear();
+      case ExplanationEditProvenance.manualEdited:
+        // A user edit is terminal. It is never re-inherited from the snapshot,
+        // even when the edited text is character-identical to the original.
+        return current.isEmpty
+            ? const ReviewFieldEdit<RichContent?>.clear()
+            : ReviewFieldEdit<RichContent?>.replace(
+                _editedFieldContent(
+                  ReviewRepairField.explanation,
+                  current,
+                  null,
+                  originalContent: originalContent,
+                  originalText: baseline,
+                  originalFieldSource: baseline,
+                  currentFieldSource: current,
+                ),
+              );
+      case ExplanationEditProvenance.legacyUnknown:
+        // Old drafts without a marker keep the frozen strict fallback.
+        final legacyOriginal = originalReviewContentForCurrentLegacyText(
+          originalContent: originalContent,
+          baselineText: baseline,
+          currentText: current,
+        );
+        if (legacyOriginal != null) {
+          return const ReviewFieldEdit<RichContent?>.unchanged();
+        }
+        if (current.isEmpty) {
+          return originalContent == null
+              ? const ReviewFieldEdit<RichContent?>.unchanged()
+              : const ReviewFieldEdit<RichContent?>.clear();
+        }
+        return ReviewFieldEdit<RichContent?>.replace(
+          _editedFieldContent(
+            ReviewRepairField.explanation,
+            current,
+            null,
+            originalContent: originalContent,
+            originalText: baseline,
+            originalFieldSource: baseline,
+            currentFieldSource: current,
+          ),
+        );
     }
-    return ReviewFieldEdit<RichContent?>.replace(
-      _editedFieldContent(
-        ReviewRepairField.explanation,
-        current,
-        repairEdit,
-        originalContent: snapshot.draft.explanation,
-        originalText: baseline,
-        originalFieldSource: baseline,
-        currentFieldSource: current,
-      ),
-    );
   }
 
   ReviewFieldEdit<List<QuestionOption>> _optionsEdit(

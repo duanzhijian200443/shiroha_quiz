@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/services/import_pipeline/final_question_latex_audit.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
@@ -9,6 +10,8 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
+import 'package:shiroha_quiz/services/import_review/review_legacy_field_content.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 
@@ -176,6 +179,122 @@ void main() {
       singleFile: true,
     );
     expect(gate.reason, 'typed_candidate_raw_explanation_diverged');
+  });
+
+  test(
+      'typed snapshot creation initializes untouched provenance and survives '
+      'a reload', () {
+    final (batch, questions) = _build(ExplanationRetentionMode.subjectiveOnly);
+    expect(batch.failure, isNull);
+
+    // The initialization boundary: only the batch builder may create a typed
+    // review item, so only it may declare the explanation untouched.
+    expect(
+      questions.single[explanationEditProvenanceKey],
+      isNull,
+      reason: 'the OCR layer never invents provenance',
+    );
+
+    final gate = applyOcrTypedCandidateGate(
+      batch: batch,
+      finalQuestions: questions,
+      singleFile: true,
+    );
+    expect(gate.route, ImportStorageRoute.typedV2, reason: gate.reason);
+    expect(
+      gate.questions.single[explanationEditProvenanceKey],
+      explanationEditProvenanceUntouched,
+      reason: 'a new typed item must be explicitly untouched',
+    );
+
+    final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+      gate.questions.single[TypedReviewSnapshotCodec.mapKey],
+    );
+    // The objective explanation is hidden by the parse policy, so the legacy
+    // text and the typed structure genuinely disagree here.
+    expect(gate.questions.single['explanation'], isEmpty);
+    final projected =
+        const RichContentTextProjection().project(snapshot.draft.explanation!);
+    expect(projected, isNotEmpty);
+
+    // Reopen the draft under a keep decision, exactly as the review screen does.
+    final reopened = finalizeAndAuditImportQuestion(
+      gate.questions.single,
+      mode: ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      reopened[explanationEditProvenanceKey],
+      explanationEditProvenanceUntouched,
+      reason: 'the explicit marker must survive every draft re-finalization',
+    );
+
+    // Preview authority: the untouched structure is used without comparing the
+    // legacy text with the projection.
+    final previewContent = resolveExplanationReviewContent(
+      originalContent: snapshot.draft.explanation,
+      baselineText: snapshot.baselineLegacy.explanation,
+      currentText: reopened['explanation'] as String,
+      retained: true,
+      provenance: decodeExplanationEditProvenance(
+        reopened[explanationEditProvenanceKey],
+      ),
+    );
+    expect(previewContent, isNotNull);
+    expect(previewContent!.nodes.whereType<TableNode>(), hasLength(1));
+
+    // Commit authority consumes the same decisions and keeps the structure.
+    final committed = TypedReviewResultBuilder().build(
+      inputs: [
+        TypedReviewCommitInput(
+          reviewItemId: snapshot.reviewItemId,
+          envelope: gate.questions.single[TypedReviewSnapshotCodec.mapKey],
+          currentDraft: QuestionDraft.fromMap(reopened),
+          explanationRetained: true,
+          explanationEditProvenance: decodeExplanationEditProvenance(
+            reopened[explanationEditProvenanceKey],
+          ),
+        ),
+      ],
+      taskId: 'synthetic_photo',
+      attemptToken: 'synthetic_attempt',
+      attemptNumber: 1,
+    );
+    final committedExplanation = committed.acceptedDrafts.single.explanation;
+    expect(committedExplanation, isNotNull);
+    expect(committedExplanation!.nodes.whereType<TableNode>(), hasLength(1),
+        reason: 'preview and commit must not disagree about the structure');
+    expect(committedExplanation, snapshot.draft.explanation);
+
+    // A draft with no marker stays fail-closed whenever the stored text is not
+    // an exact projection, which is exactly the real observed representation.
+    final mismatched = <String, dynamic>{
+      ...reopened,
+      'explanation': '${reopened['explanation']}\$x\$',
+    };
+    expect(
+      const RichContentTextProjection().project(snapshot.draft.explanation!) ==
+          (mismatched['explanation'] as String),
+      isFalse,
+      reason: 'the fixture must really differ from the typed projection',
+    );
+    final legacyCommit = TypedReviewResultBuilder().build(
+      inputs: [
+        TypedReviewCommitInput(
+          reviewItemId: snapshot.reviewItemId,
+          envelope: gate.questions.single[TypedReviewSnapshotCodec.mapKey],
+          currentDraft: QuestionDraft.fromMap(mismatched),
+        ),
+      ],
+      taskId: 'synthetic_photo',
+      attemptToken: 'synthetic_attempt',
+      attemptNumber: 1,
+    );
+    expect(
+      legacyCommit.acceptedDrafts.single.explanation!.nodes
+          .whereType<TableNode>(),
+      isEmpty,
+      reason: 'a marker-less draft never gets the structure back',
+    );
   });
 }
 

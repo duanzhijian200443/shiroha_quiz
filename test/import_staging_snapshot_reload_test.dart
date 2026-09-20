@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/domain/content/rich_content_text_projection.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
@@ -266,6 +267,67 @@ void main() {
     expect(_tableAnchor(0, 0), findsOneWidget);
     expect(find.textContaining('left cell | right cell', findRichText: true),
         findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'untouched provenance renders structure even when the legacy text differs',
+      (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    // The real observed shape: the stored legacy text is NOT the typed
+    // projection of the same content.
+    final legacyText = projected.replaceAll(' | ', '\n').replaceAll(' ', '');
+    expect(legacyText == projected, isFalse,
+        reason: 'the fixture must really differ from the typed projection');
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: legacyText),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: legacyText,
+      rawExplanation: legacyText,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceUntouched;
+
+    await _open(tester, question, resolver: _Resolver());
+
+    // The explicit provenance, not string similarity, keeps the structure.
+    expect(_typedContent(explanation), findsOneWidget);
+    expect(_tableAnchor(0, 0), findsOneWidget);
+    expect(find.textContaining('left cell | right cell', findRichText: true),
+        findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'manualEdited never inherits the structure even when the text matches',
+      (tester) async {
+    final explanation = _tableExplanation();
+    final projected = const RichContentTextProjection().project(explanation);
+    final snapshot = TypedReviewSnapshot(
+      reviewItemId: _itemId,
+      questionId: _questionId,
+      draft: _draft(kind: QuestionKind.singleChoice),
+      baselineLegacy: _baseline(type: 0, explanation: projected),
+    );
+    final question = _persistedQuestion(
+      snapshot: snapshot,
+      explanation: projected,
+      rawExplanation: projected,
+    );
+    question[TaskManager.keyExplanationEditProvenance] =
+        explanationEditProvenanceManualEdited;
+
+    await _open(tester, question, resolver: _Resolver());
+
+    expect(_typedContent(explanation), findsNothing,
+        reason: 'an edited explanation never re-inherits the original nodes');
+    expect(_tableAnchor(0, 0), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

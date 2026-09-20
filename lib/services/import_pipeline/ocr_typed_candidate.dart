@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
@@ -880,6 +881,13 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       attached.add(<String, dynamic>{
         ...question,
         TypedReviewSnapshotCodec.mapKey: envelope,
+        // This is the one place a typed review item is created, so it is also
+        // the only place the explanation edit provenance may be initialized.
+        // The item is brand new: its explanation content came straight from the
+        // typed snapshot and no user edit can have happened yet. A draft that
+        // already exists in storage never passes through here, so a missing
+        // marker there stays honestly `legacyUnknown` instead of being upgraded.
+        explanationEditProvenanceKey: explanationEditProvenanceUntouched,
       });
     } on TypedReviewSnapshotException catch (error) {
       _emitTypedCandidateRejection(
