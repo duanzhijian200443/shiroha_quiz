@@ -18,6 +18,7 @@ import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/import_review/review_repair_edit.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 
 const String _sourceId = '11111111-1111-4111-8111-111111111111';
 const String _questionId = '22222222-2222-4222-8222-222222222222';
@@ -131,6 +132,8 @@ TypedReviewBuildResult _build({
             .encode(snapshot ?? _snapshot(withStemImage: withStemImage)),
         currentDraft: current,
         repairEdit: repairEdit,
+        explanationRetained: true,
+        explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
       ),
     ],
     taskId: _taskId,

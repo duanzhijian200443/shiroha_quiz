@@ -16,6 +16,7 @@ import 'package:shiroha_quiz/services/import_pipeline/candidate_asset_lease.dart
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
 import 'package:shiroha_quiz/services/import_review/import_review_metadata.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 import 'package:shiroha_quiz/services/import_review/review_repair_edit.dart';
 
 enum TaskStatus { processing, pendingReview, completed, error }
@@ -447,6 +448,14 @@ class TaskManager extends ChangeNotifier {
   static const String keyAnswerDistillationReason =
       '_answer_distillation_reason';
   static const String keyReviewRepairEdit = '_review_repair_v1';
+
+  /// Review-draft marker for [ExplanationEditProvenance].
+  ///
+  /// Transient review state only: it lives in the persisted ReviewDraft question
+  /// map and never enters the question schema or the typed snapshot payload.
+  /// The provenance authority owns the stable value.
+  static const String keyExplanationEditProvenance =
+      explanationEditProvenanceKey;
   static const String keyImportStorageRoute =
       TypedImportCommitPersistence.keyImportStorageRoute;
   static const String keyImportStorageReason =

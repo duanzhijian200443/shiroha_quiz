@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
@@ -32,6 +33,8 @@ import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_review_metadata.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../../services/import_review/review_repair_edit.dart';
+import '../../services/import_review/explanation_edit_provenance.dart';
+import '../../services/import_review/review_legacy_field_content.dart';
 import '../../services/import_review/review_repair_policy.dart';
 import '../../services/import_review/review_repair_service.dart';
 import '../../services/import_review/typed_review_result_builder.dart';
@@ -95,6 +98,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     'source_block_ids',
     '_import_diagnostics',
     TypedReviewSnapshotCodec.mapKey,
+    // Carried verbatim so an explicit edit provenance survives every draft
+    // save and reload; it is never inferred from the explanation text.
+    TaskManager.keyExplanationEditProvenance,
   };
 
   late List<ImportReviewItem> _allItems;
@@ -114,6 +120,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   final Map<int, String> _reviewItemIds = {};
   final Map<int, Map<String, dynamic>> _snapshotProvenance = {};
   final Map<int, TypedReviewSnapshot> _presentationSnapshots = {};
+  final Map<int, ExplanationEditProvenance> _explanationProvenance = {};
   Future<void> _reviewDraftOperationTail = Future<void>.value();
   final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
       const SubjectiveAnswerDistillationPolicy();
@@ -232,8 +239,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     // Presentation decoding never repairs metadata or changes commit routing.
     const snapshotCodec = TypedReviewSnapshotCodec();
     for (final entry in _snapshotProvenance.entries) {
-      if (!snapshotCodec.containsEnvelope(entry.value)) continue;
       try {
+        // Read exactly the value the commit path reads. Canonical persistence
+        // stores the envelope itself under the reserved key, so accepting a
+        // second nested layer here would let the preview render typed content
+        // that the commit then rejects, and would widen a fail-closed contract
+        // in the UI only.
         final snapshot = snapshotCodec.decodeRequired(
           entry.value[TypedReviewSnapshotCodec.mapKey],
         );
@@ -884,6 +895,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           envelope: provenance[TypedReviewSnapshotCodec.mapKey],
           currentDraft: item.draft,
           repairEdit: _repairEdits[item.originalIndex],
+          // Same resolved decisions the preview used, so a structure rendered
+          // in Review is committed rather than flattened.
+          explanationRetained: _isQuestionExplanationRetained(item),
+          explanationEditProvenance:
+              _explanationProvenance[item.originalIndex] ??
+                  ExplanationEditProvenance.legacyUnknown,
         ),
       );
     }
@@ -1041,6 +1058,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           break;
         }
       }
+      // Missing or unrecognized marker reads as legacyUnknown: an older draft
+      // may have been edited before provenance existed, and absence must never
+      // be upgraded to "untouched".
+      _explanationProvenance[index] = decodeExplanationEditProvenance(
+        questions[index][TaskManager.keyExplanationEditProvenance],
+      );
       final status = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
         questions[index][TaskManager.keyAnswerDistillationStatus],
       );
@@ -1141,6 +1164,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         final persistedMetadata = item.toPersistedMetadata();
         if (persistedMetadata != null) {
           question[ImportReviewMetadata.key] = persistedMetadata;
+        }
+        // legacyUnknown has no persisted token, so an old draft keeps its
+        // unknown state instead of being silently upgraded on the next save.
+        final provenance = encodeExplanationEditProvenance(
+          _explanationProvenance[item.originalIndex] ??
+              ExplanationEditProvenance.legacyUnknown,
+        );
+        if (provenance != null) {
+          question[TaskManager.keyExplanationEditProvenance] = provenance;
         }
         final status =
             SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
@@ -1727,6 +1759,71 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  /// Opens the explanation editor for one review item.
+  ///
+  /// The field is seeded with the text the reviewer is currently looking at, so
+  /// editing starts from what was rendered. Saving keeps the entered value as
+  /// literal text and marks the explanation manually edited; dismissing the
+  /// dialog without changing anything is not an edit and leaves the typed
+  /// structure and its provenance untouched.
+  Future<void> _editExplanation(ImportReviewItem item) async {
+    if (_isSaving) return;
+    final snapshot = _presentationSnapshots[item.originalIndex];
+    final provenance = _explanationProvenance[item.originalIndex] ??
+        ExplanationEditProvenance.legacyUnknown;
+    final typed = resolveExplanationReviewContent(
+      originalContent: snapshot?.draft.explanation,
+      baselineText: snapshot?.baselineLegacy.explanation ?? '',
+      currentText: item.draft.explanation,
+      retained: _isQuestionExplanationRetained(item),
+      provenance: provenance,
+    );
+    final seed = typed == null
+        ? item.draft.explanation
+        : const RichContentTextProjection().project(typed);
+    final edited = await showDialog<String>(
+      context: context,
+      builder: (_) => _ExplanationEditDialog(initialText: seed),
+    );
+    if (edited == null || !mounted) return;
+    // An edit means "did this interaction change what the editor was seeded
+    // with". Comparing against the stored legacy text instead would misfire on
+    // exactly the payload this contract exists for: the typed projection and
+    // the legacy text are different representations, so a no-op save would look
+    // like an edit and permanently flatten the structure.
+    if (edited == seed) return;
+    _saveManualExplanationEdit(item, edited);
+  }
+
+  /// Records one direct user edit of the explanation content.
+  ///
+  /// Calling this means a real manual edit has already been confirmed: the
+  /// caller established that the interaction changed the editor's seed. It must
+  /// not re-derive that from text, because the typed and legacy explanations are
+  /// different representations and a user edit whose result happens to equal
+  /// the stored legacy text would otherwise be silently discarded.
+  ///
+  /// The edited value is kept as exact literal text and is never reparsed into
+  /// typed nodes.
+  void _saveManualExplanationEdit(ImportReviewItem item, String edited) {
+    if (_isSaving) return;
+    setState(() {
+      _allItems = _allItems
+          .map(
+            (candidate) => identical(candidate, item)
+                ? candidate.copyWith(
+                    draft: candidate.draft.copyWith(explanation: edited),
+                  )
+                : candidate,
+          )
+          .toList();
+      _explanationProvenance[item.originalIndex] =
+          markExplanationManuallyEdited();
+      _refreshReviewState();
+    });
+    unawaited(_persistReviewDraft());
+  }
+
   void _refreshVisibleItems() {
     _visibleItems = ImportReviewFilterService.apply(
       items: _allItems,
@@ -2278,6 +2375,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       issues: visibleItem.issues,
                                       explanationRetained:
                                           _isQuestionExplanationRetained(item),
+                                      onEditExplanation:
+                                          (_selectionMode || _isSaving)
+                                              ? null
+                                              : () => _editExplanation(item),
+                                      explanationProvenance:
+                                          _explanationProvenance[
+                                                  item.originalIndex] ??
+                                              ExplanationEditProvenance
+                                                  .legacyUnknown,
                                       onExplanationRetentionChanged:
                                           (_selectionMode || _isSaving)
                                               ? null
@@ -2741,7 +2847,9 @@ class _QuestionCard extends StatelessWidget {
     required this.index,
     required this.issues,
     required this.explanationRetained,
+    required this.explanationProvenance,
     required this.onExplanationRetentionChanged,
+    required this.onEditExplanation,
     required this.answerDistillationCandidate,
     required this.answerDistillationStatus,
     required this.proofExplanationRecognized,
@@ -2757,7 +2865,9 @@ class _QuestionCard extends StatelessWidget {
   final int index;
   final List<ImportReviewIssue> issues;
   final bool explanationRetained;
+  final ExplanationEditProvenance explanationProvenance;
   final ValueChanged<bool>? onExplanationRetentionChanged;
+  final VoidCallback? onEditExplanation;
   final bool answerDistillationCandidate;
   final String? answerDistillationStatus;
   final bool proofExplanationRecognized;
@@ -2779,9 +2889,13 @@ class _QuestionCard extends StatelessWidget {
             typed?.answer is ContentAnswer
         ? (typed!.answer as ContentAnswer).content
         : null;
-    final typedExplanation = question.explanation == baseline?.explanation
-        ? typed?.explanation
-        : null;
+    final typedExplanation = resolveExplanationReviewContent(
+      originalContent: typed?.explanation,
+      baselineText: baseline?.explanation ?? '',
+      currentText: question.explanation,
+      retained: explanationRetained,
+      provenance: explanationProvenance,
+    );
     final metadataAvailable = item.metadataProjectionState ==
         ImportReviewMetadataProjectionState.available;
     final metadataUnavailable = item.metadataProjectionState ==
@@ -3029,6 +3143,7 @@ class _QuestionCard extends StatelessWidget {
                 explanation: explanation,
                 typedAnswer: typedAnswer,
                 typedExplanation: typedExplanation,
+                onEditExplanation: onEditExplanation,
               ),
           ],
         ),
@@ -3164,6 +3279,58 @@ class _RepairEligibilityNotice extends StatelessWidget {
   }
 }
 
+class _ExplanationEditDialog extends StatefulWidget {
+  const _ExplanationEditDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_ExplanationEditDialog> createState() => _ExplanationEditDialogState();
+}
+
+/// Owns its controller so the field stays valid for the closing animation.
+class _ExplanationEditDialogState extends State<_ExplanationEditDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('编辑解析'),
+      content: SizedBox(
+        width: 520,
+        child: TextField(
+          key: const ValueKey('explanation-edit-field'),
+          controller: _controller,
+          maxLines: 12,
+          minLines: 6,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '解析内容',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('explanation-edit-save'),
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
 class _MissingAnswerNotice extends StatelessWidget {
   const _MissingAnswerNotice();
 
@@ -3203,12 +3370,14 @@ class _AnswerBlock extends StatelessWidget {
     required this.explanation,
     this.typedAnswer,
     this.typedExplanation,
+    this.onEditExplanation,
   });
 
   final String standardAnswer;
   final String explanation;
   final RichContent? typedAnswer;
   final RichContent? typedExplanation;
+  final VoidCallback? onEditExplanation;
 
   @override
   Widget build(BuildContext context) {
@@ -3227,9 +3396,22 @@ class _AnswerBlock extends StatelessWidget {
         ),
         if (explanation.isNotEmpty || typedExplanation != null) ...[
           const SizedBox(height: 12),
-          const Text(
-            '解析：',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+          Row(
+            children: [
+              const Text(
+                '解析：',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              if (onEditExplanation != null) ...[
+                const Spacer(),
+                TextButton.icon(
+                  key: const ValueKey('explanation-edit-open'),
+                  onPressed: onEditExplanation,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('编辑', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 4),
           _QuestionCard._buildContent(context, explanation, typedExplanation),

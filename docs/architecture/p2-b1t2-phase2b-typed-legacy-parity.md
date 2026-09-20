@@ -433,3 +433,13 @@ The final mathematical AST still crosses the existing strict candidate,
 privacy and snapshot gates. Math does not qualify for TextNode-only relaxed
 parity. No comparator exception, sidecar version, database schema or historical
 data migration is introduced by this producer correction.
+
+## 12. Review edit provenance is not parity normalization
+
+Whether Review may keep using the original typed explanation is decided by
+explicit edit provenance, not by widening this document's comparison. A typed
+explanation and its legacy text are different representations, so no comparator
+relaxation may be used to infer that a user did not edit, and none may be added
+for that purpose. See `typed-review-edit-provenance.md`. The parity comparator,
+the `raw_explanation` admission and the all-or-nothing batch behavior frozen
+above are unchanged.

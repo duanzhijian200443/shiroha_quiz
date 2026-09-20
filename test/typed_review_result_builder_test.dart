@@ -13,6 +13,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 
 const _sourceId = '11111111-1111-4111-8111-111111111111';
@@ -231,10 +232,15 @@ QuestionDraft _subjectiveCurrent({
   );
 }
 
+/// Test convenience only: the core `TypedReviewCommitInput` API deliberately has
+/// no defaults, so this helper states the legacy baseline explicitly.
 TypedReviewCommitInput _input({
   Object? envelope = _missingEnvelopeSentinel,
   String? reviewItemId,
   QuestionDraft? currentDraft,
+  bool explanationRetained = true,
+  ExplanationEditProvenance explanationEditProvenance =
+      ExplanationEditProvenance.legacyUnknown,
 }) {
   return TypedReviewCommitInput(
     reviewItemId: reviewItemId ?? _reviewItemId,
@@ -242,6 +248,8 @@ TypedReviewCommitInput _input({
         ? _choiceEnvelope()
         : envelope,
     currentDraft: currentDraft ?? _choiceCurrent(),
+    explanationRetained: explanationRetained,
+    explanationEditProvenance: explanationEditProvenance,
   );
 }
 
@@ -312,6 +320,81 @@ Matcher _commitFailure(TypedReviewCommitFailure failure) {
       'failure',
       failure,
     ),
+  );
+}
+
+/// Typed explanation carrying a table and a source-qualified image, i.e. exactly
+/// the structure the legacy text rendering cannot express.
+RichContent _structuredExplanation() {
+  return RichContent(nodes: <ContentNode>[
+    const TextNode('Reason '),
+    const InlineMathNode('x^2'),
+    TableNode(
+      structure: TableStructure(rows: <TableRow>[
+        TableRow(cells: <TableCell>[
+          TableCell(
+            content: RichContent(nodes: <ContentNode>[const TextNode('left')]),
+          ),
+          TableCell(
+            content: RichContent(nodes: <ContentNode>[const TextNode('right')]),
+          ),
+        ]),
+        TableRow(cells: <TableCell>[
+          TableCell(
+            content: RichContent(nodes: <ContentNode>[const TextNode('span')]),
+            columnSpan: 2,
+          ),
+        ]),
+      ]),
+    ),
+    ImageNode(sourceId: _sourceId, localAssetId: 'asset_001'),
+  ]);
+}
+
+/// The legacy text of [_structuredExplanation]: math keeps its delimiters and
+/// the table rows break where the HTML wrappers were, so it is deliberately not
+/// the typed projection of the same content.
+const String _structuredExplanationLegacyText =
+    'Reason \$x^2\$\nleft | right\nspan\n[图片]';
+
+TypedReviewSnapshot _structuredExplanationSnapshot() {
+  return TypedReviewSnapshot(
+    reviewItemId: _reviewItemId,
+    questionId: _questionId,
+    draft: QuestionDraftV2(
+      questionId: _questionId,
+      kind: QuestionKind.singleChoice,
+      questionNumber: 1,
+      stem: _choiceDraft().stem,
+      options: _options(),
+      answer: ChoiceAnswer(optionIds: const <String>['A']),
+      explanation: _structuredExplanation(),
+      sourceRefs: _sourceRefs(),
+      assetRefs: _choiceDraft().assetRefs,
+      issues: _issues(),
+    ),
+    baselineLegacy: LegacyReviewBaseline(
+      type: 0,
+      questionNumber: 1,
+      content: 'Stem text x+1',
+      options: _baselineOptions(),
+      standardAnswer: 'A',
+      explanation: '',
+    ),
+  );
+}
+
+TypedReviewCommitInput _structuredExplanationInput({
+  required String currentExplanation,
+  required bool retained,
+  required ExplanationEditProvenance provenance,
+}) {
+  return TypedReviewCommitInput(
+    reviewItemId: _reviewItemId,
+    envelope: _codec.encode(_structuredExplanationSnapshot()),
+    currentDraft: _choiceCurrent(explanation: currentExplanation),
+    explanationRetained: retained,
+    explanationEditProvenance: provenance,
   );
 }
 
@@ -440,6 +523,108 @@ void main() {
       expect(result.acceptedDrafts.single.explanation, isNull);
     });
 
+    test('hidden original explanation clears while retention stays disabled',
+        () {
+      final original = _choiceDraft();
+      final hiddenExplanation = RichContent(nodes: <ContentNode>[
+        const TextNode('Reason '),
+        TableNode(
+          structure: TableStructure(rows: [
+            TableRow(cells: [
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('left')],
+                ),
+              ),
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('right')],
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ]);
+      final hiddenDraft = QuestionDraftV2(
+        questionId: original.questionId,
+        kind: original.kind,
+        questionNumber: original.questionNumber,
+        stem: original.stem,
+        options: original.options,
+        answer: original.answer,
+        explanation: hiddenExplanation,
+        sourceRefs: original.sourceRefs,
+        assetRefs: original.assetRefs,
+        issues: original.issues,
+      );
+      final envelope = _codec.encode(TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: hiddenDraft,
+        baselineLegacy: _choiceSnapshot().baselineLegacy,
+      ));
+
+      final result = _build(<TypedReviewCommitInput>[
+        _input(envelope: envelope, currentDraft: _choiceCurrent()),
+      ]);
+
+      expect(result.acceptedDrafts.single.explanation, isNull);
+    });
+
+    test('retention restore reuses original table explanation exactly', () {
+      final original = _choiceDraft();
+      final hiddenExplanation = RichContent(nodes: <ContentNode>[
+        const TextNode('Reason '),
+        TableNode(
+          structure: TableStructure(rows: [
+            TableRow(cells: [
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('left')],
+                ),
+              ),
+              TableCell(
+                content: RichContent(
+                  nodes: const <ContentNode>[TextNode('right')],
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ]);
+      final hiddenDraft = QuestionDraftV2(
+        questionId: original.questionId,
+        kind: original.kind,
+        questionNumber: original.questionNumber,
+        stem: original.stem,
+        options: original.options,
+        answer: original.answer,
+        explanation: hiddenExplanation,
+        sourceRefs: original.sourceRefs,
+        assetRefs: original.assetRefs,
+        issues: original.issues,
+      );
+      final envelope = _codec.encode(TypedReviewSnapshot(
+        reviewItemId: _reviewItemId,
+        questionId: _questionId,
+        draft: hiddenDraft,
+        baselineLegacy: _choiceSnapshot().baselineLegacy,
+      ));
+
+      final result = _build(<TypedReviewCommitInput>[
+        _input(
+          envelope: envelope,
+          currentDraft: _choiceCurrent(explanation: 'Reason left | right'),
+        ),
+      ]);
+
+      expect(result.acceptedDrafts.single.explanation, hiddenExplanation);
+      expect(
+        result.acceptedDrafts.single.explanation!.nodes.whereType<TableNode>(),
+        hasLength(1),
+      );
+    });
+
     test('answer edit maps to ContentAnswer', () {
       final result = _build(<TypedReviewCommitInput>[
         _input(
@@ -476,6 +661,78 @@ void main() {
           explanation: _subjectiveDraft().explanation,
         ),
       );
+    });
+
+    group('builder: explanation edit provenance', () {
+      test('untouched commit preserves table, image identity and math', () {
+        final result = _build(<TypedReviewCommitInput>[
+          _structuredExplanationInput(
+            currentExplanation: _structuredExplanationLegacyText,
+            retained: true,
+            provenance: ExplanationEditProvenance.untouched,
+          ),
+        ]);
+
+        final explanation = result.acceptedDrafts.single.explanation;
+        expect(explanation, _structuredExplanation(),
+            reason:
+                'the untouched structure must reach the final draft intact');
+        expect(explanation!.nodes.whereType<TableNode>(), hasLength(1));
+        final image = explanation.nodes.whereType<ImageNode>().single;
+        expect(image.sourceId, _sourceId);
+        expect(image.localAssetId, 'asset_001');
+        expect(
+            explanation.nodes.whereType<InlineMathNode>().single.latex, 'x^2');
+      });
+
+      test(
+          'legacyUnknown keeps the strict literal fallback for the same payload',
+          () {
+        // The representation difference alone must never restore structure: an old
+        // draft with no marker stays fail-closed.
+        final result = _build(<TypedReviewCommitInput>[
+          _structuredExplanationInput(
+            currentExplanation: _structuredExplanationLegacyText,
+            retained: true,
+            provenance: ExplanationEditProvenance.legacyUnknown,
+          ),
+        ]);
+
+        final explanation = result.acceptedDrafts.single.explanation;
+        expect(explanation!.nodes.whereType<TableNode>(), isEmpty);
+        expect(explanation.nodes.whereType<ImageNode>(), isEmpty);
+        expect(explanation.nodes.whereType<TextNode>(), hasLength(1),
+            reason: 'a changed field keeps the frozen exact literal text');
+      });
+
+      test('manualEdited commit keeps the user text and never a stale table',
+          () {
+        final result = _build(<TypedReviewCommitInput>[
+          _structuredExplanationInput(
+            currentExplanation: 'revised by the user',
+            retained: true,
+            provenance: ExplanationEditProvenance.manualEdited,
+          ),
+        ]);
+
+        final explanation = result.acceptedDrafts.single.explanation;
+        expect(explanation!.nodes.whereType<TableNode>(), isEmpty);
+        expect(explanation.nodes.whereType<ImageNode>(), isEmpty);
+        expect(explanation.nodes.whereType<InlineMathNode>(), isEmpty);
+      });
+
+      test('not retained clears the structural explanation', () {
+        final result = _build(<TypedReviewCommitInput>[
+          _structuredExplanationInput(
+            currentExplanation: _structuredExplanationLegacyText,
+            retained: false,
+            provenance: ExplanationEditProvenance.untouched,
+          ),
+        ]);
+
+        expect(result.acceptedDrafts.single.explanation, isNull,
+            reason: 'the retention policy wins over an untouched structure');
+      });
     });
 
     test('type edit maps to QuestionKind replace', () {
@@ -531,6 +788,53 @@ void main() {
           answer: ChoiceAnswer(optionIds: const <String>['B']),
         ),
       );
+    });
+  });
+
+  group('builder: typed explicit-empty explanation', () {
+    TypedReviewCommitInput explicitEmptyInput() {
+      return TypedReviewCommitInput(
+        reviewItemId: _reviewItemId,
+        envelope: _codec.encode(
+          TypedReviewSnapshot(
+            reviewItemId: _reviewItemId,
+            questionId: _questionId,
+            draft: QuestionDraftV2(
+              questionId: _questionId,
+              kind: QuestionKind.singleChoice,
+              questionNumber: 1,
+              stem: _choiceDraft().stem,
+              options: _options(),
+              answer: ChoiceAnswer(optionIds: const <String>['A']),
+              // Explicit empty: present, but with no content nodes.
+              explanation: RichContent(nodes: const <ContentNode>[]),
+              sourceRefs: _sourceRefs(),
+              assetRefs: _choiceDraft().assetRefs,
+              issues: _issues(),
+            ),
+            baselineLegacy: LegacyReviewBaseline(
+              type: 0,
+              questionNumber: 1,
+              content: 'Stem text x+1',
+              options: _baselineOptions(),
+              standardAnswer: 'A',
+              explanation: '',
+            ),
+          ),
+        ),
+        currentDraft: _choiceCurrent(),
+        explanationRetained: true,
+        explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
+      );
+    }
+
+    test('a marker-less draft keeps explicit empty instead of null', () {
+      final result = _build(<TypedReviewCommitInput>[explicitEmptyInput()]);
+
+      final explanation = result.acceptedDrafts.single.explanation;
+      expect(explanation, isNotNull,
+          reason: 'typed explicit-empty must not collapse to missing');
+      expect(explanation!.nodes, isEmpty);
     });
   });
 

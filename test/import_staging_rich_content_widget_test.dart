@@ -19,6 +19,7 @@ import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 import 'services/import_pipeline/ocr_math_production_test.dart' as production;
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 
 const _sourceId = '11111111-1111-4111-8111-000000000001';
 const _questionId = '22222222-2222-4222-8222-000000000001';
@@ -120,8 +121,13 @@ Map<String, dynamic> _question({
   };
 }
 
-Future<void> _open(WidgetTester tester, Map<String, dynamic> question,
-    _Resolver resolver) async {
+Future<void> _open(
+  WidgetTester tester,
+  Map<String, dynamic> question,
+  _Resolver resolver, {
+  ExplanationRetentionMode explanationRetentionMode =
+      ExplanationRetentionMode.allQuestionTypes,
+}) async {
   await tester.binding.setSurfaceSize(const Size(1000, 2200));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(MaterialApp(
@@ -131,8 +137,7 @@ Future<void> _open(WidgetTester tester, Map<String, dynamic> question,
         parsedQuestions: [question],
         folderQuery: _Folders(),
         taskManager: TaskManager.forTesting(),
-        initialExplanationRetentionMode:
-            ExplanationRetentionMode.allQuestionTypes,
+        initialExplanationRetentionMode: explanationRetentionMode,
       ),
     ),
   ));
@@ -192,6 +197,9 @@ void main() {
               reviewItemId: question[TaskManager.keyReviewItemId] as String,
               envelope: envelope,
               currentDraft: QuestionDraft.fromMap(question),
+              explanationRetained: true,
+              explanationEditProvenance:
+                  ExplanationEditProvenance.legacyUnknown,
             )
           ],
           taskId: 'synthetic-task',
@@ -284,6 +292,88 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('question-explanation-keep-0')));
     await tester.pumpAndSettle();
     expect(_typedText('**explanation**'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('retention switch restores hidden typed table explanation',
+      (tester) async {
+    final question = _question();
+    const codec = TypedReviewSnapshotCodec();
+    final original = codec.decodeRequired(
+      question[TypedReviewSnapshotCodec.mapKey],
+    );
+    final hiddenExplanation = RichContent(nodes: <ContentNode>[
+      const TextNode('Restored '),
+      TableNode(
+        structure: TableStructure(rows: [
+          TableRow(cells: [
+            TableCell(content: _text('toggle left')),
+            TableCell(content: _text('toggle right')),
+          ]),
+        ]),
+      ),
+    ]);
+    final hiddenDraft = QuestionDraftV2(
+      questionId: original.draft.questionId,
+      kind: original.draft.kind,
+      questionNumber: original.draft.questionNumber,
+      stem: original.draft.stem,
+      options: original.draft.options,
+      answer: original.draft.answer,
+      explanation: hiddenExplanation,
+      sourceRefs: original.draft.sourceRefs,
+      assetRefs: original.draft.assetRefs,
+      issues: original.draft.issues,
+    );
+    question
+      ..['explanation'] = ''
+      ..['raw_explanation'] = 'Restored toggle left | toggle right'
+      ..[TypedReviewSnapshotCodec.mapKey] = codec.encode(
+        TypedReviewSnapshot(
+          reviewItemId: original.reviewItemId,
+          questionId: original.questionId,
+          draft: hiddenDraft,
+          baselineLegacy: LegacyReviewBaseline(
+            type: original.baselineLegacy.type,
+            questionNumber: original.baselineLegacy.questionNumber,
+            content: original.baselineLegacy.content,
+            options: original.baselineLegacy.options,
+            standardAnswer: original.baselineLegacy.standardAnswer,
+            explanation: '',
+          ),
+        ),
+      );
+
+    await _open(
+      tester,
+      question,
+      _Resolver(),
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichContentRenderer &&
+            widget.content == hiddenExplanation,
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('objective-explanation-document-switch')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichContentRenderer &&
+            widget.content == hiddenExplanation,
+      ),
+      findsOneWidget,
+    );
+    expect(
+        find.textContaining('toggle left', findRichText: true), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

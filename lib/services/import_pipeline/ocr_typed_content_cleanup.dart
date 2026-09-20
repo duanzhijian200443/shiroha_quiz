@@ -3,19 +3,52 @@ import '../../domain/content/rich_content.dart';
 import '../../domain/question/question_draft_v2.dart';
 import 'ocr_safe_html_cleanup.dart';
 
+/// Applies the deterministic OCR layout-markup cleanup to the typed draft.
+///
+/// The legacy review map is finalized by the same safe-HTML cleanup, so the
+/// typed fields must reach the same boundary: a typed option that kept
+/// `<p>Four</p>` while the finalized legacy option read `Four` would break
+/// typed/legacy finalization parity, and because the explicit-edit path keeps
+/// an unchanged typed option verbatim, that raw markup would be persisted as
+/// the typed authority.
+///
+/// Option order, option count and every non-text node are preserved; only text
+/// nodes inside an option are cleaned, exactly like the explanation.
 QuestionDraftV2 cleanupOcrTypedDraft(QuestionDraftV2 draft) {
   final explanation = draft.explanation;
-  if (explanation == null) return draft;
-  final cleaned = cleanupOcrTypedHtml(explanation);
-  if (identical(cleaned, explanation)) return draft;
+  final cleanedExplanation =
+      explanation == null ? null : cleanupOcrTypedHtml(explanation);
+  final explanationChanged =
+      cleanedExplanation != null && !identical(cleanedExplanation, explanation);
+
+  var optionsChanged = false;
+  final cleanedOptions = <QuestionOption>[];
+  for (final option in draft.options) {
+    final cleanedContent = cleanupOcrTypedHtml(option.content);
+    if (identical(cleanedContent, option.content)) {
+      cleanedOptions.add(option);
+      continue;
+    }
+    optionsChanged = true;
+    cleanedOptions.add(
+      QuestionOption(
+        optionId: option.optionId,
+        label: option.label,
+        content: cleanedContent,
+        sourceRef: option.sourceRef,
+      ),
+    );
+  }
+
+  if (!explanationChanged && !optionsChanged) return draft;
   return QuestionDraftV2(
     questionId: draft.questionId,
     kind: draft.kind,
     questionNumber: draft.questionNumber,
     stem: draft.stem,
-    options: draft.options,
+    options: cleanedOptions,
     answer: draft.answer,
-    explanation: cleaned,
+    explanation: cleanedExplanation,
     sourceRefs: draft.sourceRefs,
     assetRefs: draft.assetRefs,
     issues: draft.issues,

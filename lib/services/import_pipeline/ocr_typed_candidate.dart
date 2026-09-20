@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_question_region_bridge.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_rich_content_parser.dart';
@@ -80,7 +81,8 @@ String ocrTypedCandidateFailureReason(OcrTypedCandidateFailure failure) {
 ///
 /// Immutable. Collections are defensive copies. No file path, source name,
 /// Provider payload, exception, raw OCR response or diagnostics map is ever
-/// stored on a candidate.
+/// stored on a candidate. The builder may retain a bounded compatibility
+/// projection solely to attest an intentional explanation-policy discard.
 final class OcrTypedCandidate {
   factory OcrTypedCandidate({
     required int questionNumber,
@@ -110,7 +112,8 @@ final class OcrTypedCandidate {
     required this.projectedLegacy,
     required this.sourcePageIndices,
     required this.sourceBlockIds,
-  });
+    String? discardedExplanationProjection,
+  }) : _discardedExplanationProjection = discardedExplanationProjection;
 
   final int questionNumber;
   final String reviewItemId;
@@ -119,6 +122,10 @@ final class OcrTypedCandidate {
   final LegacyReviewBaseline projectedLegacy;
   final List<int> sourcePageIndices;
   final List<String> sourceBlockIds;
+
+  // Only the production builder can attest a policy discard. Publicly
+  // constructed candidates retain the strict raw/final equality contract.
+  final String? _discardedExplanationProjection;
 }
 
 /// The all-or-nothing outcome of shadow candidate generation for one OCR
@@ -249,9 +256,19 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
         mathSourceMap: mathSourceMap,
         explanationRetentionMode: explanationRetentionMode,
       );
-      // Freeze the original compatibility projection before display cleanup.
-      // The legacy finalizer's whitespace rules depend on the original HTML;
-      // projecting already-cleaned content would lose that source context.
+      // Options are frozen at the same deterministic finalization boundary as
+      // the legacy review map. The parity gate itself remains exact, and all
+      // other projected fields keep their existing comparison semantics.
+      final retainExplanation =
+          const ImportQuestionFieldPolicy().shouldRetainExplanation(
+        type: projected.question['type'] as int,
+        mode: explanationRetentionMode,
+      );
+      // Keep recognized typed explanation structure in the review snapshot
+      // even when the initial legacy policy hides objective explanations.
+      // Review/commit applies the user's current retention choice explicitly;
+      // deleting it here would make a later "keep" toggle reconstruct tables
+      // and images as flat text.
       final draft = cleanupOcrTypedDraft(assembledDraft);
       _emitTypedCandidateConstructionTelemetry(
         region: region,
@@ -266,7 +283,7 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
             (projectedQuestion['question_number'] as num?)?.toInt() ??
                 region.number,
         content: projectedQuestion['content'] as String,
-        options: List<String>.from(
+        options: _materializeProjectedOptionsAtFinalizationBoundary(
           projectedQuestion['options'] as List<Object?>,
         ),
         standardAnswer: projectedQuestion['standard_answer'] as String,
@@ -275,18 +292,21 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
       final pages = projectedQuestion['source_page_indices'];
       final blocks = projectedQuestion['source_block_ids'];
       candidates.add(
-        OcrTypedCandidate(
+        OcrTypedCandidate._(
           questionNumber: region.number,
           reviewItemId: reviewItemId,
           questionId: questionId,
           draft: draft,
           projectedLegacy: baseline,
           sourcePageIndices: pages is List
-              ? pages.map((value) => value as int).toList(growable: false)
+              ? List<int>.unmodifiable(pages.cast<int>())
               : const <int>[],
           sourceBlockIds: blocks is List
-              ? blocks.map((value) => value as String).toList(growable: false)
+              ? List<String>.unmodifiable(blocks.cast<String>())
               : const <String>[],
+          discardedExplanationProjection: retainExplanation
+              ? null
+              : projectedQuestion['raw_explanation'] as String?,
         ),
       );
     } on QuestionRegionUnsupportedException catch (e) {
@@ -330,6 +350,23 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
     candidates: candidates,
     candidateAssetLease: candidateAssetLease,
   );
+}
+
+List<String> _materializeProjectedOptionsAtFinalizationBoundary(
+  List<Object?> options,
+) {
+  final finalized = <String>[];
+  for (final option in options) {
+    if (option is! String) {
+      throw StateError('OCR legacy projection emitted a non-string option');
+    }
+    final comparison = finalizeImportTextForParityComparison(option);
+    // Unsafe removal and unsupported markup remain fail-closed: retaining the
+    // original value guarantees that the exact gate observes any downstream
+    // change instead of manufacturing equivalence.
+    finalized.add(comparison.eligible ? comparison.text : option);
+  }
+  return List<String>.unmodifiable(finalized);
 }
 
 /// Handler used by tests to capture typed candidate rejection telemetry.
@@ -844,6 +881,13 @@ OcrTypedCandidateGateResult applyOcrTypedCandidateGate({
       attached.add(<String, dynamic>{
         ...question,
         TypedReviewSnapshotCodec.mapKey: envelope,
+        // This is the one place a typed review item is created, so it is also
+        // the only place the explanation edit provenance may be initialized.
+        // The item is brand new: its explanation content came straight from the
+        // typed snapshot and no user edit can have happened yet. A draft that
+        // already exists in storage never passes through here, so a missing
+        // marker there stays honestly `legacyUnknown` instead of being upgraded.
+        explanationEditProvenanceKey: explanationEditProvenanceUntouched,
       });
     } on TypedReviewSnapshotException catch (error) {
       _emitTypedCandidateRejection(
@@ -1531,7 +1575,15 @@ bool _rawExplanationAllowed(
   if (raw == null) return true;
   if (raw is! String) return false;
   if (raw.isEmpty || raw == finalExplanation) return true;
-  if (finalExplanation.isEmpty) return false;
+  if (finalExplanation.isEmpty) {
+    // Empty final text alone is never evidence of an intentional discard.
+    // Require the builder's exact pre-retention projection as well as the
+    // policy-aligned typed and compatibility fields. No fuzzy equivalence
+    // or normalization is permitted for this branch.
+    return candidate._discardedExplanationProjection == raw &&
+        candidate.projectedLegacy.explanation.isEmpty &&
+        candidate.draft.explanation != null;
+  }
   return _explanationParityAllowed(
     source: raw,
     target: finalExplanation,

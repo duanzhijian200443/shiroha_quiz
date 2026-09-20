@@ -29,6 +29,7 @@ import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
 import 'package:shiroha_quiz/services/import_review/typed_review_result_builder.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 
 const _bankName = 'r7c1_synthetic_bank';
 const _taskId = 'r7c1-typed-task';
@@ -142,6 +143,8 @@ List<TypedReviewCommitInput> _inputs(ImportTask task) {
         reviewItemId: question[TaskManager.keyReviewItemId]!.toString(),
         envelope: question[TypedReviewSnapshotCodec.mapKey],
         currentDraft: QuestionDraft.fromMap(question),
+        explanationRetained: true,
+        explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
       ),
   ];
 }

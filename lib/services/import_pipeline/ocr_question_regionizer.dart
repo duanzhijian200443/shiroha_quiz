@@ -1168,19 +1168,25 @@ class OcrQuestionRegionizer {
   }
 
   _FieldTransition? _readFieldTransition(String text) {
-    final answerMatch = _answerLabelRegex.firstMatch(text);
+    // Layout OCR commonly emits field labels as Markdown headings (for
+    // example `## 分析`). Question-start detection already removes this
+    // presentation prefix; field ownership must use the same normalized view
+    // so following tables and images inherit the semantic field instead of
+    // remaining in the stem.
+    final candidate = _normalizeQuestionCandidateText(text);
+    final answerMatch = _answerLabelRegex.firstMatch(candidate);
     if (answerMatch != null) {
       return _FieldTransition(
         OcrRegionField.answer,
-        text.substring(answerMatch.end).trim(),
+        candidate.substring(answerMatch.end).trim(),
       );
     }
 
-    final explanationMatch = _explanationLabelRegex.firstMatch(text);
+    final explanationMatch = _explanationLabelRegex.firstMatch(candidate);
     if (explanationMatch != null) {
       return _FieldTransition(
         OcrRegionField.explanation,
-        text.substring(explanationMatch.end).trim(),
+        candidate.substring(explanationMatch.end).trim(),
       );
     }
 

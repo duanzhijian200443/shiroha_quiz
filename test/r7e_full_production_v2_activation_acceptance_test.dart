@@ -59,6 +59,7 @@ import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/unsupported_ai_engine_store.dart';
+import 'package:shiroha_quiz/services/import_review/explanation_edit_provenance.dart';
 
 const _sourceName = 'r7e_acceptance_single.pdf';
 const _bankName = 'r7e_synthetic_bank';
@@ -809,6 +810,8 @@ void main() {
             reviewItemId: _reviewItemIdFor(question),
             envelope: question[TypedReviewSnapshotCodec.mapKey],
             currentDraft: QuestionDraft.fromMap(question),
+            explanationRetained: true,
+            explanationEditProvenance: ExplanationEditProvenance.legacyUnknown,
           ),
       ];
       final flush = await manager.saveReviewDraft(

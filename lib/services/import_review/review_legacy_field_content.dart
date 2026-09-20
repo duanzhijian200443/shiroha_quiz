@@ -1,8 +1,10 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_text_projection.dart';
 import '../../utils/content_normalizer.dart';
 import '../../utils/content_tokenizer.dart';
 import '../import_pipeline/latex_block_environment_normalizer.dart';
+import 'explanation_edit_provenance.dart';
 
 /// Structural representation of an AI-repaired review field.
 ///
@@ -72,4 +74,91 @@ bool reviewFieldSupportsStructuralEdit(RichContent content) {
     }
   }
   return true;
+}
+
+/// Returns the original typed content only when the current legacy text is an
+/// exact projection of it.
+///
+/// This is the legacy compatibility fallback for review drafts whose edit
+/// provenance is unknown. It never normalizes: only an exact match against the
+/// frozen baseline or against the exact text projection is accepted, because a
+/// typed explanation and its legacy text rendering are intentionally different
+/// representations and no string rule can tell them apart from a real edit.
+///
+/// New typed review items do not use this path; they carry
+/// [ExplanationEditProvenance.untouched] and resolve their structure directly.
+RichContent? originalReviewContentForCurrentLegacyText({
+  required RichContent? originalContent,
+  required String baselineText,
+  required String currentText,
+}) {
+  if (originalContent == null || currentText.isEmpty) return null;
+  if (baselineText.isNotEmpty && currentText == baselineText) {
+    return originalContent;
+  }
+  try {
+    return const RichContentTextProjection().project(originalContent) ==
+            currentText
+        ? originalContent
+        : null;
+  } on FormatException {
+    return null;
+  }
+}
+
+/// Whether this is an unedited typed explicit-empty explanation.
+///
+/// A typed explanation that exists with no nodes is **not** the same thing as a
+/// missing explanation: the codec encodes `null` and `RichContent(nodes: [])`
+/// differently and the typed explicit-empty semantics must survive Review. When
+/// nothing was rendered and nothing was edited, the typed empty value is the
+/// authority, so a commit must keep it instead of collapsing it to `null`.
+///
+/// This reads typed authority, never string similarity: it does not compare the
+/// legacy text with any projection.
+bool isUneditedExplicitEmptyExplanation({
+  required RichContent? originalContent,
+  required String baselineText,
+  required String currentText,
+}) {
+  return originalContent != null &&
+      originalContent.nodes.isEmpty &&
+      baselineText.trim().isEmpty &&
+      currentText.trim().isEmpty;
+}
+
+/// Resolves the explanation content one review item must render or commit.
+///
+/// This is the single authority shared by the Review preview and the typed
+/// commit, so a table or image can never be shown in Review and then flattened
+/// at commit time. The decision is driven by the retention decision plus the
+/// explicit [ExplanationEditProvenance]; it never compares the legacy text with
+/// the typed projection to guess whether an edit happened.
+///
+/// Returns the typed [RichContent] to use, or `null` when the caller must fall
+/// back to the literal legacy/manual rendering path.
+RichContent? resolveExplanationReviewContent({
+  required RichContent? originalContent,
+  required String baselineText,
+  required String currentText,
+  required bool retained,
+  required ExplanationEditProvenance provenance,
+}) {
+  // Not retained: the policy answer wins over any provenance state.
+  if (!retained) return null;
+  if (provenance == ExplanationEditProvenance.manualEdited) {
+    // A user edit is terminal: the original structure is never re-inherited,
+    // even when the edited text happens to match the baseline or projection.
+    return null;
+  }
+  if (provenance == ExplanationEditProvenance.untouched) {
+    // Confirmed untouched review content keeps its original structural
+    // authority; its legacy text rendering is not compared at all.
+    return originalContent;
+  }
+  return originalReviewContentForCurrentLegacyText(
+    originalContent: originalContent,
+    baselineText: baselineText,
+    currentText: currentText,
+  );
 }
