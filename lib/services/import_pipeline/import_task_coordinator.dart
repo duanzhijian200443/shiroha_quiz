@@ -207,7 +207,10 @@ class ImportTaskCoordinator {
   final ContentAssetStore? _contentAssetStore;
   final Future<int> Function()? _ocrMaxConcurrencyResolver;
   final void Function(String sourceDescription)? onReadyForReview;
-  final Future<void> Function(String taskId)? onSingleReadyForReview;
+
+  /// Opens the review page for one user-started task. Returns whether the page
+  /// was actually opened, which decides if [onReadyForReview] still applies.
+  final Future<bool> Function(String taskId)? onSingleReadyForReview;
 
   static String _createTaskId() =>
       'task_${DateTime.now().microsecondsSinceEpoch}';
@@ -897,9 +900,16 @@ class ImportTaskCoordinator {
         },
       );
       try {
-        onReadyForReview?.call(sourceDescription);
+        // Opening the review page is the stronger signal. Telling the user to
+        // go to the transfer center right after the page opened in front of
+        // them would contradict the behavior they selected.
+        var reviewOpened = false;
         if (allowAutoOpenReview) {
-          await onSingleReadyForReview?.call(handle.taskId);
+          reviewOpened =
+              await onSingleReadyForReview?.call(handle.taskId) ?? false;
+        }
+        if (!reviewOpened) {
+          onReadyForReview?.call(sourceDescription);
         }
       } catch (_) {
         AppLogger.warning(

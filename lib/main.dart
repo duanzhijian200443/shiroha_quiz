@@ -526,7 +526,7 @@ void main() {
                   navigationFree:
                       !autoReviewNavigationInProgress && !navigator.canPop(),
                 )) {
-              return;
+              return false;
             }
             autoReviewNavigationInProgress = true;
             unawaited(navigator
@@ -543,6 +543,7 @@ void main() {
                   ),
                 ))
                 .whenComplete(() => autoReviewNavigationInProgress = false));
+            return true;
           },
         );
 

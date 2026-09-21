@@ -243,7 +243,11 @@ void main() {
         readyCount++;
         if (readyCount == 3) allReady.complete();
       },
-      onSingleReadyForReview: (taskId) async => singleReady.add(taskId),
+      onSingleReadyForReview: (taskId) async {
+        singleReady.add(taskId);
+        // Auto-open declined, so every task keeps its notification.
+        return false;
+      },
     );
     final single = await coordinator.dispatch(
       sourceDescription: 'single.pdf',
@@ -261,6 +265,52 @@ void main() {
     ]);
     await allReady.future;
     expect(singleReady, <String>[single.taskId]);
+  });
+
+  test('a successful auto-open suppresses the transfer center notification',
+      () async {
+    var nextId = 0;
+    final singleReady = <String>[];
+    final notified = <String>[];
+    final opened = Completer<void>();
+    const result = ImportParseResult(questions: <Map<String, dynamic>>[
+      <String, dynamic>{
+        'q_num': '1',
+        'type': 0,
+        'content': 'Synthetic question',
+        'options': <String>['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+      },
+    ]);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'auto-open-${nextId++}',
+      onReadyForReview: notified.add,
+      onSingleReadyForReview: (taskId) async {
+        singleReady.add(taskId);
+        if (!opened.isCompleted) opened.complete();
+        return true;
+      },
+    );
+    final single = await coordinator.dispatch(
+      sourceDescription: 'single.pdf',
+      mode: ImportParseMode.ocr,
+      allowAutoOpenReview: true,
+      parse: (_) async => result,
+    );
+    await _waitForTask(
+      manager,
+      single.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+    await opened.future;
+    // The notification step runs right after the auto-open callback returns.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(singleReady, <String>[single.taskId]);
+    expect(notified, isEmpty);
   });
 
   test(
