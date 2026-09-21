@@ -12,6 +12,8 @@ import '../import_pipeline/import_format.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
 import '../import_pipeline/ocr_request_scheduler.dart';
+import '../import_pipeline/ocr_request_executor.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
 
@@ -40,17 +42,22 @@ final class OcrParsedArtifactGenerationAdapter
     required OcrDocumentClient ocrClient,
     required ActiveOcrProfileLoader activeOcrProfileLoader,
     OcrRequestScheduler? requestScheduler,
+    OcrRequestExecutor? requestExecutor,
     ContentAssetStore? contentAssetStore,
   })  : _managedFileStorage = managedFileStorage,
         _ocrClient = ocrClient,
         _activeOcrProfileLoader = activeOcrProfileLoader,
-        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
+        _requestExecutor = requestExecutor ??
+            OcrRequestExecutor(
+              scheduler: requestScheduler ?? OcrRequestScheduler(),
+              preferencesLoader: () async => ImportAdvancedPreferences.defaults,
+            ),
         _contentAssetStore = contentAssetStore;
 
   final ManagedFileStorage _managedFileStorage;
   final OcrDocumentClient _ocrClient;
   final ActiveOcrProfileLoader _activeOcrProfileLoader;
-  final OcrRequestScheduler _requestScheduler;
+  final OcrRequestExecutor _requestExecutor;
   final ContentAssetStore? _contentAssetStore;
 
   static const String ocrPdfRoute = 'ocr_pdf';
@@ -103,12 +110,13 @@ final class OcrParsedArtifactGenerationAdapter
 
     final OcrDocument document;
     try {
-      document = await _requestScheduler.run(
+      document = await _requestExecutor.run(
         taskId: 'parsed-artifact-${_nextOcrRequestId++}',
-        operation: () => _ocrClient.parseFile(
+        operation: (timeout) => _ocrClient.parseFile(
           profile: profile,
           filePath: managed.path,
           sourceName: runtimeSourceName,
+          timeout: timeout,
         ),
       );
     } on ZhipuOcrAuthenticationException {

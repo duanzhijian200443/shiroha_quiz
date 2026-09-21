@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -219,6 +220,7 @@ Widget _host({
   required Map<String, dynamic> question,
   required _FakeRepairGenerator generator,
   required TaskManager taskManager,
+  ImportAdvancedPreferencesLoader? preferencesLoader,
   ExplanationRetentionMode mode = ExplanationRetentionMode.allQuestionTypes,
 }) {
   final task = taskManager.tasks.single;
@@ -230,6 +232,7 @@ Widget _host({
       diagnostics: task.diagnostics,
       taskManager: taskManager,
       reviewRepairGenerator: generator,
+      importPreferencesLoader: preferencesLoader,
       initialExplanationRetentionMode: mode,
     ),
   );
@@ -265,6 +268,86 @@ void main() {
       find.byKey(const ValueKey('question-repair-review-only-0')),
       findsNothing,
     );
+  });
+
+  testWidgets('automatic LaTeX repair is off by default', (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async => ImportAdvancedPreferences.defaults,
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 0);
+  });
+
+  testWidgets('automatic LaTeX repair prepares a proposal without applying',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 1);
+    expect(find.text('查看 AI 修补建议'), findsOneWidget);
+    expect(manager.tasks.single.parsedData!.single['explanation'],
+        _brokenExplanation);
+    expect(recorder.lastQuestion['explanation'], _brokenExplanation);
+    expect(find.byType(ReviewRepairProposalDialog), findsNothing);
+  });
+
+  testWidgets('automatic LaTeX repair skips non-LaTeX metadata and failure',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final nonLatex = _question(
+      riskHints: const <String>['empty_content'],
+      latexInvalidFields: const <String>[],
+      explanation: 'Synthetic explanation',
+      rawExplanation: 'Synthetic explanation',
+    );
+    manager.tasks.add(_task(nonLatex));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: nonLatex,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 0);
+
+    final latex = _question();
+    manager.tasks.single.parsedData = [latex];
+    generator.respond = (_) async =>
+        const ReviewRepairResult.rejected(ReviewRepairOutcome.providerFailure);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(_host(
+      question: latex,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 1);
+    expect(manager.tasks.single.parsedData!.single['explanation'],
+        _brokenExplanation);
+    expect(find.text('查看 AI 修补建议'), findsNothing);
   });
 
   testWidgets('pure LaTeX issue without typed snapshot stays review-only',

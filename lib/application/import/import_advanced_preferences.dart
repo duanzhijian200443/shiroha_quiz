@@ -7,6 +7,8 @@ typedef ImportAdvancedPreferencesSaver = Future<void> Function(
   ImportAdvancedPreferences preferences,
 );
 
+enum ImportCompletionBehavior { notifyOnly, openReview }
+
 /// Application-level import execution preferences.
 ///
 /// These are durable app preferences, not per-import state: OCR vs text mode
@@ -15,6 +17,9 @@ class ImportAdvancedPreferences {
   const ImportAdvancedPreferences({
     this.ocrTaskConcurrency = defaultOcrTaskConcurrency,
     this.autoRetryEnabled = true,
+    this.ocrRequestTimeoutSeconds = defaultOcrRequestTimeoutSeconds,
+    this.autoRepairLatexEnabled = false,
+    this.completionBehavior = ImportCompletionBehavior.notifyOnly,
     this.retainUnresolvedFragments = true,
   });
 
@@ -27,6 +32,13 @@ class ImportAdvancedPreferences {
   static const int minOcrTaskConcurrency = 1;
   static const int maxOcrTaskConcurrency = 10;
   static const int defaultOcrTaskConcurrency = 2;
+  static const int defaultOcrRequestTimeoutSeconds = 90;
+  static const List<int> allowedOcrRequestTimeoutSeconds = <int>[
+    60,
+    90,
+    120,
+    180,
+  ];
 
   /// Normalizes any value into the supported budget range.
   static int clampOcrTaskConcurrency(int value) {
@@ -42,12 +54,18 @@ class ImportAdvancedPreferences {
   /// final question semantics.
   final int ocrTaskConcurrency;
 
-  /// Reserved: persisted for forward compatibility; no runtime path consumes
-  /// it yet, so the settings surface presents it as planned rather than real.
+  /// Enables bounded retries for transient OCR provider failures only.
   final bool autoRetryEnabled;
 
-  /// Reserved: persisted for forward compatibility; no runtime path consumes
-  /// it yet, so the settings surface presents it as planned rather than real.
+  /// Per OCR provider network request, not per task or PDF.
+  final int ocrRequestTimeoutSeconds;
+
+  /// Generates review repair proposals for eligible LaTeX issues only.
+  final bool autoRepairLatexEnabled;
+
+  final ImportCompletionBehavior completionBehavior;
+
+  /// Deprecated compatibility field. No UI or runtime path consumes it.
   final bool retainUnresolvedFragments;
 
   /// The concurrency budget inside the supported bounds, whatever value this
@@ -55,14 +73,27 @@ class ImportAdvancedPreferences {
   int get effectiveOcrTaskConcurrency =>
       clampOcrTaskConcurrency(ocrTaskConcurrency);
 
+  int get effectiveOcrRequestTimeoutSeconds =>
+      allowedOcrRequestTimeoutSeconds.contains(ocrRequestTimeoutSeconds)
+          ? ocrRequestTimeoutSeconds
+          : defaultOcrRequestTimeoutSeconds;
+
   ImportAdvancedPreferences copyWith({
     int? ocrTaskConcurrency,
     bool? autoRetryEnabled,
+    int? ocrRequestTimeoutSeconds,
+    bool? autoRepairLatexEnabled,
+    ImportCompletionBehavior? completionBehavior,
     bool? retainUnresolvedFragments,
   }) {
     return ImportAdvancedPreferences(
       ocrTaskConcurrency: ocrTaskConcurrency ?? this.ocrTaskConcurrency,
       autoRetryEnabled: autoRetryEnabled ?? this.autoRetryEnabled,
+      ocrRequestTimeoutSeconds:
+          ocrRequestTimeoutSeconds ?? this.ocrRequestTimeoutSeconds,
+      autoRepairLatexEnabled:
+          autoRepairLatexEnabled ?? this.autoRepairLatexEnabled,
+      completionBehavior: completionBehavior ?? this.completionBehavior,
       retainUnresolvedFragments:
           retainUnresolvedFragments ?? this.retainUnresolvedFragments,
     );
@@ -74,6 +105,9 @@ class ImportAdvancedPreferences {
     return <String, dynamic>{
       'ocrTaskConcurrency': effectiveOcrTaskConcurrency,
       'autoRetryEnabled': autoRetryEnabled,
+      'ocrRequestTimeoutSeconds': effectiveOcrRequestTimeoutSeconds,
+      'autoRepairLatexEnabled': autoRepairLatexEnabled,
+      'completionBehavior': completionBehavior.name,
       'retainUnresolvedFragments': retainUnresolvedFragments,
     };
   }
@@ -90,6 +124,18 @@ class ImportAdvancedPreferences {
       autoRetryEnabled: json['autoRetryEnabled'] is bool
           ? json['autoRetryEnabled'] as bool
           : defaults.autoRetryEnabled,
+      ocrRequestTimeoutSeconds: json['ocrRequestTimeoutSeconds'] is int &&
+              allowedOcrRequestTimeoutSeconds
+                  .contains(json['ocrRequestTimeoutSeconds'])
+          ? json['ocrRequestTimeoutSeconds'] as int
+          : defaults.ocrRequestTimeoutSeconds,
+      autoRepairLatexEnabled: json['autoRepairLatexEnabled'] is bool
+          ? json['autoRepairLatexEnabled'] as bool
+          : defaults.autoRepairLatexEnabled,
+      completionBehavior: ImportCompletionBehavior.values
+              .where((value) => value.name == json['completionBehavior'])
+              .firstOrNull ??
+          ImportCompletionBehavior.notifyOnly,
       retainUnresolvedFragments: json['retainUnresolvedFragments'] is bool
           ? json['retainUnresolvedFragments'] as bool
           : defaults.retainUnresolvedFragments,
@@ -118,6 +164,9 @@ class ImportAdvancedPreferences {
     return other is ImportAdvancedPreferences &&
         other.ocrTaskConcurrency == ocrTaskConcurrency &&
         other.autoRetryEnabled == autoRetryEnabled &&
+        other.ocrRequestTimeoutSeconds == ocrRequestTimeoutSeconds &&
+        other.autoRepairLatexEnabled == autoRepairLatexEnabled &&
+        other.completionBehavior == completionBehavior &&
         other.retainUnresolvedFragments == retainUnresolvedFragments;
   }
 
@@ -125,6 +174,9 @@ class ImportAdvancedPreferences {
   int get hashCode => Object.hash(
         ocrTaskConcurrency,
         autoRetryEnabled,
+        ocrRequestTimeoutSeconds,
+        autoRepairLatexEnabled,
+        completionBehavior,
         retainUnresolvedFragments,
       );
 }

@@ -846,6 +846,31 @@ void main() {
       );
     });
 
+    test('preserves bounded HTTP status for transient retry classification',
+        () async {
+      final image = _syntheticPngFile('zhipu-ocr-status');
+      addTearDown(() => image.deleteSync());
+      for (final status in <int>[429, 503, 400]) {
+        final client = ZhipuOcrClient(
+          httpClient: MockClient(
+            (_) async => http.Response('PRIVATE_PROVIDER_BODY', status),
+          ),
+        );
+        await expectLater(
+          client.parseFile(
+            profile: profile,
+            filePath: image.path,
+            sourceName: 'fixture.png',
+          ),
+          throwsA(isA<ZhipuOcrRequestException>().having(
+            (failure) => failure.statusCode,
+            'statusCode',
+            status,
+          )),
+        );
+      }
+    });
+
     test('uses a typed response-format failure for malformed JSON', () async {
       final image = File(
         '${Directory.systemTemp.path}${Platform.pathSeparator}'

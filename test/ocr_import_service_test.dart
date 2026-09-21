@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
@@ -17,6 +18,7 @@ import 'package:shiroha_quiz/services/import_pipeline/import_question_field_poli
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_executor.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
@@ -44,6 +46,7 @@ class FakeOcrDocumentClient implements OcrDocumentClient {
   final OcrDocument document;
   final String model;
   int callCount = 0;
+  Duration? lastTimeout;
 
   @override
   String get modelId => model;
@@ -56,6 +59,7 @@ class FakeOcrDocumentClient implements OcrDocumentClient {
     Duration timeout = const Duration(minutes: 8),
   }) async {
     callCount++;
+    lastTimeout = timeout;
     return document;
   }
 }
@@ -268,6 +272,37 @@ OcrDocument unsupportedStructureDocument({bool includeUnsupported = true}) {
 
 void main() {
   group('OcrImportService', () {
+    test('document OCR forwards every configured timeout to its client',
+        () async {
+      for (final seconds
+          in ImportAdvancedPreferences.allowedOcrRequestTimeoutSeconds) {
+        final client = FakeOcrDocumentClient(const OcrDocument(
+          sourceName: 'synthetic.pdf',
+          markdown: '',
+          rawResponses: [],
+          usage: {},
+          pages: [],
+        ));
+        final service = OcrImportService(
+          engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+          ocrClient: client,
+          requestExecutor: OcrRequestExecutor(
+            scheduler: OcrRequestScheduler(maxConcurrentRequests: 1),
+            preferencesLoader: () async => ImportAdvancedPreferences(
+              ocrRequestTimeoutSeconds: seconds,
+            ),
+          ),
+        );
+        await service.tryParse(
+          filePath: 'synthetic.pdf',
+          sourceName: 'synthetic.pdf',
+          format: ImportFormat.pdf,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        );
+        expect(client.callCount, 1);
+        expect(client.lastTimeout, Duration(seconds: seconds));
+      }
+    });
     test('uses OCR path when GLM-OCR returns a valid document', () async {
       final profile = AiEngineProfile(
         id: 'ocr-1',

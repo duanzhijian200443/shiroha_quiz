@@ -7,6 +7,7 @@ import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
@@ -54,6 +55,7 @@ class ImportStagingScreen extends StatefulWidget {
   final ImportCommitService? commitService;
   final SubjectiveAnswerDistiller? answerDistiller;
   final ReviewRepairGenerator? reviewRepairGenerator;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
   final TaskManager? taskManager;
   final ExplanationRetentionMode initialExplanationRetentionMode;
 
@@ -67,6 +69,7 @@ class ImportStagingScreen extends StatefulWidget {
     this.commitService,
     this.answerDistiller,
     this.reviewRepairGenerator,
+    this.importPreferencesLoader,
     this.taskManager,
     this.initialExplanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
@@ -137,9 +140,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   int? _activeAnswerDistillationIndex;
   final ReviewRepairPolicy _reviewRepairPolicy = const ReviewRepairPolicy();
   final Map<int, ReviewRepairEdit> _repairEdits = {};
+  final Map<int, ReviewRepairProposal> _autoRepairProposals = {};
   ReviewRepairGenerator? _repairGenerator;
   int? _activeRepairIndex;
   int _repairOperationId = 0;
+  bool _autoRepairInitialized = false;
 
   String? get _traceId {
     final value =
@@ -279,6 +284,44 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_persistReviewDraft());
       });
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_autoRepairInitialized) return;
+    _autoRepairInitialized = true;
+    final loader = widget.importPreferencesLoader ??
+        context
+            .dependOnInheritedWidgetOfExactType<AiDependenciesScope>()
+            ?.importPreferencesLoader;
+    if (loader == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_generateAutoLatexProposals(loader));
+    });
+  }
+
+  Future<void> _generateAutoLatexProposals(
+    ImportAdvancedPreferencesLoader loader,
+  ) async {
+    final ImportAdvancedPreferences preferences;
+    try {
+      preferences = await loader();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || !preferences.autoRepairLatexEnabled) return;
+    for (final item in List<ImportReviewItem>.of(_allItems)) {
+      if (!mounted) return;
+      final target = _reviewRepairTargetFor(item);
+      if (target == null ||
+          !(target.strategy == ReviewRepairStrategy.latexFragment ||
+              (target.triggerCodes.length == 1 &&
+                  target.triggerCodes.single == 'dangling_latex'))) {
+        continue;
+      }
+      await _requestReviewRepair(item, automatic: true);
     }
   }
 
@@ -1564,8 +1607,24 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   ///
   /// Generating never mutates the review items: the item is only replaced after
   /// the user accepts a proposal.
-  Future<void> _requestReviewRepair(ImportReviewItem item) async {
+  Future<void> _requestReviewRepair(
+    ImportReviewItem item, {
+    bool automatic = false,
+  }) async {
     if (_isSaving || _isRepairingAnyItem || _isDistillingAnswers) return;
+    final cached = _autoRepairProposals[item.originalIndex];
+    if (!automatic && cached != null && !cached.isStaleFor(item.draft)) {
+      final apply = await showDialog<bool>(
+        context: context,
+        builder: (context) => ReviewRepairProposalDialog(proposal: cached),
+      );
+      if (mounted && apply == true) {
+        await _applyReviewRepairProposal(item, cached);
+        _autoRepairProposals.remove(item.originalIndex);
+      }
+      return;
+    }
+    _autoRepairProposals.remove(item.originalIndex);
     final target = _reviewRepairTargetFor(item);
     if (target == null) return;
 
@@ -1599,7 +1658,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       if (!mounted || operationId != _repairOperationId) return;
       final proposal = result.proposal;
       if (!result.hasProposal || proposal == null || !proposal.applicable) {
-        _showFixedError(_reviewRepairFailureText(result.outcome));
+        if (!automatic) {
+          _showFixedError(_reviewRepairFailureText(result.outcome));
+        }
+        return;
+      }
+      if (automatic) {
+        setState(() => _autoRepairProposals[item.originalIndex] = proposal);
         return;
       }
       // Generation is finished: the card leaves its loading state before the
@@ -2444,6 +2509,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       reviewRepairInProgress:
                                           _activeRepairIndex ==
                                               item.originalIndex,
+                                      reviewRepairProposalReady:
+                                          _autoRepairProposals
+                                              .containsKey(item.originalIndex),
                                       onReviewRepair: _selectionMode ||
                                               _isSaving ||
                                               _isDistillingAnswers ||
@@ -2886,6 +2954,7 @@ class _QuestionCard extends StatelessWidget {
     required this.onAnswerDistillation,
     required this.reviewRepairEligible,
     required this.reviewRepairInProgress,
+    required this.reviewRepairProposalReady,
     required this.onReviewRepair,
   });
 
@@ -2904,6 +2973,7 @@ class _QuestionCard extends StatelessWidget {
   final VoidCallback? onAnswerDistillation;
   final bool reviewRepairEligible;
   final bool reviewRepairInProgress;
+  final bool reviewRepairProposalReady;
   final VoidCallback? onReviewRepair;
 
   @override
@@ -3099,7 +3169,11 @@ class _QuestionCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.auto_fix_high_outlined, size: 16),
-                label: Text(reviewRepairInProgress ? '正在生成修补建议' : 'AI 修补'),
+                label: Text(reviewRepairInProgress
+                    ? '正在生成修补建议'
+                    : reviewRepairProposalReady
+                        ? '查看 AI 修补建议'
+                        : 'AI 修补'),
               ),
             ],
             // Per-question keep/discard is meaningful only where a

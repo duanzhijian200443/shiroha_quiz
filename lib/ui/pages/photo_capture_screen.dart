@@ -123,6 +123,7 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       sourceDescription: '图片识别',
       mode: mode,
       explanationRetentionMode: explanationRetentionMode,
+      allowAutoOpenReview: true,
       parse: (taskId) => dependencies.importPipelineService.parseFiles(
         ImportParseRequest(
           filePaths: <String>[image.path],

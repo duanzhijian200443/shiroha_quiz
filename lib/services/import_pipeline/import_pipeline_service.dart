@@ -31,6 +31,7 @@ import 'import_question_final_sorter.dart';
 import 'ocr_document_client.dart';
 import 'ocr_import_service.dart';
 import 'ocr_request_scheduler.dart';
+import 'ocr_request_executor.dart';
 import 'ocr_typed_candidate.dart';
 import 'pdf_page_image_renderer.dart';
 import 'single_question_repair_service.dart';
@@ -83,6 +84,7 @@ class ImportPipelineService {
     required AiEngineRepository engineRepository,
     required TaskManager taskManager,
     OcrRequestScheduler? ocrRequestScheduler,
+    OcrRequestExecutor? ocrRequestExecutor,
     ContentAssetStore? contentAssetStore,
     OcrDocumentClient? ocrClient,
   }) : this._(
@@ -98,6 +100,7 @@ class ImportPipelineService {
             ocrClient: ocrClient ?? const ZhipuOcrClient(),
             engineRepository: engineRepository,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
+            requestExecutor: ocrRequestExecutor,
             taskManager: taskManager,
             contentAssetStore: contentAssetStore,
           ).tryParse,

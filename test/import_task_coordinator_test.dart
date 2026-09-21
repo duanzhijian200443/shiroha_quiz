@@ -219,6 +219,50 @@ void main() {
     expect(task.parsedData, hasLength(1));
   });
 
+  test('completion callback selects a user single task and never a batch item',
+      () async {
+    var nextId = 0;
+    var readyCount = 0;
+    final allReady = Completer<void>();
+    final singleReady = <String>[];
+    const result = ImportParseResult(questions: <Map<String, dynamic>>[
+      <String, dynamic>{
+        'q_num': '1',
+        'type': 0,
+        'content': 'Synthetic question',
+        'options': <String>['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+      },
+    ]);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'completion-${nextId++}',
+      onReadyForReview: (_) {
+        readyCount++;
+        if (readyCount == 3) allReady.complete();
+      },
+      onSingleReadyForReview: (taskId) async => singleReady.add(taskId),
+    );
+    final single = await coordinator.dispatch(
+      sourceDescription: 'single.pdf',
+      mode: ImportParseMode.ocr,
+      allowAutoOpenReview: true,
+      parse: (_) async => result,
+    );
+    await coordinator.dispatchIndependentBatch(items: <ImportTaskBatchItem>[
+      for (var i = 0; i < 2; i++)
+        ImportTaskBatchItem(
+          sourceDescription: 'batch-$i.pdf',
+          mode: ImportParseMode.ocr,
+          parse: (_) async => result,
+        ),
+    ]);
+    await allReady.future;
+    expect(singleReady, <String>[single.taskId]);
+  });
+
   test(
       'document import provenance survives parse-completion diagnostics replacement',
       () async {

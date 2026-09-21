@@ -131,6 +131,7 @@ class ImportTaskCoordinator {
     ContentAssetStore? contentAssetStore,
     Future<int> Function()? ocrMaxConcurrencyResolver,
     this.onReadyForReview,
+    this.onSingleReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
         _parser = parser,
@@ -206,6 +207,7 @@ class ImportTaskCoordinator {
   final ContentAssetStore? _contentAssetStore;
   final Future<int> Function()? _ocrMaxConcurrencyResolver;
   final void Function(String sourceDescription)? onReadyForReview;
+  final Future<void> Function(String taskId)? onSingleReadyForReview;
 
   static String _createTaskId() =>
       'task_${DateTime.now().microsecondsSinceEpoch}';
@@ -247,6 +249,7 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
+    bool allowAutoOpenReview = false,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
@@ -258,6 +261,7 @@ class ImportTaskCoordinator {
         parse: parse,
         explanationRetentionMode: explanationRetentionMode,
         documentImportEntry: documentImportEntry,
+        allowAutoOpenReview: allowAutoOpenReview,
       );
     } catch (_) {
       lease.release();
@@ -273,6 +277,7 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
+    bool allowAutoOpenReview = false,
   }) async {
     await _readiness;
 
@@ -336,6 +341,7 @@ class ImportTaskCoordinator {
             sourceDescription: safeSourceDescription,
             parse: parse,
             lease: lease,
+            allowAutoOpenReview: allowAutoOpenReview,
           ),
         )));
     return handle;
@@ -749,6 +755,7 @@ class ImportTaskCoordinator {
             handle: item.handle,
             sourceDescription: item.sourceDescription,
             parse: item.parse,
+            allowAutoOpenReview: item.allowAutoOpenReview,
           ),
         ),
       );
@@ -770,6 +777,7 @@ class ImportTaskCoordinator {
     required ImportTaskHandle handle,
     required String sourceDescription,
     required ImportTaskParseAction parse,
+    required bool allowAutoOpenReview,
   }) async {
     AppLogger.info(
       'Background import dispatched',
@@ -890,6 +898,9 @@ class ImportTaskCoordinator {
       );
       try {
         onReadyForReview?.call(sourceDescription);
+        if (allowAutoOpenReview) {
+          await onSingleReadyForReview?.call(handle.taskId);
+        }
       } catch (_) {
         AppLogger.warning(
           'Import review notification failed',
@@ -1135,12 +1146,14 @@ class _ScheduledImportTask {
     required this.sourceDescription,
     required this.parse,
     required this.lease,
+    this.allowAutoOpenReview = false,
   });
 
   final ImportTaskHandle handle;
   final String sourceDescription;
   final ImportTaskParseAction parse;
   final BackupRestoreMutationLease lease;
+  final bool allowAutoOpenReview;
 }
 
 class _EmptyResultFailure {

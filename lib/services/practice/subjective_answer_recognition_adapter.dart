@@ -4,6 +4,8 @@ import '../../data/repositories/ai_engine_repository.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
 import '../import_pipeline/ocr_request_scheduler.dart';
+import '../import_pipeline/ocr_request_executor.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../llm_api_client.dart';
 import '../llm_providers/llm_provider_client.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
@@ -15,11 +17,16 @@ final class SubjectiveAnswerRecognitionAdapter
     required AiEngineRepository engineRepository,
     OcrDocumentClient ocrClient = const ZhipuOcrClient(),
     OcrRequestScheduler? requestScheduler,
+    OcrRequestExecutor? requestExecutor,
     LlmApiClient apiClient = const LlmApiClient(),
     VisionAssetBuilder assetBuilder = const VisionAssetBuilder(),
   })  : _engineRepository = engineRepository,
         _ocrClient = ocrClient,
-        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
+        _requestExecutor = requestExecutor ??
+            OcrRequestExecutor(
+              scheduler: requestScheduler ?? OcrRequestScheduler(),
+              preferencesLoader: () async => ImportAdvancedPreferences.defaults,
+            ),
         _apiClient = apiClient,
         _assetBuilder = assetBuilder;
 
@@ -33,7 +40,7 @@ final class SubjectiveAnswerRecognitionAdapter
 
   final AiEngineRepository _engineRepository;
   final OcrDocumentClient _ocrClient;
-  final OcrRequestScheduler _requestScheduler;
+  final OcrRequestExecutor _requestExecutor;
   final LlmApiClient _apiClient;
   final VisionAssetBuilder _assetBuilder;
 
@@ -70,13 +77,13 @@ final class SubjectiveAnswerRecognitionAdapter
   ) async {
     final profile = await _engineRepository.getActiveOcrEngine();
     _requireComplete(profile);
-    final document = await _requestScheduler.run(
+    final document = await _requestExecutor.run(
       taskId: 'subjective-answer-${_nextOcrRequestId++}',
-      operation: () => _ocrClient.parseFile(
+      operation: (timeout) => _ocrClient.parseFile(
         profile: profile!,
         filePath: request.imagePath,
         sourceName: request.imageName,
-        timeout: const Duration(seconds: 90),
+        timeout: timeout,
       ),
     );
     return _projectOcrText(document);

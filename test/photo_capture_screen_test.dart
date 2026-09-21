@@ -50,6 +50,7 @@ final class _RecordingImportTaskCoordinator extends Fake
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
+    bool allowAutoOpenReview = false,
   }) async {
     final callNumber = sourceDescriptions.length + 1;
     final taskId = 'synthetic-photo-task-$callNumber';

@@ -5,6 +5,12 @@ void main() {
   group('ImportAdvancedPreferences', () {
     test('defaults to a budget inside the supported slider range', () {
       expect(ImportAdvancedPreferences.defaults.ocrTaskConcurrency, 2);
+      expect(ImportAdvancedPreferences.defaults.autoRetryEnabled, isTrue);
+      expect(ImportAdvancedPreferences.defaults.ocrRequestTimeoutSeconds, 90);
+      expect(
+          ImportAdvancedPreferences.defaults.autoRepairLatexEnabled, isFalse);
+      expect(ImportAdvancedPreferences.defaults.completionBehavior,
+          ImportCompletionBehavior.notifyOnly);
       expect(ImportAdvancedPreferences.minOcrTaskConcurrency, 1);
       expect(ImportAdvancedPreferences.maxOcrTaskConcurrency, 10);
     });
@@ -91,10 +97,31 @@ void main() {
       const preferences = ImportAdvancedPreferences(
         ocrTaskConcurrency: 3,
         autoRetryEnabled: false,
+        ocrRequestTimeoutSeconds: 180,
+        autoRepairLatexEnabled: true,
+        completionBehavior: ImportCompletionBehavior.openReview,
         retainUnresolvedFragments: false,
       );
       expect(ImportAdvancedPreferences.fromJson(preferences.toJson()),
           preferences);
+    });
+
+    test('legacy payload defaults new fields and invalid choices', () {
+      final legacy = ImportAdvancedPreferences.fromJson(
+        const <String, dynamic>{'ocrTaskConcurrency': 12},
+      );
+      expect(legacy.ocrTaskConcurrency, 10);
+      expect(legacy.autoRetryEnabled, isTrue);
+      expect(legacy.ocrRequestTimeoutSeconds, 90);
+      expect(legacy.autoRepairLatexEnabled, isFalse);
+      expect(legacy.completionBehavior, ImportCompletionBehavior.notifyOnly);
+      expect(
+        ImportAdvancedPreferences.fromJson(const <String, dynamic>{
+          'ocrRequestTimeoutSeconds': 61,
+          'completionBehavior': 'unknown',
+        }),
+        ImportAdvancedPreferences.defaults,
+      );
     });
 
     test('migrates the retired processing strategy vocabulary', () {

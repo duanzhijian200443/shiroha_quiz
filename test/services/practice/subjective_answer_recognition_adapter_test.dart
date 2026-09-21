@@ -3,11 +3,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/practice/subjective_answer_recognition.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_executor.dart';
 import 'package:shiroha_quiz/services/llm_api_client.dart';
 import 'package:shiroha_quiz/services/llm_providers/llm_provider_client.dart';
 import 'package:shiroha_quiz/services/practice/subjective_answer_recognition_adapter.dart';
@@ -56,6 +58,7 @@ final class _FakeOcrClient implements OcrDocumentClient {
   final OcrDocument response;
   final Object? failure;
   int calls = 0;
+  Duration? lastTimeout;
 
   @override
   String get modelId => 'synthetic-ocr';
@@ -68,6 +71,7 @@ final class _FakeOcrClient implements OcrDocumentClient {
     Duration timeout = const Duration(minutes: 8),
   }) async {
     calls++;
+    lastTimeout = timeout;
     if (failure != null) throw failure!;
     return response;
   }
@@ -136,6 +140,31 @@ SubjectiveAnswerRecognitionRequest _request(
 }
 
 void main() {
+  test('each timeout choice reaches the OCR client call', () async {
+    for (final seconds
+        in ImportAdvancedPreferences.allowedOcrRequestTimeoutSeconds) {
+      final ocr = _FakeOcrClient(response: _document('answer'));
+      final scheduler = OcrRequestScheduler(maxConcurrentRequests: 1);
+      final adapter = SubjectiveAnswerRecognitionAdapter(
+        engineRepository: _FakeEngineRepository(ocrProfile: _ocrProfile),
+        ocrClient: ocr,
+        requestExecutor: OcrRequestExecutor(
+          scheduler: scheduler,
+          preferencesLoader: () async => ImportAdvancedPreferences(
+            ocrRequestTimeoutSeconds: seconds,
+          ),
+        ),
+      );
+      expect(
+        (await adapter.recognize(
+          _request(SubjectiveAnswerRecognitionMode.ocr),
+        ))
+            .isSuccess,
+        isTrue,
+      );
+      expect(ocr.lastTimeout, Duration(seconds: seconds));
+    }
+  });
   test('answer OCR waits behind a document OCR call on the shared scheduler',
       () async {
     final scheduler = OcrRequestScheduler(maxConcurrentRequests: 1);

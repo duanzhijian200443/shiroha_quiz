@@ -96,6 +96,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       parse: parseTask,
       explanationRetentionMode: newDocumentImportExplanationRetentionMode,
       documentImportEntry: true,
+      allowAutoOpenReview: true,
     );
 
     if (!mounted) return;

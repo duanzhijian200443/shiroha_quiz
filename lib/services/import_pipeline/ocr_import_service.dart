@@ -17,6 +17,8 @@ import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
 import 'ocr_question_regionizer.dart';
 import 'ocr_request_scheduler.dart';
+import 'ocr_request_executor.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import 'reference_answer_extractor.dart';
 import 'reference_answer_merger.dart';
 import 'single_question_repair_service.dart';
@@ -51,6 +53,7 @@ class OcrImportService {
     ReferenceAnswerMerger referenceAnswerMerger = const ReferenceAnswerMerger(),
     SingleQuestionRepairService? repairService,
     OcrRequestScheduler? requestScheduler,
+    OcrRequestExecutor? requestExecutor,
     TaskManager? taskManager,
     String Function()? uuidV4Factory,
     ContentAssetStore? contentAssetStore,
@@ -60,7 +63,11 @@ class OcrImportService {
         _assembler = assembler,
         _referenceAnswerExtractor = referenceAnswerExtractor,
         _referenceAnswerMerger = referenceAnswerMerger,
-        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
+        _requestExecutor = requestExecutor ??
+            OcrRequestExecutor(
+              scheduler: requestScheduler ?? OcrRequestScheduler(),
+              preferencesLoader: () async => ImportAdvancedPreferences.defaults,
+            ),
         _taskManager = taskManager,
         _uuidV4Factory = uuidV4Factory ?? _defaultUuidV4,
         _contentAssetStore = contentAssetStore,
@@ -73,7 +80,7 @@ class OcrImportService {
   final OcrQuestionAssembler _assembler;
   final ReferenceAnswerExtractor _referenceAnswerExtractor;
   final ReferenceAnswerMerger _referenceAnswerMerger;
-  final OcrRequestScheduler _requestScheduler;
+  final OcrRequestExecutor _requestExecutor;
   final TaskManager? _taskManager;
   final SingleQuestionRepairService _repairService;
   final String Function() _uuidV4Factory;
@@ -155,11 +162,14 @@ class OcrImportService {
       }
       final document = await measureAsyncStage(
         'ocrDurationMs',
-        () => _requestScheduler.run(
+        () => _requestExecutor.run(
           taskId:
               attempt?.taskId ?? TraceContext.taskId ?? 'unscoped-ocr-import',
           attemptToken: attempt?.attemptToken,
-          operation: () async {
+          isRunnable: attempt == null || taskManager == null
+              ? null
+              : () => taskManager.isAttemptRunnable(attempt),
+          operation: (timeout) async {
             if (attempt != null && taskManager != null) {
               final runningStatus = await taskManager.markAttemptRunning(
                 attempt,
@@ -173,6 +183,7 @@ class OcrImportService {
               profile: profile,
               filePath: filePath,
               sourceName: sourceName,
+              timeout: timeout,
             );
           },
         ),
