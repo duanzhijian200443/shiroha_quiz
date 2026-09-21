@@ -1,6 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/ui/pages/import_advanced_settings_screen.dart';
+
+class _FakePreferencesStore {
+  _FakePreferencesStore(this.stored);
+
+  ImportAdvancedPreferences stored;
+  int loadCalls = 0;
+  int saveCalls = 0;
+
+  Future<ImportAdvancedPreferences> load() async {
+    loadCalls++;
+    return stored;
+  }
+
+  Future<void> save(ImportAdvancedPreferences preferences) async {
+    saveCalls++;
+    stored = preferences;
+  }
+}
 
 void main() {
   Future<void> pumpScreen(
@@ -8,12 +27,15 @@ void main() {
     ThemeData? theme,
     Size size = const Size(900, 1400),
     TextScaler textScaler = TextScaler.noScaling,
+    _FakePreferencesStore? store,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final effectiveStore =
+        store ?? _FakePreferencesStore(const ImportAdvancedPreferences());
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
@@ -21,7 +43,10 @@ void main() {
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
           child: child!,
         ),
-        home: const ImportAdvancedSettingsScreen(),
+        home: ImportAdvancedSettingsScreen(
+          preferencesLoader: effectiveStore.load,
+          preferencesSaver: effectiveStore.save,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -34,6 +59,22 @@ void main() {
     '待校对',
     '确认入库',
   ];
+
+  Finder strategyCard(String key) => find.byKey(ValueKey<String>(key));
+
+  Finder selectedIconOf(String cardKey) => find.descendant(
+        of: strategyCard(cardKey),
+        matching: find.byIcon(Icons.check_circle),
+      );
+
+  Finder unselectedIconOf(String cardKey) => find.descendant(
+        of: strategyCard(cardKey),
+        matching: find.byIcon(Icons.radio_button_unchecked),
+      );
+
+  Switch switchOf(WidgetTester tester, String key) {
+    return tester.widget<Switch>(find.byKey(ValueKey<String>(key)));
+  }
 
   testWidgets('presents the fixed import pipeline as a read-only flow',
       (tester) async {
@@ -78,48 +119,157 @@ void main() {
     expect(find.text('扫描版 PDF 或图片内容使用 OCR 识别。'), findsOneWidget);
   });
 
-  testWidgets('offers no automatic text/OCR routing toggle', (tester) async {
-    await pumpScreen(tester);
-
-    expect(find.textContaining('自动优先'), findsNothing);
-    expect(find.byType(Switch), findsNothing);
-    expect(find.byType(SwitchListTile), findsNothing);
-    expect(find.byType(Radio), findsNothing);
-    expect(find.byType(Checkbox), findsNothing);
-  });
-
-  // None of these controls has a backend consumer, so they stay out of the
-  // page: OCR does not read ImportParseRequest.maxConcurrency, the provider
-  // retry loops have no off-switch, and a failed batch is dropped rather than
-  // staged for review. With nothing to change there is also nothing to reset.
-  testWidgets('does not ship the design mock decoy strategy settings',
+  testWidgets('offers the three processing strategies with automatic selected',
       (tester) async {
     await pumpScreen(tester);
 
-    expect(find.textContaining('稳定优先'), findsNothing);
-    expect(find.textContaining('速度优先'), findsNothing);
-    expect(find.textContaining('处理策略'), findsNothing);
-    expect(find.textContaining('自动重试'), findsNothing);
-    expect(find.textContaining('失败项保留'), findsNothing);
-    expect(find.textContaining('异常处理'), findsNothing);
-    expect(find.textContaining('恢复默认'), findsNothing);
+    expect(find.text('处理策略'), findsOneWidget);
+    expect(find.text('自动（推荐）'), findsOneWidget);
+    expect(find.text('稳定优先'), findsOneWidget);
+    expect(find.text('速度优先'), findsOneWidget);
+
+    expect(selectedIconOf('advanced-strategy-automatic'), findsOneWidget);
+    expect(unselectedIconOf('advanced-strategy-stability'), findsOneWidget);
+    expect(unselectedIconOf('advanced-strategy-speed'), findsOneWidget);
   });
 
-  // The OCR path does not consume ImportParseRequest.maxConcurrency, so no
-  // selectable parallelism control may be published. This locks that in.
-  testWidgets('reports OCR concurrency as system-managed, with no control',
-      (tester) async {
+  testWidgets('exception handling toggles default to on', (tester) async {
     await pumpScreen(tester);
 
-    expect(find.text('OCR 并行度'), findsOneWidget);
-    expect(find.text('OCR 并发：当前由系统自动管理'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('advanced-ocr-concurrency-row')),
-      findsOneWidget,
+    expect(find.text('异常处理'), findsOneWidget);
+    expect(find.text('自动重试'), findsOneWidget);
+    expect(find.text('保留未识别内容'), findsOneWidget);
+    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isTrue);
+    expect(switchOf(tester, 'advanced-retain-unresolved-switch').value, isTrue);
+  });
+
+  testWidgets('loads persisted preferences into the controls', (tester) async {
+    final store = _FakePreferencesStore(
+      const ImportAdvancedPreferences(
+        processingStrategy: ImportProcessingStrategy.stability,
+        autoRetryEnabled: false,
+        retainUnresolvedFragments: false,
+      ),
     );
-    expect(find.byType(Slider), findsNothing);
-    expect(find.byType(SegmentedButton<Object>), findsNothing);
-    expect(find.byType(DropdownButton<Object>), findsNothing);
+    await pumpScreen(tester, store: store);
+
+    expect(store.loadCalls, 1);
+    expect(selectedIconOf('advanced-strategy-stability'), findsOneWidget);
+    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isFalse);
+    expect(
+      switchOf(tester, 'advanced-retain-unresolved-switch').value,
+      isFalse,
+    );
+  });
+
+  testWidgets('edits stay local until the done action', (tester) async {
+    final store = _FakePreferencesStore(const ImportAdvancedPreferences());
+    await pumpScreen(tester, store: store);
+
+    await tester.tap(strategyCard('advanced-strategy-speed'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>(
+      'advanced-auto-retry-switch',
+    )));
+    await tester.pumpAndSettle();
+
+    expect(selectedIconOf('advanced-strategy-speed'), findsOneWidget);
+    expect(unselectedIconOf('advanced-strategy-automatic'), findsOneWidget);
+    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isFalse);
+    expect(
+      store.saveCalls,
+      0,
+      reason: 'tapping a control must never persist by itself',
+    );
+  });
+
+  testWidgets('reset defaults restores the working copy without saving',
+      (tester) async {
+    final store = _FakePreferencesStore(
+      const ImportAdvancedPreferences(
+        processingStrategy: ImportProcessingStrategy.speed,
+        autoRetryEnabled: false,
+      ),
+    );
+    await pumpScreen(tester, store: store);
+
+    expect(selectedIconOf('advanced-strategy-speed'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('advanced-settings-reset-defaults')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selectedIconOf('advanced-strategy-automatic'), findsOneWidget);
+    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isTrue);
+    expect(switchOf(tester, 'advanced-retain-unresolved-switch').value, isTrue);
+    expect(
+      store.saveCalls,
+      0,
+      reason: '恢复默认 must only reset the local working copy',
+    );
+    expect(store.stored.processingStrategy, ImportProcessingStrategy.speed);
+  });
+
+  testWidgets('the done action persists the working copy and pops',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = _FakePreferencesStore(const ImportAdvancedPreferences());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => ImportAdvancedSettingsScreen(
+                      preferencesLoader: store.load,
+                      preferencesSaver: store.save,
+                    ),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ImportAdvancedSettingsScreen), findsOneWidget);
+
+    await tester.tap(strategyCard('advanced-strategy-stability'));
+    await tester.pumpAndSettle();
+    final retainSwitch =
+        find.byKey(const ValueKey<String>('advanced-retain-unresolved-switch'));
+    await tester.ensureVisible(retainSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(retainSwitch);
+    await tester.pumpAndSettle();
+
+    final done = find.byKey(const ValueKey<String>('advanced-settings-done'));
+    await tester.ensureVisible(done);
+    await tester.pumpAndSettle();
+    await tester.tap(done);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ImportAdvancedSettingsScreen), findsNothing);
+    expect(store.saveCalls, 1);
+    expect(
+      store.stored,
+      const ImportAdvancedPreferences(
+        processingStrategy: ImportProcessingStrategy.stability,
+        retainUnresolvedFragments: false,
+      ),
+    );
   });
 
   testWidgets('read-only rows are not interactive', (tester) async {
@@ -130,7 +280,6 @@ void main() {
       'import-flow-review-note',
       'advanced-text-direct-read-row',
       'advanced-ocr-scan-row',
-      'advanced-ocr-concurrency-row',
     ]) {
       final row = find.byKey(ValueKey<String>(key));
       expect(row, findsOneWidget);
@@ -150,8 +299,7 @@ void main() {
   testWidgets('read-only rows are inert', (tester) async {
     await pumpScreen(tester);
 
-    final row =
-        find.byKey(const ValueKey<String>('advanced-ocr-concurrency-row'));
+    final row = find.byKey(const ValueKey<String>('advanced-ocr-scan-row'));
 
     // The hit test must not even reach the read-only row content: nothing above
     // it is an interactive target, so a pointer there is never absorbed by a
@@ -170,40 +318,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the done action pops the page', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: ElevatedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ImportAdvancedSettingsScreen(),
-                  ),
-                ),
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    expect(find.byType(ImportAdvancedSettingsScreen), findsOneWidget);
-
-    final done = find.byKey(const ValueKey<String>('advanced-settings-done'));
-    await tester.ensureVisible(done);
-    await tester.pumpAndSettle();
-    await tester.tap(done);
-    await tester.pumpAndSettle();
-
-    expect(find.byType(ImportAdvancedSettingsScreen), findsNothing);
-  });
-
   testWidgets('renders in light and dark themes', (tester) async {
     for (final brightness in Brightness.values) {
       await pumpScreen(
@@ -217,6 +331,7 @@ void main() {
       );
 
       expect(find.text('流程说明'), findsOneWidget);
+      expect(find.text('处理策略'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });
@@ -230,7 +345,8 @@ void main() {
     );
 
     expect(find.text('流程说明'), findsOneWidget);
-    expect(find.text('OCR 并行度'), findsOneWidget);
+    expect(find.text('处理策略'), findsOneWidget);
+    expect(find.text('异常处理'), findsOneWidget);
     for (final step in flowSteps) {
       expect(find.text(step), findsOneWidget);
     }
@@ -242,6 +358,7 @@ void main() {
       await pumpScreen(tester, size: size);
 
       expect(find.text('流程说明'), findsOneWidget);
+      expect(find.text('处理策略'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });

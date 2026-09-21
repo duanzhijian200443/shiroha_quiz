@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/application/practice/subjective_answer_recognition.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -111,6 +112,8 @@ void main() {
     required PhotoRecognitionDispatcher? dispatch,
     ThemeData? theme,
     Widget Function(Widget child)? wrapDependencies,
+    ImportAdvancedPreferences importPreferences =
+        const ImportAdvancedPreferences(),
   }) async {
     tester.view.physicalSize = const Size(430, 900);
     tester.view.devicePixelRatio = 1;
@@ -127,6 +130,7 @@ void main() {
                 builder: (_) => PhotoCaptureScreen(
                   pickPhoto: pickPhoto,
                   onRecognitionRequested: dispatch,
+                  importPreferencesLoader: () async => importPreferences,
                 ),
               ),
             ),
@@ -299,6 +303,9 @@ void main() {
       tester,
       pickPhoto: (source) async => productionPhoto,
       dispatch: null,
+      importPreferences: const ImportAdvancedPreferences(
+        processingStrategy: ImportProcessingStrategy.speed,
+      ),
       wrapDependencies: (child) => AiDependenciesScope(
         engineRepository: _UnusedEngineRepository(),
         aiConfigService: const UnavailableAiConfigPresentationService(),
@@ -376,7 +383,8 @@ void main() {
     for (final request in pipeline.requests) {
       expect(request.fileNames, <String>[productionPhoto.name]);
       expect(request.filePaths, hasLength(1));
-      expect(request.maxConcurrency, 3);
+      // The speed strategy resolves to the provider-safe ceiling.
+      expect(request.maxConcurrency, 4);
       expect(
         request.explanationRetentionMode,
         ExplanationRetentionMode.subjectiveOnly,

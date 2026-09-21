@@ -129,6 +129,7 @@ class ImportTaskCoordinator {
     String Function()? attemptTokenFactory,
     String Function()? batchIdFactory,
     ContentAssetStore? contentAssetStore,
+    Future<int> Function()? ocrMaxConcurrencyResolver,
     this.onReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
@@ -138,7 +139,8 @@ class ImportTaskCoordinator {
         _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId,
         _attemptTokenFactory = attemptTokenFactory ?? ImportAttemptToken.create,
         _batchIdFactory = batchIdFactory ?? _createBatchId,
-        _contentAssetStore = contentAssetStore;
+        _contentAssetStore = contentAssetStore,
+        _ocrMaxConcurrencyResolver = ocrMaxConcurrencyResolver;
 
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
@@ -202,6 +204,7 @@ class ImportTaskCoordinator {
   final String Function() _attemptTokenFactory;
   final String Function() _batchIdFactory;
   final ContentAssetStore? _contentAssetStore;
+  final Future<int> Function()? _ocrMaxConcurrencyResolver;
   final void Function(String sourceDescription)? onReadyForReview;
 
   static String _createTaskId() =>
@@ -550,6 +553,7 @@ class ImportTaskCoordinator {
       throw const ImportTaskRetryRejectedException();
     }
     final task = matches.first;
+    final maxConcurrency = await _resolveOcrMaxConcurrency();
     final immutablePaths = List<String>.unmodifiable(selectedPaths);
     final immutableNames = List<String>.unmodifiable(selectedNames);
     final sourceDescription = immutableNames.length == 1
@@ -564,11 +568,17 @@ class ImportTaskCoordinator {
         filePaths: immutablePaths,
         fileNames: immutableNames,
         mode: ImportParseMode.ocr,
-        maxConcurrency: 1,
+        maxConcurrency: maxConcurrency,
         taskId: retryTaskId,
         explanationRetentionMode: task.explanationRetentionMode,
       )),
     );
+  }
+
+  Future<int> _resolveOcrMaxConcurrency() {
+    final resolver = _ocrMaxConcurrencyResolver;
+    if (resolver == null) return Future.value(1);
+    return resolver();
   }
 
   Future<ImportTaskHandle> retryOcrTask({

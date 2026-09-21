@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
@@ -64,10 +65,13 @@ void main() {
     required Future<FilePickerResult?> Function() pickFiles,
     required List<ImportParseRequest> requests,
     ImportTaskDispatcher? taskDispatcher,
+    ImportAdvancedPreferences importPreferences =
+        const ImportAdvancedPreferences(),
   }) {
     var dispatchedTaskIndex = 0;
     return ImportSettingsScreen(
       pickFiles: pickFiles,
+      importPreferencesLoader: () async => importPreferences,
       requestParser: (request) async {
         requests.add(request);
         return ImportParseResult(
@@ -333,6 +337,7 @@ void main() {
     await pumpScreen(
       tester,
       screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'archive.zip', path: 'archive.zip', size: 0),
           PlatformFile(name: 'paper.docx', path: 'paper.docx', size: 0),
@@ -365,6 +370,7 @@ void main() {
     await pumpScreen(
       tester,
       screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
         ]),
@@ -398,6 +404,7 @@ void main() {
     await pumpScreen(
       tester,
       screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
         ]),
@@ -452,7 +459,12 @@ void main() {
 
   testWidgets('advanced settings entry opens the advanced settings page',
       (tester) async {
-    await pumpScreen(tester);
+    await pumpScreen(
+      tester,
+      screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
+      ),
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('import-advanced-settings-entry')),
@@ -460,6 +472,40 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ImportAdvancedSettingsScreen), findsOneWidget);
+  });
+
+  testWidgets(
+      'processing strategy preference resolves the OCR concurrency budget',
+      (tester) async {
+    final cases = <(ImportProcessingStrategy, int)>[
+      (ImportProcessingStrategy.stability, 1),
+      (ImportProcessingStrategy.automatic, 2),
+      (ImportProcessingStrategy.speed, 4),
+    ];
+    for (final (strategy, expectedConcurrency) in cases) {
+      final requests = <ImportParseRequest>[];
+      await pumpScreen(
+        tester,
+        screen: fileScreen(
+          pickFiles: () async => FilePickerResult(<PlatformFile>[
+            PlatformFile(name: 'paper.pdf', path: 'paper.pdf', size: 0),
+          ]),
+          requests: requests,
+          importPreferences:
+              ImportAdvancedPreferences(processingStrategy: strategy),
+        ),
+      );
+
+      await tester.tap(fileButton());
+      await tester.pumpAndSettle();
+
+      expect(requests, hasLength(1), reason: '${strategy.name} must dispatch');
+      expect(
+        requests.single.maxConcurrency,
+        expectedConcurrency,
+        reason: '${strategy.name} must resolve its own concurrency budget',
+      );
+    }
   });
 
   testWidgets('keeps the file action as the visually primary source action',
@@ -544,6 +590,7 @@ void main() {
       tester,
       navigatorObserver: navigatorObserver,
       screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'first.pdf', path: 'first.pdf', size: 0),
           PlatformFile(name: 'same.pdf', path: 'second.pdf', size: 0),
@@ -587,6 +634,7 @@ void main() {
     await pumpScreen(
       tester,
       screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'img1.png', path: 'img1.png', size: 0),
           PlatformFile(name: 'img2.png', path: 'img2.png', size: 0),
@@ -621,6 +669,7 @@ void main() {
     await pumpScreen(
       tester,
       screen: ImportSettingsScreen(
+        importPreferencesLoader: () async => const ImportAdvancedPreferences(),
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'notes1.txt', path: 'notes1.txt', size: 0),
           PlatformFile(name: 'notes2.md', path: 'notes2.md', size: 0),

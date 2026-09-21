@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../application/import/import_advanced_preferences.dart';
+import '../../application/import/import_processing_policy_resolver.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../theme/design_tokens.dart';
 import '../../services/import_pipeline/import_parse_result.dart';
@@ -50,11 +53,13 @@ class ImportSettingsScreen extends StatefulWidget {
     this.pickFiles,
     this.taskDispatcher,
     this.requestParser,
+    this.importPreferencesLoader,
   });
 
   final ImportFilePicker? pickFiles;
   final ImportTaskDispatcher? taskDispatcher;
   final ImportRequestParser? requestParser;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
 
   @override
   State<ImportSettingsScreen> createState() => _ImportSettingsScreenState();
@@ -130,6 +135,16 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         ImportParseMode.vision => importOcrSupportedExtensions,
       };
 
+  Future<int> _resolveOcrMaxConcurrency() async {
+    final preferencesLoader = widget.importPreferencesLoader;
+    final preferences = preferencesLoader != null
+        ? await preferencesLoader()
+        : await SettingsRepository.instance.getImportAdvancedPreferences();
+    return const ImportProcessingPolicyResolver()
+        .resolve(preferences.processingStrategy)
+        .effectiveOcrConcurrency;
+  }
+
   Future<void> _pickAndParseFile() async {
     final selectedMode = _selectedMode;
     final result = widget.pickFiles != null
@@ -151,6 +166,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       return;
     }
     final parseRequest = _resolveRequestParser();
+    final maxConcurrency = await _resolveOcrMaxConcurrency();
+    if (!mounted) return;
 
     final isAllPdfBatch = result.files.length > 1 &&
         result.files.every((file) => _fileExtension(file) == 'pdf');
@@ -169,7 +186,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
                   filePaths: <String>[file.path!],
                   fileNames: <String>[file.name],
                   mode: selectedMode,
-                  maxConcurrency: 1,
+                  maxConcurrency: maxConcurrency,
                   taskId: taskId,
                   explanationRetentionMode:
                       newDocumentImportExplanationRetentionMode,
@@ -194,7 +211,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           filePaths: result.files.map((file) => file.path!).toList(),
           fileNames: result.files.map((file) => file.name).toList(),
           mode: selectedMode,
-          maxConcurrency: 1,
+          maxConcurrency: maxConcurrency,
           taskId: taskId,
           explanationRetentionMode: newDocumentImportExplanationRetentionMode,
         ),
@@ -261,7 +278,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const ImportAdvancedSettingsScreen(),
+        builder: (context) => ImportAdvancedSettingsScreen(
+          preferencesLoader: widget.importPreferencesLoader,
+        ),
       ),
     );
   }
