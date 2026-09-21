@@ -325,6 +325,38 @@ void main() {
     expect(find.byType(ReviewRepairProposalDialog), findsNothing);
   });
 
+  testWidgets('a still-current automatic proposal opens without regenerating',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(generator.calls, 1);
+    expect(find.text('查看 AI 修补建议'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('review-ai-repair-0')));
+    await tester.pumpAndSettle();
+
+    // The revision anchor still holds, so the prepared proposal is presented
+    // as-is instead of spending a second provider call. Opening it is not an
+    // acceptance and must not touch the question.
+    expect(generator.calls, 1);
+    expect(find.byKey(ReviewRepairProposalDialog.dialogKey), findsOneWidget);
+    expect(find.text(_repairedFragment), findsOneWidget);
+    expect(recorder.lastQuestion['explanation'], _brokenExplanation);
+  });
+
   testWidgets(
       'a second automatic proposal is regenerated instead of failing stale',
       (tester) async {
@@ -363,6 +395,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('review-ai-repair-0')));
     await tester.pumpAndSettle();
+    // The stale proposal is discarded and regenerated, not stamped with a
+    // fresh revision and pushed into the CAS.
+    expect(generator.calls, 3);
     await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
     await tester.pumpAndSettle();
 
@@ -374,6 +409,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('review-ai-repair-1')));
     await tester.pumpAndSettle();
+    // Applying the first repair moved the draft-wide revision again, so this
+    // proposal has to be regenerated as well.
+    expect(generator.calls, 4);
     await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
     await tester.pumpAndSettle();
 
