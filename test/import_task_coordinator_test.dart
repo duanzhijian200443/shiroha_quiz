@@ -319,6 +319,140 @@ void main() {
     expect(isDocumentImportEntryDiagnostics(task.diagnostics), isFalse);
   });
 
+  test('a retried document import keeps its entry provenance', () async {
+    // Regression guard for the retry path. `restartAttempt` rebuilds the
+    // attempt diagnostics from scratch, so the marker has to be copied back
+    // explicitly: dropping it demotes a retried document import to a
+    // compatibility task and Review offers the retention controls this entry
+    // deliberately removed.
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'type': 0,
+            'content': 'Synthetic question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+          },
+        ],
+        explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      ),
+      taskIdFactory: () => 'retry-document-entry',
+      traceIdFactory: () => 'retry-document-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-document-attempt-${attemptIndex++}',
+    );
+
+    // An empty parse is the production failure shape that leaves the task
+    // retryable from the task center.
+    final failedHandle = await coordinator.dispatch(
+      sourceDescription: 'fixture.pdf',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      documentImportEntry: true,
+      parse: (_) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[],
+      ),
+    );
+    final failed = await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.attemptState == ImportAttemptState.failed,
+    );
+    expect(
+      failed.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the failed attempt is still a document import',
+    );
+
+    final retryHandle = await coordinator.retryOcrRequest(
+      taskId: failedHandle.taskId,
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+    );
+    final retried = await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    expect(retryHandle.attemptNumber, 2);
+    expect(
+      retried.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the retry must not demote a document import',
+    );
+    expect(isDocumentImportEntryDiagnostics(retried.diagnostics), isTrue);
+  });
+
+  test('a retried photo capture never gains document entry provenance',
+      () async {
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'type': 0,
+            'content': 'Synthetic photo question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+          },
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      ),
+      taskIdFactory: () => 'retry-photo-entry',
+      traceIdFactory: () => 'retry-photo-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-photo-attempt-${attemptIndex++}',
+    );
+
+    final failedHandle = await coordinator.dispatch(
+      sourceDescription: '图片识别',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      parse: (_) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[],
+      ),
+    );
+    await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.attemptState == ImportAttemptState.failed,
+    );
+
+    await coordinator.retryOcrRequest(
+      taskId: failedHandle.taskId,
+      filePaths: const <String>['fixture.png'],
+      fileNames: const <String>['fixture.png'],
+    );
+    final retried = await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    // Photo capture records its own retention policy but is not a document
+    // import, so the retry must not invent provenance and Review keeps the
+    // controls that can rewrite that policy.
+    expect(
+      retried.diagnostics?.containsKey(documentImportEntryMarkerKey),
+      isFalse,
+      reason: 'a retry must not invent document entry provenance',
+    );
+    expect(isDocumentImportEntryDiagnostics(retried.diagnostics), isFalse);
+    expect(
+      retried.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+      ExplanationRetentionMode.subjectiveOnly.name,
+    );
+  });
+
   test('persists and restores the request explanation retention mode',
       () async {
     final coordinator = ImportTaskCoordinator(

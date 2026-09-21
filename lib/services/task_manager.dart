@@ -1250,6 +1250,13 @@ class TaskManager extends ChangeNotifier {
             keyImportStorageRoute: stableMetadata[keyImportStorageRoute],
           if (stableMetadata[keyImportStorageReason] != null)
             keyImportStorageReason: stableMetadata[keyImportStorageReason],
+          // Entry provenance is task metadata: a retry rebuilds diagnostics
+          // from scratch, and dropping the marker here would demote a document
+          // import to a compatibility task and bring its retention controls
+          // back for the retried attempt.
+          if (stableMetadata[documentImportEntryMarkerKey] != null)
+            documentImportEntryMarkerKey:
+                stableMetadata[documentImportEntryMarkerKey],
           if (stableMetadata[keyCorrelationId] != null)
             keyCorrelationId: stableMetadata[keyCorrelationId],
           if (previousTraceId != null) keyParentTraceId: previousTraceId,
