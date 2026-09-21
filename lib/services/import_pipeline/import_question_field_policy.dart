@@ -13,6 +13,46 @@ ExplanationRetentionMode parseExplanationRetentionMode(Object? value) {
   return ExplanationRetentionMode.subjectiveOnly;
 }
 
+/// The explanation retention policy every **new** document import dispatches.
+///
+/// Document import no longer offers a retention choice: recognized
+/// explanations are always retained into Review, where the user edits or
+/// removes them per question. The mode stays a parameter of the pipeline so
+/// that tasks persisted by older builds keep being read back through
+/// [ImportQuestionFieldPolicy] with their own recorded policy.
+///
+/// It lives here, next to the policy it fixes, so no widget hardcodes the
+/// value and the single authority is reachable from production and tests.
+const ExplanationRetentionMode newDocumentImportExplanationRetentionMode =
+    ExplanationRetentionMode.allQuestionTypes;
+
+/// Diagnostics key that marks a task created by the document import entry.
+///
+/// Entry provenance is **not** inferable from the retention mode. Every task
+/// dispatched through `ImportTaskCoordinator` records all three retention
+/// diagnostics, including single-question photo capture, which still runs at
+/// [ExplanationRetentionMode.subjectiveOnly] and still needs the review-time
+/// controls that describe that choice. Guessing the entry from retention state
+/// would hide the only way to restore a recognized objective explanation on a
+/// photo-capture task, so the entry states itself explicitly instead.
+///
+/// The marker is additive task diagnostics metadata: it needs no schema
+/// migration, and tasks that predate it simply read as compatibility tasks.
+const String documentImportEntryMarkerKey = '_importEntry';
+
+/// Marker value written by the document import entry.
+const String documentImportEntryMarkerValue = 'document_v3';
+
+/// Whether [diagnostics] describe a task created by the document import entry.
+///
+/// A task without the marker is a compatibility task: it came from photo
+/// capture, from the Agent, or from an older build, and it keeps the retention
+/// controls that match what its own pipeline recorded.
+bool isDocumentImportEntryDiagnostics(Map<String, dynamic>? diagnostics) {
+  return diagnostics?[documentImportEntryMarkerKey] ==
+      documentImportEntryMarkerValue;
+}
+
 enum QuestionExplanationOverride {
   inherit,
   keep,

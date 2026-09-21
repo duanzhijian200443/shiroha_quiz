@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/application/practice/subjective_answer_recognition.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -39,6 +40,7 @@ final class _RecordingImportTaskCoordinator extends Fake
   final List<ImportParseMode> modes = <ImportParseMode>[];
   final List<ExplanationRetentionMode> retentionModes =
       <ExplanationRetentionMode>[];
+  final List<bool> documentImportEntries = <bool>[];
 
   @override
   Future<ImportTaskHandle> dispatch({
@@ -47,12 +49,15 @@ final class _RecordingImportTaskCoordinator extends Fake
     required ImportTaskParseAction parse,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
+    bool documentImportEntry = false,
+    bool allowAutoOpenReview = false,
   }) async {
     final callNumber = sourceDescriptions.length + 1;
     final taskId = 'synthetic-photo-task-$callNumber';
     sourceDescriptions.add(sourceDescription);
     modes.add(mode);
     retentionModes.add(explanationRetentionMode);
+    documentImportEntries.add(documentImportEntry);
     await parse(taskId);
     return ImportTaskHandle(
       taskId: taskId,
@@ -108,6 +113,8 @@ void main() {
     required PhotoRecognitionDispatcher? dispatch,
     ThemeData? theme,
     Widget Function(Widget child)? wrapDependencies,
+    ImportAdvancedPreferences importPreferences =
+        const ImportAdvancedPreferences(),
   }) async {
     tester.view.physicalSize = const Size(430, 900);
     tester.view.devicePixelRatio = 1;
@@ -124,6 +131,7 @@ void main() {
                 builder: (_) => PhotoCaptureScreen(
                   pickPhoto: pickPhoto,
                   onRecognitionRequested: dispatch,
+                  importPreferencesLoader: () async => importPreferences,
                 ),
               ),
             ),
@@ -296,6 +304,9 @@ void main() {
       tester,
       pickPhoto: (source) async => productionPhoto,
       dispatch: null,
+      importPreferences: const ImportAdvancedPreferences(
+        ocrTaskConcurrency: 4,
+      ),
       wrapDependencies: (child) => AiDependenciesScope(
         engineRepository: _UnusedEngineRepository(),
         aiConfigService: const UnavailableAiConfigPresentationService(),
@@ -354,6 +365,13 @@ void main() {
         ExplanationRetentionMode.subjectiveOnly,
       ],
     );
+    // Photo capture is not the document import entry. It must never claim that
+    // provenance, because Review uses it to decide whether the retention
+    // controls that can restore a hidden explanation stay available.
+    expect(
+      coordinator.documentImportEntries,
+      <bool>[false, false],
+    );
     expect(pipeline.requests, hasLength(2));
     expect(
       pipeline.requests.map((request) => request.mode),
@@ -366,7 +384,8 @@ void main() {
     for (final request in pipeline.requests) {
       expect(request.fileNames, <String>[productionPhoto.name]);
       expect(request.filePaths, hasLength(1));
-      expect(request.maxConcurrency, 3);
+      // The stored OCR task concurrency budget is recorded on every request.
+      expect(request.maxConcurrency, 4);
       expect(
         request.explanationRetentionMode,
         ExplanationRetentionMode.subjectiveOnly,

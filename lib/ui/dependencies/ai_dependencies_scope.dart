@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../application/answers/ai_answer_commit_command.dart';
 import '../../application/ai_config/ai_config_service.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/exam/exam_mutation_command.dart';
 import '../../application/practice/subjective_answer_recognition.dart';
@@ -18,6 +19,8 @@ class AiDependenciesScope extends InheritedWidget {
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
+    this.importPreferencesLoader,
+    this.importPreferencesSaver,
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
@@ -31,6 +34,8 @@ class AiDependenciesScope extends InheritedWidget {
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
+  final ImportAdvancedPreferencesSaver? importPreferencesSaver;
 
   /// P7 Application generation seam: Presentation never touches the
   /// provider adapter or any provider/DB type directly.
@@ -62,6 +67,9 @@ class AiDependenciesScope extends InheritedWidget {
         !identical(aiService, oldWidget.aiService) ||
         !identical(importPipelineService, oldWidget.importPipelineService) ||
         !identical(importTaskCoordinator, oldWidget.importTaskCoordinator) ||
+        !identical(
+            importPreferencesLoader, oldWidget.importPreferencesLoader) ||
+        !identical(importPreferencesSaver, oldWidget.importPreferencesSaver) ||
         !identical(
             answerGenerationService, oldWidget.answerGenerationService) ||
         !identical(answerCommitCommand, oldWidget.answerCommitCommand) ||

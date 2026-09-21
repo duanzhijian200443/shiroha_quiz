@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
@@ -176,6 +177,9 @@ typedef _RuntimeHarness = ({
 _RuntimeHarness _buildRuntimeHarness({
   required TaskManager manager,
   required String prefix,
+  // This suite exists to prove the shared scheduler boundary, so the batch
+  // admits every task and the scheduler stays the binding gate.
+  int ocrTaskConcurrency = ImportAdvancedPreferences.maxOcrTaskConcurrency,
 }) {
   final scheduler = OcrRequestScheduler(maxConcurrentRequests: 2);
   final client = _ControlledOcrDocumentClient();
@@ -217,6 +221,7 @@ _RuntimeHarness _buildRuntimeHarness({
     traceIdFactory: () => '$prefix-trace-${traceIndex++}',
     attemptTokenFactory: () => '$prefix-token-${tokenIndex++}',
     batchIdFactory: () => '$prefix-batch',
+    ocrMaxConcurrencyResolver: () async => ocrTaskConcurrency,
     onReadyForReview: counters.recordReviewNotification,
   );
   return (

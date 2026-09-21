@@ -24,7 +24,9 @@ class ZhipuOcrAuthenticationException implements Exception {
 }
 
 class ZhipuOcrRequestException implements Exception {
-  const ZhipuOcrRequestException();
+  const ZhipuOcrRequestException({this.statusCode});
+
+  final int? statusCode;
 }
 
 class ZhipuOcrResponseFormatException implements Exception {
@@ -166,6 +168,15 @@ class ZhipuOcrClient implements OcrDocumentClient {
     required _LayoutResponseBudget layoutResponseBudget,
   }) async {
     final client = _httpClient ?? http.Client();
+    final requestClock = Stopwatch()..start();
+    Duration remaining() {
+      final left = timeout - requestClock.elapsed;
+      if (left <= Duration.zero) {
+        throw TimeoutException('GLM-OCR request timed out.');
+      }
+      return left;
+    }
+
     try {
       final body = <String, dynamic>{
         'model': model,
@@ -186,24 +197,29 @@ class ZhipuOcrClient implements OcrDocumentClient {
           'Content-Type': 'application/json',
         })
         ..body = jsonEncode(body);
-      final response = await client.send(request).timeout(timeout);
+      final response = await client.send(request).timeout(remaining());
 
       if (response.statusCode != 200) {
-        await _discardRemoteResponseBodyBounded(
-          response.stream,
-          timeout: timeout,
-        );
+        try {
+          await _discardRemoteResponseBodyBounded(
+            response.stream,
+            timeout: remaining(),
+          );
+        } catch (_) {
+          // Response-body disposal must not replace an authentication/status
+          // classification with a retryable transport error.
+        }
         if (response.statusCode == 401 || response.statusCode == 403) {
           throw const ZhipuOcrAuthenticationException();
         }
-        throw const ZhipuOcrRequestException();
+        throw ZhipuOcrRequestException(statusCode: response.statusCode);
       }
 
       try {
         final responseBytes = await _readLayoutResponseBodyBounded(
           response.stream,
           contentLength: response.contentLength,
-          timeout: timeout,
+          timeout: remaining(),
           budget: layoutResponseBudget,
         );
         final decoded = jsonDecode(utf8.decode(responseBytes));
@@ -214,7 +230,7 @@ class ZhipuOcrClient implements OcrDocumentClient {
         final normalized = Map<String, dynamic>.from(decoded);
         await _materializeRemoteCropImages(
           normalized,
-          requestTimeout: timeout,
+          requestTimeout: remaining(),
           budget: remoteCropBudget,
         );
         return OcrDocument.fromLayoutParsingResponse(

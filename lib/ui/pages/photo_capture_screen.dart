@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../application/import/import_advanced_preferences.dart';
 import '../../application/practice/subjective_answer_recognition.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
@@ -22,6 +23,7 @@ class PhotoCaptureScreen extends StatefulWidget {
     super.key,
     this.pickPhoto,
     this.onRecognitionRequested,
+    this.importPreferencesLoader,
   })  : purpose = PhotoCapturePurpose.questionImport,
         subjectiveAnswerRecognition = null;
 
@@ -30,12 +32,14 @@ class PhotoCaptureScreen extends StatefulWidget {
     this.pickPhoto,
     required this.subjectiveAnswerRecognition,
   })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
-        onRecognitionRequested = null;
+        onRecognitionRequested = null,
+        importPreferencesLoader = null;
 
   final PhotoCapturePurpose purpose;
   final PhotoPicker? pickPhoto;
   final PhotoRecognitionDispatcher? onRecognitionRequested;
   final SubjectiveAnswerRecognitionPort? subjectiveAnswerRecognition;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
 
   @override
   State<PhotoCaptureScreen> createState() => _PhotoCaptureScreenState();
@@ -111,16 +115,21 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
   ) async {
     final dependencies = AiDependenciesScope.of(context);
     const explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly;
+    final preferencesLoader =
+        widget.importPreferencesLoader ?? dependencies.importPreferencesLoader!;
+    final preferences = await preferencesLoader();
+    final maxConcurrency = preferences.effectiveOcrTaskConcurrency;
     await dependencies.importTaskCoordinator.dispatch(
       sourceDescription: '图片识别',
       mode: mode,
       explanationRetentionMode: explanationRetentionMode,
+      allowAutoOpenReview: true,
       parse: (taskId) => dependencies.importPipelineService.parseFiles(
         ImportParseRequest(
           filePaths: <String>[image.path],
           fileNames: <String>[image.name],
           mode: mode,
-          maxConcurrency: 3,
+          maxConcurrency: maxConcurrency,
           taskId: taskId,
           explanationRetentionMode: explanationRetentionMode,
         ),

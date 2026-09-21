@@ -11,6 +11,9 @@ import '../import_pipeline/adapters/ocr_source_document_adapter.dart';
 import '../import_pipeline/import_format.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
+import '../import_pipeline/ocr_request_scheduler.dart';
+import '../import_pipeline/ocr_request_executor.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
 
@@ -38,15 +41,23 @@ final class OcrParsedArtifactGenerationAdapter
     required ManagedFileStorage managedFileStorage,
     required OcrDocumentClient ocrClient,
     required ActiveOcrProfileLoader activeOcrProfileLoader,
+    OcrRequestScheduler? requestScheduler,
+    OcrRequestExecutor? requestExecutor,
     ContentAssetStore? contentAssetStore,
   })  : _managedFileStorage = managedFileStorage,
         _ocrClient = ocrClient,
         _activeOcrProfileLoader = activeOcrProfileLoader,
+        _requestExecutor = requestExecutor ??
+            OcrRequestExecutor(
+              scheduler: requestScheduler ?? OcrRequestScheduler(),
+              preferencesLoader: () async => ImportAdvancedPreferences.defaults,
+            ),
         _contentAssetStore = contentAssetStore;
 
   final ManagedFileStorage _managedFileStorage;
   final OcrDocumentClient _ocrClient;
   final ActiveOcrProfileLoader _activeOcrProfileLoader;
+  final OcrRequestExecutor _requestExecutor;
   final ContentAssetStore? _contentAssetStore;
 
   static const String ocrPdfRoute = 'ocr_pdf';
@@ -99,10 +110,14 @@ final class OcrParsedArtifactGenerationAdapter
 
     final OcrDocument document;
     try {
-      document = await _ocrClient.parseFile(
-        profile: profile,
-        filePath: managed.path,
-        sourceName: runtimeSourceName,
+      document = await _requestExecutor.run(
+        taskId: 'parsed-artifact-${_nextOcrRequestId++}',
+        operation: (timeout) => _ocrClient.parseFile(
+          profile: profile,
+          filePath: managed.path,
+          sourceName: runtimeSourceName,
+          timeout: timeout,
+        ),
       );
     } on ZhipuOcrAuthenticationException {
       throw const ParsedArtifactGenerationException(
@@ -160,6 +175,8 @@ final class OcrParsedArtifactGenerationAdapter
       );
     }
   }
+
+  int _nextOcrRequestId = 0;
 
   /// Explicit `ocr_pdf` admission (Amendment A): only a PDF-identified
   /// display name without a conflicting known MIME, or an unknown extension

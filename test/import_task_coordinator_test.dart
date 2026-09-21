@@ -219,6 +219,378 @@ void main() {
     expect(task.parsedData, hasLength(1));
   });
 
+  test('completion callback selects a user single task and never a batch item',
+      () async {
+    var nextId = 0;
+    var readyCount = 0;
+    final allReady = Completer<void>();
+    final singleReady = <String>[];
+    const result = ImportParseResult(questions: <Map<String, dynamic>>[
+      <String, dynamic>{
+        'q_num': '1',
+        'type': 0,
+        'content': 'Synthetic question',
+        'options': <String>['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+      },
+    ]);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'completion-${nextId++}',
+      onReadyForReview: (_) {
+        readyCount++;
+        if (readyCount == 3) allReady.complete();
+      },
+      onSingleReadyForReview: (taskId) async {
+        singleReady.add(taskId);
+        // Auto-open declined, so every task keeps its notification.
+        return false;
+      },
+    );
+    final single = await coordinator.dispatch(
+      sourceDescription: 'single.pdf',
+      mode: ImportParseMode.ocr,
+      allowAutoOpenReview: true,
+      parse: (_) async => result,
+    );
+    await coordinator.dispatchIndependentBatch(items: <ImportTaskBatchItem>[
+      for (var i = 0; i < 2; i++)
+        ImportTaskBatchItem(
+          sourceDescription: 'batch-$i.pdf',
+          mode: ImportParseMode.ocr,
+          parse: (_) async => result,
+        ),
+    ]);
+    await allReady.future;
+    expect(singleReady, <String>[single.taskId]);
+  });
+
+  test('a successful auto-open suppresses the transfer center notification',
+      () async {
+    var nextId = 0;
+    final singleReady = <String>[];
+    final notified = <String>[];
+    final opened = Completer<void>();
+    const result = ImportParseResult(questions: <Map<String, dynamic>>[
+      <String, dynamic>{
+        'q_num': '1',
+        'type': 0,
+        'content': 'Synthetic question',
+        'options': <String>['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+      },
+    ]);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'auto-open-${nextId++}',
+      onReadyForReview: notified.add,
+      onSingleReadyForReview: (taskId) async {
+        singleReady.add(taskId);
+        if (!opened.isCompleted) opened.complete();
+        return true;
+      },
+    );
+    final single = await coordinator.dispatch(
+      sourceDescription: 'single.pdf',
+      mode: ImportParseMode.ocr,
+      allowAutoOpenReview: true,
+      parse: (_) async => result,
+    );
+    await _waitForTask(
+      manager,
+      single.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+    await opened.future;
+    // The notification step runs right after the auto-open callback returns.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(singleReady, <String>[single.taskId]);
+    expect(notified, isEmpty);
+  });
+
+  test('a failed auto-open still sends the transfer center notification',
+      () async {
+    var nextId = 0;
+    final singleReady = <String>[];
+    final notified = <String>[];
+    const result = ImportParseResult(questions: <Map<String, dynamic>>[
+      <String, dynamic>{
+        'q_num': '1',
+        'type': 0,
+        'content': 'Synthetic question',
+        'options': <String>['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+      },
+    ]);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'auto-open-failed-${nextId++}',
+      onReadyForReview: notified.add,
+      onSingleReadyForReview: (taskId) async {
+        singleReady.add(taskId);
+        throw StateError('synthetic auto-open failure');
+      },
+    );
+    final single = await coordinator.dispatch(
+      sourceDescription: 'single.pdf',
+      mode: ImportParseMode.ocr,
+      allowAutoOpenReview: true,
+      parse: (_) async => result,
+    );
+    // Throws if the task never reaches review admission, so reaching the
+    // assertions below already proves the task survived the failed auto-open.
+    await _waitForTask(
+      manager,
+      single.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(singleReady, <String>[single.taskId]);
+    expect(notified, <String>['single.pdf']);
+  });
+
+  test(
+      'document import provenance survives parse-completion diagnostics replacement',
+      () async {
+    // Regression guard for the metadata whitelist. The marker is written when
+    // the task is created, but TaskManager replaces diagnostics when the parse
+    // completes; if the marker is not in the preserved-metadata whitelist it is
+    // silently dropped and Review stops recognising a document import.
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'task-document-entry',
+      traceIdFactory: () => 'trace-document-entry',
+    );
+
+    final handle = await coordinator.dispatch(
+      sourceDescription: 'fixture.pdf',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      documentImportEntry: true,
+      parse: (taskId) => Future<ImportParseResult>.value(
+        ImportParseResult(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': 'Synthetic explanation',
+            },
+          ],
+          explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+        ),
+      ),
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (candidate) => candidate.status == TaskStatus.pendingReview,
+    );
+    final restored = ImportTask.fromMap(task.toMap());
+
+    expect(
+      task.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the marker must survive parse completion',
+    );
+    expect(
+      restored.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the marker must survive a durable round trip',
+    );
+    expect(isDocumentImportEntryDiagnostics(task.diagnostics), isTrue);
+  });
+
+  test('a photo capture dispatch carries no document import provenance',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'task-photo-entry',
+      traceIdFactory: () => 'trace-photo-entry',
+    );
+
+    final handle = await coordinator.dispatch(
+      sourceDescription: '图片识别',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      parse: (taskId) => Future<ImportParseResult>.value(
+        ImportParseResult(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A', 'B'],
+              'standard_answer': 'A',
+            },
+          ],
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+      ),
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (candidate) => candidate.status == TaskStatus.pendingReview,
+    );
+
+    // Photo capture records retention diagnostics but is not a document
+    // import, so Review must keep its retention controls.
+    expect(
+      task.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+      ExplanationRetentionMode.subjectiveOnly.name,
+    );
+    expect(
+        task.diagnostics?.containsKey(documentImportEntryMarkerKey), isFalse);
+    expect(isDocumentImportEntryDiagnostics(task.diagnostics), isFalse);
+  });
+
+  test('a retried document import keeps its entry provenance', () async {
+    // Regression guard for the retry path. `restartAttempt` rebuilds the
+    // attempt diagnostics from scratch, so the marker has to be copied back
+    // explicitly: dropping it demotes a retried document import to a
+    // compatibility task and Review offers the retention controls this entry
+    // deliberately removed.
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'type': 0,
+            'content': 'Synthetic question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+          },
+        ],
+        explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      ),
+      taskIdFactory: () => 'retry-document-entry',
+      traceIdFactory: () => 'retry-document-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-document-attempt-${attemptIndex++}',
+    );
+
+    // An empty parse is the production failure shape that leaves the task
+    // retryable from the task center.
+    final failedHandle = await coordinator.dispatch(
+      sourceDescription: 'fixture.pdf',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      documentImportEntry: true,
+      parse: (_) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[],
+      ),
+    );
+    final failed = await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.attemptState == ImportAttemptState.failed,
+    );
+    expect(
+      failed.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the failed attempt is still a document import',
+    );
+
+    final retryHandle = await coordinator.retryOcrRequest(
+      taskId: failedHandle.taskId,
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+    );
+    final retried = await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    expect(retryHandle.attemptNumber, 2);
+    expect(
+      retried.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the retry must not demote a document import',
+    );
+    expect(isDocumentImportEntryDiagnostics(retried.diagnostics), isTrue);
+  });
+
+  test('a retried photo capture never gains document entry provenance',
+      () async {
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '1',
+            'type': 0,
+            'content': 'Synthetic photo question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+          },
+        ],
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      ),
+      taskIdFactory: () => 'retry-photo-entry',
+      traceIdFactory: () => 'retry-photo-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'retry-photo-attempt-${attemptIndex++}',
+    );
+
+    final failedHandle = await coordinator.dispatch(
+      sourceDescription: '图片识别',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      parse: (_) async => const ImportParseResult(
+        questions: <Map<String, dynamic>>[],
+      ),
+    );
+    await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.attemptState == ImportAttemptState.failed,
+    );
+
+    await coordinator.retryOcrRequest(
+      taskId: failedHandle.taskId,
+      filePaths: const <String>['fixture.png'],
+      fileNames: const <String>['fixture.png'],
+    );
+    final retried = await _waitForTask(
+      manager,
+      failedHandle.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+
+    // Photo capture records its own retention policy but is not a document
+    // import, so the retry must not invent provenance and Review keeps the
+    // controls that can rewrite that policy.
+    expect(
+      retried.diagnostics?.containsKey(documentImportEntryMarkerKey),
+      isFalse,
+      reason: 'a retry must not invent document entry provenance',
+    );
+    expect(isDocumentImportEntryDiagnostics(retried.diagnostics), isFalse);
+    expect(
+      retried.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+      ExplanationRetentionMode.subjectiveOnly.name,
+    );
+  });
+
   test('persists and restores the request explanation retention mode',
       () async {
     final coordinator = ImportTaskCoordinator(
@@ -309,6 +681,7 @@ void main() {
       taskIdFactory: () => 'batch-task-${taskIndex++}',
       traceIdFactory: () => 'batch-trace-${traceIndex++}',
       batchIdFactory: () => 'batch-fixture',
+      ocrMaxConcurrencyResolver: () async => 4,
     );
 
     Future<ImportParseResult> parseItem(int index, String taskId) async {
@@ -412,6 +785,256 @@ void main() {
     expect(
       manager.tasks.map((task) => task.batchId).toSet(),
       <String?>{'batch-fixture'},
+    );
+  });
+
+  for (final budget in <int>[1, 3, 10]) {
+    test('an independent OCR batch keeps at most $budget parses in flight',
+        () async {
+      var taskIndex = 0;
+      var traceIndex = 0;
+      var activeParses = 0;
+      var peakParses = 0;
+      final starts = <int>[];
+      final release = Completer<void>();
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => 'bounded-task-${taskIndex++}',
+        traceIdFactory: () => 'bounded-trace-${traceIndex++}',
+        batchIdFactory: () => 'bounded-batch',
+        ocrMaxConcurrencyResolver: () async => budget,
+      );
+
+      Future<ImportParseResult> parseItem(int index) async {
+        starts.add(index);
+        activeParses++;
+        peakParses = activeParses > peakParses ? activeParses : peakParses;
+        try {
+          await release.future;
+          return ImportParseResult(
+            questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'q_num': '${index + 1}',
+                'type': 0,
+                'content': 'Synthetic question ${index + 1}',
+                'options': const <String>['A', 'B'],
+                'standard_answer': 'A',
+                'explanation': '',
+              },
+            ],
+          );
+        } finally {
+          activeParses--;
+        }
+      }
+
+      // Six independent PDF tasks, one ImportTask each: exactly the document
+      // import shape the OCR task concurrency budget bounds.
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: List<ImportTaskBatchItem>.generate(
+          6,
+          (index) => ImportTaskBatchItem(
+            sourceDescription: 'doc$index.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (_) => parseItem(index),
+          ),
+        ),
+      );
+
+      final expectedInFlight = budget < 6 ? budget : 6;
+      for (var attempt = 0;
+          attempt < 100 && starts.length < expectedInFlight;
+          attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(
+        starts,
+        List<int>.generate(expectedInFlight, (index) => index),
+        reason: 'tasks must enter the parser in batch order',
+      );
+      expect(peakParses, expectedInFlight);
+      expect(
+        manager.tasks.map((task) => task.status),
+        List<TaskStatus>.filled(6, TaskStatus.processing),
+        reason: 'every task is visible before the batch drains',
+      );
+
+      release.complete();
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+
+      expect(starts, List<int>.generate(6, (index) => index));
+      expect(peakParses, expectedInFlight);
+      expect(manager.tasks, hasLength(6));
+    });
+  }
+
+  test('two OCR batches share one provider slot at budget one', () async {
+    var nextTask = 0;
+    var nextTrace = 0;
+    var parserEntries = 0;
+    var providerEntries = 0;
+    var activeProvider = 0;
+    var peakProvider = 0;
+    final bothParsersEntered = Completer<void>();
+    final releaseProvider = Completer<void>();
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 1);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      requestScheduler: scheduler,
+      taskIdFactory: () => 'cross-batch-task-${nextTask++}',
+      traceIdFactory: () => 'cross-batch-trace-${nextTrace++}',
+      batchIdFactory: () => 'cross-batch',
+      ocrMaxConcurrencyResolver: () async => 1,
+    );
+
+    Future<ImportParseResult> parse(String taskId) async {
+      parserEntries++;
+      if (parserEntries == 2) bothParsersEntered.complete();
+      return scheduler.run(
+        taskId: taskId,
+        attemptToken: ImportAttemptContext.current?.attemptToken,
+        operation: () async {
+          providerEntries++;
+          activeProvider++;
+          peakProvider =
+              activeProvider > peakProvider ? activeProvider : peakProvider;
+          try {
+            await releaseProvider.future;
+            return ImportParseResult(questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'q_num': '1',
+                'type': 0,
+                'content': 'Synthetic question',
+                'options': const <String>['A', 'B'],
+                'standard_answer': 'A',
+                'explanation': '',
+              },
+            ]);
+          } finally {
+            activeProvider--;
+          }
+        },
+      );
+    }
+
+    Future<ImportTaskBatchHandle> startBatch() =>
+        coordinator.dispatchIndependentBatch(
+          items: List<ImportTaskBatchItem>.generate(
+            2,
+            (index) => ImportTaskBatchItem(
+              sourceDescription: 'synthetic-$index.pdf',
+              mode: ImportParseMode.ocr,
+              parse: parse,
+            ),
+          ),
+        );
+
+    final first = await startBatch();
+    final second = await startBatch();
+    await bothParsersEntered.future;
+    expect(first.batchId, isNot(second.batchId));
+    expect(providerEntries, 1);
+    expect(peakProvider, 1);
+
+    releaseProvider.complete();
+    for (final handle in <ImportTaskHandle>[...first.tasks, ...second.tasks]) {
+      await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+    }
+    expect(providerEntries, 4);
+    expect(peakProvider, 1);
+  });
+
+  test('a queued OCR task can be cancelled before it ever reaches the parser',
+      () async {
+    var taskIndex = 0;
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final starts = <int>[];
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'queued-task-${taskIndex++}',
+      traceIdFactory: () => 'queued-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'queued-attempt-${attemptIndex++}',
+      batchIdFactory: () => 'queued-batch',
+      ocrMaxConcurrencyResolver: () async => 1,
+    );
+
+    Future<ImportParseResult> parseItem(int index) async {
+      starts.add(index);
+      if (index == 0) {
+        firstStarted.complete();
+        await releaseFirst.future;
+      }
+      return ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '${index + 1}',
+            'type': 0,
+            'content': 'Synthetic question ${index + 1}',
+            'options': const <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+          },
+        ],
+      );
+    }
+
+    final batch = await coordinator.dispatchIndependentBatch(
+      items: List<ImportTaskBatchItem>.generate(
+        3,
+        (index) => ImportTaskBatchItem(
+          sourceDescription: 'doc$index.pdf',
+          mode: ImportParseMode.ocr,
+          parse: (_) => parseItem(index),
+        ),
+      ),
+    );
+
+    await firstStarted.future;
+    expect(starts, <int>[0]);
+
+    expect(
+      await coordinator.cancelOcrTask(batch.tasks[1].taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+
+    releaseFirst.complete();
+    for (final handle in batch.tasks) {
+      await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status != TaskStatus.processing,
+      );
+    }
+
+    expect(
+      starts,
+      <int>[0, 2],
+      reason: 'a task cancelled while queued must never call the parser',
+    );
+    expect(
+      manager.tasks.map((task) => task.attemptState),
+      <ImportAttemptState>[
+        ImportAttemptState.readyForReview,
+        ImportAttemptState.cancelled,
+        ImportAttemptState.readyForReview,
+      ],
     );
   });
 

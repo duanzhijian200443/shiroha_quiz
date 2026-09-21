@@ -43,6 +43,17 @@ legacy token value. Only after all gates pass may it produce a proposal. Applyin
 proposal remains an explicit user action guarded by the existing review-draft
 revision CAS.
 
+## Optional automatic proposal generation
+
+The import advanced preference may request proposal generation when a pending
+review page opens. It selects only items whose existing review metadata and
+`ReviewRepairPolicy` identify a pure LaTeX repair target (`dangling_latex` or
+`latex_unrenderable`). Mixed non-LaTeX targets are not started automatically.
+The existing service and all structural, fragment, and privacy gates still
+apply. A successful result remains a transient proposal shown in review; it
+does not edit a question, persist a repair marker, or admit it to the bank.
+The user must inspect and accept the proposal through the existing review CAS.
+
 ## Durable marker
 
 The existing `_review_repair_v1` storage key supports its original schema v1

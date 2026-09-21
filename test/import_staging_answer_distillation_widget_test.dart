@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/subjective_answer_distillation_service.dart';
@@ -67,17 +67,27 @@ Widget _widget(
   List<Map<String, dynamic>>? questions,
   TaskManager? taskManager,
   String? taskId,
+  Map<String, dynamic>? diagnostics,
 }) {
   return MaterialApp(
     home: ImportStagingScreen(
       parsedQuestions: questions ?? [_subjectiveQuestion(1)],
       taskId: taskId,
+      diagnostics: diagnostics,
       folderQuery: _QuestionRepository(),
       answerDistiller: distiller,
       taskManager: taskManager,
     ),
   );
 }
+
+/// Diagnostics of a photo-capture task: it records retention but carries no
+/// document-import marker, so Review keeps the retention controls.
+Map<String, dynamic> _photoCaptureDiagnostics() => <String, dynamic>{
+      TaskManager.keyParseExplanationRetentionMode: 'subjectiveOnly',
+      TaskManager.keyReviewExplanationRetentionMode: 'subjectiveOnly',
+      TaskManager.keyExplanationRetentionMode: 'subjectiveOnly',
+    };
 
 void main() {
   setUp(() {
@@ -421,26 +431,34 @@ void main() {
     );
   });
 
+  // The user path this covers is real for every compatibility task: photo
+  // capture and tasks persisted by older builds record their own retention
+  // policy and still expose the document switch, so a retention toggle can
+  // still land while an AI answer merge is in flight.
   testWidgets(
-      'retention save queued during AI merge preserves both latest states',
+      'compatibility task: retention toggle during an AI merge preserves both latest states',
       (tester) async {
     final pending = Completer<SubjectiveAnswerDistillationResult>();
     final mergeWriteStarted = Completer<void>();
     final releaseMergeWrite = Completer<void>();
     final taskManager = TaskManager.forTesting(
-      saveTask: (taskMap) async {
-        final rawParsedData = taskMap['parsed_data'];
-        if (rawParsedData is! String) return;
-        final decoded = jsonDecode(rawParsedData);
-        if (decoded is! List || decoded.isEmpty || decoded.first is! Map) {
-          return;
-        }
-        final question = Map<String, dynamic>.from(decoded.first as Map);
+      saveReviewDraftCas: ({
+        required String taskId,
+        required ReviewDraftAttemptIdentity expectedAttempt,
+        required int expectedRevision,
+        required List<Map<String, dynamic>> questions,
+        required String explanationRetentionMode,
+      }) async {
+        final question = questions.single;
         if (question['standard_answer'] == 'Concurrent generated answer' &&
             !mergeWriteStarted.isCompleted) {
           mergeWriteStarted.complete();
           await releaseMergeWrite.future;
         }
+        return ReviewDraftCasResult(
+          ReviewDraftCasStatus.saved,
+          durableRevision: expectedRevision + 1,
+        );
       },
     );
     final source = [_subjectiveQuestion(1)];
@@ -450,6 +468,7 @@ void main() {
         title: 'Synthetic concurrent retention review',
         status: TaskStatus.pendingReview,
         parsedData: source,
+        diagnostics: _photoCaptureDiagnostics(),
       ),
     );
     final distiller = _FakeDistiller(pending: pending);
@@ -457,11 +476,17 @@ void main() {
       _widget(
         distiller,
         questions: source,
+        diagnostics: _photoCaptureDiagnostics(),
         taskManager: taskManager,
         taskId: 'concurrent-retention-review-task',
       ),
     );
     await tester.pumpAndSettle();
+
+    // The compatibility task exposes the retention controls.
+    final switchFinder =
+        find.byKey(const ValueKey('objective-explanation-document-switch'));
+    expect(switchFinder, findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('answer-distillation-batch')));
     await tester.pump();
@@ -471,33 +496,52 @@ void main() {
       ),
     );
     await tester.pump();
-    await mergeWriteStarted.future;
 
-    await tester.tap(
-      find.byKey(const ValueKey('objective-explanation-document-switch')),
-    );
+    // Wait on real persistence progress rather than on frames: the merge's
+    // write must have reached the harness before the retention toggle lands.
+    for (var i = 0; i < 100 && !mergeWriteStarted.isCompleted; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(mergeWriteStarted.isCompleted, isTrue);
+
+    await tester.tap(switchFinder);
     await tester.pump();
     releaseMergeWrite.complete();
-    await tester.pumpAndSettle();
+    for (var i = 0; i < 100; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
 
     final task = taskManager.tasks.single;
     final question = task.parsedData!.single;
+    // The merge must not have reverted the retention decision...
+    expect(
+      task.reviewExplanationRetentionMode,
+      ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(
+      task.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+      'allQuestionTypes',
+    );
+    // ...and the retention save must not have reverted the merged answer.
     expect(question['standard_answer'], 'Concurrent generated answer');
     expect(
       question[TaskManager.keyAnswerDistillationStatus],
       'ai_applied',
     );
     expect(
-      task.explanationRetentionMode,
-      ExplanationRetentionMode.allQuestionTypes,
+      taskManager.reviewDraftRevision('concurrent-retention-review-task'),
+      greaterThanOrEqualTo(2),
+      reason: 'both writes must have advanced the revision',
     );
 
+    // Re-entry still shows both latest states.
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     await tester.pump();
     await tester.pumpWidget(
       _widget(
         distiller,
         questions: task.parsedData!,
+        diagnostics: task.diagnostics,
         taskManager: taskManager,
         taskId: 'concurrent-retention-review-task',
       ),
@@ -505,6 +549,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Concurrent generated answer'), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(
+              const ValueKey('objective-explanation-document-switch'),
+            ),
+          )
+          .value,
+      isTrue,
+      reason: 'the retained policy must survive re-entry',
+    );
   });
 
   testWidgets('batch can cancel before starting another question',

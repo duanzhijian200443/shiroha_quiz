@@ -31,6 +31,7 @@ import 'import_question_final_sorter.dart';
 import 'ocr_document_client.dart';
 import 'ocr_import_service.dart';
 import 'ocr_request_scheduler.dart';
+import 'ocr_request_executor.dart';
 import 'ocr_typed_candidate.dart';
 import 'pdf_page_image_renderer.dart';
 import 'single_question_repair_service.dart';
@@ -58,12 +59,32 @@ typedef ImportQuestionMerger = Future<List<Map<String, dynamic>>> Function(
   List<List<Map<String, dynamic>>> fileResults,
 );
 
+/// The captured side effects of one OCR-mode file parse.
+class _OcrFileImportOutcome {
+  const _OcrFileImportOutcome({
+    required this.questions,
+    required this.warnings,
+    required this.diagnostics,
+    required this.ocrResultAvailable,
+    this.typedCandidateBatch,
+    this.candidateAssetLease,
+  });
+
+  final List<Map<String, dynamic>> questions;
+  final List<String> warnings;
+  final Map<String, dynamic> diagnostics;
+  final bool ocrResultAvailable;
+  final OcrTypedCandidateBatch? typedCandidateBatch;
+  final ContentAssetCandidateLease? candidateAssetLease;
+}
+
 class ImportPipelineService {
   ImportPipelineService({
     required AiService aiService,
     required AiEngineRepository engineRepository,
     required TaskManager taskManager,
     OcrRequestScheduler? ocrRequestScheduler,
+    OcrRequestExecutor? ocrRequestExecutor,
     ContentAssetStore? contentAssetStore,
     OcrDocumentClient? ocrClient,
   }) : this._(
@@ -79,6 +100,7 @@ class ImportPipelineService {
             ocrClient: ocrClient ?? const ZhipuOcrClient(),
             engineRepository: engineRepository,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
+            requestExecutor: ocrRequestExecutor,
             taskManager: taskManager,
             contentAssetStore: contentAssetStore,
           ).tryParse,
@@ -172,6 +194,9 @@ class ImportPipelineService {
     bool hasBlockedParse = false;
 
     try {
+      // Files inside one task are always parsed one after another: the OCR
+      // task concurrency budget is enforced one layer up, in the
+      // ImportTaskCoordinator batch, and never splits a single task's work.
       for (int fileIdx = 0; fileIdx < request.filePaths.length; fileIdx++) {
         final filePath = request.filePaths[fileIdx];
         final format = ImportFileDetector.detect(filePath);
@@ -395,56 +420,15 @@ class ImportPipelineService {
             break;
 
           case ImportParseMode.ocr:
-            if (format != ImportFormat.pdf && format != ImportFormat.image) {
-              allWarnings.add('OCR 模式仅支持 PDF 或图片文件。');
-              break;
-            }
-
-            final ocrResult = await _ocrParser(
-              filePath: filePath,
-              sourceName: sourceName,
-              format: format,
-              explanationRetentionMode: request.explanationRetentionMode,
+            final ocrOutcome = await _parseSingleOcrFile(request, fileIdx);
+            _mergeOcrFileOutcome(
+              ocrOutcome,
+              fileResults: fileResults,
+              allWarnings: allWarnings,
+              allDiagnostics: allDiagnostics,
+              assignCandidateBatch: (batch) => ocrTypedCandidateBatch = batch,
+              ownedCandidateLeases: ownedCandidateLeases,
             );
-            if (ocrResult == null) {
-              allWarnings.add('OCR 未能处理当前文件。');
-              break;
-            }
-            ocrTypedCandidateBatch = ocrResult.typedCandidateBatch;
-            final candidateLease = ocrTypedCandidateBatch?.candidateAssetLease;
-            if (candidateLease != null &&
-                candidateLease.localAssetIds.isNotEmpty) {
-              ownedCandidateLeases.add(candidateLease);
-            }
-
-            allWarnings.addAll(ocrResult.warnings);
-            allDiagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
-            if (!ocrResult.usedOcr || ocrResult.questions.isEmpty) {
-              if (ocrResult.warnings.isEmpty) {
-                allWarnings.add('OCR 未能提取到有效题目。');
-              }
-              break;
-            }
-
-            final ocrQualityGate = const VisionQuestionQualityGate().evaluate(
-              ocrResult.questions,
-              sourceName: 'glm_ocr_intermediate',
-              documentRole: tryParseImportDocumentRole(
-                ocrResult.diagnostics['documentRole'],
-              ),
-            );
-            singleFileQuestions = ocrQualityGate.questions;
-            emitImportExplanationLifecycleTelemetryForProduction(
-              stage: 'post_quality_gate',
-              sourceCollectionName: 'ocr_quality_gate_questions',
-              questions: singleFileQuestions,
-              retentionMode: request.explanationRetentionMode,
-            );
-            allWarnings.addAll(ocrQualityGate.warnings);
-            allDiagnostics['ocr_quality_gate_file_$fileIdx'] =
-                ocrQualityGate.diagnostics;
-            allDiagnostics['vision_quality_gate_file_$fileIdx'] =
-                ocrQualityGate.diagnostics;
             break;
         }
 
@@ -542,6 +526,116 @@ class ImportPipelineService {
       )) {
         await _rollbackCandidateAssets(lease, taskId: taskId);
       }
+    }
+  }
+
+  /// Parses one file through the OCR route and captures every side effect in
+  /// an order-preserving outcome.
+  Future<_OcrFileImportOutcome> _parseSingleOcrFile(
+    ImportParseRequest request,
+    int fileIdx,
+  ) async {
+    final filePath = request.filePaths[fileIdx];
+    final format = ImportFileDetector.detect(filePath);
+    final warnings = <String>[];
+    final diagnostics = <String, dynamic>{};
+    if (format != ImportFormat.pdf && format != ImportFormat.image) {
+      warnings.add('OCR 模式仅支持 PDF 或图片文件。');
+      return _OcrFileImportOutcome(
+        questions: const <Map<String, dynamic>>[],
+        warnings: warnings,
+        diagnostics: diagnostics,
+        ocrResultAvailable: false,
+      );
+    }
+
+    final sourceName = request.fileNames.length > fileIdx
+        ? request.fileNames[fileIdx]
+        : filePath.split(Platform.pathSeparator).last;
+    final ocrResult = await _ocrParser(
+      filePath: filePath,
+      sourceName: sourceName,
+      format: format,
+      explanationRetentionMode: request.explanationRetentionMode,
+    );
+    if (ocrResult == null) {
+      warnings.add('OCR 未能处理当前文件。');
+      return _OcrFileImportOutcome(
+        questions: const <Map<String, dynamic>>[],
+        warnings: warnings,
+        diagnostics: diagnostics,
+        ocrResultAvailable: false,
+      );
+    }
+
+    final batch = ocrResult.typedCandidateBatch;
+    final candidateLease = batch?.candidateAssetLease;
+    warnings.addAll(ocrResult.warnings);
+    diagnostics['ocr_import_file_$fileIdx'] = ocrResult.diagnostics;
+    if (!ocrResult.usedOcr || ocrResult.questions.isEmpty) {
+      if (ocrResult.warnings.isEmpty) {
+        warnings.add('OCR 未能提取到有效题目。');
+      }
+      return _OcrFileImportOutcome(
+        questions: const <Map<String, dynamic>>[],
+        warnings: warnings,
+        diagnostics: diagnostics,
+        ocrResultAvailable: true,
+        typedCandidateBatch: batch,
+        candidateAssetLease: candidateLease,
+      );
+    }
+
+    final ocrQualityGate = const VisionQuestionQualityGate().evaluate(
+      ocrResult.questions,
+      sourceName: 'glm_ocr_intermediate',
+      documentRole: tryParseImportDocumentRole(
+        ocrResult.diagnostics['documentRole'],
+      ),
+    );
+    emitImportExplanationLifecycleTelemetryForProduction(
+      stage: 'post_quality_gate',
+      sourceCollectionName: 'ocr_quality_gate_questions',
+      questions: ocrQualityGate.questions,
+      retentionMode: request.explanationRetentionMode,
+    );
+    warnings.addAll(ocrQualityGate.warnings);
+    diagnostics['ocr_quality_gate_file_$fileIdx'] = ocrQualityGate.diagnostics;
+    diagnostics['vision_quality_gate_file_$fileIdx'] =
+        ocrQualityGate.diagnostics;
+    return _OcrFileImportOutcome(
+      questions: ocrQualityGate.questions,
+      warnings: warnings,
+      diagnostics: diagnostics,
+      ocrResultAvailable: true,
+      typedCandidateBatch: batch,
+      candidateAssetLease: candidateLease,
+    );
+  }
+
+  /// Applies one file's outcome to the shared accumulators. Called strictly
+  /// in file order, which keeps question order, warning order, diagnostics
+  /// insertion order, and the last-file-wins candidate batch identical to the
+  /// historical serial loop.
+  void _mergeOcrFileOutcome(
+    _OcrFileImportOutcome outcome, {
+    required List<List<Map<String, dynamic>>> fileResults,
+    required List<String> allWarnings,
+    required Map<String, dynamic> allDiagnostics,
+    required void Function(OcrTypedCandidateBatch?) assignCandidateBatch,
+    required List<ContentAssetCandidateLease> ownedCandidateLeases,
+  }) {
+    if (outcome.ocrResultAvailable) {
+      assignCandidateBatch(outcome.typedCandidateBatch);
+    }
+    final candidateLease = outcome.candidateAssetLease;
+    if (candidateLease != null && candidateLease.localAssetIds.isNotEmpty) {
+      ownedCandidateLeases.add(candidateLease);
+    }
+    allWarnings.addAll(outcome.warnings);
+    allDiagnostics.addAll(outcome.diagnostics);
+    if (outcome.questions.isNotEmpty) {
+      fileResults.add(outcome.questions);
     }
   }
 

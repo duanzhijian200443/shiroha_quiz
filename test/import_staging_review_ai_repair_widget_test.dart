@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/application/import_review/latex_fragment_repair.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -24,6 +25,9 @@ import 'package:shiroha_quiz/ui/widgets/review_repair_proposal_dialog.dart';
 
 const String _taskId = 'review-ai-repair-task';
 const String _reviewItemId = '44444444-4444-4444-8444-000000000021';
+const String _questionId = '22222222-2222-4222-8222-000000000021';
+const String _secondReviewItemId = '44444444-4444-4444-8444-000000000022';
+const String _secondQuestionId = '22222222-2222-4222-8222-000000000022';
 const String _brokenExplanation = r'推导 $$\begin{array}{l}x_1=1\\x_2=2$$';
 const String _repairedExplanation =
     r'推导 $$\begin{array}{l}x_1=1\\x_2=2\end{array}$$';
@@ -98,6 +102,12 @@ class _RecordingTaskManager {
 
   Map<String, dynamic> get lastQuestion => lastSave.single;
 
+  Map<String, dynamic> savedQuestion(String reviewItemId) {
+    return lastSave.firstWhere(
+      (question) => question[TaskManager.keyReviewItemId] == reviewItemId,
+    );
+  }
+
   TaskManager create() {
     return TaskManager.forTesting(
       saveReviewDraftCas: ({
@@ -136,22 +146,26 @@ Map<String, dynamic> _question({
   List<String> riskHints = const <String>['latex_unrenderable'],
   List<String> latexInvalidFields = const <String>['explanation'],
   bool withTypedSnapshot = true,
+  int questionNumber = 21,
+  int originalIndex = 20,
+  String reviewItemId = _reviewItemId,
+  String questionId = _questionId,
 }) {
   final question = <String, dynamic>{
-    'q_num': 21,
-    'question_number': 21,
+    'q_num': questionNumber,
+    'question_number': questionNumber,
     'type': type,
     'content': content,
     'options': options,
     'standard_answer': standardAnswer,
     'explanation': explanation,
     if (rawExplanation != null) 'raw_explanation': rawExplanation,
-    TaskManager.keyReviewItemId: _reviewItemId,
+    TaskManager.keyReviewItemId: reviewItemId,
     '_import_review': <String, dynamic>{
       'source': 'ocr',
       'sources': <String>['ocr'],
       'fragmentKinds': <String>[],
-      'originalIndices': <int>[20],
+      'originalIndices': <int>[originalIndex],
       'riskHints': riskHints,
       'latexInvalidFields': latexInvalidFields,
     },
@@ -160,16 +174,16 @@ Map<String, dynamic> _question({
     question[TypedReviewSnapshotCodec.mapKey] =
         const TypedReviewSnapshotCodec().encode(
       TypedReviewSnapshot(
-        reviewItemId: _reviewItemId,
-        questionId: '22222222-2222-4222-8222-000000000021',
+        reviewItemId: reviewItemId,
+        questionId: questionId,
         draft: QuestionDraftV2(
-          questionId: '22222222-2222-4222-8222-000000000021',
+          questionId: questionId,
           kind: switch (type) {
             0 => QuestionKind.singleChoice,
             2 => QuestionKind.fillBlank,
             _ => QuestionKind.shortAnswer,
           },
-          questionNumber: 21,
+          questionNumber: questionNumber,
           stem: _contentFor(content),
           options: <QuestionOption>[
             for (var index = 0; index < options.length; index++)
@@ -184,7 +198,7 @@ Map<String, dynamic> _question({
         ),
         baselineLegacy: LegacyReviewBaseline(
           type: type,
-          questionNumber: 21,
+          questionNumber: questionNumber,
           content: content,
           options: options,
           standardAnswer: standardAnswer,
@@ -201,12 +215,15 @@ RichContent _contentFor(String value) {
       RichContent(nodes: <ContentNode>[TextNode(value)]);
 }
 
-ImportTask _task(Map<String, dynamic> question) {
+ImportTask _task(Map<String, dynamic> question) =>
+    _taskWithQuestions(<Map<String, dynamic>>[question]);
+
+ImportTask _taskWithQuestions(List<Map<String, dynamic>> questions) {
   return ImportTask(
     id: _taskId,
     title: 'AI repair',
     status: TaskStatus.pendingReview,
-    parsedData: <Map<String, dynamic>>[question],
+    parsedData: questions,
     diagnostics: <String, dynamic>{
       ReviewDraftCasPersistence.keyReviewDraftRevision: 1,
       ReviewDraftCasPersistence.keyReviewExplanationRetentionMode:
@@ -219,6 +236,7 @@ Widget _host({
   required Map<String, dynamic> question,
   required _FakeRepairGenerator generator,
   required TaskManager taskManager,
+  ImportAdvancedPreferencesLoader? preferencesLoader,
   ExplanationRetentionMode mode = ExplanationRetentionMode.allQuestionTypes,
 }) {
   final task = taskManager.tasks.single;
@@ -230,6 +248,7 @@ Widget _host({
       diagnostics: task.diagnostics,
       taskManager: taskManager,
       reviewRepairGenerator: generator,
+      importPreferencesLoader: preferencesLoader,
       initialExplanationRetentionMode: mode,
     ),
   );
@@ -265,6 +284,188 @@ void main() {
       find.byKey(const ValueKey('question-repair-review-only-0')),
       findsNothing,
     );
+  });
+
+  testWidgets('automatic LaTeX repair is off by default', (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async => ImportAdvancedPreferences.defaults,
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 0);
+  });
+
+  testWidgets('automatic LaTeX repair prepares a proposal without applying',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 1);
+    expect(find.text('查看 AI 修补建议'), findsOneWidget);
+    expect(manager.tasks.single.parsedData!.single['explanation'],
+        _brokenExplanation);
+    expect(recorder.lastQuestion['explanation'], _brokenExplanation);
+    expect(find.byType(ReviewRepairProposalDialog), findsNothing);
+  });
+
+  testWidgets('a still-current automatic proposal opens without regenerating',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(generator.calls, 1);
+    expect(find.text('查看 AI 修补建议'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('review-ai-repair-0')));
+    await tester.pumpAndSettle();
+
+    // The revision anchor still holds, so the prepared proposal is presented
+    // as-is instead of spending a second provider call. Opening it is not an
+    // acceptance and must not touch the question.
+    expect(generator.calls, 1);
+    expect(find.byKey(ReviewRepairProposalDialog.dialogKey), findsOneWidget);
+    expect(find.text(_repairedFragment), findsOneWidget);
+    expect(recorder.lastQuestion['explanation'], _brokenExplanation);
+  });
+
+  testWidgets(
+      'a second automatic proposal is regenerated instead of failing stale',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 2600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final first = _question();
+    final second = _question(
+      content: 'Second synthetic stem',
+      questionNumber: 22,
+      originalIndex: 21,
+      reviewItemId: _secondReviewItemId,
+      questionId: _secondQuestionId,
+    );
+    manager.tasks.add(
+      _taskWithQuestions(<Map<String, dynamic>>[first, second]),
+    );
+    final generator = _FakeRepairGenerator();
+
+    await tester.pumpWidget(_host(
+      question: first,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+
+    // Preparing the second proposal moved the draft-wide revision past the
+    // anchor the first proposal was generated against.
+    expect(generator.calls, 2);
+    expect(find.text('查看 AI 修补建议'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('review-ai-repair-0')));
+    await tester.pumpAndSettle();
+    // The stale proposal is discarded and regenerated, not stamped with a
+    // fresh revision and pushed into the CAS.
+    expect(generator.calls, 3);
+    await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
+    await tester.pumpAndSettle();
+
+    expect(find.text('题目已发生变化，请重新执行 AI 修补'), findsNothing);
+    expect(
+      recorder.savedQuestion(_reviewItemId)['explanation'],
+      _repairedExplanation,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('review-ai-repair-1')));
+    await tester.pumpAndSettle();
+    // Applying the first repair moved the draft-wide revision again, so this
+    // proposal has to be regenerated as well.
+    expect(generator.calls, 4);
+    await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
+    await tester.pumpAndSettle();
+
+    expect(find.text('题目已发生变化，请重新执行 AI 修补'), findsNothing);
+    expect(find.text('AI 修补已应用，请复核后入库'), findsWidgets);
+    expect(
+      recorder.savedQuestion(_secondReviewItemId)['explanation'],
+      _repairedExplanation,
+    );
+    expect(
+      recorder.savedQuestion(_reviewItemId)['explanation'],
+      _repairedExplanation,
+    );
+  });
+
+  testWidgets('automatic LaTeX repair skips non-LaTeX metadata and failure',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final nonLatex = _question(
+      riskHints: const <String>['empty_content'],
+      latexInvalidFields: const <String>[],
+      explanation: 'Synthetic explanation',
+      rawExplanation: 'Synthetic explanation',
+    );
+    manager.tasks.add(_task(nonLatex));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: nonLatex,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 0);
+
+    final latex = _question();
+    manager.tasks.single.parsedData = [latex];
+    generator.respond = (_) async =>
+        const ReviewRepairResult.rejected(ReviewRepairOutcome.providerFailure);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(_host(
+      question: latex,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 1);
+    expect(manager.tasks.single.parsedData!.single['explanation'],
+        _brokenExplanation);
+    expect(find.text('查看 AI 修补建议'), findsNothing);
   });
 
   testWidgets('pure LaTeX issue without typed snapshot stays review-only',
@@ -483,11 +684,23 @@ void main() {
     expect(generator.calls, 1);
 
     // The user changes the same question while the proposal is in flight.
-    final discard =
-        find.byKey(const ValueKey('question-explanation-discard-0'));
-    expect(discard, findsOneWidget);
-    tester.widget<FilterChip>(discard).onSelected!(true);
+    // A new import retains every explanation, so the mutation is the review
+    // page's own explanation edit rather than a removed retention chip.
+    // The repair action is still in flight, so this must not settle-wait.
+    final editOpen = find.byKey(const ValueKey('explanation-edit-open'));
+    await tester.ensureVisible(editOpen);
     await tester.pump();
+    await tester.tap(editOpen);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final editField = find.byKey(const ValueKey('explanation-edit-field'));
+    expect(editField, findsOneWidget);
+    await tester.enterText(editField, 'Edited while the repair proposal flew');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('explanation-edit-save')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     gate.complete();
     await tester.pumpAndSettle();

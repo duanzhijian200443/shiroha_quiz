@@ -12,8 +12,8 @@ class OcrRequestCancelledException implements Exception {
 
 class OcrRequestScheduler {
   OcrRequestScheduler({
-    this.maxConcurrentRequests = defaultMaxConcurrentRequests,
-  }) {
+    int maxConcurrentRequests = defaultMaxConcurrentRequests,
+  }) : _maxConcurrentRequests = maxConcurrentRequests {
     if (maxConcurrentRequests <= 0) {
       throw ArgumentError.value(
         maxConcurrentRequests,
@@ -25,10 +25,21 @@ class OcrRequestScheduler {
 
   static const int defaultMaxConcurrentRequests = 2;
 
-  final int maxConcurrentRequests;
+  int _maxConcurrentRequests;
+  int get maxConcurrentRequests => _maxConcurrentRequests;
   final Queue<_QueuedOcrRequest> _pending = Queue<_QueuedOcrRequest>();
   final List<_QueuedOcrRequest> _active = <_QueuedOcrRequest>[];
   int _activeCount = 0;
+
+  /// Changes admission for queued and future requests. Running requests keep
+  /// their slots until they finish, even if the new limit is lower.
+  void updateMaxConcurrentRequests(int value) {
+    if (value <= 0) {
+      throw ArgumentError.value(value, 'value', 'must be greater than zero');
+    }
+    _maxConcurrentRequests = value;
+    _drain();
+  }
 
   Future<T> run<T>({
     required String taskId,

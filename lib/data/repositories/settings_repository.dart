@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../../core/database/database_helper.dart';
 
 class SettingsRepository {
@@ -64,6 +67,30 @@ class SettingsRepository {
   Future<void> setDailyQuota(String bankName, int quota) async {
     final key = '${bankName}_daily_quota';
     await _saveSettingWithCache(key, quota.toString());
+  }
+
+  // --- Import Advanced Preferences ---
+  Future<ImportAdvancedPreferences> getImportAdvancedPreferences() async {
+    final raw = await _getSettingWithCache('import_advanced_preferences');
+    if (raw == null) return ImportAdvancedPreferences.defaults;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return ImportAdvancedPreferences.fromJson(decoded);
+      }
+    } on FormatException {
+      // Corrupt payloads fall back to the frozen defaults.
+    }
+    return ImportAdvancedPreferences.defaults;
+  }
+
+  Future<void> setImportAdvancedPreferences(
+    ImportAdvancedPreferences preferences,
+  ) async {
+    await _saveSettingWithCache(
+      'import_advanced_preferences',
+      jsonEncode(preferences.toJson()),
+    );
   }
 
   // --- Clear Cache (for testing/reset) ---

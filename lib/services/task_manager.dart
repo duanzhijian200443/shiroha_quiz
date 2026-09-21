@@ -1250,6 +1250,13 @@ class TaskManager extends ChangeNotifier {
             keyImportStorageRoute: stableMetadata[keyImportStorageRoute],
           if (stableMetadata[keyImportStorageReason] != null)
             keyImportStorageReason: stableMetadata[keyImportStorageReason],
+          // Entry provenance is task metadata: a retry rebuilds diagnostics
+          // from scratch, and dropping the marker here would demote a document
+          // import to a compatibility task and bring its retention controls
+          // back for the retried attempt.
+          if (stableMetadata[documentImportEntryMarkerKey] != null)
+            documentImportEntryMarkerKey:
+                stableMetadata[documentImportEntryMarkerKey],
           if (stableMetadata[keyCorrelationId] != null)
             keyCorrelationId: stableMetadata[keyCorrelationId],
           if (previousTraceId != null) keyParentTraceId: previousTraceId,
@@ -1480,6 +1487,10 @@ class TaskManager extends ChangeNotifier {
       keyParseExplanationRetentionMode,
       keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
+      // Entry provenance decides whether Review fixes explanation retention or
+      // keeps the controls that describe the task's own recorded policy, so it
+      // is task metadata and must survive parse completion.
+      documentImportEntryMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
@@ -1574,6 +1585,9 @@ class TaskManager extends ChangeNotifier {
       keyParseExplanationRetentionMode,
       keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
+      // Same reason as `_taskMetadata`: a diagnostics replacement mid-parse
+      // must not silently demote a document import to a compatibility task.
+      documentImportEntryMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,

@@ -65,12 +65,26 @@ class ImportTaskBatchItem {
     required this.mode,
     required this.parse,
     this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
+    this.documentImportEntry = false,
   });
 
   final String sourceDescription;
   final ImportParseMode mode;
   final ImportTaskParseAction parse;
   final ExplanationRetentionMode explanationRetentionMode;
+
+  /// Whether this item was created by the document import entry.
+  ///
+  /// Review reads this marker to decide whether the task fixes explanation
+  /// retention (document import) or keeps the retention controls that describe
+  /// its own recorded policy (photo capture, Agent, older builds).
+  final bool documentImportEntry;
+
+  /// Entry diagnostics this item contributes at task creation.
+  Map<String, dynamic> get entryDiagnostics => <String, dynamic>{
+        if (documentImportEntry)
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+      };
 }
 
 class ImportTaskBatchHandle {
@@ -115,7 +129,9 @@ class ImportTaskCoordinator {
     String Function()? attemptTokenFactory,
     String Function()? batchIdFactory,
     ContentAssetStore? contentAssetStore,
+    Future<int> Function()? ocrMaxConcurrencyResolver,
     this.onReadyForReview,
+    this.onSingleReadyForReview,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
         _parser = parser,
@@ -124,7 +140,8 @@ class ImportTaskCoordinator {
         _traceIdFactory = traceIdFactory ?? TraceContext.createTraceId,
         _attemptTokenFactory = attemptTokenFactory ?? ImportAttemptToken.create,
         _batchIdFactory = batchIdFactory ?? _createBatchId,
-        _contentAssetStore = contentAssetStore;
+        _contentAssetStore = contentAssetStore,
+        _ocrMaxConcurrencyResolver = ocrMaxConcurrencyResolver;
 
   static const String keySourceQuestionCount = '_sourceQuestionCount';
   static const String keySourceQuestionNumbers = '_sourceQuestionNumbers';
@@ -188,7 +205,12 @@ class ImportTaskCoordinator {
   final String Function() _attemptTokenFactory;
   final String Function() _batchIdFactory;
   final ContentAssetStore? _contentAssetStore;
+  final Future<int> Function()? _ocrMaxConcurrencyResolver;
   final void Function(String sourceDescription)? onReadyForReview;
+
+  /// Opens the review page for one user-started task. Returns whether the page
+  /// was actually opened, which decides if [onReadyForReview] still applies.
+  final Future<bool> Function(String taskId)? onSingleReadyForReview;
 
   static String _createTaskId() =>
       'task_${DateTime.now().microsecondsSinceEpoch}';
@@ -229,6 +251,8 @@ class ImportTaskCoordinator {
     required Future<ImportParseResult> Function(String taskId) parse,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
+    bool documentImportEntry = false,
+    bool allowAutoOpenReview = false,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
@@ -239,6 +263,8 @@ class ImportTaskCoordinator {
         mode: mode,
         parse: parse,
         explanationRetentionMode: explanationRetentionMode,
+        documentImportEntry: documentImportEntry,
+        allowAutoOpenReview: allowAutoOpenReview,
       );
     } catch (_) {
       lease.release();
@@ -253,6 +279,8 @@ class ImportTaskCoordinator {
     required Future<ImportParseResult> Function(String taskId) parse,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
+    bool documentImportEntry = false,
+    bool allowAutoOpenReview = false,
   }) async {
     await _readiness;
 
@@ -289,6 +317,8 @@ class ImportTaskCoordinator {
         TaskManager.keyReviewExplanationRetentionMode:
             explanationRetentionMode.name,
         TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
+        if (documentImportEntry)
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
         TaskManager.keyAttemptNumber: handle.attemptNumber,
         TaskManager.keyAttemptToken: handle.attemptToken,
         TaskManager.keyAttemptState: ImportAttemptState.queued.name,
@@ -314,6 +344,7 @@ class ImportTaskCoordinator {
             sourceDescription: safeSourceDescription,
             parse: parse,
             lease: lease,
+            allowAutoOpenReview: allowAutoOpenReview,
           ),
         )));
     return handle;
@@ -348,6 +379,13 @@ class ImportTaskCoordinator {
       throw ArgumentError.value(items, 'items', 'must not be empty');
     }
     await _readiness;
+
+    // Resolved before any task exists, so a failed preference read cannot
+    // leave persisted tasks that nobody will ever start.
+    final runConcurrently =
+        items.every((item) => item.mode == ImportParseMode.ocr);
+    final taskConcurrency =
+        runConcurrently ? await _resolveOcrMaxConcurrency() : 1;
 
     final existingBatchIds = _taskManager.tasks
         .map((task) => task.batchId)
@@ -408,6 +446,7 @@ class ImportTaskCoordinator {
               item.explanationRetentionMode.name,
           TaskManager.keyExplanationRetentionMode:
               item.explanationRetentionMode.name,
+          ...item.entryDiagnostics,
           TaskManager.keyBatchId: batchId,
           TaskManager.keySelectionIndex: index,
           TaskManager.keyAttemptNumber: handle.attemptNumber,
@@ -439,14 +478,10 @@ class ImportTaskCoordinator {
       }
       throw const ImportTaskAttemptPersistenceException();
     }
-    final runConcurrently =
-        items.every((item) => item.mode == ImportParseMode.ocr);
     if (runConcurrently) {
-      unawaited(Future<void>.microtask(() {
-        for (final item in scheduled) {
-          unawaited(_runScheduledTask(item));
-        }
-      }));
+      unawaited(Future<void>.microtask(
+        () => _runScheduledBatchBounded(scheduled, taskConcurrency),
+      ));
     } else {
       unawaited(Future<void>.microtask(() async {
         for (final item in scheduled) {
@@ -530,6 +565,7 @@ class ImportTaskCoordinator {
       throw const ImportTaskRetryRejectedException();
     }
     final task = matches.first;
+    final maxConcurrency = await _resolveOcrMaxConcurrency();
     final immutablePaths = List<String>.unmodifiable(selectedPaths);
     final immutableNames = List<String>.unmodifiable(selectedNames);
     final sourceDescription = immutableNames.length == 1
@@ -544,11 +580,20 @@ class ImportTaskCoordinator {
         filePaths: immutablePaths,
         fileNames: immutableNames,
         mode: ImportParseMode.ocr,
-        maxConcurrency: 1,
+        maxConcurrency: maxConcurrency,
         taskId: retryTaskId,
         explanationRetentionMode: task.explanationRetentionMode,
       )),
     );
+  }
+
+  /// Resolves a batch's local worker count. The shared OCR scheduler separately
+  /// enforces the current app-wide provider budget across batches and callers.
+  /// Without an injected resolver, this batch stays serial.
+  Future<int> _resolveOcrMaxConcurrency() {
+    final resolver = _ocrMaxConcurrencyResolver;
+    if (resolver == null) return Future.value(1);
+    return resolver();
   }
 
   Future<ImportTaskHandle> retryOcrTask({
@@ -668,6 +713,37 @@ class ImportTaskCoordinator {
     return handle;
   }
 
+  /// Runs a batch with at most [taskConcurrency] tasks in flight.
+  ///
+  /// This local worker bound does not grant provider slots. The shared OCR
+  /// scheduler controls final provider admission across the app, while each
+  /// task keeps parsing its own files in order.
+  Future<void> _runScheduledBatchBounded(
+    List<_ScheduledImportTask> scheduled,
+    int taskConcurrency,
+  ) async {
+    final workers =
+        taskConcurrency < scheduled.length ? taskConcurrency : scheduled.length;
+    if (workers <= 1) {
+      for (final item in scheduled) {
+        await _runScheduledTask(item);
+      }
+      return;
+    }
+    var nextIndex = 0;
+    Future<void> work() async {
+      while (true) {
+        final index = nextIndex++;
+        if (index >= scheduled.length) return;
+        await _runScheduledTask(scheduled[index]);
+      }
+    }
+
+    await Future.wait(<Future<void>>[
+      for (var worker = 0; worker < workers; worker++) work(),
+    ]);
+  }
+
   Future<void> _runScheduledTask(_ScheduledImportTask item) async {
     try {
       return await ImportAttemptContext.run(
@@ -682,6 +758,7 @@ class ImportTaskCoordinator {
             handle: item.handle,
             sourceDescription: item.sourceDescription,
             parse: item.parse,
+            allowAutoOpenReview: item.allowAutoOpenReview,
           ),
         ),
       );
@@ -703,6 +780,7 @@ class ImportTaskCoordinator {
     required ImportTaskHandle handle,
     required String sourceDescription,
     required ImportTaskParseAction parse,
+    required bool allowAutoOpenReview,
   }) async {
     AppLogger.info(
       'Background import dispatched',
@@ -822,7 +900,31 @@ class ImportTaskCoordinator {
         },
       );
       try {
-        onReadyForReview?.call(sourceDescription);
+        // Opening the review page is the stronger signal. Telling the user to
+        // go to the transfer center right after the page opened in front of
+        // them would contradict the behavior they selected.
+        var reviewOpened = false;
+        if (allowAutoOpenReview) {
+          try {
+            reviewOpened =
+                await onSingleReadyForReview?.call(handle.taskId) ?? false;
+          } catch (_) {
+            // A failed auto-open leaves the user where they were, so the
+            // notification is still the only completion signal they get.
+            // reviewOpened stays false and the prompt below still runs.
+            AppLogger.warning(
+              'Import review auto-open failed',
+              module: 'Import',
+              data: const <String, Object?>{
+                'stage': 'review_auto_open',
+                'status': 'failed',
+              },
+            );
+          }
+        }
+        if (!reviewOpened) {
+          onReadyForReview?.call(sourceDescription);
+        }
       } catch (_) {
         AppLogger.warning(
           'Import review notification failed',
@@ -1068,12 +1170,14 @@ class _ScheduledImportTask {
     required this.sourceDescription,
     required this.parse,
     required this.lease,
+    this.allowAutoOpenReview = false,
   });
 
   final ImportTaskHandle handle;
   final String sourceDescription;
   final ImportTaskParseAction parse;
   final BackupRestoreMutationLease lease;
+  final bool allowAutoOpenReview;
 }
 
 class _EmptyResultFailure {

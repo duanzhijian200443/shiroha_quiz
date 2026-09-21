@@ -196,8 +196,7 @@ class _HomePageState extends State<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            const ImportSettingsScreen(showImageSourceActions: false),
+        builder: (_) => const ImportSettingsScreen(),
       ),
     ).then((_) {
       if (mounted) _loadContext();

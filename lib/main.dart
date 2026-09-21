@@ -30,6 +30,8 @@ import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
 import 'application/practice/subjective_answer_recognition.dart';
 import 'application/file_library/library_folder_service.dart';
+import 'application/import/import_advanced_preferences.dart';
+import 'application/import/import_completion_navigation_policy.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
 import 'application/safe_write/agent_write_proposal_service.dart';
@@ -83,6 +85,7 @@ import 'services/file_library/managed_content_asset_store.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
 import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
+import 'services/import_pipeline/ocr_request_executor.dart';
 import 'services/import_review/import_commit_service.dart';
 import 'services/task_manager.dart';
 import 'services/llm_providers/zhipu_ocr_client.dart';
@@ -98,6 +101,7 @@ import 'services/study_plan/study_plan_practice_session_launcher.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/pages/backup/backup_restore_screen.dart';
 import 'ui/pages/home_page.dart';
+import 'ui/pages/import_staging_screen.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/pages/main_screen.dart';
 import 'ui/widgets/structured_content_renderer.dart';
@@ -363,6 +367,29 @@ void main() {
           clock: () => DateTime.now().toUtc(),
         );
         final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
+        final importPreferencesLoader =
+            SettingsRepository.instance.getImportAdvancedPreferences;
+        final initialImportPreferences = await importPreferencesLoader();
+        final ocrRequestScheduler = OcrRequestScheduler(
+          maxConcurrentRequests:
+              initialImportPreferences.effectiveOcrTaskConcurrency,
+        );
+        Future<void> saveImportPreferences(
+          ImportAdvancedPreferences preferences,
+        ) async {
+          await SettingsRepository.instance.setImportAdvancedPreferences(
+            preferences,
+          );
+          ocrRequestScheduler.updateMaxConcurrentRequests(
+            preferences.effectiveOcrTaskConcurrency,
+          );
+        }
+
+        final ocrRequestExecutor = OcrRequestExecutor(
+          scheduler: ocrRequestScheduler,
+          preferencesLoader: importPreferencesLoader,
+        );
+
         final parsedArtifactRepository = ParsedArtifactRepository(
           databaseHelper: databaseHelper,
         );
@@ -382,6 +409,8 @@ void main() {
             ocrGeneration: OcrParsedArtifactGenerationAdapter(
               managedFileStorage: managedFileStorage,
               ocrClient: const ZhipuOcrClient(),
+              requestScheduler: ocrRequestScheduler,
+              requestExecutor: ocrRequestExecutor,
               activeOcrProfileLoader: engineRepository.getActiveOcrEngine,
               contentAssetStore: contentAssetStore,
             ),
@@ -450,20 +479,27 @@ void main() {
         );
         final subjectiveAnswerRecognition = SubjectiveAnswerRecognitionAdapter(
           engineRepository: engineRepository,
+          requestScheduler: ocrRequestScheduler,
+          requestExecutor: ocrRequestExecutor,
         );
-        final ocrRequestScheduler = OcrRequestScheduler();
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
           engineRepository: engineRepository,
           taskManager: taskManager,
           ocrRequestScheduler: ocrRequestScheduler,
+          ocrRequestExecutor: ocrRequestExecutor,
           contentAssetStore: contentAssetStore,
         );
+        var autoReviewNavigationInProgress = false;
         final importTaskCoordinator = ImportTaskCoordinator(
           taskManager: taskManager,
           parser: importPipelineService.parseFiles,
           requestScheduler: ocrRequestScheduler,
           contentAssetStore: contentAssetStore,
+          ocrMaxConcurrencyResolver: () async {
+            final preferences = await importPreferencesLoader();
+            return preferences.effectiveOcrTaskConcurrency;
+          },
           onReadyForReview: (sourceDescription) {
             rootScaffoldMessengerKey.currentState?.showSnackBar(
               SnackBar(
@@ -471,6 +507,43 @@ void main() {
                 backgroundColor: Colors.orange,
               ),
             );
+          },
+          onSingleReadyForReview: (taskId) async {
+            final preferences = await importPreferencesLoader();
+            final navigator = globalNavigatorKey.currentState;
+            final task = taskManager.tasks
+                .where((entry) => entry.id == taskId)
+                .firstOrNull;
+            if (navigator == null ||
+                task == null ||
+                task.parsedData == null ||
+                !const ImportCompletionNavigationPolicy().shouldOpenReview(
+                  behavior: preferences.completionBehavior,
+                  singleUserTask: task.batchId == null,
+                  pendingReview: task.status == TaskStatus.pendingReview,
+                  foreground: WidgetsBinding.instance.lifecycleState ==
+                      AppLifecycleState.resumed,
+                  navigationFree:
+                      !autoReviewNavigationInProgress && !navigator.canPop(),
+                )) {
+              return false;
+            }
+            autoReviewNavigationInProgress = true;
+            unawaited(navigator
+                .push(MaterialPageRoute<void>(
+                  builder: (_) => ImportStagingScreen(
+                    taskId: task.id,
+                    parsedQuestions: task.parsedData!,
+                    warnings: task.warnings,
+                    diagnostics: task.diagnostics,
+                    folderQuery: questionRepository,
+                    commitService: importCommitService,
+                    initialExplanationRetentionMode:
+                        task.explanationRetentionMode,
+                  ),
+                ))
+                .whenComplete(() => autoReviewNavigationInProgress = false));
+            return true;
           },
         );
 
@@ -493,6 +566,8 @@ void main() {
             aiService: aiService,
             importPipelineService: importPipelineService,
             importTaskCoordinator: importTaskCoordinator,
+            importPreferencesLoader: importPreferencesLoader,
+            importPreferencesSaver: saveImportPreferences,
             importCommitService: importCommitService,
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
@@ -543,6 +618,8 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
+    this.importPreferencesLoader,
+    this.importPreferencesSaver,
     this.importCommitService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
@@ -573,6 +650,8 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
+  final ImportAdvancedPreferencesSaver? importPreferencesSaver;
   final ImportCommitService? importCommitService;
 
   /// P7 Application seams for the AI answer review UI.
@@ -645,6 +724,8 @@ class ShirohaQuizApp extends StatelessWidget {
           aiService: aiService,
           importPipelineService: importPipelineService,
           importTaskCoordinator: importTaskCoordinator,
+          importPreferencesLoader: importPreferencesLoader,
+          importPreferencesSaver: importPreferencesSaver,
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
           examMutationCommand: examMutationCommand,

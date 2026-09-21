@@ -7,6 +7,7 @@ import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
@@ -54,6 +55,7 @@ class ImportStagingScreen extends StatefulWidget {
   final ImportCommitService? commitService;
   final SubjectiveAnswerDistiller? answerDistiller;
   final ReviewRepairGenerator? reviewRepairGenerator;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
   final TaskManager? taskManager;
   final ExplanationRetentionMode initialExplanationRetentionMode;
 
@@ -67,6 +69,7 @@ class ImportStagingScreen extends StatefulWidget {
     this.commitService,
     this.answerDistiller,
     this.reviewRepairGenerator,
+    this.importPreferencesLoader,
     this.taskManager,
     this.initialExplanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
@@ -115,6 +118,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   final Set<int> _selectedOriginalIndices = {};
   late ExplanationRetentionMode _explanationRetentionMode;
   final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
+
+  /// See [_isDocumentImportEntryTask]. Captured once so the controls and the
+  /// finalization policy can never disagree while the page is open.
+  late final bool _isDocumentImportEntryTaskMode;
   final Map<int, String> _answerDistillationStatuses = {};
   final Map<int, String> _answerDistillationReasons = {};
   final Map<int, String> _reviewItemIds = {};
@@ -133,9 +140,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   int? _activeAnswerDistillationIndex;
   final ReviewRepairPolicy _reviewRepairPolicy = const ReviewRepairPolicy();
   final Map<int, ReviewRepairEdit> _repairEdits = {};
+  final Map<int, ReviewRepairProposal> _autoRepairProposals = {};
   ReviewRepairGenerator? _repairGenerator;
   int? _activeRepairIndex;
   int _repairOperationId = 0;
+  bool _autoRepairInitialized = false;
 
   String? get _traceId {
     final value =
@@ -204,6 +213,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
+    _isDocumentImportEntryTaskMode = _isDocumentImportEntryTask();
     _explanationRetentionMode = _readReviewExplanationRetentionMode();
     final messages = ImportDiagnosticFormatter.format(
       warnings: widget.warnings,
@@ -277,12 +287,63 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_autoRepairInitialized) return;
+    _autoRepairInitialized = true;
+    final loader = widget.importPreferencesLoader ??
+        context
+            .dependOnInheritedWidgetOfExactType<AiDependenciesScope>()
+            ?.importPreferencesLoader;
+    if (loader == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_generateAutoLatexProposals(loader));
+    });
+  }
+
+  Future<void> _generateAutoLatexProposals(
+    ImportAdvancedPreferencesLoader loader,
+  ) async {
+    final ImportAdvancedPreferences preferences;
+    try {
+      preferences = await loader();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || !preferences.autoRepairLatexEnabled) return;
+    for (final item in List<ImportReviewItem>.of(_allItems)) {
+      if (!mounted) return;
+      final target = _reviewRepairTargetFor(item);
+      if (target == null ||
+          !(target.strategy == ReviewRepairStrategy.latexFragment ||
+              (target.triggerCodes.length == 1 &&
+                  target.triggerCodes.single == 'dangling_latex'))) {
+        continue;
+      }
+      await _requestReviewRepair(item, automatic: true);
+    }
+  }
+
   ExplanationRetentionMode _readReviewExplanationRetentionMode() {
     final diagnostics = widget.diagnostics;
     final value = diagnostics?[TaskManager.keyReviewExplanationRetentionMode] ??
         diagnostics?[TaskManager.keyExplanationRetentionMode];
     if (value == null) return widget.initialExplanationRetentionMode;
     return parseExplanationRetentionMode(value);
+  }
+
+  /// Whether this task fixes explanation retention, i.e. came from the
+  /// document import entry.
+  ///
+  /// This reads explicit entry provenance, never the retention state. Photo
+  /// capture also dispatches through `ImportTaskCoordinator`, so it records
+  /// retention diagnostics too while still running at `subjectiveOnly`; judging
+  /// the entry by retention would hide the only control that can restore a
+  /// recognized objective explanation on a photo-capture task. A task without
+  /// the marker keeps the controls that describe its own recorded policy.
+  bool _isDocumentImportEntryTask() {
+    return isDocumentImportEntryDiagnostics(widget.diagnostics);
   }
 
   @override
@@ -1542,12 +1603,46 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   bool get _isRepairingAnyItem => _activeRepairIndex != null;
 
+  /// Whether a cached proposal can still be applied without regenerating.
+  ///
+  /// The revision anchor is draft-wide: saving or repairing any other question
+  /// moves it, so a proposal kept across that change could only fail closed at
+  /// the CAS. Regenerating is the only way it can still be applied.
+  bool _isRepairProposalReusable(
+    ImportReviewItem item,
+    ReviewRepairProposal proposal,
+  ) {
+    if (proposal.isStaleFor(item.draft)) return false;
+    final taskId = widget.taskId?.trim() ?? '';
+    if (taskId.isEmpty) return true;
+    return proposal.request.expectedRevision ==
+        _taskManager.reviewDraftRevision(taskId);
+  }
+
   /// Generates a proposal for one eligible item.
   ///
   /// Generating never mutates the review items: the item is only replaced after
   /// the user accepts a proposal.
-  Future<void> _requestReviewRepair(ImportReviewItem item) async {
+  Future<void> _requestReviewRepair(
+    ImportReviewItem item, {
+    bool automatic = false,
+  }) async {
     if (_isSaving || _isRepairingAnyItem || _isDistillingAnswers) return;
+    final cached = _autoRepairProposals[item.originalIndex];
+    if (!automatic &&
+        cached != null &&
+        _isRepairProposalReusable(item, cached)) {
+      final apply = await showDialog<bool>(
+        context: context,
+        builder: (context) => ReviewRepairProposalDialog(proposal: cached),
+      );
+      if (mounted && apply == true) {
+        await _applyReviewRepairProposal(item, cached);
+        _autoRepairProposals.remove(item.originalIndex);
+      }
+      return;
+    }
+    _autoRepairProposals.remove(item.originalIndex);
     final target = _reviewRepairTargetFor(item);
     if (target == null) return;
 
@@ -1581,7 +1676,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       if (!mounted || operationId != _repairOperationId) return;
       final proposal = result.proposal;
       if (!result.hasProposal || proposal == null || !proposal.applicable) {
-        _showFixedError(_reviewRepairFailureText(result.outcome));
+        if (!automatic) {
+          _showFixedError(_reviewRepairFailureText(result.outcome));
+        }
+        return;
+      }
+      if (automatic) {
+        setState(() => _autoRepairProposals[item.originalIndex] = proposal);
         return;
       }
       // Generation is finished: the card leaves its loading state before the
@@ -2152,6 +2253,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
+  /// The document-level retention switch for tasks persisted before document
+  /// import fixed the policy.
+  ///
+  /// New imports retain every recognized explanation, so they expose no
+  /// document-level switch: the user edits or deletes explanations per question
+  /// on the review card instead.
   Widget _buildExplanationRetentionControl() {
     return SwitchListTile.adaptive(
       key: const ValueKey('objective-explanation-document-switch'),
@@ -2275,7 +2382,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
           if (_hasUnsupportedStructure) _buildUnsupportedStructureBanner(),
-          _buildExplanationRetentionControl(),
+          // Document import fixes retention, so only compatibility tasks keep
+          // the document-level switch.
+          if (!_isDocumentImportEntryTaskMode)
+            _buildExplanationRetentionControl(),
           _buildAnswerDistillationControl(),
           const Divider(height: 1),
           _buildSummaryBar(),
@@ -2385,7 +2495,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                               ExplanationEditProvenance
                                                   .legacyUnknown,
                                       onExplanationRetentionChanged:
-                                          (_selectionMode || _isSaving)
+                                          (_selectionMode ||
+                                                  _isSaving ||
+                                                  _isDocumentImportEntryTaskMode)
                                               ? null
                                               : (retain) =>
                                                   _setQuestionExplanationRetention(
@@ -2415,6 +2527,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       reviewRepairInProgress:
                                           _activeRepairIndex ==
                                               item.originalIndex,
+                                      reviewRepairProposalReady:
+                                          _autoRepairProposals
+                                              .containsKey(item.originalIndex),
                                       onReviewRepair: _selectionMode ||
                                               _isSaving ||
                                               _isDistillingAnswers ||
@@ -2857,6 +2972,7 @@ class _QuestionCard extends StatelessWidget {
     required this.onAnswerDistillation,
     required this.reviewRepairEligible,
     required this.reviewRepairInProgress,
+    required this.reviewRepairProposalReady,
     required this.onReviewRepair,
   });
 
@@ -2875,6 +2991,7 @@ class _QuestionCard extends StatelessWidget {
   final VoidCallback? onAnswerDistillation;
   final bool reviewRepairEligible;
   final bool reviewRepairInProgress;
+  final bool reviewRepairProposalReady;
   final VoidCallback? onReviewRepair;
 
   @override
@@ -3070,10 +3187,18 @@ class _QuestionCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.auto_fix_high_outlined, size: 16),
-                label: Text(reviewRepairInProgress ? '正在生成修补建议' : 'AI 修补'),
+                label: Text(reviewRepairInProgress
+                    ? '正在生成修补建议'
+                    : reviewRepairProposalReady
+                        ? '查看 AI 修补建议'
+                        : 'AI 修补'),
               ),
             ],
-            if ((question.type == QuestionType.singleChoice ||
+            // Per-question keep/discard is meaningful only where a
+            // document-level policy choice existed. New imports retain every
+            // explanation, so they expose no retention control on the card.
+            if (onExplanationRetentionChanged != null &&
+                (question.type == QuestionType.singleChoice ||
                     question.type == QuestionType.fillBlank) &&
                 (question.rawExplanation?.trim().isNotEmpty ?? false)) ...[
               const SizedBox(height: 8),
@@ -3086,9 +3211,7 @@ class _QuestionCard extends StatelessWidget {
                     ),
                     label: const Text('保留解析'),
                     selected: explanationRetained,
-                    onSelected: onExplanationRetentionChanged == null
-                        ? null
-                        : (_) => onExplanationRetentionChanged!(true),
+                    onSelected: (_) => onExplanationRetentionChanged!(true),
                   ),
                   FilterChip(
                     key: ValueKey(
@@ -3096,9 +3219,7 @@ class _QuestionCard extends StatelessWidget {
                     ),
                     label: const Text('忽略解析'),
                     selected: !explanationRetained,
-                    onSelected: onExplanationRetentionChanged == null
-                        ? null
-                        : (_) => onExplanationRetentionChanged!(false),
+                    onSelected: (_) => onExplanationRetentionChanged!(false),
                   ),
                 ],
               ),

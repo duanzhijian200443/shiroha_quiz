@@ -6,7 +6,14 @@ class ImportParseRequest {
   final List<String> filePaths;
   final List<String> fileNames;
   final ImportParseMode mode;
+
+  /// Parallelism budget recorded for this task.
+  ///
+  /// Vision mode uses it as its page-batch parallelism. OCR mode does not: its
+  /// files are always parsed one after another. The shared OCR scheduler uses
+  /// the current app preference for provider admission across all callers.
   final int maxConcurrency;
+
   final String taskId;
   final ExplanationRetentionMode explanationRetentionMode;
 
