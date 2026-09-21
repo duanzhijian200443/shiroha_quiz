@@ -905,8 +905,22 @@ class ImportTaskCoordinator {
         // them would contradict the behavior they selected.
         var reviewOpened = false;
         if (allowAutoOpenReview) {
-          reviewOpened =
-              await onSingleReadyForReview?.call(handle.taskId) ?? false;
+          try {
+            reviewOpened =
+                await onSingleReadyForReview?.call(handle.taskId) ?? false;
+          } catch (_) {
+            // A failed auto-open leaves the user where they were, so the
+            // notification is still the only completion signal they get.
+            // reviewOpened stays false and the prompt below still runs.
+            AppLogger.warning(
+              'Import review auto-open failed',
+              module: 'Import',
+              data: const <String, Object?>{
+                'stage': 'review_auto_open',
+                'status': 'failed',
+              },
+            );
+          }
         }
         if (!reviewOpened) {
           onReadyForReview?.call(sourceDescription);

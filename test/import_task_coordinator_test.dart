@@ -313,6 +313,50 @@ void main() {
     expect(notified, isEmpty);
   });
 
+  test('a failed auto-open still sends the transfer center notification',
+      () async {
+    var nextId = 0;
+    final singleReady = <String>[];
+    final notified = <String>[];
+    const result = ImportParseResult(questions: <Map<String, dynamic>>[
+      <String, dynamic>{
+        'q_num': '1',
+        'type': 0,
+        'content': 'Synthetic question',
+        'options': <String>['A', 'B'],
+        'standard_answer': 'A',
+        'explanation': '',
+      },
+    ]);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'auto-open-failed-${nextId++}',
+      onReadyForReview: notified.add,
+      onSingleReadyForReview: (taskId) async {
+        singleReady.add(taskId);
+        throw StateError('synthetic auto-open failure');
+      },
+    );
+    final single = await coordinator.dispatch(
+      sourceDescription: 'single.pdf',
+      mode: ImportParseMode.ocr,
+      allowAutoOpenReview: true,
+      parse: (_) async => result,
+    );
+    // Throws if the task never reaches review admission, so reaching the
+    // assertions below already proves the task survived the failed auto-open.
+    await _waitForTask(
+      manager,
+      single.taskId,
+      (task) => task.status == TaskStatus.pendingReview,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(singleReady, <String>[single.taskId]);
+    expect(notified, <String>['single.pdf']);
+  });
+
   test(
       'document import provenance survives parse-completion diagnostics replacement',
       () async {
