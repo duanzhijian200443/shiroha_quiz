@@ -7,11 +7,11 @@ import '../theme/design_tokens.dart';
 /// Advanced import settings.
 ///
 /// This page is deliberately secondary to the import entry and contains only
-/// settings that are real. The processing strategy is consumed by the OCR
-/// pipeline through `ImportParseRequest.maxConcurrency`; the exception
-/// handling toggles persist durable preferences consumed by the import
-/// pipeline's failure handling. Read-only blocks explain behavior and never
-/// present a control that does nothing.
+/// settings that are real. The OCR task concurrency slider is consumed by the
+/// import pipeline's OCR tasks through `ImportAdvancedPreferences`; the
+/// exception handling rows are not implemented yet, so they are presented as
+/// planned instead of as working switches. Read-only blocks explain behavior
+/// and never present a control that does nothing.
 class ImportAdvancedSettingsScreen extends StatefulWidget {
   const ImportAdvancedSettingsScreen({
     super.key,
@@ -49,14 +49,23 @@ class _ImportAdvancedSettingsScreenState
     setState(() => _preferences = loaded);
   }
 
-  void _selectStrategy(ImportProcessingStrategy strategy) {
+  void _setOcrTaskConcurrency(int value) {
     setState(() {
-      _preferences = _preferences.copyWith(processingStrategy: strategy);
+      _preferences = _preferences.copyWith(
+        ocrTaskConcurrency:
+            ImportAdvancedPreferences.clampOcrTaskConcurrency(value),
+      );
     });
   }
 
   void _resetDefaults() {
-    setState(() => _preferences = ImportAdvancedPreferences.defaults);
+    setState(() {
+      // Only the editable preference is reset. The reserved exception-handling
+      // toggles are not user-editable yet, so their stored value is kept.
+      _preferences = _preferences.copyWith(
+        ocrTaskConcurrency: ImportAdvancedPreferences.defaultOcrTaskConcurrency,
+      );
+    });
   }
 
   Future<void> _done() async {
@@ -93,45 +102,17 @@ class _ImportAdvancedSettingsScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _AdvancedSection(
-                  icon: Icons.speed_outlined,
-                  title: '处理策略',
-                  description: '选择适合的处理策略，系统将按照此策略进行内容解析。',
+                  icon: Icons.settings_outlined,
+                  title: 'OCR 并行任务数',
+                  description: '同时处理的 OCR 任务越多，批量导入可能越快，但更容易触发服务限流或增加资源占用。'
+                      '单个 PDF 内仍按串行方式处理。',
                   children: [
-                    _StrategyCard(
+                    _ConcurrencySelector(
                       key: const ValueKey<String>(
-                        'advanced-strategy-automatic',
+                        'advanced-ocr-concurrency-card',
                       ),
-                      title: '自动（推荐）',
-                      description: '根据任务规模自动平衡速度与稳定性',
-                      icon: Icons.auto_awesome_outlined,
-                      selected: _preferences.processingStrategy ==
-                          ImportProcessingStrategy.automatic,
-                      onTap: () =>
-                          _selectStrategy(ImportProcessingStrategy.automatic),
-                    ),
-                    const SizedBox(height: 10),
-                    _StrategyCard(
-                      key: const ValueKey<String>(
-                        'advanced-strategy-stability',
-                      ),
-                      title: '稳定优先',
-                      description: '降低 OCR 并发，减少限流与失败',
-                      icon: Icons.shield_outlined,
-                      selected: _preferences.processingStrategy ==
-                          ImportProcessingStrategy.stability,
-                      onTap: () =>
-                          _selectStrategy(ImportProcessingStrategy.stability),
-                    ),
-                    const SizedBox(height: 10),
-                    _StrategyCard(
-                      key: const ValueKey<String>('advanced-strategy-speed'),
-                      title: '速度优先',
-                      description: '提高安全范围内的 OCR 并发',
-                      icon: Icons.rocket_launch_outlined,
-                      selected: _preferences.processingStrategy ==
-                          ImportProcessingStrategy.speed,
-                      onTap: () =>
-                          _selectStrategy(ImportProcessingStrategy.speed),
+                      value: _preferences.effectiveOcrTaskConcurrency,
+                      onChanged: _setOcrTaskConcurrency,
                     ),
                   ],
                 ),
@@ -141,38 +122,21 @@ class _ImportAdvancedSettingsScreenState
                   title: '异常处理',
                   description: '设置解析过程中的异常处理方式，提升任务成功率。',
                   children: [
-                    _AdvancedSwitchRow(
-                      key: const ValueKey<String>('advanced-auto-retry-row'),
-                      switchKey: const ValueKey<String>(
-                        'advanced-auto-retry-switch',
-                      ),
+                    const _PlannedSwitchRow(
+                      key: ValueKey<String>('advanced-auto-retry-row'),
+                      switchKey: ValueKey<String>('advanced-auto-retry-switch'),
                       title: '自动重试',
-                      subtitle: '遇到网络、限流或临时服务错误时自动重试',
-                      value: _preferences.autoRetryEnabled,
-                      onChanged: (value) {
-                        setState(() {
-                          _preferences =
-                              _preferences.copyWith(autoRetryEnabled: value);
-                        });
-                      },
+                      subtitle: '遇到网络、限流或临时失败时自动重试',
                     ),
-                    _AdvancedSwitchRow(
-                      key: const ValueKey<String>(
+                    const _PlannedSwitchRow(
+                      key: ValueKey<String>(
                         'advanced-retain-unresolved-row',
                       ),
-                      switchKey: const ValueKey<String>(
+                      switchKey: ValueKey<String>(
                         'advanced-retain-unresolved-switch',
                       ),
                       title: '保留未识别内容',
-                      subtitle: '部分页面或片段识别失败时，仍在校对页显示，便于重试或手动补录',
-                      value: _preferences.retainUnresolvedFragments,
-                      onChanged: (value) {
-                        setState(() {
-                          _preferences = _preferences.copyWith(
-                            retainUnresolvedFragments: value,
-                          );
-                        });
-                      },
+                      subtitle: '部分内容识别失败时仍带入校对页，便于后续检查与补录',
                     ),
                   ],
                 ),
@@ -259,93 +223,168 @@ class _ImportAdvancedSettingsScreenState
   }
 }
 
-/// A selectable processing-strategy card.
+/// The OCR task concurrency budget control.
 ///
-/// Mirrors the parse-mode card on the import entry page: the selected card
-/// carries the primary border and a check icon, and the whole card is one
-/// tap target.
-class _StrategyCard extends StatelessWidget {
-  const _StrategyCard({
+/// The slider spans the supported 1..12 range in single steps, so every value
+/// it can produce is already a valid runtime budget. The badge above the thumb
+/// shows the same number as the value line below the track.
+class _ConcurrencySelector extends StatelessWidget {
+  const _ConcurrencySelector({
     super.key,
-    required this.title,
-    required this.description,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
+    required this.value,
+    required this.onChanged,
   });
 
-  final String title;
-  final String description;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
+  /// Horizontal inset applied to the slider so the thumb, the badge and the
+  /// range labels never clip at the card edge.
+  static const double _inset = 12;
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const min = ImportAdvancedPreferences.minOcrTaskConcurrency;
+    const max = ImportAdvancedPreferences.maxOcrTaskConcurrency;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                const _RangeLabel('$min', height: _sliderHeight),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      // The slider is inset horizontally, so its thumb travels
+                      // the full inner width: the badge can be placed from the
+                      // same fraction without guessing framework padding.
+                      final fraction = (value - min) / (max - min);
+                      final badgeLeft = _inset +
+                          (constraints.maxWidth - _inset * 2) * fraction -
+                          _badgeWidth / 2;
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Padding(
+                            padding:
+                                const EdgeInsets.only(top: _badgeAreaHeight),
+                            child: SizedBox(
+                              height: _sliderHeight,
+                              child: Slider(
+                                key: const ValueKey<String>(
+                                  'advanced-ocr-concurrency-slider',
+                                ),
+                                value: value.toDouble(),
+                                min: min.toDouble(),
+                                max: max.toDouble(),
+                                divisions: max - min,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: _inset,
+                                ),
+                                semanticFormatterCallback: (raw) =>
+                                    'OCR 并行任务数 ${raw.round()}',
+                                onChanged: (raw) => onChanged(raw.round()),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: badgeLeft,
+                            top: 0,
+                            child: _ConcurrencyBadge(value: value),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const _RangeLabel('$max', height: _sliderHeight),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Text(
+                  '当前并行任务数：',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  '$value',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const double _badgeWidth = 40;
+  static const double _badgeAreaHeight = 26;
+  static const double _sliderHeight = 32;
+}
+
+class _ConcurrencyBadge extends StatelessWidget {
+  const _ConcurrencyBadge({required this.value});
+
+  final int value;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-
-    return Semantics(
-      selected: selected,
-      inMutuallyExclusiveGroup: true,
-      button: true,
-      label: '$title，$description',
-      child: Material(
-        color: selected ? colorScheme.primaryContainer : colorScheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: selected ? colorScheme.primary : colorScheme.outlineVariant,
-            width: selected ? 2 : 1,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  color: selected
-                      ? colorScheme.onPrimaryContainer
-                      : colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: selected
-                                  ? colorScheme.onPrimaryContainer
-                                  : colorScheme.onSurface,
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        description,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: selected
-                                  ? colorScheme.onPrimaryContainer
-                                  : colorScheme.onSurfaceVariant,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Icon(
-                  selected ? Icons.check_circle : Icons.radio_button_unchecked,
-                  color: selected
-                      ? colorScheme.primary
-                      : colorScheme.onSurfaceVariant,
-                ),
-              ],
+    return Container(
+      key: const ValueKey<String>('advanced-ocr-concurrency-value'),
+      width: _ConcurrencySelector._badgeWidth,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: colorScheme.primary, width: 1.5),
+      ),
+      child: Text(
+        '$value',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.bold,
             ),
+      ),
+    );
+  }
+}
+
+class _RangeLabel extends StatelessWidget {
+  const _RangeLabel(this.label, {required this.height});
+
+  final String label;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 26,
+      height: height,
+      child: Center(
+        child: Text(
+          label,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -353,22 +392,21 @@ class _StrategyCard extends StatelessWidget {
   }
 }
 
-/// An interactive preference row backed by a persisted setting.
-class _AdvancedSwitchRow extends StatelessWidget {
-  const _AdvancedSwitchRow({
+/// An exception-handling row for a capability that does not exist yet.
+///
+/// It carries the 规划中 marker and renders inert: it explains what the setting
+/// will do without pretending the capability is already available.
+class _PlannedSwitchRow extends StatelessWidget {
+  const _PlannedSwitchRow({
     super.key,
     required this.switchKey,
     required this.title,
     required this.subtitle,
-    required this.value,
-    required this.onChanged,
   });
 
   final Key switchKey;
   final String title;
   final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -382,42 +420,85 @@ class _AdvancedSwitchRow extends StatelessWidget {
           side: BorderSide(color: theme.colorScheme.outlineVariant),
         ),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => onChanged(!value),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurface,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onSurface,
+                          ),
                         ),
+                        const _PlannedChip(),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Switch(
-                  key: switchKey,
-                  value: value,
-                  onChanged: onChanged,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '即将推出',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: '该能力尚未开放，当前不会影响解析过程。',
+                child: Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Switch(
+                key: switchKey,
+                value: false,
+                onChanged: null,
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlannedChip extends StatelessWidget {
+  const _PlannedChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '规划中',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );

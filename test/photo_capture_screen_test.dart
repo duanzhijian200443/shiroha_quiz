@@ -304,7 +304,7 @@ void main() {
       pickPhoto: (source) async => productionPhoto,
       dispatch: null,
       importPreferences: const ImportAdvancedPreferences(
-        processingStrategy: ImportProcessingStrategy.speed,
+        ocrTaskConcurrency: 4,
       ),
       wrapDependencies: (child) => AiDependenciesScope(
         engineRepository: _UnusedEngineRepository(),
@@ -383,7 +383,7 @@ void main() {
     for (final request in pipeline.requests) {
       expect(request.fileNames, <String>[productionPhoto.name]);
       expect(request.filePaths, hasLength(1));
-      // The speed strategy resolves to the provider-safe ceiling.
+      // The stored OCR task concurrency budget is recorded on every request.
       expect(request.maxConcurrency, 4);
       expect(
         request.explanationRetentionMode,

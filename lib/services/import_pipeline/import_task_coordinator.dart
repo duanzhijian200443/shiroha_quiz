@@ -371,6 +371,13 @@ class ImportTaskCoordinator {
     }
     await _readiness;
 
+    // Resolved before any task exists, so a failed preference read cannot
+    // leave persisted tasks that nobody will ever start.
+    final runConcurrently =
+        items.every((item) => item.mode == ImportParseMode.ocr);
+    final taskConcurrency =
+        runConcurrently ? await _resolveOcrMaxConcurrency() : 1;
+
     final existingBatchIds = _taskManager.tasks
         .map((task) => task.batchId)
         .whereType<String>()
@@ -462,14 +469,10 @@ class ImportTaskCoordinator {
       }
       throw const ImportTaskAttemptPersistenceException();
     }
-    final runConcurrently =
-        items.every((item) => item.mode == ImportParseMode.ocr);
     if (runConcurrently) {
-      unawaited(Future<void>.microtask(() {
-        for (final item in scheduled) {
-          unawaited(_runScheduledTask(item));
-        }
-      }));
+      unawaited(Future<void>.microtask(
+        () => _runScheduledBatchBounded(scheduled, taskConcurrency),
+      ));
     } else {
       unawaited(Future<void>.microtask(() async {
         for (final item in scheduled) {
@@ -575,6 +578,10 @@ class ImportTaskCoordinator {
     );
   }
 
+  /// Resolves the OCR task concurrency budget: how many independent OCR
+  /// ImportTasks may parse at the same time. Without an injected resolver the
+  /// coordinator stays serial, so a missing preference never oversells the
+  /// provider.
   Future<int> _resolveOcrMaxConcurrency() {
     final resolver = _ocrMaxConcurrencyResolver;
     if (resolver == null) return Future.value(1);
@@ -696,6 +703,38 @@ class ImportTaskCoordinator {
           ),
         )));
     return handle;
+  }
+
+  /// Runs a batch with at most [taskConcurrency] tasks in flight.
+  ///
+  /// This is the only place the OCR task concurrency budget is applied: every
+  /// scheduled task keeps parsing its own files strictly in order, so the
+  /// budget decides how many independent ImportTasks run at the same time and
+  /// never splits one task's work.
+  Future<void> _runScheduledBatchBounded(
+    List<_ScheduledImportTask> scheduled,
+    int taskConcurrency,
+  ) async {
+    final workers =
+        taskConcurrency < scheduled.length ? taskConcurrency : scheduled.length;
+    if (workers <= 1) {
+      for (final item in scheduled) {
+        await _runScheduledTask(item);
+      }
+      return;
+    }
+    var nextIndex = 0;
+    Future<void> work() async {
+      while (true) {
+        final index = nextIndex++;
+        if (index >= scheduled.length) return;
+        await _runScheduledTask(scheduled[index]);
+      }
+    }
+
+    await Future.wait(<Future<void>>[
+      for (var worker = 0; worker < workers; worker++) work(),
+    ]);
   }
 
   Future<void> _runScheduledTask(_ScheduledImportTask item) async {

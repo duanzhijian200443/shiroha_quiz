@@ -7,55 +7,73 @@ typedef ImportAdvancedPreferencesSaver = Future<void> Function(
   ImportAdvancedPreferences preferences,
 );
 
-/// How aggressively document imports schedule OCR work.
-///
-/// This only steers execution scheduling (effective concurrency). It never
-/// changes OCR recognition content, explanation retention, typed structure,
-/// the review flow, or final question semantics.
-enum ImportProcessingStrategy {
-  /// Pick a safe parallelism based on task size and provider capability.
-  automatic,
-
-  /// Low concurrency: fewer rate limits, timeouts and resource contention.
-  stability,
-
-  /// Higher concurrency within the provider-safe ceiling, for bulk imports.
-  speed,
-}
-
 /// Application-level import execution preferences.
 ///
 /// These are durable app preferences, not per-import state: OCR vs text mode
 /// is still chosen per import, and review state never lives here.
 class ImportAdvancedPreferences {
   const ImportAdvancedPreferences({
-    this.processingStrategy = ImportProcessingStrategy.automatic,
+    this.ocrTaskConcurrency = defaultOcrTaskConcurrency,
     this.autoRetryEnabled = true,
     this.retainUnresolvedFragments = true,
   });
 
   static const ImportAdvancedPreferences defaults = ImportAdvancedPreferences();
 
-  final ImportProcessingStrategy processingStrategy;
+  /// Bounds of the user-facing OCR task concurrency budget.
+  ///
+  /// The budget counts concurrent independent OCR ImportTasks only. One task
+  /// stays serial internally, so a single PDF is never split into parallel OCR
+  /// work, and one task never issues two provider requests at the same time.
+  static const int minOcrTaskConcurrency = 1;
+  static const int maxOcrTaskConcurrency = 12;
+  static const int defaultOcrTaskConcurrency = 2;
+
+  /// Normalizes any value into the supported budget range.
+  static int clampOcrTaskConcurrency(int value) {
+    if (value < minOcrTaskConcurrency) return minOcrTaskConcurrency;
+    if (value > maxOcrTaskConcurrency) return maxOcrTaskConcurrency;
+    return value;
+  }
+
+  /// How many OCR ImportTasks may run at the same time.
+  ///
+  /// This only steers execution scheduling. It never changes OCR recognition
+  /// content, explanation retention, typed structure, the review flow, or
+  /// final question semantics.
+  final int ocrTaskConcurrency;
+
+  /// Reserved: persisted for forward compatibility; no runtime path consumes
+  /// it yet, so the settings surface presents it as planned rather than real.
   final bool autoRetryEnabled;
+
+  /// Reserved: persisted for forward compatibility; no runtime path consumes
+  /// it yet, so the settings surface presents it as planned rather than real.
   final bool retainUnresolvedFragments;
 
+  /// The concurrency budget inside the supported bounds, whatever value this
+  /// instance was constructed with.
+  int get effectiveOcrTaskConcurrency =>
+      clampOcrTaskConcurrency(ocrTaskConcurrency);
+
   ImportAdvancedPreferences copyWith({
-    ImportProcessingStrategy? processingStrategy,
+    int? ocrTaskConcurrency,
     bool? autoRetryEnabled,
     bool? retainUnresolvedFragments,
   }) {
     return ImportAdvancedPreferences(
-      processingStrategy: processingStrategy ?? this.processingStrategy,
+      ocrTaskConcurrency: ocrTaskConcurrency ?? this.ocrTaskConcurrency,
       autoRetryEnabled: autoRetryEnabled ?? this.autoRetryEnabled,
       retainUnresolvedFragments:
           retainUnresolvedFragments ?? this.retainUnresolvedFragments,
     );
   }
 
+  /// Persists the clamped budget, so a stored payload is always inside the
+  /// supported range.
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
-      'processingStrategy': processingStrategy.name,
+      'ocrTaskConcurrency': effectiveOcrTaskConcurrency,
       'autoRetryEnabled': autoRetryEnabled,
       'retainUnresolvedFragments': retainUnresolvedFragments,
     };
@@ -63,9 +81,13 @@ class ImportAdvancedPreferences {
 
   /// Tolerant decode: a missing, malformed or unknown payload falls back to
   /// the frozen defaults rather than failing the import settings surface.
+  ///
+  /// A payload written before the concurrency slider existed carries the
+  /// retired `processingStrategy` vocabulary instead; its intent is migrated
+  /// (stability -> 1, automatic -> 2, speed -> 4).
   static ImportAdvancedPreferences fromJson(Map<String, dynamic> json) {
     return ImportAdvancedPreferences(
-      processingStrategy: _decodeStrategy(json['processingStrategy']),
+      ocrTaskConcurrency: _decodeOcrTaskConcurrency(json),
       autoRetryEnabled: json['autoRetryEnabled'] is bool
           ? json['autoRetryEnabled'] as bool
           : defaults.autoRetryEnabled,
@@ -75,26 +97,34 @@ class ImportAdvancedPreferences {
     );
   }
 
-  static ImportProcessingStrategy _decodeStrategy(Object? raw) {
-    if (raw is String) {
-      for (final strategy in ImportProcessingStrategy.values) {
-        if (strategy.name == raw) return strategy;
-      }
-    }
-    return defaults.processingStrategy;
+  static int _decodeOcrTaskConcurrency(Map<String, dynamic> json) {
+    final raw = json['ocrTaskConcurrency'];
+    if (raw is num) return clampOcrTaskConcurrency(raw.round());
+    final legacy = _legacyStrategyConcurrency(json['processingStrategy']);
+    return legacy ?? defaults.ocrTaskConcurrency;
+  }
+
+  static int? _legacyStrategyConcurrency(Object? raw) {
+    if (raw is! String) return null;
+    return switch (raw) {
+      'stability' => 1,
+      'automatic' => 2,
+      'speed' => 4,
+      _ => null,
+    };
   }
 
   @override
   bool operator ==(Object other) {
     return other is ImportAdvancedPreferences &&
-        other.processingStrategy == processingStrategy &&
+        other.ocrTaskConcurrency == ocrTaskConcurrency &&
         other.autoRetryEnabled == autoRetryEnabled &&
         other.retainUnresolvedFragments == retainUnresolvedFragments;
   }
 
   @override
   int get hashCode => Object.hash(
-        processingStrategy,
+        ocrTaskConcurrency,
         autoRetryEnabled,
         retainUnresolvedFragments,
       );

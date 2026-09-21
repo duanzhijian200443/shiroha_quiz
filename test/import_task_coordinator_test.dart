@@ -543,6 +543,7 @@ void main() {
       taskIdFactory: () => 'batch-task-${taskIndex++}',
       traceIdFactory: () => 'batch-trace-${traceIndex++}',
       batchIdFactory: () => 'batch-fixture',
+      ocrMaxConcurrencyResolver: () async => 4,
     );
 
     Future<ImportParseResult> parseItem(int index, String taskId) async {
@@ -646,6 +647,175 @@ void main() {
     expect(
       manager.tasks.map((task) => task.batchId).toSet(),
       <String?>{'batch-fixture'},
+    );
+  });
+
+  for (final budget in <int>[1, 3, 12]) {
+    test('an independent OCR batch keeps at most $budget parses in flight',
+        () async {
+      var taskIndex = 0;
+      var traceIndex = 0;
+      var activeParses = 0;
+      var peakParses = 0;
+      final starts = <int>[];
+      final release = Completer<void>();
+      final coordinator = ImportTaskCoordinator(
+        taskManager: manager,
+        readiness: Future<void>.value(),
+        taskIdFactory: () => 'bounded-task-${taskIndex++}',
+        traceIdFactory: () => 'bounded-trace-${traceIndex++}',
+        batchIdFactory: () => 'bounded-batch',
+        ocrMaxConcurrencyResolver: () async => budget,
+      );
+
+      Future<ImportParseResult> parseItem(int index) async {
+        starts.add(index);
+        activeParses++;
+        peakParses = activeParses > peakParses ? activeParses : peakParses;
+        try {
+          await release.future;
+          return ImportParseResult(
+            questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'q_num': '${index + 1}',
+                'type': 0,
+                'content': 'Synthetic question ${index + 1}',
+                'options': const <String>['A', 'B'],
+                'standard_answer': 'A',
+                'explanation': '',
+              },
+            ],
+          );
+        } finally {
+          activeParses--;
+        }
+      }
+
+      // Six independent PDF tasks, one ImportTask each: exactly the document
+      // import shape the OCR task concurrency budget bounds.
+      final batch = await coordinator.dispatchIndependentBatch(
+        items: List<ImportTaskBatchItem>.generate(
+          6,
+          (index) => ImportTaskBatchItem(
+            sourceDescription: 'doc$index.pdf',
+            mode: ImportParseMode.ocr,
+            parse: (_) => parseItem(index),
+          ),
+        ),
+      );
+
+      final expectedInFlight = budget < 6 ? budget : 6;
+      for (var attempt = 0;
+          attempt < 100 && starts.length < expectedInFlight;
+          attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(
+        starts,
+        List<int>.generate(expectedInFlight, (index) => index),
+        reason: 'tasks must enter the parser in batch order',
+      );
+      expect(peakParses, expectedInFlight);
+      expect(
+        manager.tasks.map((task) => task.status),
+        List<TaskStatus>.filled(6, TaskStatus.processing),
+        reason: 'every task is visible before the batch drains',
+      );
+
+      release.complete();
+      for (final handle in batch.tasks) {
+        await _waitForTask(
+          manager,
+          handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview,
+        );
+      }
+
+      expect(starts, List<int>.generate(6, (index) => index));
+      expect(peakParses, expectedInFlight);
+      expect(manager.tasks, hasLength(6));
+    });
+  }
+
+  test('a queued OCR task can be cancelled before it ever reaches the parser',
+      () async {
+    var taskIndex = 0;
+    var traceIndex = 0;
+    var attemptIndex = 0;
+    final starts = <int>[];
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'queued-task-${taskIndex++}',
+      traceIdFactory: () => 'queued-trace-${traceIndex++}',
+      attemptTokenFactory: () => 'queued-attempt-${attemptIndex++}',
+      batchIdFactory: () => 'queued-batch',
+      ocrMaxConcurrencyResolver: () async => 1,
+    );
+
+    Future<ImportParseResult> parseItem(int index) async {
+      starts.add(index);
+      if (index == 0) {
+        firstStarted.complete();
+        await releaseFirst.future;
+      }
+      return ImportParseResult(
+        questions: <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': '${index + 1}',
+            'type': 0,
+            'content': 'Synthetic question ${index + 1}',
+            'options': const <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+          },
+        ],
+      );
+    }
+
+    final batch = await coordinator.dispatchIndependentBatch(
+      items: List<ImportTaskBatchItem>.generate(
+        3,
+        (index) => ImportTaskBatchItem(
+          sourceDescription: 'doc$index.pdf',
+          mode: ImportParseMode.ocr,
+          parse: (_) => parseItem(index),
+        ),
+      ),
+    );
+
+    await firstStarted.future;
+    expect(starts, <int>[0]);
+
+    expect(
+      await coordinator.cancelOcrTask(batch.tasks[1].taskId),
+      ImportAttemptWriteStatus.applied,
+    );
+
+    releaseFirst.complete();
+    for (final handle in batch.tasks) {
+      await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status != TaskStatus.processing,
+      );
+    }
+
+    expect(
+      starts,
+      <int>[0, 2],
+      reason: 'a task cancelled while queued must never call the parser',
+    );
+    expect(
+      manager.tasks.map((task) => task.attemptState),
+      <ImportAttemptState>[
+        ImportAttemptState.readyForReview,
+        ImportAttemptState.cancelled,
+        ImportAttemptState.readyForReview,
+      ],
     );
   });
 

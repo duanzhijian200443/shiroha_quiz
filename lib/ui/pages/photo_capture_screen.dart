@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../application/import/import_advanced_preferences.dart';
-import '../../application/import/import_processing_policy_resolver.dart';
 import '../../application/practice/subjective_answer_recognition.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
@@ -121,9 +120,7 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
     final preferences = preferencesLoader != null
         ? await preferencesLoader()
         : await SettingsRepository.instance.getImportAdvancedPreferences();
-    final maxConcurrency = const ImportProcessingPolicyResolver()
-        .resolve(preferences.processingStrategy)
-        .effectiveOcrConcurrency;
+    final maxConcurrency = preferences.effectiveOcrTaskConcurrency;
     await dependencies.importTaskCoordinator.dispatch(
       sourceDescription: '图片识别',
       mode: mode,

@@ -1638,6 +1638,9 @@ void main() {
         taskIdFactory: () => 'integrated-task-${taskIndex++}',
         traceIdFactory: () => 'integrated-trace-${traceIndex++}',
         batchIdFactory: () => 'integrated-batch',
+        // The task budget admits every task in this batch, so the shared
+        // scheduler stays the binding gate on concurrent provider requests.
+        ocrMaxConcurrencyResolver: () async => 4,
       );
 
       final batch = await coordinator.dispatchIndependentBatch(

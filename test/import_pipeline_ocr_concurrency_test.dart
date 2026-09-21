@@ -1,12 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
 
 void main() {
   late Directory tempDirectory;
@@ -107,22 +109,8 @@ void main() {
         .toList();
   }
 
-  test('a concurrency budget above one runs OCR files in parallel', () async {
-    final paths = createFakePdfs(4);
-    var peak = 0;
-    final pipeline = buildPipeline(
-      recordingOcrParser(reportPeak: (value) => peak = value),
-    );
-
-    final result = await pipeline.parseFiles(requestFor(paths, 4));
-
-    // The four tasks enter the parser synchronously up to their first await,
-    // so a budget of four must reach four in flight deterministically.
-    expect(peak, 4);
-    expect(result.questions, hasLength(4));
-  });
-
-  test('a concurrency budget of one keeps OCR files serial', () async {
+  test('one task parses its OCR files one after another, never in parallel',
+      () async {
     final paths = createFakePdfs(4);
     var peak = 0;
     final pipeline = buildPipeline(
@@ -135,7 +123,23 @@ void main() {
     expect(result.questions, hasLength(4));
   });
 
-  test('bounded execution preserves the serial output contract', () async {
+  test('a recorded budget above one never parallelizes a single task',
+      () async {
+    final paths = createFakePdfs(4);
+    var peak = 0;
+    final pipeline = buildPipeline(
+      recordingOcrParser(reportPeak: (value) => peak = value),
+    );
+
+    // The concurrency budget bounds independent ImportTasks; files of one task
+    // stay serial whatever budget the request recorded.
+    final result = await pipeline.parseFiles(requestFor(paths, 12));
+
+    expect(peak, 1);
+    expect(result.questions, hasLength(4));
+  });
+
+  test('the serial output contract holds for every recorded budget', () async {
     final paths = createFakePdfs(4);
 
     var serialPeak = 0;
@@ -143,30 +147,30 @@ void main() {
       recordingOcrParser(reportPeak: (value) => serialPeak = value),
     ).parseFiles(requestFor(paths, 1));
 
-    var boundedPeak = 0;
-    final bounded = await buildPipeline(
-      recordingOcrParser(reportPeak: (value) => boundedPeak = value),
-    ).parseFiles(requestFor(paths, 4));
+    var budgetedPeak = 0;
+    final budgeted = await buildPipeline(
+      recordingOcrParser(reportPeak: (value) => budgetedPeak = value),
+    ).parseFiles(requestFor(paths, 12));
 
     expect(serialPeak, 1);
-    expect(boundedPeak, 4);
+    expect(budgetedPeak, 1);
     expect(
-      bounded.questions.map((question) => question['content']).toList(),
+      budgeted.questions.map((question) => question['content']).toList(),
       serial.questions.map((question) => question['content']).toList(),
-      reason: 'question order must match the serial file order',
+      reason: 'question order must follow the file order',
     );
     expect(
-      taggedWarnings(bounded),
+      taggedWarnings(budgeted),
       taggedWarnings(serial),
-      reason: 'warning order must match the serial file order',
+      reason: 'warning order must follow the file order',
     );
     expect(
-      ocrDiagnosticKeys(bounded),
+      ocrDiagnosticKeys(budgeted),
       ocrDiagnosticKeys(serial),
-      reason: 'diagnostics insertion order must match the serial file order',
+      reason: 'diagnostics insertion order must follow the file order',
     );
     expect(
-      ocrDiagnosticKeys(bounded),
+      ocrDiagnosticKeys(budgeted),
       <String>[
         'ocr_import_file_0',
         'ocr_import_file_1',
@@ -176,7 +180,75 @@ void main() {
     );
   });
 
-  test('a failing file propagates its error through the bounded path',
+  test('one task never issues two provider requests for the same attempt',
+      () async {
+    final paths = createFakePdfs(4);
+    // The real scheduler rejects a second concurrent request that reuses one
+    // taskId + attemptToken with StateError('Duplicate OCR attempt'), so a
+    // parallel file loop inside one task cannot pass unnoticed.
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 12);
+    var inFlight = 0;
+    var peakPerAttempt = 0;
+    final pipeline = buildPipeline(({
+      required filePath,
+      required sourceName,
+      required ImportFormat format,
+      required ExplanationRetentionMode explanationRetentionMode,
+    }) async {
+      final attempt = ImportAttemptContext.current;
+      return scheduler.run(
+        taskId: attempt?.taskId ?? 'unscoped-ocr-task',
+        attemptToken: attempt?.attemptToken,
+        operation: () async {
+          inFlight++;
+          peakPerAttempt =
+              inFlight > peakPerAttempt ? inFlight : peakPerAttempt;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          inFlight--;
+          return OcrImportResult(
+            usedOcr: true,
+            questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'content': '${fileIndexOf(filePath) + 1}. Question',
+                'standard_answer': 'A',
+                'type': 3,
+              },
+            ],
+            warnings: const <String>[],
+            diagnostics: const <String, dynamic>{},
+          );
+        },
+      );
+    });
+
+    const attempt = ImportAttemptRef(
+      taskId: 'ocr-task-1',
+      attemptNumber: 1,
+      attemptToken: 'attempt-token-1',
+      traceId: 'trace-1',
+    );
+    final result = await ImportAttemptContext.run(
+      attempt: attempt,
+      action: () => pipeline.parseFiles(requestFor(paths, 12)),
+    );
+
+    expect(peakPerAttempt, 1);
+    expect(result.questions, hasLength(4));
+
+    // The finished attempt released its scheduled requests: reusing the same
+    // taskId + attemptToken is accepted again instead of leaking the duplicate
+    // guard of the finished run.
+    expect(
+      await scheduler.run(
+        taskId: attempt.taskId,
+        attemptToken: attempt.attemptToken,
+        operation: () async => 'released',
+      ),
+      'released',
+    );
+  });
+
+  test('a failing file still propagates its error through the OCR path',
       () async {
     final paths = createFakePdfs(4);
     final pipeline = buildPipeline(({
@@ -205,7 +277,7 @@ void main() {
     });
 
     await expectLater(
-      pipeline.parseFiles(requestFor(paths, 4)),
+      pipeline.parseFiles(requestFor(paths, 12)),
       throwsA(
         isA<StateError>().having(
           (error) => error.message,

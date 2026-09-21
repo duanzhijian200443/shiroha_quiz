@@ -60,20 +60,39 @@ void main() {
     '确认入库',
   ];
 
-  Finder strategyCard(String key) => find.byKey(ValueKey<String>(key));
+  const sliderKey = ValueKey<String>('advanced-ocr-concurrency-slider');
+  const badgeKey = ValueKey<String>('advanced-ocr-concurrency-value');
 
-  Finder selectedIconOf(String cardKey) => find.descendant(
-        of: strategyCard(cardKey),
-        matching: find.byIcon(Icons.check_circle),
-      );
+  Finder rowOf(String key) => find.byKey(ValueKey<String>(key));
 
-  Finder unselectedIconOf(String cardKey) => find.descendant(
-        of: strategyCard(cardKey),
-        matching: find.byIcon(Icons.radio_button_unchecked),
-      );
+  Slider sliderOf(WidgetTester tester) =>
+      tester.widget<Slider>(find.byKey(sliderKey));
 
   Switch switchOf(WidgetTester tester, String key) {
     return tester.widget<Switch>(find.byKey(ValueKey<String>(key)));
+  }
+
+  Future<void> dragSlider(WidgetTester tester, double dx) async {
+    await tester.drag(find.byKey(sliderKey), Offset(dx, 0));
+    await tester.pumpAndSettle();
+  }
+
+  void expectBudget(WidgetTester tester, int expected) {
+    expect(sliderOf(tester).value, expected.toDouble());
+    expect(
+      find.descendant(
+          of: find.byKey(badgeKey), matching: find.text('$expected')),
+      findsOneWidget,
+      reason: 'the badge must show the active budget',
+    );
+    expect(find.text('当前并行任务数：'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: rowOf('advanced-ocr-concurrency-card'),
+        matching: find.text('$expected'),
+      ),
+      findsWidgets,
+    );
   }
 
   testWidgets('presents the fixed import pipeline as a read-only flow',
@@ -119,34 +138,98 @@ void main() {
     expect(find.text('扫描版 PDF 或图片内容使用 OCR 识别。'), findsOneWidget);
   });
 
-  testWidgets('offers the three processing strategies with automatic selected',
+  testWidgets('offers the OCR task concurrency slider from 1 to 12',
       (tester) async {
     await pumpScreen(tester);
 
-    expect(find.text('处理策略'), findsOneWidget);
-    expect(find.text('自动（推荐）'), findsOneWidget);
-    expect(find.text('稳定优先'), findsOneWidget);
-    expect(find.text('速度优先'), findsOneWidget);
+    expect(find.text('OCR 并行任务数'), findsOneWidget);
+    expect(
+      find.text('同时处理的 OCR 任务越多，批量导入可能越快，但更容易触发服务限流或增加资源占用。'
+          '单个 PDF 内仍按串行方式处理。'),
+      findsOneWidget,
+    );
 
-    expect(selectedIconOf('advanced-strategy-automatic'), findsOneWidget);
-    expect(unselectedIconOf('advanced-strategy-stability'), findsOneWidget);
-    expect(unselectedIconOf('advanced-strategy-speed'), findsOneWidget);
+    final slider = sliderOf(tester);
+    expect(slider.min, 1);
+    expect(slider.max, 12);
+    expect(
+      slider.divisions,
+      11,
+      reason: 'every whole number in 1..12 must be reachable in one step',
+    );
+    expectBudget(tester, ImportAdvancedPreferences.defaultOcrTaskConcurrency);
   });
 
-  testWidgets('exception handling toggles default to on', (tester) async {
+  testWidgets('dragging to either end stays inside the 1..12 budget',
+      (tester) async {
+    await pumpScreen(tester);
+
+    await dragSlider(tester, -2000);
+    expectBudget(tester, ImportAdvancedPreferences.minOcrTaskConcurrency);
+
+    await dragSlider(tester, 2000);
+    expectBudget(tester, ImportAdvancedPreferences.maxOcrTaskConcurrency);
+  });
+
+  testWidgets('the value badge sits over the thumb it reports', (tester) async {
+    await pumpScreen(tester);
+
+    await dragSlider(tester, 150);
+    final value = sliderOf(tester).value;
+    expect(value, greaterThan(1));
+    expect(value, lessThan(12));
+
+    // Pressing exactly at the badge reports the same value only while the
+    // badge still covers the thumb.
+    await tester.tapAt(
+      Offset(
+        tester.getCenter(find.byKey(badgeKey)).dx,
+        tester.getCenter(find.byKey(sliderKey)).dy,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(sliderOf(tester).value, value);
+  });
+
+  testWidgets('planned exception handling rows stay inert', (tester) async {
     await pumpScreen(tester);
 
     expect(find.text('异常处理'), findsOneWidget);
     expect(find.text('自动重试'), findsOneWidget);
     expect(find.text('保留未识别内容'), findsOneWidget);
-    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isTrue);
-    expect(switchOf(tester, 'advanced-retain-unresolved-switch').value, isTrue);
+    expect(find.text('规划中'), findsNWidgets(2));
+    expect(find.text('即将推出'), findsNWidgets(2));
+
+    for (final key in const <String>[
+      'advanced-auto-retry-switch',
+      'advanced-retain-unresolved-switch',
+    ]) {
+      final row = rowOf(
+        key == 'advanced-auto-retry-switch'
+            ? 'advanced-auto-retry-row'
+            : 'advanced-retain-unresolved-row',
+      );
+      expect(row, findsOneWidget);
+      expect(
+        find.descendant(of: row, matching: find.byType(InkWell)),
+        findsNothing,
+        reason: 'a planned row must not look tappable',
+      );
+      final toggle = switchOf(tester, key);
+      expect(
+        toggle.onChanged,
+        isNull,
+        reason: 'an unimplemented capability must not be settable',
+      );
+      expect(toggle.value, isFalse);
+    }
   });
 
-  testWidgets('loads persisted preferences into the controls', (tester) async {
+  testWidgets('loads the persisted budget into the slider', (tester) async {
     final store = _FakePreferencesStore(
       const ImportAdvancedPreferences(
-        processingStrategy: ImportProcessingStrategy.stability,
+        ocrTaskConcurrency: 7,
         autoRetryEnabled: false,
         retainUnresolvedFragments: false,
       ),
@@ -154,61 +237,44 @@ void main() {
     await pumpScreen(tester, store: store);
 
     expect(store.loadCalls, 1);
-    expect(selectedIconOf('advanced-strategy-stability'), findsOneWidget);
-    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isFalse);
-    expect(
-      switchOf(tester, 'advanced-retain-unresolved-switch').value,
-      isFalse,
-    );
+    expectBudget(tester, 7);
   });
 
   testWidgets('edits stay local until the done action', (tester) async {
     final store = _FakePreferencesStore(const ImportAdvancedPreferences());
     await pumpScreen(tester, store: store);
 
-    await tester.tap(strategyCard('advanced-strategy-speed'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>(
-      'advanced-auto-retry-switch',
-    )));
-    await tester.pumpAndSettle();
+    await dragSlider(tester, 2000);
 
-    expect(selectedIconOf('advanced-strategy-speed'), findsOneWidget);
-    expect(unselectedIconOf('advanced-strategy-automatic'), findsOneWidget);
-    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isFalse);
+    expectBudget(tester, ImportAdvancedPreferences.maxOcrTaskConcurrency);
     expect(
       store.saveCalls,
       0,
-      reason: 'tapping a control must never persist by itself',
+      reason: 'moving the slider must never persist by itself',
     );
   });
 
   testWidgets('reset defaults restores the working copy without saving',
       (tester) async {
     final store = _FakePreferencesStore(
-      const ImportAdvancedPreferences(
-        processingStrategy: ImportProcessingStrategy.speed,
-        autoRetryEnabled: false,
-      ),
+      const ImportAdvancedPreferences(ocrTaskConcurrency: 9),
     );
     await pumpScreen(tester, store: store);
 
-    expect(selectedIconOf('advanced-strategy-speed'), findsOneWidget);
+    expectBudget(tester, 9);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('advanced-settings-reset-defaults')),
     );
     await tester.pumpAndSettle();
 
-    expect(selectedIconOf('advanced-strategy-automatic'), findsOneWidget);
-    expect(switchOf(tester, 'advanced-auto-retry-switch').value, isTrue);
-    expect(switchOf(tester, 'advanced-retain-unresolved-switch').value, isTrue);
+    expectBudget(tester, ImportAdvancedPreferences.defaultOcrTaskConcurrency);
     expect(
       store.saveCalls,
       0,
       reason: '恢复默认 must only reset the local working copy',
     );
-    expect(store.stored.processingStrategy, ImportProcessingStrategy.speed);
+    expect(store.stored.ocrTaskConcurrency, 9);
   });
 
   testWidgets('the done action persists the working copy and pops',
@@ -246,13 +312,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ImportAdvancedSettingsScreen), findsOneWidget);
 
-    await tester.tap(strategyCard('advanced-strategy-stability'));
-    await tester.pumpAndSettle();
-    final retainSwitch =
-        find.byKey(const ValueKey<String>('advanced-retain-unresolved-switch'));
-    await tester.ensureVisible(retainSwitch);
-    await tester.pumpAndSettle();
-    await tester.tap(retainSwitch);
+    await dragSlider(tester, -2000);
+    final slider = find.byKey(sliderKey);
+    await tester.ensureVisible(slider);
     await tester.pumpAndSettle();
 
     final done = find.byKey(const ValueKey<String>('advanced-settings-done'));
@@ -263,13 +325,7 @@ void main() {
 
     expect(find.byType(ImportAdvancedSettingsScreen), findsNothing);
     expect(store.saveCalls, 1);
-    expect(
-      store.stored,
-      const ImportAdvancedPreferences(
-        processingStrategy: ImportProcessingStrategy.stability,
-        retainUnresolvedFragments: false,
-      ),
-    );
+    expect(store.stored.ocrTaskConcurrency, 1);
   });
 
   testWidgets('read-only rows are not interactive', (tester) async {
@@ -331,7 +387,7 @@ void main() {
       );
 
       expect(find.text('流程说明'), findsOneWidget);
-      expect(find.text('处理策略'), findsOneWidget);
+      expect(find.text('OCR 并行任务数'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });
@@ -345,7 +401,7 @@ void main() {
     );
 
     expect(find.text('流程说明'), findsOneWidget);
-    expect(find.text('处理策略'), findsOneWidget);
+    expect(find.text('OCR 并行任务数'), findsOneWidget);
     expect(find.text('异常处理'), findsOneWidget);
     for (final step in flowSteps) {
       expect(find.text(step), findsOneWidget);
@@ -358,7 +414,7 @@ void main() {
       await pumpScreen(tester, size: size);
 
       expect(find.text('流程说明'), findsOneWidget);
-      expect(find.text('处理策略'), findsOneWidget);
+      expect(find.text('OCR 并行任务数'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });

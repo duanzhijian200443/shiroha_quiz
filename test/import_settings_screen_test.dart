@@ -475,14 +475,9 @@ void main() {
   });
 
   testWidgets(
-      'processing strategy preference resolves the OCR concurrency budget',
+      'the OCR task concurrency preference is recorded on the dispatched request',
       (tester) async {
-    final cases = <(ImportProcessingStrategy, int)>[
-      (ImportProcessingStrategy.stability, 1),
-      (ImportProcessingStrategy.automatic, 2),
-      (ImportProcessingStrategy.speed, 4),
-    ];
-    for (final (strategy, expectedConcurrency) in cases) {
+    for (final budget in <int>[1, 2, 9, 12]) {
       final requests = <ImportParseRequest>[];
       await pumpScreen(
         tester,
@@ -491,19 +486,20 @@ void main() {
             PlatformFile(name: 'paper.pdf', path: 'paper.pdf', size: 0),
           ]),
           requests: requests,
-          importPreferences:
-              ImportAdvancedPreferences(processingStrategy: strategy),
+          importPreferences: ImportAdvancedPreferences(
+            ocrTaskConcurrency: budget,
+          ),
         ),
       );
 
       await tester.tap(fileButton());
       await tester.pumpAndSettle();
 
-      expect(requests, hasLength(1), reason: '${strategy.name} must dispatch');
+      expect(requests, hasLength(1), reason: 'budget $budget must dispatch');
       expect(
         requests.single.maxConcurrency,
-        expectedConcurrency,
-        reason: '${strategy.name} must resolve its own concurrency budget',
+        budget,
+        reason: 'the slider budget must reach the dispatched task unchanged',
       );
     }
   });

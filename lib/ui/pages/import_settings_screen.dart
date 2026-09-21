@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../application/import/import_advanced_preferences.dart';
-import '../../application/import/import_processing_policy_resolver.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../theme/design_tokens.dart';
@@ -140,9 +139,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     final preferences = preferencesLoader != null
         ? await preferencesLoader()
         : await SettingsRepository.instance.getImportAdvancedPreferences();
-    return const ImportProcessingPolicyResolver()
-        .resolve(preferences.processingStrategy)
-        .effectiveOcrConcurrency;
+    return preferences.effectiveOcrTaskConcurrency;
   }
 
   Future<void> _pickAndParseFile() async {

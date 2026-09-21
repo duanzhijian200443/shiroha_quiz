@@ -30,7 +30,7 @@ import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
 import 'application/practice/subjective_answer_recognition.dart';
 import 'application/file_library/library_folder_service.dart';
-import 'application/import/import_processing_policy_resolver.dart';
+import 'application/import/import_advanced_preferences.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
 import 'application/safe_write/agent_write_proposal_service.dart';
@@ -453,7 +453,8 @@ void main() {
           engineRepository: engineRepository,
         );
         final ocrRequestScheduler = OcrRequestScheduler(
-          maxConcurrentRequests: OcrProviderSafeLimits.zhipuGlmOcr,
+          maxConcurrentRequests:
+              ImportAdvancedPreferences.maxOcrTaskConcurrency,
         );
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
@@ -470,9 +471,7 @@ void main() {
           ocrMaxConcurrencyResolver: () async {
             final preferences = await SettingsRepository.instance
                 .getImportAdvancedPreferences();
-            return const ImportProcessingPolicyResolver()
-                .resolve(preferences.processingStrategy)
-                .effectiveOcrConcurrency;
+            return preferences.effectiveOcrTaskConcurrency;
           },
           onReadyForReview: (sourceDescription) {
             rootScaffoldMessengerKey.currentState?.showSnackBar(

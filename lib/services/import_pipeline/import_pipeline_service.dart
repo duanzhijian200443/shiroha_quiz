@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
@@ -76,66 +75,6 @@ class _OcrFileImportOutcome {
   final bool ocrResultAvailable;
   final OcrTypedCandidateBatch? typedCandidateBatch;
   final ContentAssetCandidateLease? candidateAssetLease;
-}
-
-/// Runs [count] tasks with at most [concurrency] in flight and returns the
-/// results in index order. Once any task fails, no new work is scheduled;
-/// in-flight tasks drain, then the lowest-index error is rethrown, matching
-/// the first-failure semantics of the historical serial loop.
-Future<List<T>> _runBoundedTasks<T>(
-  int count,
-  int concurrency,
-  Future<T> Function(int index) task,
-) {
-  final results = List<T?>.filled(count, null);
-  final errors = List<Object?>.filled(count, null);
-  final stacks = List<StackTrace?>.filled(count, null);
-  final completer = Completer<List<T>>();
-  var nextIndex = 0;
-  var running = 0;
-  var settled = false;
-
-  bool hasError() => errors.any((error) => error != null);
-
-  void settle() {
-    if (settled) return;
-    settled = true;
-    for (var i = 0; i < count; i++) {
-      final error = errors[i];
-      if (error != null) {
-        completer.completeError(error, stacks[i]);
-        return;
-      }
-    }
-    completer.complete(List<T>.unmodifiable(results.cast<T>()));
-  }
-
-  void pump() {
-    if (settled) return;
-    while (!hasError() && nextIndex < count && running < concurrency) {
-      final index = nextIndex++;
-      running++;
-      task(index).then((value) {
-        results[index] = value;
-      }, onError: (Object error, StackTrace stack) {
-        errors[index] = error;
-        stacks[index] = stack;
-      }).whenComplete(() {
-        running--;
-        pump();
-      });
-    }
-    if (running == 0 && (nextIndex >= count || hasError())) {
-      settle();
-    }
-  }
-
-  if (count <= 0) {
-    completer.complete(<T>[]);
-  } else {
-    pump();
-  }
-  return completer.future;
 }
 
 class ImportPipelineService {
@@ -252,24 +191,10 @@ class ImportPipelineService {
     bool hasBlockedParse = false;
 
     try {
-      // The OCR branch is the only consumer of maxConcurrency: with a
-      // per-task budget above one, files run through a bounded executor and
-      // are merged back in file order; everything else stays sequential.
-      final boundedOcr =
-          request.mode == ImportParseMode.ocr && request.maxConcurrency > 1;
-      if (boundedOcr) {
-        await _parseOcrFilesBounded(
-          request,
-          fileResults: fileResults,
-          allWarnings: allWarnings,
-          allDiagnostics: allDiagnostics,
-          assignCandidateBatch: (batch) => ocrTypedCandidateBatch = batch,
-          ownedCandidateLeases: ownedCandidateLeases,
-        );
-      }
-      for (int fileIdx = 0;
-          !boundedOcr && fileIdx < request.filePaths.length;
-          fileIdx++) {
+      // Files inside one task are always parsed one after another: the OCR
+      // task concurrency budget is enforced one layer up, in the
+      // ImportTaskCoordinator batch, and never splits a single task's work.
+      for (int fileIdx = 0; fileIdx < request.filePaths.length; fileIdx++) {
         final filePath = request.filePaths[fileIdx];
         final format = ImportFileDetector.detect(filePath);
         List<Map<String, dynamic>> singleFileQuestions = [];
@@ -602,8 +527,7 @@ class ImportPipelineService {
   }
 
   /// Parses one file through the OCR route and captures every side effect in
-  /// an order-preserving outcome, so the serial loop and the bounded
-  /// concurrent path share identical per-file semantics.
+  /// an order-preserving outcome.
   Future<_OcrFileImportOutcome> _parseSingleOcrFile(
     ImportParseRequest request,
     int fileIdx,
@@ -687,9 +611,9 @@ class ImportPipelineService {
   }
 
   /// Applies one file's outcome to the shared accumulators. Called strictly
-  /// in file order by both OCR paths, which keeps question order, warning
-  /// order, diagnostics insertion order, and the last-file-wins candidate
-  /// batch identical to the historical serial loop.
+  /// in file order, which keeps question order, warning order, diagnostics
+  /// insertion order, and the last-file-wins candidate batch identical to the
+  /// historical serial loop.
   void _mergeOcrFileOutcome(
     _OcrFileImportOutcome outcome, {
     required List<List<Map<String, dynamic>>> fileResults,
@@ -709,54 +633,6 @@ class ImportPipelineService {
     allDiagnostics.addAll(outcome.diagnostics);
     if (outcome.questions.isNotEmpty) {
       fileResults.add(outcome.questions);
-    }
-  }
-
-  /// Runs OCR-mode files through a bounded executor capped by
-  /// [ImportParseRequest.maxConcurrency]. The global [OcrRequestScheduler]
-  /// remains the provider-safe ceiling; this per-task budget can only lower
-  /// the parallelism of one import, never oversell the provider.
-  Future<void> _parseOcrFilesBounded(
-    ImportParseRequest request, {
-    required List<List<Map<String, dynamic>>> fileResults,
-    required List<String> allWarnings,
-    required Map<String, dynamic> allDiagnostics,
-    required void Function(OcrTypedCandidateBatch?) assignCandidateBatch,
-    required List<ContentAssetCandidateLease> ownedCandidateLeases,
-  }) async {
-    final fileCount = request.filePaths.length;
-    var issuedProgress = 0.0;
-    final outcomes = await _runBoundedTasks(
-      fileCount,
-      request.maxConcurrency,
-      (fileIdx) async {
-        final format = ImportFileDetector.detect(request.filePaths[fileIdx]);
-        AppLogger.info(
-          'Import file processing started',
-          module: 'ImportPipeline',
-          data: <String, Object?>{'fileIndex': fileIdx, 'format': format.name},
-        );
-        final percent = 0.1 + (fileIdx / fileCount) * 0.7;
-        if (percent > issuedProgress) {
-          issuedProgress = percent;
-          await _updateTaskProgress(
-            request.taskId,
-            '正在解析第 ${fileIdx + 1}/$fileCount 个文件...',
-            percent,
-          );
-        }
-        return _parseSingleOcrFile(request, fileIdx);
-      },
-    );
-    for (final outcome in outcomes) {
-      _mergeOcrFileOutcome(
-        outcome,
-        fileResults: fileResults,
-        allWarnings: allWarnings,
-        allDiagnostics: allDiagnostics,
-        assignCandidateBatch: assignCandidateBatch,
-        ownedCandidateLeases: ownedCandidateLeases,
-      );
     }
   }
 
